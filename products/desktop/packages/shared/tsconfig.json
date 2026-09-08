@@ -8,6 +8,7 @@
     "allowJs": true,
     "types": ["node"],
     "moduleResolution": "bundler",
+    "resolveJsonModule": true,
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,

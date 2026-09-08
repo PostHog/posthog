@@ -136,6 +136,13 @@ class TestCheckProductAccess:
                 True,
                 None,
             ),
+            # The batch trace summarization pipeline lands on this gateway when AI_GATEWAY_URL
+            # is unset. Its model missing from this list turns that fallback into a 403 on every
+            # call, which silently starves the clusters feature of summaries.
+            ("llma_summarization", "personal_api_key", None, "gpt-5-nano", True, None),
+            ("llma_summarization", "personal_api_key", None, "gpt-5-mini", True, None),
+            ("llma_summarization", "personal_api_key", None, "gpt-4.1-nano", True, None),
+            ("llma_summarization", "personal_api_key", None, "gpt-4o", False, "not allowed"),
             # llma_translation allows API keys but only gpt-4.1-mini; OAuth rejected (no app IDs configured)
             ("llma_translation", "personal_api_key", None, "gpt-4.1-mini", True, None),
             ("llma_translation", "personal_api_key", None, "claude-3-opus", False, "not allowed"),
@@ -222,6 +229,7 @@ class TestCheckProductAccess:
             "gpt-5.3-codex",
             "gpt-5.2",
             "gpt-5-mini",
+            "gpt-6-astra",
             "deepseek-ai/deepseek-v4-flash-0731",
         ],
     )
@@ -379,12 +387,30 @@ class TestCheckProductAccess:
             "gpt-5-mini",
             "gpt-5.6-luna",
             "gpt-5.6-sol",
+            "gpt-6-astra",
         ],
     )
     def test_background_agents_allows_configured_models(self, model: str):
         allowed, error = check_product_access("background_agents", "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
         assert allowed is True
         assert error is None
+
+    @pytest.mark.parametrize(
+        "product",
+        [
+            "llma_labeling",
+            "product_analytics",
+            "stamphog",
+            "subscriptions",
+            "warehouse_custom_source_builder",
+            "warehouse_semantic_enrichment",
+        ],
+    )
+    def test_gpt_6_astra_does_not_bypass_pinned_product_models(self, product: str) -> None:
+        allowed, error = check_product_access(product, "personal_api_key", None, "gpt-6-astra")
+        assert allowed is False
+        assert error is not None
+        assert "not allowed" in error
 
     def test_background_agents_rejects_api_keys(self):
         allowed, error = check_product_access("background_agents", "personal_api_key", None, None)

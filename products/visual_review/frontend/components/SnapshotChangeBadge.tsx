@@ -2,7 +2,8 @@ import { IconWarning } from '@posthog/icons'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import type { ClusterSummaryApi } from '../generated/api.schemas'
+import type { ClusterSummaryApi, RowShiftApi } from '../generated/api.schemas'
+import { type ShiftDescription, describeShift } from '../lib/shiftCopy'
 
 // IconPulse is intentionally NOT used here. The "pulse" icon reads as
 // "average drift / activity over time" and only makes sense in the
@@ -42,6 +43,22 @@ type ChangeBadgeSnapshot = {
     // alongside the kind chip; doesn't replace it (a snapshot can have a
     // different viewport AND a real content change).
     size_mismatch?: boolean | null
+    // The vertical shift the diff pipeline measured. Present on absorbed
+    // snapshots too, which is the only signal those carry.
+    row_shift?: RowShiftApi | null
+}
+
+/**
+ * The shift chip a snapshot gets, or null. `layout` is a change somebody has
+ * to look at; an empty kind with a shift is one the classifier absorbed.
+ * Every other kind describes itself through its own chip.
+ */
+function shiftDescription(snapshot: ChangeBadgeSnapshot): ShiftDescription | null {
+    const kind = snapshot.change_kind || ''
+    if (kind !== '' && kind !== 'layout') {
+        return null
+    }
+    return describeShift(snapshot.row_shift, kind === '')
 }
 
 /**
@@ -53,6 +70,9 @@ type ChangeBadgeSnapshot = {
  */
 export function hasSnapshotChangeBadge(snapshot: ChangeBadgeSnapshot): boolean {
     if (snapshot.size_mismatch) {
+        return true
+    }
+    if (shiftDescription(snapshot)) {
         return true
     }
     const kind = snapshot.change_kind || ''
@@ -81,12 +101,17 @@ type ChangeBadgeProps = {
  * the label explains why it's flagged. Both tiers use the same metric
  * (pixel diff %) so the overview can average across them.
  *
+ * `layout` shows how many rows the page gained or lost. A snapshot with a
+ * row shift and no kind was absorbed as noise, and gets a neutral chip so
+ * the run still shows what moved.
+ *
  * Returns null when there's nothing to show (no diff, no size mismatch,
- * or pre-migration legacy row with no kind and no percentage).
+ * no shift, or pre-migration legacy row with no kind and no percentage).
  */
 export function SnapshotChangeBadge({ snapshot, size = 'default' }: ChangeBadgeProps): JSX.Element | null {
     const kind = snapshot.change_kind || ''
     const pct = snapshot.diff_percentage ?? null
+    const shift = shiftDescription(snapshot)
     const isCompact = size === 'small'
     // Smaller padding + non-pill corners on the filmstrip; the rounded-full
     // pill plus icon pair was too visually heavy stacked next to a thumbnail.
@@ -108,6 +133,20 @@ export function SnapshotChangeBadge({ snapshot, size = 'default' }: ChangeBadgeP
                 >
                     {hasPct && <span className="font-mono tabular-nums">{formatPct(pct)}</span>}
                     {isCompact ? 'Perceptible' : 'Perceptible change'}
+                </span>
+            </Tooltip>
+        )
+    } else if (shift) {
+        // Absorbed reads neutral: nothing there needs review, and the chip is
+        // only present so the run does not look like it saw nothing.
+        const toneClass =
+            shift.tone === 'warning' ? 'bg-warning-highlight/60 text-warning-dark' : 'bg-bg-3000 text-muted-alt'
+        kindChip = (
+            <Tooltip title={shift.tooltip}>
+                <span
+                    className={`shrink-0 inline-flex items-center font-medium leading-none ${toneClass} ${radiusClass} ${sizeClass}`}
+                >
+                    {isCompact ? shift.compactLabel : shift.label}
                 </span>
             </Tooltip>
         )
@@ -145,18 +184,23 @@ export function SnapshotChangeBadge({ snapshot, size = 'default' }: ChangeBadgeP
     // so two side-by-side chips don't crowd the thumbnail.
     const sizeChipTooltip =
         'Baseline and current screenshots had different dimensions. Pixelhog padded to the larger size before computing the diff, so metrics are still meaningful — they just include the new content area as part of the change.'
-    const sizeChip = snapshot.size_mismatch ? (
-        <Tooltip title={sizeChipTooltip}>
-            <span
-                className={`shrink-0 inline-flex items-center bg-warning-highlight font-medium text-warning-dark leading-none ${radiusClass} ${
-                    isCompact ? 'p-0.5' : `gap-1 ${sizeClass}`
-                }`}
-            >
-                <IconWarning className={iconClass} />
-                {!isCompact && 'Size changed'}
-            </span>
-        </Tooltip>
-    ) : null
+    // A shift already says the page changed height, and says it more
+    // precisely, so the size chip would only repeat it in warning colors.
+    // A shift also means the widths matched: pixelhog never aligns a pair
+    // whose widths differ, so a width change never comes with a shift.
+    const sizeChip =
+        snapshot.size_mismatch && !shift ? (
+            <Tooltip title={sizeChipTooltip}>
+                <span
+                    className={`shrink-0 inline-flex items-center bg-warning-highlight font-medium text-warning-dark leading-none ${radiusClass} ${
+                        isCompact ? 'p-0.5' : `gap-1 ${sizeClass}`
+                    }`}
+                >
+                    <IconWarning className={iconClass} />
+                    {!isCompact && 'Size changed'}
+                </span>
+            </Tooltip>
+        ) : null
 
     if (!kindChip && !sizeChip) {
         return null

@@ -120,4 +120,26 @@ describe('GatewayServersHome', () => {
         expect(connectServer).toHaveBeenCalledWith('server-id')
         expect(openServer).toHaveBeenCalledTimes(1)
     })
+
+    it('lets a user reconnect a healthy OAuth connection', () => {
+        render(
+            <GatewayServerCard
+                server={{
+                    ...gatewayServer(),
+                    auth_type: 'oauth',
+                    your_connection: {
+                        installation_id: 'installation-id',
+                        is_enabled: true,
+                        pending_oauth: false,
+                        needs_reauth: false,
+                        last_used_at: null,
+                    },
+                }}
+            />
+        )
+
+        fireEvent.click(screen.getByText('Reconnect'))
+
+        expect(reconnectServer).toHaveBeenCalledWith('installation-id')
+    })
 })

@@ -1,5 +1,5 @@
 import { FunnelLayout, ShownAsValue } from 'lib/constants'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 
 import {
     FunnelsQuery,

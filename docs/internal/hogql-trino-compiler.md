@@ -1,18 +1,38 @@
 # HogQL to Trino compilation
 
-The Trino backend compiles a resolved HogQL query into SQL and bound values. It does not connect to Trino or enable HogQL on an existing Query Editor connection.
+The Trino backend compiles a resolved HogQL query into SQL and bound values. The compiler itself does not connect to Trino. A separate adapter integration enables HogQL on Query Editor connections.
 
 ## Release boundary
 
-Call `prepare_and_print_ast(node, context, "trino")` explicitly to use the backend. Normal query routing and the raw-only Trino adapter remain unchanged. The compiler and lowering modules load only when a caller selects the Trino dialect.
+Call `prepare_and_print_ast(node, context, "trino")` explicitly for standalone compilation. Query Editor uses the same backend when a selected direct connection advertises the Trino dialect. The compiler and lowering modules load only when a caller selects the Trino dialect.
 
-The returned SQL uses named placeholders, with values stored in `context.values`. `convert_pyformat_placeholders` converts these into positional placeholders and values for a Trino client; calling this helper does not execute SQL.
+The returned SQL uses named placeholders, with values stored in `context.values`. The direct Trino adapter converts them into positional placeholders and submits the ordered values to the Trino client.
 
-The existing preparation path still owns schema construction, access checks, saved-query expansion, lazy-table resolution, and resolver passes. It then passes the prepared AST and snapshots of bindings, table locators, modifiers, limits, timezone, and week start in a frozen input to the final Trino transpiler. The final transpiler clones the AST and creates a fresh print context without a team, user, or schema database before final lowering, validation, and printing.
+The final Trino transpiler accepts a prepared AST plus frozen snapshots of bindings, table locators, modifiers, limits, timezone, and week start. It clones the AST and creates a fresh print context without a team, user, or schema database before final lowering, validation, and printing.
 
-This boundary does not add a restricted manifest-backed entry point. Callers still use the Django-backed preparation path described below.
+`transpile_hogql_to_trino(...)` is the restricted, manifest-backed front end. Its immutable manifest allowlists logical tables, physical Trino locators, and warehouse column types. `events` and `persons` use fixed built-in schemas. The function resolves and prints with no team, user, Django model, saved query, or lazy database callback, and its tests assert that it executes zero Django queries.
 
-Query Editor capability changes, case-insensitive connection lookup, and parameter submission belong to separate integration changes. They are not prerequisites for compilation.
+Use `prepare_trino_catalog(...)` when several queries share one manifest. Preparation validates the manifest and builds its schema database and physical locator map once. Each `PreparedTrinoCatalog.transpile(...)` call creates a new AST, context, modifiers, and bound-value map, so query state does not cross compilation boundaries.
+
+```python
+catalog = prepare_trino_catalog(manifest)
+first = catalog.transpile("SELECT event FROM events WHERE event = {event}", values={"event": "signup"})
+second = catalog.transpile("SELECT count() FROM events")
+```
+
+`transpile_hogql_to_trino(...)` remains the one-shot wrapper and prepares a catalog for that call. The manifest contract has no version field, so the compiler does not keep a process-global prepared-catalog cache. Callers must create a new prepared catalog when their immutable manifest snapshot changes.
+
+Pure transpilation accepts caller-supplied constant values. It rejects unresolved placeholders, action and cohort references, tables absent from the manifest, non-leaf warehouse column types, and invalid or incomplete manifest entries. Callers needing Django-backed semantics must select the explicit expansion mode described below.
+
+## Query Editor connection integration
+
+The connection integration advertises `TrinoAdapter.dialect = "trino"`. Selecting a Trino connection for a HogQL query calls the same pure transpiler as managed compilation, handing it the connection-scoped database directly. It does not enable Django semantic expansion. Catalog introspection through `system.information_schema` keeps running on the ClickHouse path. Editor validation prints with the same dialect and rejects the same unsupported features, so a query that validates also compiles.
+
+Table and field lookup follow Trino's case-insensitive identifier rules for discovered tables and columns, including table-qualified column references; explicit aliases keep their written case. Printed relations use the connection's catalog, schema, and physical table name. Tables outside the selected connection are absent from the connection-scoped database. Actions, cohorts, saved queries, content-carrying query filters, variables, and Django-only modifiers receive the pure compiler's existing unsupported-feature errors; a content-free filters object and modifiers carried as explicit nulls pass through.
+
+The adapter converts compiler placeholders into positional parameters and never concatenates values into SQL itself. The Trino client submits them through its prepared-statement emulation, which escapes each value into the `EXECUTE` statement text, so values still appear in Trino's query log and UI. Raw SQL requests without bound values still pass through unchanged. Existing source configuration validation, raw read-only checks, timeouts, and row caps remain in place.
+
+The integration does not provision catalogs, alter deployments, or make source-only ClickHouse tables available in Trino.
 
 ## Managed Trino connections
 
@@ -23,6 +43,12 @@ Call `connect_managed_warehouse_trino(...)` to open the Python Trino client with
 The Django `DuckgresServer` row remains the transitional owner of the existing root secret; it does not become the source of truth for Trino placement. Trino cell assignment, endpoint identity, and catalog naming stay in the control plane. No second Django model or copied control-plane status is required.
 
 For supported string, array, and map arguments, `empty(x)` returns true when the value is NULL or has zero length. `notEmpty(x)` requires a non-NULL value with nonzero length. String predicates use an empty-string comparison; arrays and maps use `cardinality`.
+
+`LIMIT BY` and `QUALIFY` wrappers preserve ordering by projecting unselected sort expressions inside the wrapper and removing those helper columns from the result. The inner query gives projected expressions explicit output aliases, including property accesses, so the outer query can reference them by name. Helper names avoid existing aliases, and matching uses resolved column bindings so joined columns with the same name remain distinct. Expression matching also distinguishes literal types, including `1`, `true`, and `1.0`. `DISTINCT` and `GROUP BY` wrappers still reject unprojected sort expressions. Unprojected aggregate sort expressions are also rejected; callers must select them explicitly. `LIMIT BY` rejects partition or sort expressions containing window functions, including aliases and ordinals resolving to them, because its ranking would otherwise nest window functions.
+
+For ordinary `GROUP BY`, an expression that matches a selected expression uses that output's ordinal. This keeps property paths, date conversions, and other bound expressions identical for Trino's grouping checks. An alias for an integer constant uses the selected expression's position; the constant's value does not become an ordinal. Explicit source ordinals remain unchanged. Alias references inside larger expressions expand to their expressions, not ordinals. Complex grouping modes retain their expressions. These rewrites apply to both pure and Django-expanded compilation.
+
+A top-level `ORDER BY` reference to a selected alias also uses that output's ordinal. This avoids repeating bound parameters from the selected expression and keeps grouped queries valid. Ordering direction and explicit source ordinals remain unchanged; aliases inside larger sort expressions still expand normally.
 
 ## Why some shared integration is necessary
 
@@ -45,17 +71,28 @@ Trino table rendering stays in Trino-specific modules. Neither the built-in numb
 
 After deployment, Django shell can call the same compilation API. Construct the context with the intended team, user, effective modifiers, and `Database.create_for(...)`, then supply explicit Trino locators. No new HTTP endpoint or scheduled job is required.
 
-For managed DuckLake data, call `compile_hogql_to_trino_sql(...)` through the managed-warehouse client facade. This explicit entry point reads the organization's ready Trino catalog from the control plane and combines it with the project's authoritative team row. It maps:
+For managed DuckLake data, call `compile_hogql_to_trino_sql(...)` through the managed-warehouse client facade. This explicit entry point reads the organization's ready Trino catalog from the control plane and combines it with the project's authoritative team row. Pure manifest-backed compilation is the default. It maps `events` and `persons` to the project's provisioned tables in the `posthog` schema, and accepts additional allowlisted warehouse relations through `catalog_manifest`.
+
+Batch and session callers should use `prepare_hogql_to_trino_compiler(...)` through the same facade. Preparation resolves and validates the ready catalog and project mapping once, then builds the pure manifest catalog. The returned compiler is bound to that organization, project, and catalog and accepts only a `HogQLQuery` per compilation. Additional manifest relations keep their explicitly allowlisted physical locators; Trino authorizes catalog access when the query executes.
+
+```python
+compiler = prepare_hogql_to_trino_compiler(team_id, team=team, catalog_manifest=manifest)
+queries = [compiler.compile(query) for query in batch]
+```
+
+Create a new compiler when the batch needs fresh control-plane placement or team-table mappings. The one-shot `compile_hogql_to_trino_sql(...)` API prepares and compiles in one call. Django expansion stays one-shot because its schema and semantic expansion depend on query-specific team and user state.
+
+Pass `expansion_mode=TrinoExpansionMode.DJANGO` when a query requires actions, cohorts, saved queries, filters, variables, access-controlled warehouse discovery, or other Django-backed semantic expansion. This compatibility mode builds the full database and maps:
 
 - `events` and `persons` to the project's provisioned tables in the `posthog` schema;
 - materialized saved queries to their `posthog_data_modeling_team_<team_id>` DuckLake copies;
 - copied warehouse sources to their provisioned data-import schema and table names.
 
-The compiler returns Trino SQL and parameter values by default. Pass `include_hogql=True` to include a normalized HogQL diagnostic; this optional rendering reuses the compilation database.
+The compiler returns Trino SQL and parameter values by default. Pass `include_hogql=True` to include a normalized HogQL diagnostic. Compilation mode is a trusted function argument; serialized `HogQLQuery` input cannot enable Django expansion.
 
 The control-plane read accepts both `trino_catalog_name` and the earlier `catalog` field during a rolling deployment. A disabled or non-ready Trino target, an organization mismatch, a missing team row, or an unmapped relation fails compilation before SQL submission. The helper only compiles; deploying it does not change query routing or execute Trino SQL.
 
-Trino compilation currently requires `personsOnEventsMode=person_id_override_properties_on_events`. The compiler rejects unset, disabled, V1, and joined modes before semantic lowering so it cannot silently apply V2 person attribution to a query that requested different behavior.
+Trino compilation currently requires `personsOnEventsMode=person_id_override_properties_on_events`. Pure mode uses that fixed export contract when the modifier is absent and rejects any explicitly incompatible mode. Django mode resolves the effective team modifier and rejects unset, disabled, V1, and joined modes before semantic lowering.
 
 Trino compilation fails when the caller has any effective property-level access restrictions. This applies to the entire query, including queries that do not reference a restricted property directly. The compiler must not return SQL until Trino supports equivalent masking for explicit property reads, whole property blobs, and wildcard projections.
 
@@ -64,6 +101,18 @@ The provisioned persons relation stores one row per distinct ID and can retain p
 Source metadata describes what HogQL means. Target mappings describe where the corresponding Trino data exists. Missing mappings and unsupported constructs fail compilation; the compiler must not invent physical relations or assume a ClickHouse materialized view exists in Trino.
 
 `test_trino_semantics.py` exercises action expansion, cohort expansion, V2 person attribution, and unsupported-mode rejection through the compilation API without using the execution adapter. A batch export script is a separate operational tool, not part of this release.
+
+## Managed warehouse bulk translation
+
+`managed-warehouse.translate-views` is the tracked bulk consumer of the managed-warehouse compiler facade. It calls `compile_hogql_to_trino_sql(...)` with `expansion_mode=TrinoExpansionMode.DJANGO` and `include_hogql=True`, because views reference saved queries and warehouse relations that pure manifest-backed compilation rejects. A `ManagedWarehouseViewTranslationJob` identifies the organization, trigger, Temporal run, aggregate counts, and terminal status. Its team-scoped `ManagedWarehouseViewTranslationResult` rows identify the saved-query snapshot and store either compiled SQL or an error.
+
+Creating a job through Django admin starts the Temporal workflow after the database transaction commits. Provisioning does not create or start these jobs. A job can snapshot every eligible view in the organization or an explicit set of saved-query UUIDs. The workflow validates selected views against the organization and its control-plane-enabled teams, then compiles each represented team independently on the DuckLake task queue.
+
+Compilation is best effort per view. Unsupported HogQL records a failed result and processing continues. A definition changed after the snapshot records a stale result. The workflow stores generated SQL and named values directly from activities so large SQL strings do not cross the Temporal workflow payload boundary. It never executes the SQL, creates Trino relations, or updates `DataWarehouseSavedQuery.query`.
+
+The result admin can retry selected failed or stale rows. A retry creates a new selected-view job linked to the source job, preserving the original job and results as an immutable audit record.
+
+The data modeling shadow path uses these results as an eligibility gate. It requires a ready Trino target and a non-empty compiled result whose source hash matches the saved query's current definition.
 
 ## Validation
 

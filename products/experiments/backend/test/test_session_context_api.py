@@ -8,6 +8,7 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
 from rest_framework import status
 
 import posthog.hogql.query as hogql_query_module
@@ -41,6 +42,13 @@ from ee.api.test.base import APILicensedTest
 RECORDING_START = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
 RECORDING_END = datetime(2026, 1, 1, 10, 30, 0, tzinfo=UTC)
 SESSION_ID = str(uuid7(unix_ms_time=int(RECORDING_START.timestamp() * 1000)))
+# A run window that opens well before the recording, so the whole session sits inside it.
+EXPERIMENT_START = datetime(2025, 12, 1, tzinfo=UTC)
+# A moment inside the recording at which an experiment starts or stops, with a timestamp on
+# either side of it, so run-window clipping can be exercised against evidence from both sides.
+RUN_BOUNDARY = datetime(2026, 1, 1, 10, 5, 0, tzinfo=UTC)
+BEFORE_BOUNDARY = "2026-01-01T10:02:00Z"
+AFTER_BOUNDARY = "2026-01-01T10:10:00Z"
 # A second recording on a different day, so batch tests exercise the per-day chunking path.
 DAY_TWO_RECORDING_START = datetime(2025, 12, 31, 10, 0, 0, tzinfo=UTC)
 DAY_TWO_RECORDING_END = datetime(2025, 12, 31, 10, 30, 0, tzinfo=UTC)
@@ -77,7 +85,7 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         key: str = "checkout-cta",
         name: str = "Checkout CTA copy",
         team: Optional[Team] = None,
-        start_date: datetime = datetime(2025, 12, 1, tzinfo=UTC),
+        start_date: datetime = EXPERIMENT_START,
         end_date: Optional[datetime] = None,
         created_by: Optional[User] = None,
         exposure_criteria: Optional[dict[str, Any]] = None,
@@ -141,6 +149,19 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
             {"session_ids": session_ids},
             format="json",
         )
+
+    def _create_variant_evidence(self, evidence: str, variant: str, timestamp: str) -> None:
+        if evidence == "flag_call":
+            self._create_session_event(
+                timestamp=timestamp,
+                properties={"$feature_flag": "checkout-cta", "$feature_flag_response": variant},
+            )
+        else:
+            self._create_session_event(
+                event="$pageview",
+                timestamp=timestamp,
+                properties={"$feature/checkout-cta": variant},
+            )
 
     def _create_day_two_recording_with_exposure(self, variant: str = "control") -> None:
         produce_replay_summary(
@@ -264,6 +285,108 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         assert sorted(results[0]["variants_seen"]) == ["control", "test"]
         assert results[0]["multiple_variants"] is True
         assert results[0]["first_exposure_timestamp"] == "2026-01-01T10:02:11Z"
+
+    @parameterized.expand(
+        [
+            ("stopped_flag_call", EXPERIMENT_START, RUN_BOUNDARY, BEFORE_BOUNDARY, AFTER_BOUNDARY, "flag_call"),
+            ("launched_flag_call", RUN_BOUNDARY, None, AFTER_BOUNDARY, BEFORE_BOUNDARY, "flag_call"),
+            ("stopped_stamped", EXPERIMENT_START, RUN_BOUNDARY, BEFORE_BOUNDARY, AFTER_BOUNDARY, "stamped"),
+            ("launched_stamped", RUN_BOUNDARY, None, AFTER_BOUNDARY, BEFORE_BOUNDARY, "stamped"),
+        ]
+    )
+    def test_variant_evidence_outside_the_run_window_is_ignored(
+        self,
+        _name: str,
+        start_date: datetime,
+        end_date: Optional[datetime],
+        in_window_timestamp: str,
+        out_of_window_timestamp: str,
+        evidence: str,
+    ) -> None:
+        # A session open across the moment an experiment starts or stops sees the flag serve one
+        # variant while it runs and another outside it. Only the first is a variant the session
+        # saw; counting both would show a false "multiple variants" warning on a session with no
+        # bucketing anomaly at all.
+        self._create_recording()
+        self._create_experiment(start_date=start_date, end_date=end_date)
+        self._create_variant_evidence(evidence, "test", in_window_timestamp)
+        self._create_variant_evidence(evidence, "control", out_of_window_timestamp)
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["variant"] == "test"
+        assert results[0]["variants_seen"] == ["test"]
+        assert results[0]["multiple_variants"] is False
+
+    def test_experiment_with_only_out_of_window_evidence_is_absent(self) -> None:
+        # The experiment stops inside the recording and every piece of evidence comes after the
+        # stop. The session saw nothing of the experiment while it ran, so the experiment must
+        # not appear at all: a control-only row here would be the same false report with one
+        # variant instead of two.
+        self._create_recording()
+        self._create_experiment(start_date=EXPERIMENT_START, end_date=RUN_BOUNDARY)
+        self._create_variant_evidence("flag_call", "control", AFTER_BOUNDARY)
+        self._create_variant_evidence("stamped", "control", AFTER_BOUNDARY)
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == []
+
+    def test_variant_evaluated_before_and_during_the_run_still_surfaces(self) -> None:
+        # `test` is served on both sides of the launch. The evaluations query returns one row per
+        # (session, flag, variant) carrying its earliest timestamp, so that row reads as
+        # pre-launch: clipping the rows after the query would erase a variant the session really
+        # saw while the experiment ran, and turn a genuine two-variant session into a one-variant
+        # one.
+        self._create_recording()
+        self._create_experiment(start_date=RUN_BOUNDARY)
+        self._create_variant_evidence("flag_call", "test", BEFORE_BOUNDARY)
+        self._create_variant_evidence("flag_call", "test", AFTER_BOUNDARY)
+        self._create_variant_evidence("flag_call", "control", "2026-01-01T10:12:00Z")
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["variants_seen"] == ["control", "test"]
+        assert results[0]["multiple_variants"] is True
+        assert results[0]["variant"] == "test"
+        assert results[0]["first_exposure_timestamp"] == AFTER_BOUNDARY
+
+    def test_custom_exposure_event_before_launch_does_not_define_the_moment(self) -> None:
+        # The per-experiment exposure branch is clipped to the run window too, so the exposure
+        # moment is the first one the experiment could have counted, not an identical event the
+        # session fired before the experiment launched.
+        self._create_recording()
+        self._create_experiment(
+            start_date=RUN_BOUNDARY,
+            exposure_criteria={
+                "exposure_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "checkout started",
+                    "properties": [],
+                }
+            },
+        )
+        for timestamp in (BEFORE_BOUNDARY, AFTER_BOUNDARY):
+            self._create_session_event(
+                event="checkout started",
+                timestamp=timestamp,
+                properties={"$feature/checkout-cta": "test"},
+            )
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["variants_seen"] == ["test"]
+        assert results[0]["first_exposure_timestamp"] == AFTER_BOUNDARY
 
     def test_custom_exposure_event_defines_exposure_timestamp(self) -> None:
         self._create_recording()
@@ -484,6 +607,62 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         assert by_id[default_experiment.id]["first_exposure_timestamp"] == "2026-01-01T10:02:11Z"
         assert by_id[custom_experiment.id]["first_exposure_timestamp"] == "2026-01-01T10:05:00Z"
         assert all(result["variant"] == "test" for result in results)
+
+    def test_experiments_sharing_a_flag_clip_to_their_own_run_windows(self) -> None:
+        # Two experiments reuse one flag back to back, and the recording spans the handover.
+        # Each experiment must read only the evaluations from its own run: sharing the other
+        # run's evidence shows a false "multiple variants" warning on both, and gives the
+        # second experiment an exposure moment from before it launched.
+        self._create_recording()
+        first = self._create_experiment(name="First run", start_date=EXPERIMENT_START, end_date=RUN_BOUNDARY)
+        second = Experiment.objects.create(
+            team=self.team,
+            name="Second run",
+            feature_flag=first.feature_flag,
+            created_by=self.user,
+            start_date=RUN_BOUNDARY,
+        )
+        self._create_variant_evidence("flag_call", "test", BEFORE_BOUNDARY)
+        self._create_variant_evidence("flag_call", "control", AFTER_BOUNDARY)
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        by_id = {result["experiment_id"]: result for result in response.json()["results"]}
+        assert set(by_id) == {first.id, second.id}
+        assert by_id[first.id]["variants_seen"] == ["test"]
+        assert by_id[first.id]["multiple_variants"] is False
+        assert by_id[first.id]["first_exposure_timestamp"] == BEFORE_BOUNDARY
+        assert by_id[second.id]["variants_seen"] == ["control"]
+        assert by_id[second.id]["multiple_variants"] is False
+        assert by_id[second.id]["first_exposure_timestamp"] == AFTER_BOUNDARY
+
+    def test_distinct_scan_windows_are_capped_newest_first(self) -> None:
+        # Each distinct clipped window widens the evaluation and stamped queries, and the
+        # experiment set feeding them is uncapped, so the window count itself must be bounded.
+        # Past the cap the newest experiment keeps its window and the older one reads nothing,
+        # the same degradation as the candidate cap.
+        self._create_recording()
+        self._create_experiment(key="old-exp", name="Old experiment", start_date=EXPERIMENT_START)
+        newer = self._create_experiment(key="new-exp", name="New experiment", start_date=RUN_BOUNDARY)
+        self._create_session_event(
+            timestamp=BEFORE_BOUNDARY,
+            properties={"$feature_flag": "old-exp", "$feature_flag_response": "test"},
+        )
+        self._create_session_event(
+            timestamp=AFTER_BOUNDARY,
+            properties={"$feature_flag": "new-exp", "$feature_flag_response": "test"},
+        )
+        flush_persons_and_events()
+
+        with patch("products.experiments.backend.session_context.MAX_DISTINCT_SCAN_WINDOWS", 1):
+            response = self._get_session_context()
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert [result["experiment_id"] for result in results] == [newer.id]
+        assert results[0]["variants_seen"] == ["test"]
+        assert results[0]["first_exposure_timestamp"] == AFTER_BOUNDARY
 
     def test_multiple_custom_criteria_experiments_resolve_in_one_request(self) -> None:
         self._create_recording()
@@ -1252,6 +1431,58 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         by_id = {entry["session_id"]: entry["results"] for entry in response.json()["results"]}
         assert [result["flag_key"] for result in by_id[SESSION_ID]] == ["new-exp"]
         assert [result["flag_key"] for result in by_id[DAY_TWO_SESSION_ID]] == ["old-exp"]
+
+    def test_branch_slots_go_to_experiments_that_ran_in_the_chunk(self) -> None:
+        # Both experiments need a branch slot for their custom exposure event. The newer one
+        # never ran during the day-two chunk, so with one slot it must not displace the older
+        # one whose exposure event really fired there: the displaced experiment would lose its
+        # exposure moment (stamped evidence still surfaces its variant).
+        custom_criteria = {
+            "exposure_config": {
+                "kind": "ExperimentEventExposureConfig",
+                "event": "checkout started",
+                "properties": [],
+            }
+        }
+        self._create_experiment(
+            key="old-exp",
+            name="Old experiment",
+            start_date=datetime(2025, 12, 1, tzinfo=UTC),
+            end_date=datetime(2025, 12, 31, 23, 0, tzinfo=UTC),
+            exposure_criteria=custom_criteria,
+        )
+        self._create_experiment(
+            key="new-exp",
+            name="New experiment",
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            exposure_criteria=custom_criteria,
+        )
+        self._create_recording()
+        self._create_session_event(event="checkout started", properties={"$feature/new-exp": "test"})
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=DAY_TWO_SESSION_ID,
+            distinct_id="user1",
+            first_timestamp=DAY_TWO_RECORDING_START,
+            last_timestamp=DAY_TWO_RECORDING_END,
+        )
+        self._create_session_event(
+            event="checkout started",
+            timestamp="2025-12-31T10:03:00Z",
+            properties={"$feature/old-exp": "control"},
+            session_id=DAY_TWO_SESSION_ID,
+        )
+        flush_persons_and_events()
+
+        with patch("products.experiments.backend.session_context.MAX_CANDIDATE_EXPERIMENTS", 1):
+            response = self._post_session_contexts([SESSION_ID, DAY_TWO_SESSION_ID])
+
+        assert response.status_code == status.HTTP_200_OK
+        by_id = {entry["session_id"]: entry["results"] for entry in response.json()["results"]}
+        assert [result["flag_key"] for result in by_id[SESSION_ID]] == ["new-exp"]
+        assert by_id[SESSION_ID][0]["first_exposure_timestamp"] == "2026-01-01T10:02:11Z"
+        assert [result["flag_key"] for result in by_id[DAY_TWO_SESSION_ID]] == ["old-exp"]
+        assert by_id[DAY_TWO_SESSION_ID][0]["first_exposure_timestamp"] == "2025-12-31T10:03:00Z"
 
     def test_batch_caps_distinct_recording_days(self) -> None:
         # Ids scattered across many days would fan one throttled HTTP request out into a scan

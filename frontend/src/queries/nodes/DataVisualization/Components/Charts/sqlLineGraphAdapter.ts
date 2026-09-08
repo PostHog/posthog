@@ -1,5 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import {
+    MAX_CATEGORY_LABEL_WIDTH,
     type AxisLinesConfig,
     type ChartLegendConfig,
     type Series,
@@ -472,6 +473,7 @@ export function buildBarChartConfig({
 
     return {
         xAxis: buildXAxisConfig(xData, chartSettings, timezone, SQL_BAR_TICK_LABEL_ROTATION),
+        maxCategoryLabelWidth: MAX_CATEGORY_LABEL_WIDTH,
         yAxis:
             rightSeries.length > 0
                 ? [

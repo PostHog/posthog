@@ -27,6 +27,7 @@ import { useRenameTask } from "../../tasks/useTaskMutations";
 import { useWorkspace } from "../../workspace/useWorkspace";
 import { useWorkspaceEvents } from "../../workspace/useWorkspaceEvents";
 import { HeaderTitleEditor } from "../HeaderTitleEditor";
+import { useMarkTaskViewed } from "../hooks/useMarkTaskViewed";
 import { useTaskData } from "../hooks/useTaskData";
 import { CustomImageBadge } from "./CustomImageBadge";
 import { TaskHeaderMark, TaskHeaderMarks } from "./TaskHeaderStatus";
@@ -53,6 +54,7 @@ export function TaskDetail({
 }: TaskDetailProps) {
   const taskId = initialTask.id;
   const { task } = useTaskData({ taskId, initialTask });
+  useMarkTaskViewed(taskId);
 
   const effectiveRepoPath = useCwd(taskId);
 

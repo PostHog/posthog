@@ -1,11 +1,14 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from decimal import Decimal
+from threading import Barrier
 
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
     ClickhouseTestMixin,
+    NonAtomicBaseTest,
     _create_person,
     get_index_from_explain,
     get_inner_person_subquery_clickhouse_sql,
@@ -14,7 +17,8 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
-from django.db import transaction
+from django.db import close_old_connections, connection, transaction
+from django.db.utils import IntegrityError
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -36,7 +40,15 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role
 from products.conversations.backend.api.ticket_filters import query_params_to_view_filters
 from products.conversations.backend.api.tickets import ComposeTicketSerializer, TicketReplyRequestSerializer
-from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, TicketAssignment, TicketView
+from products.conversations.backend.models import (
+    EmailChannel,
+    EmailChannelKind,
+    EmailMessageMapping,
+    EmailOutboxMessage,
+    Ticket,
+    TicketAssignment,
+    TicketView,
+)
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import PERSON_EMAIL_LOOKUP_QUERY, _get_persons_by_email
 from products.conversations.backend.reply_dedupe import REPLY_IN_PROGRESS_ERROR_TYPE, ReplyFingerprint, reserve
@@ -1030,6 +1042,106 @@ class TestBulkUpdateStatus(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
+class TestBulkUpdateTicketTags(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.tickets = [
+            Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.WIDGET,
+                widget_session_id=f"sess-{i}",
+                distinct_id=f"user-{i}",
+                status=Status.NEW,
+            )
+            for i in range(3)
+        ]
+
+    def _bulk_url(self) -> str:
+        return f"/api/projects/{self.team.id}/conversations/tickets/bulk_update_tags/"
+
+    def _ticket_tags(self, ticket: Ticket) -> set[str]:
+        return set(ticket.tagged_items.values_list("tag__name", flat=True))
+
+    def test_bulk_add_tags_with_uuid_ids(self):
+        ids = [str(t.id) for t in self.tickets]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "action": "add", "tags": ["billing", "urgent"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual({row["id"] for row in data["updated"]}, set(ids))
+        self.assertEqual(data["skipped"], [])
+        for ticket in self.tickets:
+            self.assertEqual(self._ticket_tags(ticket), {"billing", "urgent"})
+
+    def test_other_team_ids_reported_not_found(self):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = self.create_team_with_organization(organization=other_org)
+        other_ticket = Ticket.objects.create_with_number(
+            team=other_team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="other-sess",
+            distinct_id="other-user",
+            status=Status.NEW,
+        )
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": [str(self.tickets[0].id), str(other_ticket.id)], "action": "add", "tags": ["urgent"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual([row["id"] for row in data["updated"]], [str(self.tickets[0].id)])
+        self.assertEqual(data["skipped"], [{"id": str(other_ticket.id), "reason": "Not found"}])
+        self.assertEqual(self._ticket_tags(other_ticket), set())
+
+    def test_denied_ticket_skipped_with_permission_denied(self):
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+        AccessControl.objects.create(
+            resource="ticket",
+            resource_id=str(self.tickets[0].id),
+            organization_member=self.user.organization_memberships.get(organization=self.organization),
+            team=self.team,
+            access_level="none",
+        )
+        ids = [str(t.id) for t in self.tickets]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "action": "add", "tags": ["urgent"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["skipped"], [{"id": str(self.tickets[0].id), "reason": "Permission denied"}])
+        self.assertEqual({row["id"] for row in data["updated"]}, {str(t.id) for t in self.tickets[1:]})
+        self.assertEqual(self._ticket_tags(self.tickets[0]), set())
+
+    def test_bulk_tags_mirror_activity_onto_ticket_timeline(self):
+        # Ticket-scope entries come from the TaggedItem mirror (RELATED_OBJECT_ACTIVITY_LOGGERS),
+        # so the bulk path must keep flowing through signal-firing TaggedItem writes — and exactly
+        # one entry per ticket per tag guards against the bulk endpoint double-logging.
+        ids = [str(t.id) for t in self.tickets[:2]]
+        self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "action": "add", "tags": ["urgent"]},
+            format="json",
+        )
+        logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Ticket", activity="updated")
+        self.assertEqual(logs.count(), 2)
+        self.assertEqual({log.item_id for log in logs}, set(ids))
+        for log in logs:
+            ticket = next(t for t in self.tickets if str(t.id) == log.item_id)
+            assert log.detail is not None
+            self.assertEqual(log.detail["name"], f"Ticket #{ticket.ticket_number}")
+            [change] = log.detail["changes"]
+            self.assertEqual(change["field"], "tag")
+            self.assertEqual(change["action"], "created")
+            self.assertEqual(change["after"], "urgent")
+
+
 class TestTicketAssignment(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -1548,6 +1660,63 @@ class TestTicketManager(BaseTest):
 
         self.assertEqual(ticket1.ticket_number, 1)
         self.assertEqual(ticket2.ticket_number, 2)
+
+    def test_unrelated_integrity_error_propagates(self):
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.GITHUB,
+            widget_session_id="",
+            distinct_id="github:octocat",
+            github_repo="org/repo",
+            github_issue_number=42,
+        )
+        with self.assertRaises(IntegrityError):
+            Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.GITHUB,
+                widget_session_id="",
+                distinct_id="github:octocat",
+                github_repo="org/repo",
+                github_issue_number=42,
+            )
+        remaining = Ticket.objects.get(team=self.team)
+        self.assertEqual(remaining.ticket_number, 1)
+        self.assertEqual(remaining.github_issue_number, 42)
+
+
+class TestTicketNumberAllocationConcurrency(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @patch("products.conversations.backend.signals.capture_ticket_created")
+    def test_concurrent_creates_get_unique_sequential_numbers(self, _mock_capture):
+        worker_count = 4
+        team_id = self.team.id
+        start_barrier = Barrier(worker_count)
+
+        def create_one(index: int) -> int:
+            close_old_connections()
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SET lock_timeout = '10s'")
+                    cursor.execute("SET statement_timeout = '15s'")
+                team = Team.objects.get(id=team_id)
+                start_barrier.wait(timeout=5)
+                ticket = Ticket.objects.create_with_number(
+                    team=team,
+                    channel_source=Channel.WIDGET,
+                    widget_session_id=f"session-{index}",
+                    distinct_id=f"user-{index}",
+                )
+                return ticket.ticket_number
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = [executor.submit(create_one, i) for i in range(worker_count)]
+            numbers = [future.result(timeout=20) for future in futures]
+
+        self.assertEqual(sorted(numbers), list(range(1, worker_count + 1)))
+        self.assertEqual(Ticket.objects.filter(team_id=team_id).count(), worker_count)
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
@@ -2095,6 +2264,20 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
             ("messages_with_read", "messages", "get", ["ticket:read"], status.HTTP_200_OK),
             ("messages_with_write", "messages", "get", ["ticket:write"], status.HTTP_200_OK),
             ("messages_wrong_scope", "messages", "get", ["insight:read"], status.HTTP_403_FORBIDDEN),
+            (
+                "full_email_with_read",
+                "messages/00000000-0000-0000-0000-000000000000/full_email",
+                "get",
+                ["ticket:read"],
+                status.HTTP_404_NOT_FOUND,
+            ),
+            (
+                "full_email_wrong_scope",
+                "messages/00000000-0000-0000-0000-000000000000/full_email",
+                "get",
+                ["insight:read"],
+                status.HTTP_403_FORBIDDEN,
+            ),
             ("reply_with_write", "reply", "post", ["ticket:write"], status.HTTP_201_CREATED),
             ("reply_with_read_only", "reply", "post", ["ticket:read"], status.HTTP_403_FORBIDDEN),
             ("reply_wrong_scope", "reply", "post", ["insight:write"], status.HTTP_403_FORBIDDEN),
@@ -2244,7 +2427,9 @@ class TestTicketMessagesAPI(APIBaseTest):
             "rich_content",
             "author_type",
             "author_name",
+            "author_email",
             "is_private",
+            "has_full_email_content",
             "created_at",
             "version",
         }
@@ -2262,6 +2447,49 @@ class TestTicketMessagesAPI(APIBaseTest):
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
+
+    def test_messages_support_author_uses_full_name(self, mock_on_commit):
+        self.user.first_name = "Jane"
+        self.user.last_name = "Doe"
+        self.user.save()
+        Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="On it",
+            item_context={"author_type": "support", "is_private": False},
+        )
+
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["author_name"] == "Jane Doe"
+
+    def test_messages_author_email_only_for_posthog_users(self, mock_on_commit):
+        base = timezone.now()
+        for offset, (content, author_type, author) in enumerate(
+            [
+                ("Hello from customer", "customer", None),
+                ("Hi there!", "support", self.user),
+                ("Summary", "AI", None),
+            ]
+        ):
+            comment = Comment.objects.create(
+                team=self.team,
+                created_by=author,
+                scope="conversations_ticket",
+                item_id=str(self.ticket.id),
+                content=content,
+                item_context={"author_type": author_type, "is_private": False},
+            )
+            Comment.objects.filter(id=comment.id).update(created_at=base + timedelta(seconds=offset))
+
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()["results"]
+        assert body[0]["author_email"] is None
+        assert body[1]["author_email"] == self.user.email
+        assert body[2]["author_email"] is None
 
     @parameterized.expand(
         [
@@ -2368,6 +2596,46 @@ class TestTicketMessagesAPI(APIBaseTest):
         assert body["results"] == []
         assert body["count"] == 0
 
+    @parameterized.expand(
+        [
+            ("different_ticket", True, False),
+            ("deleted_message", False, True),
+        ]
+    )
+    def test_full_email_only_returns_visible_ticket_messages(
+        self, mock_on_commit, _name: str, use_different_ticket: bool, deleted: bool
+    ) -> None:
+        ticket = self.ticket
+        if use_different_ticket:
+            ticket = Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.EMAIL,
+                widget_session_id="other-session",
+                distinct_id="user-2",
+                status=Status.OPEN,
+            )
+        comment = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="Visible reply",
+            item_context={"author_type": "customer", "has_full_email_content": True},
+            deleted=deleted,
+        )
+        EmailMessageMapping.objects.create(
+            message_id="<other-ticket@example.com>",
+            team=self.team,
+            ticket=ticket,
+            comment=comment,
+            full_body_plain="Full body",
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/messages/{comment.id}/full_email/"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_messages_pagination(self, mock_on_commit):
         base = timezone.now()
         for i in range(5):
@@ -2424,7 +2692,7 @@ class TestTicketReplyAPI(APIBaseTest):
         assert body["content"] == "A reply"
         assert body["author_type"] == "support"
         assert body["is_private"] is is_private
-        assert body["author_name"] == (self.user.first_name or self.user.email)
+        assert body["author_name"] == (f"{self.user.first_name} {self.user.last_name}".strip() or self.user.email)
 
         comment = Comment.objects.get(id=body["id"])
         assert comment.created_by == self.user
@@ -2536,6 +2804,24 @@ class TestTicketReplyAPI(APIBaseTest):
         assert second.status_code == status.HTTP_200_OK
         assert second.json() == first.json()
         assert Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).count() == 1
+        mock_send_email_reply.delay.assert_called_once()
+
+    @patch("products.conversations.backend.signals.send_email_reply")
+    def test_outbox_failure_rolls_back_comment_and_allows_retry(self, mock_send_email_reply, mock_on_commit):
+        with patch(
+            "products.conversations.backend.signals.EmailOutboxMessage.objects.get_or_create",
+            side_effect=RuntimeError("outbox write failed"),
+        ):
+            response = self.client.post(self.url, {"message": "On it now"}, format="json")
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert not Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).exists()
+        assert not EmailOutboxMessage.objects.filter(ticket=self.ticket).exists()
+        mock_send_email_reply.delay.assert_not_called()
+
+        retry = self.client.post(self.url, {"message": "On it now"}, format="json")
+        assert retry.status_code == status.HTTP_201_CREATED
+        assert EmailOutboxMessage.objects.filter(ticket=self.ticket).count() == 1
         mock_send_email_reply.delay.assert_called_once()
 
     def test_reply_still_being_created_returns_a_conflict(self, mock_on_commit):

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-09-02 20:02:25 UTC
+// Generated at: 2026-09-08 10:05:35 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -18,8 +18,6 @@ export type CanonicalProvider =
     | 'amazon-bedrock-us-east-1'
     | 'amazon-bedrock-us-east-2'
     | 'amazon-bedrock-us-west-2'
-    | 'ambient'
-    | 'ambient-fp4'
     | 'ambient-fp8'
     | 'anthropic'
     | 'anthropic-fast'
@@ -53,10 +51,12 @@ export type CanonicalProvider =
     | 'coreweave-int4'
     | 'crusoe'
     | 'crusoe-bf16'
+    | 'crusoe-fp4'
     | 'crusoe-fp8'
     | 'darkbloom'
     | 'darkbloom-fp4'
     | 'darkbloom-fp8'
+    | 'decart-fast'
     | 'decart-fp4'
     | 'deepinfra'
     | 'deepinfra-base'
@@ -74,7 +74,6 @@ export type CanonicalProvider =
     | 'fireworks-us'
     | 'friendli'
     | 'gmicloud-bf16'
-    | 'gmicloud-fp4'
     | 'gmicloud-fp8'
     | 'google-ai-studio'
     | 'google-ai-studio-flex'
@@ -125,7 +124,6 @@ export type CanonicalProvider =
     | 'morph-fast'
     | 'morph-fp4'
     | 'morph-fp8'
-    | 'nebius-base'
     | 'nebius-fp4'
     | 'nebius-fp8'
     | 'nex-agi'
@@ -170,7 +168,6 @@ export type CanonicalProvider =
     | 'sambanova-fp8'
     | 'sambanova-turbo'
     | 'seed-fp8'
-    | 'siliconflow'
     | 'siliconflow-fp8'
     | 'siliconflow-int4'
     | 'stepfun-fp8'

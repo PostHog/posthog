@@ -9,6 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.tests.e2e.stripe.d
     CUSTOMER_BALANCE_TRANSACTIONS,
     CUSTOMERS,
     DELETED_CUSTOMER_IDS,
+    INVOICES,
 )
 
 
@@ -68,6 +69,8 @@ class MockStripeAPI:
                     data = BALANCE_TRANSACTIONS  # type: ignore
                 case "customers":
                     data = CUSTOMERS  # type: ignore
+                case "invoices":
+                    data = INVOICES  # type: ignore
                 case _:
                     raise ValueError(f"Mock Stripe API: Unknown resource: {resource}")
 
