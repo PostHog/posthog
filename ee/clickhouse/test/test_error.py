@@ -12,6 +12,15 @@ from posthog.errors import (
 )
 from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryMemoryLimitExceeded
 
+CSV_PARSE_FAILURE_MESSAGE = (
+    "Code: 117. DB::Exception: Expected end of line: (at row 2)\n: \nRow 1:\nColumn 0,   name: email, type: "
+    'Nullable(String), parsed text: "someone@example.com"\nERROR: There is no line feed. "," found instead.\n '
+    "It's like your file has more columns than expected.\nAnd if your file has the right number of columns, maybe "
+    "it has an unquoted string value with a comma.\n\n: (in file/uri some-bucket/file_uploads/team_1/contacts.csv): "
+    "While executing ParallelParsingBlockInputFormat: While executing ReadFromObjectStorage. Stack trace:\n\n"
+    "0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x00000000141cccd0"
+)
+
 
 @pytest.mark.parametrize(
     "error,expected_type,expected_message,expected_code,expected_ch_error",
@@ -109,6 +118,16 @@ from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQ
             "A file backing a data warehouse table changed while the query was reading it (some-bucket/mongo/users.52.parquet). "
             "Retry the query. If you manage these files yourself, avoid overwriting files in place: "
             "upload new files and delete old ones instead.",
+            117,
+            "CHQueryErrorIncorrectData",
+        ),
+        (
+            ServerException(CSV_PARSE_FAILURE_MESSAGE, code=117),
+            "CHQueryErrorDelimitedFileParseFailure",
+            "A row in a file backing this table does not match the table's columns "
+            "(some-bucket/file_uploads/team_1/contacts.csv). This usually happens when the quoting in the file does "
+            "not match the quote setting on the table, because a value that contains the delimiter then splits into "
+            "extra columns. Change the quote setting on the table, or correct the row and upload the file again.",
             117,
             "CHQueryErrorIncorrectData",
         ),
@@ -261,3 +280,10 @@ def test_memory_limit_wraps_by_which_ceiling_was_hit(message, expected_per_query
     if is_cluster:
         assert isinstance(wrapped, CH_TRANSIENT_ERRORS)
         assert classify_query_error(wrapped) == QueryErrorCategory.RATE_LIMITED
+
+
+def test_csv_parse_failure_classifies_as_a_user_error():
+    # Code 117 alone classifies as a platform error, which is what files it to error tracking.
+    wrapped = wrap_clickhouse_query_error(ServerException(CSV_PARSE_FAILURE_MESSAGE, code=117))
+
+    assert classify_query_error(wrapped) == QueryErrorCategory.USER_ERROR
