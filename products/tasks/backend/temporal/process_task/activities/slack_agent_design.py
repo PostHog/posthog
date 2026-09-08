@@ -11,6 +11,7 @@ from typing import Any, Optional
 
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
@@ -48,7 +49,7 @@ class AppendSlackAgentDesignStepsInput:
     markdown_text: Optional[str] = None
 
 
-@dataclass
+@frozen
 class StopSlackAgentDesignStreamInput:
     slack_thread_context: dict[str, Any]
     ts: str
