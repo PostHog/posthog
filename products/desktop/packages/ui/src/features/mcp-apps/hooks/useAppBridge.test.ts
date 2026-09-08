@@ -131,7 +131,6 @@ describe("useAppBridge", () => {
     });
     expect(firstBridge.sendToolResult).not.toHaveBeenCalled();
 
-    // A uiResource identity change tears the bridge down before the flush.
     rerender(baseArgs({ uiResource: makeResource("ui://posthog/other.html") }));
 
     await act(async () => {
@@ -140,7 +139,6 @@ describe("useAppBridge", () => {
     expect(bridgeInstances).toHaveLength(2);
     const secondBridge = bridgeInstances[1];
 
-    // The retry must not be blocked by a flag that survived the teardown.
     act(() => {
       result.current.sendResultOnce("tc-1", { content: [] });
     });
@@ -175,8 +173,6 @@ describe("useAppBridge", () => {
   });
 
   it("sends an already-completed tool call's result once the app initializes", async () => {
-    // A row that renders only after its result is known mounts with rawOutput
-    // already set, so nothing else has queued a result yet.
     renderHook((props) => useAppBridge(props), {
       initialProps: baseArgs({
         toolCall: makeToolCall({ rawOutput: { content: [] } }),
