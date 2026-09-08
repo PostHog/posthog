@@ -21,6 +21,7 @@ import sys
 import uuid
 import unicodedata
 from dataclasses import dataclass, field
+from typing import Literal
 
 # Before agent-assisted PRs were common, the median PR had about 2% comment lines.
 WARN_RATIO = 0.03
@@ -35,13 +36,14 @@ SQL_LANGS = {"sql"}
 CODE_LANGS = HASH_LANGS | SLASH_LANGS | SQL_LANGS
 
 # Workflow YAML and shell are left out because they need prose to be readable.
-# `generated` anywhere in the path covers `/generated/`, `*.generated.ts`, and
-# `generated_configs/`, which all carry a generator header over little code.
+# Generated paths use standard lower-case separators or an `_generated_` filename.
+# A narrow match keeps hand-written names that contain `Generated` in the measurement.
 EXCLUDED_PATHS = re.compile(
-    r"(^\.github/|generated|__snapshots__/|\.ambr$|\.snap$|\.lock$|migrations/\d|\.min\.js$|/dist/|/vendor/|/node_modules/|_pb2|\.d\.ts$)",
-    re.IGNORECASE,
+    r"(^\.github/|(?:^|/)(?:generated[_./]|_generated_)|\.generated\.|__snapshots__/|\.ambr$|\.snap$|\.lock$|migrations/\d|\.min\.js$|/dist/|/vendor/|/node_modules/|_pb2|\.d\.ts$)"
 )
 DIFF_SKIP_PREFIXES = ("+++", "---", "index ", "new file", "deleted file", "similarity", "rename ", "Binary")
+
+ParserState = Literal["block_comment", "template_literal", "triple_string"] | None
 
 
 @dataclass(frozen=False)
@@ -73,61 +75,106 @@ def _extension(path: str) -> str:
     return name.rsplit(".", 1)[-1].lower() if "." in name else ""
 
 
-def _classify_slash(line: str, in_block: bool) -> tuple[bool, bool]:
-    """Return (is_comment, in_block after this line) for a `//` and `/* */` language."""
-    if in_block:
-        return True, "*/" not in line
-    if line.startswith("//"):
-        return True, False
-    if line.startswith(("/*", "{/*")):
+def _is_escaped(line: str, index: int) -> bool:
+    backslashes = 0
+    index -= 1
+    while index >= 0 and line[index] == "\\":
+        backslashes += 1
+        index -= 1
+    return backslashes % 2 == 1
+
+
+def _slash_state_after_line(line: str, state: ParserState) -> ParserState:
+    index = 0
+    quote = ""
+
+    while index < len(line):
+        if state == "block_comment":
+            if line.startswith("*/", index):
+                state = None
+                index += 2
+                continue
+            index += 1
+            continue
+
+        if state == "template_literal":
+            if line[index] == "`" and not _is_escaped(line, index):
+                state = None
+            index += 1
+            continue
+
+        if quote:
+            if line[index] == quote and not _is_escaped(line, index):
+                quote = ""
+            index += 1
+            continue
+
+        if line.startswith("//", index):
+            return None
+        if line.startswith("/*", index):
+            state = "block_comment"
+            index += 2
+            continue
+        if line[index] in "'\"":
+            quote = line[index]
+        elif line[index] == "`":
+            state = "template_literal"
+        index += 1
+
+    return state
+
+
+def _classify_slash(line: str, state: ParserState) -> tuple[bool, ParserState]:
+    if state == "template_literal":
+        return False, _slash_state_after_line(line, state)
+
+    if state == "block_comment" or line.startswith(("/*", "{/*")):
         end = line.find("*/")
-        if end == -1:
-            return True, True
-        # `/* note */ doWork()` is code with a leading comment, not a comment line.
-        return line[end + 2 :].strip(" }") == "", False
-    return False, False
+        is_comment = end == -1 or line[end + 2 :].strip(" }") == ""
+        return is_comment, _slash_state_after_line(line, state)
+
+    if line.startswith("//"):
+        return True, None
+
+    return False, _slash_state_after_line(line, state)
 
 
-def _classify_hash(line: str, in_string: bool) -> tuple[bool, bool]:
-    """Return (is_comment, in_string after this line) for Python.
-
-    A `#` line inside a triple-quoted string (a prompt, a SQL template) is text,
-    not a comment.
-    """
+def _classify_hash(line: str, state: ParserState) -> tuple[bool, ParserState]:
     toggles = (line.count('"""') + line.count("'''")) % 2 == 1
-    if in_string:
-        return False, not toggles
-    return line.startswith("#") and not line.startswith("#!"), toggles
+    if state == "triple_string":
+        return False, None if toggles else state
+    is_comment = line.startswith("#") and not line.startswith("#!")
+    return is_comment, "triple_string" if toggles else None
 
 
-def _classify(lang: str, line: str, inside: bool) -> tuple[bool, bool]:
+def _classify(lang: str, line: str, state: ParserState) -> tuple[bool, ParserState]:
     if lang in SLASH_LANGS:
-        return _classify_slash(line, inside)
+        return _classify_slash(line, state)
     if lang in HASH_LANGS:
-        return _classify_hash(line, inside)
+        return _classify_hash(line, state)
     if lang in SQL_LANGS:
-        return line.startswith("--"), False
-    return False, False
+        return line.startswith("--"), None
+    return False, None
 
 
 def analyze(diff_text: str) -> Report:
     report = Report()
     lang = ""
     stats: FileStats | None = None
-    # True inside a block comment or a triple-quoted string that spans lines.
-    inside = False
+    # The state tracks a block comment or a multi-line string across diff lines.
+    state: ParserState = None
 
     for raw in diff_text.splitlines():
         if raw.startswith("diff --git "):
             path = raw.split(" b/", 1)[-1]
             lang = _extension(path)
             stats = None
-            inside = False
+            state = None
             if lang in CODE_LANGS and not EXCLUDED_PATHS.search(path):
                 stats = report.files.setdefault(path, FileStats(path))
             continue
         if raw.startswith("@@"):
-            inside = False
+            state = None
             continue
         if stats is None or raw.startswith(DIFF_SKIP_PREFIXES):
             continue
@@ -140,7 +187,7 @@ def analyze(diff_text: str) -> Report:
         if not line:
             continue
 
-        is_comment, inside = _classify(lang, line, inside)
+        is_comment, state = _classify(lang, line, state)
         if not added:
             continue
 

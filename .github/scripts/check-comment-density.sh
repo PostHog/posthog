@@ -8,7 +8,7 @@ script="$(dirname "$0")/check_comment_density.py"
 command -v python3 > /dev/null 2>&1 || exit 0
 
 # With GITHUB_OUTPUT unset the classifier prints `status=<ok|warn|alert> <summary>`.
-report=$(git diff --cached -U0 --no-color | GITHUB_OUTPUT='' python3 "$script" 2> /dev/null) || exit 0
+report=$(git diff --cached -U3 --no-color | GITHUB_OUTPUT='' python3 "$script" 2> /dev/null) || exit 0
 status=$(printf '%s\n' "$report" | head -n1 | sed -n 's/^status=\([a-z]*\) .*/\1/p')
 [ "$status" = "warn" ] || [ "$status" = "alert" ] || exit 0
 

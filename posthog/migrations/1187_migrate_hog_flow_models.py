@@ -32,7 +32,6 @@ def reverse_content_types(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1186_activitylog_ip_address"),
-        ("workflows", "0007_migrate_hog_flow_models"),
     ]
 
     operations = [

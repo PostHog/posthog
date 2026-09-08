@@ -211,8 +211,10 @@ export {
   splitMentionSegments,
 } from "./mentions";
 export {
+  customModelMeta,
   DEFAULT_OPTION_META_KEY,
   defaultEligibleModel,
+  isCustomModelOption,
   isDefaultSelectOption,
   isRestrictedModelOption,
   modelHarnessMeta,
@@ -347,6 +349,7 @@ export {
   getLocalDayKey,
   getRelativeDateGroup,
 } from "./time";
+export { singleLineTitle } from "./title-text";
 export {
   mcpToolKey,
   parseMcpToolName,

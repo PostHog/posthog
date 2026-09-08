@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-09-04 20:02:16 UTC
+// Generated at: 2026-09-07 20:02:40 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -51,10 +51,12 @@ export type CanonicalProvider =
     | 'coreweave-int4'
     | 'crusoe'
     | 'crusoe-bf16'
+    | 'crusoe-fp4'
     | 'crusoe-fp8'
     | 'darkbloom'
     | 'darkbloom-fp4'
     | 'darkbloom-fp8'
+    | 'decart-fast'
     | 'decart-fp4'
     | 'deepinfra'
     | 'deepinfra-base'
@@ -166,7 +168,6 @@ export type CanonicalProvider =
     | 'sambanova-fp8'
     | 'sambanova-turbo'
     | 'seed-fp8'
-    | 'siliconflow'
     | 'siliconflow-fp8'
     | 'siliconflow-int4'
     | 'stepfun-fp8'

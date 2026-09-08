@@ -1671,7 +1671,7 @@ export class AgentServer {
 
   /**
    * The task's origin decides which origin-gated local tools load, so a transient failure here
-   * would silently drop report_insight from an analysis run. Retry, then give up so a task that
+   * would silently drop report_activity from an analysis run. Retry, then give up so a task that
    * genuinely does not exist still starts the session.
    */
   private async fetchTaskForSessionContext(
