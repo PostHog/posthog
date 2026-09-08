@@ -1,12 +1,12 @@
 import { ArrowLeft, ArrowRight } from "@phosphor-icons/react";
 import { isAnyIntegrationStale } from "@posthog/core/onboarding/githubConnectPanel";
-import { Button, Card, CardContent, Heading, Text } from "@posthog/quill";
+import { Button, Heading, Text } from "@posthog/quill";
 import type { OnboardingStepCompletedProperties } from "@posthog/shared/analytics-events";
+import { GithubConnectionEmpty } from "@posthog/ui/features/integrations/components/GithubConnectionEmpty";
 import {
   useUserGithubIntegrations,
   useUserRepositoryIntegration,
 } from "@posthog/ui/features/integrations/useIntegrations";
-import { GithubConnectionLink } from "@posthog/ui/features/onboarding/components/GithubConnectionLink";
 import { OptionalBadge } from "@posthog/ui/features/onboarding/components/OptionalBadge";
 import { StepActions } from "@posthog/ui/features/onboarding/components/StepActions";
 import { motion, useReducedMotion } from "framer-motion";
@@ -39,14 +39,6 @@ export function ConnectGitHubStep({ onNext, onBack }: ConnectGitHubStepProps) {
           initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.25, ease: "easeOut" }}
-        >
-          <GithubConnectionLink connected={isConnected} />
-        </motion.div>
-
-        <motion.div
-          initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25, delay: 0.03, ease: "easeOut" }}
           className="flex flex-col gap-1.5"
         >
           <div className="flex items-center gap-2">
@@ -65,28 +57,37 @@ export function ConnectGitHubStep({ onNext, onBack }: ConnectGitHubStepProps) {
           key="github-panel"
           initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25, delay: 0.06, ease: "easeOut" }}
+          transition={{ duration: 0.25, delay: 0.03, ease: "easeOut" }}
         >
-          <Card className="w-full">
-            <CardContent className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4">
+            <GithubConnectionEmpty
+              connected={isConnected}
+              showLearnMore={false}
+              title={isConnected ? "GitHub connected" : "Connect GitHub"}
+              description={
+                isConnected
+                  ? "Manage the GitHub organizations that PostHog Desktop can use."
+                  : "Connect GitHub to give PostHog Desktop access to your code."
+              }
+            >
               <GitHubConnectPanel />
-              <StepActions
-                primaryAction={
-                  <Button size="lg" variant="primary" onClick={handleContinue}>
-                    {isConnected ? "Continue" : "Skip for now"}
-                    <ArrowRight size={16} weight="bold" />
-                  </Button>
-                }
-              >
-                {onBack && (
-                  <Button size="lg" variant="outline" onClick={onBack}>
-                    <ArrowLeft size={16} weight="bold" />
-                    Back
-                  </Button>
-                )}
-              </StepActions>
-            </CardContent>
-          </Card>
+            </GithubConnectionEmpty>
+            <StepActions
+              primaryAction={
+                <Button size="lg" variant="primary" onClick={handleContinue}>
+                  {isConnected ? "Continue" : "Skip for now"}
+                  <ArrowRight size={16} weight="bold" />
+                </Button>
+              }
+            >
+              {onBack && (
+                <Button size="lg" onClick={onBack}>
+                  <ArrowLeft size={16} weight="bold" />
+                  Back
+                </Button>
+              )}
+            </StepActions>
+          </div>
         </motion.div>
       </div>
     </main>

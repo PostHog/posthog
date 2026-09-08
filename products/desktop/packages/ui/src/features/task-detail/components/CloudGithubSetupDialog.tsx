@@ -1,4 +1,3 @@
-import { ArrowSquareOutIcon } from "@phosphor-icons/react";
 import {
   describeGithubConnectError,
   GITHUB_CONNECT_TIMEOUT_MESSAGE,
@@ -9,23 +8,15 @@ import {
   AlertDialogContent,
   AlertDialogFooter,
   Button,
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
 } from "@posthog/quill";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
-import { GithubConnectionIcon } from "@posthog/ui/features/integrations/components/GithubConnectionIcon";
+import { GithubConnectionEmpty } from "@posthog/ui/features/integrations/components/GithubConnectionEmpty";
 import { useGithubConnect } from "@posthog/ui/features/integrations/useGithubUserConnect";
 import { useRepositoryIntegration } from "@posthog/ui/features/integrations/useIntegrations";
 import { useRendererWindowFocusStore } from "@posthog/ui/shell/rendererWindowFocusStore";
-import { openUrlInBrowser } from "@posthog/ui/utils/browser";
 import { useReducedMotion } from "framer-motion";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const GITHUB_DOCS_URL = "https://posthog.com/docs/libraries/github?tab=Desktop";
 const FOCUS_SUCCESS_DELAY_MS = 500;
 const CONNECTED_SEQUENCE_MS = 1_200;
 
@@ -135,56 +126,41 @@ export function CloudGithubSetupDialog({
     <AlertDialog open onOpenChange={() => undefined}>
       <AlertDialogContent>
         <div className="p-2">
-          <Empty className="py-6" aria-live="polite">
-            <EmptyHeader>
-              <EmptyMedia>
-                <GithubConnectionIcon
-                  connected={showConnectedAnimation}
-                  loading={waitingForGithub}
-                />
-              </EmptyMedia>
-              <EmptyTitle>
-                {showConnectedAnimation
-                  ? "GitHub connected"
-                  : waitingForGithub
-                    ? "Waiting for GitHub"
-                    : "GitHub authentication required"}
-              </EmptyTitle>
-              <EmptyDescription
-                className={
-                  hasError || isTimedOut ? "text-destructive" : undefined
-                }
-              >
-                {showConnectedAnimation
-                  ? "You're ready to use Cloud tasks."
-                  : waitingForGithub
-                    ? "Finish authorizing in your browser, then return here."
-                    : (connectionMessage ??
-                      "Cloud tasks require GitHub authentication.")}
-              </EmptyDescription>
-            </EmptyHeader>
+          <GithubConnectionEmpty
+            connected={showConnectedAnimation}
+            loading={waitingForGithub}
+            title={
+              showConnectedAnimation
+                ? "GitHub connected"
+                : waitingForGithub
+                  ? "Waiting for GitHub"
+                  : "GitHub authentication required"
+            }
+            description={
+              showConnectedAnimation
+                ? "You're ready to use Cloud tasks."
+                : waitingForGithub
+                  ? "Finish authorizing in your browser, then return here."
+                  : (connectionMessage ??
+                    "Cloud tasks require GitHub authentication.")
+            }
+            descriptionClassName={
+              hasError || isTimedOut ? "text-destructive" : undefined
+            }
+            showLearnMore={!showConnectedAnimation}
+          >
             {!showConnectedAnimation && (
-              <EmptyContent className="flex-row justify-center gap-2">
-                <Button
-                  type="button"
-                  variant="primary"
-                  loading={waitingForGithub}
-                  disabled={!canConnect || waitingForGithub}
-                  onClick={() => void handleConnect()}
-                >
-                  {hasError || isTimedOut ? "Try again" : "Connect GitHub"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="link-muted"
-                  onClick={() => void openUrlInBrowser(GITHUB_DOCS_URL)}
-                >
-                  Learn more
-                  <ArrowSquareOutIcon size={12} />
-                </Button>
-              </EmptyContent>
+              <Button
+                type="button"
+                variant="primary"
+                loading={waitingForGithub}
+                disabled={!canConnect || waitingForGithub}
+                onClick={() => void handleConnect()}
+              >
+                {hasError || isTimedOut ? "Try again" : "Connect GitHub"}
+              </Button>
             )}
-          </Empty>
+          </GithubConnectionEmpty>
         </div>
 
         <AlertDialogFooter>

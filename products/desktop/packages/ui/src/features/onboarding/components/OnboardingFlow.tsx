@@ -56,6 +56,7 @@ import { track } from "@posthog/ui/shell/analytics";
 import { firstRun } from "@posthog/ui/shell/firstRun";
 import { logger } from "@posthog/ui/shell/logger";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
+import { isMac, isWindows } from "@posthog/ui/utils/platform";
 import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
@@ -75,14 +76,6 @@ const stepVariants = {
 
 interface OnboardingFlowProps {
   onOpenSupport?: () => void;
-}
-
-function OnboardingHeader() {
-  return (
-    <header className="mx-auto flex w-full max-w-[480px] justify-start">
-      <ProductWordmark />
-    </header>
-  );
 }
 
 function OnboardingAccount({
@@ -144,7 +137,10 @@ function OnboardingDebugNavigation({
   if (!IS_DEV) return null;
 
   return (
-    <aside className="absolute top-8 left-8 z-[2] flex items-center gap-2">
+    <nav
+      aria-label="Onboarding debug navigation"
+      className="no-drag flex items-center gap-2"
+    >
       <ButtonGroup aria-label="Onboarding step navigation">
         <Button
           size="icon-sm"
@@ -168,7 +164,67 @@ function OnboardingDebugNavigation({
       <Text size="xs" variant="muted">
         {currentIndex + 1} / {totalSteps}
       </Text>
-    </aside>
+    </nav>
+  );
+}
+
+function OnboardingHeader({
+  currentIndex,
+  totalSteps,
+  onBack,
+  onNext,
+  onOpenSupport,
+  onSkip,
+  showSkipSetup,
+}: {
+  currentIndex: number;
+  totalSteps: number;
+  onBack: () => void;
+  onNext: () => void;
+  onOpenSupport?: () => void;
+  onSkip: () => void;
+  showSkipSetup: boolean;
+}) {
+  return (
+    <header
+      className="flex h-10 w-full items-center gap-3"
+      style={{
+        paddingLeft: isMac ? "env(titlebar-area-x, 78px)" : "78px",
+        paddingRight: isWindows ? "140px" : "12px",
+      }}
+    >
+      <div className="no-drag [&_p]:!text-md [&_svg]:!h-[18px] [&_svg]:!w-auto flex items-center">
+        <ProductWordmark />
+      </div>
+      <OnboardingDebugNavigation
+        currentIndex={currentIndex}
+        totalSteps={totalSteps}
+        onBack={onBack}
+        onNext={onNext}
+      />
+      <div className="no-drag ml-auto flex items-center gap-1">
+        <Button
+          size="xs"
+          variant="link-muted"
+          className="min-h-8 px-2 text-xs opacity-80 hover:opacity-100"
+          onClick={onOpenSupport}
+        >
+          <Lifebuoy size={12} />
+          Get support
+        </Button>
+        {showSkipSetup && (
+          <Button
+            size="xs"
+            variant="link-muted"
+            className="min-h-8 px-2 text-xs opacity-80 hover:opacity-100"
+            onClick={onSkip}
+          >
+            Skip setup
+            <ArrowRight size={12} weight="bold" />
+          </Button>
+        )}
+      </div>
+    </header>
   );
 }
 
@@ -413,23 +469,29 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
   };
 
   return (
-    <FullScreenLayout backgroundPattern="grid" showFooter={false}>
+    <FullScreenLayout
+      backgroundPattern="grid"
+      showFooter={false}
+      titleBarContent={
+        <OnboardingHeader
+          currentIndex={currentIndex}
+          totalSteps={activeSteps.length}
+          onBack={back}
+          onNext={next}
+          onOpenSupport={onOpenSupport}
+          onSkip={handleSkip}
+          showSkipSetup={IS_DEV && isAuthenticated}
+        />
+      }
+    >
       <OnboardingAccount
         email={currentUser?.email}
         isAuthenticated={isAuthenticated}
         isLoggingOut={logoutMutation.isPending}
         onLogout={handleLogout}
       />
-      <OnboardingDebugNavigation
-        currentIndex={currentIndex}
-        totalSteps={activeSteps.length}
-        onBack={back}
-        onNext={next}
-      />
       <div className="h-full overflow-y-auto px-8 pt-16">
         <div className="mx-auto flex min-h-full w-full max-w-[720px] flex-col items-center">
-          <OnboardingHeader />
-
           <div className="w-full">
             <div aria-hidden="true" className="h-16 shrink-0" />
             <AnimatePresence mode="wait" custom={direction}>
@@ -523,31 +585,6 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
                 </motion.div>
               )}
             </AnimatePresence>
-
-            <div className="mx-auto flex w-full max-w-[480px] items-center justify-between pt-2">
-              {IS_DEV && isAuthenticated ? (
-                <Button
-                  size="xs"
-                  variant="link-muted"
-                  className="min-h-11 px-2 text-xs"
-                  onClick={handleSkip}
-                >
-                  Skip setup
-                  <ArrowRight size={12} weight="bold" />
-                </Button>
-              ) : (
-                <span />
-              )}
-              <Button
-                size="xs"
-                variant="link-muted"
-                className="min-h-11 px-2 text-xs"
-                onClick={onOpenSupport}
-              >
-                <Lifebuoy size={12} />
-                Get support
-              </Button>
-            </div>
           </div>
         </div>
       </div>

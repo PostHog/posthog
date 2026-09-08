@@ -16,6 +16,7 @@ interface FullScreenLayoutProps {
   /** Host opens the support link. */
   onOpenSupport?: () => void;
   showFooter?: boolean;
+  titleBarContent?: ReactNode;
 }
 
 export function FullScreenLayout({
@@ -26,6 +27,7 @@ export function FullScreenLayout({
   banner,
   onOpenSupport,
   showFooter = true,
+  titleBarContent,
 }: FullScreenLayoutProps) {
   const isDarkMode = useThemeStore((state) => state.isDarkMode);
 
@@ -40,7 +42,7 @@ export function FullScreenLayout({
         height="100vh"
         className="relative overflow-hidden"
       >
-        <DraggableTitleBar />
+        <DraggableTitleBar>{titleBarContent}</DraggableTitleBar>
 
         <div className="absolute inset-0 bg-(--color-background)" />
         {backgroundPattern === "grid" ? (
