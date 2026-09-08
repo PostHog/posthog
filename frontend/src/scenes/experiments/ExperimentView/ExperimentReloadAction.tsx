@@ -101,12 +101,15 @@ const INTERVAL_OPTIONS = Array.from(getExperimentRefreshIntervalSeconds(), (valu
 export const ExperimentReloadAction = ({
     isRefreshing,
     lastRefresh,
+    dataThrough,
     onClick,
     progress,
     queuedHint,
 }: {
     isRefreshing: boolean
     lastRefresh: string | null
+    /** Upper time bound of the data behind the results. */
+    dataThrough?: string | null
     onClick: () => void
     progress?: { completed: number; total: number }
     queuedHint?: string
@@ -116,6 +119,17 @@ export const ExperimentReloadAction = ({
 
     // Completed experiments have final results: no staleness warning, no auto refresh
     const ended = hasEnded(experiment)
+
+    /**
+     * A stopped experiment pins its analysis window to the end date, so a reload recomputes nothing and the
+     * numbers on screen are already the final ones. Only block the click once we have results to stand behind.
+     */
+    const finalResultsReason =
+        ended && lastRefresh
+            ? `This experiment stopped${
+                  experiment.end_date ? ` on ${dayjs(experiment.end_date).format('MMM D, YYYY')}` : ''
+              }. Results are final.`
+            : null
 
     // Check if data is stale on mount or when page becomes visible
     useStaleDataCheck({
@@ -160,7 +174,14 @@ export const ExperimentReloadAction = ({
                     size="xsmall"
                     icon={isRefreshing ? <Spinner textColored /> : <IconRefresh />}
                     data-attr="refresh-experiment"
-                    disabledReason={isRefreshing ? (queuedHint ?? 'Loading...') : null}
+                    disabledReason={isRefreshing ? (queuedHint ?? 'Loading...') : finalResultsReason}
+                    tooltip={
+                        dataThrough ? (
+                            <>
+                                Data through <TZLabel time={dataThrough} showPopover={false} />
+                            </>
+                        ) : null
+                    }
                     sideAction={
                         ended
                             ? undefined

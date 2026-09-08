@@ -808,7 +808,9 @@ describe('experimentMetricsLogic', () => {
 
             expect(logic.values.recalculationProgress).toEqual({ completed: 2, total: 2 })
             expect(logic.values.isRecalculating).toBe(false)
-            expect(logic.values.lastRefresh).toEqual(completedRecalculation.query_to)
+            // completed_at, not query_to: a stopped experiment pins query_to to its end date forever.
+            expect(logic.values.lastRefresh).toEqual(completedRecalculation.completed_at)
+            expect(logic.values.dataThrough).toEqual(completedRecalculation.query_to)
         })
 
         it('defaults progress to zeroes and lastRefresh to null when there is no recalculation', () => {

@@ -174,6 +174,7 @@ export interface experimentMetricsLogicValues {
     receivedFeatureFlags: boolean // featureFlagLogic
     currentProjectId: number | null // projectLogic
     currentRecalculation: ExperimentMetricsRecalculationApi | null
+    dataThrough: string | null
     isMetricRecalculating: (metricUuid: string | undefined) => boolean
     isRecalculating: boolean
     lastRefresh: string | null
@@ -307,6 +308,7 @@ export interface experimentMetricsLogicMeta {
         }
         totalMetricsCount: (arg: any) => number
         lastRefresh: (currentRecalculation: ExperimentMetricsRecalculationApi | null) => string | null
+        dataThrough: (currentRecalculation: ExperimentMetricsRecalculationApi | null) => string | null
         metricRetries: (
             currentRecalculation: ExperimentMetricsRecalculationApi | null
         ) => Record<string, MetricRetryInfo>
@@ -448,7 +450,15 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
             (experiment: Experiment): number =>
                 metricsInOrder(experiment, 'primary').length + metricsInOrder(experiment, 'secondary').length,
         ],
+        // When the run finished. `query_to` is a poor stand-in: a stopped experiment pins it to the end date,
+        // so it never moves however often the results are recomputed.
         lastRefresh: [
+            (s) => [s.currentRecalculation],
+            (recalc: ExperimentMetricsRecalculationApi | null): string | null =>
+                recalc?.completed_at ?? recalc?.query_to ?? null,
+        ],
+        // Upper time bound of the data the current results cover.
+        dataThrough: [
             (s) => [s.currentRecalculation],
             (recalc: ExperimentMetricsRecalculationApi | null): string | null => recalc?.query_to ?? null,
         ],
