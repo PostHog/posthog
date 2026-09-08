@@ -27,6 +27,8 @@ class TestAccessControlSystemTables(BaseTest):
 
     def test_org_admin_gets_all_system_tables(self):
         """Org admins should have access to all system tables."""
+        self.organization.is_active = True
+        self.organization.save(update_fields=["is_active"])
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
         membership.level = OrganizationMembership.Level.ADMIN
         membership.save()
@@ -38,6 +40,22 @@ class TestAccessControlSystemTables(BaseTest):
         fresh_system = SystemTables()
         for table_name in fresh_system.children:
             assert table_name in system_node.children, f"{table_name} missing for admin"
+
+    def test_deactivated_org_admin_cannot_access_scoped_system_tables(self):
+        self.organization.is_active = False
+        self.organization.save(update_fields=["is_active"])
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+
+        database = Database.create_for(team=self.team, user=self.user)
+
+        system_node = database.tables.children.get("system")
+        assert system_node is not None
+        assert "activity_logs" not in system_node.children
+        assert "dashboards" not in system_node.children
+        assert "system.activity_logs" in database._denied_tables
+        assert "system.dashboards" in database._denied_tables
 
     def test_regular_user_with_full_access_gets_all_tables(self):
         """Regular users with default full access should see all tables."""

@@ -549,7 +549,10 @@ class UserAccessControl:
     def is_organization_admin(self) -> bool:
         """Org owners/admins bypass object- and resource-level access control."""
         org_membership = self._organization_membership
-        return bool(org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN)
+        return (
+            bool(org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN)
+            and self.is_organization_active
+        )
 
     @property
     def is_organization_active(self) -> bool:
@@ -1274,7 +1277,7 @@ class UserAccessControl:
         Empty for org admins and when there is no team / EE / entitlement, matching
         `blocked_resource_ids_by_scope`.
         """
-        if not EE_AVAILABLE or not self._team or self.is_organization_admin:
+        if not EE_AVAILABLE or not self._team or self.is_organization_admin or not self.is_organization_active:
             return {}
 
         if not self.access_controls_supported:

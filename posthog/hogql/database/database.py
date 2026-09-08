@@ -557,7 +557,6 @@ def _compute_system_table_access_decision(
 
     Pass user_access_control when it's already preloaded to reuse the instance and avoid an extra query."""
     # Lazy imports keep the Django ORM off this module's import path.
-    from posthog.models.organization import OrganizationMembership  # noqa: PLC0415
     from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
 
     from products.access_control.backend.facade.user_access_control import (  # noqa: PLC0415
@@ -592,8 +591,7 @@ def _compute_system_table_access_decision(
 
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)
 
-    org_membership = user_access_control._organization_membership
-    if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
+    if user_access_control.is_organization_admin:
         return user_access_control, unentitled
 
     # Resources the user holds object-level grants on despite having no resource-level access. REST
