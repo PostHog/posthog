@@ -188,7 +188,7 @@
             "type": "Numeric"
         },
         "$ai_cache_creation_input_tokens": {
-            "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
+            "description": "The number of tokens created in the cache for the input prompt.",
             "examples": [
                 23
             ],
@@ -4845,7 +4845,7 @@
             "type": "Numeric"
         },
         "$ai_cache_creation_input_tokens": {
-            "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
+            "description": "The number of tokens created in the cache for the input prompt.",
             "examples": [
                 23
             ],

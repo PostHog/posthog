@@ -1046,6 +1046,8 @@ export namespace Schemas {
     }
 
     export interface QueryStatus {
+      budget_remaining_bytes?: number | null;
+      bytes_read?: number | null;
       /** Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set. */
       complete?: boolean | null;
       dashboard_id?: number | null;
@@ -20433,6 +20435,21 @@ export namespace Schemas {
       evaluation_session_cap: number;
     }
 
+    export interface CustomBotRule {
+      /** Stable id for the rule. Pass it to the delete endpoint. */
+      readonly id: string;
+      /** Label reported by the `Bot name` property when the rule matches. Also the operator for a rule on a bot PostHog does not know. */
+      name: string;
+      /** Event property the rule reads. One of: $raw_user_agent, $ip, $lib, $host, $pathname, $current_url, $browser, $os, $browser_language, $screen_width, $screen_height, $geoip_country_code, $referrer, $referring_domain. */
+      key: string;
+      /** How `pattern` is compared: 'contains' (case-insensitive substring), 'regex' (RE2), or 'cidr' (an IP network range, only valid with the `$ip` property). */
+      matcher: string;
+      /** Value matched against the property named by `key`. For 'cidr' this is a network range like 192.0.2.0/24. */
+      pattern: string;
+      /** Reported by the `Traffic category` property. Defaults to 'custom'. A built-in category such as ai_crawler or search_crawler relabels the traffic type too. */
+      category?: string;
+    }
+
     /**
      * * `text` - text
      * * `link` - link
@@ -29948,6 +29965,25 @@ export namespace Schemas {
     } as const;
 
     /**
+     * The experiment a scanner watches. Scans derive their person-scoped exposure filter from
+     * this blob at query time, so it is the only place an experiment can enter a scanner's
+     * targeting — which is what lets the write-side access check and read-side redaction cover it.
+     */
+    export interface ScannerExperimentTargeting {
+      /**
+         * The experiment the scanner watches.
+         * @minimum 1
+         */
+      experiment_id: number;
+      /**
+         * Narrow to sessions of people exposed to this variant. Null means every variant.
+         * @maxLength 400
+         * @nullable
+         */
+      variant?: string | null;
+    }
+
+    /**
      * An AI-drafted scanner configuration, ready to seed the creation wizard. Nothing is persisted.
      */
     export interface DraftScannerResponse {
@@ -29990,6 +30026,8 @@ export namespace Schemas {
          * @nullable
          */
       credit_limit: number | null;
+      /** Goal-based flow only: the experiment whose participants the draft watches, when the goal named one of the project's launched experiments. Null when it named none. Carried separately from `query`, which never holds an exposure filter. */
+      experiment_targeting: ScannerExperimentTargeting | null;
       /**
          * Goal-based flow only: recordings a month the drafted scanner is projected to watch under the solved dials. Its credit cost lands at or under `monthly_credit_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_mode` is.
          * @nullable
@@ -33301,25 +33339,6 @@ export namespace Schemas {
     export interface ErrorTrackingSymbolSetFinishUpload {
       /** Hash of the uploaded symbol set content. */
       content_hash: string;
-    }
-
-    /**
-     * The experiment a scanner watches. Scans derive their person-scoped exposure filter from
-     * this blob at query time, so it is the only place an experiment can enter a scanner's
-     * targeting — which is what lets the write-side access check and read-side redaction cover it.
-     */
-    export interface ScannerExperimentTargeting {
-      /**
-         * The experiment the scanner watches.
-         * @minimum 1
-         */
-      experiment_id: number;
-      /**
-         * Narrow to sessions of people exposed to this variant. Null means every variant.
-         * @maxLength 400
-         * @nullable
-         */
-      variant?: string | null;
     }
 
     /**
@@ -85972,7 +85991,7 @@ export namespace Schemas {
     }
 
     /**
-     * Error details on failure
+     * JSON-RPC error details, including failures returned with HTTP 200
      */
     export type TaskRunCommandResponseError = { [key: string]: unknown };
 
@@ -85984,9 +86003,9 @@ export namespace Schemas {
       jsonrpc: string;
       /** Request ID echoed back (string or number) */
       id?: unknown;
-      /** Command result on success */
+      /** Command result. Permission responses confirm acceptance only with resolved=true. */
       result?: unknown;
-      /** Error details on failure */
+      /** JSON-RPC error details, including failures returned with HTTP 200 */
       error?: TaskRunCommandResponseError;
     }
 
@@ -89776,6 +89795,24 @@ export namespace Schemas {
       total_logs: number;
       /** True when more groups matched than were returned (total_groups > groups length). */
       truncated: boolean;
+    }
+
+    export interface _LogsImpactRequest {
+      /** The impact query to execute. Takes the same filters as the count query. */
+      query: _LogsCountBody;
+    }
+
+    export interface _LogsImpactResponse {
+      /** Number of log entries matching the filters. */
+      total: number;
+      /** How many of the matching logs carry a session ID under the team's configured or conventional attribute keys. */
+      logsWithSessionId: number;
+      /** Estimated number of unique session IDs across the matching logs (HyperLogLog, about 1-2% error). */
+      sessions: number;
+      /** How many of the matching logs carry a person distinct ID under the team's configured or conventional attribute keys. */
+      logsWithDistinctId: number;
+      /** Estimated number of unique distinct IDs across the matching logs (HyperLogLog, about 1-2% error). */
+      users: number;
     }
 
     export interface _LogsPatternsBody {
@@ -98616,7 +98653,7 @@ export namespace Schemas {
      */
     content?: LlmSkillsBundleRetrieveContent;
     /**
-     * Maximum number of skills in the zip, newest first; default 20, at most 100. Every skill in the zip costs the agent prompt context on each turn, so pick what the harness can usefully carry. Skills past the limit are reported in X-Skills-Dropped.
+     * Maximum number of skills in the zip, newest first; default 50, at most 100. Every skill in the zip costs the agent prompt context on each turn, so pick what the harness can usefully carry. Skills past the limit are reported in X-Skills-Dropped.
      * @minimum 1
      * @maximum 100
      */
