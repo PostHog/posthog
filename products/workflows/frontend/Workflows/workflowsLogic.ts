@@ -410,7 +410,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
             },
         ],
     })),
-    selectors(({ actions }) => ({
+    selectors({
         paramsFromFilters: [
             (s) => [s.filters],
             (filters: WorkflowsFilters): WorkflowsListParams => ({
@@ -431,10 +431,6 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 pageSize: WORKFLOWS_PER_PAGE,
                 currentPage: filters.page || 1,
                 entryCount: workflows.count,
-                // `actionToUrl` already puts the page in the URL, so the control must not push it too.
-                useUrl: false,
-                onBackward: () => actions.setFilters({ page: Math.max(1, (filters.page || 1) - 1) }),
-                onForward: () => actions.setFilters({ page: (filters.page || 1) + 1 }),
             }),
         ],
         allArchivedSelected: [
@@ -447,7 +443,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
             (s) => [s.selectedArchivedWorkflowIds],
             (selectedIds: Set<string>): number => selectedIds.size,
         ],
-    })),
+    }),
     listeners(({ actions, values }) => ({
         setFilters: async (_, breakpoint) => {
             // Debounce so typing in the search box doesn't fire a request per keystroke.
