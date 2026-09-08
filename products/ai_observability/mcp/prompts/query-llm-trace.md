@@ -1,4 +1,4 @@
-Fetch a single LLM trace by its trace ID for deep inspection. Returns the complete trace with all nested events and their full properties — including inputs, outputs, model parameters, costs, and errors. Use after finding a trace via `query-llm-traces-list` to inspect the complete event tree.
+Fetch a single LLM trace by its trace ID for deep inspection. Returns the complete trace with all nested events and their AI properties — inputs, outputs, model parameters, costs, and errors. Use after finding a trace via `query-llm-traces-list` to inspect the complete event tree.
 
 Use cases:
 
@@ -23,7 +23,7 @@ The response contains a single trace in JSON format with:
 - `inputTokens` / `outputTokens` — token counts across all generations
 - `inputCost` / `outputCost` / `totalCost` — costs in USD
 - `inputState` / `outputState` — JSON input/output state from the root `$ai_trace` event (e.g., conversation messages)
-- `events` — **all** child events in the trace at every nesting depth (not just direct children). Each event has full `properties`.
+- `events` — **all** child events in the trace at every nesting depth (not just direct children). Each event has its AI `properties` — see "Withheld properties" below.
 
 Unlike `query-llm-traces-list`, this tool does NOT return `errorCount`, `isSupportTrace`, or `tools` — those are summary fields on the list tool only.
 
@@ -76,6 +76,12 @@ If the trace is old, provide a date range to help the query find it efficiently:
   "dateRange": { "date_from": "-30d" }
 }
 ```
+
+# Withheld properties
+
+Each event returns its `$ai_*` properties, plus `$session_id`, `$lib`, and `$lib_version`. The response withholds every other property. Those properties can carry authentication state, credentials, request headers, user identity, permissions, location, and budget context, and a trace inspection does not need them. `properties._redacted.withheldKeys` lists the withheld names, with no values. PostHog keeps the stored event unchanged, so open the trace there if a diagnosis needs one of those values.
+
+Property filters still match on withheld properties. You can filter a query by a property that you cannot read back.
 
 # Response size
 

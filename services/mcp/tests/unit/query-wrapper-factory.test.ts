@@ -414,7 +414,7 @@ describe('createQueryWrapper filterTestAccounts project default', () => {
     })
 })
 
-describe('createQueryWrapper trace compaction', () => {
+describe('createQueryWrapper trace redaction and compaction', () => {
     const schema = z.object({ kind: z.string() })
 
     function contextWithResults(results: unknown): Context {
@@ -446,6 +446,16 @@ describe('createQueryWrapper trace compaction', () => {
         const result = (await tool.handler(contextWithResults([oversizedTrace]), { kind: 'HogQLQuery' })) as any
 
         expect(result.results[0].events[0].properties.$ai_input).toBe('x'.repeat(20_000))
+    })
+
+    it.each(['TraceQuery', 'TracesQuery'])('withholds credential properties from %s results', async (kind) => {
+        const trace = { id: 'trace-1', events: [{ properties: { api_key: 'invented-key-value', $ai_model: 'gpt-4' } }] }
+        const tool = createQueryWrapper({ name: 'test', schema, kind })()
+
+        const result = (await tool.handler(contextWithResults([trace]), { kind })) as any
+
+        expect(JSON.stringify(result)).not.toContain('invented-key-value')
+        expect(result.results[0].events[0].properties.$ai_model).toBe('gpt-4')
     })
 })
 

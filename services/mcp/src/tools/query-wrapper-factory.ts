@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { compactTraceResults } from '@/lib/trace-compaction'
+import { redactTraceResults } from '@/lib/trace-redaction'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
     POSTHOG_META_KEY,
@@ -10,8 +11,10 @@ import {
 } from '@/tools/types'
 
 // LLM trace query kinds return every event with its full properties (entire
-// prompts, completions, tool payloads). Their results are bounded before being
-// returned so a single huge trace can't blow the caller's context window.
+// prompts, completions, tool payloads, plus the caller's auth and identity
+// context). Their results are redacted down to the AI namespace and then bounded
+// before being returned, so a single huge trace can't blow the caller's context
+// window and no credential travels with it.
 const TRACE_QUERY_KINDS = new Set(['TraceQuery', 'TracesQuery'])
 
 interface QueryWrapperConfig<T extends ZodObjectAny> {
@@ -193,7 +196,9 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
 
             const data = await context.api.query({ projectId }).runQuery({ query })
             const shouldSurfaceFormatted = effectiveOutputFormat !== 'json' && data.formatted_results
-            const results = TRACE_QUERY_KINDS.has(config.kind) ? compactTraceResults(data.results) : data.results
+            const results = TRACE_QUERY_KINDS.has(config.kind)
+                ? compactTraceResults(redactTraceResults(data.results))
+                : data.results
             // Include `query` in the payload so UI apps (TrendsVisualizer, LifecycleVisualizer)
             // can honor query-level filters like `lifecycleFilter.toggledLifecycles` and
             // `trendsFilter.display`.

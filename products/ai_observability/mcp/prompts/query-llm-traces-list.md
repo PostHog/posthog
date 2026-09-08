@@ -94,7 +94,7 @@ Each trace in the results contains:
 - `errorCount` — number of errors in the trace
 - `isSupportTrace` — whether the trace was from a support impersonation session
 - `tools` — list of tool names called during the trace
-- `events` — list of direct child events (generations, metrics, feedback). Each event's `properties` contains the full event data — see "Event types and their properties" below.
+- `events` — list of direct child events (generations, metrics, feedback). Each event's `properties` contains its AI data — see "Event types and their properties" below. The response withholds properties outside the `$ai_*` namespace, because they can carry authentication state, credentials, request headers, user identity, permissions, location, and budget context. `properties._redacted.withheldKeys` lists the withheld names. Property filters still match on them.
 
 ## Event types and their properties
 
