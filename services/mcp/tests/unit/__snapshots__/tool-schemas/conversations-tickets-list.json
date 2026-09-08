@@ -5,6 +5,11 @@
             "description": "Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `blocked_unsafe`, `blocked_unsafe_reply`, `in_progress`.",
             "type": "string"
         },
+        "archived": {
+            "description": "Which side of the archive to return. Defaults to `hide`, so archived (soft-deleted) tickets are left out unless asked for: `only` returns just the archive, `all` returns both.",
+            "enum": ["all", "hide", "only"],
+            "type": "string"
+        },
         "assignee": {
             "description": "Filter by assignee. Accepts a single value or a comma-separated list (matches any, max 100 entries). Each entry is `unassigned` (no assignee), `me` (the requesting user), `user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`.",
             "type": "string"

@@ -21,6 +21,11 @@
                     },
                     "type": "array"
                 },
+                "archived": {
+                    "description": "Which side of the archive to return. 'hide' (the default when omitted) returns only live tickets, 'only' returns only archived ones, 'all' returns both.\n\n* `hide` - hide\n* `only` - only\n* `all` - all",
+                    "enum": ["hide", "only", "all"],
+                    "type": "string"
+                },
                 "assignee": {
                     "description": "Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. Send a list. Views saved earlier can hold a single value instead of a list, or the value 'all'. Wrap a single value in a list, and replace 'all' with an empty list to apply no assignee filter.",
                     "items": {
