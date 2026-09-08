@@ -279,11 +279,6 @@ const scrubBatch = instrumented({
     return Promise.resolve({ piiReplacements })
 })
 
-/**
- * Which body transforms run on decoded records. The consumer derives this from the team's settings
- * and from what it knows about its own records, so a decision such as "these records carry no body"
- * is expressed here and never by rewriting the team's settings.
- */
 export type BodyTransforms = {
     jsonParse: boolean
     piiScrub: boolean

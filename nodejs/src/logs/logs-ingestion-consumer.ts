@@ -348,8 +348,6 @@ export class LogsIngestionConsumer {
     // Billing identity for quota enforcement and usage metering; overridden by subclasses (e.g. traces).
     protected quotaResource: QuotaResource = 'logs_mb_ingested'
     protected appSource = 'logs'
-    /** Whether records carry a `body`. The body stages (JSON parse, pattern masking) are skipped when
-     * they do not; a subclass whose records have no body overrides this to false. */
     protected recordsHaveBody = true
     protected kafkaConsumer: KafkaConsumerInterface
     private appMetricsAggregator: AppMetricsAggregator
@@ -456,10 +454,7 @@ export class LogsIngestionConsumer {
         return this.recordsHaveBody && teamIdMatchesCsv(this.patternMaskingEnabledTeamsRaw, teamId)
     }
 
-    /**
-     * A record with no body has no JSON to parse, whatever the team's setting says. PII scrub is not
-     * gated the same way because it also scrubs attribute values.
-     */
+    // PII scrub is not gated on `recordsHaveBody` because it also scrubs attribute values.
     private bodyTransformsFor(logsSettings: LogsSettings): BodyTransforms {
         return {
             jsonParse: this.recordsHaveBody && (logsSettings.json_parse_logs ?? false),
