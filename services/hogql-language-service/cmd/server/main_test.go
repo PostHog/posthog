@@ -11,11 +11,12 @@ import (
 
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/completion"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/ratelimit"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/serviceauth"
 )
 
 func TestAutocompleteUsesOnlyRequestedTeamAndUserCatalog(t *testing.T) {
-	s := &server{catalogs: catalog.NewRegistry(10, time.Hour), auth: serviceauth.New(nil, true)}
+	s := newTestServer(t)
 	handler := s.handler()
 	putCatalogForTest(t, handler, 1, 10, "revision-one", "orders")
 	putCatalogForTest(t, handler, 1, 20, "revision-two", "accounts")
@@ -31,8 +32,9 @@ func TestAutocompleteUsesOnlyRequestedTeamAndUserCatalog(t *testing.T) {
 		{teamID: 1, userID: 20, revision: "revision-two", table: "accounts"},
 		{teamID: 2, userID: 10, revision: "revision-three", table: "invoices"},
 	} {
-		body := `{"teamId":` + strconv.FormatInt(test.teamID, 10) + `,"userId":` + strconv.FormatInt(test.userID, 10) + `,"query":"SELECT * FROM "}`
-		request := httptest.NewRequest(http.MethodPost, "/autocomplete", strings.NewReader(body))
+		body := `{"query":"SELECT * FROM "}`
+		path := scopePath(test.teamID, test.userID) + "/autocomplete"
+		request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
 		request.Header.Set("Content-Type", "application/json")
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
@@ -55,17 +57,15 @@ func TestAutocompleteUsesOnlyRequestedTeamAndUserCatalog(t *testing.T) {
 }
 
 func TestAutocompleteRequiresKnownTeamAndUser(t *testing.T) {
-	s := &server{catalogs: catalog.NewRegistry(10, time.Hour), auth: serviceauth.New(nil, true)}
+	s := newTestServer(t)
 	for _, test := range []struct {
 		path   string
 		body   string
 		status int
 	}{
-		{path: "/autocomplete", body: `{"teamId":1,"query":"SELECT "}`, status: http.StatusBadRequest},
-		{path: "/autocomplete", body: `{"userId":10,"query":"SELECT "}`, status: http.StatusBadRequest},
-		{path: "/validate", body: `{"teamId":1,"query":"SELECT 1"}`, status: http.StatusBadRequest},
-		{path: "/validate", body: `{"userId":10,"query":"SELECT 1"}`, status: http.StatusBadRequest},
-		{path: "/autocomplete", body: `{"teamId":1,"userId":10,"query":"SELECT "}`, status: http.StatusNotFound},
+		{path: "/teams/1/users/invalid/autocomplete", body: `{"query":"SELECT "}`, status: http.StatusBadRequest},
+		{path: "/teams/invalid/users/10/validate", body: `{"query":"SELECT 1"}`, status: http.StatusBadRequest},
+		{path: scopePath(1, 10) + "/autocomplete", body: `{"query":"SELECT "}`, status: http.StatusNotFound},
 	} {
 		request := httptest.NewRequest(http.MethodPost, test.path, strings.NewReader(test.body))
 		response := httptest.NewRecorder()
@@ -76,16 +76,83 @@ func TestAutocompleteRequiresKnownTeamAndUser(t *testing.T) {
 	}
 }
 
+func TestPrincipalRateLimitRunsBeforeBodyDecodeAndDoesNotCrossScopes(t *testing.T) {
+	preAuthLimiter, err := ratelimit.New(ratelimit.Config{Capacity: 100, RefillPerSec: 100, MaxEntries: 10, IdleTTL: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	principalLimiter, err := ratelimit.New(ratelimit.Config{Capacity: 1, RefillPerSec: 0.001, MaxEntries: 10, IdleTTL: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &server{
+		catalogs:         catalog.NewRegistry(10, time.Hour),
+		auth:             serviceauth.New(nil, true),
+		preAuthLimiter:   preAuthLimiter,
+		principalLimiter: principalLimiter,
+	}
+	value := &catalog.Catalog{Tables: map[string]catalog.Table{}, Properties: map[string][]catalog.Property{}}
+	for _, authorization := range []serviceauth.Authorization{{TeamID: 1, UserID: 10}, {TeamID: 1, UserID: 20}} {
+		if err := s.catalogs.Put(authorization, "1", value); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	request := httptest.NewRequest(http.MethodPost, scopePath(1, 10)+"/autocomplete", strings.NewReader(`{"query":"SELECT "}`))
+	response := httptest.NewRecorder()
+	s.handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("first request returned %d: %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, scopePath(1, 10)+"/autocomplete", strings.NewReader(`{`))
+	response = httptest.NewRecorder()
+	s.handler().ServeHTTP(response, request)
+	if response.Code != http.StatusTooManyRequests || response.Header().Get("Retry-After") == "" {
+		t.Fatalf("limited request returned %d without Retry-After: %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, scopePath(1, 20)+"/autocomplete", strings.NewReader(`{"query":"SELECT "}`))
+	response = httptest.NewRecorder()
+	s.handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("another user inherited the rate limit: %d: %s", response.Code, response.Body.String())
+	}
+}
+
 func putCatalogForTest(t *testing.T, handler http.Handler, teamID, userID int64, revision, table string) {
 	t.Helper()
 	body := `{"revision":"` + revision + `","catalog":{"tables":{"` + table + `":{"name":"` + table + `","type":"warehouse","fields":{}}},"properties":{}}}`
-	path := "/teams/" + strconv.FormatInt(teamID, 10) + "/users/" + strconv.FormatInt(userID, 10) + "/catalog"
+	path := scopePath(teamID, userID) + "/catalog"
 	request := httptest.NewRequest(http.MethodPut, path, strings.NewReader(body))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("catalog upload returned %d: %s", response.Code, response.Body.String())
 	}
+}
+
+func newTestServer(t *testing.T) *server {
+	t.Helper()
+	config := ratelimit.Config{Capacity: 1000, RefillPerSec: 1000, MaxEntries: 100, IdleTTL: time.Hour}
+	preAuthLimiter, err := ratelimit.New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	principalLimiter, err := ratelimit.New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &server{
+		catalogs:         catalog.NewRegistry(10, time.Hour),
+		auth:             serviceauth.New(nil, true),
+		preAuthLimiter:   preAuthLimiter,
+		principalLimiter: principalLimiter,
+	}
+}
+
+func scopePath(teamID, userID int64) string {
+	return "/teams/" + strconv.FormatInt(teamID, 10) + "/users/" + strconv.FormatInt(userID, 10)
 }
 
 func hasSuggestion(suggestions []completion.Suggestion, label string) bool {
