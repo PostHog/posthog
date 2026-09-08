@@ -18,6 +18,16 @@ jest.mock('./providers', () => {
                 openai: { prompt_token: 0.00000015, completion_token: 0.0000006 },
             },
         },
+        // Mirrors the synced book's real gemini-3-flash-preview row: priority is a literal
+        // "-priority" key, not "-fast" as on openai.
+        'google/gemini-3-flash-preview': {
+            model: 'google/gemini-3-flash-preview',
+            cost: {
+                default: { prompt_token: 0.0000005, completion_token: 0.000003 },
+                'google-ai-studio': { prompt_token: 0.0000005, completion_token: 0.000003 },
+                'google-ai-studio-priority': { prompt_token: 0.0000009, completion_token: 0.0000054 },
+            },
+        },
         // Mirrors the synced book's real gpt-5-mini row.
         'openai/gpt-5-mini': {
             model: 'openai/gpt-5-mini',
@@ -151,10 +161,7 @@ jest.mock('./providers', () => {
 
 describe('service tier pricing', () => {
     it('prices a served flex tier from the openai-flex row', () => {
-        const result = findCostFromModel('gpt-5-mini', {
-            $ai_provider: 'openai',
-            $ai_model_parameters: { temperature: 1, service_tier: 'flex' },
-        })
+        const result = findCostFromModel('gpt-5-mini', { $ai_provider: 'openai', $ai_service_tier: 'flex' })
         // Silently pricing flex at standard rates overstates every flex call 2x.
         expect(result?.cost.provider).toBe('openai-flex')
         expect(result?.cost.cost.prompt_token).toBe(0.000000125)
@@ -162,57 +169,54 @@ describe('service tier pricing', () => {
     })
 
     it('prices a served priority tier from the openai-fast row', () => {
-        const result = findCostFromModel('gpt-5-mini', {
-            $ai_provider: 'openai',
-            $ai_model_parameters: { service_tier: 'priority' },
-        })
+        const result = findCostFromModel('gpt-5-mini', { $ai_provider: 'openai', $ai_service_tier: 'priority' })
         // Priority is a 2x surcharge; pricing it standard underreports every token cost by half.
         expect(result?.cost.provider).toBe('openai-fast')
         expect(result?.cost.cost.prompt_token).toBe(0.0000005)
     })
 
-    it('falls back to the standard row, not default, when the tier key is missing', () => {
-        const result = findCostFromModel('gpt-4', {
-            $ai_provider: 'openai',
-            $ai_model_parameters: { service_tier: 'flex' },
+    it('prices a served priority tier from the provider-literal key when the book names it so', () => {
+        const result = findCostFromModel('gemini-3-flash-preview', {
+            $ai_provider: 'gemini',
+            $ai_service_tier: 'priority',
         })
+        // Tier-key naming is per-provider; probing only "-fast" here fell back to the
+        // standard row and underreported by 44%.
+        expect(result?.cost.provider).toBe('google-ai-studio-priority')
+        expect(result?.cost.cost.prompt_token).toBe(0.0000009)
+    })
+
+    it('falls back to the standard row, not default, when the tier key is missing', () => {
+        const result = findCostFromModel('gpt-4', { $ai_provider: 'openai', $ai_service_tier: 'flex' })
         // The default key can carry promotional pricing, so a missing tier key must not reach it.
         expect(result?.cost.provider).toBe('openai')
         expect(result?.cost.cost.prompt_token).toBe(0.00003)
     })
 
-    it('leaves providers without tier rows untouched', () => {
-        const result = findCostFromModel('claude-3.5-sonnet', {
-            $ai_provider: 'anthropic',
-            $ai_model_parameters: { service_tier: 'flex' },
-        })
-        expect(result?.cost.cost.prompt_token).toBe(0.000003)
-    })
-
     it.each(['auto', 'default', undefined])('prices tier %p at standard rates', (tier) => {
-        const result = findCostFromModel('gpt-5-mini', {
-            $ai_provider: 'openai',
-            $ai_model_parameters: { service_tier: tier },
-        })
+        const result = findCostFromModel('gpt-5-mini', { $ai_provider: 'openai', $ai_service_tier: tier })
         expect(result?.cost.provider).toBe('openai')
         expect(result?.cost.cost.prompt_token).toBe(0.00000025)
     })
 
-    it('prices error events at standard even when they carry a tier', () => {
-        // SDK error paths capture the requested tier with partial usage; a tier that was
-        // never confirmed served must not discount those tokens.
+    it('prices an error event by its explicit tier', () => {
+        // $ai_service_tier writers assert served values on error events too: a flex stream
+        // that dies mid-way was billed at flex for its partial tokens.
         const result = findCostFromModel('gpt-5-mini', {
             $ai_provider: 'openai',
             $ai_is_error: true,
-            $ai_model_parameters: { service_tier: 'flex' },
+            $ai_service_tier: 'flex',
         })
-        expect(result?.cost.provider).toBe('openai')
-        expect(result?.cost.cost.prompt_token).toBe(0.00000025)
+        expect(result?.cost.provider).toBe('openai-flex')
     })
 
-    it('ignores request-side tier properties', () => {
-        // A requested tier can be refused; only the served tier the SDK records may price.
-        const result = findCostFromModel('gpt-5-mini', { $ai_provider: 'openai', $ai_service_tier: 'flex' })
+    it('never prices from model parameters', () => {
+        // Released SDKs wrote the requested tier there on successful events; a request can
+        // be refused, so that key has no served-side provenance.
+        const result = findCostFromModel('gpt-5-mini', {
+            $ai_provider: 'openai',
+            $ai_model_parameters: { service_tier: 'flex' },
+        })
         expect(result?.cost.provider).toBe('openai')
         expect(result?.cost.cost.prompt_token).toBe(0.00000025)
     })

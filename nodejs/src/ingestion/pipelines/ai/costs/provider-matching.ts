@@ -111,11 +111,7 @@ export const resolveProviderAliases = (provider: string): string => {
  * @param model - The model name for the resolved cost
  * @returns The resolved model cost, or undefined if no valid cost is found
  */
-// OpenRouter names OpenAI's priority-tier endpoints "fast".
-const SERVICE_TIER_KEY_SUFFIX: Record<string, string> = {
-    flex: '-flex',
-    priority: '-fast',
-}
+const TIERED_SERVICE_TIERS = new Set(['flex', 'priority'])
 
 export const resolveModelCostForProvider = (
     providerCosts: ModelCostByProvider,
@@ -128,14 +124,20 @@ export const resolveModelCostForProvider = (
     }
 
     // A served tier resolves by its own provider key, as a direct check: the cascade below
-    // falls back to the `default` key, which can carry promotional pricing.
-    const suffix = typeof serviceTier === 'string' ? SERVICE_TIER_KEY_SUFFIX[serviceTier] : undefined
-    if (suffix && provider) {
-        const tierKey = `${resolveProviderAliases(provider)}${suffix}`
-        const tierCost = providerCosts[tierKey]
-
-        if (tierCost) {
-            return { model, provider: tierKey, cost: tierCost }
+    // falls back to the `default` key, which can carry promotional pricing. Tier-key naming
+    // is per-provider, so probe the literal name first (google-ai-studio-priority), then
+    // "fast", the name OpenAI and Anthropic use for their priority tier.
+    if (provider && typeof serviceTier === 'string' && TIERED_SERVICE_TIERS.has(serviceTier)) {
+        const canonical = resolveProviderAliases(provider)
+        const tierKeys = [`${canonical}-${serviceTier}`]
+        if (serviceTier === 'priority') {
+            tierKeys.push(`${canonical}-fast`)
+        }
+        for (const tierKey of tierKeys) {
+            const tierCost = providerCosts[tierKey]
+            if (tierCost) {
+                return { model, provider: tierKey, cost: tierCost }
+            }
         }
     }
 

@@ -77,21 +77,11 @@ const getAiProvider = (properties: Properties): string | undefined => {
     return provider ? String(provider).toLowerCase() : undefined
 }
 
-// From the provider's response via the SDK; a requested tier can be refused, so request-side
-// properties never price. Error events are excluded: SDK error paths capture the requested
-// tier (no response arrived to overwrite it), so their partial usage prices at standard.
-const getServedServiceTier = (properties: Properties): unknown => {
-    const isError = properties['$ai_is_error']
-    if (isError === true || isError === 'true') {
-        return undefined
-    }
-
-    const modelParameters: unknown = properties['$ai_model_parameters']
-
-    return modelParameters && typeof modelParameters === 'object'
-        ? (modelParameters as Record<string, unknown>)['service_tier']
-        : undefined
-}
+// $ai_service_tier is the explicit served-tier signal: its writers (the ai-gateway, SDK
+// versions that adopted it) assert the tier the provider reported serving, on success and
+// error events alike. $ai_model_parameters.service_tier never prices: released SDKs wrote
+// the requested tier there, and a request can be refused.
+const getServedServiceTier = (properties: Properties): unknown => properties['$ai_service_tier']
 
 export const findCostFromModel = (model: string, properties: Properties): CostModelResult | undefined => {
     const provider = getAiProvider(properties)
