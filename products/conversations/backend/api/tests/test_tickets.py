@@ -3422,6 +3422,9 @@ class TestTicketArchive(APIBaseTest):
 
     def setUp(self):
         super().setUp()
+        # unread_count short-circuits to zero for a team without conversations enabled.
+        self.team.conversations_enabled = True
+        self.team.save()
         self.ticket = self._create_ticket()
 
     def _create_ticket(self, **kwargs) -> Ticket:
