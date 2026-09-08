@@ -119,12 +119,15 @@ export const ExperimentReloadAction = ({
     // Completed experiments have final results: no staleness warning, no auto refresh
     const ended = hasEnded(experiment)
 
-    // Only block the reload once the final results exist, so a fresh stop can still compute them.
+    /**
+     * Stopping an experiment starts no recalculation, so the run on screen can still stop short of the end
+     * date. Block the reload only once the results reach that date, and let the user compute them until then.
+     */
+    const coversFullWindow =
+        !!dataThrough && !!experiment.end_date && !dayjs(dataThrough).isBefore(dayjs(experiment.end_date))
     const finalResultsReason =
-        ended && lastRefresh
-            ? `This experiment stopped${
-                  experiment.end_date ? ` on ${dayjs(experiment.end_date).format('MMM D, YYYY')}` : ''
-              }. Results are final.`
+        ended && coversFullWindow
+            ? `This experiment stopped on ${dayjs(experiment.end_date).format('MMM D, YYYY')}. Results are final.`
             : null
 
     // Check if data is stale on mount or when page becomes visible
