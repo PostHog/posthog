@@ -1,12 +1,22 @@
+from datetime import timedelta
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 
+from django.utils import timezone
+
+from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.models import (
     AccountRelationshipDefinition,
     CustomPropertyDefinition,
@@ -99,6 +109,13 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
         self.assertEqual(config.properties["pinned_properties"], pinned_properties)
         self.assertEqual(config.pinned_custom_property_definition_ids, [first_custom.id, second_custom.id])
 
+        for payload in ({}, None):
+            with self.subTest(payload=payload):
+                unchanged = self.client.patch(self.endpoint, payload, format="json")
+                self.assertEqual(unchanged.status_code, status.HTTP_200_OK, unchanged.json())
+                self.assertEqual(unchanged.json(), {"pinned_properties": pinned_properties})
+                self.assertEqual(self.client.get(self.endpoint).json(), {"pinned_properties": pinned_properties})
+
         cleared = self.client.patch(self.endpoint, {"pinned_properties": []}, format="json")
 
         self.assertEqual(cleared.status_code, status.HTTP_200_OK, cleared.json())
@@ -170,3 +187,64 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
         self.assertFalse(
             UserCustomerAnalyticsConfig.objects.unscoped().filter(team_id=self.team.id, user_id=self.user.id).exists()
         )
+
+    @parameterized.expand(
+        [
+            ("personal", "account:read", status.HTTP_403_FORBIDDEN),
+            ("personal", "account:write", status.HTTP_200_OK),
+            ("oauth", "account:read", status.HTTP_403_FORBIDDEN),
+            ("oauth", "account:write", status.HTTP_200_OK),
+        ]
+    )
+    def test_token_requires_write_scope(self, kind: str, scope: str, expected_status: int) -> None:
+        pinned = [{"kind": "custom_property", "id": str(self._custom_property().id)}]
+        self.client.patch(self.endpoint, {"pinned_properties": pinned}, format="json")
+        if kind == "personal":
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                user=self.user, label="Sidebar test", secure_value=hash_key_value(token), scopes=[scope]
+            )
+        else:
+            application = OAuthApplication.objects.create(
+                name="Sidebar test",
+                user=self.user,
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+            )
+            token = "pha_sidebar_test_token"
+            OAuthAccessToken.objects.create(
+                application=application,
+                user=self.user,
+                token=token,
+                scope=scope,
+                expires=timezone.now() + timedelta(hours=1),
+            )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        self.assertEqual(self.client.get(self.endpoint).status_code, status.HTTP_200_OK)
+        response = self.client.patch(self.endpoint, {"pinned_properties": []}, format="json")
+        self.assertEqual(response.status_code, expected_status, response.json())
+        expected_pins = [] if expected_status == status.HTTP_200_OK else pinned
+        self.assertEqual(self.client.get(self.endpoint).json(), {"pinned_properties": expected_pins})
+
+    def test_session_viewer_can_personalize_their_sidebar(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        viewer = User.objects.create_and_join(self.organization, "sidebar-viewer@example.com", "testtest")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="customer_analytics",
+            resource_id=None,
+            access_level="viewer",
+            organization_member=OrganizationMembership.objects.get(user=viewer, organization=self.organization),
+        )
+        self.client.force_login(viewer)
+        pinned = [{"kind": "custom_property", "id": str(self._custom_property().id)}]
+        response = self.client.patch(self.endpoint, {"pinned_properties": pinned}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(self.client.get(self.endpoint).json(), {"pinned_properties": pinned})
