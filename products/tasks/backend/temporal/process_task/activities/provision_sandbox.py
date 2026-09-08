@@ -380,6 +380,7 @@ def _resolve_sandbox_github_token(
                 "Staged repository binding is unavailable for credential-free materialization",
                 {"task_id": ctx.task_id, "run_id": ctx.run_id},
             )
+        assert task.created_by_id is not None
         validate_staged_repository_grant(
             team_id=ctx.team_id,
             actor_id=task.created_by_id,

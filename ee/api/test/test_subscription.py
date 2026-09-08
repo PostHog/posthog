@@ -3752,6 +3752,9 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.json()["proactive_config"] == {
             "enabled": True,
             "allow_public_web_research": True,
+            "create_draft_pr": False,
+            "repository": None,
+            "repository_integration_id": None,
         }
 
         retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{response.json()['id']}")
@@ -3760,6 +3763,9 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert retrieved.json()["proactive_config"] == {
             "enabled": True,
             "allow_public_web_research": True,
+            "create_draft_pr": False,
+            "repository": None,
+            "repository_integration_id": None,
         }
 
     def test_ai_subscription_exposes_disabled_proactive_defaults(self, mock_is_cloud, mock_flag, mock_sync):
@@ -3775,6 +3781,9 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.json()["proactive_config"] == {
             "enabled": False,
             "allow_public_web_research": True,
+            "create_draft_pr": False,
+            "repository": None,
+            "repository_integration_id": None,
         }
 
     def test_ai_subscription_proactive_config_patch_preserves_unspecified_values(
@@ -3797,12 +3806,67 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert updated.json()["proactive_config"] == {
             "enabled": True,
             "allow_public_web_research": True,
+            "create_draft_pr": False,
+            "repository": None,
+            "repository_integration_id": None,
         }
+
+    def test_ai_subscription_proactive_draft_pr_config_round_trips_and_patch_preserves_values(
+        self, mock_is_cloud, mock_flag, mock_sync
+    ):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(
+                proactive_config={
+                    "enabled": True,
+                    "create_draft_pr": True,
+                    "repository": "posthog/posthog",
+                    "repository_integration_id": 123,
+                }
+            ),
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        assert created.json()["proactive_config"] == {
+            "enabled": True,
+            "allow_public_web_research": True,
+            "create_draft_pr": True,
+            "repository": "posthog/posthog",
+            "repository_integration_id": 123,
+        }
+
+        updated = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}",
+            {"proactive_config": {"allow_public_web_research": False}, "send_test_now": False},
+        )
+
+        assert updated.status_code == status.HTTP_200_OK, updated.json()
+        assert updated.json()["proactive_config"] == {
+            "enabled": True,
+            "allow_public_web_research": False,
+            "create_draft_pr": True,
+            "repository": "posthog/posthog",
+            "repository_integration_id": 123,
+        }
+
+    def test_ai_subscription_rejects_repository_config_without_draft_pr_consent(
+        self, mock_is_cloud, mock_flag, mock_sync
+    ):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(proactive_config={"repository": "posthog/posthog"}),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "create_draft_pr" in str(response.json())
 
     def test_proactive_config_is_rejected_on_an_insight_subscription(self, mock_is_cloud, mock_flag, mock_sync):
         self._mock_temporal(mock_sync)
         payload = self._insight_payload()
-        payload["proactive_config"] = {"enabled": True}
+        payload["proactive_config"] = {"create_draft_pr": True, "repository": "posthog/posthog"}
         response = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
             payload,
@@ -3815,7 +3879,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert created.status_code == status.HTTP_201_CREATED, created.json()
         updated = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}",
-            {"proactive_config": {"enabled": True}},
+            {"proactive_config": {"create_draft_pr": True, "repository": "posthog/posthog"}},
         )
         assert updated.status_code == status.HTTP_400_BAD_REQUEST, updated.json()
         assert "proactive_config" in str(updated.json()), updated.json()

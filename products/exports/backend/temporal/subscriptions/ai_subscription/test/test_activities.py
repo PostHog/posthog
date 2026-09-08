@@ -40,6 +40,7 @@ from products.subscriptions.backend.facade.contracts import (
     RecommendationResult,
 )
 from products.subscriptions.backend.facade.proactive import RecommendationAppendixDTO, update_proactive_config
+from products.tasks.backend.facade.staged_execution import StagedRepositoryBinding
 
 _WINDOW_END_UTC = "2026-06-25T12:00:00+00:00"
 
@@ -576,3 +577,102 @@ async def test_proactive_enrichment_requires_current_project_access(team, user, 
         await enrich_ai_subscription_report(inputs)
 
     generate_appendix.assert_not_called()
+
+
+@pytest.mark.usefixtures("settings")
+async def test_proactive_enrichment_resolves_draft_repository_consent_before_analysis(team, user, settings) -> None:
+    settings.PULSE_PROACTIVE_ENABLED = True
+    delivery = await _create_proactive_delivery(team, user)
+    await sync_to_async(update_proactive_config)(
+        team_id=team.id,
+        subscription_id=delivery.subscription_id,
+        enabled=True,
+        allow_public_web_research=True,
+        create_draft_pr=True,
+        repository="posthog/posthog",
+        repository_integration_id=123,
+    )
+    binding = StagedRepositoryBinding(
+        repository="posthog/posthog",
+        base_sha="a" * 40,
+        base_branch="master",
+        github_integration_id=123,
+        github_user_integration_id=uuid4(),
+        github_installation_id="456",
+        grant_version="stable-grant",
+    )
+    inputs = GenerateAIReportInputs(subscription_id=delivery.subscription_id, delivery_id=delivery.id)
+    generate_appendix = MagicMock(
+        return_value=RecommendationAppendixDTO(
+            status="failed", recommendations=(), citations=(), failure_code="timeout"
+        )
+    )
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.posthoganalytics.feature_enabled",
+            return_value=True,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.is_team_over_ai_credit_budget",
+            return_value=False,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.resolve_draft_repository_binding",
+            return_value=binding,
+        ) as resolve_binding,
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.generate_recommendation_appendix",
+            generate_appendix,
+        ),
+    ):
+        await enrich_ai_subscription_report(inputs)
+
+    resolve_binding.assert_called_once()
+    generation_input = generate_appendix.call_args.kwargs["input"]
+    assert generation_input.repository == binding
+    assert generation_input.create_draft_pr is True
+    assert generation_input.repository_name == "posthog/posthog"
+    assert generation_input.repository_integration_id == 123
+
+
+@pytest.mark.usefixtures("settings")
+async def test_proactive_enrichment_continues_without_repository_consent(team, user, settings) -> None:
+    settings.PULSE_PROACTIVE_ENABLED = True
+    delivery = await _create_proactive_delivery(team, user)
+    await sync_to_async(update_proactive_config)(
+        team_id=team.id,
+        subscription_id=delivery.subscription_id,
+        enabled=True,
+        allow_public_web_research=True,
+        create_draft_pr=True,
+        repository="posthog/posthog",
+    )
+    inputs = GenerateAIReportInputs(subscription_id=delivery.subscription_id, delivery_id=delivery.id)
+    generate_appendix = MagicMock(
+        return_value=RecommendationAppendixDTO(
+            status="failed", recommendations=(), citations=(), failure_code="timeout"
+        )
+    )
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.posthoganalytics.feature_enabled",
+            return_value=True,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.is_team_over_ai_credit_budget",
+            return_value=False,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.resolve_draft_repository_binding",
+            return_value=None,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.generate_recommendation_appendix",
+            generate_appendix,
+        ),
+    ):
+        await enrich_ai_subscription_report(inputs)
+
+    assert generate_appendix.call_args.kwargs["input"].repository is None

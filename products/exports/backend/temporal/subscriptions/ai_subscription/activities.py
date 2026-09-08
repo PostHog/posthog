@@ -63,6 +63,7 @@ from products.subscriptions.backend.facade.proactive import (
     get_proactive_config,
     read_recommendation_appendix,
     recent_recommendation_memory,
+    resolve_draft_repository_binding,
 )
 
 from ee.billing.quota_limiting import is_team_over_ai_credit_budget
@@ -424,6 +425,14 @@ async def enrich_ai_subscription_report(inputs: GenerateAIReportInputs) -> None:
             return
     except Exception:
         return
+    try:
+        repository = await database_sync_to_async(resolve_draft_repository_binding, thread_sensitive=False)(
+            team_id=subscription.team_id,
+            actor_id=actor_id,
+            config=config,
+        )
+    except Exception:
+        repository = None
     generation_input = RecommendationGenerationInput(
         team_id=subscription.team_id,
         subscription_id=subscription.id,
@@ -434,6 +443,10 @@ async def enrich_ai_subscription_report(inputs: GenerateAIReportInputs) -> None:
         prompt=frozen.prompt,
         contexts=frozen.contexts,
         public_web_research=frozen.public_web_research,
+        create_draft_pr=config.create_draft_pr,
+        repository_name=config.repository,
+        repository_integration_id=config.repository_integration_id,
+        repository=repository,
     )
     try:
         appendix = await database_sync_to_async(generate_recommendation_appendix, thread_sensitive=False)(

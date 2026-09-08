@@ -13,6 +13,9 @@ class ProactiveSubscriptionConfig(TeamScopedRootMixin, UUIDModel):
     subscription_id = models.BigIntegerField()
     enabled = models.BooleanField(default=False)
     allow_public_web_research = models.BooleanField(default=True)
+    create_draft_pr = models.BooleanField(default=False)
+    repository = models.CharField(max_length=201, null=True, blank=True)
+    repository_integration_id = models.IntegerField(null=True, blank=True)
 
     class Meta(TeamScopedRootMixin.Meta):
         constraints = [
@@ -35,6 +38,11 @@ class ProactiveRecommendationRun(TeamScopedRootMixin, UUIDModel):
     snapshot_hash = models.CharField(max_length=64)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
     failure_code = models.CharField(max_length=128, null=True, blank=True)
+    staged_run_id = models.UUIDField(null=True, blank=True)
+    task_id = models.UUIDField(null=True, blank=True)
+    analysis_run_id = models.UUIDField(null=True, blank=True)
+    repository_binding = models.JSONField(null=True, blank=True)
+    artifact_config_hash = models.CharField(max_length=64, null=True, blank=True)
 
     class Meta(TeamScopedRootMixin.Meta):
         constraints = [models.UniqueConstraint(fields=["team", "delivery_id"], name="proactive_run_team_delivery")]

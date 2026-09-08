@@ -68,6 +68,9 @@ class RecommendationGenerationInput:
     prompt: str
     contexts: tuple[RecommendationContext, ...]
     public_web_research: bool
+    create_draft_pr: bool = False
+    repository_name: str | None = None
+    repository_integration_id: int | None = None
     repository: StagedRepositoryBinding | None = None
 
 
