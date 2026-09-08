@@ -66,7 +66,13 @@ export const GithubRefChipLink = forwardRef<
         role={iconLabel ? "img" : undefined}
       />
       <span
-        className={cn("inline-block max-w-64 truncate align-top", toneClass)}
+        // 1rem is the icon and its margin, which share the chip's content box
+        // with the label. Without that subtraction the label paints past the
+        // chip edge in a narrow panel instead of truncating.
+        className={cn(
+          "inline-block max-w-[min(16rem,calc(100%-1rem))] truncate align-top",
+          toneClass,
+        )}
       >
         {children}
       </span>
