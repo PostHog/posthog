@@ -109,7 +109,7 @@ describe('DashboardFilterBar', () => {
         expect(document.querySelector('[data-attr="dashboard-filters-unsaved"]')).toBeInTheDocument()
         expect(document.querySelector('[data-attr="dashboard-save-filters"]')).toBeInTheDocument()
         expect(document.querySelector('[data-attr="dashboard-edit-mode-discard"]')).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: 'Show 1 unsaved change' })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Show 1 unsaved filter' })).toBeInTheDocument()
 
         logic.unmount()
     })

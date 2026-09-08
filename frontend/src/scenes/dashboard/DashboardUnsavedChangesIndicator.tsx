@@ -23,7 +23,7 @@ export function DashboardUnsavedChangesIndicator(): JSX.Element | null {
     }
 
     const changedCount = dashboardSettingsChanges.length
-    const changeSummary = `${changedCount} unsaved ${changedCount === 1 ? 'change' : 'changes'}`
+    const changeSummary = `${changedCount} unsaved ${changedCount === 1 ? 'filter' : 'filters'}`
     const discardDataAttr = layoutEditMode ? 'dashboard-discard-filters' : 'dashboard-edit-mode-discard'
 
     return (
@@ -56,7 +56,7 @@ export function DashboardUnsavedChangesIndicator(): JSX.Element | null {
                         data-attr={discardDataAttr}
                         type="tertiary"
                         size="small"
-                        disabledReason={dashboardFiltersSaving ? 'Dashboard changes are saving' : undefined}
+                        disabledReason={dashboardFiltersSaving ? 'Dashboard filters are saving' : undefined}
                         tooltip="Restore the settings saved to this dashboard."
                         onClick={discardDashboardChanges}
                     >
@@ -87,7 +87,7 @@ export function DashboardUnsavedChangesIndicator(): JSX.Element | null {
                             tooltip="Save these changes as the dashboard default."
                             onClick={saveDashboardChanges}
                         >
-                            Save changes
+                            Save filters
                         </LemonButton>
                     )}
                 </span>
@@ -96,7 +96,7 @@ export function DashboardUnsavedChangesIndicator(): JSX.Element | null {
                 items={[
                     {
                         label: 'Discard',
-                        disabledReason: dashboardFiltersSaving ? 'Dashboard changes are saving' : undefined,
+                        disabledReason: dashboardFiltersSaving ? 'Dashboard filters are saving' : undefined,
                         onClick: discardDashboardChanges,
                     },
                     ...(showApplyFiltersBanner
@@ -111,8 +111,8 @@ export function DashboardUnsavedChangesIndicator(): JSX.Element | null {
                     ...(canEditDashboard
                         ? [
                               {
-                                  label: 'Save changes',
-                                  disabledReason: dashboardFiltersSaving ? 'Dashboard changes are saving' : undefined,
+                                  label: 'Save filters',
+                                  disabledReason: dashboardFiltersSaving ? 'Dashboard filters are saving' : undefined,
                                   onClick: saveDashboardChanges,
                               },
                           ]
