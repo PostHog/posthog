@@ -489,9 +489,11 @@ same-run restores stay idle until a message arrives. Internal recovery instructi
 use hidden content blocks; adapters and transcript rendering omit those blocks from
 user message echoes. Existing unmarked transcript entries are unchanged.
 
-The agent advertises `prewarmedResumeMessageDriven` alongside `prewarmedResumeIdle`.
-Publish the updated agent and rebuild sandbox images before changing backend snapshot
-compatibility checks to require the new capability.
+Full filesystem snapshots contain an agent binary. Prewarmed resumes require its
+`prewarmedResumeMessageDriven` capability; the older `prewarmedResumeIdle` capability
+alone is insufficient. An incompatible snapshot uses the existing fresh-agent fallback.
+Publish the updated agent and rebuild sandbox images before deploying the stricter
+backend capability gate, so the fallback supplies a compatible agent.
 
 ## Local development
 
