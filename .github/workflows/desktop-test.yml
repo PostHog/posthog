@@ -219,7 +219,8 @@ jobs:
               # continue-on-error so the web host below still runs and the "Fail on E2E failure"
               # step at the end is the verdict for both hosts.
               continue-on-error: true
-              run: xvfb-run -a pnpm --filter code run test:e2e
+              # xvfb-run defaults to a 640x480 screen, too small for the app's minimum window.
+              run: xvfb-run -a -s "-screen 0 1920x1080x24" pnpm --filter code run test:e2e
               env:
                   CI: true
 
