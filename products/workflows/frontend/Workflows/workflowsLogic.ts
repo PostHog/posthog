@@ -410,7 +410,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
             },
         ],
     })),
-    selectors({
+    selectors(({ actions }) => ({
         paramsFromFilters: [
             (s) => [s.filters],
             (filters: WorkflowsFilters): WorkflowsListParams => ({
@@ -431,6 +431,10 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 pageSize: WORKFLOWS_PER_PAGE,
                 currentPage: filters.page || 1,
                 entryCount: workflows.count,
+                // `actionToUrl` already puts the page in the URL, so the control must not push it too.
+                useUrl: false,
+                onBackward: () => actions.setFilters({ page: Math.max(1, (filters.page || 1) - 1) }),
+                onForward: () => actions.setFilters({ page: (filters.page || 1) + 1 }),
             }),
         ],
         allArchivedSelected: [
@@ -443,7 +447,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
             (s) => [s.selectedArchivedWorkflowIds],
             (selectedIds: Set<string>): number => selectedIds.size,
         ],
-    }),
+    })),
     listeners(({ actions, values }) => ({
         setFilters: async (_, breakpoint) => {
             // Debounce so typing in the search box doesn't fire a request per keystroke.
@@ -522,8 +526,8 @@ export const workflowsLogic = kea<workflowsLogicType>([
             setFilters: buildURL,
         }
     }),
-    urlToAction(({ actions, values }) => ({
-        [urls.workflows()]: (_, searchParams) => {
+    urlToAction(({ actions, values }) => {
+        const applyFilters = (_: any, searchParams: Record<string, any>): void => {
             const status = searchParams['status']
             const type = searchParams['type']
             const triggerType = searchParams['trigger_type']
@@ -540,6 +544,12 @@ export const workflowsLogic = kea<workflowsLogicType>([
             if (!objectsEqual(parsed, values.filters)) {
                 actions.setFilters(parsed, true)
             }
-        },
-    })),
+        }
+
+        return {
+            [urls.workflows()]: applyFilters,
+            // The scene writes the tab into the path, so the list is also reachable at /workflows/workflows.
+            [urls.workflows('workflows')]: applyFilters,
+        }
+    }),
 ])
