@@ -27,6 +27,8 @@ const RECORDING_STATUS_EXPLANATIONS: Record<string, string> = {
     sampled: 'This session was included by the configured replay sample rate, so recording started.',
     paused: 'Recording is temporarily paused for this session.',
     lazy_loading: 'The SDK is still loading the recorder script before it can produce snapshots.',
+    pending_config:
+        'The SDK was waiting for recording settings from PostHog. Only posthog-js 1.356.1 to 1.358.0 report this.',
     awaiting_config: 'The SDK is waiting for recording settings from PostHog before it can start.',
     missing_config: 'The SDK could not load recording settings and stopped trying. Reload the page to start recording.',
     rrweb_error: 'The recorder failed to start, so no snapshots were produced. Check the browser console for errors.',
