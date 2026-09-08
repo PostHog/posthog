@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from django.conf import settings
 
 from products.tasks.backend.constants import POSTHOG_EXEC_PERMISSION_REGEX, SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
-from products.tasks.backend.exceptions import SandboxExecutionError, SandboxTimeoutError
+from products.tasks.backend.exceptions import SandboxExecutionError
 from products.tasks.backend.logic.services.agentsh import (
     AGENTSH_DAEMON_PORT,
     BASH_ENV_SCRIPT,
@@ -534,7 +534,9 @@ class AgentServerLaunchMixin(SandboxBase):
 
     def _free_agent_server_port(self) -> None:
         # Best-effort cleanup: every command here ends in `|| true`, so a failed exec
-        # must not abort the launch that follows either.
+        # must not abort the launch that follows either. The catch is broad because
+        # `execute` checks `is_running` before its own wrapper, so a transport error
+        # from that status refresh arrives here unwrapped.
         try:
             self.execute(
                 "pkill -TERM -f agent-server 2>/dev/null || true; "
@@ -542,5 +544,5 @@ class AgentServerLaunchMixin(SandboxBase):
                 "pkill -KILL -f agent-server 2>/dev/null || true",
                 timeout_seconds=15,
             )
-        except (SandboxExecutionError, SandboxTimeoutError) as e:
+        except Exception as e:
             logger.warning(f"Could not free the agent-server port in sandbox {self.id}, continuing: {e}")
