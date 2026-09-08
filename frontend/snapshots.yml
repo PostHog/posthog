@@ -5553,13 +5553,17 @@ snapshots:
     products-posthog-ai-queuedmessagelist--empty--light:
         hash: v1.k794b7964.8ff99b0d11642dd53f5f0f70fc69106ee0e0158728fd6a73cf8699c4d68f8186.BQuDnKXQn4DwravdDwbmq3GC_BR06D3nntvW0bDvyzE
     products-posthog-ai-queuedmessagelist--multiple--dark:
-        hash: v1.k794b7964.df1eade6e183882ac4d220db72d54facaef1b22f1101d78683d6f2586af645f4.VcQ01DmlP4tHpLwgl8bn3UzQSJDkSIlpim747hocONc
+        hash: v1.k794b7964.3eda7962450082ad7e2ccb00419d73cde05964c67ce755414b11e1e4aea1aa8d.sccBMURl0uxdRk2-I_rbzScJQpUb8YMXKogdqgDEen0
     products-posthog-ai-queuedmessagelist--multiple--light:
-        hash: v1.k794b7964.b9579f5c5a4eae44c5143e87c238482f1340cb42617133b88ba5d726fd6d29d6.Jfm-YMQbfiruoX3Q5A_8dWxK3oxl5ezc5esv4_M9zfU
+        hash: v1.k794b7964.b8f2bbbd52d9d6d9cf037064a8006404e4baa16713f6cfd83dada357d174228c.R1y2GmsWYktkzIyDfTGX3pFYKv-wSUj7SrIVfUA93NU
     products-posthog-ai-queuedmessagelist--single--dark:
-        hash: v1.k794b7964.0c2d1ef2f419ad132533feeab88c70b8ff71b141e579d71be1a2399a1fcd730b.Up3p6SW6AQ0hKPpnuGgk6vGU0JIwNRcDlyvbWQ3wHm8
+        hash: v1.k794b7964.dc7887592adb4bd52e26bc40b2b7d91b4f0bb30b734313a8ca4dbf51a90eba20.jQksRkqZoUKTRLj-qr3x369OJW5x1-VvIqARTVLdRrU
     products-posthog-ai-queuedmessagelist--single--light:
-        hash: v1.k794b7964.9a96b57f229ede4a08ede4e081cad6fc788244f553de1a8d945cdfe3ccb3fe1c.LdYCyr75SdQkMa9RdjmEqLD-vS6zsJxXQr33aFn4NiU
+        hash: v1.k794b7964.574947658755ff52ea706341b7733033c27284dcded89cec117e770420947f6b.wYrWBIoHgR8k8p_nv1OqlGzkyyqedwJiMzRaaamjJKA
+    products-posthog-ai-queuedmessagelist--waiting-for-approval--dark:
+        hash: v1.k794b7964.c53aea6618dc88c754e0e9f074f439dbc8e11634184680e91b00170e4f681ff5.xLAZFI1s99bnlOuZw2PXahGWRxKTy5vxGa4-n7s_RQs
+    products-posthog-ai-queuedmessagelist--waiting-for-approval--light:
+        hash: v1.k794b7964.84558994ccccfbf6b0479c05e70fa04048ecdb813a76ac4a3e689b3f3d4a3cfd.WdgXqb0eDP9c6glP6UuTXb--spzTGFym3foe4wFyEIg
     products-posthog-ai-runalertactivity--agent-crash--dark:
         hash: v1.k794b7964.eccf2dc544a4a6695a42fb347e5c87b78fe735e8ac46647d17e53bf94d25884e.-9d5PYEyERQrPQag4CvnJteuh6fkhr0vYWyTDOt0Z8E
     products-posthog-ai-runalertactivity--agent-crash--light:
