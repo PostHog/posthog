@@ -103,7 +103,13 @@ bysetpos: 1 # most useful with monthly; requires byweekday — e.g. byweekday:['
 count: 10 # cap total deliveries
 until_date: '2026-12-31T00:00:00Z' # stop on/before this date
 integration_id: 42 # Slack only — required; from integrations-list (see "Slack target")
+proactive_config: # AI reports only; omitted means recommendations are disabled
+  enabled: true # add up to three recommendations after the saved report
+  allow_public_web_research: false # opt out of bounded public web research
 ```
+
+Proactive recommendations are disabled by default. When you enable them, public web research is allowed by default.
+Set `allow_public_web_research: false` when the report should rely only on the report and its configured context.
 
 ## Slack target
 
@@ -159,6 +165,8 @@ title: 'Daily onboarding watch'
   you supply a good one); and (2) the **original creator is still an active user** —
   if that account was deactivated the sub cannot be re-enabled at all (no prompt will
   help; re-create it instead).
+- **Proactive settings apply only to AI reports.** Send `proactive_config` only with a
+  prompt subscription. On an update, omit either nested setting to keep its current value.
 - **`next_delivery_date` is server-computed from the rrule.** Don't try to set it
   manually — it's read-only. The first delivery fires at the first `start_date`
   occurrence that is at least a short buffer (currently ~15 minutes) in the future,

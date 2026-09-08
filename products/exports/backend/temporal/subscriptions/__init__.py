@@ -9,7 +9,10 @@ from products.exports.backend.temporal.subscriptions.activities import (
     update_delivery_record,
     validate_subscription_for_delivery,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.activities import generate_ai_subscription_report
+from products.exports.backend.temporal.subscriptions.ai_subscription.activities import (
+    enrich_ai_subscription_report,
+    generate_ai_subscription_report,
+)
 from products.exports.backend.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from products.exports.backend.temporal.subscriptions.workflows import (
     HandleSubscriptionValueChangeWorkflow,
@@ -33,6 +36,7 @@ ACTIVITIES = [
     deliver_subscription_v2,
     notify_subscription_delivery_failure,
     generate_ai_subscription_report,
+    enrich_ai_subscription_report,
     advance_next_delivery_date,
     create_delivery_record,
     update_delivery_record,

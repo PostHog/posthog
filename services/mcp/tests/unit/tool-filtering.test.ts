@@ -495,7 +495,7 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
     const SERVER_MINT_ONLY_SCOPES = new Set([
         'internal_run:read',
         'loop_context_internal:write',
-        'pulse_research_internal:read',
+        PULSE_RESEARCH_INTERNAL_SCOPE,
         'signal_scout_internal:read',
         'signal_scout_internal:write',
         'signal_scout_report:read',

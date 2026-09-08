@@ -7,7 +7,7 @@ from uuid import UUID
 
 from posthog.dataclasses import frozen
 
-from products.tasks.backend.facade.staged_execution import StagedRepositoryBinding
+from products.tasks.backend.facade.staged_execution import StagedRepositoryBinding as StagedRepositoryBinding
 
 RecommendationKind = Literal["product_change", "experiment", "instrumentation", "investigation"]
 RecommendationEffort = Literal["small", "medium", "large"]
@@ -18,6 +18,7 @@ RecommendationStatus = Literal["pending", "completed", "failed"]
 class RecommendationContext:
     id: str
     content: str
+    citable: bool = True
 
 
 @frozen

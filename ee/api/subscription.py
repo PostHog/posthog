@@ -76,6 +76,7 @@ from products.exports.backend.temporal.subscriptions.types import (
 )
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.facade.proactive import get_proactive_config, update_proactive_config
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
@@ -272,6 +273,36 @@ class AIPromptConfigSerializer(serializers.Serializer):
     )
 
 
+class ProactiveConfigSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(
+        required=False,
+        help_text="Whether this AI report generates up to three proactive recommendations after its base report is saved. Defaults to false.",
+    )
+    allow_public_web_research = serializers.BooleanField(
+        required=False,
+        help_text="Whether proactive recommendations may use bounded public web research. Defaults to true.",
+    )
+
+
+@extend_schema_field(ProactiveConfigSerializer)
+class ProactiveConfigField(serializers.Field):
+    """Keeps the subscription API contract behind the proactive facade."""
+
+    def to_internal_value(self, data: Any) -> dict[str, dict[str, bool]]:
+        serializer = ProactiveConfigSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        return {"proactive_config": serializer.validated_data}
+
+    def to_representation(self, value: Subscription) -> dict[str, bool]:
+        if value.resource_type != Subscription.ResourceType.AI_PROMPT:
+            return {}
+        config = get_proactive_config(team_id=value.team_id, subscription_id=value.id)
+        return {
+            "enabled": config.enabled,
+            "allow_public_web_research": config.allow_public_web_research,
+        }
+
+
 class DeliveryConfigSerializer(serializers.Serializer):
     """Typed view over the Subscription.delivery_config JSON blob."""
 
@@ -396,6 +427,14 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             "when resource_type is 'ai_prompt'. Replaced wholesale on writes."
         ),
     )
+    proactive_config = ProactiveConfigField(
+        required=False,
+        source="*",
+        help_text=(
+            "Configuration for proactive recommendations on an AI report subscription. Only valid when "
+            "resource_type is 'ai_prompt'. Omitted values preserve the existing setting on update."
+        ),
+    )
     contexts: serializers.Field = SubscriptionContextsWriteField(
         child=SubscriptionContextWriteSerializer(),
         required=False,
@@ -434,6 +473,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             "dashboard_export_insights",
             "prompt",
             "ai_prompt_config",
+            "proactive_config",
             "contexts",
             "target_type",
             "target_value",
@@ -582,6 +622,8 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         representation = super().to_representation(instance)
         if instance.target_type == Subscription.SubscriptionTarget.TEAMS:
             representation["target_value"] = instance.recipient_label
+        if instance.resource_type != Subscription.ResourceType.AI_PROMPT:
+            representation.pop("proactive_config", None)
         if "contexts" not in representation:
             representation["contexts"] = self._context_representation(instance)
         return representation
@@ -723,6 +765,8 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             raise ValidationError({"resource_type": [f"Unsupported resource_type: {resource_type}."]})
         if resource_type != Subscription.ResourceType.AI_PROMPT and attrs.get("ai_prompt_config"):
             raise ValidationError({"ai_prompt_config": ["AI report settings only apply to AI subscriptions."]})
+        if resource_type != Subscription.ResourceType.AI_PROMPT and "proactive_config" in attrs:
+            raise ValidationError({"proactive_config": ["Proactive settings only apply to AI subscriptions."]})
         if "contexts" in attrs:
             if resource_type != Subscription.ResourceType.AI_PROMPT:
                 raise ValidationError({"contexts": ["Context only applies to AI subscriptions."]})
@@ -1072,6 +1116,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         validated_data: dict,
         contexts: list[dict[str, Insight | Dashboard]],
         contexts_in_payload: bool,
+        proactive_config: dict[str, bool] | None,
         analytics_props: AnalyticsProps,
     ) -> tuple[Subscription, bool]:
         contexts_changed = False
@@ -1092,7 +1137,19 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                 instance = super().update(instance, validated_data)
             if contexts_changed:
                 self._replace_contexts(instance, contexts)
+            if proactive_config is not None:
+                self._update_proactive_config(instance, proactive_config)
         return instance, contexts_changed
+
+    @staticmethod
+    def _update_proactive_config(instance: Subscription, config: dict[str, bool]) -> None:
+        current = get_proactive_config(team_id=instance.team_id, subscription_id=instance.id)
+        update_proactive_config(
+            team_id=instance.team_id,
+            subscription_id=instance.id,
+            enabled=config.get("enabled", current.enabled),
+            allow_public_web_research=config.get("allow_public_web_research", current.allow_public_web_research),
+        )
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Subscription:
         request = self.context["request"]
@@ -1114,6 +1171,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         send_test_now = validated_data.pop("send_test_now", True)
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
         contexts = validated_data.pop("contexts", [])
+        proactive_config = validated_data.pop("proactive_config", None)
         with transaction.atomic():
             context_identifiers = self._context_identifiers(contexts)
             context_change: tuple[list[str], list[str]] | None = (
@@ -1122,6 +1180,8 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             with attribute_subscription_saves(get_request_analytics_properties(request), context_change=context_change):
                 instance: Subscription = super().create(validated_data)
             self._replace_contexts(instance, contexts)
+            if proactive_config is not None:
+                self._update_proactive_config(instance, proactive_config)
 
         # Bust the org-wide active-summary count cache so the next quota
         # fetch reflects this row, regardless of summary_enabled — over-busting
@@ -1197,6 +1257,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
         contexts_in_payload = "contexts" in validated_data
         contexts = validated_data.pop("contexts", [])
+        proactive_config = validated_data.pop("proactive_config", None)
         contexts_changed = False
         analytics_props = get_request_analytics_properties(request)
 
@@ -1226,13 +1287,13 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                 },
             ):
                 instance, contexts_changed = self._update_with_contexts(
-                    instance, validated_data, contexts, contexts_in_payload, analytics_props
+                    instance, validated_data, contexts, contexts_in_payload, proactive_config, analytics_props
                 )
             _invalidate_summary_quota_cache(instance.team.organization_id)
             return instance
 
         instance, contexts_changed = self._update_with_contexts(
-            instance, validated_data, contexts, contexts_in_payload, analytics_props
+            instance, validated_data, contexts, contexts_in_payload, proactive_config, analytics_props
         )
         _invalidate_summary_quota_cache(instance.team.organization_id)
 

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Literal
 from uuid import uuid4
 
@@ -102,40 +103,27 @@ class TestStagedTaskRuns(TestCase):
         assert binding is not None
         assert binding.network_egress == "inherit"
 
-    @pytest.mark.parametrize(
-        "disabled_tools,network_egress",
-        [
+    def test_pulse_analysis_rejects_a_manifest_outside_its_fixed_boundary(self) -> None:
+        invalid_manifests: list[tuple[tuple[str, ...], Literal["inherit", "posthog_mcp_only"]]] = [
             (("Bash", "WebFetch", "WebSearch", "Write"), "posthog_mcp_only"),
             (PULSE_DISABLED_TOOLS, "inherit"),
-        ],
-    )
-    def test_pulse_analysis_rejects_a_manifest_outside_its_fixed_boundary(
-        self,
-        disabled_tools: tuple[str, ...],
-        network_egress: Literal["inherit", "posthog_mcp_only"],
-    ) -> None:
-        input = self._create_input(idempotency_key=f"pulse-{network_egress}-{len(disabled_tools)}")
-        input = CreateStagedTaskInput(
-            **{
-                **input.__dict__,
-                "analysis_manifest": self._pulse_analysis_manifest(
+        ]
+        for disabled_tools, network_egress in invalid_manifests:
+            input = self._create_input(idempotency_key=f"pulse-{network_egress}-{len(disabled_tools)}")
+            input = replace(
+                input,
+                analysis_manifest=self._pulse_analysis_manifest(
                     disabled_tools=disabled_tools,
                     network_egress=network_egress,
                 ),
-            }
-        )
+            )
 
-        with pytest.raises(ValueError, match="Pulse"):
-            create_staged_task(input)
+            with pytest.raises(ValueError, match="Pulse"):
+                create_staged_task(input)
 
     def test_pulse_analysis_persists_its_fixed_network_and_native_tool_policy(self) -> None:
         input = self._create_input(idempotency_key="pulse-policy")
-        input = CreateStagedTaskInput(
-            **{
-                **input.__dict__,
-                "analysis_manifest": self._pulse_analysis_manifest(),
-            }
-        )
+        input = replace(input, analysis_manifest=self._pulse_analysis_manifest())
 
         created = create_staged_task(input)
         binding = get_staged_execution_binding(str(created.analysis_run_id))
@@ -146,12 +134,10 @@ class TestStagedTaskRuns(TestCase):
 
     def test_pulse_staged_task_is_hidden_from_generic_listing_and_one_shot(self) -> None:
         input = self._create_input(idempotency_key="pulse-hidden")
-        input = CreateStagedTaskInput(
-            **{
-                **input.__dict__,
-                "origin_product": "pulse_subscription",
-                "analysis_manifest": self._pulse_analysis_manifest(),
-            }
+        input = replace(
+            input,
+            origin_product="pulse_subscription",
+            analysis_manifest=self._pulse_analysis_manifest(),
         )
 
         created = create_staged_task(input)
@@ -167,15 +153,13 @@ class TestStagedTaskRuns(TestCase):
 
     def test_read_staged_task_result_requires_the_original_team_caller_and_handle(self) -> None:
         input = self._create_input(idempotency_key="read-result")
-        input = CreateStagedTaskInput(
-            **{
-                **input.__dict__,
-                "output_schema": {
-                    "type": "object",
-                    "required": ["recommendations"],
-                    "properties": {"recommendations": {"type": "array"}},
-                },
-            }
+        input = replace(
+            input,
+            output_schema={
+                "type": "object",
+                "required": ["recommendations"],
+                "properties": {"recommendations": {"type": "array"}},
+            },
         )
         created = create_staged_task(input)
         TaskRun.objects.filter(id=created.analysis_run_id).update(
@@ -207,11 +191,9 @@ class TestStagedTaskRuns(TestCase):
 
     def test_read_staged_task_result_fails_closed_for_invalid_structured_output(self) -> None:
         input = self._create_input(idempotency_key="invalid-result")
-        input = CreateStagedTaskInput(
-            **{
-                **input.__dict__,
-                "output_schema": {"type": "object", "required": ["recommendations"]},
-            }
+        input = replace(
+            input,
+            output_schema={"type": "object", "required": ["recommendations"]},
         )
         created = create_staged_task(input)
         TaskRun.objects.filter(id=created.analysis_run_id).update(status=TaskRun.Status.COMPLETED, output={"other": []})
@@ -300,18 +282,16 @@ class TestStagedTaskRuns(TestCase):
             repository_cache_updated_at=timezone.now(),
         )
         input = self._create_input()
-        input = CreateStagedTaskInput(
-            **{
-                **input.__dict__,
-                "repository": StagedRepositoryBinding(
-                    repository="posthog/posthog",
-                    base_sha="a" * 40,
-                    base_branch="master",
-                    github_integration_id=integration.id,
-                    github_installation_id="different-installation",
-                    grant_version="v1",
-                ),
-            }
+        input = replace(
+            input,
+            repository=StagedRepositoryBinding(
+                repository="posthog/posthog",
+                base_sha="a" * 40,
+                base_branch="master",
+                github_integration_id=integration.id,
+                github_installation_id="different-installation",
+                grant_version="v1",
+            ),
         )
 
         with pytest.raises(InvalidStagedTaskBindingError):
@@ -332,18 +312,16 @@ class TestStagedTaskRuns(TestCase):
             input = self._create_input()
             with pytest.raises(ValueError):
                 create_staged_task(
-                    CreateStagedTaskInput(
-                        **{
-                            **input.__dict__,
-                            "repository": StagedRepositoryBinding(
-                                repository=repository,
-                                base_sha=base_sha,
-                                base_branch="master",
-                                github_integration_id=integration.id,
-                                github_installation_id="bound-installation",
-                                grant_version="v1",
-                            ),
-                        }
+                    replace(
+                        input,
+                        repository=StagedRepositoryBinding(
+                            repository=repository,
+                            base_sha=base_sha,
+                            base_branch="master",
+                            github_integration_id=integration.id,
+                            github_installation_id="bound-installation",
+                            grant_version="v1",
+                        ),
                     )
                 )
 
@@ -359,18 +337,16 @@ class TestStagedTaskRuns(TestCase):
 
         with pytest.raises(InvalidStagedTaskBindingError):
             create_staged_task(
-                CreateStagedTaskInput(
-                    **{
-                        **input.__dict__,
-                        "repository": StagedRepositoryBinding(
-                            repository="owner/repo",
-                            base_sha="a" * 40,
-                            base_branch="master",
-                            github_integration_id=integration.id,
-                            github_installation_id="bound-installation",
-                            grant_version="v1",
-                        ),
-                    }
+                replace(
+                    input,
+                    repository=StagedRepositoryBinding(
+                        repository="owner/repo",
+                        base_sha="a" * 40,
+                        base_branch="master",
+                        github_integration_id=integration.id,
+                        github_installation_id="bound-installation",
+                        grant_version="v1",
+                    ),
                 )
             )
 

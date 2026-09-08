@@ -30,6 +30,13 @@ Recurring reports are built on PostHog's AI subscriptions, which are in early ac
 If you don't see a **Set up** button, turn on **AI subscriptions** in your [feature previews](https://app.posthog.com/settings/user-feature-previews) first.
 Your organization also needs to approve AI data processing in its settings.
 
+An early-alpha AI report can also prepare up to three cited recommendations after it creates the base report. This is
+off by default. API and MCP clients enable it with `proactive_config.enabled`; public web research is then allowed by
+default and can be disabled with `proactive_config.allow_public_web_research: false`.
+
+Instance operators enable this alpha with `PULSE_PROACTIVE_ENABLED=true`. Public web research has a separate
+`PULSE_PUBLIC_RESEARCH_ENABLED=true` switch, and `PULSE_PROACTIVE_TIMEOUT_SECONDS` controls its 10-minute default deadline.
+
 Because a report summarizes a window of time, it stays useful on a low-volume server and can't flood a channel.
 
 ## Instant alerts

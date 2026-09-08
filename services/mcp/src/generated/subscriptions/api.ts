@@ -128,6 +128,25 @@ export const SubscriptionsCreateBody = () => zod
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
             ),
+        proactive_config: zod
+            .object({
+                enabled: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether this AI report generates up to three proactive recommendations after its base report is saved. Defaults to false.'
+                    ),
+                allow_public_web_research: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether proactive recommendations may use bounded public web research. Defaults to true.'
+                    ),
+            })
+            .optional()
+            .describe(
+                "Configuration for proactive recommendations on an AI report subscription. Only valid when resource_type is 'ai_prompt'. Omitted values preserve the existing setting on update."
+            ),
         target_type: zod
             .enum(['email', 'slack', 'teams'])
             .describe('\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams')
@@ -332,6 +351,25 @@ export const SubscriptionsPartialUpdateBody = () => zod
             .optional()
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
+            ),
+        proactive_config: zod
+            .object({
+                enabled: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether this AI report generates up to three proactive recommendations after its base report is saved. Defaults to false.'
+                    ),
+                allow_public_web_research: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether proactive recommendations may use bounded public web research. Defaults to true.'
+                    ),
+            })
+            .optional()
+            .describe(
+                "Configuration for proactive recommendations on an AI report subscription. Only valid when resource_type is 'ai_prompt'. Omitted values preserve the existing setting on update."
             ),
         target_type: zod
             .enum(['email', 'slack', 'teams'])

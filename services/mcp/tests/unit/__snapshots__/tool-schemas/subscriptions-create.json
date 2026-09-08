@@ -154,6 +154,20 @@
             "minimum": 1,
             "type": "number"
         },
+        "proactive_config": {
+            "description": "Configuration for proactive recommendations on an AI report subscription. Only valid when resource_type is 'ai_prompt'. Omitted values preserve the existing setting on update.",
+            "properties": {
+                "allow_public_web_research": {
+                    "description": "Whether proactive recommendations may use bounded public web research. Defaults to true.",
+                    "type": "boolean"
+                },
+                "enabled": {
+                    "description": "Whether this AI report generates up to three proactive recommendations after its base report is saved. Defaults to false.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "prompt": {
             "anyOf": [
                 {

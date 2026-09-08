@@ -1,22 +1,29 @@
 import uuid
+import hashlib
 import datetime as dt
 import dataclasses
 from datetime import datetime
 
+from django.conf import settings
+from django.db import transaction
 from django.utils import timezone as tz
 
 import dateutil.parser
+import posthoganalytics
 import temporalio.activity
 from asgiref.sync import sync_to_async
 from structlog import get_logger
 from temporalio.exceptions import ApplicationError
 
+from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY
 from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership
 from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.exports.backend.models.subscription_context import SubscriptionContext
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     build_ai_subscription_report,
     build_ai_teams_card,
@@ -38,6 +45,8 @@ from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
+    AI_REPORT_RECOMMENDATION_INPUT_KEY,
+    AI_REPORT_RECOMMENDATIONS_KEY,
     AI_REPORT_SNAPSHOT_KEY,
     AI_REPORT_WINDOW_END_KEY,
     DeliverSubscriptionInputs,
@@ -46,6 +55,14 @@ from products.exports.backend.temporal.subscriptions.types import (
     GenerateAIReportResult,
     QueryErrorDetails,
     RecipientResult,
+)
+from products.subscriptions.backend.facade.contracts import RecommendationContext, RecommendationGenerationInput
+from products.subscriptions.backend.facade.proactive import (
+    RecommendationAppendixDTO,
+    generate_recommendation_appendix,
+    get_proactive_config,
+    read_recommendation_appendix,
+    recent_recommendation_memory,
 )
 
 from ee.billing.quota_limiting import is_team_over_ai_credit_budget
@@ -57,6 +74,8 @@ LOGGER = get_logger(__name__)
 # If the org's AI-credit balance isn't synced yet, reschedule roughly a billing cycle out so a
 # skipped sub still moves forward instead of re-firing every tick.
 _CREDIT_RESET_FALLBACK_DAYS = 31
+_PULSE_CONTEXT_LIMIT = 20
+_PULSE_POLL_INTERVAL_SECONDS = 10
 
 
 async def _load_snapshot(delivery_id: uuid.UUID) -> dict | None:
@@ -165,6 +184,268 @@ async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult, pro
         delivery.save(update_fields=["content_snapshot", "last_updated_at"])
 
     await _write()
+
+
+def _render_recommendations_appendix(appendix: RecommendationAppendixDTO) -> str:
+    items = appendix.recommendations
+    if not items:
+        return ""
+    citation_titles = {citation.id: citation.title for citation in appendix.citations}
+    lines = ["## Recommendations"]
+    for item in items[:3]:
+        lines.extend(
+            (
+                f"### {item.title}",
+                item.rationale,
+                f"Why now: {item.why_now}",
+                f"Confidence: {item.confidence}; effort: {item.effort}",
+                f"Metric: {item.metric_name} ({item.metric_direction}, {item.expected_metric_movement})",
+            )
+        )
+        sources = [citation_titles[citation_id] for citation_id in item.citation_ids if citation_id in citation_titles]
+        if sources:
+            lines.append(f"Sources: {', '.join(sources)}")
+    return "\n\n".join(lines)
+
+
+async def _append_recommendations(delivery_id: uuid.UUID, appendix: RecommendationAppendixDTO) -> None:
+    rendered = _render_recommendations_appendix(appendix)
+    if not rendered:
+        return
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _write() -> None:
+        with transaction.atomic():
+            delivery = SubscriptionDelivery.objects.select_for_update().get(pk=delivery_id)
+            snapshot = delivery.content_snapshot if isinstance(delivery.content_snapshot, dict) else {}
+            existing = snapshot.get(AI_REPORT_RECOMMENDATIONS_KEY)
+            if existing == rendered:
+                return
+            report = snapshot.get(AI_REPORT_SNAPSHOT_KEY)
+            if not isinstance(report, str) or not report:
+                return
+            if isinstance(existing, str):
+                report = report.removesuffix(f"\n\n{existing}")
+            delivery.content_snapshot = {
+                **snapshot,
+                AI_REPORT_SNAPSHOT_KEY: f"{report}\n\n{rendered}",
+                AI_REPORT_RECOMMENDATIONS_KEY: rendered,
+            }
+            delivery.save(update_fields=["content_snapshot", "last_updated_at"])
+
+    await _write()
+
+
+@database_sync_to_async(thread_sensitive=False)
+def _freeze_recommendation_input(delivery_id: uuid.UUID, candidate: dict[str, object]) -> dict[str, object]:
+    with transaction.atomic():
+        delivery = SubscriptionDelivery.objects.select_for_update().get(pk=delivery_id)
+        snapshot = delivery.content_snapshot if isinstance(delivery.content_snapshot, dict) else {}
+        existing = snapshot.get(AI_REPORT_RECOMMENDATION_INPUT_KEY)
+        if isinstance(existing, dict):
+            return existing
+        delivery.content_snapshot = {**snapshot, AI_REPORT_RECOMMENDATION_INPUT_KEY: candidate}
+        delivery.save(update_fields=["content_snapshot", "last_updated_at"])
+        return candidate
+
+
+@frozen
+class _FrozenRecommendationInput:
+    prompt: str
+    contexts: tuple[RecommendationContext, ...]
+    public_web_research: bool
+    claim_snapshot: dict[str, object]
+
+
+def _parse_frozen_recommendation_input(payload: object, base_report: str) -> _FrozenRecommendationInput | None:
+    if not isinstance(payload, dict) or payload.get("version") != 1:
+        return None
+    report_hash = payload.get("report_hash")
+    prompt = payload.get("prompt")
+    raw_contexts = payload.get("contexts")
+    public_web_research = payload.get("public_web_research")
+    if (
+        report_hash != hashlib.sha256(base_report.encode()).hexdigest()
+        or not isinstance(prompt, str)
+        or not prompt
+        or not isinstance(raw_contexts, list)
+        or len(raw_contexts) > _PULSE_CONTEXT_LIMIT
+        or not isinstance(public_web_research, bool)
+    ):
+        return None
+    contexts: list[RecommendationContext] = []
+    for raw_context in raw_contexts:
+        if not isinstance(raw_context, dict):
+            return None
+        context_id = raw_context.get("id")
+        content = raw_context.get("content")
+        citable = raw_context.get("citable")
+        if not isinstance(context_id, str) or not isinstance(content, str) or not isinstance(citable, bool):
+            return None
+        contexts.append(RecommendationContext(id=context_id, content=content, citable=citable))
+    return _FrozenRecommendationInput(
+        prompt=prompt,
+        contexts=tuple(contexts),
+        public_web_research=public_web_research,
+        claim_snapshot={
+            "version": 1,
+            "report_hash": report_hash,
+            "prompt": prompt,
+            "contexts": raw_contexts,
+            "public_web_research": public_web_research,
+        },
+    )
+
+
+@database_sync_to_async(thread_sensitive=False)
+def _actor_has_project_access(subscription: Subscription) -> bool:
+    return bool(
+        subscription.created_by
+        and UserAccessControl(user=subscription.created_by, team=subscription.team).has_project_access
+    )
+
+
+@database_sync_to_async(thread_sensitive=False)
+def _recommendation_contexts(subscription: Subscription) -> tuple[RecommendationContext, ...]:
+    result: list[RecommendationContext] = []
+    if subscription.created_by is None:
+        return ()
+    user_access_control = UserAccessControl(user=subscription.created_by, team=subscription.team)
+    contexts = (
+        SubscriptionContext.objects.for_team(subscription.team_id)
+        .filter(subscription_id=subscription.id)
+        .select_related("dashboard", "insight")[:3]
+    )
+    for context in contexts:
+        if (
+            context.dashboard_id
+            and context.dashboard
+            and not context.dashboard.deleted
+            and user_access_control.check_access_level_for_object(context.dashboard, "viewer")
+        ):
+            result.append(
+                RecommendationContext(
+                    id=f"dashboard:{context.dashboard_id}",
+                    content=(context.dashboard.name or "Untitled dashboard")[:300],
+                )
+            )
+        elif (
+            context.insight_id
+            and context.insight
+            and not context.insight.deleted
+            and user_access_control.check_access_level_for_object(context.insight, "viewer")
+        ):
+            result.append(
+                RecommendationContext(
+                    id=f"insight:{context.insight_id}",
+                    content=(context.insight.name or context.insight.derived_name or "Untitled insight")[:300],
+                )
+            )
+    memory = recent_recommendation_memory(team_id=subscription.team_id, subscription_id=subscription.id)
+    for item in memory[: _PULSE_CONTEXT_LIMIT - len(result)]:
+        result.append(
+            RecommendationContext(
+                id=f"memory:{item.semantic_key}",
+                content=f"Previously recommended at {item.created_at}: {item.title}. Do not repeat this exact idea.",
+                citable=False,
+            )
+        )
+    return tuple(result)
+
+
+@temporalio.activity.defn
+async def enrich_ai_subscription_report(inputs: GenerateAIReportInputs) -> None:
+    """Best-effort Pulse adapter. Its failures never prevent the saved report from shipping."""
+    subscription = await database_sync_to_async(
+        Subscription.objects.select_related("created_by", "team", "team__organization").get,
+        thread_sensitive=False,
+    )(pk=inputs.subscription_id)
+    snapshot = await _load_snapshot(inputs.delivery_id)
+    report = _snapshot_report(snapshot)
+    prompt = snapshot.get(AI_REPORT_PROMPT_SNAPSHOT_KEY) if snapshot else None
+    if (
+        report is None
+        or subscription.created_by is None
+        or not subscription.created_by.is_active
+        or not isinstance(prompt, str)
+        or not prompt
+    ):
+        return
+    actor_id = subscription.created_by.id
+    actor_distinct_id = subscription.created_by.distinct_id
+    if not actor_distinct_id:
+        return
+    if not settings.PULSE_PROACTIVE_ENABLED or not await _actor_has_project_access(subscription):
+        return
+    alpha_enabled = await sync_to_async(posthoganalytics.feature_enabled, thread_sensitive=False)(
+        SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
+        actor_distinct_id,
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )
+    if not alpha_enabled:
+        return
+    config = await database_sync_to_async(get_proactive_config, thread_sensitive=False)(
+        team_id=subscription.team_id, subscription_id=subscription.id
+    )
+    if not config.enabled:
+        return
+    appendix = (snapshot or {}).get(AI_REPORT_RECOMMENDATIONS_KEY)
+    base_report = report.removesuffix(f"\n\n{appendix}") if isinstance(appendix, str) else report
+    existing = await database_sync_to_async(read_recommendation_appendix, thread_sensitive=False)(
+        team_id=subscription.team_id, delivery_id=inputs.delivery_id
+    )
+    if existing is not None:
+        await _append_recommendations(inputs.delivery_id, existing)
+        return
+    frozen_payload = (snapshot or {}).get(AI_REPORT_RECOMMENDATION_INPUT_KEY)
+    if not isinstance(frozen_payload, dict):
+        contexts = await _recommendation_contexts(subscription)
+        frozen_payload = await _freeze_recommendation_input(
+            inputs.delivery_id,
+            {
+                "version": 1,
+                "report_hash": hashlib.sha256(base_report.encode()).hexdigest(),
+                "prompt": prompt[:10_000],
+                "contexts": [
+                    {"id": context.id, "content": context.content, "citable": context.citable} for context in contexts
+                ],
+                "public_web_research": config.allow_public_web_research and settings.PULSE_PUBLIC_RESEARCH_ENABLED,
+            },
+        )
+    frozen = _parse_frozen_recommendation_input(frozen_payload, base_report)
+    if frozen is None:
+        return
+    current_public_web_research = config.allow_public_web_research and settings.PULSE_PUBLIC_RESEARCH_ENABLED
+    if frozen.public_web_research and not current_public_web_research:
+        return
+    try:
+        if await sync_to_async(is_team_over_ai_credit_budget, thread_sensitive=False)(subscription.team.api_token):
+            return
+    except Exception:
+        return
+    generation_input = RecommendationGenerationInput(
+        team_id=subscription.team_id,
+        subscription_id=subscription.id,
+        delivery_id=inputs.delivery_id,
+        actor_id=actor_id,
+        idempotency_key=f"pulse-recommendations:{inputs.delivery_id}",
+        report_markdown=base_report[:100_000],
+        prompt=frozen.prompt,
+        contexts=frozen.contexts,
+        public_web_research=frozen.public_web_research,
+    )
+    try:
+        appendix = await database_sync_to_async(generate_recommendation_appendix, thread_sensitive=False)(
+            input=generation_input,
+            snapshot=frozen.claim_snapshot,
+            timeout_seconds=settings.PULSE_PROACTIVE_TIMEOUT_SECONDS,
+            poll_interval_seconds=_PULSE_POLL_INTERVAL_SECONDS,
+            on_wait=temporalio.activity.heartbeat,
+        )
+        await _append_recommendations(inputs.delivery_id, appendix)
+    except Exception:
+        LOGGER.exception("proactive recommendation enrichment failed", delivery_id=str(inputs.delivery_id))
 
 
 def _capture_ai_credit_event(
