@@ -1466,6 +1466,14 @@ class DraftScannerResponseSerializer(serializers.Serializer):
             "mis-estimate stops the scanner at the credits the user agreed to. Null on the legacy flow."
         ),
     )
+    experiment_targeting = ScannerExperimentTargetingField(
+        allow_null=True,
+        help_text=(
+            "Goal-based flow only: the experiment whose participants the draft watches, when the goal "
+            "named one of the project's launched experiments. Null when it named none. Carried "
+            "separately from `query`, which never holds an exposure filter."
+        ),
+    )
     estimated_monthly_observations = serializers.IntegerField(
         allow_null=True,
         help_text=(
@@ -2338,7 +2346,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         }
         # Scoped tokens must not receive data their scopes exclude. Core memory is INTERNAL
         # (session-only), so any scoped token loses it; the goal-based entity grounding (surveys,
-        # actions) is gated per resource against these scopes inside the drafter.
+        # actions, experiments) is gated per resource against these scopes inside the drafter.
         allowed_scopes = get_authenticator_scopes(request.successful_authenticator)
         include_business_context = allowed_scopes is None
 
@@ -2391,6 +2399,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "scanner_type": drafted.scanner_type,
                 # Whether the goal mapped to a real filter or fell back to no targeting.
                 "has_query": bool(drafted.query),
+                # Whether the goal named an experiment, so the scan watches its participants rather
+                # than everyone who reached the same pages.
+                "has_experiment_targeting": drafted.experiment_targeting is not None,
                 "sampling_mode": drafted.sampling_mode,
                 "sampling_rate": drafted.sampling_rate,
                 "model": drafted.model,
@@ -2414,6 +2425,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     "sampling_rate": drafted.sampling_rate,
                     "model": drafted.model,
                     "credit_limit": drafted.credit_limit,
+                    "experiment_targeting": drafted.experiment_targeting,
                     "estimated_monthly_observations": drafted.estimated_monthly_observations,
                 }
             ).data
