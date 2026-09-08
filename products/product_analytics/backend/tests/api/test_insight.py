@@ -677,17 +677,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             )
 
     def test_get_insight_by_short_id(self) -> None:
-        filter_dict = {"events": [{"id": "$pageview"}]}
-
         Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            query=default_pageview_query(),
             team=self.team,
             short_id="12345678",
         )
 
         # We need at least one more insight to make sure we're not just getting the first one
         Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            query=default_pageview_query(),
             team=self.team,
             short_id="not-that-one",
         )
@@ -695,7 +693,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Red herring: Should be ignored because it's not on the current team (even though the user has access)
         new_team = Team.objects.create(organization=self.organization)
         Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            query=default_pageview_query(),
             team=new_team,
             short_id="12345678",
         )
@@ -706,6 +704,29 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["short_id"], "12345678")
         self.assertEqual(response.json()["results"][0]["query"]["source"]["series"][0]["event"], "$pageview")
+
+    @parameterized.expand([("full", ""), ("basic", "&basic=true")])
+    def test_listing_an_insight_with_only_filters_serves_them(self, _name: str, query_string: str) -> None:
+        # `unique_users` is not a math value the query schema accepts, so this definition cannot be
+        # expressed as a query at all. Reading it used to raise out of the serializer and fail the
+        # whole list request.
+        stored_filters = {"events": [{"id": "$pageview", "math": "unique_users"}]}
+        Insight.objects.create(
+            team=self.team,
+            saved=True,
+            short_id="brokenfl",
+            filters=stored_filters,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id=brokenfl{query_string}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result = response.json()["results"][0]
+        self.assertIsNone(result["query"])
+        # The stored definition survives the read, and the absent `insight` key is not filled in:
+        # the client's converter defaults it, the same way the server's converter does.
+        self.assertEqual(result["filters"]["events"], stored_filters["events"])
+        self.assertNotIn("insight", result["filters"])
 
     @parameterized.expand(
         [
@@ -1885,126 +1906,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(source["dateRange"]["date_from"], "-30d")
         self.assertEqual(source["funnelsFilter"]["layout"], "horizontal")
         self.assertEqual(len(objects[0].short_id), 8)
-
-    def test_insight_refreshing_legacy_conversion(self) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
-
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="1",
-                properties={"prop": "val"},
-            )
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="2",
-                properties={"prop": "another_val"},
-            )
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="2",
-                properties={"prop": "val", "another": "never_return_this"},
-            )
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            # Written through the ORM because the API no longer accepts legacy filters, while rows
-            # stored before that still have to render through read-time conversion.
-            insight = Insight.objects.create(
-                team=self.team,
-                filters={
-                    "events": [{"id": "$pageview"}],
-                    "properties": [
-                        {
-                            "key": "another",
-                            "value": "never_return_this",
-                            "operator": "is_not",
-                        }
-                    ],
-                },
-            )
-            DashboardTile.objects.create(insight=insight, dashboard=Dashboard.objects.get(pk=dashboard_id))
-            self.assertEqual(insight.last_refresh, None)
-
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=true").json()
-            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
-            self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
-            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
-
-        with freeze_time("2012-01-15T05:01:34.000Z"):
-            _create_event(team=self.team, event="$pageview", distinct_id="1")
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true").json()
-            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 1])
-            self.assertEqual(response["last_refresh"], "2012-01-15T05:01:34Z")
-            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
-
-        with freeze_time("2012-01-16T05:01:34.000Z"):
-            # load it in the context of the dashboard, so has last 14 days as filter
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true&from_dashboard={dashboard_id}"
-            ).json()
-            self.assertEqual(
-                response["result"][0]["data"],
-                [
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    2.0,
-                    1.0,
-                    0.0,
-                ],
-            )
-            self.assertEqual(response["last_refresh"], "2012-01-16T05:01:34Z")
-            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
-
-        with freeze_time("2012-01-25T05:01:34.000Z"):
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/").json()
-            self.assertEqual(response["last_refresh"], None)
-            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
-
-        #  Test property filter
-
-        dashboard = Dashboard.objects.get(pk=dashboard_id)
-        dashboard.filters = {
-            "properties": [{"key": "prop", "value": "val"}],
-            "date_from": "-14d",
-        }
-        dashboard.save()
-        with freeze_time("2012-01-16T05:01:34.000Z"):
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true&from_dashboard={dashboard_id}"
-            ).json()
-            self.assertEqual(
-                response["result"][0]["data"],
-                [
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    1.0,
-                    0.0,
-                    0.0,
-                ],
-            )
 
     @parameterized.expand(
         [
@@ -4045,27 +3946,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 ],
             )
             self.assertEqual(response_json["timezone"], "UTC")
-
-    def test_insight_with_filters_via_hogql(self) -> None:
-        filter_dict = {"insight": "LIFECYCLE", "events": [{"id": "$pageview"}]}
-
-        insight = Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
-            team=self.team,
-            short_id="xyz123",
-        )
-
-        # fresh response
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["result"][0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
-        self.assertFalse(response.json()["is_cached"])
-
-        # cached response
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=false&use_cache=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["result"][0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
-        self.assertTrue(response.json()["is_cached"])
 
     def test_insight_returns_cached_hogql(self) -> None:
         insight = Insight.objects.create(
