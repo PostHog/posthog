@@ -8,9 +8,16 @@ Usage:
 The smoke test runs `wizard --ci --api-key <token>`. A personal API key (phx_)
 is refused at the gateway-token mint as `invalid_token`, so CI needs a `pha_`
 issued under the wizard OAuth app with `llm_gateway:read`, scoped to one team.
-The token is minted the way a cloud wizard run's is (blocklist check, the wizard
-app's scope ceiling) and then given a long expiry. It is printed once, on the
-last line of output, and stored nowhere else.
+
+Two things bound it. It carries that one scope rather than the wizard app's
+whole ceiling, and it expires in 30 days by default, because a credential
+holding `llm_gateway:read` authenticates at the AI gateway on its own, where
+none of the wizard mint's gates apply: no blocklist recheck, no rollout switch,
+no program pin, no mint throttle, no per-run cap. The lifetime is the bound.
+
+Re-running revokes the previous CI token for the same user and team, so a
+rotation leaves nothing live behind it. The token is printed once, on the last
+line of output, and stored nowhere else: put it straight in the CI secret.
 """
 
 from datetime import timedelta
@@ -20,13 +27,17 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
+import structlog
+
 from posthog.models import OAuthAccessToken, Team, User
 from posthog.scopes import resolve_ceiling
 from posthog.storage.gateway_credential_cache import GATEWAY_CREDENTIAL_REQUIRED_SCOPE
 from posthog.temporal.oauth import WizardIdentityBlockedError, create_wizard_oauth_access_token_for_user, get_wizard_app
 
-_DEFAULT_DAYS = 365
-_MAX_DAYS = 730
+logger = structlog.get_logger(__name__)
+
+_DEFAULT_DAYS = 30
+_MAX_DAYS = 90
 
 
 class Command(BaseCommand):
@@ -63,14 +74,32 @@ class Command(BaseCommand):
         if GATEWAY_CREDENTIAL_REQUIRED_SCOPE not in (resolve_ceiling(app.ceiling_scopes) or ()):
             raise CommandError(f"wizard app {app.client_id} cannot grant {GATEWAY_CREDENTIAL_REQUIRED_SCOPE}")
 
+        superseded = OAuthAccessToken.objects.filter(
+            user=user, application=app, scoped_teams=[team.id], scope=GATEWAY_CREDENTIAL_REQUIRED_SCOPE
+        ).exclude(expires__lte=timezone.now())
+        revoked = superseded.count()
+        superseded.delete()
+
         try:
-            token = create_wizard_oauth_access_token_for_user(user, team.id)
+            token = create_wizard_oauth_access_token_for_user(user, team.id, scopes=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE])
         except (WizardIdentityBlockedError, RuntimeError) as e:
             raise CommandError(str(e)) from e
         expires = timezone.now() + timedelta(days=days)
         OAuthAccessToken.objects.filter(token=token).update(expires=expires)
 
-        self.stdout.write(
-            self.style.SUCCESS(f"wizard CI token for {user.email} on team {team.id}, expires {expires.isoformat()}")
+        logger.info(
+            "wizard_ci_token: issued",
+            user_uuid=str(user.uuid),
+            team_id=team.id,
+            scope=GATEWAY_CREDENTIAL_REQUIRED_SCOPE,
+            expires=expires.isoformat(),
+            revoked_previous=revoked,
         )
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"wizard CI token for {user.email} on team {team.id}, scope {GATEWAY_CREDENTIAL_REQUIRED_SCOPE}, "
+                f"expires {expires.isoformat()}, revoked {revoked} previous"
+            )
+        )
+        self.stdout.write("Store it in the CI secret; it is not recoverable and re-running revokes it.")
         self.stdout.write(token)

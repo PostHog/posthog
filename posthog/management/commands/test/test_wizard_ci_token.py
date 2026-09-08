@@ -44,14 +44,35 @@ class TestWizardCiTokenCommand(BaseTest):
         assert row.application_id == app.id
         assert row.user_id == self.user.id
         assert row.scoped_teams == [self.team.id]
-        assert "llm_gateway:read" in row.scope.split()
-        # Not the mint helper's six hours: the smoke test runs for months.
+        # Exactly the one scope, not the app's whole ceiling: this credential
+        # authenticates at the gateway on its own, for as long as it lives.
+        assert row.scope.split() == ["llm_gateway:read"]
+        # Not the mint helper's six hours: the smoke test runs unattended.
         assert row.expires > timezone.now() + timedelta(days=29, hours=23)
         assert row.expires <= timezone.now() + timedelta(days=30)
 
+    def test_the_default_lifetime_is_thirty_days(self) -> None:
+        self._create_wizard_app(["project:read", "llm_gateway:read"])
+
+        out = self._run()
+
+        row = OAuthAccessToken.objects.get(token=out.strip().splitlines()[-1])
+        assert row.expires <= timezone.now() + timedelta(days=30)
+
+    def test_re_running_revokes_the_previous_token(self) -> None:
+        # Otherwise every rotation leaves another live gateway credential
+        # behind with nothing naming it.
+        self._create_wizard_app(["project:read", "llm_gateway:read"])
+        first = self._run().strip().splitlines()[-1]
+
+        second = self._run().strip().splitlines()[-1]
+
+        assert not OAuthAccessToken.objects.filter(token=first).exists()
+        assert OAuthAccessToken.objects.filter(token=second).exists()
+
     def test_the_lifetime_is_bounded(self) -> None:
         self._create_wizard_app(["project:read", "llm_gateway:read"])
-        for days in ("0", "731"):
+        for days in ("0", "91"):
             with pytest.raises(CommandError, match="--days"):
                 self._run("--days", days)
         assert not OAuthAccessToken.objects.exists()
