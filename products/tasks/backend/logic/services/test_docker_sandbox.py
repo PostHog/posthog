@@ -23,7 +23,7 @@ from products.tasks.backend.logic.services.sandbox import (
 )
 
 if TYPE_CHECKING:
-    from pytest_django.fixtures import SettingsWrapper
+    from pytest_django.fixtures import Settings
 
 
 def _agent_server_launch_command(mock_execute: Any) -> str:
@@ -124,7 +124,7 @@ class TestDockerSandboxUnit:
         ],
     )
     def test_create_installs_fixed_skills_only_for_development_tasks(
-        self, settings: SettingsWrapper, source: str, debug: bool, template: SandboxTemplate, expected: str | None
+        self, settings: Settings, source: str, debug: bool, template: SandboxTemplate, expected: str | None
     ) -> None:
         settings.DEBUG = debug
         with (
@@ -149,7 +149,7 @@ class TestDockerSandboxUnit:
         assert any(call.args[0][:2] == ["docker", "run"] for call in run.call_args_list)
 
     @pytest.mark.parametrize("failure_stage", ["build", "install"])
-    def test_create_stops_on_local_skill_failure(self, settings: SettingsWrapper, failure_stage: str) -> None:
+    def test_create_stops_on_local_skill_failure(self, settings: Settings, failure_stage: str) -> None:
         settings.DEBUG = True
         with (
             patch.dict(os.environ, {"POSTHOG_DESKTOP_SKILLS": "local"}),
