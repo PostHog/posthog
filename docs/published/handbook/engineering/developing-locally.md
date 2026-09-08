@@ -159,6 +159,11 @@ You can now change PostHog in any way you want. See [Project structure](./projec
 
 By default, `hogli start` runs a minimal set of services (enough for product analytics). To customize which services start, run `hogli dev:setup` which lets you select intents based on the products you're working on. Your choices are saved and used automatically by `hogli start`.
 
+The Desktop intent also builds local product skills before starting the app and rebuilds them when their sources change.
+Create at least one local project first. Run `POSTHOG_DESKTOP_SKILLS=production hogli start` to use production skills instead.
+For Desktop-only development, `hogli desktop:dev` uses production skills by default and does not need the Python skill renderer.
+See the [Desktop local development guide](https://github.com/PostHog/posthog/blob/master/products/desktop/docs/LOCAL-DEVELOPMENT.md#test-local-code-and-skill-changes-together) for setup and limitations.
+
 ### Setting environment variables
 
 Three env files come into play when `hogli start` runs:

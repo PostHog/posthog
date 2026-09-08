@@ -91,37 +91,43 @@ pnpm dev
 
 ## Test local code and skill changes together
 
-Start the local PostHog stack with at least one project. Some skill templates read project metadata from PostgreSQL.
-Then run this command from `products/desktop`:
+Use the normal stack commands from the repository root:
 
 ```bash
-pnpm dev:local-skills
+hogli dev:setup
+hogli start
 ```
 
-This command builds all `products/*/skills/` with the monorepo skill renderer before it starts Desktop.
-The renderer requires the monorepo Python environment and `uv`. Run `uv sync` from the repository root for initial setup.
-Templates become rendered `SKILL.md` files, including their reference files and scripts.
-Desktop copies these files from `products/posthog_ai/dist/skills/` into its development-only `plugins/posthog/local-skills/` directory.
-These skills take priority over same-named production skills. Other production skills remain available.
-A build failure stops the command before it changes the Desktop skill copies.
+Select the **Desktop** intent in the setup wizard. This choice persists for later starts.
+The stack waits for the PostgreSQL tables, builds all `products/*/skills/`, then starts Desktop.
+Use `uv sync` for the initial Python setup. At least one local project must exist because some templates read project metadata.
+The Desktop process log shows the active skill source and build results.
 
-Select **Local development** when you sign in to test local backend changes with these skills.
-Skill selection and backend selection are separate. This command does not start the PostHog backend or change the selected backend.
+Skill source edits trigger a rebuild automatically. This includes added, renamed, and deleted skills, reference files, scripts, and renderer helpers.
+Start a new agent session after the log reports that local skills are ready. Existing sessions can retain loaded instructions.
+Restart Desktop after changing Python schemas imported by templates.
 
-After a skill edit, run this command in a second terminal:
+An initial build failure prevents Desktop from starting. A later build failure keeps the last successful local skills and reports an error.
+Fix the error and save a skill to retry. The watcher never substitutes production skills for a failed local build.
 
-```bash
-pnpm skills:local --all
-```
+Generated skills live in `plugins/posthog/checkout-skills/`, separate from manual `local-skills/` overrides.
+Local checkout skills take priority over same-named manual and production skills. Other production skills remain available.
+Deleted checkout skills revert to their manual or production version, if one exists.
 
-Vite detects the copied file changes. Start a new agent session to test the new instructions.
-Existing sessions can retain instructions that they already loaded.
-This command refreshes same-named skills, including removal of outdated reference files. It preserves other local skills.
-To test a deleted or renamed skill, stop Desktop. Remove its old directory from `plugins/posthog/local-skills/` and `apps/code/.vite/build/plugins/posthog/skills/`.
-Then restart Desktop.
+Select **Local development** when signing in to test local backend changes. Skill source selection does not change the selected backend.
+This workflow affects local Desktop agent sessions, not remote cloud task sandboxes.
 
-The default `pnpm dev` command still syncs only context layer skills. It does not remove other local overrides.
-Production builds do not use `local-skills/`. These commands affect local Desktop agent sessions, not remote cloud task sandboxes.
+### Desktop without the local backend
+
+Run `hogli desktop:dev` from the repository root, or `pnpm dev` from `products/desktop`.
+Both use production skills by default and do not require the Python skill renderer or PostgreSQL.
+Manual `local-skills/` overrides remain available in development builds.
+
+To use an already-running backend with local skills, run `POSTHOG_DESKTOP_SKILLS=local hogli desktop:dev`.
+To test the full stack with production skills, run `POSTHOG_DESKTOP_SKILLS=production hogli start`.
+Production builds never load either local skill directory.
+
+If you previously used `pnpm skills:local`, its copies remain in `local-skills/`. Remove those copies if you no longer want those manual overrides.
 
 ## Connect
 

@@ -1,25 +1,20 @@
 #!/usr/bin/env node
 
-import { spawnSync } from "node:child_process";
-import { cp, mkdir, readdir, rm, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readdir,
+  rename,
+  rm,
+  stat,
+} from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const REPOSITORY_DIR = resolve(__dirname, "../../..");
-const CHECKOUT_SKILLS_DIR = join(
-  REPOSITORY_DIR,
-  "products",
-  "context_layer",
-  "skills",
-);
-const LOCAL_SKILLS_DIR = join(
-  __dirname,
-  "..",
-  "plugins",
-  "posthog",
-  "local-skills",
-);
+export const REPOSITORY_DIR = resolve(__dirname, "../../..");
 
 export async function syncCheckoutSkills({
   checkoutSkillsDir,
@@ -43,63 +38,51 @@ export async function syncCheckoutSkills({
     throw new Error(`No checkout skills found at ${checkoutSkillsDir}`);
   }
 
-  await mkdir(localSkillsDir, { recursive: true });
-  const localEntries = await readdir(localSkillsDir);
-  await Promise.all(
-    localEntries
-      .filter(
-        (entry) =>
-          entry.startsWith("context-layer-") || entries.includes(entry),
-      )
-      .map((entry) =>
-        rm(join(localSkillsDir, entry), { recursive: true, force: true }),
+  await mkdir(dirname(localSkillsDir), { recursive: true });
+  const stagingDir = await mkdtemp(`${localSkillsDir}.staging-`);
+  try {
+    await Promise.all(
+      entries.map((entry) =>
+        cp(join(checkoutSkillsDir, entry), join(stagingDir, entry), {
+          recursive: true,
+        }),
       ),
-  );
-  await Promise.all(
-    entries.map((entry) =>
-      cp(join(checkoutSkillsDir, entry), join(localSkillsDir, entry), {
-        recursive: true,
-      }),
-    ),
-  );
+    );
+    await rm(localSkillsDir, { recursive: true, force: true });
+    await rename(stagingDir, localSkillsDir);
+  } finally {
+    await rm(stagingDir, { recursive: true, force: true });
+  }
 }
 
-async function main() {
-  const args = process.argv.slice(2);
-  if (args.some((arg) => arg !== "--all")) {
-    throw new Error("Usage: pnpm skills:local [--all]");
-  }
-
-  let checkoutSkillsDir = CHECKOUT_SKILLS_DIR;
-  if (args.includes("--all")) {
-    console.log("Building all product skills from this checkout...");
-    const result = spawnSync(
-      "uv",
-      ["run", "python", "products/posthog_ai/scripts/build_skills.py"],
-      {
-        cwd: REPOSITORY_DIR,
-        stdio: "inherit",
-        env: { ...process.env, DEBUG: process.env.DEBUG ?? "1" },
-      },
-    );
-    if (result.error || result.status !== 0) {
-      throw new Error(
-        "Skill build failed. Check the build error above and the monorepo Python environment. Local skills were not changed.",
-        { cause: result.error },
+export async function skillSourceFingerprint(repositoryDir = REPOSITORY_DIR) {
+  const productsDir = join(repositoryDir, "products");
+  const products = await readdir(productsDir, { withFileTypes: true });
+  const roots = products
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => join(productsDir, entry.name, "skills"));
+  roots.push(join(productsDir, "posthog_ai", "scripts"));
+  const hash = createHash("sha256");
+  for (const root of roots.sort()) {
+    let entries;
+    try {
+      entries = await readdir(root, { recursive: true, withFileTypes: true });
+    } catch (error) {
+      if (error.code === "ENOENT") continue;
+      throw error;
+    }
+    const paths = entries
+      .filter(
+        (entry) => entry.isFile() && !entry.parentPath.includes("__pycache__"),
+      )
+      .map((entry) => join(entry.parentPath, entry.name))
+      .sort();
+    for (const path of paths) {
+      const metadata = await stat(path);
+      hash.update(
+        `${path}:${metadata.mtimeMs}:${metadata.ctimeMs}:${metadata.size}\n`,
       );
     }
-    checkoutSkillsDir = join(REPOSITORY_DIR, "products/posthog_ai/dist/skills");
   }
-
-  await syncCheckoutSkills({
-    checkoutSkillsDir,
-    localSkillsDir: LOCAL_SKILLS_DIR,
-  });
-  console.log(
-    `Local skills synced from ${checkoutSkillsDir} to ${LOCAL_SKILLS_DIR}`,
-  );
-}
-
-if (fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
-  await main();
+  return hash.digest("hex");
 }
