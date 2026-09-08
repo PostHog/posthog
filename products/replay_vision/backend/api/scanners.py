@@ -903,7 +903,10 @@ class _ScannerOrderByFilter(OrderByFilter):
 class ReplayScannerFilter(django_filters.FilterSet):
     enabled = django_filters.CharFilter(
         method="_filter_enabled",
-        help_text="Filter by enabled state. Accepts a comma-separated list of `enabled`/`disabled`.",
+        help_text=(
+            "Filter by enabled state. Accepts `enabled`, `disabled`, a comma-separated list of both, "
+            "or the boolean form `true`/`false`. Omit to list every scanner."
+        ),
     )
     scanner_type = MultiChoiceFilter(
         field_name="scanner_type",

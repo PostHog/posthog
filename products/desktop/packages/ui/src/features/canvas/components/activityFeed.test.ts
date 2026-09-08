@@ -87,6 +87,7 @@ describe("activityFeed", () => {
       mentionsIncluded: true,
       reportsIncluded: true,
       unreadsOnly: true,
+      archivedTaskIds: new Set(),
     });
 
     expect(content.feedItems).toEqual([]);
@@ -94,4 +95,33 @@ describe("activityFeed", () => {
     expect(content.remainingInboxReportCount).toBe(0);
     expect(content.selfDrivingIncluded).toBe(false);
   });
+
+  it.each([{ unreadsOnly: false }, { unreadsOnly: true }])(
+    "hides an archived task's activity but still lets it be marked read (unreadsOnly $unreadsOnly)",
+    ({ unreadsOnly }) => {
+      const activity = (id: string, taskId: string): TaskActivityItem =>
+        ({
+          id,
+          taskId,
+          isUnread: true,
+          activityAt: "2026-08-25T10:00:00Z",
+        }) as TaskActivityItem;
+
+      const content = deriveActivityFeedContent({
+        taskItems: [activity("live", "task-1"), activity("gone", "task-2")],
+        reports: [],
+        totalReportCount: 0,
+        mentionsIncluded: true,
+        reportsIncluded: false,
+        unreadsOnly,
+        archivedTaskIds: new Set(["task-2"]),
+      });
+
+      expect(content.feedItems.map((item) => item.id)).toEqual(["task:live"]);
+      expect(content.unreadItems.map((item) => item.id)).toEqual([
+        "live",
+        "gone",
+      ]);
+    },
+  );
 });
