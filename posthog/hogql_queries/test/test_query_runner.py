@@ -409,6 +409,7 @@ class TestQueryRunner(BaseTest):
                     "custom_source_mappings": {},
                     "campaign_field_preferences": {},
                     "costs_dedup_v2": False,
+                    "filter_test_accounts": False,
                     "sources_map": {
                         "01977f7b-7f29-0000-a028-7275d1a767a4": {
                             "cost": "cost",
@@ -494,7 +495,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_c034c5f92d23cb2399f6c087694175b7e6950739ea60b0ec7cf2665d2ae82d50"
+        assert cache_key == "cache_42_13361de10d0c3c79451b288eb57ca1147331e86a8b8e63a0a815adf5a2d7bcbb"
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_cache_key_runner_subclass(self):
@@ -509,7 +510,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_916dab3186430d61979f436fca08d88c23559c270894cf8c96a19e2c18a8ae4f"
+        assert cache_key == "cache_42_9dcfced89edfbfcd1e0fd380380c7a5e4a9957386fc22172c1b83548a9af6d02"
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_cache_key_different_timezone(self):
@@ -521,7 +522,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_032f9a7be3ea1fc4451f1e5a77841bb79f9b9ef65ad949f251ee0e68e8ee5fb0"
+        assert cache_key == "cache_42_580a20072d3930f66666356574843255ba9418ff58cc0fc92d019bf8bf1cf972"
 
     def test_cache_payload_omits_object_restrictions_when_unrestricted(self):
         TestQueryRunner = self.setup_test_query_runner_class()

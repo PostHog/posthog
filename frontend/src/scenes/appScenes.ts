@@ -106,6 +106,8 @@ export const appScenes: Record<Scene | string, () => any> = {
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
     [Scene.SessionProfile]: () => import('./sessions/SessionProfileScene'),
     [Scene.Settings]: () => import('./settings/SettingsScene'),
+    [Scene.IdentityProviderConfig]: () =>
+        import('./settings/organization/IdentityProviderConfig/IdentityProviderConfigScene'),
     [Scene.Signup]: () => import('./authentication/signup/Signup'),
     [Scene.Site]: () => import('./sites/Site'),
     [Scene.StartupProgram]: () => import('./startups/StartupProgram'),

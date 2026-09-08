@@ -86,6 +86,24 @@ describe("SessionLogWriter", () => {
       });
     });
 
+    it("persists the event id it was appended with", async () => {
+      const sessionId = "s1";
+      logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+
+      logWriter.appendRawLine(
+        sessionId,
+        JSON.stringify({ method: "test" }),
+        "boot-7",
+      );
+      logWriter.appendRawLine(sessionId, JSON.stringify({ method: "test2" }));
+
+      await logWriter.flush(sessionId);
+
+      const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
+      expect(entries[0].event_id).toBe("boot-7");
+      expect(entries[1].event_id).toBeUndefined();
+    });
+
     it("ignores unregistered sessions", async () => {
       logWriter.appendRawLine("unknown", JSON.stringify({ method: "test" }));
       await logWriter.flush("unknown");
@@ -223,6 +241,39 @@ describe("SessionLogWriter", () => {
         content: { type: "text", text: "Hello world" },
       });
       expect(logWriter.getLastAgentMessage(sessionId)).toBe("Hello world");
+    });
+
+    it("stamps the coalesced entry with the covered chunk id range", async () => {
+      const sessionId = "s1";
+      logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+
+      logWriter.appendRawLine(
+        sessionId,
+        makeSessionUpdate("agent_message_chunk", {
+          content: { type: "text", text: "Hello " },
+        }),
+        "boot-3",
+      );
+      logWriter.appendRawLine(
+        sessionId,
+        makeSessionUpdate("agent_message_chunk", {
+          content: { type: "text", text: "world" },
+        }),
+        "boot-4",
+      );
+      logWriter.appendRawLine(
+        sessionId,
+        makeSessionUpdate("tool_call", { toolCallId: "tc1" }),
+        "boot-5",
+      );
+
+      await logWriter.flush(sessionId);
+
+      const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
+      expect(entries[0].first_event_id).toBe("boot-3");
+      expect(entries[0].event_id).toBe("boot-4");
+      expect(entries[1].event_id).toBe("boot-5");
+      expect(entries[1].first_event_id).toBeUndefined();
     });
 
     it("tracks direct agent_message updates", async () => {
@@ -555,12 +606,14 @@ describe("SessionLogWriter", () => {
         makeSessionUpdate("agent_message_chunk", {
           content: { type: "text", text: "partial" },
         }),
+        "boot-1",
       );
       logWriter.appendRawLine(
         sessionId,
         makeSessionUpdate("agent_message", {
           content: { type: "text", text: "complete" },
         }),
+        "boot-2",
       );
 
       await logWriter.flush(sessionId);
@@ -574,6 +627,8 @@ describe("SessionLogWriter", () => {
         sessionUpdate: "agent_message",
         content: { type: "text", text: "complete" },
       });
+      expect(entries[0].first_event_id).toBe("boot-1");
+      expect(entries[0].event_id).toBe("boot-2");
     });
   });
 

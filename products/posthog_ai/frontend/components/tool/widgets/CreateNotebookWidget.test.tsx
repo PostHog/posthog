@@ -22,28 +22,42 @@ function toolMessage(rawOutput: unknown, innerInput?: Record<string, unknown>): 
 }
 
 describe('CreateNotebookWidget', () => {
-    it.each(['notebooks-create', 'notebooks-partial-update', 'notebooks-retrieve', 'notebook-edit'])(
-        'resolves %s to the notebook widget',
-        (key) => {
-            expect(toolRegistry.lookup(key)?.displayName).toBe('Notebook')
-            // The notebook widget is gated on a trusted PostHog-exec origin, so pass `fromPostHogExec`.
-            expect(lookupToolRenderer(key, true).displayName).toBe('Notebook')
-        }
-    )
+    it.each([
+        'notebooks-create',
+        'notebooks-partial-update',
+        'notebooks-retrieve',
+        'notebook-edit',
+        'notebooks-create-markdown',
+        'notebooks-get',
+    ])('resolves %s to the notebook widget', (key) => {
+        expect(toolRegistry.lookup(key)?.displayName).toBe('Notebook')
+        // The notebook widget is gated on a trusted PostHog-exec origin, so pass `fromPostHogExec`.
+        expect(lookupToolRenderer(key, true).displayName).toBe('Notebook')
+    })
 
     it('falls back to the generic renderer for an unknown inner tool key', () => {
         expect(lookupToolRenderer('some-unwired-tool', true).displayName).not.toBe('Notebook')
     })
 
     describe('extractNotebook', () => {
-        it('reads short_id, title, and the _posthogUrl enrichment from the REST payload', () => {
-            const notebook = extractNotebook(
-                toolMessage({
+        // The rich-text tools spell the short id `short_id` and surround it with the rest of the REST
+        // record; the markdown tools spell it `notebook_id`. Both reduce to the same extraction.
+        it.each([
+            [
+                'short_id',
+                {
                     id: 'b3d0f2aa-1111-2222-3333-444455556666',
                     short_id: 'aBcDe123',
-                    title: 'Churn deep dive',
                     content: { type: 'doc', content: [] },
                     version: 1,
+                },
+            ],
+            ['notebook_id', { notebook_id: 'aBcDe123' }],
+        ])('reads the short id from %s, with the title and the _posthogUrl enrichment', (_field, payload) => {
+            const notebook = extractNotebook(
+                toolMessage({
+                    ...payload,
+                    title: 'Churn deep dive',
                     _posthogUrl: 'https://us.posthog.com/project/1/notebooks/aBcDe123',
                 })
             )
@@ -59,7 +73,7 @@ describe('CreateNotebookWidget', () => {
             expect(notebook).toEqual({ shortId: 'aBcDe123', title: 'From input', url: undefined })
         })
 
-        it('returns null for outputs without a short_id or that are not objects', () => {
+        it('returns null for outputs carrying neither id or that are not objects', () => {
             expect(extractNotebook(toolMessage({ blocks: [], title: 'Legacy artifact shape' }))).toBeNull()
             expect(extractNotebook(toolMessage('created notebook aBcDe123'))).toBeNull()
             expect(extractNotebook(toolMessage(undefined))).toBeNull()

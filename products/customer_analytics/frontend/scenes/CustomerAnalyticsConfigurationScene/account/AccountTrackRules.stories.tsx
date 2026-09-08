@@ -111,6 +111,7 @@ const meta: Meta = {
                             description: 'Monthly recurring revenue',
                             display_type: 'currency',
                             is_canonical: false,
+                            has_workflow_reference: false,
                             is_big_number: false,
                             options: null,
                         },

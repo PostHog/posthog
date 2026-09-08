@@ -14,7 +14,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductEmptyState } from './ProductEmptyState'
 import { productSetupStatusLogic } from './productSetupStatusLogic'
 import { SetupReminderContext } from './setupReminderContext'
-import type { ProductEmptyStateConfig, ProductEmptyStateMode, SceneProductEmptyState } from './types'
+import type { GatedScene, ProductEmptyStateConfig, ProductEmptyStateMode, SceneProductEmptyState } from './types'
 
 /**
  * Search param that puts the setup screen on a scene that already has data, so anyone can
@@ -37,8 +37,21 @@ function forcedModeFromParam(value: unknown): ProductEmptyStateMode | null {
     return null
 }
 
+function coversCurrentSurface(
+    gated: GatedScene,
+    activeSceneId: string | null,
+    params: Record<string, string | undefined>
+): boolean {
+    if (typeof gated === 'string') {
+        return gated === activeSceneId
+    }
+    return gated.scene === activeSceneId && gated.tabs.includes(params.tab)
+}
+
 export interface ProductEmptyStateGateProps {
     emptyState: SceneProductEmptyState
+    /** The scene's route params, as passed to the scene component. Read by `scenes`. */
+    params?: Record<string, string | undefined>
     children: ReactNode
 }
 
@@ -55,16 +68,19 @@ export interface ProductEmptyStateGateProps {
  * `?empty_state=1` on any gated scene forces the setup screen regardless of status,
  * so the screen can be reviewed on a project that already has data.
  */
-export function ProductEmptyStateGate({ emptyState, children }: ProductEmptyStateGateProps): JSX.Element {
+export function ProductEmptyStateGate({ emptyState, params, children }: ProductEmptyStateGateProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeSceneId } = useValues(sceneLogic)
 
-    // When the empty state is flag-gated or scoped to specific scenes, stay a strict
+    // When the empty state is flag-gated or scoped to specific scenes or tabs, stay a strict
     // no-op otherwise — don't even mount detection (the inner component mounts it).
     if (emptyState.featureFlag && !featureFlags[emptyState.featureFlag]) {
         return <>{children}</>
     }
-    if (emptyState.scenes && (!activeSceneId || !emptyState.scenes.includes(activeSceneId))) {
+    if (
+        emptyState.scenes &&
+        !emptyState.scenes.some((gated) => coversCurrentSurface(gated, activeSceneId, params ?? {}))
+    ) {
         return <>{children}</>
     }
     return <ProductEmptyStateGateInner emptyState={emptyState}>{children}</ProductEmptyStateGateInner>

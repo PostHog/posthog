@@ -23,6 +23,7 @@ const STRIP_KEYS = [
     'ai.usage.tokens',
     'ai.usage.inputTokenDetails.noCacheTokens',
     'ai.usage.outputTokenDetails.textTokens',
+    'ai.usage.outputTokenDetails.reasoningTokens',
     'ai.response.id',
     'ai.response.model',
     'ai.response.timestamp',
@@ -429,15 +430,18 @@ function process(event: PluginEvent, next: () => void): void {
     }
 }
 
-const MARKER_KEYS = [
-    'ai.operationId',
-    'ai.telemetry.functionId',
-    ...EVE_MARKER_KEYS,
-    ...EVE_MARKER_KEYS.map((key) => `${AI_RUNTIME_CONTEXT_PREFIX}${key}`),
-]
+// Match any Vercel AI SDK or Eve span by attribute namespace. AI SDK 7's
+// gen_ai-native integration drops ai.operationId but still emits ai.*
+// supplemental attributes (ai.usage.*, ai.telemetry.metadata.*), so an exact
+// key list would miss those spans and skip attribution and usage normalization.
+// The other middlewares (pydantic-ai, traceloop) run first and own their own
+// namespaces, so a prefix match here cannot steal their spans.
+const MARKER_PREFIXES = ['ai.', 'eve.']
 
 export const vercelAi: OtelLibraryMiddleware = {
     name: 'vercel-ai',
-    matches: (event) => MARKER_KEYS.some((key) => event.properties?.[key] !== undefined),
+    matches: (event) =>
+        event.properties !== undefined &&
+        Object.keys(event.properties).some((key) => MARKER_PREFIXES.some((prefix) => key.startsWith(prefix))),
     process,
 }

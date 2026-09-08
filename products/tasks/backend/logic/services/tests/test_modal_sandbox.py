@@ -516,6 +516,7 @@ class TestModalSandboxAgentServer:
         assert "--createPr true" in command
         assert "agentsh exec" not in command
         assert "nohup" in command
+        assert "export POSTHOG_AGENT_LAUNCH_STARTED_AT_MS=$(date +%s%3N)" in command
 
     def test_start_agent_server_waits_for_repository_before_launch(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
@@ -532,7 +533,10 @@ class TestModalSandboxAgentServer:
         )
 
         command = _agent_server_launch_command(mock_sandbox.execute)
-        assert "while [ ! -f /tmp/workspace/.repo-ready ]; do sleep 0.1; done; exec env" in command
+        barrier = command.index("while [ ! -f /tmp/workspace/.repo-ready ]; do sleep 0.1; done")
+        marker = command.index("export POSTHOG_AGENT_LAUNCH_STARTED_AT_MS=$(date +%s%3N)")
+        process = command.index("exec env", marker)
+        assert barrier < marker < process
         assert "--repoReadyFile /tmp/workspace/.repo-ready" in command
 
     def test_start_agent_server_wraps_with_agentsh_when_domains_provided(self, mock_sandbox: Any):
@@ -559,6 +563,7 @@ class TestModalSandboxAgentServer:
         assert "bash /tmp/agentsh-bash-env.sh" in command
         assert "/tmp/agentsh-env-wrapper.sh" in command
         assert "./node_modules/.bin/agent-server" in command
+        assert "export POSTHOG_AGENT_LAUNCH_STARTED_AT_MS=$(date +%s%3N)" in command
 
     def test_start_agent_server_wraps_with_agentsh_when_domains_empty(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
@@ -729,6 +734,9 @@ class TestModalSandboxAgentServer:
             )
 
     def test_start_agent_server_raises_on_start_failure(self, mock_sandbox: Any):
+        mock_sandbox.write_file = MagicMock(
+            return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+        )
         mock_sandbox.execute = MagicMock(
             return_value=ExecutionResult(stdout="", stderr="npx: command not found", exit_code=127, error=None)
         )

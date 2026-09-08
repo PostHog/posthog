@@ -4,8 +4,9 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from django.conf import settings
-from django.db import DatabaseError
+from django.db import DatabaseError, connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
@@ -21,8 +22,9 @@ from posthog.schema import (
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.parser import parse_select
+from posthog.hogql.taxonomy_validation import MAX_SUGGESTED_NAMES
 
-from posthog.models import EventDefinition, PropertyDefinition
+from posthog.models import EventDefinition, PropertyDefinition, Team
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.product_analytics.backend.facade.models import InsightVariable
@@ -291,6 +293,64 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(metadata.isValid)
         self.assertEqual(metadata.warnings, [])
 
+    @parameterized.expand([("event",), ("property",)])
+    def test_metadata_scopes_taxonomy_to_the_project(self, kind: str) -> None:
+        # Definitions are project-scoped, and so is the taxonomic filter that lists them. A
+        # team-scoped lookup here reports a name as unknown that the filter offers, for every
+        # definition ingested through a sibling environment of the same project.
+        sibling = Team.objects.create(
+            organization=self.organization, project_id=self.team.project_id, name="sibling environment"
+        )
+        other_project = Team.objects.create(organization=self.organization, name="unrelated project")
+        model = EventDefinition if kind == "event" else PropertyDefinition
+        # Without a definition owned by this team the taxonomy reads as empty under a team-scoped
+        # lookup, and the empty-taxonomy early return would satisfy the first assertion for free.
+        model.objects.create(team=self.team, name="owned_by_this_team")
+        model.objects.create(team=sibling, project_id=self.team.project_id, name="in_this_project")
+        model.objects.create(team=other_project, project_id=other_project.project_id, name="in_another_project")
+
+        def taxonomy_warnings(name: str) -> list[str]:
+            query = (
+                f"SELECT count() FROM events WHERE event = '{name}'"
+                if kind == "event"
+                else f"SELECT properties.{name} FROM events"
+            )
+            return [w.message for w in self._select(query).warnings if "project taxonomy" in w.message]
+
+        self.assertEqual(taxonomy_warnings("in_this_project"), [])
+        self.assertEqual(len(taxonomy_warnings("in_another_project")), 1)
+
+    def _select_with_unknown_properties(self, count: int) -> HogQLMetadataResponse:
+        for index in range(count):
+            PropertyDefinition.objects.create(team=self.team, name=f"suggestable_{index}")
+
+        conditions = " OR ".join(f"properties.sugestable_{index} = '1'" for index in range(count))
+        return self._select(f"SELECT count() FROM events WHERE {conditions}")
+
+    def test_metadata_caps_how_many_unknown_names_get_a_suggestion(self) -> None:
+        # One query can carry any number of unknown names. Every unknown name still warns, so only
+        # the "Did you mean" half is capped.
+        unknown_count = MAX_SUGGESTED_NAMES + 3
+
+        metadata = self._select_with_unknown_properties(unknown_count)
+
+        taxonomy_warnings = [w.message for w in metadata.warnings if "project taxonomy" in w.message]
+        self.assertEqual(len(taxonomy_warnings), unknown_count)
+        self.assertEqual(
+            len([message for message in taxonomy_warnings if "Did you mean" in message]),
+            MAX_SUGGESTED_NAMES,
+        )
+
+    def test_metadata_reads_suggestion_candidates_in_one_query(self) -> None:
+        # A candidate read per unknown name costs a round trip per name. A typical project holds a
+        # few hundred definitions, where those round trips cost more than the comparison they save.
+        with CaptureQueriesContext(connection) as captured:
+            metadata = self._select_with_unknown_properties(MAX_SUGGESTED_NAMES)
+
+        self.assertTrue(metadata.isValid)
+        candidate_reads = [q["sql"] for q in captured.captured_queries if "SIMILARITY" in q["sql"].upper()]
+        self.assertEqual(len(candidate_reads), 1, candidate_reads)
+
     def test_metadata_does_not_warn_for_dynamic_event_expression(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
 
@@ -313,14 +373,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
         self.assertEqual(taxonomy_warnings, [])
 
-    def test_metadata_skips_full_taxonomy_fetch_for_known_event(self):
+    def test_metadata_skips_suggestion_lookup_for_known_event(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
 
-        with patch("posthog.hogql.taxonomy_validation._known_names") as known_names:
+        with patch("posthog.hogql.taxonomy_validation._similar_names") as similar_names:
             metadata = self._select("SELECT count() FROM events WHERE event = 'paid_bill'")
 
         self.assertTrue(metadata.isValid)
-        known_names.assert_not_called()
+        similar_names.assert_not_called()
 
     def test_metadata_event_literal_fix_preserves_quotes(self):
         EventDefinition.objects.create(team=self.team, name="$pageview")
