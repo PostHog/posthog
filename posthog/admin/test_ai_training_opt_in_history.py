@@ -2,7 +2,9 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
+from django.contrib.admin.templatetags.admin_list import results
 from django.db import connection
+from django.test import RequestFactory
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -196,6 +198,19 @@ class TestAITrainingOptInHistory(APIBaseTest):
         self.assertIn("opted out → opted in", html)
         self.assertIn(self.user.email, html)
 
+    def _baa_queries(self, context: CaptureQueriesContext) -> list[str]:
+        return [q["sql"] for q in context.captured_queries if "legal_documents_legaldocument" in q["sql"]]
+
+    def _render_organization_changelist(self) -> None:
+        # Drives the same field resolution the changelist template does, without rendering
+        # the admin page itself, whose app-list sidebar cannot reverse in the test settings.
+        request = RequestFactory().get("/admin/posthog/organization/")
+        request.user = self.user
+        changelist = OrganizationAdmin(Organization, AdminSite()).get_changelist_instance(request)
+        # The changelist view sets this; `results` reads it to decide whether rows are editable.
+        changelist.formset = None
+        list(results(changelist))
+
     def test_admin_organization_list_does_not_read_the_baa_per_row(self) -> None:
         for _ in range(3):
             Organization.objects.bootstrap(self.user)
@@ -203,22 +218,15 @@ class TestAITrainingOptInHistory(APIBaseTest):
         self.user.save()
 
         with CaptureQueriesContext(connection) as context:
-            response = self.client.get("/admin/posthog/organization/")
+            self._render_organization_changelist()
 
-        self.assertEqual(response.status_code, 200)
-        legal_document_queries = [q for q in context.captured_queries if "legal_documents_legaldocument" in q["sql"]]
-        self.assertEqual(legal_document_queries, [])
+        self.assertEqual(self._baa_queries(context), [])
 
     def test_admin_change_form_reads_the_baa_once(self) -> None:
-        self.user.is_staff = True
-        self.user.save()
-
         with CaptureQueriesContext(connection) as context:
-            response = self.client.get(f"/admin/posthog/organization/{self.organization.id}/change/")
+            OrganizationAdmin(Organization, AdminSite()).ai_training_opt_in_history_display(self.organization)
 
-        self.assertEqual(response.status_code, 200)
-        legal_document_queries = [q for q in context.captured_queries if "legal_documents_legaldocument" in q["sql"]]
-        self.assertEqual(len(legal_document_queries), 1)
+        self.assertEqual(len(self._baa_queries(context)), 1)
 
     def test_admin_panel_is_blank_on_the_add_form(self) -> None:
         html = OrganizationAdmin(Organization, AdminSite()).ai_training_opt_in_history_display(Organization())
