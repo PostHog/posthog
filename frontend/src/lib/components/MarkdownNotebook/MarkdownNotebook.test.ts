@@ -138,6 +138,27 @@ function createHistoryTestRegistry(): ReturnType<typeof createMarkdownNotebookRe
     ])
 }
 
+function createAutomaticPropWriteTestRegistry(): ReturnType<typeof createMarkdownNotebookRegistry> {
+    return createMarkdownNotebookRegistry([
+        {
+            tagName: 'Embed',
+            label: 'Embed',
+            category: 'Media',
+            ViewComponent: TestAutomaticPropWriteComponent,
+        },
+    ])
+}
+
+function TestAutomaticPropWriteComponent({ node, updateProps }: NotebookComponentRenderProps): JSX.Element {
+    useEffect(() => {
+        if (typeof node.props.nodeId !== 'string' || !node.props.nodeId) {
+            updateProps({ nodeId: node.id }, { addToHistory: false })
+        }
+    }, [node.id, node.props.nodeId, updateProps])
+
+    return createElement('div', { 'data-testid': 'component-output' }, 'Embedded output')
+}
+
 function createDiscussionCommentTestRegistry(): ReturnType<typeof createMarkdownNotebookRegistry> {
     return createMarkdownNotebookRegistry([
         {
@@ -1934,6 +1955,32 @@ Repeated block`),
         expect(onChange).toHaveBeenLastCalledWith('# Title\n\nfirst paragraph\n\nsecond paragraph edited')
         const blocksAfterRedo = container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)
         expect(document.activeElement).toEqual(blocksAfterRedo[blocksAfterRedo.length - 1])
+    })
+
+    it('keeps redo available after a component fills in a prop by itself', () => {
+        const onChange = jest.fn()
+        const originalMarkdown = withNotebookTitle('<Embed />\n\nTail paragraph')
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: originalMarkdown,
+                onChange,
+                registry: createAutomaticPropWriteTestRegistry(),
+            })
+        )
+
+        expect(onChange).toHaveBeenLastCalledWith(expect.stringContaining('nodeId='))
+
+        const paragraph = getBodyTextBlock(container)
+        updateContentEditableText(paragraph, 'Tail paragraph with an edit')
+
+        fireUndoShortcut(paragraph)
+        // Undoing everything back to the state the notebook opened in must not reach the write
+        // the component made for itself, because reaching it costs the person the redo of the
+        // edit they just undid.
+        fireUndoShortcut(paragraph)
+        fireRedoShortcut(paragraph)
+
+        expect(onChange).toHaveBeenLastCalledWith(expect.stringContaining('Tail paragraph with an edit'))
     })
 
     it('undoes and redoes replacing a canvas Cmd+A notebook selection with typed text', () => {

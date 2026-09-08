@@ -880,6 +880,7 @@ export function MountedRealNotebookNodeComponent({
     const showSettings = forceEditing && Settings
     const showContent = !editOnly
     const isNotebookEditable = (notebookMode ?? mode) === 'edit'
+
     const isResizeable =
         isNotebookEditable &&
         (typeof options.resizeable === 'function' ? options.resizeable(attributes) : (options.resizeable ?? true))

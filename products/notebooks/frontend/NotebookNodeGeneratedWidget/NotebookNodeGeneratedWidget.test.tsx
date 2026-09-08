@@ -5,7 +5,7 @@ import { BindLogic } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { buildMarkdownNotebookContent } from 'scenes/notebooks/Notebook/markdownNotebookV2'
+import { buildMarkdownNotebookContent, getMarkdownNotebookMarkdown } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 import { MarkdownNotebookV2 } from 'scenes/notebooks/Notebook/MarkdownNotebookV2Renderer'
 import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookType } from 'scenes/notebooks/types'
@@ -137,6 +137,71 @@ describe('NotebookNodeGeneratedWidget', () => {
         )
 
         expect(await screen.findByText('Regenerating widget…')).toBeTruthy()
+    })
+
+    it.each([
+        ['with its results panel open', '<Widget showResults prompt="Render a globe" />'],
+        // The results panel holds the widget itself, so an id write that rode on it never reached
+        // a collapsed block, where the prompt, the model and the title all stay editable.
+        ['with its results panel closed', '<Widget hideResults prompt="Render a globe" />'],
+    ])('writes a durable node id into a widget tag that carries none, %s', async (_panelState, markdown) => {
+        logic.unmount()
+        const widgetWithoutNodeId = {
+            ...cachedNotebook,
+            content: buildMarkdownNotebookContent(markdown),
+        }
+        jest.mocked(api.notebooks.get).mockResolvedValue(widgetWithoutNodeId)
+        jest.spyOn(api.notebooks, 'markdownSave').mockResolvedValue(widgetWithoutNodeId)
+        logic = notebookLogic(logicProps)
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+        logic.actions.setEditable(true)
+
+        render(
+            <BindLogic logic={notebookLogic} props={logicProps}>
+                <MarkdownNotebookV2 />
+            </BindLogic>
+        )
+
+        // Without a written id the block's identity is a hash of its props, so the next prop
+        // write (a resize) moves it away from the id the mounted widget already generates under.
+        await waitFor(() => expect(jest.mocked(notebooksWidgetStatus)).toHaveBeenCalled())
+        const nodeId = jest.mocked(notebooksWidgetStatus).mock.calls[0][2]
+        await waitFor(() =>
+            expect(getMarkdownNotebookMarkdown(logic.values.content ?? {})).toContain(`nodeId="${nodeId}"`)
+        )
+        // The edited document persists to local storage, where it would outlive this test.
+        logic.actions.clearLocalContent()
+    })
+
+    it('leaves a widget tag with unparsable props on its derived id', async () => {
+        logic.unmount()
+        const malformedSource = '<Widget showResults prompt="Render a globe" 42 />'
+        const widgetWithUnparsableProps = {
+            ...cachedNotebook,
+            content: buildMarkdownNotebookContent(malformedSource),
+        }
+        jest.mocked(api.notebooks.get).mockResolvedValue(widgetWithUnparsableProps)
+        jest.spyOn(api.notebooks, 'markdownSave').mockResolvedValue(widgetWithUnparsableProps)
+        logic = notebookLogic(logicProps)
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+        logic.actions.setEditable(true)
+
+        render(
+            <BindLogic logic={notebookLogic} props={logicProps}>
+                <MarkdownNotebookV2 />
+            </BindLogic>
+        )
+
+        // The status request proves the block mounted, so the id write had its chance to run.
+        await waitFor(() => expect(jest.mocked(notebooksWidgetStatus)).toHaveBeenCalled())
+        // The text the parser could not read survives only in the block's raw source, which an
+        // id write clears.
+        expect(getMarkdownNotebookMarkdown(logic.values.content ?? {})).toContain(malformedSource)
+        logic.actions.clearLocalContent()
     })
 
     it('does not offer initial generation in the settings panel while status is still loading', async () => {

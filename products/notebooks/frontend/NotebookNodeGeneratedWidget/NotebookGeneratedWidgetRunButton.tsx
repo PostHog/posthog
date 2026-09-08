@@ -1,4 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconPlayFilled } from '@posthog/icons'
 
@@ -10,9 +11,33 @@ import { teamLogic } from 'scenes/teamLogic'
 import { notebookNodeGeneratedWidgetLogic } from './notebookNodeGeneratedWidgetLogic'
 import { DEFAULT_WIDGET_MODEL, isWidgetModel } from './widgetModels'
 
-export function NotebookGeneratedWidgetRunButton({ node }: NotebookComponentToolbarProps): JSX.Element | null {
+export function NotebookGeneratedWidgetRunButton({
+    node,
+    notebookMode,
+    updateProps,
+}: NotebookComponentToolbarProps): JSX.Element | null {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const { canEditNotebook, isShared } = useValues(mountedNotebookLogic)
+    const isEditableNotebook = !isShared && canEditNotebook && notebookMode === 'edit'
+    // Props the parser could not read, and a paired tag's body, exist only in the block's raw
+    // source, which any prop write clears. An automatic write must not shorten a block that no
+    // person edited, so those blocks keep their derived id instead.
+    const hasSourceOnlyInRaw = !!node.errors?.length || !!node.raw?.includes('\n')
+
+    // A parsed block id is a hash of the block's props, so any prop write moves it (a resize
+    // writes `height`, editing the prompt or the title writes those). The widget's generation
+    // state lives on the server under the block id, so a block that carries no explicit id gets
+    // one the first time it renders for an editor. The write belongs in the toolbar because the
+    // shell mounts the toolbar for every block, while it mounts the results panel only when that
+    // panel is open. It stays out of the undo history, which the person owns.
+    useEffect(() => {
+        if (!isEditableNotebook || hasSourceOnlyInRaw) {
+            return
+        }
+        if (typeof node.props.nodeId !== 'string' || !node.props.nodeId) {
+            updateProps({ nodeId: node.id }, { addToHistory: false })
+        }
+    }, [hasSourceOnlyInRaw, isEditableNotebook, node.id, node.props.nodeId, updateProps])
 
     if (isShared || !canEditNotebook) {
         return null

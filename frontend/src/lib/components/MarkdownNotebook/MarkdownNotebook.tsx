@@ -231,6 +231,7 @@ import {
     NotebookInlineNode,
     NotebookListItem,
     NotebookMode,
+    NotebookNodeUpdateOptions,
     NotebookTableBlockNode,
     NotebookTextBlockNode,
     NotebookTextSelectionRange,
@@ -2657,7 +2658,11 @@ function MarkdownNotebookEditor({
     ])
 
     const updateNode = useCallback(
-        (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null): void => {
+        (
+            nodeId: string,
+            updater: (node: NotebookBlockNode) => NotebookBlockNode | null,
+            options?: NotebookNodeUpdateOptions
+        ): void => {
             const currentDocument = documentRef.current
             const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
             let didUpdate = false
@@ -2683,6 +2688,7 @@ function MarkdownNotebookEditor({
                 },
                 {
                     historyOperations,
+                    addToHistory: options?.addToHistory,
                 }
             )
         },

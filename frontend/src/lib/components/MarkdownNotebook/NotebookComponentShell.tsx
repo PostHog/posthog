@@ -54,6 +54,7 @@ import {
     NotebookComponentProps,
     NotebookComponentRegistry,
     NotebookMode,
+    NotebookNodeUpdateOptions,
 } from './types'
 import { getNodeFingerprint } from './utils'
 
@@ -83,7 +84,11 @@ export type NotebookComponentShellProps = {
     setLocalComponentPanels: (nodeId: string, panels: ComponentPanelVisibility) => void
     rememberComponentPanels: (nodeId: string, panels: ComponentPanelVisibility) => void
     setBlockRef: (element: HTMLElement | null) => void
-    updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
+    updateNode: (
+        nodeId: string,
+        updater: (node: NotebookBlockNode) => NotebookBlockNode | null,
+        options?: NotebookNodeUpdateOptions
+    ) => void
     deleteNode: () => void
     deleteSelectedNotebookBlocks: () => boolean
     insertParagraphAfterNode: () => void
@@ -264,7 +269,7 @@ export function NotebookComponentShell({
         setComponentPanels(nextPanelVisibility)
     }
     const updateProps = useCallback(
-        (props: Partial<NotebookComponentProps>): void => {
+        (props: Partial<NotebookComponentProps>, options?: NotebookNodeUpdateOptions): void => {
             const propKeysToRemove = new Set(
                 Object.entries(props)
                     .filter(([, value]) => value === undefined)
@@ -277,30 +282,34 @@ export function NotebookComponentShell({
                 return accumulator
             }, {})
 
-            updateNode(node.id, (currentNode) => {
-                if (currentNode.type !== 'component') {
-                    return currentNode
-                }
-                return {
-                    ...currentNode,
-                    // An intentional edit supersedes any malformed source captured at parse time —
-                    // stale `raw` would otherwise win over the new props on serialize
-                    raw: undefined,
-                    errors: undefined,
-                    props: {
-                        ...Object.entries(currentNode.props).reduce<NotebookComponentProps>(
-                            (accumulator, [key, value]) => {
-                                if (!propKeysToRemove.has(key)) {
-                                    accumulator[key] = value
-                                }
-                                return accumulator
-                            },
-                            {}
-                        ),
-                        ...nextProps,
-                    },
-                }
-            })
+            updateNode(
+                node.id,
+                (currentNode) => {
+                    if (currentNode.type !== 'component') {
+                        return currentNode
+                    }
+                    return {
+                        ...currentNode,
+                        // An intentional edit supersedes any malformed source captured at parse time —
+                        // stale `raw` would otherwise win over the new props on serialize
+                        raw: undefined,
+                        errors: undefined,
+                        props: {
+                            ...Object.entries(currentNode.props).reduce<NotebookComponentProps>(
+                                (accumulator, [key, value]) => {
+                                    if (!propKeysToRemove.has(key)) {
+                                        accumulator[key] = value
+                                    }
+                                    return accumulator
+                                },
+                                {}
+                            ),
+                            ...nextProps,
+                        },
+                    }
+                },
+                options
+            )
         },
         [node.id, updateNode]
     )
