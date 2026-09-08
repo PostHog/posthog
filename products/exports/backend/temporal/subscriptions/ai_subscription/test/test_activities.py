@@ -84,7 +84,7 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
 
     snapshot = await _snapshot(delivery.id)
     assert snapshot[AI_REPORT_SNAPSHOT_KEY] == "# Weekly report"
-    assert snapshot[AI_REPORT_QUERY_PLAN_STATUS_KEY] == "frozen"
+    assert snapshot[AI_REPORT_QUERY_PLAN_STATUS_KEY] == AIQueryPlanStatus.FROZEN.value
     assert snapshot[AI_REPORT_DIAGNOSTICS_KEY] == [
         {
             "description": "adoption",

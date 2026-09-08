@@ -2385,7 +2385,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
                 },
             ]
             content_snapshot[AI_REPORT_PROMPT_SNAPSHOT_KEY] = "Weekly growth recap"
-            content_snapshot[AI_REPORT_QUERY_PLAN_STATUS_KEY] = "frozen"
+            content_snapshot[AI_REPORT_QUERY_PLAN_STATUS_KEY] = AIQueryPlanStatus.FROZEN.value
             content_snapshot[AI_REPORT_CHARTS_KEY] = [
                 {"export_asset_id": 4321, "title": "weekly signups", "step_index": 0}
             ]
@@ -2429,7 +2429,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             # The prompt is user-authored (not query-derived) and already readable on the parent
             # subscription, so it stays visible even for a query-restricted caller.
             assert data[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
-            assert data["ai_query_plan_status"] == "frozen"
+            assert data["ai_query_plan_status"] == AIQueryPlanStatus.FROZEN.value
             # The list endpoint shares the same get_serializer_context path, so it scrubs too.
             list_response = self.client.get(
                 f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/"
@@ -2442,7 +2442,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             assert row[AI_REPORT_DIAGNOSTICS_KEY] is None
             assert row[AI_REPORT_CHARTS_KEY] is None
             assert row[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
-            assert row["ai_query_plan_status"] == "frozen"
+            assert row["ai_query_plan_status"] == AIQueryPlanStatus.FROZEN.value
             assert generated_hogql not in str(row)
             assert query_error_code not in str(row)
             assert scrubbed_error_message not in str(row)
@@ -2462,7 +2462,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
                 # The safe error message on the failed step is part of the query-access debugging surface.
                 assert data[AI_REPORT_DIAGNOSTICS_KEY][1]["human_readable_error"] == scrubbed_error_message
                 assert data[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
-                assert data["ai_query_plan_status"] == "frozen"
+                assert data["ai_query_plan_status"] == AIQueryPlanStatus.FROZEN.value
                 assert data["error"] == query_failure_error
                 # The typed fields are the contract: the report must not be shipped twice, so the
                 # AI keys are stripped from content_snapshot (the non-AI scaffold stays intact).
@@ -2488,12 +2488,12 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
                     AI_REPORT_DIAGNOSTICS_KEY: [
                         {"description": "d", "hogql": "SELECT 1", "ok": True, "error_type": None}
                     ],
-                    AI_REPORT_QUERY_PLAN_STATUS_KEY: "frozen",
+                    AI_REPORT_QUERY_PLAN_STATUS_KEY: AIQueryPlanStatus.FROZEN.value,
                 },
                 "# Report",
                 "Weekly growth recap",
                 [{"description": "d", "hogql": "SELECT 1", "ok": True, "error_type": None}],
-                "frozen",
+                AIQueryPlanStatus.FROZEN.value,
             ),
             # Deliveries created before prompt/diagnostics snapshotting only carry the report.
             ("report_without_prompt", {AI_REPORT_SNAPSHOT_KEY: "# Report"}, "# Report", None, None, None),
@@ -2967,9 +2967,9 @@ class TestAISubscriptionAPI(APILicensedTest):
                 "prompt_change_clears_plan",
                 {"prompt": "A completely different question about retention?"},
                 False,
-                "not_frozen",
+                AIQueryPlanStatus.NOT_FROZEN.value,
             ),
-            ("title_change_keeps_plan", {"title": "Renamed"}, True, "frozen"),
+            ("title_change_keeps_plan", {"title": "Renamed"}, True, AIQueryPlanStatus.FROZEN.value),
         ]
     )
     def test_editing_prompt_invalidates_frozen_query_plan(
@@ -3119,7 +3119,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         data = response.json()
         assert data["resource_type"] == "ai_prompt"
-        assert data["ai_query_plan_status"] == "not_frozen"
+        assert data["ai_query_plan_status"] == AIQueryPlanStatus.NOT_FROZEN.value
         assert data["prompt"] == "What are the biggest event gains week-over-week?"
         assert data["insight"] is None
         assert data["dashboard"] is None
