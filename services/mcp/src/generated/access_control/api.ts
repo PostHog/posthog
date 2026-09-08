@@ -47,7 +47,7 @@ export const OrganizationsProjectsAccessControlDefaultPropertiesRetrieveParams =
 })
 
 /**
- * The project's default access: the level everyone without a rule of their own gets for the project and for each resource type, plus the resource types that accept rules on single objects.
+ * The project's default access. Returns the level that applies to the project and to each resource type when a member or a role has no rule of their own. Also lists the resource types that accept rules on single objects, with the levels such a rule can set.
  */
 export const organizationsProjectsAccessControlDefaultsRetrievePathIdMin = -2147483648
 export const organizationsProjectsAccessControlDefaultsRetrievePathIdMax = 2147483647
@@ -116,7 +116,7 @@ export const OrganizationsProjectsAccessControlMemberPropertiesRetrieveQueryPara
 })
 
 /**
- * Every organization member's resolved access to this project and to each resource type in it: the member's own rule, the level that is enforced, and the rule the enforced level comes from (their own, a role's, the project default, or an org-admin bypass). Pass `member_id` for one member.
+ * Every organization member's access in this project. For the project and for each resource type, the response gives the member's own rule and the level that is enforced. It also says where the enforced level comes from: the member's rule, a role's rule, the project default, or the org admin bypass. Pass `member_id` for one member.
  */
 export const organizationsProjectsAccessControlMembersRetrievePathIdMin = -2147483648
 export const organizationsProjectsAccessControlMembersRetrievePathIdMax = 2147483647

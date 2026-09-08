@@ -217,8 +217,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         return Response(payload)
 
     @extend_schema(
-        description="The project's default access: the level everyone without a rule of their own gets for the "
-        "project and for each resource type, plus the resource types that accept rules on single objects.",
+        description="The project's default access. Returns the level that applies to the project and to each "
+        "resource type when a member or a role has no rule of their own. Also lists the resource types that accept "
+        "rules on single objects, with the levels such a rule can set.",
         responses={200: AccessControlDefaultsResponseSerializer},
         extensions=_SCHEMA_EXTENSIONS,
     )
@@ -322,9 +323,10 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         return Response(AccessControlRolesResponseSerializer(payload).data)
 
     @extend_schema(
-        description="Every organization member's resolved access to this project and to each resource type in it: "
-        "the member's own rule, the level that is enforced, and the rule the enforced level comes from (their own, "
-        "a role's, the project default, or an org-admin bypass). Pass `member_id` for one member.",
+        description="Every organization member's access in this project. For the project and for each resource type, "
+        "the response gives the member's own rule and the level that is enforced. It also says where the enforced "
+        "level comes from: the member's rule, a role's rule, the project default, or the org admin bypass. Pass "
+        "`member_id` for one member.",
         parameters=[
             OpenApiParameter(
                 name="member_id",
