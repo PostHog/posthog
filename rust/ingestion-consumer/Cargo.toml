@@ -9,6 +9,7 @@ axum = { workspace = true }
 chrono = { workspace = true }
 common-alloc = { path = "../common/alloc" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
+common-kafka-consumer = { path = "../common/kafka-consumer" }
 dashmap = { workspace = true }
 envconfig = { workspace = true }
 futures = { workspace = true }

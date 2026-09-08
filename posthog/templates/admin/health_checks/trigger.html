@@ -1,9 +1,8 @@
 {% extends "admin/base_site.html" %}
 {% load i18n %}
-
 {% block extrastyle %}
-{{ block.super }}
-<style>
+    {{ block.super }}
+    <style>
     .config-card {
         border: 1px solid #e5e7eb;
         padding: 16px 20px;
@@ -191,94 +190,88 @@
     .alert { padding: 10px 14px; margin: 16px 0; border-radius: 6px; font-size: 14px; }
     .alert-success { background: #dcfce7; border: 1px solid #86efac; color: #166534; }
     .alert-error { background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; }
-</style>
+    </style>
 {% endblock %}
-
 {% block content %}
-<p><a href="{% url 'health-checks' %}">&larr; Back to health checks</a></p>
-
-{% if messages %}
-    {% for message in messages %}
-        <div class="alert alert-{{ message.tags }}">{{ message }}</div>
-    {% endfor %}
-{% endif %}
-
-<div class="config-card">
-    <dl>
-        <dt>Kind</dt>
-        <dd><code>{{ config.kind }}</code></dd>
-        <dt>Name</dt>
-        <dd><code>{{ config.name }}</code></dd>
-        <dt>Owner</dt>
-        <dd>{{ config.owner }}</dd>
-        <dt>Schedule</dt>
-        <dd>{% if config.schedule %}<code>{{ config.schedule }}</code>{% else %}Manual only{% endif %}</dd>
-    </dl>
-</div>
-
-<div class="workflow-section">
-    <h3>Trigger workflow</h3>
-    <form method="post">
-        {% csrf_token %}
-
-        <div class="checkbox-row">
-            <label>{{ form.dry_run }} Dry run</label>
-            {% if form.dry_run.help_text %}<p class="help-text">{{ form.dry_run.help_text }}</p>{% endif %}
-            {{ form.dry_run.errors }}
-        </div>
-
-        <div class="form-row">
-            <label for="{{ form.batch_size.id_for_label }}">Batch size</label>
-            {{ form.batch_size }}
-            {% if form.batch_size.help_text %}<p class="help-text">{{ form.batch_size.help_text }}</p>{% endif %}
-            {{ form.batch_size.errors }}
-        </div>
-
-        <div class="form-row">
-            <label for="{{ form.max_concurrent.id_for_label }}">Max concurrent</label>
-            {{ form.max_concurrent }}
-            {% if form.max_concurrent.help_text %}<p class="help-text">{{ form.max_concurrent.help_text }}</p>{% endif %}
-            {{ form.max_concurrent.errors }}
-        </div>
-
-        <div class="form-row">
-            <label for="{{ form.rollout_percentage.id_for_label }}">Rollout percentage</label>
-            {{ form.rollout_percentage }}
-            {% if form.rollout_percentage.help_text %}<p class="help-text">{{ form.rollout_percentage.help_text }}</p>{% endif %}
-            {{ form.rollout_percentage.errors }}
-        </div>
-
-        <div class="form-row">
-            <label for="{{ form.active_since_days.id_for_label }}">Active since (days)</label>
-            {{ form.active_since_days }}
-            {% if form.active_since_days.help_text %}<p class="help-text">{{ form.active_since_days.help_text }}</p>{% endif %}
-            {{ form.active_since_days.errors }}
-        </div>
-
-        <div class="form-row">
-            <label for="{{ form.team_ids.id_for_label }}">Team IDs</label>
-            {{ form.team_ids }}
-            {% if form.team_ids.help_text %}<p class="help-text">{{ form.team_ids.help_text }}</p>{% endif %}
-            {{ form.team_ids.errors }}
-        </div>
-
-        <div class="submit-row">
-            <input type="submit" value="Trigger workflow" class="btn-primary" />
-        </div>
-    </form>
-</div>
-
-<div class="workflow-section">
-    <div class="section-header">
-        <h3>Recent runs</h3>
-        <button id="poll-toggle" class="refresh-btn" type="button" title="Start auto-refresh">&#9654;</button>
+    <p><a href="{% url 'health-checks' %}">&larr; Back to health checks</a></p>
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+        {% endfor %}
+    {% endif %}
+    <div class="config-card">
+        <dl>
+            <dt>Kind</dt>
+            <dd>
+                <code>{{ config.kind }}</code>
+            </dd>
+            <dt>Name</dt>
+            <dd>
+                <code>{{ config.name }}</code>
+            </dd>
+            <dt>Owner</dt>
+            <dd>
+                {{ config.owner }}
+            </dd>
+            <dt>Schedule</dt>
+            <dd>{% if config.schedule %}<code>{{ config.schedule }}</code>{% else %}Manual only{% endif %}</dd>
+        </dl>
     </div>
-    <div id="runs-container">
-        {% include "admin/health_checks/_run_history.html" %}
+    <div class="workflow-section">
+        <h3>Trigger workflow</h3>
+        <form method="post">
+            {% csrf_token %}
+            <div class="checkbox-row">
+                <label>{{ form.dry_run }} Dry run</label>
+                {% if form.dry_run.help_text %}<p class="help-text">{{ form.dry_run.help_text }}</p>{% endif %}
+                {{ form.dry_run.errors }}
+            </div>
+            <div class="form-row">
+                <label for="{{ form.batch_size.id_for_label }}">Batch size</label>
+                {{ form.batch_size }}
+                {% if form.batch_size.help_text %}<p class="help-text">{{ form.batch_size.help_text }}</p>{% endif %}
+                {{ form.batch_size.errors }}
+            </div>
+            <div class="form-row">
+                <label for="{{ form.max_concurrent.id_for_label }}">Max concurrent</label>
+                {{ form.max_concurrent }}
+                {% if form.max_concurrent.help_text %}<p class="help-text">{{ form.max_concurrent.help_text }}</p>{% endif %}
+                {{ form.max_concurrent.errors }}
+            </div>
+            <div class="form-row">
+                <label for="{{ form.rollout_percentage.id_for_label }}">Rollout percentage</label>
+                {{ form.rollout_percentage }}
+                {% if form.rollout_percentage.help_text %}<p class="help-text">{{ form.rollout_percentage.help_text }}</p>{% endif %}
+                {{ form.rollout_percentage.errors }}
+            </div>
+            <div class="form-row">
+                <label for="{{ form.active_since_days.id_for_label }}">Active since (days)</label>
+                {{ form.active_since_days }}
+                {% if form.active_since_days.help_text %}<p class="help-text">{{ form.active_since_days.help_text }}</p>{% endif %}
+                {{ form.active_since_days.errors }}
+            </div>
+            <div class="form-row">
+                <label for="{{ form.team_ids.id_for_label }}">Team IDs</label>
+                {{ form.team_ids }}
+                {% if form.team_ids.help_text %}<p class="help-text">{{ form.team_ids.help_text }}</p>{% endif %}
+                {{ form.team_ids.errors }}
+            </div>
+            <div class="submit-row">
+                <input type="submit" value="Trigger workflow" class="btn-primary" />
+            </div>
+        </form>
     </div>
-</div>
-
-<script nonce="{{ request.csp_nonce }}">
+    <div class="workflow-section">
+        <div class="section-header">
+            <h3>Recent runs</h3>
+            <button id="poll-toggle"
+                    class="refresh-btn"
+                    type="button"
+                    title="Start auto-refresh">&#9654;</button>
+        </div>
+        <div id="runs-container">{% include "admin/health_checks/_run_history.html" %}</div>
+    </div>
+    <script nonce="{{ request.csp_nonce }}">
 (function() {
     var container = document.getElementById("runs-container");
     var pollUrl = "{% url 'health-check-runs' config.kind %}";
@@ -314,5 +307,5 @@
     });
     start();
 })();
-</script>
+    </script>
 {% endblock %}

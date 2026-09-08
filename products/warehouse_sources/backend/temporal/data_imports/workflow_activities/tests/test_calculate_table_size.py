@@ -63,3 +63,25 @@ class TestCalculateTableSizeActivity:
         table.refresh_from_db()
         assert table.size_in_s3_mib == 12.5
         assert table.url_pattern == "https://posthog-owned.example/team/stripe_charge_repartitioned"
+
+    def test_survives_a_concurrent_team_deletion(self) -> None:
+        # get_size_of_folder() (an S3 listing) can take long enough for the team owning this job
+        # to be deleted meanwhile, cascading away the job and table rows before this activity's
+        # own save() runs. Django's update_fields save() used to surface that as an unhandled
+        # DatabaseError ("Save with update_fields did not affect any rows") instead of the same
+        # clean early exit the DoesNotExist checks give a schema/job deleted before this activity
+        # even starts.
+        team = _team()
+        schema, table, job = _schema_table_job(team)
+
+        def _slow_listing(_folder: str) -> float:
+            team.delete()
+            return 12.5
+
+        with patch.object(calc, "get_size_of_folder", side_effect=_slow_listing):
+            calculate_table_size_activity(
+                CalculateTableSizeActivityInputs(team_id=team.id, schema_id=str(schema.id), job_id=str(job.id))
+            )
+
+        assert not ExternalDataJob.objects.filter(id=job.id).exists()
+        assert not DataWarehouseTable.objects.filter(id=table.id).exists()

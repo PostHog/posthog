@@ -2,7 +2,6 @@ import uuid
 import datetime
 from enum import Enum
 from typing import Any, Literal, Optional, cast
-from urllib.parse import quote
 
 from django.conf import settings
 from django.db import transaction
@@ -571,36 +570,6 @@ def send_password_changed_email(user_id: int) -> None:
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_email_verification(
-    user_id: int, token: str, next_url: str | None = None, target_email: str | None = None
-) -> None:
-    user: User = User.objects.get(pk=user_id)
-    next_query = f"?next={quote(next_url, safe='')}" if next_url else ""
-    message = EmailMessage(
-        use_http=True,
-        campaign_key=f"email-verification-{user.uuid}-{timezone.now().timestamp()}",
-        subject=f"Verify your email address",
-        template_name="email_verification",
-        template_context={
-            "preheader": "Please follow the link inside to verify your account.",
-            "link": f"/verify_email/{user.uuid}/{token}{next_query}",
-            "site_url": settings.SITE_URL,
-            "url": f"{settings.SITE_URL}/verify_email/{user.uuid}/{token}{next_query}",
-        },
-    )
-    # Pin the recipient to the email the token authorizes (the caller-captured `target_email`)
-    # rather than re-reading `pending_email`, which a concurrent email change could have drifted.
-    message.add_user_recipient(user, email_override=target_email if target_email is not None else user.pending_email)
-    message.send(send_async=False)
-    posthoganalytics.capture(
-        distinct_id=str(user.distinct_id),
-        event="verification email sent",
-        groups={"organization": str(user.current_organization.id)},  # type: ignore
-    )
-
-
-@shared_task(**EMAIL_TASK_KWARGS)
-@skip_team_scope_audit
 def send_email_verification_code(user_id: int, code: str, target_email: str | None = None) -> None:
     """Send the 6-digit email-verification code.
 
@@ -629,7 +598,7 @@ def send_email_verification_code(user_id: int, code: str, target_email: str | No
         capture(
             distinct_id=str(user.distinct_id),
             event="verification code sent",
-            groups={"organization": str(user.current_organization.id)},  # type: ignore
+            groups={"organization": str(user.current_organization.id)} if user.current_organization else None,
         )
 
 
@@ -656,7 +625,7 @@ def send_code_based_verification(user_id: int, code: str) -> None:
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
         event="login verification code sent",
-        groups={"organization": str(user.current_organization.id)},  # type: ignore
+        groups={"organization": str(user.current_organization.id)} if user.current_organization else None,
     )
 
 
@@ -824,6 +793,36 @@ def send_email_sending_unsuspended(team_id: int, unsuspended_at: str) -> None:
         template_name="email_sending_unsuspended",
         template_context={
             "team": team,
+            "reputation_path": f"/project/{team.id}/workflows/reputation",
+        },
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@with_team_scope()
+def send_email_sending_tier_demoted(team_id: int, per_day: int, per_hour: int, demoted_at: str) -> None:
+    """
+    Tell a project's admins that its workflow email sending limit was lowered for deliverability
+    problems. Admin+ recipients and no notification-setting gate, matching the suspension emails:
+    the limit stays down until someone acts on the list quality.
+    """
+    if not is_email_available(with_absolute_urls=True):
+        return
+    team = Team.objects.get(id=team_id)
+    memberships_to_email = _get_project_admins_to_notify_of_email_sending_suspension(team)
+    if not memberships_to_email:
+        return
+    message = EmailMessage(
+        campaign_key=f"email_sending_tier_demoted_{team_id}_{demoted_at}",
+        subject=f"Workflow email sending limit lowered for project '{team}'",
+        template_name="email_sending_tier_demoted",
+        template_context={
+            "team": team,
+            "per_day": f"{per_day:,}",
+            "per_hour": f"{per_hour:,}",
             "reputation_path": f"/project/{team.id}/workflows/reputation",
         },
     )

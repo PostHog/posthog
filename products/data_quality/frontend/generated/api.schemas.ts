@@ -194,10 +194,15 @@ export interface DataQualityOverviewCheckApi {
     /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
     readonly last_status: string
     /**
-     * When the check last passed, so a failing check can say how long it has been failing. Null means it has not passed within the run retention window.
+     * When the check last passed. Read failing_since for how long a failing check has been failing. Null means it has not passed within the run retention window.
      * @nullable
      */
     readonly last_succeeded_at: string | null
+    /**
+     * When the current streak of failing runs started, so a failing check can say how long it has been failing. Null when the check is not failing.
+     * @nullable
+     */
+    readonly failing_since: string | null
     /** sha256 of the subject, type, column, and config. Re-creating the same check upserts. */
     readonly fingerprint: string
     /** Whether a human ('user') or an agent ('ai_generated') authored this check.
@@ -326,6 +331,11 @@ export interface DataQualityCheckRunApi {
      * @nullable
      */
     readonly quality_check: string | null
+    /**
+     * Name the check carries now, so a run can be told from the others in its suite. Null when the check is unnamed, has been hard deleted, or is out of your reach today -- describe the run by check_type and column_name instead.
+     * @nullable
+     */
+    readonly check_name: string | null
     readonly suite_run: string
     readonly subject_type: SubjectTypeEnumApi
     readonly subject_uuid: string
@@ -447,10 +457,15 @@ export interface DataQualityCheckApi {
     /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
     readonly last_status: string
     /**
-     * When the check last passed, so a failing check can say how long it has been failing. Null means it has not passed within the run retention window.
+     * When the check last passed. Read failing_since for how long a failing check has been failing. Null means it has not passed within the run retention window.
      * @nullable
      */
     readonly last_succeeded_at: string | null
+    /**
+     * When the current streak of failing runs started, so a failing check can say how long it has been failing. Null when the check is not failing.
+     * @nullable
+     */
+    readonly failing_since: string | null
     /** sha256 of the subject, type, column, and config. Re-creating the same check upserts. */
     readonly fingerprint: string
     /** Whether a human ('user') or an agent ('ai_generated') authored this check.
@@ -559,10 +574,15 @@ export interface PatchedDataQualityCheckApi {
     /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
     readonly last_status?: string
     /**
-     * When the check last passed, so a failing check can say how long it has been failing. Null means it has not passed within the run retention window.
+     * When the check last passed. Read failing_since for how long a failing check has been failing. Null means it has not passed within the run retention window.
      * @nullable
      */
     readonly last_succeeded_at?: string | null
+    /**
+     * When the current streak of failing runs started, so a failing check can say how long it has been failing. Null when the check is not failing.
+     * @nullable
+     */
+    readonly failing_since?: string | null
     /** sha256 of the subject, type, column, and config. Re-creating the same check upserts. */
     readonly fingerprint?: string
     /** Whether a human ('user') or an agent ('ai_generated') authored this check.

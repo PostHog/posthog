@@ -49,10 +49,14 @@ class EnrichmentOutcome:
     matched/upgraded reporting reads. fit is the ICP fit evaluation, present whenever fit
     scoring ran (its status distinguishes scored/insufficient_data/not_found/disqualified);
     None only when it degraded (no active curated-lists row, or an unexpected error).
+    enrichment_status is the polled status of the org's previously archived tracking URN
+    (recheck only; always None on a first attempt), so callers can report it without a
+    second read of the archive.
     """
 
     provider_fields: Optional[EnrichmentFields] = None
     fit: Optional[IcpFitResult] = None
+    enrichment_status: Optional[str] = None
 
 
 def _persisted_score_exists(organization_id: str) -> bool:
@@ -101,6 +105,42 @@ def latest_matched_payload(organization_id: str) -> Optional[dict[str, Any]]:
         if isinstance(payload, dict) and payload and payload.get("companyFound") is not False:
             return payload
     return None
+
+
+def _latest_archived_urn(organization_id: str) -> Optional[str]:
+    """The most recent enrichmentUrn Harmonic has given this org, or None.
+
+    Skips rows whose enrichmentUrn is null or absent: a recheck that lands on an
+    already-matched company archives a null urn (no pending refresh), and the latest row
+    by fetch time is often exactly that. A naive "latest row" read would then shadow an
+    earlier, still-open tracking urn (e.g. the original miss's) with a null one.
+    """
+    payload = (
+        OrganizationEnrichmentFetch.objects.filter(
+            organization_id=organization_id, payload__enrichmentUrn__isnull=False
+        )
+        .exclude(payload__enrichmentUrn=None)
+        .order_by("-fetched_at", "-id")
+        .values_list("payload", flat=True)
+        .first()
+    )
+    urn = payload.get("enrichmentUrn") if isinstance(payload, dict) else None
+    return urn if isinstance(urn, str) else None
+
+
+async def _recheck_enrichment_status(*, organization_id: str, provider: EnrichmentProvider) -> Optional[str]:
+    """Poll the provider for the status of the org's most recently archived tracking URN.
+
+    Never raises: a status-check failure must not block the recheck's own lookup below.
+    """
+    urn = await sync_to_async(_latest_archived_urn)(organization_id)
+    if not urn:
+        return None
+    try:
+        return await provider.enrichment_status_for(urn)
+    except Exception as e:
+        capture_exception(e, {"organization_id": organization_id, "enrichment_urn": urn})
+        return None
 
 
 def _fetch_recheck_person_inputs(distinct_id: str) -> tuple[bool, ClearbitInputs]:
@@ -252,6 +292,12 @@ async def enrich_organization(
     Every fetch is archived verbatim — including a not-found — before the live-store write.
     The Postgres writes run via sync_to_async to bridge the async provider.
 
+    On a recheck, the most recently archived non-null enrichmentUrn (if any) is polled for
+    its status before this attempt's own lookup runs, and the result rides along on this
+    fetch's archived payload as enrichmentStatus. The archive then shows what happened to
+    the tracking id a prior attempt saved, alongside the new observation. A first attempt
+    has no prior URN to poll, so it carries no enrichmentStatus key at all.
+
     A matched org is scored twice: under the legacy clay formula (see `_score_and_mirror`
     for its scoring and person-mirror policy) and under the ICP fit score (`_score_fit`),
     which also evaluates misses — from the last matched archived payload when one exists,
@@ -267,12 +313,20 @@ async def enrich_organization(
     fallback wrote a score), since that is what the workflow's matched/upgraded reporting
     reads.
     """
+    enrichment_status: Optional[str] = None
+    if is_recheck:
+        enrichment_status = await _recheck_enrichment_status(organization_id=organization_id, provider=provider)
+
     lookup = await provider.enrich_by_domain(domain)
 
+    base_payload = lookup.raw_payload if lookup.raw_payload is not None else _MISS_PAYLOAD
+    archived_payload = {**base_payload, "enrichmentUrn": lookup.enrichment_urn}
+    if is_recheck:
+        archived_payload["enrichmentStatus"] = enrichment_status
     await sync_to_async(archive_provider_fetch)(
         organization_id=organization_id,
         provider=provider.name,
-        payload=lookup.raw_payload if lookup.raw_payload is not None else _MISS_PAYLOAD,
+        payload=archived_payload,
         is_recheck=is_recheck,
     )
 
@@ -311,7 +365,7 @@ async def enrich_organization(
     )
 
     if fields is None and fit is None:
-        return EnrichmentOutcome(provider_fields=None, fit=None)
+        return EnrichmentOutcome(provider_fields=None, fit=None, enrichment_status=enrichment_status)
 
     await sync_to_async(write_organization_enrichment)(
         organization_id=organization_id,
@@ -322,4 +376,4 @@ async def enrich_organization(
         fit=fit,
         fit_mirror_distinct_id=fit_mirror_distinct_id,
     )
-    return EnrichmentOutcome(provider_fields=lookup.fields, fit=fit)
+    return EnrichmentOutcome(provider_fields=lookup.fields, fit=fit, enrichment_status=enrichment_status)

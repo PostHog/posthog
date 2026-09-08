@@ -2,13 +2,13 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "acknowledged_affected_count": {
-            "description": "The affected-user count from workflows-blast-radius that you showed the user AND they explicitly confirmed before scheduling. Each firing re-broadcasts to the audience at that time; rejected if it no longer matches.",
+            "description": "Batch triggers only: the affected-user count from workflows-blast-radius that you showed the user AND they explicitly confirmed before scheduling. Each firing re-broadcasts to the audience at that time; rejected if it no longer matches. Omit for a schedule trigger, which has no audience.",
             "maximum": 9007199254740991,
             "minimum": -9007199254740991,
             "type": "integer"
         },
         "confirm_token": {
-            "description": "The confirm_token from the same workflows-blast-radius preview whose count the user confirmed. The API rejects schedule creation without it, and it goes stale when the audience filters change or after 15 minutes - re-preview to refresh.",
+            "description": "Batch triggers only: the confirm_token from the same workflows-blast-radius preview whose count the user confirmed. The API rejects a batch schedule without it, and it goes stale when the audience filters change or after 15 minutes - re-preview to refresh. Omit for a schedule trigger.",
             "type": "string"
         },
         "rrule": {
@@ -32,10 +32,10 @@
             "type": "object"
         },
         "workflow_id": {
-            "description": "ID of the batch workflow to attach the recurring schedule to.",
+            "description": "ID of the workflow to attach the recurring schedule to. Its trigger must be batch or schedule.",
             "type": "string"
         }
     },
-    "required": ["workflow_id", "rrule", "starts_at", "acknowledged_affected_count", "confirm_token"],
+    "required": ["workflow_id", "rrule", "starts_at"],
     "type": "object"
 }

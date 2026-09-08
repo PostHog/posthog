@@ -60,10 +60,9 @@ class MetricAggregation(StrEnum):
     Instant aggregations take each series' last sample in the bucket and
     combine those: SUM is the total across series, AVG and QUANTILE are
     computed over series, COUNT is how many series reported, and MIN and MAX
-    are the smallest and largest last sample across series. MIN and MAX still
-    need the per-series step once they are implemented, because taken over raw
-    samples they would report a stale within-bucket extreme rather than the
-    current cross-series one.
+    are the smallest and largest last sample across series. The per-series step
+    matters most for MIN and MAX: taken over raw samples they would report a
+    stale within-bucket extreme rather than the current cross-series one.
 
     Counter functions operate on the change across the bucket (cumulative
     counters get reset-corrected; deltas are summed): RATE, INCREASE.

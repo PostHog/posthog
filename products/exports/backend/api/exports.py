@@ -23,7 +23,6 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.organization import Organization
-from posthog.security.url_validation import is_url_allowed
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.common.client import async_connect
@@ -48,6 +47,7 @@ from products.exports.backend.source_authentication import (
     required_scopes_for_export_target,
 )
 from products.exports.backend.stuck_exports import STUCK_EXPORT_MESSAGE, is_stuck_export
+from products.exports.backend.url_security import is_heatmap_url_allowed
 from products.product_analytics.backend.facade.models import Insight
 
 # Full video exports per team per calendar month, tiered by plan.
@@ -196,7 +196,10 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
                 )
 
         if export_context and export_context.get("heatmap_url"):
-            ok, err = is_url_allowed(export_context["heatmap_url"])
+            ok, err = is_heatmap_url_allowed(
+                export_context["heatmap_url"],
+                export_context.get("heatmap_type"),
+            )
             if not ok:
                 raise ValidationError({"export_context": [f"heatmap_url not allowed: {err}"]})
 

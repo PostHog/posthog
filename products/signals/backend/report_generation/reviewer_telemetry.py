@@ -44,6 +44,8 @@ def capture_suggested_reviewers_resolved(
     report_id: str,
     github_logins: list[str],
     source: ReviewerSuggestionSource,
+    correction_notes_written: int | None = None,
+    correction_note_targets: int | None = None,
 ) -> None:
     """Emit `signals_suggested_reviewers_resolved` when a report's suggested reviewers are persisted.
 
@@ -52,6 +54,12 @@ def capture_suggested_reviewers_resolved(
     silently. A report whose logins map to nobody cannot be routed to a person, yet still counts as
     "assigned" in `suggested_reviewers`-based metrics. This event records the linkable/unlinkable
     split at suggestion time so that bucket is measurable.
+
+    A human edit that changed the set also steers the scouts holding the routing memory it
+    corrects (`reviewer_correction_notes.py`). `correction_notes_written` and
+    `correction_note_targets` report what that forwarding did — notes written, and scouts the
+    correction was addressed to, which is the larger number when the suppression window swallowed a
+    target's logins. Both are absent on every other path, so absence reads as "no correction".
 
     Best-effort: never raises, so analytics can't break report generation.
     """
@@ -81,6 +89,14 @@ def capture_suggested_reviewers_resolved(
                 "linkable_logins": linkability.linkable_logins[:_MAX_LOGINS_PER_EVENT],
                 "unlinkable_logins": linkability.unlinkable_logins[:_MAX_LOGINS_PER_EVENT],
                 "all_unlinkable": bool(linkability.unlinkable_logins) and not linkability.linkable_logins,
+                **(
+                    {}
+                    if correction_notes_written is None
+                    else {
+                        "correction_notes_written": correction_notes_written,
+                        "correction_note_targets": correction_note_targets,
+                    }
+                ),
             },
             groups=groups(team.organization, team),
         )
