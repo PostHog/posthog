@@ -438,15 +438,20 @@ def test_no_new_heavy_imports_at_setup() -> None:
 # pre-fork, so workers share it copy-on-write. Without this, each worker builds the router
 # on its first live request (k8s probes short-circuit in middleware and never warm it),
 # which measured at multiple seconds per worker after every deploy.
-def test_web_entrypoint_prebuilds_the_router() -> None:
+def test_web_entrypoint_initializes_router_and_memory_probe() -> None:
     probe = """
 import os
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+os.environ["WEB_MEMORY_PROBE_ENABLED"] = "true"
 import posthog.wsgi  # noqa: F401 — the real web entry; builds the app and resolves the URLconf
 import sys
 assert "posthog.api.rest_router" in sys.modules, "wsgi import did not build the API router"
 from django.urls import get_resolver
 assert get_resolver()._populated or get_resolver().url_patterns, "URLconf not resolved"
+import signal
+from posthog.web_memory_probe import _handle_probe
+assert signal.getsignal(signal.SIGUSR2) is _handle_probe, "WSGI boot did not install the memory probe"
+signal.raise_signal(signal.SIGUSR2)
 print("WSGI_PREBUILD_OK")
 """
     result = subprocess.run(
@@ -457,3 +462,5 @@ print("WSGI_PREBUILD_OK")
     )
     assert result.returncode == 0, f"posthog.wsgi import failed:\n{result.stderr[-2000:]}"
     assert "WSGI_PREBUILD_OK" in result.stdout, result.stdout[-500:]
+    output = result.stdout + result.stderr
+    assert "web_memory_probe" in output and "gc_collected" in output, "SIGUSR2 did not log memory diagnostics"

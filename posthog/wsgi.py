@@ -84,6 +84,10 @@ def _log_web_worker_started() -> None:
 
 _log_web_worker_started()
 
+# Granian imports this module on each worker's main thread, before WSGI requests
+# run in its blocking thread pool where Python forbids signal registration.
+install_memory_probe_handler()
+
 # The query_cache RedisCluster must be discovered by the process that uses it: a client
 # built at import time is inherited, sockets and all, by anything forked afterwards.
 # Defer the prewarm to the first request; the factory also pid-guards the cache as a
@@ -105,8 +109,5 @@ def application(environ, start_response):
         # Threads do not survive a fork, so start the sampler from the process that
         # actually serves requests.
         start_web_memory_sampler()
-        # Signal handlers install only from the main thread, so this logs a handled failure
-        # when the server calls the app off it. Inert unless the env flag is set.
-        install_memory_probe_handler()
         _prewarmed = True
     return _django_application(environ, start_response)

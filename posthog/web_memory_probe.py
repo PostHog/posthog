@@ -3,13 +3,13 @@ import os
 import ctypes
 import signal
 import logging
+import threading
 from types import FrameType
 
 import structlog
 
-logger = logging.getLogger(__name__)
-
 PROBE_ENABLED_ENV = "WEB_MEMORY_PROBE_ENABLED"
+_probe_lock = threading.Lock()
 
 # glibc mallinfo2() layout — all size_t (see `man mallinfo2`). mallinfo2 (glibc >= 2.33)
 # supersedes mallinfo(), whose int fields overflow on the multi-GB heaps we care about.
@@ -74,7 +74,7 @@ def _read_vmrss_kb() -> int | None:
 def _mallinfo2() -> dict[str, int] | None:
     """glibc allocator stats: how much the process has taken from the OS and how much is
     parked on free lists (fordblks) rather than returned. Quantifies reclaimable
-    fragmentation directly, in O(1), without a heap walk. None where libc/mallinfo2 is
+    fragmentation without walking the Python heap. None where libc/mallinfo2 is
     unavailable (non-glibc, e.g. dev macOS)."""
     if _LIBC is None:
         return None
@@ -86,25 +86,32 @@ def _mallinfo2() -> dict[str, int] | None:
 
 
 def _handle_probe(signum: int, frame: FrameType | None) -> None:
-    """SIGUSR2 handler — a one-shot memory diagnostic for a single worker. Python delivers
-    signals on the main thread between bytecodes, so ordinary work (logging, ctypes calls)
-    is safe here; logging's RLock is reentrant for the same thread, so interrupting a log
-    call can't self-deadlock.
+    # A signal can interrupt an earlier probe, including its GC callbacks or logging.
+    # Never wait here: the interrupted probe cannot release the lock until we return.
+    if not _probe_lock.acquire(blocking=False):
+        return
+    try:
+        _run_probe()
+    except Exception:
+        try:
+            logging.getLogger(__name__).exception("web memory probe failed")
+        except Exception:
+            # Logging may itself be the failed diagnostic; don't unwind server code.
+            pass
+    finally:
+        _probe_lock.release()
 
-    Captures mallinfo2 *before* gc/trim disturb it (malloc_trim hands back exactly the
-    reclaimable free-list pages, so a post-trim fordblks reads what's left, not what was
-    hoarded), then RSS at three points plus malloc_trim's own return value. Read the verdict
-    as — note gc.collect() frees cycles into glibc's free list, NOT back to the OS, so RSS
-    may not move even when collection happened; key the cycle call off the count, not RSS:
-      gc_collected large                 -> reference cycles are a factor (Python-level / gc tuning),
-                                            independent of whether RSS moved
-      (rss_before - rss_after_trim) large -> glibc was holding reclaimable pages (malloc_released == 1);
-        or malloc_released == 1             jemalloc decay or a periodic trim would recover it -> the jemalloc gate
-      both small                         -> memory is genuinely live (only fetching/retaining less helps)
 
-    mallinfo2_before.fordblks vs uordblks is the free-list-vs-live split before trim runs.
-    The gc.collect() costs a single pause on the one worker that's signalled, which is why
-    this is fired by hand on a chosen pod, never on a schedule."""
+def _run_probe() -> None:
+    """Run a synchronous diagnostic on the signalled worker's main thread.
+
+    Capture mallinfo2 before GC and trim change the allocator's free lists. gc_collected
+    counts unreachable objects, not bytes; collecting cycles need not reduce RSS.
+    malloc_released reports whether glibc returned any pages, not how many.
+    Collection skips the frozen startup heap. Concurrent request allocations can obscure
+    RSS deltas, and glibc statistics do not describe a replacement allocator's heap.
+    Small collection counts and RSS deltas therefore do not prove that all memory is live.
+    GC and trim can pause requests, so fire this manually, never on a schedule."""
     log = structlog.get_logger("posthog.web_memory_probe")
     mallinfo_before = _mallinfo2()
     rss_before = _read_vmrss_kb()
@@ -140,10 +147,9 @@ def _handle_probe(signum: int, frame: FrameType | None) -> None:
 def install_memory_probe_handler() -> None:
     """Register the SIGUSR2 memory-probe handler, gated by WEB_MEMORY_PROBE_ENABLED.
 
-    MUST be called from inside each worker (see posthog/asgi.py and posthog/wsgi.py): signal
-    handlers can only be registered from the main thread, and the handler has to live in the
-    process that serves requests. Registering it there also keeps it clear of any signal reset
-    the server does during worker init.
+    MUST be called on each worker's main thread: WSGI installs during module import,
+    before requests enter Granian's blocking thread pool; ASGI installs on the first request
+    in the event loop. Granian's shutdown handlers leave SIGUSR2 untouched.
 
     Inert until armed: with the flag unset (default) nothing is registered at all, and even
     when armed the handler does nothing until a SIGUSR2 actually arrives. So the safe way to
@@ -153,7 +159,7 @@ def install_memory_probe_handler() -> None:
         return
     try:
         signal.signal(signal.SIGUSR2, _handle_probe)
-        logger.info("web memory probe handler installed on SIGUSR2")
+        logging.getLogger(__name__).info("web memory probe handler installed on SIGUSR2")
     except (ValueError, OSError):
         # signal.signal raises ValueError off the main thread; stay best-effort.
-        logger.exception("failed to install web memory probe handler")
+        logging.getLogger(__name__).exception("failed to install web memory probe handler")

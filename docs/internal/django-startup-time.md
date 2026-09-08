@@ -25,7 +25,31 @@ This is the laziness Django already intends: the URLconf is the entry point, and
 
 Web is the exception and resolves it eagerly: `wsgi.py`/`asgi.py` build the URLconf at import, pre-fork, inside the GC window — because the k8s probes (`/_livez`, `/_readyz`) are served by short-circuiting middleware and never resolve URLs, each worker would otherwise build the router on its **first live request** (measured at multiple seconds per worker, after every deploy).
 Pre-building lands the router in the frozen heap at worker boot — exactly the pre-lazy-router behavior for web, while every other process keeps the win.
-`test_web_entrypoint_prebuilds_the_router` pins this; a prefork smoke (gunicorn `--preload`, 4 workers) verified workers inherit the built router and serve cold requests without it.
+`test_web_entrypoint_initializes_router_and_memory_probe` pins this; a prefork smoke (gunicorn `--preload`, 4 workers) verified workers inherit the built router and serve cold requests without it.
+
+When `WEB_MEMORY_PROBE_ENABLED=true`, WSGI also installs the SIGUSR2 memory probe during worker import, on the main thread.
+Do not defer signal registration to the first WSGI request: Granian serves it on a blocking thread, where Python rejects `signal.signal()`.
+ASGI installs the probe on the first request because its event loop runs on the worker's main thread.
+Granian 2.8.2 loads the application inside `WorkerProcess.wrap_target`, before setting worker shutdown handlers
+(`SIGINT`/`SIGTERM`, leaving `SIGUSR2` intact). Failed-worker and RSS-driven replacements use the same loader,
+so each replacement installs its own handler. ASGI lifespan startup alone does not arm the probe.
+The probe creates loggers only after Django configures logging; its `disable_existing_loggers` setting
+would otherwise silence a logger created during the initial WSGI imports.
+
+The probe is disabled by default and does no collection or trimming until signalled. Target a worker PID,
+not the Granian supervisor, and wait for handler installation (for ASGI, after a first request).
+Without an installed handler, SIGUSR2 can terminate the process.
+Signals arriving during a probe are dropped; later signals run another probe. Diagnostic exceptions are
+contained, including failures while logging the error.
+
+GC and `malloc_trim(0)` run synchronously and can pause requests; this is an occasional diagnostic, not a
+scheduled cleanup. Collection leaves the frozen startup heap frozen. On CPython 3.13, collection already in
+progress causes a nested `gc.collect()` to return zero, so that sample is inconclusive. Small GC/trim deltas
+do not prove all memory is live: frozen objects, concurrent allocations, and non-glibc allocators limit the
+measurement. Missing `/proc`, `mallinfo2`, or `malloc_trim` produces null fields where unavailable.
+
+This flag is independent of `WEB_MEMORY_SAMPLE_INTERVAL_SECONDS` (the periodic RSS gauge/log, default 30 seconds)
+and `GRANIAN_WORKERS_MAX_RSS` (Granian's automatic worker recycling). Neither invokes this diagnostic.
 
 ### 2. Model registration
 
