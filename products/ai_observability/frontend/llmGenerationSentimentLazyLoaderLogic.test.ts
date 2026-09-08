@@ -37,6 +37,7 @@ describe('llmGenerationSentimentLazyLoaderLogic', () => {
                 key: 'event-uuid-1',
                 traceId: 'trace-1',
                 generationIds: ['event-uuid-1'],
+                timestamp: '2026-06-23T10:00:00Z',
             })
         }).toMatchValues({
             loadingGenerationKeys: new Set(['event-uuid-1']),
@@ -64,20 +65,43 @@ describe('llmGenerationSentimentLazyLoaderLogic', () => {
         })
     })
 
-    it('clears loading keys after failures', async () => {
+    it('offers a retry after a failure instead of resolving the cell to no sentiment', async () => {
         logic.actions.ensureGenerationSentimentLoaded({
             key: 'event-uuid-1',
             traceId: 'trace-1',
             generationIds: ['event-uuid-1'],
+            timestamp: '2026-06-23T10:00:00Z',
         })
 
         await expectLogic(logic, () => {
             logic.actions.loadGenerationSentimentBatchFailure(['event-uuid-1'])
         }).toMatchValues({
             loadingGenerationKeys: new Set(),
-            sentimentByGenerationKey: {
-                'event-uuid-1': null,
-            },
+            sentimentByGenerationKey: {},
+        })
+        expect(logic.values.didGenerationSentimentLoadFail('event-uuid-1')).toBe(true)
+
+        await expectLogic(logic, () => {
+            logic.actions.ensureGenerationSentimentLoaded({
+                key: 'event-uuid-1',
+                traceId: 'trace-1',
+                generationIds: ['event-uuid-1'],
+                timestamp: '2026-06-23T10:00:00Z',
+            })
+        }).toMatchValues({
+            loadingGenerationKeys: new Set(['event-uuid-1']),
+        })
+        expect(logic.values.didGenerationSentimentLoadFail('event-uuid-1')).toBe(false)
+    })
+
+    it('drops cached sentiment on reset, so refresh fetches it again', async () => {
+        logic.actions.loadGenerationSentimentBatchSuccess({ 'event-uuid-1': sentiment }, ['event-uuid-1'])
+
+        await expectLogic(logic, () => {
+            logic.actions.resetGenerationSentiments()
+        }).toMatchValues({
+            sentimentByGenerationKey: {},
+            loadingGenerationKeys: new Set(),
         })
     })
 

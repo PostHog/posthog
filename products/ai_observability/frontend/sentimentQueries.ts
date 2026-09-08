@@ -1,11 +1,18 @@
 import api from 'lib/api'
+import { Dayjs, dayjs } from 'lib/dayjs'
 
 import { ProductKey, type RefreshType } from '~/queries/schema/schema-general'
 import { escapeHogQLString, hogql } from '~/queries/utils'
 
+import { evaluationsList } from './generated/api'
 import { normalizeSentimentResult, type GenerationSentiment } from './sentimentResults'
 
 export const GENERATIONS_PAGE_SIZE = 200
+
+// A sentiment evaluation runs after the generation it scores, so the scan window opens shortly
+// before the generation and stays open long enough to cover a queued or retried evaluation.
+const EVALUATION_WINDOW_BEFORE_MINUTES = 10
+const EVALUATION_WINDOW_AFTER_HOURS = 24
 
 export type SentimentCategory = 'negative' | 'positive'
 
@@ -78,6 +85,13 @@ export interface GenerationSentimentLookup {
     key: string
     traceId: string
     generationIds: string[]
+    /** Generation timestamp, which anchors the scan window on the evaluation events */
+    timestamp: string
+}
+
+interface EvaluationScanWindow {
+    dateFrom: string
+    dateTo: string
 }
 
 export interface SentimentGeneration {
@@ -125,6 +139,35 @@ function uniqueNonEmpty(values: string[]): string[] {
     return Array.from(new Set(values.filter(Boolean)))
 }
 
+// The union of every generation's window, so the scan stays narrow when a page of rows is
+// clustered in time. Without it the fallback read of `events` scans the team's whole history:
+// that table is sorted by date, so only a bounded window lets ClickHouse skip parts.
+function resolveEvaluationScanWindow(lookups: GenerationSentimentLookup[]): EvaluationScanWindow | null {
+    const timestamps = lookups
+        .map((lookup) => dayjs(lookup.timestamp))
+        .filter((timestamp): timestamp is Dayjs => timestamp.isValid())
+
+    if (timestamps.length === 0) {
+        return null
+    }
+
+    let earliest = timestamps[0]
+    let latest = timestamps[0]
+    for (const timestamp of timestamps) {
+        if (timestamp.isBefore(earliest)) {
+            earliest = timestamp
+        }
+        if (timestamp.isAfter(latest)) {
+            latest = timestamp
+        }
+    }
+
+    return {
+        dateFrom: earliest.subtract(EVALUATION_WINDOW_BEFORE_MINUTES, 'minute').toISOString(),
+        dateTo: latest.add(EVALUATION_WINDOW_AFTER_HOURS, 'hour').toISOString(),
+    }
+}
+
 function buildQueryColumnIndexes(
     columns: unknown[] | undefined,
     requiredColumns: readonly string[]
@@ -157,12 +200,14 @@ function hasUsableInput(value: unknown): boolean {
 
 async function queryStoredGenerationSentiments(
     normalizedLookups: GenerationSentimentLookup[],
-    source: SentimentQuerySource
+    source: SentimentQuerySource,
+    signal?: AbortSignal
 ): Promise<Map<string, GenerationSentiment>> {
     const traceIds = uniqueNonEmpty(normalizedLookups.map((lookup) => lookup.traceId))
     const generationIds = uniqueNonEmpty(normalizedLookups.flatMap((lookup) => lookup.generationIds))
+    const scanWindow = resolveEvaluationScanWindow(normalizedLookups)
 
-    if (traceIds.length === 0 || generationIds.length === 0) {
+    if (traceIds.length === 0 || generationIds.length === 0 || !scanWindow) {
         return new Map()
     }
 
@@ -191,13 +236,16 @@ async function queryStoredGenerationSentiments(
                 WHERE event = '$ai_evaluation'
                   AND properties.$ai_evaluation_runtime = 'sentiment'
                   AND ${hogql.raw(source.traceIdExpression)} IN ${traceIds}
+                  AND timestamp >= toDateTime(${scanWindow.dateFrom})
+                  AND timestamp <= toDateTime(${scanWindow.dateTo})
             )
             WHERE length(generation_id) > 0
               AND generation_id IN ${generationIds}
             GROUP BY trace_id, generation_id
             LIMIT ${Math.max(generationIds.length, 1)}
         `,
-        { ...SENTIMENT_QUERY_TAGS, name: 'ai_observability_generation_sentiment_lookup' }
+        { ...SENTIMENT_QUERY_TAGS, name: 'ai_observability_generation_sentiment_lookup' },
+        { requestOptions: { signal } }
     )
 
     const columnIndexes = buildQueryColumnIndexes(response.columns, STORED_SENTIMENT_COLUMNS)
@@ -230,15 +278,20 @@ function getUnresolvedLookups(
 }
 
 export async function fetchStoredGenerationSentiments(
-    lookups: GenerationSentimentLookup[]
+    lookups: GenerationSentimentLookup[],
+    signal?: AbortSignal
 ): Promise<Record<string, GenerationSentiment | null>> {
     const normalizedLookups = lookups
         .map((lookup) => ({
             key: lookup.key,
             traceId: lookup.traceId,
             generationIds: uniqueNonEmpty(lookup.generationIds),
+            timestamp: lookup.timestamp,
         }))
-        .filter((lookup) => lookup.key && lookup.traceId && lookup.generationIds.length > 0)
+        .filter(
+            (lookup) =>
+                lookup.key && lookup.traceId && lookup.generationIds.length > 0 && dayjs(lookup.timestamp).isValid()
+        )
 
     const results: Record<string, GenerationSentiment | null> = {}
     for (const lookup of normalizedLookups) {
@@ -249,11 +302,11 @@ export async function fetchStoredGenerationSentiments(
         return results
     }
 
-    const sentimentByTargetId = await queryStoredGenerationSentiments(normalizedLookups, AI_EVENTS_SOURCE)
+    const sentimentByTargetId = await queryStoredGenerationSentiments(normalizedLookups, AI_EVENTS_SOURCE, signal)
     const fallbackLookups = getUnresolvedLookups(normalizedLookups, sentimentByTargetId)
 
     if (fallbackLookups.length > 0) {
-        const fallbackResults = await queryStoredGenerationSentiments(fallbackLookups, EVENTS_SOURCE)
+        const fallbackResults = await queryStoredGenerationSentiments(fallbackLookups, EVENTS_SOURCE, signal)
         for (const [generationId, sentiment] of fallbackResults) {
             sentimentByTargetId.set(generationId, sentiment)
         }
@@ -270,6 +323,15 @@ export async function fetchStoredGenerationSentiments(
     }
 
     return results
+}
+
+/**
+ * Whether the project has a sentiment evaluation at all. A project with none cannot have sentiment
+ * events, so both lookup scans are pure cost. This reads Postgres, not ClickHouse.
+ */
+export async function fetchHasSentimentEvaluations(teamId: number, signal?: AbortSignal): Promise<boolean> {
+    const response = await evaluationsList(String(teamId), { evaluation_type: 'sentiment', limit: 1 }, { signal })
+    return (response.results?.length ?? 0) > 0
 }
 
 async function fetchSentimentEvaluationCandidates(

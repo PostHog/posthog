@@ -238,6 +238,14 @@ function getGenerationSentimentLookup(record: unknown, query: DataTableNode): Ge
         return null
     }
 
+    // The scan window is anchored on the generation timestamp, so a row without one is not
+    // something we can look up.
+    const timestamp = getStringColumnValue(record, columns, 'timestamp')
+
+    if (!timestamp) {
+        return null
+    }
+
     const generationId = getStringColumnValue(record, columns, 'properties.$ai_generation_id')
     const generationIds = generationId && generationId !== eventId ? [eventId, generationId] : [eventId]
 
@@ -245,30 +253,60 @@ function getGenerationSentimentLookup(record: unknown, query: DataTableNode): Ge
         key: eventId,
         traceId,
         generationIds,
+        timestamp,
     }
 }
 
 function LazyGenerationSentimentCell({ lookup }: { lookup: GenerationSentimentLookup }): JSX.Element {
-    const { getGenerationSentiment, isGenerationLoading } = useValues(llmGenerationSentimentLazyLoaderLogic)
+    const { getGenerationSentiment, isGenerationLoading, didGenerationSentimentLoadFail } = useValues(
+        llmGenerationSentimentLazyLoaderLogic
+    )
     const { ensureGenerationSentimentLoaded } = useActions(llmGenerationSentimentLazyLoaderLogic)
 
     const lookupKey = lookup.key
     const lookupTraceId = lookup.traceId
+    const lookupTimestamp = lookup.timestamp
     const lookupGenerationIdsKey = lookup.generationIds.join('\0')
     const cached = getGenerationSentiment(lookupKey)
     const loading = isGenerationLoading(lookupKey)
+    const failed = didGenerationSentimentLoadFail(lookupKey)
+
+    const loadSentiment = (): void => {
+        ensureGenerationSentimentLoaded({
+            key: lookupKey,
+            traceId: lookupTraceId,
+            generationIds: lookupGenerationIdsKey ? lookupGenerationIdsKey.split('\0') : [],
+            timestamp: lookupTimestamp,
+        })
+    }
 
     useEffect(() => {
-        if (cached === undefined && !loading) {
-            ensureGenerationSentimentLoaded({
-                key: lookupKey,
-                traceId: lookupTraceId,
-                generationIds: lookupGenerationIdsKey ? lookupGenerationIdsKey.split('\0') : [],
-            })
+        if (cached === undefined && !loading && !failed) {
+            loadSentiment()
         }
-    }, [cached, ensureGenerationSentimentLoaded, loading, lookupGenerationIdsKey, lookupKey, lookupTraceId])
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [
+        cached,
+        ensureGenerationSentimentLoaded,
+        failed,
+        loading,
+        lookupGenerationIdsKey,
+        lookupKey,
+        lookupTimestamp,
+        lookupTraceId,
+    ])
 
     if (loading || cached === undefined) {
+        if (failed) {
+            return (
+                <Tooltip title="Failed to load sentiment.">
+                    <LemonButton type="tertiary" size="xsmall" onClick={loadSentiment}>
+                        Retry
+                    </LemonButton>
+                </Tooltip>
+            )
+        }
+
         return <AIDataLoading variant="inline" />
     }
 

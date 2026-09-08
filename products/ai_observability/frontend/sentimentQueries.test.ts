@@ -1,6 +1,8 @@
 import api from 'lib/api'
 
+import { evaluationsList } from './generated/api'
 import {
+    fetchHasSentimentEvaluations,
     fetchSentimentGenerationsPage,
     fetchStoredGenerationSentiments,
     type SentimentCategory,
@@ -8,8 +10,12 @@ import {
 } from './sentimentQueries'
 
 jest.mock('lib/api')
+jest.mock('./generated/api', () => ({ evaluationsList: jest.fn() }))
 
 const mockApi = api as jest.Mocked<typeof api>
+const mockEvaluationsList = evaluationsList as jest.MockedFunction<typeof evaluationsList>
+
+const GENERATION_TIMESTAMP = '2026-06-23T10:00:00Z'
 
 const storedSentimentColumns = [
     'trace_id',
@@ -107,6 +113,7 @@ describe('sentimentQueries', () => {
                 key: 'generation-uuid',
                 traceId: 'trace-1',
                 generationIds: ['generation-uuid'],
+                timestamp: GENERATION_TIMESTAMP,
             },
         ])
 
@@ -118,6 +125,9 @@ describe('sentimentQueries', () => {
         expect(mockApi.queryHogQL).toHaveBeenCalledTimes(1)
         const sentimentQuery = mockApi.queryHogQL.mock.calls[0][0]
         expect(sentimentQuery).toContain('FROM posthog.ai_events AS ai_events')
+        // Bounded on the generation timestamp, so the scan can't walk the team's whole history
+        expect(sentimentQuery).toContain("timestamp >= toDateTime('2026-06-23T09:50:00.000Z')")
+        expect(sentimentQuery).toContain("timestamp <= toDateTime('2026-06-24T10:00:00.000Z')")
         expect(sentimentQuery).toContain("properties.$ai_evaluation_runtime = 'sentiment'")
         expect(sentimentQuery).toContain('properties.$ai_target_event_id')
         expect(sentimentQuery).not.toContain('properties.$ai_target_id')
@@ -154,6 +164,7 @@ describe('sentimentQueries', () => {
                 key: 'generation-uuid',
                 traceId: 'trace-1',
                 generationIds: ['generation-uuid'],
+                timestamp: GENERATION_TIMESTAMP,
             },
         ])
 
@@ -165,6 +176,40 @@ describe('sentimentQueries', () => {
         expect(mockApi.queryHogQL).toHaveBeenCalledTimes(2)
         expect(mockApi.queryHogQL.mock.calls[0][0]).toContain('FROM posthog.ai_events AS ai_events')
         expect(mockApi.queryHogQL.mock.calls[1][0]).toContain('FROM events')
+    })
+
+    it.each<[string, string]>([
+        ['no timestamp', ''],
+        ['an unparseable timestamp', 'not-a-timestamp'],
+    ])('resolves a lookup with %s without querying', async (_, timestamp) => {
+        const results = await fetchStoredGenerationSentiments([
+            {
+                key: 'generation-uuid',
+                traceId: 'trace-1',
+                generationIds: ['generation-uuid'],
+                timestamp,
+            },
+        ])
+
+        expect(results).toEqual({})
+        expect(mockApi.queryHogQL).not.toHaveBeenCalled()
+    })
+
+    it.each<[string, number, boolean]>([
+        ['a sentiment evaluation exists', 1, true],
+        ['the project has none', 0, false],
+    ])('reports whether %s', async (_, resultCount, expected) => {
+        mockEvaluationsList.mockResolvedValueOnce({
+            count: resultCount,
+            results: Array.from({ length: resultCount }, () => ({}) as never),
+        } as never)
+
+        await expect(fetchHasSentimentEvaluations(42)).resolves.toBe(expected)
+        expect(mockEvaluationsList).toHaveBeenCalledWith(
+            '42',
+            { evaluation_type: 'sentiment', limit: 1 },
+            { signal: undefined }
+        )
     })
 
     it.each<[string, boolean]>([
