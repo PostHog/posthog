@@ -3448,7 +3448,6 @@ class TestTicketArchive(APIBaseTest):
         assert response.json()["archived_at"] is not None
         self.ticket.refresh_from_db()
         assert self.ticket.archived_at is not None
-        # Archiving is not resolving: the ticket keeps the state it was triaged into.
         assert self.ticket.status == Status.OPEN
 
     def test_restoring_clears_the_timestamp(self, mock_on_commit):
@@ -3468,8 +3467,7 @@ class TestTicketArchive(APIBaseTest):
 
         second = self.client.patch(self._ticket_url(self.ticket), {"archived": True}, format="json")
 
-        # The stamp is the record of when the ticket left the queue, so a retry must not move it,
-        # and it must not log a change nobody made.
+        # The stamp records when the ticket left the queue, so a retry must not move it.
         assert second.json()["archived_at"] == archived_at
         self.ticket.refresh_from_db()
         assert self.ticket.archived_at.isoformat().replace("+00:00", "Z") == archived_at

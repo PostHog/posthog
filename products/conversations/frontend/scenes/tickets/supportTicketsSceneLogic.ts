@@ -555,8 +555,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             {
                 setArchivedFilter: (_, { archived }) => archived,
                 // Unlike its siblings, an absent value resets instead of keeping the current
-                // scope. Views saved before the archive existed hold no `archived` key, so
-                // keeping a persisted 'only' would silently filter such a view to the archive.
+                // scope, because a view saved before the archive existed holds no key here.
                 applyViewFilters: (_, { filters }) => toArchivedFilter(filters.archived),
             },
         ],
@@ -668,8 +667,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             (s) => [s.editableSelectedTickets],
             (editableSelectedTickets: Ticket[]): string[] => editableSelectedTickets.map((ticket) => ticket.id),
         ],
-        // Reads the editable subset, not the whole selection: a ticket the bulk request
-        // will skip must not decide whether the action archives or restores.
+        // The editable subset, because a ticket the request skips must not pick the verb.
         allEditableSelectedArchived: [
             (s) => [s.editableSelectedTickets],
             (editableSelectedTickets: Ticket[]): boolean =>
@@ -801,7 +799,6 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             if (values.tagsExcludeFilter.length > 0) {
                 params.tags_exclude = JSON.stringify(values.tagsExcludeFilter)
             }
-            // Omitted on 'hide' because that is the server's default.
             if (values.archivedFilter !== 'hide') {
                 params.archived = values.archivedFilter
             }

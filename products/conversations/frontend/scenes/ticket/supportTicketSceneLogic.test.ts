@@ -671,9 +671,7 @@ describe('supportTicketSceneLogic archive', () => {
         stopPolling(logic)
     })
 
-    // The archive moves the ticket's updated_at server-side, and the info card reads that
-    // field. Applying only the archive stamp left the card showing a time from before the
-    // archive until the page was reloaded.
+    // Regression: patching only the archive stamp left the info card on a pre-archive time.
     it.each([
         ['archiving', true, '2026-02-02T10:00:00Z'],
         ['restoring', false, null],
@@ -692,9 +690,7 @@ describe('supportTicketSceneLogic archive', () => {
         expect(logic.values.ticket?.updated_at).toBe('2026-02-02T10:00:00Z')
     })
 
-    // Both actions PATCH the whole ticket row, and the endpoint writes every field back from
-    // the snapshot it read. Overlapping them lets the later commit revert the earlier one, so
-    // the archive has to wait out an in-flight save rather than race it.
+    // Regression: both actions PATCH the whole row, so an overlap reverted the earlier one.
     it('waits for an in-flight save before archiving', async () => {
         let releaseSave: (ticket: Ticket) => void = () => {}
         const savedTicket = { ...loadedTicket(), status: 'pending' } as Ticket
@@ -715,7 +711,6 @@ describe('supportTicketSceneLogic archive', () => {
         expect(ticketUpdateMock).toHaveBeenCalledTimes(1)
 
         logic.actions.setArchived(true)
-        // The archive is queued behind the save, so it must not have reached the API yet.
         await Promise.resolve()
         expect(ticketUpdateMock).toHaveBeenCalledTimes(1)
 

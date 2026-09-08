@@ -104,9 +104,7 @@ describe('supportTicketsSceneLogic', () => {
             })
         })
 
-        // Regression: the bulk archive button picks its verb from the tickets the request
-        // will touch. A live view-only ticket used to flip it back to Archive, which then
-        // sent an archive request against tickets that were already archived.
+        // Regression: a live view-only ticket flipped the verb, archiving archived tickets.
         it('judges the archive state from the editable selection only', () => {
             const archivedEditable = {
                 ...makeTicket('archived-editable', AccessControlLevel.Editor),
@@ -235,7 +233,6 @@ describe('supportTicketsSceneLogic', () => {
 
         it('asks for the archive only when told to, and shares the scope in the URL', async () => {
             await expectLogic(logic).toFinishAllListeners()
-            // Hiding the archive is the server's default, so the request stays silent about it.
             expect(lastArchivedParam).toBeNull()
             expect(router.values.searchParams.archived).toBeUndefined()
 
@@ -269,8 +266,7 @@ describe('supportTicketsSceneLogic', () => {
                 logic.actions.setArchivedFilter('only')
             }).toFinishAllListeners()
 
-            // Views saved before this feature carry no `archived` key. Opening one must not
-            // inherit the scope the agent happens to be on, or the view shows the archive.
+            // Regression: a view with no `archived` key inherited the agent's current scope.
             await expectLogic(logic, () => {
                 logic.actions.applyView(makeSavedView('legacy-view', { status: ['open'] }))
             }).toFinishAllListeners()

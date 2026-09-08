@@ -207,9 +207,8 @@ export function ticketActivityDescriber(logItem: ActivityLogItem, asNotification
     if (logItem.activity === 'updated') {
         const changes = logItem.detail.changes || []
 
-        // The generic branch below closes every sentence with "on {ticket}", which reads well
-        // only for fragments that do not name the ticket themselves. Archiving is an action on
-        // the ticket, so a lone archive change needs its own sentence.
+        // Its own sentence, because the generic branch below closes with "on {ticket}" and
+        // this fragment names the ticket itself.
         const archiveChange = changes.length === 1 && changes[0]?.field === 'archived_at' ? changes[0] : null
         if (archiveChange) {
             return {

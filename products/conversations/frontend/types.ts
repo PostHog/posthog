@@ -19,7 +19,6 @@ export type TicketChannelDetail =
     | 'widget_api'
     | 'github_issue'
 export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
-/** Which side of the archive a ticket list covers. 'hide' is the default everywhere. */
 export type TicketArchivedFilter = 'hide' | 'only' | 'all'
 export type TicketPriority = 'low' | 'medium' | 'high' | 'critical'
 export type SceneTabKey = 'tickets' | 'settings'

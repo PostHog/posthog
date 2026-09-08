@@ -113,9 +113,8 @@ class Ticket(UUIDTModel):
     # Snooze — when set, ticket is "on hold" until this time, then auto-reopened by wake task
     snoozed_until = models.DateTimeField(null=True, blank=True)
 
-    # Archive is the product's soft delete. A set timestamp hides the ticket from the ticket
-    # list and the unread count, and the row is never destroyed, so a customer question about
-    # a ticket they raised can still be answered. The activity log holds who archived it.
+    # The product's soft delete. A set timestamp hides the ticket from the list and the unread
+    # count, and the row is never destroyed, so a customer can still be answered about it.
     archived_at = models.DateTimeField(null=True, blank=True)
 
     # Customer's PostHog org group key, resolved once at creation or on a later message
@@ -198,9 +197,8 @@ class Ticket(UUIDTModel):
                 name="posthog_org_slack_ch_idx",
                 condition=models.Q(channel_source="slack"),
             ),
-            # Partial because the archived-only list has no other index to fall back on. The
-            # default archived_at IS NULL filter matches nearly every row, so it stays on the
-            # (team, -updated_at) index above.
+            # Partial because the archived-only list has no other index to fall back on, while
+            # the default IS NULL filter matches nearly every row and stays on the index above.
             models.Index(
                 fields=["team", "-updated_at"],
                 name="posthog_con_archived_idx",

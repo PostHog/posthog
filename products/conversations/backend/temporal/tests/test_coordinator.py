@@ -154,9 +154,6 @@ class TestCollectEligible:
         result = _collect_eligible()
         assert result == []
 
-    # Archiving keeps the ticket's status, so nothing else in this scan drops an archived
-    # ticket. Without the predicate a team on bot replies answers a customer on a ticket an
-    # agent archived as spam or a duplicate, and that message cannot be recalled.
     @patch(f"{COORD_MODULE}.has_ready_sources", return_value=True)
     @patch(f"{COORD_MODULE}.Comment")
     @patch(f"{COORD_MODULE}.Ticket")

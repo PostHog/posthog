@@ -814,8 +814,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 setTicket: (_, { ticket }) => ticket,
                 incrementUnreadCustomerCount: (state) =>
                     state ? { ...state, unread_customer_count: state.unread_customer_count + 1 } : state,
-                // Patch only the fields the archive moved instead of replacing the ticket,
-                // because setTicket re-seeds the sidebar form reducers and drops unsaved edits.
+                // Patch only the fields the archive moved, because setTicket re-seeds the
+                // sidebar form reducers and drops unsaved edits.
                 setTicketArchivedAt: (state, { archivedAt, updatedAt }) =>
                     state ? { ...state, archived_at: archivedAt, updated_at: updatedAt } : state,
             },
@@ -1338,9 +1338,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setArchiving(false)
                 return
             }
-            // Same queue as updateTicket. Both PATCH the whole ticket row, and the endpoint
-            // writes back every field from the snapshot it read, so an archive overlapping a
-            // save would revert whichever request read first.
+            // Same queue as updateTicket, because both PATCH the whole row and an overlap
+            // reverts whichever request read first.
             while (cache.ticketUpdateRequest) {
                 await cache.ticketUpdateRequest.catch(() => {})
             }

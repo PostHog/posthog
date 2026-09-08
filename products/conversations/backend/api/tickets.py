@@ -555,8 +555,7 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
     def update(self, instance: Ticket, validated_data: dict[str, Any]) -> Ticket:
         validated_data.pop("assignee", None)
         if (archived := validated_data.pop("archived", None)) is not None:
-            # Only move the stamp when the state changes, so a repeated archive keeps the time
-            # the ticket was first archived. bulk_archive leaves a no-op alone the same way.
+            # Move the stamp only on a state change, so a repeated archive keeps the first time.
             if archived != (instance.archived_at is not None):
                 validated_data["archived_at"] = timezone.now() if archived else None
         return super().update(instance, validated_data)
@@ -1172,7 +1171,6 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 instance.save(update_fields=["status"])
 
     def _emit_update_side_effects(self, request, instance: Ticket, diff: _TicketUpdateDiff) -> None:
-        # An archived ticket leaves the unread count, so the team total moves.
         if diff.crosses_resolved or diff.archive_changed:
             invalidate_unread_count_cache(self.team_id)
 
