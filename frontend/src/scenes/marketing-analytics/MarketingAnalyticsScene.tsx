@@ -30,6 +30,7 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 import { LegacyOAuthReconnectBanner } from '../web-analytics/tabs/marketing-analytics/frontend/components/LegacyOAuthReconnectBanner'
 import { MarketingAnalyticsFilters } from '../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
 import { MarketingAnalyticsSourceStatusBanner } from '../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
+import { IntegrationSettingsModal } from '../web-analytics/tabs/marketing-analytics/frontend/components/settings/IntegrationSettingsModal'
 import {
     MarketingAnalyticsTab,
     SETUP_ABSORBED_TABS,
@@ -116,7 +117,8 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { hasSources, hasNoConfiguredSources, loading } = useValues(marketingAnalyticsLogic)
     const { loadSources } = useActions(sourcesDataLogic)
-    const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
+    const { conversion_goals, integrationSettingsModal } = useValues(marketingAnalyticsSettingsLogic)
+    const { closeIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
     const { tiles: marketingTiles } = useValues(marketingAnalyticsTilesLogic)
     const { showOnboarding, currentStep } = useValues(marketingOnboardingLogic)
     const { completeOnboarding, resetOnboarding } = useActions(marketingOnboardingLogic)
@@ -204,6 +206,15 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
                     <QueryTileItem key={i} tile={tile} />
                 ))}
             </div>
+            {integrationSettingsModal.integration && (
+                <IntegrationSettingsModal
+                    integrationName={integrationSettingsModal.integration}
+                    isOpen={integrationSettingsModal.isOpen}
+                    onClose={closeIntegrationSettingsModal}
+                    initialTab={integrationSettingsModal.initialTab}
+                    initialUtmValue={integrationSettingsModal.initialUtmValue}
+                />
+            )}
         </>
     )
 }
