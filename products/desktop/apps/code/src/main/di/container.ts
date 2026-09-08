@@ -21,6 +21,7 @@ import {
 import { canvasCoreModule } from "@posthog/core/canvas/canvas.module";
 import { cloudTaskModule } from "@posthog/core/cloud-task/cloud-task.module";
 import {
+  CLAUDE_SUBSCRIPTION_TOKEN_STORE,
   CLOUD_TASK_AUTH,
   CLOUD_TASK_SERVICE,
   MCP_RELAY_EXECUTOR,
@@ -239,6 +240,7 @@ import { ElectronAppLifecycle } from "../platform-adapters/electron-app-lifecycl
 import { ElectronAppMeta } from "../platform-adapters/electron-app-meta";
 import { ElectronAppMetrics } from "../platform-adapters/electron-app-metrics";
 import { ElectronBundledResources } from "../platform-adapters/electron-bundled-resources";
+import { ElectronClaudeSubscriptionTokenStore } from "../platform-adapters/electron-claude-subscription-token-store";
 import { ElectronClipboard } from "../platform-adapters/electron-clipboard";
 import { ElectronContextMenu } from "../platform-adapters/electron-context-menu";
 import { ElectronCrypto } from "../platform-adapters/electron-crypto";
@@ -469,11 +471,19 @@ container.bind(CLOUD_TASK_AUTH).toDynamicValue((ctx) => ({
     ctx
       .get<AuthService>(MAIN_AUTH_SERVICE)
       .authenticatedFetch(fetch, url, init),
-  getCloudContext: async () => {
+  getCloudContext: async (options?: { includeAccount?: boolean }) => {
     const auth = ctx.get<AuthService>(MAIN_AUTH_SERVICE);
     const { apiHost } = await auth.getValidAccessToken();
     const teamId = auth.getState().currentProjectId;
-    return teamId === null ? null : { apiHost, teamId };
+    return teamId === null
+      ? null
+      : {
+          apiHost,
+          teamId,
+          ...(options?.includeAccount && {
+            accountKey: await auth.getAccountKey(),
+          }),
+        };
   },
 }));
 container.bind(MAIN_CLOUD_TASK_SERVICE).toService(CLOUD_TASK_SERVICE);
@@ -635,6 +645,16 @@ container.load(mcpRelayModule);
 container
   .bind(MCP_RELAY_EXECUTOR)
   .toDynamicValue((ctx) => ctx.get(MCP_RELAY_SERVICE))
+  .inSingletonScope();
+container
+  .bind(CLAUDE_SUBSCRIPTION_TOKEN_STORE)
+  .toDynamicValue(
+    (ctx) =>
+      new ElectronClaudeSubscriptionTokenStore(
+        join(getUserDataDir(), "claude-subscriptions"),
+        () => ctx.get<AuthService>(MAIN_AUTH_SERVICE).getAccountKey(),
+      ),
+  )
   .inSingletonScope();
 container.load(claudeCliSessionsModule);
 container.load(additionalDirectoriesModule);
