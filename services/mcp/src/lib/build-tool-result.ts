@@ -39,8 +39,16 @@ export interface BuildToolResultOptions {
      * under both the new (`ui.resourceUri`) and legacy (`ui/resourceUri`) keys. Used by the
      * single-exec wrapper to surface UI apps through the generic `exec` tool — clients only
      * see `exec` registered, so the UI metadata has to ride on the per-call response.
+     * Moves the app payload only; says nothing about the text channel.
      */
     includeUiResponseMeta?: boolean
+    /**
+     * Append `UI_APP_RENDER_NOTE` to the text channel so the model states its
+     * conclusion in text instead of repeating data the user already sees in
+     * the app view. Separate from `includeUiResponseMeta` on purpose: a caller
+     * can move the app payload without adding context text, or the reverse.
+     */
+    includeRenderNote?: boolean
 }
 
 /**
@@ -73,9 +81,28 @@ export function isToolCallPayload(value: unknown): value is ToolResultPayload {
     )
 }
 
+/**
+ * How the text channel of a payload was assembled: the body (data table,
+ * JSON, or the structuredContent pointer) plus any footers, kept as pieces.
+ * `buildToolResultPayload` records this at build time; `estimateResponseTokens`
+ * reads it instead of cutting the joined string back apart.
+ */
+interface BuiltResponseText {
+    /** True when the body is only the structuredContent pointer. */
+    structuredContentOnly: boolean
+    footers: string[]
+}
+
+const builtResponseText = new WeakMap<ToolResultPayload, BuiltResponseText>()
+
 /** Stamp a payload as exec-built so `isToolCallPayload` recognizes it. */
 export function markExecPayload(payload: ToolResultPayload): ToolResultPayload {
-    return { ...payload, [EXEC_BUILT_PAYLOAD]: true }
+    const marked: ToolResultPayload = { ...payload, [EXEC_BUILT_PAYLOAD]: true }
+    const built = builtResponseText.get(payload)
+    if (built) {
+        builtResponseText.set(marked, built)
+    }
+    return marked
 }
 
 /**
@@ -86,19 +113,25 @@ export function markExecPayload(payload: ToolResultPayload): ToolResultPayload {
 export const STRUCTURED_CONTENT_ONLY_TEXT = "Full result is in this response's structuredContent field."
 
 /**
- * Estimate output tokens from what the client actually receives — the serialized
- * TOON/JSON/formatted string, not the raw handler object. TOON is materially
- * smaller than JSON for tabular results, so measuring the raw object would
- * over-count. `structuredContent` is normally excluded because it duplicates the
- * text for UI tools; when the text is only the `STRUCTURED_CONTENT_ONLY_TEXT`
- * pointer it duplicates nothing, so the structured payload is what gets counted.
+ * Footer for inline-exec UI-app hosts. The system prompt already carries the
+ * no-repeat rule, but some models only honor it when the note arrives with the data.
+ */
+export const UI_APP_RENDER_NOTE =
+    'The user already sees this result as an interactive view in the conversation. State your conclusion in text and do not repeat this data in your reply.'
+
+/**
+ * Estimate output tokens from what the client receives, not the raw handler object
+ * (TOON is smaller than JSON for tabular results). When the text body is only the
+ * structuredContent pointer, count `structuredContent` and the footers the builder
+ * appended, not the pointer — read from the pieces the builder recorded, never by
+ * taking the joined text apart.
  */
 export function estimateResponseTokens(response: ToolResultPayload): number {
-    const text = response.content.map((part) => part.text).join('')
-    if (response.structuredContent && text === STRUCTURED_CONTENT_ONLY_TEXT) {
-        return estimateTokens(response.structuredContent)
+    const built = builtResponseText.get(response)
+    if (response.structuredContent && built?.structuredContentOnly) {
+        return estimateTokens(response.structuredContent) + estimateTokens(built.footers.join('\n\n'))
     }
-    return estimateTokens(text)
+    return estimateTokens(response.content.map((part) => part.text).join(''))
 }
 
 /**
@@ -127,6 +160,7 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         forceUiDataToMeta,
         distinctId,
         includeUiResponseMeta,
+        includeRenderNote,
     } = opts
 
     const isStringResult = typeof handlerResult === 'string'
@@ -188,25 +222,36 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
     const structuredContentOnly =
         !!forceUiDataToMeta && hasUiResource && !isStringResult && !useJson && formattedResults === undefined
 
-    let text = structuredContentOnly
+    const body = structuredContentOnly
         ? STRUCTURED_CONTENT_ONLY_TEXT
         : (formattedResults ?? (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult)))
 
-    // Discovery hints ride the text channel as a footer, mirroring how error
-    // responses carry `getToolRecoveryHint`. Skipped when the caller asked for
-    // raw JSON (the text must stay machine-parseable) and when the text is only
-    // the structuredContent pointer (the model reads the structured field, and
-    // `estimateResponseTokens` keys off the exact pointer string).
+    // Footers ride the text channel after the body. The pieces stay in a list
+    // until the payload is built: `estimateResponseTokens` counts them from
+    // this list, never by cutting the joined text apart.
+    const footers: string[] = []
+
+    // Discovery hints mirror how error responses carry `getToolRecoveryHint`.
+    // Skipped when the caller asked for raw JSON (the text must stay
+    // machine-parseable) and when the text is only the structuredContent
+    // pointer (the model reads the structured field).
     if (!isStringResult && !useJson && !structuredContentOnly && !isPrepareConfirmedActionResult(handlerResult)) {
         const discoveryHint = getDiscoveryHint({ toolName, handlerResult })
         if (discoveryHint) {
-            text = `${text}\n\n${discoveryHint}`
+            footers.push(discoveryHint)
         }
     }
+
+    if (includeRenderNote && hasUiResource && !useJson) {
+        footers.push(UI_APP_RENDER_NOTE)
+    }
+
+    const text = [body, ...footers].join('\n\n')
 
     const payload: ToolResultPayload = {
         content: [{ type: 'text', text }],
     }
+    builtResponseText.set(payload, { structuredContentOnly, footers })
     if (hasUiResource && !suppressStructuredContent) {
         payload.structuredContent = structuredContent as Record<string, unknown>
     }
