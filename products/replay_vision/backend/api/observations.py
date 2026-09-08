@@ -121,6 +121,32 @@ class ScannerSnapshotSerializer(serializers.Serializer):
     scanner_config = serializers.JSONField(
         help_text="Scanner-type-specific configuration at run time (prompt, tags, scale, etc.).",
     )
+    verify_positives = serializers.CharField(
+        required=False,
+        help_text="How a monitor `yes` was re-checked at run time: `off` (one pass), `shadow` (extra draws recorded only), or `enforce` (majority served).",
+    )
+
+
+class VerificationRecordSerializer(serializers.Serializer):
+    """Mirrors `temporal.types.VerificationRecord` for OpenAPI generation."""
+
+    mode = serializers.CharField(
+        help_text="Verify-positives mode the scan ran with: `shadow` records the extra draws only, `enforce` serves their majority.",
+    )
+    draws = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Monitor verdicts in draw order. The first entry is the pass that triggered verification.",
+    )
+    resolved_verdict = serializers.CharField(
+        help_text="The verdict the majority of draws supports.",
+    )
+    served_verdict = serializers.CharField(
+        help_text="The verdict `model_output` carries: the resolved one under `enforce`, the first draw under `shadow`.",
+    )
+    skipped_reason = serializers.CharField(
+        allow_null=True,
+        help_text="Why verification stopped early (`no_cache`, `draw_failed`), leaving the first pass in place. Null when every draw ran.",
+    )
 
 
 class ScannerResultSerializer(serializers.Serializer):
@@ -132,6 +158,10 @@ class ScannerResultSerializer(serializers.Serializer):
     signals_count = serializers.IntegerField(
         min_value=0,
         help_text="Number of PostHog Signals emitted from this observation.",
+    )
+    verification = VerificationRecordSerializer(
+        allow_null=True,
+        help_text="Extra draws taken to verify a monitor `yes` verdict. Null when the scan did not verify one.",
     )
 
 

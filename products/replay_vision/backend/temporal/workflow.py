@@ -320,8 +320,9 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     mime_type=uploaded.mime_type,
                 ),
                 # Multi-turn tool conversation (video + on-demand event lookups) needs more headroom than a single
-                # call, and must cover both mission passes: a second pass that overruns would surface as a Temporal
-                # timeout labeled provider_transient when the real problem is the scanner's prompt.
+                # call, and must cover both mission passes plus up to two verify-positives draws: a pass that
+                # overruns would surface as a Temporal timeout labeled provider_transient when the real problem is
+                # the scanner's prompt.
                 start_to_close_timeout=dt.timedelta(minutes=20),
                 # Bounds the whole retry chain, so slow attempts can't overrun the workflow's own timeout.
                 schedule_to_close_timeout=dt.timedelta(minutes=25),
@@ -357,7 +358,11 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 MarkObservationSucceededInputs(
                     observation_id=observation_id,
                     scanner_type=scanner_type,
-                    scanner_result=ScannerResult(model_output=call_output.model_output, signals_count=signals_count),
+                    scanner_result=ScannerResult(
+                        model_output=call_output.model_output,
+                        signals_count=signals_count,
+                        verification=call_output.verification,
+                    ),
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=30),
                 schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,

@@ -23,11 +23,25 @@ AnyScannerOutput = Annotated[
 ]
 
 
+class VerificationRecord(BaseModel, frozen=True):
+    """Audit of the extra draws taken to verify a monitor `yes` verdict. Absent when no verdict was verified."""
+
+    mode: str
+    # Verdicts in draw order; the first entry is the pass that triggered verification.
+    draws: list[str]
+    # The verdict the majority of draws supports. `served_verdict` is what `model_output` carries: the same value
+    # under `enforce`, the first draw under `shadow`.
+    resolved_verdict: str
+    served_verdict: str
+    skipped_reason: str | None = None
+
+
 class ScannerResult(BaseModel, frozen=True):
     """Result data of a completed observation, persisted into `ReplayObservation.scanner_result`."""
 
     model_output: AnyScannerOutput
     signals_count: int = Field(default=0, ge=0)
+    verification: VerificationRecord | None = None
 
 
 class ApplyScannerInputs(BaseModel, frozen=True):
@@ -213,6 +227,7 @@ class ScannerCallOutput(BaseModel, frozen=True):
     model_output: AnyScannerOutput
     # Extracted from the LLM response before `finalize` so per-type output mapping can't drop them.
     signals: list[SignalFinding] = Field(default_factory=list)
+    verification: VerificationRecord | None = None
 
 
 class CleanupGeminiFileInputs(BaseModel, frozen=True):

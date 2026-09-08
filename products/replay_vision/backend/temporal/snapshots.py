@@ -35,6 +35,9 @@ class ScannerSnapshot(BaseModel, frozen=True):
     experiment_targeting: dict[str, Any] | None = None
     sampling_rate: float | None = None
     sampling_mode: str | None = None
+    # How a monitor `yes` verdict is re-checked: `off` (one pass), `shadow` (draw again, record the majority, serve
+    # the first pass), or `enforce` (serve the majority). A plain string so a retired mode never breaks old-row loads.
+    verify_positives: str = "off"
 
     @classmethod
     def from_scanner(cls, scanner: "ReplayScanner") -> "ScannerSnapshot":

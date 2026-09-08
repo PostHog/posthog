@@ -163,6 +163,7 @@ def test_scanner_snapshot_loads_rows_with_retired_model_and_provider_ids() -> No
     )
     assert snapshot.model == "gemini-1.0-flash-retired-preview"
     assert snapshot.provider == "hooli"
+    assert snapshot.verify_positives == "off"
 
 
 def _make_scanner(**overrides) -> ReplayScanner:

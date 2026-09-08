@@ -277,6 +277,7 @@ const observationDetail = observation({
                 'The user spent most of the session in checkout, retrying an invalid coupon three times before abandoning the cart at the payment step.',
         },
         signals_count: 1,
+        verification: null,
     },
 })
 
@@ -310,6 +311,7 @@ const monitorObservationDetail = observation({
                 'The user entered a coupon code three times, each time getting a validation error, then switched to the payment form and submitted it twice before leaving the page. That is a retry loop at checkout rather than ordinary browsing.',
         },
         signals_count: 1,
+        verification: null,
     },
 })
 
