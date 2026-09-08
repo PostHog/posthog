@@ -149,9 +149,6 @@ export function useDashboardMutations() {
   const remove = useMutation(
     trpc.dashboards.delete.mutationOptions({ onSuccess: invalidate }),
   );
-  const saveContext = useMutation(
-    trpc.dashboards.saveContext.mutationOptions({ onSuccess: invalidate }),
-  );
   const revertToVersion = useMutation(
     trpc.dashboards.revertToVersion.mutationOptions({
       // A revert moves the head and queues a rebuild; refresh the reverted
@@ -194,9 +191,6 @@ export function useDashboardMutations() {
     createDashboard: (channelId: string, name: string, templateId?: string) =>
       create.mutateAsync({ channelId, name, templateId }),
     deleteDashboard: (id: string) => remove.mutateAsync({ id }),
-    // Persist the author-written context (markdown) passed to generation tasks.
-    saveContext: (id: string, context: string) =>
-      saveContext.mutateAsync({ id, context }),
     // Move the canvas's head back to an existing version (and rebuild it).
     revertToVersion: (
       id: string,
@@ -226,7 +220,6 @@ export function useDashboardMutations() {
       file.mutateAsync({ id, channelId }),
     isCreating: create.isPending,
     isDeleting: remove.isPending,
-    isSavingContext: saveContext.isPending,
     isReverting: revertToVersion.isPending,
     isPromoting: promoteDraft.isPending,
   };
