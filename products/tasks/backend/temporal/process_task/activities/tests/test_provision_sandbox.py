@@ -157,31 +157,53 @@ def test_sandbox_image_kind(image_source: str, custom_image_name: str | None, ex
 
 
 @pytest.mark.parametrize(
-    "snapshot_kind, state, capability, expected",
+    "snapshot_id, snapshot_external_id, snapshot_kind, state, capability, expected",
     [
         (
+            None,
+            "snapshot-1",
             SNAPSHOT_KIND_FILESYSTEM,
             {"prewarmed": True, "resume_from_run_id": "previous-run"},
             False,
             True,
         ),
         (
+            None,
+            "snapshot-1",
             SNAPSHOT_KIND_FILESYSTEM,
             {"prewarmed": True, "resume_from_run_id": "previous-run"},
             True,
             False,
         ),
         (
+            None,
+            "snapshot-1",
             SNAPSHOT_KIND_DIRECTORY,
             {"prewarmed": True, "resume_from_run_id": "previous-run"},
             False,
             False,
         ),
-        (SNAPSHOT_KIND_FILESYSTEM, {"resume_from_run_id": "previous-run"}, False, False),
+        (None, "snapshot-1", SNAPSHOT_KIND_FILESYSTEM, {"resume_from_run_id": "previous-run"}, False, False),
+        (
+            "snapshot-row-1",
+            None,
+            SNAPSHOT_KIND_FILESYSTEM,
+            {"prewarmed": True, "resume_from_run_id": "previous-run"},
+            False,
+            True,
+        ),
+        (
+            "snapshot-row-1",
+            None,
+            SNAPSHOT_KIND_DIRECTORY,
+            {"prewarmed": True, "resume_from_run_id": "previous-run"},
+            False,
+            False,
+        ),
     ],
 )
 def test_old_full_snapshot_agent_is_rejected_only_for_prewarmed_resume(
-    mocker, snapshot_kind, state, capability, expected
+    mocker, snapshot_id, snapshot_external_id, snapshot_kind, state, capability, expected
 ):
     context = _context_for_desktop_bootstrap()
     context.state = state
@@ -191,8 +213,8 @@ def test_old_full_snapshot_agent_is_rejected_only_for_prewarmed_resume(
         github_token="",
         branch=None,
         environment_variables={},
-        snapshot_id=None,
-        snapshot_external_id="snapshot-1",
+        snapshot_id=snapshot_id,
+        snapshot_external_id=snapshot_external_id,
         used_snapshot=True,
         should_create_snapshot=False,
         shallow_clone=True,

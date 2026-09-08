@@ -298,10 +298,15 @@ def _prewarmed_resume_needs_fresh_agent(
     *,
     used_snapshot: bool,
 ) -> bool:
-    """Whether a full resume snapshot bundled an agent that cannot idle before the resumed prompt."""
+    """Whether a restored full snapshot bundled an agent that cannot idle before the resumed prompt.
+
+    A repository snapshot (``snapshot_id``) restores the same filesystem as a resume snapshot
+    (``snapshot_external_id``), so it supplies the snapshot's own agent binary too and needs the
+    same probe. Only a directory restore keeps the vetted image's agent.
+    """
     if (
         not used_snapshot
-        or prepared.snapshot_external_id is None
+        or (prepared.snapshot_external_id is None and prepared.snapshot_id is None)
         or prepared.snapshot_kind == SNAPSHOT_KIND_DIRECTORY
         or not (ctx.state or {}).get("prewarmed")
         or not (ctx.state or {}).get("resume_from_run_id")
