@@ -653,6 +653,20 @@ describe('hogFlowEditorLogic', () => {
         })
     })
 
+    describe('opening straight into metrics mode', () => {
+        it('lays the first graph out at the metrics height', async () => {
+            // Mounting starts a layout at the build height, and the URL handler picks the mode up
+            // straight after, while that layout still holds the only copy of the graph.
+            expect(logic.values.nodes).toEqual([])
+
+            await expectLogic(logic, () => logic.actions.setMode('metrics')).toDispatchActions(['setNodesRaw'])
+
+            const heights = logic.values.nodes.map((node) => node.height)
+            expect(heights.length).toBeGreaterThan(0)
+            expect(heights).toEqual(heights.map(() => NODE_HEIGHT + NODE_METRICS_SUMMARY_HEIGHT))
+        })
+    })
+
     describe('showDropzones placement', () => {
         const makeNode = (id: string): HogFlowActionNode =>
             ({
