@@ -154,6 +154,26 @@ class TestCollectEligible:
         result = _collect_eligible()
         assert result == []
 
+    # Archiving keeps the ticket's status, so nothing else in this scan drops an archived
+    # ticket. Without the predicate a team on bot replies answers a customer on a ticket an
+    # agent archived as spam or a duplicate, and that message cannot be recalled.
+    @patch(f"{COORD_MODULE}.has_ready_sources", return_value=True)
+    @patch(f"{COORD_MODULE}.Comment")
+    @patch(f"{COORD_MODULE}.Ticket")
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_scan_asks_the_database_to_skip_archived_tickets(
+        self,
+        mock_master_flag,
+        mock_ticket_model,
+        mock_comment_model,
+        mock_has_ready,
+    ):
+        mock_ticket_model.objects.filter.return_value.select_related.return_value = []
+
+        _collect_eligible()
+
+        assert mock_ticket_model.objects.filter.call_args.kwargs["archived_at__isnull"] is True
+
     @patch(f"{COORD_MODULE}.has_ready_sources", return_value=True)
     @patch(f"{COORD_MODULE}.Comment")
     @patch(f"{COORD_MODULE}.Ticket")
