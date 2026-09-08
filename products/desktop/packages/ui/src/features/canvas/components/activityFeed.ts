@@ -37,6 +37,7 @@ export function deriveActivityFeedContent({
   mentionsIncluded,
   reportsIncluded,
   unreadsOnly,
+  archivedTaskIds,
 }: {
   taskItems: TaskActivityItem[];
   reports: SignalReport[];
@@ -44,14 +45,25 @@ export function deriveActivityFeedContent({
   mentionsIncluded: boolean;
   reportsIncluded: boolean;
   unreadsOnly: boolean;
+  /** Archived tasks, which the feed drops the way a space's lists do. */
+  archivedTaskIds: ReadonlySet<string>;
 }): ActivityFeedContent {
+  // Unreads stay whole: this is also what "Mark all as read" acts on, and an
+  // archived task's unread update still counts against the badge.
   const unreadItems = getUnreadActivityItems(taskItems);
+  const shownItems = taskItems.filter(
+    (item) => !archivedTaskIds.has(item.taskId),
+  );
   const visibleReports = unreadsOnly ? [] : reports;
 
   return {
     unreadItems,
     feedItems: mergeActivityFeedItems(
-      mentionsIncluded ? (unreadsOnly ? unreadItems : taskItems) : [],
+      mentionsIncluded
+        ? unreadsOnly
+          ? getUnreadActivityItems(shownItems)
+          : shownItems
+        : [],
       visibleReports,
     ),
     lastShownReportId: visibleReports.at(-1)?.id ?? null,

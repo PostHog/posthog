@@ -18,6 +18,7 @@ vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { ActivityRow } from "./ActivityRow";
 import { openActivityItem } from "./openActivityItem";
+import type { TaskRowMenuProps } from "./TaskRowMenu";
 
 function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
   return {
@@ -37,6 +38,15 @@ function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
 }
 
 const NO_BLOCKED_TASKS: ReadonlySet<string> = new Set();
+
+const MENU: TaskRowMenuProps = {
+  kind: "task",
+  id: "task-1",
+  title: "Say hello",
+  isPinned: false,
+  onTogglePin: vi.fn(),
+  onArchive: vi.fn(),
+};
 
 describe("ActivityRow", () => {
   beforeEach(() => {
@@ -58,6 +68,7 @@ describe("ActivityRow", () => {
   it("leads a completed activity row with the task title", () => {
     render(
       <ActivityRow
+        menu={MENU}
         item={item({
           activityKind: "completed",
           taskTitle: "Tell me a joke",
@@ -92,14 +103,15 @@ describe("ActivityRow", () => {
   });
 
   it.each([
-    { label: "unread", isUnread: true, hasActionPadding: true },
-    { label: "read", isUnread: false, hasActionPadding: false },
+    { label: "unread", isUnread: true, laneClass: "pr-14" },
+    { label: "read", isUnread: false, laneClass: "pr-8" },
   ])(
-    "reserves trailing room for a compact $label row only when it has a read action",
-    ({ isUnread, hasActionPadding }) => {
+    "reserves a compact $label row's trailing lane for the actions it shows",
+    ({ isUnread, laneClass }) => {
       render(
         <ActivityRow
           item={item({ isUnread })}
+          menu={MENU}
           onMarkRead={vi.fn()}
           onActivate={vi.fn()}
           blockedTaskIds={NO_BLOCKED_TASKS}
@@ -108,9 +120,8 @@ describe("ActivityRow", () => {
       );
 
       const row = screen.getByText("Say hello").closest("button");
-      expect(row).toHaveClass("py-1.5");
-      expect(row).not.toHaveClass("pr-10");
-      expect(row?.classList.contains("pr-8")).toBe(hasActionPadding);
+      expect(row).toHaveClass("py-1.5", laneClass);
+      expect(screen.getByLabelText("Options for Say hello")).toBeVisible();
     },
   );
 
@@ -131,6 +142,7 @@ describe("ActivityRow", () => {
     render(
       <ActivityRow
         item={activity}
+        menu={MENU}
         onMarkRead={vi.fn()}
         onActivate={openActivityItem}
         blockedTaskIds={NO_BLOCKED_TASKS}
