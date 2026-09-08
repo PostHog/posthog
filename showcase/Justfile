@@ -64,13 +64,13 @@ build-container-layered:
 # Alias for layered PR container build
 build-container-pr: build-container-layered
 
-# Standard Docker build using optimized Dockerfile.enve
+# Standard Docker build using optimized Dockerfile.v2
 build-docker TAG="posthog:optimized":
     #!/usr/bin/env bash
     set -euo pipefail
     cd "{{REPO_ROOT}}"
     echo "======================================================================="
-    echo "  🐳 Building Optimized Container via Dockerfile.enve (Tag: {{TAG}})"
+    echo "  🐳 Building Optimized Container via Dockerfile.v2 (Tag: {{TAG}})"
     echo "======================================================================="
     echo "• Multi-stage build with BUILDPLATFORM frontend acceleration"
     echo "• Default-stripped sourcemaps (*.map) avoiding 2.8GB layer bloat"
@@ -82,11 +82,11 @@ build-docker TAG="posthog:optimized":
     trap 'git checkout packages/quill/packages/charts/src/index.ts 2>/dev/null || true' EXIT
 
     if command -v docker >/dev/null 2>&1; then
-        docker build -f "{{SHOWCASE_DIR}}/Dockerfile.enve" -t "{{TAG}}" .
+        docker build -f "{{SHOWCASE_DIR}}/Dockerfile.v2" -t "{{TAG}}" .
     else
         echo "⚠️ docker command not found on host."
         echo "   Command to execute with Docker daemon:"
-        echo "   docker build -f showcase/Dockerfile.enve -t {{TAG}} ."
+        echo "   docker build -f showcase/Dockerfile.v2 -t {{TAG}} ."
     fi
 
 # Runnable 2: Merge Queue Gate (In-memory AST contract + DAG reachability)
@@ -97,7 +97,8 @@ gate-migrations:
     uv run python "{{SHOWCASE_DIR}}/scripts/run_migration_gate.py"
 
 # Runnable 3: Execute a single backend test shard with configurable workers (n, <=n, auto)
-test-shard SHARD="1" WORKERS="<=4" FAIL_FAST="true":
+# Runnable 3: Execute a single backend test shard with configurable workers (n, <=n, auto)
+test-shard SHARD="1" WORKERS="6" FAIL_FAST="true":
     #!/usr/bin/env bash
     set -euo pipefail
     cd "{{REPO_ROOT}}"
@@ -108,21 +109,23 @@ test-shard SHARD="1" WORKERS="<=4" FAIL_FAST="true":
     "{{SHOWCASE_DIR}}/scripts/run_backend_shards.sh" --shard {{SHARD}} --total-shards 5 --workers "{{WORKERS}}" $FAIL_FLAG
 
 # Runnable 3: Execute all 5 shards sequentially across the monorepo with configurable workers
-test-all-shards WORKERS="<=4" FAIL_FAST="true":
+test-all-shards WORKERS="6" FAIL_FAST="true":
     #!/usr/bin/env bash
     set -euo pipefail
     cd "{{REPO_ROOT}}"
-    FAIL_FLAG=""
-    if [ "{{FAIL_FAST}}" = "true" ] || [ "{{FAIL_FAST}}" = "1" ]; then
-        FAIL_FLAG="--fail-fast"
+    ACTUAL_WORKERS="{{WORKERS}}"
+    FAIL_FLAG="--fail-fast"
+    # If user passed shard index then worker count like `test-all-shards 1 6`:
+    if [ "{{FAIL_FAST}}" != "true" ] && [ "{{FAIL_FAST}}" != "false" ] && [ "{{FAIL_FAST}}" != "0" ] && [ "{{FAIL_FAST}}" != "1" ]; then
+        ACTUAL_WORKERS="{{FAIL_FAST}}"
     fi
     echo "======================================================================="
-    echo "  🚀 Executing Full Test Matrix (5 Shards x {{WORKERS}} Workers = 100% Monorepo)"
+    echo "  🚀 Executing Full Test Matrix (5 Shards x ${ACTUAL_WORKERS} Workers = 100% Monorepo)"
     echo "======================================================================="
     for shard in 1 2 3 4 5; do
         echo ""
         echo "─── Starting Shard $shard of 5 ──────────────────────────────────────"
-        "{{SHOWCASE_DIR}}/scripts/run_backend_shards.sh" --shard "$shard" --total-shards 5 --workers "{{WORKERS}}" $FAIL_FLAG
+        "{{SHOWCASE_DIR}}/scripts/run_backend_shards.sh" --shard "$shard" --total-shards 5 --workers "${ACTUAL_WORKERS}" $FAIL_FLAG
     done
     echo ""
     echo "======================================================================="

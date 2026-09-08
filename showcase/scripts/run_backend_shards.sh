@@ -114,7 +114,13 @@ if [ "$WORKER_COUNT" -gt 1 ]; then
     EXISTING_DBS=$(psql -h localhost -p "$PG_PORT" -U posthog -d postgres -tAc "SELECT datname FROM pg_database" 2>/dev/null || true)
     for ((w=0; w<WORKER_COUNT; w++)); do
         db="test_posthog_gw$w"
-        if ! echo "$EXISTING_DBS" | grep -qx "$db"; then
+        if echo "$EXISTING_DBS" | grep -qx "$db"; then
+            gw_mig=$(psql -h localhost -p "$PG_PORT" -U posthog -d "$db" -tAc "SELECT count(*) FROM django_migrations" 2>/dev/null || echo "0")
+            if [ "${gw_mig:-0}" -lt 2000 ]; then
+                psql -h localhost -p "$PG_PORT" -U posthog -d postgres -c "DROP DATABASE IF EXISTS $db;" >/dev/null 2>&1 || true
+                psql -h localhost -p "$PG_PORT" -U posthog -d postgres -c "CREATE DATABASE $db TEMPLATE test_posthog;" >/dev/null 2>&1 || true
+            fi
+        else
             psql -h localhost -p "$PG_PORT" -U posthog -d postgres -c "CREATE DATABASE $db TEMPLATE test_posthog;" >/dev/null 2>&1 || true
         fi
         pdb_persons="test_posthog_gw${w}_persons"
@@ -148,6 +154,10 @@ export CLICKHOUSE_POSTGRES_PORT="${CLICKHOUSE_POSTGRES_PORT:-$PG_PORT}"
 export DATABASE_URL="postgres://posthog:posthog@127.0.0.1:${PG_PORT}/posthog"
 export OBJECT_STORAGE_ENDPOINT="http://127.0.0.1:${OBJECT_STORAGE_PORT}"
 export CLICKHOUSE_OBJECT_STORAGE_ENDPOINT="http://127.0.0.1:${OBJECT_STORAGE_PORT}"
+export PYTHONHASHSEED=0
+
+# Unset KAFKA_HOSTS and KAFKA_URL so ClickHouse DDL snapshot tests match upstream snapshots
+unset KAFKA_HOSTS KAFKA_URL || true
 
 mkdir -p frontend/dist
 touch frontend/dist/index.html frontend/dist/layout.html frontend/dist/exporter.html
@@ -156,9 +166,13 @@ echo ""
 echo "----------------------------------------------------------------------"
 echo "▶ Executing ${TARGET_LABEL} (${XDIST_ARGS}) on Live tmpfs Service Tier..."
 echo "----------------------------------------------------------------------"
-START_RUN=$(date +%s%N)
+PYTEST_OPTS="-q --no-header"
+if [[ "${EXTRA_PYTEST_ARGS:-}" =~ -x ]]; then
+    PYTEST_OPTS="-v --tb=short --maxfail=1 -p showcase.scripts.fail_fast_plugin"
+fi
 
-$RUNNER_PREFIX uv run pytest $XDIST_ARGS -p no:icdiff -q --no-header --import-mode=importlib --reuse-db --snapshot-warn-unused -m "not async_migrations" -W "ignore:pkg_resources is deprecated:UserWarning" -W "ignore::UserWarning:infi.clickhouse_orm" ${EXTRA_PYTEST_ARGS:-} $TEST_TARGETS
+START_RUN=$(date +%s%N)
+$RUNNER_PREFIX uv run pytest $XDIST_ARGS -p no:icdiff $PYTEST_OPTS --import-mode=importlib --reuse-db --snapshot-warn-unused -m "not async_migrations" -W "ignore:pkg_resources is deprecated:UserWarning" -W "ignore::UserWarning:infi.clickhouse_orm" ${EXTRA_PYTEST_ARGS:-} $TEST_TARGETS
 
 END_RUN=$(date +%s%N)
 RUN_MS=$(( (END_RUN - START_RUN) / 1000000 ))

@@ -89,10 +89,21 @@ start_services() {
         createdb -h localhost -p "$PG_PORT" -U posthog test_posthog 2>/dev/null || true
         createdb -h localhost -p "$PG_PORT" -U posthog test_posthog_persons 2>/dev/null || true
 
-        if [ -f "$REPO_ROOT/.postgres-backups/schema-latest.sql.gz" ]; then
-            gunzip -c "$REPO_ROOT/.postgres-backups/schema-latest.sql.gz" | psql -h localhost -p "$PG_PORT" -U posthog -q -d test_posthog >/dev/null 2>&1 || true
+        local schema_gz=""
+        if [ -f "$SHOWCASE_DIR/data/schema-latest.sql.gz" ]; then
+            schema_gz="$SHOWCASE_DIR/data/schema-latest.sql.gz"
+        elif [ -f "$REPO_ROOT/.postgres-backups/schema-latest.sql.gz" ]; then
+            schema_gz="$REPO_ROOT/.postgres-backups/schema-latest.sql.gz"
+        fi
+        if [ -n "$schema_gz" ]; then
+            local mig_count
+            mig_count=$(psql -h localhost -p "$PG_PORT" -U posthog -d test_posthog -tAc "SELECT count(*) FROM django_migrations" 2>/dev/null || echo "0")
+            if [ "${mig_count:-0}" -lt 2000 ]; then
+                gunzip -c "$schema_gz" | psql -h localhost -p "$PG_PORT" -U posthog -q -d test_posthog >/dev/null 2>&1 || true
+            fi
         fi
         wait_for_condition "PostgreSQL Query" "psql -h localhost -p $PG_PORT -U posthog -d postgres -c 'SELECT 1;'" "$pg_log" 30
+        psql -h localhost -p "$PG_PORT" -U posthog -d postgres -c "CREATE DATABASE posthog_warehouse_sources_queue;" >/dev/null 2>&1 || true
 
         local t1_pg
         t1_pg=$(date +%s%N)
