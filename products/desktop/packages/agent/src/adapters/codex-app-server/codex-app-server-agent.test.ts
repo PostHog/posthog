@@ -709,6 +709,40 @@ describe("CodexAppServerAgent", () => {
     });
   });
 
+  it("does not echo hidden retry blocks into conversation history", async () => {
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [
+        { type: "text", text: "visible" },
+        {
+          type: "text",
+          text: "hidden retry",
+          _meta: { ui: { hidden: true } },
+        },
+      ],
+    } as unknown as PromptRequest);
+    stub.emit("turn/completed", { turn: { status: "completed" } });
+    await done;
+
+    const userMessages = (
+      sessionUpdates as Array<{
+        update?: { sessionUpdate?: string; content?: unknown };
+      }>
+    ).filter((update) => update.update?.sessionUpdate === "user_message_chunk");
+    expect(userMessages).toHaveLength(1);
+    expect(userMessages[0]?.update).toMatchObject({
+      content: { type: "text", text: "visible" },
+    });
+  });
+
   it("reports a steered goal command as accepted so the host does not redeliver it", async () => {
     const stub = makeStubRpc({
       "thread/start": { thread: { id: "thr_1" } },
@@ -2524,6 +2558,12 @@ describe("CodexAppServerAgent", () => {
       sessionId: "t",
       prompt: [{ type: "text", text: "go" }],
     } as unknown as PromptRequest);
+    const rejection = expect(done).rejects.toMatchObject({
+      data: expect.objectContaining({
+        classification: "upstream_provider_failure",
+        result: "API Error: 503",
+      }),
+    });
     stub.emit("turn/started", { turn: { id: "turn_1" } });
     // A retried error carries the only text; turn/completed has none of its own.
     stub.emit("error", {
@@ -2536,17 +2576,16 @@ describe("CodexAppServerAgent", () => {
     });
 
     await vi.advanceTimersByTimeAsync(250);
-    await expect(done).resolves.toMatchObject({ stopReason: "refusal" });
-    expect(sessionUpdates).toContainEqual({
-      sessionId: "t",
-      update: {
-        sessionUpdate: "agent_message_chunk",
-        content: {
-          type: "text",
-          text: "The agent stopped before completing this request: API Error: 503 Service Unavailable",
-        },
-      },
-    });
+    await rejection;
+    expect(sessionUpdates).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          update: expect.objectContaining({
+            sessionUpdate: "agent_message_chunk",
+          }),
+        }),
+      ]),
+    );
     vi.useRealTimers();
   });
 
@@ -2564,6 +2603,12 @@ describe("CodexAppServerAgent", () => {
       sessionId: "t",
       prompt: [{ type: "text", text: "go" }],
     } as unknown as PromptRequest);
+    const rejection = expect(done).rejects.toMatchObject({
+      data: expect.objectContaining({
+        classification: "upstream_provider_failure",
+        result: "API Error: 502",
+      }),
+    });
     stub.emit("turn/started", { turn: { id: "turn_1" } });
     // codex reports the cause only on the completion — no error notification arrived.
     stub.emit("turn/completed", {
@@ -2575,17 +2620,16 @@ describe("CodexAppServerAgent", () => {
     });
 
     await vi.advanceTimersByTimeAsync(250);
-    await expect(done).resolves.toMatchObject({ stopReason: "refusal" });
-    expect(sessionUpdates).toContainEqual({
-      sessionId: "t",
-      update: {
-        sessionUpdate: "agent_message_chunk",
-        content: {
-          type: "text",
-          text: "The agent stopped before completing this request: API Error: 502 Bad Gateway",
-        },
-      },
-    });
+    await rejection;
+    expect(sessionUpdates).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          update: expect.objectContaining({
+            sessionUpdate: "agent_message_chunk",
+          }),
+        }),
+      ]),
+    );
     vi.useRealTimers();
   });
 
@@ -2603,6 +2647,12 @@ describe("CodexAppServerAgent", () => {
       sessionId: "t",
       prompt: [{ type: "text", text: "go" }],
     } as unknown as PromptRequest);
+    const rejection = expect(done).rejects.toMatchObject({
+      data: expect.objectContaining({
+        classification: "upstream_provider_failure",
+        result: "API Error: 500",
+      }),
+    });
     stub.emit("turn/started", { turn: { id: "turn_1" } });
     // A retry reports one cause; the turn then dies for a different terminal reason.
     stub.emit("error", {
@@ -2619,17 +2669,16 @@ describe("CodexAppServerAgent", () => {
     });
 
     await vi.advanceTimersByTimeAsync(250);
-    await expect(done).resolves.toMatchObject({ stopReason: "refusal" });
-    expect(sessionUpdates).toContainEqual({
-      sessionId: "t",
-      update: {
-        sessionUpdate: "agent_message_chunk",
-        content: {
-          type: "text",
-          text: "The agent stopped before completing this request: API Error: 500 Internal Server Error",
-        },
-      },
-    });
+    await rejection;
+    expect(sessionUpdates).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          update: expect.objectContaining({
+            sessionUpdate: "agent_message_chunk",
+          }),
+        }),
+      ]),
+    );
     vi.useRealTimers();
   });
 
@@ -2740,6 +2789,67 @@ describe("CodexAppServerAgent", () => {
     await expect(done).rejects.toThrow(
       "The agent stopped before completing this request. Please try again.",
     );
+  });
+
+  it("carries the app-server cause and its classification on a fatal error", async () => {
+    // The display carries the app-server's cause, and the error data carries its
+    // classification so the host can tell a transient upstream cut from a real
+    // agent error. Without the classification the host skips its bounded turn
+    // retry and the run dies.
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, extNotifications } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("thread/tokenUsage/updated", {
+      tokenUsage: {
+        total: { inputTokens: 10, outputTokens: 5 },
+        last: { inputTokens: 10, outputTokens: 5 },
+      },
+    });
+    stub.emit("item/completed", {
+      item: { type: "fileChange", id: "edit-1", changes: [] },
+    });
+    stub.emit("error", {
+      willRetry: false,
+      error: { message: "unexpected status 503 Service Unavailable: retry" },
+    });
+
+    const err = await done.then(
+      () => {
+        throw new Error("prompt resolved instead of rejecting");
+      },
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(RequestError);
+    // Exact match: the client renders this sentence, so a stray "Internal
+    // error: " prefix from RequestError.internalError() would be a regression a
+    // substring assertion could not catch.
+    expect((err as RequestError).message).toBe(
+      "The agent stopped before completing this request: unexpected status 503 Service Unavailable: retry",
+    );
+    expect((err as RequestError).data).toMatchObject({
+      classification: "upstream_provider_failure",
+      result: "unexpected status 503",
+      madeProgress: true,
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 15,
+      },
+    });
+    expect(
+      extNotifications.filter(
+        (notification) => notification.method === "_posthog/turn_complete",
+      ),
+    ).toHaveLength(0);
   });
 
   it("rejects the prompt when the fatal error is a gateway billing denial", async () => {
