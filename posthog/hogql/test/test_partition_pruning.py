@@ -3,7 +3,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.hogql.parser import parse_select
-from posthog.hogql.partition_pruning import UnprunedEventsScan, find_unpruned_events_scans
+from posthog.hogql.partition_pruning import _MAX_CHECKED_FIXES, UnprunedEventsScan, find_unpruned_events_scans
 
 
 class TestFindUnprunedEventsScans(SimpleTestCase):
@@ -181,6 +181,15 @@ class TestUnprunedScanQuickFix(SimpleTestCase):
         self.assertEqual(fixed, expected)
         parse_select(fixed)
         self.assertEqual(find_unpruned_events_scans(parse_select(fixed), query_text=fixed), [])
+
+    def test_offers_no_more_fixes_than_the_check_budget(self) -> None:
+        branches = _MAX_CHECKED_FIXES + 3
+        query = " UNION ALL ".join(["SELECT count() FROM events"] * branches)
+
+        scans = find_unpruned_events_scans(parse_select(query), query_text=query)
+
+        self.assertEqual(len(scans), branches)
+        self.assertEqual(sum(1 for scan in scans if scan.bound_edits), _MAX_CHECKED_FIXES)
 
 
 def _apply_edits(query: str, scan: UnprunedEventsScan) -> str:

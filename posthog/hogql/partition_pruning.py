@@ -86,6 +86,9 @@ _BOUND_PRESERVING_ARITHMETIC_OPS = frozenset(
     }
 )
 
+# How many generated fixes are checked, and so offered, for one query. See _with_checked_fixes.
+_MAX_CHECKED_FIXES = 10
+
 _BOUNDING_COMPARE_OPS = frozenset(
     {
         ast.CompareOperationOp.Eq,
@@ -128,19 +131,32 @@ def find_unpruned_events_scans(
     # The root starts capped because HogQLQueryExecutor._apply_limit gives every top-level select a
     # default LIMIT when the query does not write one.
     _collect_scans(query, bounded=False, capped=True, shadowed=frozenset(), scans=scans)
-    return [_without_unparseable_edits(scan, query_text) for scan in scans]
+    return _with_checked_fixes(scans, query_text)
 
 
-def _without_unparseable_edits(scan: UnprunedEventsScan, query_text: str) -> UnprunedEventsScan:
-    """Drop a fix that does not produce a parseable query, keeping the warning.
+def _with_checked_fixes(scans: list[UnprunedEventsScan], query_text: str) -> list[UnprunedEventsScan]:
+    """Drop every fix that does not produce a parseable query, keeping the warning.
 
     The AST keeps no trace of parentheses around a FROM source, so `FROM (events)` gives the same
     offsets as `FROM events` and the insertion point lands before the closing parenthesis. Rather
     than enumerate the shapes where an offset can mislead, confirm the edited text still parses.
+
+    Each check reparses the whole query, so the work grows with both the number of scans and the
+    length of the query, and metadata runs on every keystroke. `_MAX_CHECKED_FIXES` bounds it. A
+    scan past that budget keeps its warning and offers no button, which only affects a query that
+    already reads its whole history in more places than a reader can act on at once.
     """
-    if not scan.bound_edits or _edits_reparse(scan.bound_edits, query_text):
-        return scan
-    return replace(scan, bound_edits=())
+    checked: list[UnprunedEventsScan] = []
+    remaining = _MAX_CHECKED_FIXES
+    for scan in scans:
+        if not scan.bound_edits:
+            checked.append(scan)
+        elif remaining <= 0:
+            checked.append(replace(scan, bound_edits=()))
+        else:
+            remaining -= 1
+            checked.append(scan if _edits_reparse(scan.bound_edits, query_text) else replace(scan, bound_edits=()))
+    return checked
 
 
 def _edits_reparse(edits: tuple[QueryTextEdit, ...], query_text: str) -> bool:

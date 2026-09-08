@@ -294,9 +294,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                     // The metadata query is one statement of the script, and a query-level fix applies
                     // to all of it, so the caret only has to be somewhere inside these bounds.
                     const scopeStartPosition = model.getPositionAt(markerOffset)
-                    const scopeEndPosition = model.getPositionAt(
-                        markerOffset + codePointOffsetToUtf16(query, query.length)
-                    )
+                    const scopeEndPosition = model.getPositionAt(markerOffset + query.length)
                     const statementScope = {
                         startLineNumber: scopeStartPosition.lineNumber,
                         startColumn: scopeStartPosition.column,
