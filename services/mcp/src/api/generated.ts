@@ -1046,6 +1046,8 @@ export namespace Schemas {
     }
 
     export interface QueryStatus {
+      budget_remaining_bytes?: number | null;
+      bytes_read?: number | null;
       /** Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set. */
       complete?: boolean | null;
       dashboard_id?: number | null;
@@ -89778,6 +89780,24 @@ export namespace Schemas {
       total_logs: number;
       /** True when more groups matched than were returned (total_groups > groups length). */
       truncated: boolean;
+    }
+
+    export interface _LogsImpactRequest {
+      /** The impact query to execute. Takes the same filters as the count query. */
+      query: _LogsCountBody;
+    }
+
+    export interface _LogsImpactResponse {
+      /** Number of log entries matching the filters. */
+      total: number;
+      /** How many of the matching logs carry a session ID under the team's configured or conventional attribute keys. */
+      logsWithSessionId: number;
+      /** Estimated number of unique session IDs across the matching logs (HyperLogLog, about 1-2% error). */
+      sessions: number;
+      /** How many of the matching logs carry a person distinct ID under the team's configured or conventional attribute keys. */
+      logsWithDistinctId: number;
+      /** Estimated number of unique distinct IDs across the matching logs (HyperLogLog, about 1-2% error). */
+      users: number;
     }
 
     export interface _LogsPatternsBody {

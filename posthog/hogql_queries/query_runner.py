@@ -7,9 +7,7 @@ from functools import cache, cached_property
 from time import perf_counter
 from types import UnionType
 from typing import Any, Generic, NamedTuple, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
-from zoneinfo import ZoneInfo
 
-from django.conf import settings as django_settings
 from django.db import OperationalError
 
 import orjson
@@ -112,7 +110,14 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.warehouse_warnings import accumulator_scope
 
 from posthog import settings
-from posthog.api_queries_quota import API_QUERIES_QUOTA_ERRORS_COUNTER, get_api_queries_bytes, next_counter_reset
+from posthog.api_queries_budget import (
+    API_QUERIES_BUDGET_ERRORS_COUNTER,
+    BudgetSpec,
+    budget_enabled,
+    budget_spec_for,
+    refill_and_read,
+    seconds_until_positive,
+)
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
@@ -125,9 +130,10 @@ from posthog.clickhouse.client.limit import (
 )
 from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_queries
 from posthog.constants import AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
-from posthog.exceptions import APIQueriesQuotaExceeded
+from posthog.exceptions import APIQueriesBudgetExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
 from posthog.hogql_queries.query_failure_handling import (
@@ -200,12 +206,18 @@ SURVEY_QUERY_EXECUTION_DURATION = Histogram(
     buckets=[0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 7.5, 10.0, 15.0, 20.0, 30.0, 60.0, 120.0],
 )
 
-API_QUERIES_QUOTA_ENFORCEMENT_FLAG = "api-queries-quota-enforcement"
+API_QUERIES_BUDGET_ENFORCEMENT_FLAG = "api-queries-budget-enforcement"
 
-API_QUERIES_QUOTA_LIMITED_COUNTER = Counter(
-    "posthog_api_queries_quota_limited_total",
-    "Query executions for teams whose organization is over its api_queries_read_bytes quota.",
-    labelnames=["surface", "outcome"],  # surface: api; outcome: observed | enforced
+API_QUERIES_BUDGET_LIMITED_COUNTER = Counter(
+    "posthog_api_queries_budget_limited_total",
+    "Query executions for teams whose hourly api queries read budget is exhausted.",
+    labelnames=["outcome"],  # observed | enforced
+)
+
+API_QUERIES_BUDGET_BALANCE_HISTOGRAM = Histogram(
+    "posthog_api_queries_budget_balance_bytes",
+    "Balance of the team's hourly api queries read budget at each admission check. Negative is debt.",
+    buckets=[-1e11, -1e10, -1e9, -1e8, 0, 1e8, 1e9, 1e10, 1e11, 1e12],
 )
 
 
@@ -328,6 +340,9 @@ def _classify_error_for_slo(exc: Exception) -> tuple[QueryErrorCategory, SloOutc
     """
     if isinstance(exc, UserAccessControlError):
         return QueryErrorCategory.USER_ERROR, SloOutcome.SUCCESS
+    if isinstance(exc, APIQueriesBudgetExceeded):
+        # A team over its budget is refused on purpose, not a platform failure.
+        return QueryErrorCategory.RATE_LIMITED, SloOutcome.SUCCESS
     category = classify_query_error(exc)
     if category in (QueryErrorCategory.USER_ERROR, QueryErrorCategory.RATE_LIMITED, QueryErrorCategory.CANCELLED):
         return category, SloOutcome.SUCCESS
@@ -365,27 +380,12 @@ def shared_insights_execution_mode(execution_mode: ExecutionMode) -> SharedExecu
     )
 
 
-def get_api_queries_quota_limited_until(team: Team) -> Optional[datetime]:
-    if not django_settings.API_QUERIES_FREE_TIER_READ_BYTES_LIMIT:
-        return None
-    try:
-        if team.organization.has_active_subscription is not False:
-            return None
-        if get_api_queries_bytes(str(team.organization_id)) <= django_settings.API_QUERIES_FREE_TIER_READ_BYTES_LIMIT:
-            return None
-        return next_counter_reset(datetime.now(UTC))
-    except Exception as e:
-        API_QUERIES_QUOTA_ERRORS_COUNTER.labels(op="check").inc()
-        capture_exception(e)
-        return None
-
-
-def _api_queries_enforcement_enabled(team: Team) -> bool:
+def _api_queries_budget_enforcement_enabled(team: Team) -> bool:
     org_id = str(team.organization_id)
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                API_QUERIES_QUOTA_ENFORCEMENT_FLAG,
+                API_QUERIES_BUDGET_ENFORCEMENT_FLAG,
                 org_id,
                 groups={"organization": org_id},
                 group_properties={"organization": {"id": org_id}},
@@ -397,32 +397,28 @@ def _api_queries_enforcement_enabled(team: Team) -> bool:
         return False
 
 
-def _format_data_size(bytes_count: int) -> str:
-    # Decimal units, to match how the allowance is defined (50 TB = 50e12 bytes).
-    for unit, size in (("TB", 1_000_000_000_000), ("GB", 1_000_000_000), ("MB", 1_000_000)):
-        if bytes_count >= size:
-            value = f"{bytes_count / size:.1f}".removesuffix(".0")
-            return f"{value} {unit}"
-    return f"{bytes_count:,} bytes"
+@frozen
+class BudgetStatus:
+    remaining_bytes: float
+    spec: BudgetSpec
+    retry_after_seconds: int
 
 
-def _api_queries_quota_detail(*, used: int, limit: int, limited_until: datetime, project_timezone: str) -> str:
+def get_api_queries_budget_status(team: Team) -> Optional[BudgetStatus]:
+    if not budget_enabled():
+        return None
     try:
-        local = limited_until.astimezone(ZoneInfo(project_timezone))
-    except Exception:
-        local = limited_until
-    reset = f"{local:%B} {local.day}, {local.year}"
-    # The reset is midnight UTC, so in most project timezones it lands mid-day; show the
-    # time whenever it isn't local midnight.
-    if local.hour or local.minute:
-        reset += f" at {local:%H:%M}"
-    reset += f" ({local.tzinfo})"
-    return (
-        f"Your organization used {_format_data_size(used)} of its {_format_data_size(limit)} "
-        "monthly free allowance for API queries. "
-        f"The allowance resets on {reset}. "
-        "Upgrade your plan in Billing settings to restore access sooner, or ask an org admin to do so."
-    )
+        spec = budget_spec_for(team.organization)
+        remaining = refill_and_read(str(team.pk), spec)
+        if remaining is None:
+            return None
+        return BudgetStatus(
+            remaining_bytes=remaining, spec=spec, retry_after_seconds=seconds_until_positive(remaining, spec)
+        )
+    except Exception as e:
+        API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="check").inc()
+        capture_exception(e)
+        return None
 
 
 RunnableQueryNode = Union[
@@ -2077,7 +2073,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if self.is_query_service:
             tag_queries(chargeable=1)
-            self._enforce_api_queries_quota()
+            self._enforce_api_queries_budget()
 
         with (
             get_materialized_endpoints_rate_limiter().run(
@@ -2542,35 +2538,30 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         feature = self.team.organization.get_available_feature(AvailableFeature.API_QUERIES_CONCURRENCY)
         return feature.get("limit") if feature else None
 
-    def _enforce_api_queries_quota(self) -> None:
-        """402 chargeable API queries for orgs over quota, when enforcement is flagged on.
-
-        Observe-only (counter, no block) when the flag is off. Never blocks unless the
-        live counter confirms over-quota.
-        """
-        limited_until = get_api_queries_quota_limited_until(self.team)
-        if limited_until is None:
+    def _enforce_api_queries_budget(self) -> None:
+        """Hourly read budget for api key queries. Observe-only until the org is flagged in;
+        then an exhausted budget is a 429. The query that crosses the line still runs in full,
+        since the budget is debited after the query and the next request is the one refused."""
+        status = get_api_queries_budget_status(self.team)
+        if status is None:
             return
-        used = get_api_queries_bytes(str(self.team.organization_id))
-        limit = django_settings.API_QUERIES_FREE_TIER_READ_BYTES_LIMIT
-        outcome = "enforced" if _api_queries_enforcement_enabled(self.team) else "observed"
-        API_QUERIES_QUOTA_LIMITED_COUNTER.labels(surface="api", outcome=outcome).inc()
+        API_QUERIES_BUDGET_BALANCE_HISTOGRAM.observe(status.remaining_bytes)
+        if status.remaining_bytes > 0:
+            return
+        enforced = _api_queries_budget_enforcement_enabled(self.team)
+        outcome = "enforced" if enforced else "observed"
+        API_QUERIES_BUDGET_LIMITED_COUNTER.labels(outcome=outcome).inc()
         logger.info(
-            "api_queries_quota_limited",
+            "api_queries_budget_limited",
             organization_id=str(self.team.organization_id),
             team_id=self.team.pk,
-            usage_bytes=used,
-            limit_bytes=limit,
-            limited_until=limited_until.isoformat(),
+            remaining_bytes=status.remaining_bytes,
+            bytes_per_hour=status.spec.bytes_per_hour,
+            retry_after_seconds=status.retry_after_seconds,
             outcome=outcome,
         )
-        if outcome == "observed":
-            return
-        raise APIQueriesQuotaExceeded(
-            detail=_api_queries_quota_detail(
-                used=used, limit=limit, limited_until=limited_until, project_timezone=self.team.timezone
-            )
-        )
+        if outcome == "enforced":
+            raise APIQueriesBudgetExceeded(wait=status.retry_after_seconds)
 
     @abstractmethod
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
