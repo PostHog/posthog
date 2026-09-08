@@ -16,7 +16,7 @@ import type { LogMessage } from '../../../../../frontend/src/queries/schema/sche
 import type { PropertyFilterType, PropertyOperator } from '../../../../../frontend/src/types'
 import { LogsOrderBy, ParsedLogMessage } from '../../types'
 import { attributeLookupExpression, LogsColumnConfig } from './config/columns'
-import { LogDetailsTab, logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
+import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
 import { logsSessionErrorsLogic } from './logsSessionErrorsLogic'
 import { logsViewerSettingsLogic } from './logsViewerSettingsLogic'
 
@@ -67,6 +67,7 @@ function tryOpenLinkedLog(
 export interface logsViewerLogicValues {
     isLogDetailsOpen: boolean // logDetailsModalLogic
     sessionErrorCounts: Record<string, number> // logsSessionErrorsLogic
+    showSessionErrors: boolean // logsSessionErrorsLogic
     columns: LogsColumnConfig[] // logsViewerConfigLogic
     customColumns: string[] | undefined // logsViewerConfigLogic
     orderBy: LogsOrderBy // logsViewerConfigLogic
@@ -111,9 +112,6 @@ export interface logsViewerLogicActions {
     } // logDetailsModalLogic
     openLogDetails: (log: ParsedLogMessage) => {
         log: ParsedLogMessage
-    } // logDetailsModalLogic
-    setLogDetailsTab: (tab: LogDetailsTab) => {
-        tab: LogDetailsTab
     } // logDetailsModalLogic
     addColumn: (column: LogsColumnConfig) => {
         column: LogsColumnConfig
@@ -292,13 +290,13 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             logsViewerConfigLogic({ id }),
             ['orderBy', 'columns', 'customColumns'],
             logsSessionErrorsLogic({ id }),
-            ['sessionErrorCounts'],
+            ['sessionErrorCounts', 'showSessionErrors'],
         ],
         actions: [
             logsViewerSettingsLogic,
             ['setTimezone', 'setWrapBody', 'setPrettifyJson'],
             logDetailsModalLogic({ id }),
-            ['openLogDetails', 'closeLogDetails', 'setActiveTab as setLogDetailsTab'],
+            ['openLogDetails', 'closeLogDetails'],
             logsViewerFiltersLogic({ id }),
             ['addFilter'],
             logsViewerDataLogic({ id }),

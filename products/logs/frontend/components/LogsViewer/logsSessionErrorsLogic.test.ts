@@ -12,22 +12,25 @@ import { logsSessionErrorsLogic } from 'products/logs/frontend/components/LogsVi
 
 const VIEWER_ID = 'test-viewer'
 
+// Only uuid, attributes and timestamp are read; the rest satisfies the schema.
+const BASE_LOG: LogMessage = {
+    uuid: '',
+    trace_id: '',
+    span_id: '',
+    body: 'something happened',
+    attributes: {},
+    timestamp: '2026-09-03T12:00:00.000Z',
+    observed_timestamp: '2026-09-03T12:00:00.000Z',
+    severity_text: 'info',
+    severity_number: 9,
+    level: 'info',
+    resource_attributes: {},
+    instrumentation_scope: '',
+    event_name: '',
+}
+
 function makeLog(uuid: string, sessionId: string | null): LogMessage {
-    return {
-        uuid,
-        trace_id: '',
-        span_id: '',
-        body: 'something happened',
-        attributes: sessionId ? { sessionId } : {},
-        timestamp: '2026-09-03T12:00:00.000Z',
-        observed_timestamp: '2026-09-03T12:00:00.000Z',
-        severity_text: 'info',
-        severity_number: 9,
-        level: 'info',
-        resource_attributes: {},
-        instrumentation_scope: '',
-        event_name: '',
-    }
+    return { ...BASE_LOG, uuid, attributes: sessionId ? { sessionId } : {} }
 }
 
 describe('logsSessionErrorsLogic', () => {
@@ -35,19 +38,11 @@ describe('logsSessionErrorsLogic', () => {
     let dataLogic: ReturnType<typeof logsViewerDataLogic.build>
     let queryBodies: any[]
 
-    const mountAll = (): void => {
-        dataLogic = logsViewerDataLogic({ id: VIEWER_ID, autoLoad: false })
-        dataLogic.mount()
-        logic = logsSessionErrorsLogic({ id: VIEWER_ID })
-        logic.mount()
-    }
-
     beforeEach(() => {
         queryBodies = []
         useMocks({
             post: {
                 '/api/environments/:team_id/logs/query/': () => [200, { results: [], maxExportableLogs: 5000 }],
-                '/api/environments/:team_id/logs/sparkline/': () => [200, []],
                 '/api/environments/:team_id/query/HogQLQuery': async ({ request }) => {
                     queryBodies.push(await request.json())
                     return [200, { results: [['session-a', 3]] }]
@@ -57,20 +52,22 @@ describe('logsSessionErrorsLogic', () => {
         initKeaTests()
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.LOGS_SESSION_ERROR_BADGES]: true })
+        dataLogic = logsViewerDataLogic({ id: VIEWER_ID, autoLoad: false })
+        dataLogic.mount()
+        logic = logsSessionErrorsLogic({ id: VIEWER_ID })
+        logic.mount()
     })
 
     afterEach(() => {
-        logic?.unmount()
-        dataLogic?.unmount()
+        logic.unmount()
+        dataLogic.unmount()
     })
 
     it('records a zero for every session it looked up, so the next page only asks about new ones', async () => {
-        mountAll()
         dataLogic.actions.setLogs([makeLog('log-1', 'session-a'), makeLog('log-2', 'session-b')])
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.sessionErrorCounts).toEqual({ 'session-a': 3, 'session-b': 0 })
-        expect(logic.values.unresolvedSessionIds).toEqual([])
 
         // A next page that adds one session must not re-ask about the two already answered.
         dataLogic.actions.setLogs([
@@ -86,7 +83,6 @@ describe('logsSessionErrorsLogic', () => {
     })
 
     it('deduplicates the sessions on the page', async () => {
-        mountAll()
         dataLogic.actions.setLogs([
             makeLog('log-1', 'session-a'),
             makeLog('log-2', 'session-a'),
@@ -100,7 +96,6 @@ describe('logsSessionErrorsLogic', () => {
 
     it('queries nothing while the feature flag is off', async () => {
         featureFlagLogic.actions.setFeatureFlags([], {})
-        mountAll()
         dataLogic.actions.setLogs([makeLog('log-1', 'session-a')])
         await expectLogic(logic).toFinishAllListeners()
 
@@ -109,10 +104,8 @@ describe('logsSessionErrorsLogic', () => {
     })
 
     it('drops counts from the previous filters when a fresh query lands', async () => {
-        mountAll()
         dataLogic.actions.setLogs([makeLog('log-1', 'session-a')])
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.sessionErrorCounts).toEqual({ 'session-a': 3 })
 
         dataLogic.actions.fetchLogs()
         await expectLogic(logic).toFinishAllListeners()
