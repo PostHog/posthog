@@ -1,4 +1,27 @@
+from django.db import models
+
 from posthog.dataclasses import frozen
+
+
+class EntityRefStatus(models.TextChoices):
+    ACTIVE = "active"
+    DELETED = "deleted"
+    # The id resolves to nothing: the target was hard-deleted or never existed.
+    MISSING = "missing"
+    ARCHIVED = "archived"
+    # No resolver is registered for the entity type, so the target's state is unreadable.
+    UNKNOWN = "unknown"
+
+
+@frozen
+class EntityRef:
+    """A reference resolved for display, as the owning product describes the entity."""
+
+    type: str
+    id: str
+    name: str = ""
+    url: str = ""
+    status: str = EntityRefStatus.UNKNOWN
 
 
 @frozen

@@ -29,6 +29,7 @@ from . import (
     comments,
     dead_letter_queue,
     debug_ch_queries,
+    entity_dependencies,
     event_definition,
     event_schema,
     health_issue,
@@ -517,6 +518,13 @@ projects_router.register(
     r"metalytics",
     metalytics.MetalyticsViewSet,
     "project_metalytics",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"dependencies",
+    entity_dependencies.EntityDependencyViewSet,
+    "project_dependencies",
     ["team_id"],
 )
 

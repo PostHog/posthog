@@ -8,3 +8,8 @@ class CohortsConfig(AppConfig):
     default_auto_field = "django.db.models.AutoField"
     name = "products.cohorts.backend"
     label = "cohorts"
+
+    def ready(self) -> None:
+        # Registers the cohort resolver for entity dependency reads. Kept in its own light
+        # module so django.setup() does not pull the API module in.
+        from products.cohorts.backend import entity_dependencies  # noqa: F401, PLC0415
