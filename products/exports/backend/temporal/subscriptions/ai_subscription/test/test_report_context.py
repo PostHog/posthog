@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.test import SimpleTestCase
 
 from asgiref.sync import async_to_sync
+from parameterized import parameterized
 
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.apply_dashboard_filters import flatten_property_leaves
@@ -23,7 +24,9 @@ from products.exports.backend.models.subscription_context import SubscriptionCon
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
     MAX_DASHBOARD_INSIGHTS,
     InsightReportEvidence,
+    InsightReportProvenance,
     ReportContextEvidence,
+    _dashboard_status,
     _DashboardTile,
     _rank_dashboard_tiles,
     _SavedInsight,
@@ -135,6 +138,28 @@ class TestReportContextPureFunctions(SimpleTestCase):
             self.assertRaisesRegex(ValueError, "Combined report context evidence"),
         ):
             ReportContextEvidence(dashboards=(), insights=insights)
+
+    @parameterized.expand(
+        [
+            # A dashboard that lost a tile to a failed query has incomplete evidence, so it must not
+            # report the same status as a dashboard where every tile answered.
+            ("no_tiles", [], "failed"),
+            ("every_tile_failed", ["failed", "failed"], "failed"),
+            ("one_tile_failed", ["success", "failed"], "truncated"),
+            ("one_tile_truncated", ["success", "truncated"], "truncated"),
+            ("failed_and_truncated", ["failed", "truncated"], "truncated"),
+            ("every_tile_succeeded", ["success", "success"], "success"),
+        ]
+    )
+    def test_dashboard_status_reports_incomplete_tile_evidence(
+        self, _name: str, statuses: list[str], expected: str
+    ) -> None:
+        insights = tuple(
+            InsightReportProvenance(id=index, name=f"Insight {index}", status=status)  # type: ignore[arg-type]
+            for index, status in enumerate(statuses)
+        )
+
+        assert _dashboard_status(insights) == expected
 
     def test_failed_markers_are_not_successful_computed_evidence(self) -> None:
         evidence = ReportContextEvidence(
@@ -585,6 +610,7 @@ class TestResolveReportContext(BaseTest):
             evidence = async_to_sync(resolve_report_context)(subscription)
 
         dashboard_evidence = evidence.dashboards[0]
+        assert dashboard_evidence.status == "truncated"
         assert [item.status for item in dashboard_evidence.insights] == ["failed", "success"]
         assert all(not hasattr(item, "content") for item in dashboard_evidence.insights)
         assert "successful formatted rows" in dashboard_evidence.content

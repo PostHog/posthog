@@ -533,10 +533,12 @@ def _to_insight_provenance(executed: _ExecutedInsight) -> InsightReportProvenanc
 def _dashboard_status(insights: Sequence[InsightReportProvenance]) -> ReportContextStatus:
     if not insights:
         return "failed"
-    if any(insight.status == "truncated" for insight in insights):
-        return "truncated"
-    if insights and all(insight.status == "failed" for insight in insights):
+    if all(insight.status == "failed" for insight in insights):
         return "failed"
+    # Any tile short of a clean success leaves the dashboard's evidence incomplete, which is what the
+    # dashboard-level "truncated" already reports for tiles dropped to fit the budget.
+    if any(insight.status != "success" for insight in insights):
+        return "truncated"
     return "success"
 
 
