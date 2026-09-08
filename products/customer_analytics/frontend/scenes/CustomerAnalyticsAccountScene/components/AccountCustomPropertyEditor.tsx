@@ -160,7 +160,6 @@ export function AccountCustomPropertyEditor({
                 />
             ) : isNumeric ? (
                 <LemonInput
-                    disabled={saving}
                     type="number"
                     suffix={definition.display_type === 'percent' ? <span>%</span> : undefined}
                     value={numericDraft}
@@ -176,7 +175,6 @@ export function AccountCustomPropertyEditor({
             ) : (
                 <LemonInput
                     type={definition.display_type === 'link' ? 'url' : 'text'}
-                    disabled={saving}
                     value={typeof draft === 'string' ? draft : ''}
                     onChange={setDraft}
                     onPressEnter={save}
