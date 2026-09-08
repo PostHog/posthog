@@ -39,6 +39,14 @@ if TYPE_CHECKING:
 MAX_NOTEBOOK_MIGRATION_BATCH_SIZE = markdown_migration.MAX_NOTEBOOK_MIGRATION_BATCH_SIZE
 
 
+def is_notebook_widget_enabled(user: "User | None") -> bool:
+    from ..widgets import (
+        is_notebook_widget_enabled as is_enabled,  # noqa: PLC0415 — avoid loading widget generation and Temporal for unrelated facade callers
+    )
+
+    return is_enabled(user)
+
+
 def _to_notebook_data(notebook: Notebook) -> contracts.NotebookData:
     return contracts.NotebookData(
         id=notebook.id,

@@ -26,7 +26,7 @@ export interface SessionState {
   /** Index mapping taskId -> taskRunId for O(1) lookups */
   taskIdIndex: Record<string, string>;
   /** Task ids whose first/resumed agent session is being created. */
-  startingTaskIds: Record<string, true>;
+  startingTaskIds: Record<string, { previousRunId?: string; runId?: string }>;
 }
 
 export const sessionStore = createStore<SessionState>()(
@@ -36,6 +36,15 @@ export const sessionStore = createStore<SessionState>()(
     startingTaskIds: {},
   })),
 );
+
+function clearMatchingStartingTask(
+  state: SessionState,
+  session: AgentSession,
+): void {
+  if (state.startingTaskIds[session.taskId]?.runId === session.taskRunId) {
+    delete state.startingTaskIds[session.taskId];
+  }
+}
 
 /**
  * How many messages to drain off the head of a queue, honoring both options:
@@ -95,9 +104,39 @@ export const sessionStoreSetters = {
         delete state.sessions[existingTaskRunId];
       }
 
-      state.sessions[session.taskRunId] = session;
+      const existingSession =
+        existingTaskRunId === session.taskRunId
+          ? state.sessions[session.taskRunId]
+          : undefined;
+      state.sessions[session.taskRunId] = {
+        ...session,
+        ...(existingSession?.firstPromptForRunId === session.taskRunId
+          ? { firstPromptForRunId: session.taskRunId }
+          : {}),
+        ...(existingSession?.resumeAncestorRunIds &&
+        !session.resumeAncestorRunIds
+          ? { resumeAncestorRunIds: existingSession.resumeAncestorRunIds }
+          : {}),
+      };
       state.taskIdIndex[session.taskId] = session.taskRunId;
-      delete state.startingTaskIds[session.taskId];
+      const startingTask = state.startingTaskIds[session.taskId];
+      if (
+        startingTask &&
+        !startingTask.runId &&
+        startingTask.previousRunId !== session.taskRunId
+      ) {
+        startingTask.runId = session.taskRunId;
+      }
+      const storedSession = state.sessions[session.taskRunId];
+      if (
+        storedSession.firstPromptForRunId === session.taskRunId ||
+        storedSession.status === "error" ||
+        (storedSession.status === "disconnected" &&
+          !!storedSession.errorMessage) ||
+        isTerminalStatus(storedSession.cloudStatus)
+      ) {
+        clearMatchingStartingTask(state, storedSession);
+      }
     });
   },
 
@@ -112,9 +151,17 @@ export const sessionStoreSetters = {
     });
   },
 
-  setTaskStarting: (taskId: string) => {
+  setTaskStarting: (taskId: string, runId?: string) => {
     sessionStore.setState((state) => {
-      state.startingTaskIds[taskId] = true;
+      const marker = state.startingTaskIds[taskId];
+      if (marker) {
+        if (runId) marker.runId = runId;
+        return;
+      }
+      state.startingTaskIds[taskId] = {
+        previousRunId: state.taskIdIndex[taskId],
+        runId,
+      };
     });
   },
 
@@ -126,8 +173,15 @@ export const sessionStoreSetters = {
 
   updateSession: (taskRunId: string, updates: Partial<AgentSession>) => {
     sessionStore.setState((state) => {
-      if (state.sessions[taskRunId]) {
-        Object.assign(state.sessions[taskRunId], updates);
+      const session = state.sessions[taskRunId];
+      if (!session) return;
+      Object.assign(session, updates);
+      if (
+        updates.firstPromptForRunId === taskRunId ||
+        updates.status === "error" ||
+        (updates.status === "disconnected" && !!updates.errorMessage)
+      ) {
+        clearMatchingStartingTask(state, session);
       }
     });
   },
@@ -219,6 +273,9 @@ export const sessionStoreSetters = {
       if (fields.errorMessage !== undefined)
         session.cloudErrorMessage = fields.errorMessage;
       if (fields.branch !== undefined) session.cloudBranch = fields.branch;
+      if (fields.status !== undefined && isTerminalStatus(fields.status)) {
+        clearMatchingStartingTask(state, session);
+      }
     });
   },
 

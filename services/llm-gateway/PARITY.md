@@ -52,6 +52,7 @@ Flag-gated open-weight models added to the Python gateway under the freeze stay 
 `zai-org/glm-5.3-flash` is Baseten-exclusive, gated by the `posthog-code-glm-53-flash-model` flag, and reachable only by the `posthog_code` and `review_hog` products.
 Its callers are PostHog Desktop and PostHog Code, so the model depends on the OAuth application allowlists, the request-selected project validated against OAuth scope and live organization membership, the billing policy, and the per-model access flags named in the first row above.
 The Go catalog serves GLM 5.2 only, and Baseten on Go still depends on the provider deployment check below.
+`gpt-6-astra` is also Python-only because the Go catalog does not serve it, while Desktop, Code, and cloud agents require the Python product policy above.
 
 ### 🔎 Verify before switching
 
@@ -97,10 +98,10 @@ Run `/migrating-llm-gateway-callers` to inventory and convert a caller.
 
 Run `/auditing-llm-gateway-parity` after either gateway changes auth, attribution, billing, endpoints, providers, models, routing, or event metadata. The skill audits implementation sources in both repositories and updates this file without migrating callers.
 
-Last verified on 2026-09-03 against:
+Last verified on 2026-09-07 against:
 
-- `PostHog/posthog` working tree compared with master at `17484bc3a0b01d930fbcf512ca9f1f2489d7aa84`
-- `PostHog/ai-gateway` main at `fb1afc8bebb40ffb43dbd42f2b5a9531cf8f2cb8`
+- `PostHog/posthog` working tree compared with master at `cab2e7ddca85e189cab9deb374cb1e82e55bd16d`
+- `PostHog/ai-gateway` main at `13a9277ab0e0079e9581c0e780b2b83aa72ff3db`
 
 ## References
 

@@ -152,6 +152,10 @@ that resolves to a web interstitial in PostHog Cloud, which fires this scheme
 (or offers the desktop-app download). That way the link works for anyone,
 whether or not they have the app.
 
+Use the link button in the canvas toolbar to copy this link without opening a
+menu. The button has a "Copy link to canvas" tooltip, like the session link
+button. "Copy link" also remains in the canvas options menu.
+
 | Segment | Required | Description |
 |---|---|---|
 | `<channelId>` | Yes | Channel (folder) row id the canvas lives under. |
