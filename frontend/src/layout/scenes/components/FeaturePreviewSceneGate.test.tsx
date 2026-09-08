@@ -9,6 +9,7 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import { FeaturePreviewGateConfig } from '~/types'
 
 import { FeaturePreviewSceneGate } from './FeaturePreviewSceneGate'
@@ -66,6 +67,8 @@ const mockedUseMountedLogic = useMountedLogic as jest.Mock
 
 const mockLoadEarlyAccessFeatures = jest.fn()
 const mockUpdateEarlyAccessFeatureEnrollment = jest.fn()
+const mockSubmitConceptSurvey = jest.fn()
+const mockAddProductIntentForCrossSell = jest.fn()
 const mockOpenSupportForm = jest.fn()
 
 const BASE_CONFIG: FeaturePreviewGateConfig = {
@@ -99,12 +102,21 @@ function isSupportLogicRef(logic: unknown): boolean {
 
 function setupMocks({
     earlyAccessFeatures = [],
+    waitlistSurveysEnabled = false,
+    conceptSurveySubmissions = {},
     activeSceneId = null,
     featureFlags = {},
     cloud = true,
     isDebug = false,
 }: {
-    earlyAccessFeatures?: Array<{ flagKey: string; enabled: boolean; stage?: string }>
+    earlyAccessFeatures?: Array<{
+        flagKey: string
+        enabled: boolean
+        stage?: string
+        payload?: Record<string, unknown>
+    }>
+    waitlistSurveysEnabled?: boolean
+    conceptSurveySubmissions?: Record<string, boolean>
     activeSceneId?: string | null
     featureFlags?: Record<string, boolean | string>
     cloud?: boolean
@@ -114,7 +126,7 @@ function setupMocks({
 
     mockedUseValues.mockImplementation((logic: unknown) => {
         if (isFeaturePreviewsLogicRef(logic)) {
-            return { earlyAccessFeatures }
+            return { earlyAccessFeatures, waitlistSurveysEnabled, conceptSurveySubmissions }
         }
         if (isSceneLogicRef(logic)) {
             return { activeSceneId }
@@ -133,6 +145,8 @@ function setupMocks({
             return {
                 loadEarlyAccessFeatures: mockLoadEarlyAccessFeatures,
                 updateEarlyAccessFeatureEnrollment: mockUpdateEarlyAccessFeatureEnrollment,
+                submitConceptSurvey: mockSubmitConceptSurvey,
+                addProductIntentForCrossSell: mockAddProductIntentForCrossSell,
             }
         }
         if (isSupportLogicRef(logic)) {
@@ -318,6 +332,90 @@ describe('FeaturePreviewSceneGate', () => {
                 }
             }
         )
+    })
+
+    describe('concept stage (waitlist)', () => {
+        const CONCEPT_FEATURE = {
+            flagKey: BASE_CONFIG.flag,
+            enabled: false,
+            stage: 'concept',
+            payload: { survey_id: 'survey-1' },
+        }
+
+        test('shows an email waitlist form instead of the dead toggle for a concept feature', () => {
+            setupMocks({ earlyAccessFeatures: [CONCEPT_FEATURE], waitlistSurveysEnabled: true })
+
+            render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
+
+            expect(screen.getByPlaceholderText('email@yourcompany.com')).toBeInTheDocument()
+            expect(screen.getByText('Get notified')).toBeInTheDocument()
+            expect(screen.queryByRole('switch')).not.toBeInTheDocument()
+        })
+
+        test('shows the confirmation once the user is on the waitlist', () => {
+            setupMocks({
+                earlyAccessFeatures: [CONCEPT_FEATURE],
+                waitlistSurveysEnabled: true,
+                conceptSurveySubmissions: { [BASE_CONFIG.flag]: true },
+            })
+
+            render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
+
+            expect(screen.getByText(/Thanks — we'll email you when it's ready/)).toBeInTheDocument()
+            expect(screen.queryByRole('switch')).not.toBeInTheDocument()
+        })
+
+        test('submits the waitlist survey and registers product intent', async () => {
+            setupMocks({ earlyAccessFeatures: [CONCEPT_FEATURE], waitlistSurveysEnabled: true })
+
+            render(
+                <FeaturePreviewSceneGate config={{ ...BASE_CONFIG, productIntent: 'metrics' as ProductKey }}>
+                    {CHILDREN}
+                </FeaturePreviewSceneGate>
+            )
+            await userEvent.type(screen.getByPlaceholderText('email@yourcompany.com'), 'user@example.com')
+            await userEvent.click(screen.getByText('Get notified'))
+
+            expect(mockSubmitConceptSurvey).toHaveBeenCalledWith(BASE_CONFIG.flag, 'user@example.com')
+            expect(mockAddProductIntentForCrossSell).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    to: 'metrics',
+                    intent_context: 'feature_preview_enabled',
+                })
+            )
+        })
+
+        test('does not register product intent for an impersonated session', async () => {
+            setupMocks({ earlyAccessFeatures: [CONCEPT_FEATURE], waitlistSurveysEnabled: true })
+            window.IMPERSONATED_SESSION = true
+
+            try {
+                render(
+                    <FeaturePreviewSceneGate config={{ ...BASE_CONFIG, productIntent: 'metrics' as ProductKey }}>
+                        {CHILDREN}
+                    </FeaturePreviewSceneGate>
+                )
+                await userEvent.type(screen.getByPlaceholderText('email@yourcompany.com'), 'user@example.com')
+                await userEvent.click(screen.getByText('Get notified'))
+
+                // The survey submit is attempted (the logic shows the rejection toast), but the
+                // adoption signal must not fire for a signup the backend will refuse.
+                expect(mockAddProductIntentForCrossSell).not.toHaveBeenCalled()
+            } finally {
+                delete window.IMPERSONATED_SESSION
+            }
+        })
+
+        test('falls back to the toggle for a concept feature without a waitlist survey', () => {
+            setupMocks({
+                earlyAccessFeatures: [{ flagKey: BASE_CONFIG.flag, enabled: false, stage: 'concept' }],
+                waitlistSurveysEnabled: false,
+            })
+
+            render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
+
+            expect(screen.getByRole('switch')).toBeInTheDocument()
+        })
     })
 
     describe('request access', () => {

@@ -3803,6 +3803,7 @@ export interface SurveyDisplayConditions {
 export enum SurveyEventName {
     SHOWN = 'survey shown',
     DISMISSED = 'survey dismissed',
+    ABANDONED = 'survey abandoned',
     SENT = 'survey sent',
 }
 
@@ -4762,7 +4763,6 @@ export enum DashboardPlacement {
 
 // Default mode is null
 export enum DashboardMode {
-    Edit = 'edit', // When the dashboard is being edited
     Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
     Sharing = 'sharing', // When the sharing configuration is opened
 }
@@ -7853,6 +7853,11 @@ export interface FeaturePreviewGateConfig {
      * feature previews page.
      */
     offerRequestAccess?: boolean
+    /**
+     * Product intent recorded when a user joins the waitlist from the gate, so waitlist sign-ups
+     * count as product intent the same way opting in from the feature previews page does.
+     */
+    productIntent?: ProductKey
 }
 
 export interface ProductManifest {
