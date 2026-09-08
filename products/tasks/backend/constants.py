@@ -35,7 +35,7 @@ ANALYSIS_TARGET_RUN_ID_STATE_KEY = "analysis_target_run_id"
 ANALYSIS_TARGET_REPOSITORY_STATE_KEY = "analysis_target_repository"
 ANALYSIS_TARGET_IMAGE_ID_STATE_KEY = "analysis_target_custom_image_id"
 ANALYSIS_TARGET_IMAGE_NAME_STATE_KEY = "analysis_target_custom_image_name"
-TASK_ANALYSIS_INSIGHTS_STATE_KEY = "task_analysis_insights"
+TASK_ANALYSIS_ACTIVITIES_STATE_KEY = "task_analysis_activities"
 # Run-state key the telemetry flag decision is stamped under at dispatch (temporal/client.py).
 # Consumers read the stamp, so the decision stays stable for the run's whole lifetime.
 AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"

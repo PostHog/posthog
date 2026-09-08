@@ -4,7 +4,7 @@ import { logger } from '~/common/utils/logger'
 import { aiCacheExclusiveFallbackCounter } from '~/ingestion/pipelines/ai/metrics'
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { numericProperty } from './cost-utils'
+import { numericProperty, stringProperty } from './cost-utils'
 import { ResolvedModelCost } from './providers/types'
 
 const matchProvider = (event: PluginEvent, provider: string): boolean => {
@@ -12,11 +12,11 @@ const matchProvider = (event: PluginEvent, provider: string): boolean => {
         return false
     }
 
-    const { $ai_provider: eventProvider, $ai_model: eventModel } = event.properties
     const normalizedProvider = provider.toLowerCase()
-    const normalizedModel = eventModel?.toLowerCase()
+    const normalizedModel = stringProperty(event, '$ai_model')?.toLowerCase()
+    const eventProvider = stringProperty(event, '$ai_provider')?.toLowerCase()
 
-    if (eventProvider?.toLowerCase() === normalizedProvider || normalizedModel?.includes(normalizedProvider)) {
+    if (eventProvider === normalizedProvider || normalizedModel?.includes(normalizedProvider)) {
         return true
     }
 
@@ -33,8 +33,8 @@ const usesInclusiveAnthropicInputTokens = (event: PluginEvent): boolean => {
         return false
     }
 
-    const provider = event.properties['$ai_provider']?.toLowerCase()
-    const framework = event.properties['$ai_framework']?.toLowerCase()
+    const provider = stringProperty(event, '$ai_provider')?.toLowerCase()
+    const framework = stringProperty(event, '$ai_framework')?.toLowerCase()
 
     // Vercel AI Gateway reports input tokens inclusive of cache read/write tokens.
     return provider === 'gateway' && framework === 'vercel'

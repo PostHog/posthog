@@ -396,6 +396,12 @@ tools:
             (numeric rubric), or `summarizer` (free-text summary, embedded for downstream search). Each scanner returns
             its current configuration, enabled state, sampling settings, `last_swept_at` timestamp, and its credit
             figures (`credits_per_observation`, `estimated_monthly_credits`, `credits_this_month`).
+        param_overrides:
+            enabled:
+                description: >
+                    Filter by enabled state. Accepts `enabled`, `disabled`, a comma-separated list of both, or the
+                    boolean form `true` / `false`. Omit to list every scanner.
+                cast: boolean-string
     vision-scanners-observations-create-task-create:
         operation: vision_scanners_observations_create_task_create
         enabled: false

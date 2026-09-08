@@ -64,7 +64,7 @@
         "jose": "^6.2.3",
         "lucide-react": "^0.577.0",
         "posthog-js-lite": "4.12.0",
-        "posthog-node": "^5.51.6",
+        "posthog-node": "^5.51.7",
         "prom-client": "^14.2.0",
         "prosemirror-collab": "^1.3.1",
         "prosemirror-model": "^1.25.2",

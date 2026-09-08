@@ -7,7 +7,7 @@ import logging
 import dataclasses
 from collections import Counter, defaultdict
 from collections.abc import Callable, Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any, Literal, Optional, TypedDict, Union
 
 from django.conf import settings
@@ -75,9 +75,12 @@ from products.tasks.backend.facade.billing import (
     get_billable_sandbox_compute_usage_by_team,
     get_task_sandbox_usage_by_team,
 )
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
+from products.warehouse_sources.backend.facade.billing import (
+    get_free_historical_rows_synced_by_team,
+    get_rows_synced_by_team,
+)
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
-from products.warehouse_sources.backend.models.external_data_job import billable_destination_multiplier
 
 logger = structlog.get_logger(__name__)
 logging.getLogger(__name__).setLevel(logging.INFO)
@@ -369,8 +372,8 @@ class UsageReportCounters:
     logs_retention_30d_mb_in_period: int
     logs_retention_90d_mb_in_period: int
     # Byte-days of retention floored to whole MB-days (retention_byte_days // 1_000_000): ingested bytes
-    # weighted by retention days, so it scales to any retention day count. Report-only, like
-    # logs_mb_in_period. Average retention days = logs_retention_mb_days_in_period / logs_mb_in_period.
+    # weighted by the full retention day count, so it scales to any retention day count. Zero for teams
+    # on the default retention; they are covered by logs_mb_in_period alone. Report-only.
     logs_retention_mb_days_in_period: int
     # Per-SDK split of logs_records_in_period, which on its own has no SDK dimension. Keyed off the
     # telemetry.sdk.name resource attribute each SDK sets on every record. See SDK_TELEMETRY_NAMES.
@@ -2088,64 +2091,16 @@ def combine_posthog_code_credits(token_credits: int, compute_credits: int) -> in
     return token_credits + compute_credits
 
 
-dwh_pricing_free_period_start = datetime(2025, 10, 29, 0, 0, 0, tzinfo=UTC)
-dwh_pricing_free_period_end = datetime(2025, 11, 6, 0, 0, 0, tzinfo=UTC)
-
-# A source's first week of syncing is free.
-NEW_SOURCE_FREE_WINDOW = timedelta(days=7)
-
-
-def _rows_synced_totals(
-    begin: datetime,
-    end: datetime,
-    source_age: Literal["any", "new_only", "established_only"],
-) -> list:
-    """Rows synced per team, counted once per destination the run delivered to.
-
-    A run is complete only once every destination has taken every batch, so multiplying by
-    the destination count snapshotted on the run is exact. Runs that predate destinations
-    carry a count of 1 and bill exactly as they did before.
-    """
-    filters = Q(
-        finished_at__gte=begin,
-        finished_at__lte=end,
-        billable=True,
-        status=ExternalDataJob.Status.COMPLETED,
-    )
-
-    if source_age != "any":
-        is_new = Q(pipeline__created_at__gte=end - NEW_SOURCE_FREE_WINDOW)
-        filters &= is_new if source_age == "new_only" else ~is_new
-
-    return list(
-        ExternalDataJob.objects.filter(filters)
-        .values("team_id")
-        .annotate(total=Sum(F("rows_synced") * billable_destination_multiplier()))
-    )
-
-
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list:
-    if begin >= dwh_pricing_free_period_start and begin < dwh_pricing_free_period_end:
-        # during the free period, everyone gets free rows synced
-        return []
-
-    if begin >= dwh_pricing_free_period_end:
-        # after the free period, don't include rows reported in the free historical period
-        return _rows_synced_totals(begin, end, source_age="established_only")
-
-    return _rows_synced_totals(begin, end, source_age="any")
+    return get_rows_synced_by_team(begin, end)
 
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_free_historical_rows_synced_in_period(begin: datetime, end: datetime) -> list:
-    if begin >= dwh_pricing_free_period_start and begin < dwh_pricing_free_period_end:
-        # during the free period, all rows get reported as free historical rows synced
-        return _rows_synced_totals(begin, end, source_age="any")
-
-    return _rows_synced_totals(begin, end, source_age="new_only")
+    return get_free_historical_rows_synced_by_team(begin, end)
 
 
 @timed_log()
@@ -2601,10 +2556,11 @@ def get_teams_with_logs_retention_byte_days_in_period(
     Returns byte-days of log retention grouped by team: ingested bytes weighted by retention days.
 
     The consumer emits one `retention_byte_days` metric into `app_metrics2`
-    (`retention_byte_days = bytes_ingested * retention_days`, summed per flush). Summed over the period
-    it is total storage-duration and scales to any retention day count. Average retention days =
-    `retention_byte_days` / `bytes_ingested`. Each `(team_id, count)` tuple is ready for
-    `convert_team_usage_rows_to_dict`.
+    (`retention_byte_days = bytes_ingested * retention_days`, summed per flush) only for teams on a
+    non-default retention; default-retention teams emit nothing, so their storage is billed through
+    `bytes_ingested` alone. Summed over the period it is the storage-duration of the logs kept beyond
+    the default, not of all logs, and it scales to any retention day count. Each `(team_id, count)`
+    tuple is ready for `convert_team_usage_rows_to_dict`.
     """
     with tags_context(product=Product.LOGS, feature=Feature.USAGE_REPORT):
         return sync_execute(

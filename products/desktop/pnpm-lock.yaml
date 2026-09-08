@@ -301,8 +301,8 @@ importers:
         specifier: 1.1.0
         version: 1.1.0(patch_hash=4dfdf785f5ac51a03f5d6032371cebe89036381acd403621f250a896245647c5)
       posthog-node:
-        specifier: ^5.51.6
-        version: 5.51.6(rxjs@7.8.2)
+        specifier: ^5.51.7
+        version: 5.51.7(rxjs@7.8.2)
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -569,8 +569,8 @@ importers:
         specifier: ^3.0.2
         version: 3.0.3(react-native-svg@15.15.5(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6))(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6)
       posthog-react-native:
-        specifier: ^4.67.1
-        version: 4.67.1(604eb56a6918d5c695b6cd493ea29f1c)
+        specifier: ^4.67.3
+        version: 4.67.3(604eb56a6918d5c695b6cd493ea29f1c)
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -1449,8 +1449,8 @@ importers:
         specifier: ^11.17.0
         version: 11.17.0
       posthog-js:
-        specifier: ^1.428.1
-        version: 1.428.1(@types/react@19.2.17)(react@19.2.6)
+        specifier: ^1.428.6
+        version: 1.428.6(@types/react@19.2.17)(react@19.2.6)
       radix-themes-tw:
         specifier: 0.2.3
         version: 0.2.3
@@ -1745,8 +1745,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
       posthog-js:
-        specifier: ^1.428.1
-        version: 1.428.1(@types/react@19.2.17)(react@19.2.6)
+        specifier: ^1.428.6
+        version: 1.428.6(@types/react@19.2.17)(react@19.2.6)
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -6250,16 +6250,13 @@ packages:
       react:
         optional: true
 
-  '@posthog/browser-common@0.8.1':
-    resolution: {integrity: sha512-lbkGamYjj9BgBZjM8wtFrpXeOWux0OjdpjjxCEjVko1y5HRUcisfx0s74v/VmGy9jia9kynN/Q7kvqY4+Zc4aQ==}
+  '@posthog/browser-common@0.8.2':
+    resolution: {integrity: sha512-8g7+ijrx8bfWmpDjmP07e0ZmdRnJoFqZ6PCcMQvfBTUrr422GRXvQWpQn7yD028zIJHIIn/rUTipKgUC5UkWpw==}
 
   '@posthog/cli@0.16.2':
     resolution: {integrity: sha512-h8bpf9ffBUH/Z9IoyGV+wiI+vS8rIPorKT3eKQXuzuwawO0G7Qvy+hDd7HQ9YJjHByYZ77yPPQvrSs4WsqTUCg==}
     engines: {node: '>=14.14', npm: '>=6'}
     hasBin: true
-
-  '@posthog/core@1.50.0':
-    resolution: {integrity: sha512-25SnQycZbqqLodQs+GaDPGDC1oxT8+XOSGlyhiS2rtdVON9Opg2hmfJ/fpFNgMBL7YDi0rpvJiR/fudy96W4pA==}
 
   '@posthog/core@1.50.6':
     resolution: {integrity: sha512-Lno7WoIk5QI/HvlkW+ajfrE/DKTrKoA5pULB/HK6Om/ShGGUAJfOpOn22yWBtBvZ6R+bhAEsWXtzcc8QwNF8gQ==}
@@ -6303,11 +6300,11 @@ packages:
     peerDependencies:
       rollup: 4.59.0
 
-  '@posthog/types@1.407.1':
-    resolution: {integrity: sha512-WhbkXPC2rgylXqmxHqv70ffI3k+KxyR6s7DBIfr5NvIqHkxp6v0pk31D/jbz0DNVbzwkLjyll2pxr4FNbJiYzg==}
-
   '@posthog/types@1.409.1':
     resolution: {integrity: sha512-lA2sSGQUdVknSQl93uN9eUXDwkCMjAuthq24GONGHzMWwVygsKNHlWCnlJsVv2giDokj2p1NopO4zsE2S7gYjA==}
+
+  '@posthog/types@1.409.2':
+    resolution: {integrity: sha512-hZ4EXZ1+BstMaxUkmAEg3qvgMR/S00Xb+wEwY/Tx2Dr9dBgiBWrERxaq2UwICh/Fh/vVXpKZT/0SkRtO8JKQ2A==}
 
   '@preact/signals-core@1.13.0':
     resolution: {integrity: sha512-slT6XeTCAbdql61GVLlGU4x7XHI7kCZV5Um5uhE4zLX4ApgiiXc0UYFvVOKq06xcovzp7p+61l68oPi563ARKg==}
@@ -13937,8 +13934,8 @@ packages:
     resolution: {integrity: sha512-g50586zr4bZmwFiTlflMu8E0bDTb5I5gertgwAKmsdUlTQIhZtunzUlD1WSzwcVWPoAVpsrA6vlfCD7oXvRwgg==}
     engines: {node: ^10 || ^12 || >=14}
 
-  posthog-js@1.428.1:
-    resolution: {integrity: sha512-lFdg5f7aB/3SB4vqLUHvRisJKflhduVpc/y6WGxNtc3HSHBXFFLvxiNoPJG9kqCqWHKlwczIKplFHr8H1I3L1w==}
+  posthog-js@1.428.6:
+    resolution: {integrity: sha512-+sJ64F6nY37eaMr14GocpzeTHqohPKa6mAYS7dh+qegR7n+qu0u13+pc3Hu26YGQQA8dbjmTt12pEr05K3tZKw==}
     peerDependencies:
       '@types/react': ^19.2.15
       react: 19.2.6
@@ -13948,8 +13945,8 @@ packages:
       react:
         optional: true
 
-  posthog-node@5.51.6:
-    resolution: {integrity: sha512-r+Ge3p0OnOcOWeTnvKZmAtDwECeIoyNTyxBxuZc8wM6RHCQ9j2Xrhogrf39HSq1Y2gIOpWLqIDRmWDcu7xmqcA==}
+  posthog-node@5.51.7:
+    resolution: {integrity: sha512-QzUQ0S7afLIivL1mQvZ1qv3/o179ds1Zze7Zf4JDhjVlJ1mFTyu42cwFQHrD0VQpPXhIVKOq7AvSrF8Bt8yonQ==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       rxjs: ^7.0.0
@@ -13957,8 +13954,8 @@ packages:
       rxjs:
         optional: true
 
-  posthog-react-native@4.67.1:
-    resolution: {integrity: sha512-Gt86KAxKxUUkhlGIhr2JQdsnumMhy9KLEE5OKKEJRO2AWUfwmKbi6YetSrp+i/YpZW5S5j00z/PCkz4Ck5vHlQ==}
+  posthog-react-native@4.67.3:
+    resolution: {integrity: sha512-fJDwgWlYQyor6+hy3M1G1hEHyw1t9O2GMJZoLQmiOqDZS+YcEbyqrxbvSKOPsS+0WBlHEz+kIm2kJMt8stX3Tw==}
     hasBin: true
     peerDependencies:
       '@posthog/react-native-plugin': '>= 2.4.3'
@@ -20965,18 +20962,14 @@ snapshots:
     optionalDependencies:
       react: 19.2.6
 
-  '@posthog/browser-common@0.8.1':
+  '@posthog/browser-common@0.8.2':
     dependencies:
       '@posthog/core': 1.51.0
-      '@posthog/types': 1.409.1
+      '@posthog/types': 1.409.2
 
   '@posthog/cli@0.16.2':
     dependencies:
       detect-libc: 2.1.2
-
-  '@posthog/core@1.50.0':
-    dependencies:
-      '@posthog/types': 1.407.1
 
   '@posthog/core@1.50.6':
     dependencies:
@@ -21051,9 +21044,9 @@ snapshots:
       magic-string: 0.30.21
       rollup: 4.62.2
 
-  '@posthog/types@1.407.1': {}
-
   '@posthog/types@1.409.1': {}
+
+  '@posthog/types@1.409.2': {}
 
   '@preact/signals-core@1.13.0': {}
 
@@ -30043,11 +30036,11 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
-  posthog-js@1.428.1(@types/react@19.2.17)(react@19.2.6):
+  posthog-js@1.428.6(@types/react@19.2.17)(react@19.2.6):
     dependencies:
-      '@posthog/browser-common': 0.8.1
+      '@posthog/browser-common': 0.8.2
       '@posthog/core': 1.51.0
-      '@posthog/types': 1.409.1
+      '@posthog/types': 1.409.2
       core-js: 3.50.0
       dompurify: 3.4.13
       fflate: 0.4.8
@@ -30061,15 +30054,15 @@ snapshots:
     transitivePeerDependencies:
       - preact-render-to-string
 
-  posthog-node@5.51.6(rxjs@7.8.2):
+  posthog-node@5.51.7(rxjs@7.8.2):
     dependencies:
-      '@posthog/core': 1.50.0
+      '@posthog/core': 1.50.6
     optionalDependencies:
       rxjs: 7.8.2
 
-  posthog-react-native@4.67.1(604eb56a6918d5c695b6cd493ea29f1c):
+  posthog-react-native@4.67.3(604eb56a6918d5c695b6cd493ea29f1c):
     dependencies:
-      '@posthog/core': 1.50.6
+      '@posthog/core': 1.51.0
       '@posthog/types': 1.409.1
     optionalDependencies:
       '@posthog/react-native-plugin': 2.5.2(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6)

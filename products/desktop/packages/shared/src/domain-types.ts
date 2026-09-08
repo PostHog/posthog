@@ -102,13 +102,24 @@ export interface Task {
 
 export interface TaskSearchResult {
   id: string;
-  kind: "task" | "pull_request" | "artifact" | "channel";
+  kind: "task" | "pull_request" | "artifact" | "channel" | "canvas";
   title: string;
   subtitle: string;
   task_id: string | null;
   task_run_id: string | null;
   channel_id: string | null;
+  created_by?: UserBasic | null;
+  /** What created the containing task, e.g. "slack". */
+  origin_product?: string | null;
+  latest_run?: TaskSearchResultRun | null;
+  updated_at: string;
   metadata: Record<string, unknown>;
+}
+
+export interface TaskSearchResultRun {
+  id: string;
+  status: TaskRunStatus | null;
+  environment: TaskRunEnvironment | null;
 }
 
 /**
