@@ -29,6 +29,12 @@ describe('buildWizardSteps', () => {
             'schedule',
             'Choose an end time',
         ],
+        [
+            'an invalid forecast cadence',
+            { alertFormHasErrors: true, cadenceValidationError: 'Choose a slower cadence' },
+            'schedule',
+            'Choose a slower cadence',
+        ],
     ])('blocks the step containing %s errors', (_name, overrides, stepKey, expectedReason) => {
         const steps = buildWizardSteps({ ...baseInput, ...overrides })
         const step = steps.find((step) => step.key === stepKey)

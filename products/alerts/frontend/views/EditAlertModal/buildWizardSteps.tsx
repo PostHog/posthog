@@ -15,6 +15,7 @@ interface WizardStepInput {
     thresholdValidationError?: string
     forecastValidationError?: string
     scheduleRestrictionFormError?: string
+    cadenceValidationError?: string
     alertFormHasErrors: boolean
     alertName: string
 }
@@ -48,8 +49,8 @@ export function buildWizardSteps(input: WizardStepInput): AlertWizardStep[] {
             key: 'schedule',
             title: 'Schedule',
             description: 'How often this alert runs.',
-            canAdvance: !input.scheduleRestrictionFormError,
-            cannotAdvanceReason: input.scheduleRestrictionFormError,
+            canAdvance: !input.scheduleRestrictionFormError && !input.cadenceValidationError,
+            cannotAdvanceReason: input.scheduleRestrictionFormError ?? input.cadenceValidationError,
             content: (
                 <div className="space-y-3">
                     {input.scheduleNode}

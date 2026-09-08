@@ -165,6 +165,34 @@ describe('alertFormSchema', () => {
         expect(errors).toEqual({})
     })
 
+    it.each([
+        [
+            'a forecast cadence finer than the insight interval',
+            AlertCalculationInterval.DAILY,
+            true,
+            "A forecast alert cannot run more often than the insight's week interval. Choose a slower cadence.",
+        ],
+        ['a forecast cadence matching the insight interval', AlertCalculationInterval.WEEKLY, true, undefined],
+        ['a threshold cadence finer than the insight interval', AlertCalculationInterval.DAILY, false, undefined],
+    ] as const)('%s', (_name, calculation_interval, isForecast, expected) => {
+        const errors = getAlertFormValidationErrors(
+            {
+                ...baseAlert,
+                calculation_interval,
+                forecast_config: isForecast
+                    ? {
+                          type: 'ForecastConfig',
+                          engine: ForecastEngineType.PROPHET,
+                          condition: ForecastConditionType.FUTURE_BREACH,
+                      }
+                    : null,
+            },
+            { insightInterval: 'week' }
+        )
+
+        expect(errors.calculation_interval).toBe(expected)
+    })
+
     it('requires threshold bounds for a future-breach forecast', () => {
         expect(
             thresholdAlertHasBounds({

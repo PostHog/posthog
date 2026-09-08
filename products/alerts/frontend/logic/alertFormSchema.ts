@@ -8,6 +8,7 @@ import { IntervalType } from '~/types'
 
 import type { AlertType } from '../types'
 import type { AlertFormType } from './alertFormLogic'
+import { cadenceFinerThanInsightInterval } from './alertIntervalHelpers'
 import { forecastTargetDateError, forecastTargetValueError } from './forecastReach'
 import { quietHoursFormError } from './scheduleRestrictionValidation'
 
@@ -136,6 +137,12 @@ export function getAlertFormValidationErrors(
         if (dateError) {
             errors.forecast_config = dateError
         }
+    }
+
+    if (forecast && cadenceFinerThanInsightInterval(alert.calculation_interval, context.insightInterval)) {
+        errors.calculation_interval = `A forecast alert cannot run more often than the insight's ${
+            context.insightInterval ?? 'day'
+        } interval. Choose a slower cadence.`
     }
 
     const result = alertFormSchema.safeParse(alert)
