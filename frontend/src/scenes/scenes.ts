@@ -589,7 +589,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: "A delightful weekly recap of this project's web analytics.",
         iconType: 'web_analytics',
     },
-    [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },
     [Scene.OrganizationDeactivated]: {
         projectBased: false,
         organizationBased: true,
@@ -932,7 +931,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.links()]: [Scene.Links, 'links'],
     [urls.link(':id')]: [Scene.Link, 'link'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
-    [urls.wizard()]: [Scene.Wizard, 'wizard'],
     [urls.coupons(':campaign')]: [Scene.Coupons, 'coupons'],
     [urls.health()]: [Scene.Health, 'health'],
     [urls.pipelineStatus()]: [Scene.PipelineStatus, 'pipelineStatus'],

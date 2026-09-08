@@ -1151,34 +1151,6 @@ class OnboardingSkipThrottle(UserRateThrottle):
     rate = "30/hour"
 
 
-class SetupWizardAuthenticationRateThrottle(UserRateThrottle):
-    # Throttle class that is applied for authenticating the setup wizard
-    # This is more aggressive than other throttles because the wizard makes LLM calls
-    scope = "wizard_authentication"
-    rate = "20/day"
-
-
-class SetupWizardQueryRateThrottle(SimpleRateThrottle):
-    def get_rate(self):
-        if settings.DEBUG:
-            return "1000/day"
-        return "20/day"
-
-    # Throttle per wizard hash
-    def get_cache_key(self, request, view):
-        hash = request.headers.get("X-PostHog-Wizard-Hash")
-
-        authorization_header = request.headers.get("Authorization")
-
-        value = (hash or authorization_header or "").strip() or self.get_ident(request)
-
-        sha_hash = hashlib.sha256(value.encode()).hexdigest()
-
-        # this value isn't use controllable and can't generate html/js, so there's no risk of xss
-        # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
-        return f"throttle_wizard_query_{sha_hash}"
-
-
 class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
     """Derives the per-user, per-program mint bucket. `reserve_wizard_mint` counts it.
 

@@ -107,7 +107,6 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/settings',
     urls.organizationBilling(),
     urls.billingAuthorizationStatus(),
-    urls.wizard(),
     '/instance',
     urls.moveToPostHogCloud(),
     urls.unsubscribe(),
