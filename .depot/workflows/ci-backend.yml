@@ -1094,6 +1094,7 @@ jobs:
                   PYTEST_ADDOPTS: >-
                       --reuse-db
                       --durations-path ../../.test_durations
+                      ${{ needs.sample.outputs.side_effects == 'true' && '--junitxml=junit-product.xml' || '' }}
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.event_name == 'pull_request' && '--cov=backend --cov-report=xml:coverage.xml' || '' }}
                   # turbo runs each product's backend:test with the product dir as CWD, so --cov=backend
