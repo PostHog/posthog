@@ -109,6 +109,11 @@ DEFAULT_EXPOSURE_TTL_SECONDS = {
 # instead of failing atomically on every attempt.
 PRECOMPUTE_MAX_WINDOW_DAYS = 7
 
+# Spread frozen chunk expiries so an experiment's history does not expire all at once
+# (see TtlSchedule.default_ttl_jitter_seconds). 14 days means roughly one chunk expiry
+# per day for a months-long experiment; a larger value would only keep data on disk longer.
+PRECOMPUTE_TTL_JITTER_SECONDS = 14 * 24 * 60 * 60
+
 # Upper bound on how far past the experiment end a metric-events build may scan.
 # retention_window_end is an unrestricted user-supplied integer; without a cap, a huge
 # window would stretch the precompute horizon into thousands of daily jobs before the
@@ -122,6 +127,7 @@ def experiment_precompute_ttl_schedule(team_timezone: str) -> TtlSchedule:
         DEFAULT_EXPOSURE_TTL_SECONDS,
         team_timezone,
         max_window_days=PRECOMPUTE_MAX_WINDOW_DAYS,
+        default_ttl_jitter_seconds=PRECOMPUTE_TTL_JITTER_SECONDS,
     )
 
 
