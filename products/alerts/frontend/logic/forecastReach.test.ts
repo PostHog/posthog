@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, IntervalType } from '~/types'
 
 import {
     clampHorizon,
@@ -9,6 +9,8 @@ import {
     intervalSupportsForecast,
     maxHorizonForInterval,
     minForecastPoints,
+    pointsInSimulationRange,
+    usableSimulationRanges,
 } from './forecastReach'
 
 describe('maxHorizonForInterval', () => {
@@ -94,5 +96,31 @@ describe('displaySupportsForecast', () => {
 
     it('allows an insight with no display set', () => {
         expect(displaySupportsForecast(null)).toBe(true)
+    })
+})
+
+describe('pointsInSimulationRange', () => {
+    // PostHog reads lowercase `m` as months and uppercase `M` as minutes.
+    it.each([
+        ['months on a daily insight', '-12m', 'day', 360],
+        ['months on a monthly insight', '-24m', 'month', 24],
+        ['minutes on an hourly insight', '-90M', 'hour', 1],
+        ['days on a daily insight', '-90d', 'day', 90],
+        ['weeks on a weekly insight', '-12w', 'week', 12],
+        ['hours on an hourly insight', '-48h', 'hour', 48],
+    ] as const)('%s', (_name, range, interval, expected) => {
+        expect(pointsInSimulationRange(range, interval as IntervalType)).toBe(expected)
+    })
+})
+
+describe('usableSimulationRanges', () => {
+    const monthlyOptions = [{ value: '-6m' }, { value: '-12m' }, { value: '-24m' }]
+
+    it('keeps every monthly range for a daily insight', () => {
+        expect(usableSimulationRanges(monthlyOptions, 'day')).toEqual(monthlyOptions)
+    })
+
+    it('drops the monthly ranges that are too short for a monthly insight', () => {
+        expect(usableSimulationRanges(monthlyOptions, 'month')).toEqual([{ value: '-24m' }])
     })
 })

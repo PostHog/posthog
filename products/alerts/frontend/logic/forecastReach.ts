@@ -84,12 +84,14 @@ export function pointsInSimulationRange(range: string, interval: IntervalType | 
     return Math.floor(rangeMinutes / INSIGHT_INTERVAL_DURATION_MINUTES[interval ?? 'day'])
 }
 
+/** PostHog's relative-date units: lowercase `m` is months, uppercase `M` is minutes.
+ * See `get_delta_mapping_for` in posthog/utils.py. */
 const UNIT_MINUTES: Record<string, number> = {
-    m: 1,
+    M: 1,
     h: 60,
     d: MINUTES_PER_DAY,
     w: 7 * MINUTES_PER_DAY,
-    M: 30 * MINUTES_PER_DAY,
+    m: 30 * MINUTES_PER_DAY,
 }
 
 export function usableSimulationRanges<T extends { value: string }>(
