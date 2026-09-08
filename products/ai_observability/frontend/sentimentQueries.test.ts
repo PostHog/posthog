@@ -200,6 +200,35 @@ describe('sentimentQueries', () => {
         expect(mockApi.queryHogQL).not.toHaveBeenCalled()
     })
 
+    // Dropping the request leaves ClickHouse scanning, so a lookup that hits its deadline has to
+    // be stopped by name or it keeps holding a query slot.
+    it('cancels the query it named when the lookup is aborted', async () => {
+        const controller = new AbortController()
+        mockApi.queryHogQL.mockReturnValue(new Promise(() => {}))
+        mockApi.cancelQuery.mockResolvedValue(undefined)
+
+        void fetchStoredGenerationSentiments(
+            [
+                {
+                    key: 'generation-uuid',
+                    traceId: 'trace-1',
+                    generationIds: ['generation-uuid'],
+                    timestamp: GENERATION_TIMESTAMP,
+                },
+            ],
+            controller.signal
+        )
+        await Promise.resolve()
+
+        const clientQueryId = mockApi.queryHogQL.mock.calls[0][2]?.clientQueryId
+        expect(clientQueryId).toBeTruthy()
+        expect(mockApi.cancelQuery).not.toHaveBeenCalled()
+
+        controller.abort()
+
+        expect(mockApi.cancelQuery).toHaveBeenCalledWith(clientQueryId)
+    })
+
     it.each<[string, boolean, string | undefined]>([
         ['reuses the cache by default', false, undefined],
         ['recalculates after a refresh, so a freshly scored generation cannot read as none', true, 'force_blocking'],

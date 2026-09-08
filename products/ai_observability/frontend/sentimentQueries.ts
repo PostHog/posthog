@@ -1,5 +1,6 @@
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { uuid } from 'lib/utils/dom'
 
 import { ProductKey, type RefreshType } from '~/queries/schema/schema-general'
 import { escapeHogQLString, hogql } from '~/queries/utils'
@@ -224,8 +225,17 @@ async function queryStoredGenerationSentiments(
            AND timestamp <= toDateTime(${escapeHogQLString(scanWindow.dateTo)})`
         : ''
 
-    const response = await api.queryHogQL<unknown[][]>(
-        hogql`
+    const clientQueryId = uuid()
+    // Dropping the request does not reach ClickHouse, so an abandoned lookup keeps scanning and
+    // holding a query slot until it finishes. Kill it by name.
+    const cancelAbandonedQuery = (): void => {
+        api.cancelQuery(clientQueryId).catch((error) => console.warn('Failed cancelling sentiment lookup', error))
+    }
+    signal?.addEventListener('abort', cancelAbandonedQuery, { once: true })
+
+    const response = await api
+        .queryHogQL<unknown[][]>(
+            hogql`
             SELECT
                 trace_id,
                 generation_id,
@@ -256,9 +266,10 @@ async function queryStoredGenerationSentiments(
             GROUP BY trace_id, generation_id
             LIMIT ${Math.max(generationIds.length, 1)}
         `,
-        { ...SENTIMENT_QUERY_TAGS, name: 'ai_observability_generation_sentiment_lookup' },
-        { requestOptions: { signal }, refresh }
-    )
+            { ...SENTIMENT_QUERY_TAGS, name: 'ai_observability_generation_sentiment_lookup' },
+            { requestOptions: { signal }, clientQueryId, refresh }
+        )
+        .finally(() => signal?.removeEventListener('abort', cancelAbandonedQuery))
 
     const columnIndexes = buildQueryColumnIndexes(response.columns, STORED_SENTIMENT_COLUMNS)
     const sentimentByTargetId = new Map<string, GenerationSentiment>()
