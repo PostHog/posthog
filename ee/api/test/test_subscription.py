@@ -26,6 +26,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.slo.context import slo_operation
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -3665,16 +3666,21 @@ class TestAISubscriptionAPI(APILicensedTest):
     ) -> None:
         self._enable_ai()
         self._mock_temporal(mock_sync)
+        original_creator = self._create_user("original-creator@posthog.com")
         create_resp = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
             self._make_ai_payload(),
         )
         sub_id = create_resp.json()["id"]
-        Subscription.objects.filter(pk=sub_id).update(enabled=False)
+        Subscription.objects.filter(pk=sub_id).update(enabled=False, created_by=original_creator)
+
+        def has_query_access(access_control: UserAccessControl, resource: object, required_level: object) -> bool:
+            return not (access_control._user == original_creator and resource == "query" and required_level == "viewer")
 
         with patch(
             "ee.api.subscription.UserAccessControl.check_access_level_for_resource",
-            return_value=False,
+            autospec=True,
+            side_effect=has_query_access,
         ):
             patch_resp = self.client.patch(
                 f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
