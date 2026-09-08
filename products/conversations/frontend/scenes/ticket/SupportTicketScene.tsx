@@ -281,7 +281,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     action={{
                         children: 'Restore',
                         onClick: () => setArchived(false),
-                        disabledReason: archiving ? 'Restoring…' : undefined,
+                        disabledReason: archiving ? 'Restoring…' : sendDisabledReason,
                     }}
                 >
                     This ticket is archived. It's hidden from the ticket list and the unread count, and kept in full.
