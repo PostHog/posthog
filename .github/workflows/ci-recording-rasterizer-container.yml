@@ -153,6 +153,7 @@ jobs:
                   file: Dockerfile.recording-rasterizer
                   tags: ${{ steps.docker-meta.outputs.tags }}
                   labels: ${{ steps.docker-meta.outputs.labels }}
+                  annotations: ${{ steps.docker-meta.outputs.annotations }}
                   platforms: linux/amd64
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}

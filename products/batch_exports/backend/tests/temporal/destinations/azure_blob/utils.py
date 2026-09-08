@@ -187,7 +187,6 @@ async def assert_clickhouse_records_in_azure_blob(
         model_name=model_name,
         team_id=team_id,
         full_range=(data_interval_start, data_interval_end),
-        done_ranges=[],
         fields=fields,
         filters=filters,
         destination_default_fields=azure_blob_default_fields(),

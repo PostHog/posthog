@@ -133,6 +133,14 @@ class TestDockerSandboxUnit:
 
         assert redacted == "agent-server --mcpServers <redacted> --port 8080"
 
+    def test_redact_sandbox_command_hides_file_heredoc(self):
+        command = "base64 -d > /tmp/value <<'POSTHOG_FILE_EOF'\nc2VjcmV0\nPOSTHOG_FILE_EOF"
+
+        redacted = redact_sandbox_command(command)
+
+        assert "c2VjcmV0" not in redacted
+        assert "<redacted>" in redacted
+
     @pytest.mark.parametrize(
         "input_url,expected_url",
         [

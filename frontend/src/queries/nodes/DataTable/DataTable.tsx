@@ -952,7 +952,9 @@ export function DataTable({
     const shouldShowCount = showCount && sourceFeatures.has(QueryFeature.showCount)
     const secondRowLeft = [
         showReload ? <Reload key="reload" /> : null,
-        showCount && sourceFeatures.has(QueryFeature.showCount) ? <DataTableCount key="count" /> : null,
+        showCount && sourceFeatures.has(QueryFeature.showCount) ? (
+            <DataTableCount key="count" nouns={context?.dataTableNouns} />
+        ) : null,
         shouldShowCount && showElapsedTime ? <LemonDivider vertical={true} key="divider" /> : null,
         showElapsedTime ? <ElapsedTime key="elapsed-time" showTimings={showTimings} /> : null,
     ].filter((x) => !!x)
@@ -1010,7 +1012,7 @@ export function DataTable({
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <div className="relative w-full flex flex-col gap-2 flex-1 h-full">
+                <div className="relative w-full flex flex-col gap-2 flex-1 h-full min-h-0">
                     {showHogQLEditor && isHogQLQuery(query.source) && !isReadOnly ? (
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded={embedded} />
                     ) : null}
@@ -1064,7 +1066,12 @@ export function DataTable({
                         <div className="absolute right-0 z-10 p-1">{editorButton}</div>
                     ) : null}
                     {showResultsTable && (
-                        <div className="relative">
+                        <div
+                            className={clsx(
+                                'relative',
+                                context?.dataTableAllowContentScroll && 'min-h-0 flex-1 overflow-hidden'
+                            )}
+                        >
                             {usedWebAnalyticsLazyPrecompute ? (
                                 <PreAggregatedBadge
                                     variant="precomputed"
@@ -1076,6 +1083,7 @@ export function DataTable({
                             <LemonTable
                                 data-attr={dataAttr}
                                 className="DataTable"
+                                allowContentScroll={context?.dataTableAllowContentScroll}
                                 loading={responseLoading && !nextDataLoading && !newDataLoading}
                                 columns={lemonColumns}
                                 tableLayout={context?.tableLayout}
@@ -1143,9 +1151,10 @@ export function DataTable({
                                     (dataTableRows ?? []).length > 0 &&
                                     (context?.showLoadNextButton ||
                                         !sourceFeatures.has(QueryFeature.hideLoadNextButton)) ? (
-                                        <LoadNext query={query.source} />
+                                        <LoadNext query={query.source} nouns={context?.dataTableNouns} />
                                     ) : null
                                 }
+                                nouns={context?.dataTableNouns}
                                 onRow={onRow}
                                 pinnedColumns={query.pinnedColumns}
                                 rowActions={rowActions}

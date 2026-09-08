@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from drf_spectacular.openapi import AutoSchema
@@ -7,6 +7,7 @@ from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -34,6 +35,7 @@ from products.tasks.backend.presentation.serializers import (
     ChannelFeedMessageWriteSerializer,
     ChannelInstructionsSerializer,
     ChannelInstructionsWriteSerializer,
+    ChannelMembersWriteSerializer,
     ChannelSerializer,
     ChannelStarWriteSerializer,
     ChannelUpdateSerializer,
@@ -52,8 +54,20 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunErrorResponseSerializer,
     TaskThreadMessageSerializer,
     TaskThreadMessageWriteSerializer,
+    TaskUserBasicInfoSerializer,
     TeachingCanvasSerializer,
 )
+
+
+class ChannelListPagination(LimitOffsetPagination):
+    """Opt-in paging for the channel list. ``default_limit = None`` keeps the plain
+    array that clients read today when no ``limit`` is sent; a caller that asks for a
+    page gets the standard ``count``/``next``/``previous`` envelope instead. ``list``
+    instantiates it directly, so the other paged actions on the viewset keep the
+    project-wide paginator."""
+
+    default_limit = None
+
 
 # Shared by the PUT and PATCH verbs on /instructions/ — same request/response contract,
 # PATCH is an alias for clients that can't send PUT.
@@ -69,13 +83,6 @@ PUBLISH_INSTRUCTIONS_SCHEMA_KWARGS: dict[str, Any] = {
 
 
 class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """
-    API for task channels — the shared feeds tasks are kicked off in. The
-    provision_defaults action get-or-creates the requester's personal "#me" channel and
-    the team's shared "#general" channel; creation is resolve-or-create by normalized
-    name so clients can map channel-like surfaces onto backend channels.
-    """
-
     authentication_classes = [
         SessionAuthentication,
         PersonalAPIKeyAuthentication,
@@ -87,9 +94,17 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # GET /instructions/ and /context_generation/ are reads; the PUT/PATCH/DELETE
     # method mappings resolve to their own action names, so they go in the write
     # bucket by name.
-    scope_object_read_actions = ["list", "retrieve", "instructions", "instructions_versions", "context_generation"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "instructions",
+        "instructions_versions",
+        "context_generation",
+        "members",
+    ]
     scope_object_write_actions = [
         "create",
+        "set_members",
         "provision_defaults",
         "onboarding_session",
         "onboarding_session_test",
@@ -117,14 +132,20 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={200: OpenApiResponse(response=ChannelSerializer(many=True), description="List of channels")},
         summary="List channels",
         description=(
-            "All live public channels plus the requester's personal #me channel when it exists, "
-            "sorted by name. Listing does not provision; call provision_defaults to create the "
-            "default channels."
+            "List channels the requester can access, sorted by name and ID. "
+            "Includes public channels, their personal #me channel, and private channels they belong to. "
+            "Call provision_defaults to create missing default channels. "
+            "Send limit and offset to get a page with count, next, previous, and results. "
+            "Without limit, the response is an array of all accessible channels."
         ),
     )
     def list(self, request, *args, **kwargs):
         channels = tasks_facade.list_channels(self.team_id, self._user_id())
-        return Response(ChannelSerializer(channels, many=True).data)
+        paginator = ChannelListPagination()
+        page = paginator.paginate_queryset(cast(Any, channels), request, view=self)
+        if page is None:
+            return Response(ChannelSerializer(channels, many=True).data)
+        return paginator.get_paginated_response(ChannelSerializer(page, many=True).data)
 
     @extend_schema(
         request=None,
@@ -184,7 +205,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def onboarding_session_test(self, request: Request, **kwargs) -> Response:
         if not isinstance(request.user, User) or not onboarding_test_tools_enabled(self.team, request.user):
             raise PermissionDenied("The onboarding test tools feature is not enabled.")
-        serializer = OnboardingSessionTestSerializer(data=request.data)
+        serializer = OnboardingSessionTestSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         values = serializer.validated_data
         task_id = start_onboarding_test_session(
@@ -216,23 +237,33 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(
         request=ChannelWriteSerializer,
         responses={200: ChannelSerializer},
-        summary="Resolve or create a public channel",
+        summary="Create a channel",
         description=(
-            "Returns the existing public channel with the (normalized) name, creating it if needed. "
-            "A channel created here is starred for the requester unless star is false. "
-            "The general name returns the team's general space; names that read as a private "
-            'space ("me", "personal") are rejected.'
+            "Create a channel. Public channels use lowercase names with hyphens. "
+            "If a public channel has that name, return it. The name general returns the project's general space. "
+            "Private channels always get a new ID, even if another channel has the same name. "
+            "The requester and users in member_ids with project access become members. "
+            "New channels are starred for the requester unless star is false. "
+            'The names "me" and "personal" are reserved.'
         ),
     )
     def create(self, request, **kwargs):
         serializer = ChannelWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        channel = tasks_facade.resolve_channel(
-            self.team_id,
-            self._user_id(),
-            name=serializer.validated_data["name"],
-            star=serializer.validated_data["star"],
-        )
+        data = serializer.validated_data
+        user_id = self._user_id()
+        if data["channel_type"] == "private":
+            if user_id is None:
+                raise PermissionDenied("Creating a private space requires a user.")
+            channel = tasks_facade.create_private_channel(
+                self.team_id,
+                user_id,
+                name=data["name"],
+                member_ids=data["member_ids"],
+                star=data["star"],
+            )
+        else:
+            channel = tasks_facade.resolve_channel(self.team_id, user_id, name=data["name"], star=data["star"])
         if channel is None:
             return Response({"detail": "Invalid channel name"}, status=status.HTTP_400_BAD_REQUEST)
         return Response(ChannelSerializer(channel).data)
@@ -240,7 +271,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(
         request=ChannelUpdateSerializer,
         responses={200: ChannelSerializer},
-        summary="Rename a public channel",
+        summary="Update a channel",
     )
     def partial_update(self, request, pk=None, **kwargs):
         serializer = ChannelUpdateSerializer(data=request.data, context={"team_id": self.team_id}, partial=True)
@@ -280,7 +311,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 description="The space still contains tasks or canvases.",
             ),
         },
-        summary="Delete a public channel",
+        summary="Delete a channel",
     )
     def destroy(self, request, pk=None, **kwargs):
         result = tasks_facade.delete_channel(pk, self.team_id, self._user_id())
@@ -431,6 +462,51 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not tasks_facade.star_channel(pk, self.team_id, user_id, starred=serializer.validated_data["starred"]):
             raise NotFound("Channel not found")
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(response=TaskUserBasicInfoSerializer(many=True), description="Channel members")
+        },
+        summary="List a channel's members",
+        description=(
+            "List the members of a private channel. Return an empty list for public and personal channels. "
+            "Return 404 if the requester cannot access the channel."
+        ),
+    )
+    @action(methods=["GET"], detail=True, pagination_class=None)
+    def members(self, request, pk=None, **kwargs):
+        members = tasks_facade.list_channel_members(pk, self.team_id, self._user_id())
+        if members is None:
+            raise NotFound("Channel not found")
+        return Response(TaskUserBasicInfoSerializer(members, many=True).data)
+
+    @extend_schema(
+        request=ChannelMembersWriteSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskUserBasicInfoSerializer(many=True), description="Updated members")
+        },
+        summary="Replace a private channel's members",
+        description=(
+            "Replace the members of a private channel. Any member can update this list. "
+            "The creator remains a member. Return 400 for public and personal channels."
+        ),
+    )
+    @members.mapping.put
+    def set_members(self, request, pk=None, **kwargs):
+        serializer = ChannelMembersWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = tasks_facade.set_channel_members(
+            pk, self.team_id, self._user_id(), member_ids=serializer.validated_data["user_ids"]
+        )
+        if isinstance(result, str):
+            if result == "not_found":
+                raise NotFound()
+            if result == "not_private":
+                return Response({"detail": "Only private spaces have members."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "Every member must have access to this project."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        return Response(TaskUserBasicInfoSerializer(result, many=True).data)
 
 
 class ChannelFeedMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

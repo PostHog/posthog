@@ -55,6 +55,7 @@ const sessionService = {
   watchCreatedCloudTask: vi.fn(),
   rememberInitialCloudPrompt: vi.fn(),
   markTaskCreationInFlight: vi.fn(),
+  clearVisibleTaskStarting: vi.fn(),
 } as unknown as SessionService;
 
 const createTask = (overrides: Partial<Task> = {}): Task => ({
@@ -1045,6 +1046,7 @@ describe("TaskCreationSaga", () => {
       cloudRunSource: "signal_report",
       signalReportId: "report-123",
       signalReportTaskRelationship: "discussion",
+      signalReportDiscussionQuestion: "why?",
       githubIntegrationId: 123,
     });
 
@@ -1061,6 +1063,7 @@ describe("TaskCreationSaga", () => {
         repositories: undefined,
         signal_report: "report-123",
         signal_report_task_relationship: "discussion",
+        signal_report_discussion_question: "why?",
       }),
     );
     expect(createTaskRunMock).toHaveBeenCalledWith(
@@ -1389,6 +1392,9 @@ describe("TaskCreationSaga", () => {
     expect(deleteTaskMock).not.toHaveBeenCalled();
     // Spinner is dismissed and no agent session starts without a worktree.
     expect(mockHost.clearProvisioning).toHaveBeenCalledWith("task-123");
+    expect(sessionService.clearVisibleTaskStarting).toHaveBeenCalledWith(
+      "task-123",
+    );
     expect(sessionService.connectToTask).not.toHaveBeenCalled();
     // The early onTaskReady already navigated onto the task.
     expect(onTaskReady).toHaveBeenCalledTimes(1);
@@ -1420,6 +1426,9 @@ describe("TaskCreationSaga", () => {
     expect(result.success).toBe(false);
     // Only workspace_creation is protected; an agent_session failure rolls back.
     expect(deleteTaskMock).toHaveBeenCalledWith("task-123");
+    expect(sessionService.clearVisibleTaskStarting).toHaveBeenCalledWith(
+      "task-123",
+    );
     expect(mockHost.deleteWorkspace).toHaveBeenCalled();
   });
 
