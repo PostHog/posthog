@@ -557,7 +557,11 @@ class UserAccessControl:
     @property
     def is_organization_active(self) -> bool:
         """De-activated organizations get default-deny for any request."""
-        return bool(self._organization and self._organization.is_active)
+        return bool(
+            self._organization
+            and self._organization.is_active is not False
+            and not self._organization.is_pending_deletion
+        )
 
     def _is_creator(self, obj: Model) -> bool:
         """Whether the principal created the object, which grants them the highest access to it.

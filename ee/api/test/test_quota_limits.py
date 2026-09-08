@@ -58,7 +58,7 @@ class TestQuotaLimitsAPI(APIBaseTest):
         # Org holds no billing-granted Desktop usage feature -> reads as not paying
         self.assertIs(data["code_usage_billing_active"], False)
 
-    def test_deactivated_org_is_denied_by_access_control(self) -> None:
+    def test_deactivated_org_reports_credit_buckets_as_limited(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.POSTHOG_CODE_USAGE, "name": "PostHog Desktop usage billing"}
         ]
@@ -68,15 +68,20 @@ class TestQuotaLimitsAPI(APIBaseTest):
 
         response = self.client.get(self._url())
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        limited = response.json()["limited"]
+        self.assertTrue(limited[QuotaResource.AI_CREDITS.value]["limited"])
+        self.assertTrue(limited[QuotaResource.POSTHOG_CODE_CREDITS.value]["limited"])
+        self.assertFalse(limited[QuotaResource.EVENTS.value]["limited"])
 
-    def test_null_active_org_is_denied_by_access_control(self) -> None:
+    def test_null_active_org_is_not_denied_by_access_control(self) -> None:
         self.organization.is_active = None
         self.organization.save()
 
         response = self.client.get(self._url())
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["limited"][QuotaResource.AI_CREDITS.value]["limited"])
 
     def test_reports_code_usage_billing_state(self) -> None:
         # The LLM gateway keys posthog_code per-user cap bypass and model gating

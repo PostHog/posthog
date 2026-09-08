@@ -32,7 +32,7 @@ from rest_framework.exceptions import (
 )
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.parsers import BaseParser
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle, UserRateThrottle
@@ -50,6 +50,7 @@ from posthog.middleware import is_read_only_impersonation
 from posthog.models import User
 from posthog.permissions import (
     APIScopePermission,
+    TeamMemberAccessPermission,
     get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
     is_mcp_built_in_agent_oauth_request,
@@ -415,6 +416,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # Fallback for drf-spectacular introspection only; every action declares its own
     # request/response schema via @validated_request / @extend_schema.
     serializer_class = TaskSerializer
+
+    def dangerously_get_permissions(self) -> list[BasePermission]:
+        if self.action == "run":
+            return [IsAuthenticated(), APIScopePermission(), TeamMemberAccessPermission()]
+        raise NotImplementedError()
 
     def get_throttles(self) -> list[BaseThrottle]:
         throttles = super().get_throttles()
