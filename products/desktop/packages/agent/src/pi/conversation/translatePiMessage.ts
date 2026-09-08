@@ -4,6 +4,10 @@ import type {
   ToolResultMessage,
   UserMessage,
 } from "@earendil-works/pi-ai";
+import type {
+  McpCallDetails,
+  McpResultMeta,
+} from "@posthog/harness/extensions/mcp/tool-bridge";
 import {
   type AgentContent,
   type AgentConversationEvent,
@@ -45,39 +49,25 @@ interface PiToolExecutionResult {
   details?: unknown;
 }
 
-const mcpToolDetailsSchema = z.object({
-  posthog: z.object({
-    mcp: z.object({ server: z.string().min(1), tool: z.string().min(1) }),
-  }),
-});
-
-const mcpResultMetaSchema = z.object({
+// The schemas below derive from the one declaration of the envelope the
+// pi harness writes on a tool result's `details` (tool-bridge.ts), so the
+// read side and the write side cannot drift apart. The schema stays
+// lenient: sibling keys (the proxy tool's kind, piName, ...) are stripped,
+// and `result` is now a known key, so it survives parsing.
+const mcpResultMetaSchema: z.ZodType<McpResultMeta> = z.object({
   structuredContent: z.record(z.string(), z.unknown()).optional(),
   _meta: z.record(z.string(), z.unknown()).optional(),
 });
 
-/**
- * Structured `tools/call` fields the pi harness routes around the model
- * (they land on the tool result's `details`). The desktop MCP Apps host reads
- * them off `rawOutput` to render a UI app, so they must not go through the
- * classification schema above, which strips unknown keys.
- */
-function readMcpResultMeta(details: unknown):
-  | {
-      structuredContent?: Record<string, unknown>;
-      _meta?: Record<string, unknown>;
-    }
-  | undefined {
-  if (!details || typeof details !== "object") return undefined;
-  const mcp = (details as { posthog?: { mcp?: { result?: unknown } } }).posthog
-    ?.mcp;
-  const parsed = mcpResultMetaSchema.safeParse(mcp?.result);
-  if (!parsed.success) return undefined;
-  return parsed.data.structuredContent !== undefined ||
-    parsed.data._meta !== undefined
-    ? parsed.data
-    : undefined;
-}
+const mcpToolDetailsSchema: z.ZodType<McpCallDetails> = z.object({
+  posthog: z.object({
+    mcp: z.object({
+      server: z.string().min(1),
+      tool: z.string().min(1),
+      result: mcpResultMetaSchema.optional(),
+    }),
+  }),
+});
 
 function toGenericToolContent(
   resultContent: ToolResultMessage["content"],
@@ -276,8 +266,12 @@ export function createPiMessageTranslator(): PiMessageTranslator {
       const mcp = mcpDetails.data.posthog.mcp;
       toolCall._meta = posthogToolMeta({ toolName: mcpToolKey(mcp), mcp });
 
-      const resultMeta = readMcpResultMeta(result.details);
-      if (resultMeta) {
+      const resultMeta = mcp.result;
+      if (
+        resultMeta &&
+        (resultMeta.structuredContent !== undefined ||
+          resultMeta._meta !== undefined)
+      ) {
         toolCall.rawOutput = { content: result.content, ...resultMeta };
       }
     }

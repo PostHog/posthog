@@ -10,7 +10,6 @@ import {
 import { WorkerPoolContextProvider } from "@pierre/diffs/react";
 import { buildTurnRatingMetric } from "@posthog/core/analytics/aiFeedback";
 import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
-import { resolveResultResourceUri } from "@posthog/core/mcp-apps/schemas";
 import { useService } from "@posthog/di/react";
 import {
   Button,
@@ -51,6 +50,7 @@ import type { Task } from "@posthog/shared/domain-types";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useSmoothedText } from "@posthog/ui/features/editor/components/useSmoothedText";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { hasUiAppResult } from "@posthog/ui/features/mcp-apps/hasUiAppResult";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import type {
   BuildResult,
@@ -222,18 +222,20 @@ function isThoughtItem(item: ConversationItem): boolean {
 }
 
 /**
- * Checked on the result, not the tool name: Codex routes every tool through one
- * inline-exec wrapper, so a name check would match every call in the session,
- * not just the one that renders a chart.
+ * An item that must render as its own row, never folded into a `ToolGroupItem`:
+ * a plan awaiting approval, a show-actions handoff, or a call whose result
+ * carries a UI app. The next standalone item type joins this predicate instead
+ * of widening the condition at the call site.
+ *
+ * A UI-app call cannot ride in a group, and `keepMounted` on the group body is
+ * not the fix. It would keep every collapsed run's body mounted thread-wide,
+ * and a chart inside a group still stays invisible until the user expands it:
+ * while the run is live the group reads "Thinking…", so a rendered chart would
+ * hide behind a collapsed panel. Keeping the chart outside the group is the
+ * rule that fixes both.
  */
-function hasUiAppResult(item: ConversationItem): boolean {
-  if (item.type !== "session_update") return false;
-  if (item.update.sessionUpdate !== "tool_call") return false;
-  const { toolCallId } = item.update;
-  const resolved = toolCallId
-    ? item.turnContext.toolCalls.get(toolCallId)
-    : undefined;
-  return resolveResultResourceUri(resolved?.rawOutput) !== undefined;
+function rendersStandalone(item: ConversationItem): boolean {
+  return isPlanItem(item) || isShowActionsItem(item) || hasUiAppResult(item);
 }
 
 /**
@@ -241,12 +243,8 @@ function hasUiAppResult(item: ConversationItem): boolean {
  * broken by any *visible* non-tool, non-thought item (prose, status) so groups follow reading
  * order; invisible updates (see {@link INVISIBLE_UPDATES}) are transparent and don't split a run.
  * A lone tool call passes through untouched as a single marker, and so do the thoughts around it:
- * thoughts ride along a run, they never make one.
- *
- *
- * A chart-rendering call (see {@link hasUiAppResult}) never folds in: the group body stays
- * unmounted (Base UI's Collapsible defaults `keepMounted` to `false`), so a nested chart never
- * renders until expanded. It flushes the run and renders alone, mirroring `isPlanItem`.
+ * thoughts ride along a run, they never make one. A standalone item (see
+ * {@link rendersStandalone}) flushes the run and passes through alone.
  */
 /**
  * Item arrays for settled runs, keyed on the run's (stable) first item.
@@ -298,7 +296,7 @@ export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
 
   for (const item of items) {
     if (isToolCallItem(item)) {
-      if (isPlanItem(item) || isShowActionsItem(item) || hasUiAppResult(item)) {
+      if (rendersStandalone(item)) {
         flush();
         out.push(item);
         continue;

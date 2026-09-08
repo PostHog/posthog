@@ -562,6 +562,10 @@ function mapItem(
       ...(content ? { content } : {}),
       ...(meta ? { _meta: meta } : {}),
       // rawOutput lets the desktop MCP Apps host render UI resources, not just text.
+      // The strip is source hygiene, not app validity: `toCallToolResult` owns
+      // the schema-valid result an app receives. Stripping here keeps the nulls
+      // out of stored transcripts and McpAppsService events, so a delivery path
+      // that skips `toCallToolResult` cannot carry them either.
       ...(item.type === "mcpToolCall" && item.result !== undefined
         ? { rawOutput: omitNullCallToolResultFields(item.result) }
         : {}),

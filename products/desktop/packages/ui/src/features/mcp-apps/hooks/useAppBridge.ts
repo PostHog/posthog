@@ -309,6 +309,10 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
 
           // Remount after scrolling back into the virtualized list: the
           // subscription event already fired, so send the stored result.
+          // `sendResultOnce` routes through `sendWhenReady`, so the once-per-id
+          // flag stays in one place; it delivers straight to this bridge (it
+          // is initialized above), or the flush below picks it up on the rare
+          // ordering where the ref is not set yet.
           if (
             tc.rawOutput &&
             (tc.status === "completed" || tc.status === "failed")
@@ -384,7 +388,10 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
       // Queued results die with this bridge; let the next bridge redeliver.
       sentResultForCallRef.current = null;
     };
-    // Only re-runs on iframe/resource identity; sendResultOnce is referentially stable.
+    // Effect contract: re-runs only when the iframe or the resource changes.
+    // `sendResultOnce` is listed for the lint rule only: it is referentially
+    // stable (its sole dep, `sendWhenReady`, is stable), so it cannot fire this
+    // effect.
   }, [iframeEl, uiResource, args.serverName, sendResultOnce]);
 
   // Host context change effect — sends deltas when theme/displayMode/containerWidth change
