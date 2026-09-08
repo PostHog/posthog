@@ -35,6 +35,7 @@ describe('dataVisualizationLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+        localStorage.clear()
     })
 
     test.each([
@@ -600,6 +601,31 @@ describe('dataVisualizationLogic', () => {
 
         expect(logic.values.query.source).toEqual(defaultQuery.source)
         expect(logic.values.query.tableSettings?.transpose).toEqual(true)
+    })
+
+    test.each([
+        { name: 'a poisoned literal undefined', stored: 'undefined', expected: [] },
+        { name: 'an empty string', stored: '', expected: [] },
+        { name: 'a value that is not an array', stored: '{"a":1}', expected: [] },
+        { name: 'a stored column list', stored: '["event"]', expected: ['event'] },
+    ])('reads pinned columns from localStorage with $name', async ({ stored, expected }) => {
+        const storageKey = `data-visualization-pinned-columns-${testKey}`
+        localStorage.setItem(storageKey, stored)
+
+        logic.unmount()
+        logic = dataVisualizationLogic({
+            key: testKey,
+            query: defaultQuery,
+            dataNodeCollectionId,
+        } as DataVisualizationLogicProps)
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({ pinnedColumns: expected })
+
+        logic.actions.toggleColumnPin('person_id')
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(localStorage.getItem(storageKey)).toEqual(JSON.stringify([...expected, 'person_id']))
     })
 
     it('flags the table as sorted only after setTableSorted', async () => {
