@@ -271,6 +271,8 @@ export function getExceptionRelease(properties: ErrorEventProperties): ErrorTrac
  * `$release_id` the SDK puts on every event. An SDK from before that support reports nothing, so
  * the exception ends up with no release at all. A symbol set cymbal fetched off the web is keyed
  * by its URL rather than a chunk id, and carries no release either, so it does not count here.
+ * A frame with no loaded record could still name a release, so until every frame has a record the
+ * answer is unknown and this returns false.
  */
 export function isReleaseIdMissingFromSDK(
     properties: ErrorEventProperties,
@@ -281,9 +283,14 @@ export function isReleaseIdMissingFromSDK(
         return false
     }
 
-    const uploadedSymbolSets = frames
-        .map((frame) => stackFrameRecords[frame.raw_id])
-        .filter((record) => !!record?.symbol_set_ref && !isFetchedSymbolSetRef(record.symbol_set_ref))
+    const records = frames.map((frame) => stackFrameRecords[frame.raw_id])
+    if (records.some((record) => !record)) {
+        return false
+    }
+
+    const uploadedSymbolSets = records.filter(
+        (record) => !!record.symbol_set_ref && !isFetchedSymbolSetRef(record.symbol_set_ref)
+    )
 
     return uploadedSymbolSets.length > 0 && uploadedSymbolSets.every((record) => !record.release)
 }

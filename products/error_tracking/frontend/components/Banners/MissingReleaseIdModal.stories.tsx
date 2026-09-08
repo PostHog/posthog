@@ -18,19 +18,19 @@ const meta: Meta<typeof MissingReleaseIdModal> = {
 export default meta
 
 function OpenedModal(props: MissingReleaseIdModalProps): JSX.Element {
-    const { openModal } = useActions(missingReleaseIdModalLogic)
+    const { openModal } = useActions(missingReleaseIdModalLogic({ eventId: props.eventId }))
     useOnMountEffect(() => openModal())
     return <MissingReleaseIdModal {...props} />
 }
 
 export function WebSdk(): JSX.Element {
-    return <OpenedModal runtime="web" />
+    return <OpenedModal eventId="event-id" runtime="web" />
 }
 
 export function NodeSdk(): JSX.Element {
-    return <OpenedModal runtime="node" />
+    return <OpenedModal eventId="event-id" runtime="node" />
 }
 
 export function UnknownSdk(): JSX.Element {
-    return <OpenedModal runtime="go" />
+    return <OpenedModal eventId="event-id" runtime="go" />
 }

@@ -8,11 +8,12 @@ import { MissingReleaseIdModal } from './MissingReleaseIdModal'
 import { missingReleaseIdModalLogic } from './missingReleaseIdModalLogic'
 
 export interface MissingReleaseIdBannerProps {
+    eventId: string
     runtime?: ErrorTrackingRuntime
 }
 
-export function MissingReleaseIdBanner({ runtime }: MissingReleaseIdBannerProps): JSX.Element {
-    const { openModal } = useActions(missingReleaseIdModalLogic)
+export function MissingReleaseIdBanner({ eventId, runtime }: MissingReleaseIdBannerProps): JSX.Element {
+    const { openModal } = useActions(missingReleaseIdModalLogic({ eventId }))
 
     return (
         <>
@@ -27,7 +28,7 @@ export function MissingReleaseIdBanner({ runtime }: MissingReleaseIdBannerProps)
             >
                 This exception has no release attached. Please update your PostHog SDK to the latest version.
             </LemonBanner>
-            <MissingReleaseIdModal runtime={runtime} />
+            <MissingReleaseIdModal eventId={eventId} runtime={runtime} />
         </>
     )
 }

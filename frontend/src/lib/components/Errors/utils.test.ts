@@ -341,10 +341,13 @@ describe('Error Display', () => {
         ],
         ['one of two symbol sets with a release', {}, [UPLOADED_SET, UPLOADED_SET_WITH_RELEASE], false],
         ['two symbol sets uploaded without a release', {}, [UPLOADED_SET, UPLOADED_SET], true],
+        ['a frame whose record did not load', {}, [UPLOADED_SET, undefined], false],
     ])('reports a release the SDK never sent for %s', (_name, properties, records, expected) => {
         const frames = records.map((_, index) => ({ raw_id: `frame-${index}` }) as ErrorTrackingStackFrame)
         const keyedRecords = Object.fromEntries(
-            records.map((record, index) => [`frame-${index}`, record as ErrorTrackingStackFrameRecord])
+            records.flatMap((record, index) =>
+                record ? [[`frame-${index}`, record as ErrorTrackingStackFrameRecord]] : []
+            )
         )
         expect(isReleaseIdMissingFromSDK(properties as ErrorEventProperties, frames, keyedRecords)).toBe(expected)
     })

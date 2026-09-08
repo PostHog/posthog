@@ -22,7 +22,7 @@ export interface StackTraceTabProps extends Omit<ComponentProps<typeof TabsConte
 
 export function StackTraceTab({ className, renderActions, ...props }: StackTraceTabProps): JSX.Element {
     const { loading } = useValues(exceptionCardLogic)
-    const { exceptionAttributes, release, releaseIdMissingFromSDK } = useValues(errorPropertiesLogic)
+    const { exceptionAttributes, release, releaseIdMissingFromSDK, uuid } = useValues(errorPropertiesLogic)
 
     return (
         <TabsContent {...props} className={cn('flex flex-col', className)}>
@@ -34,7 +34,9 @@ export function StackTraceTab({ className, renderActions, ...props }: StackTrace
                 </div>
                 {renderActions?.()}
             </SubHeader>
-            {releaseIdMissingFromSDK && !loading && <MissingReleaseIdBanner runtime={exceptionAttributes?.runtime} />}
+            {releaseIdMissingFromSDK && !loading && (
+                <MissingReleaseIdBanner eventId={uuid} runtime={exceptionAttributes?.runtime} />
+            )}
             <div className="flex-1 min-h-0 overflow-y-auto">
                 <StacktraceIssueDisplay className="p-2" />
             </div>

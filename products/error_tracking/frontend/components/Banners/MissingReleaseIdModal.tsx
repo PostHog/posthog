@@ -22,12 +22,13 @@ const SDK_REQUIREMENT_BY_RUNTIME: Partial<Record<ErrorTrackingRuntime, SdkRequir
 }
 
 export interface MissingReleaseIdModalProps {
+    eventId: string
     runtime?: ErrorTrackingRuntime
 }
 
-export function MissingReleaseIdModal({ runtime }: MissingReleaseIdModalProps): JSX.Element {
-    const { isModalOpen } = useValues(missingReleaseIdModalLogic)
-    const { closeModal } = useActions(missingReleaseIdModalLogic)
+export function MissingReleaseIdModal({ eventId, runtime }: MissingReleaseIdModalProps): JSX.Element {
+    const { isModalOpen } = useValues(missingReleaseIdModalLogic({ eventId }))
+    const { closeModal } = useActions(missingReleaseIdModalLogic({ eventId }))
     const sdk = runtime ? SDK_REQUIREMENT_BY_RUNTIME[runtime] : undefined
 
     return (
