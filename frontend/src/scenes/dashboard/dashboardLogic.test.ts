@@ -3826,6 +3826,21 @@ describe('dashboardLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setLayoutZoom(0.75)
             }).toMatchValues({ layoutZoom: 0.75 })
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: false },
+                    DashboardEventSource.DashboardFilters
+                )
+            }).toMatchValues({ layoutZoom: 0.75 })
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: true },
+                    DashboardEventSource.SceneCommonButtons
+                )
+                logic.actions.cancelLayoutEdit()
+            }).toMatchValues({ layoutZoom: 1 })
         })
 
         it('resets layoutZoom to 1 when container becomes single-column', async () => {

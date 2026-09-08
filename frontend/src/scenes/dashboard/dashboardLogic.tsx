@@ -4607,6 +4607,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         saveLayoutChanges: () => {
             actions.saveEditModeChanges('layout')
+            actions.setLayoutZoom(1)
             if (values.dashboardSettingsState === 'unsavedChanges') {
                 actions.setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
             } else if (values.dashboardEditing !== null) {
@@ -4621,6 +4622,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         saveLayout: () => {
             actions.saveEditModeChanges('layout')
+            actions.setLayoutZoom(1)
             if (values.dashboardSettingsState === 'unsavedChanges') {
                 actions.setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
             } else if (values.dashboardEditing !== null) {
@@ -4656,13 +4658,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 ) {
                     return
                 }
+                actions.setLayoutZoom(1)
                 actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
             }
             addInsightToDashboardLogic.actions.showAddInsightToDashboardModal()
         },
         cancelLayoutEdit: () => {
-            const discard = (): void =>
+            const discard = (): void => {
+                actions.setLayoutZoom(1)
                 actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+            }
             const promptEnabled = !!values.featureFlags[FEATURE_FLAGS.DASHBOARD_LAYOUT_DISCARD_PROMPT]
             if (!promptEnabled || !(values.hasUnsavedLayoutChanges || values.hasUnsavedColorChanges)) {
                 discard()
@@ -4743,10 +4748,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     source,
                     values.layoutEditMode ? values.layoutZoom : null
                 )
-            }
-
-            if (!editing?.layout) {
-                actions.setLayoutZoom(1)
             }
         },
         setDashboardMode: async ({ mode, source }) => {
