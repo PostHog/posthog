@@ -99,7 +99,14 @@ func (s *server) handler() http.Handler {
 	mux.Handle("DELETE /teams/{teamID}/users/{userID}/catalog", s.authorized(serviceauth.OperationDelete, s.deleteCatalog))
 	mux.Handle("POST /teams/{teamID}/users/{userID}/autocomplete", s.authorized(serviceauth.OperationComplete, s.autocomplete))
 	mux.Handle("POST /teams/{teamID}/users/{userID}/validate", s.authorized(serviceauth.OperationValidate, s.validate))
-	return mux
+	return securityHeaders(mux)
+}
+
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		next.ServeHTTP(w, r)
+	})
 }
 
 type authorizedHandler func(http.ResponseWriter, *http.Request, serviceauth.Authorization)
@@ -304,8 +311,9 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 		http.Error(w, "encode response", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
+	// nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter -- json.Marshal escapes strings and this response has an application/json content type.
 	if _, err := w.Write(body); err != nil {
 		slog.Warn("write response", "error", err)
 	}
