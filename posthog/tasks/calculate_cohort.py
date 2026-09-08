@@ -1,6 +1,7 @@
 import time
+from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 from django.conf import settings
 from django.db import InterfaceError, OperationalError
@@ -11,7 +12,7 @@ import grpc
 import structlog
 import posthoganalytics
 from celery import Task, chain, shared_task
-from celery.exceptions import Retry
+from celery.exceptions import Retry, SoftTimeLimitExceeded
 from celery.utils.time import get_exponential_backoff_interval
 from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter, Gauge, Histogram
@@ -85,6 +86,11 @@ COHORT_RECALCULATION_TRANSIENT_ERRORS = (
     OperationalError,
     InterfaceError,
 )
+
+# The recalculation set plus the soft time limit, which static population opts into because it can
+# resume: the ClickHouse insert excludes the actors it already wrote and personhog ignores existing
+# membership. Recording the limit as terminal would strand a half-written cohort instead.
+STATIC_POPULATION_TRANSIENT_ERRORS = (*COHORT_RECALCULATION_TRANSIENT_ERRORS, SoftTimeLimitExceeded)
 
 COHORT_RECALCULATIONS_BACKLOG_GAUGE = Gauge(
     "cohort_recalculations_backlog",
@@ -597,7 +603,7 @@ def calculate_cohort_ch(
 def _is_transient_population_error(err: BaseException) -> bool:
     # Static population runs the same ORM statements as recalculation, so it shares the Postgres
     # legs: a pooler blip between two personhog batches must not be recorded as a permanent failure.
-    return isinstance(err, COHORT_RECALCULATION_TRANSIENT_ERRORS) or is_transient_rpc_error(
+    return isinstance(err, STATIC_POPULATION_TRANSIENT_ERRORS) or is_transient_rpc_error(
         err, codes=STATIC_POPULATION_RETRYABLE_RPC_CODES
     )
 
@@ -611,14 +617,17 @@ def _is_final_attempt(task: Task, retryable: bool) -> bool:
     return task.max_retries is not None and (task.request.retries or 0) >= task.max_retries
 
 
-def _schedule_population_retry(task: Task, cohort_id: int, err: Exception, *, team_id: int | None) -> Retry:
+def _schedule_population_retry(
+    task: Task, cohort_id: int, err: Exception, *, team_id: int | None, kwargs: dict[str, Any] | None = None
+) -> Retry:
     """Schedule the next attempt and return the Retry for the caller to raise.
 
     Returns instead of raising so the caller can note that a retry is pending before it raises.
     When the broker publish fails, Celery raises Reject from here instead of returning, and the
     caller then finalizes the failure like any other terminal outcome. Takes the id rather than the
     cohort because the first read of the task is itself retryable: CONN_MAX_AGE is 0, so a pooler
-    blip lands on the connection that read opens.
+    blip lands on the connection that read opens. ``kwargs`` carries progress the next attempt can
+    resume from.
     """
     retries = task.request.retries or 0
     countdown = get_exponential_backoff_interval(
@@ -647,7 +656,10 @@ def _schedule_population_retry(task: Task, cohort_id: int, err: Exception, *, te
         error_type=error_type,
         error=str(err),
     )
-    return task.retry(exc=err, countdown=countdown, throw=False)
+    # Merge, because task.retry(kwargs=...) replaces the whole set and would drop whatever the
+    # dispatch site passed by keyword.
+    retry_kwargs = {**(task.request.kwargs or {}), **kwargs} if kwargs else None
+    return task.retry(exc=err, countdown=countdown, throw=False, kwargs=retry_kwargs)
 
 
 def _tag_population_queries(task: Task, *, cohort_id: int, team_id: int) -> None:
@@ -763,25 +775,21 @@ def calculate_cohort_from_list(
     )
 
 
-@shared_task(
-    bind=True,
-    ignore_result=True,
-    max_retries=STATIC_POPULATION_MAX_RETRIES,
-    queue=CeleryQueue.LONG_RUNNING.value,
-    soft_time_limit=STATIC_POPULATION_SOFT_TIME_LIMIT_SECONDS,
-)
-@skip_team_scope_audit
-def insert_cohort_from_query(self: Task, cohort_id: int, team_id: Optional[int] = None) -> None:
-    """
-    One-time population task for static cohorts created from a HogQL query
-    (e.g. duplicating a dynamic cohort as static).
+def _populate_static_cohort(
+    task: Task,
+    *,
+    cohort_id: int,
+    team_id: Optional[int],
+    ch_insert_done: bool,
+    insert_actors_into_ch: Callable[..., None],
+    log_prefix: str,
+) -> None:
+    """Run one static population attempt: claim the cohort, fill ClickHouse, then sync Postgres.
 
-    Inserts actors into ClickHouse person_static_cohort, then syncs to Postgres.
-
-    team_id is only optional for backwards compatibility with the old celery task signature.
-    All new tasks should pass team_id explicitly.
+    Both population tasks delegate here, so the claim, retry and finalize protocol has one home
+    and cannot drift between them.
     """
-    from products.cohorts.backend.models.util import insert_cohort_people_into_pg, insert_cohort_query_actors_into_ch
+    from products.cohorts.backend.models.util import insert_cohort_people_into_pg
 
     # The cohort this attempt marked is_calculating. Only that attempt finalizes the flag, so a
     # skipped or never-started attempt leaves whoever owns it (the API, a newer calculation) alone.
@@ -789,18 +797,21 @@ def insert_cohort_from_query(self: Task, cohort_id: int, team_id: Optional[int] 
     processing_error: BaseException | None = None
     retry: Retry | None = None
     try:
-        cohort = Cohort.objects.get(pk=cohort_id)
-        if team_id is None:
+        if team_id is not None:
+            cohort = Cohort.objects.get(pk=cohort_id, team_id=team_id)
+        else:
+            cohort = Cohort.objects.get(pk=cohort_id)
             team_id = cohort.team_id
-        if _static_population_obsolete(self, cohort):
+        if _static_population_obsolete(task, cohort):
             return
         team = Team.objects.get(pk=team_id)
-        _tag_population_queries(self, cohort_id=cohort_id, team_id=team_id)
+        _tag_population_queries(task, cohort_id=cohort_id, team_id=team_id)
         logger.info(
-            "insert_cohort_from_query_started",
+            f"{log_prefix}_started",
             cohort_id=cohort_id,
             team_id=team_id,
             query=cohort.query,
+            filters=cohort.filters,
         )
 
         cohort.is_calculating = True
@@ -810,28 +821,34 @@ def insert_cohort_from_query(self: Task, cohort_id: int, team_id: Optional[int] 
 
         # The CH insert is idempotent: it excludes person_ids already in the cohort.
         # This handles both the retry-after-OOM case (no duplicates) and the
-        # add-more-people-via-query case (only new people inserted).
-        insert_cohort_query_actors_into_ch(cohort, team=team)
-        logger.info(
-            "insert_cohort_from_query_ch_complete",
-            cohort_id=cohort_id,
-            team_id=team_id,
-        )
+        # add-more-people-via-query case (only new people inserted). A retry whose earlier attempt
+        # finished this phase skips it, because re-evaluating the source query costs the same hours
+        # again and inserts nothing.
+        if not ch_insert_done:
+            insert_actors_into_ch(cohort, team=team)
+            ch_insert_done = True
+            logger.info(
+                f"{log_prefix}_ch_complete",
+                cohort_id=cohort_id,
+                team_id=team_id,
+            )
 
         # Re-running the sync is safe because InsertCohortMembers ignores existing membership.
-        insert_cohort_people_into_pg(cohort, team_id=team_id, raise_on_error=True)
+        insert_cohort_people_into_pg(cohort, team_id=team_id)
         logger.info(
-            "insert_cohort_from_query_pg_complete",
+            f"{log_prefix}_pg_complete",
             cohort_id=cohort_id,
             team_id=team_id,
         )
     except Exception as err:
         processing_error = err
-        if not _is_final_attempt(self, _is_transient_population_error(err)):
-            retry = _schedule_population_retry(self, cohort_id, err, team_id=team_id)
+        if not _is_final_attempt(task, _is_transient_population_error(err)):
+            retry = _schedule_population_retry(
+                task, cohort_id, err, team_id=team_id, kwargs={"ch_insert_done": ch_insert_done}
+            )
             raise retry
         logger.exception(
-            "insert_cohort_from_query_failed",
+            f"{log_prefix}_failed",
             cohort_id=cohort_id,
             team_id=team_id,
             error=str(err),
@@ -851,7 +868,7 @@ def insert_cohort_from_query(self: Task, cohort_id: int, team_id: Optional[int] 
             claimed._safe_save_cohort_state(team_id=claimed.team_id, processing_error=processing_error)
             claimed.refresh_from_db(fields=["is_calculating", "errors_calculating"])
             logger.info(
-                "insert_cohort_from_query_finished",
+                f"{log_prefix}_finished",
                 cohort_id=cohort_id,
                 team_id=claimed.team_id,
                 is_calculating=claimed.is_calculating,
@@ -869,86 +886,64 @@ def insert_cohort_from_query(self: Task, cohort_id: int, team_id: Optional[int] 
     soft_time_limit=STATIC_POPULATION_SOFT_TIME_LIMIT_SECONDS,
 )
 @skip_team_scope_audit
-def insert_cohort_from_filters(self: Task, cohort_id: int, team_id: Optional[int] = None) -> None:
+def insert_cohort_from_query(
+    self: Task, cohort_id: int, team_id: Optional[int] = None, ch_insert_done: bool = False
+) -> None:
+    """
+    One-time population task for static cohorts created from a HogQL query
+    (e.g. duplicating a dynamic cohort as static).
+
+    Inserts actors into ClickHouse person_static_cohort, then syncs to Postgres.
+
+    team_id is only optional for backwards compatibility with the old celery task signature.
+    All new tasks should pass team_id explicitly. Only a retry sets ch_insert_done.
+    """
+    from products.cohorts.backend.models.util import insert_cohort_query_actors_into_ch
+
+    _populate_static_cohort(
+        self,
+        cohort_id=cohort_id,
+        team_id=team_id,
+        ch_insert_done=ch_insert_done,
+        insert_actors_into_ch=insert_cohort_query_actors_into_ch,
+        log_prefix="insert_cohort_from_query",
+    )
+
+
+@shared_task(
+    bind=True,
+    ignore_result=True,
+    max_retries=STATIC_POPULATION_MAX_RETRIES,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    soft_time_limit=STATIC_POPULATION_SOFT_TIME_LIMIT_SECONDS,
+)
+@skip_team_scope_audit
+def insert_cohort_from_filters(
+    self: Task, cohort_id: int, team_id: Optional[int] = None, ch_insert_done: bool = False
+) -> None:
     """
     One-time population task for static cohorts created from saved cohort criteria.
+
+    Only a retry sets ch_insert_done.
     """
-    from products.cohorts.backend.models.util import insert_cohort_filter_actors_into_ch, insert_cohort_people_into_pg
+    from products.cohorts.backend.models.util import insert_cohort_filter_actors_into_ch
 
-    # See insert_cohort_from_query for the claimed / retry protocol.
-    claimed: Cohort | None = None
-    processing_error: BaseException | None = None
-    retry: Retry | None = None
-    try:
-        if team_id is not None:
-            cohort = Cohort.objects.get(pk=cohort_id, team_id=team_id)
-        else:
-            cohort = Cohort.objects.get(pk=cohort_id)
-            team_id = cohort.team_id
-        if _static_population_obsolete(self, cohort):
-            return
-        team = Team.objects.get(pk=team_id)
-        _tag_population_queries(self, cohort_id=cohort_id, team_id=team_id)
-        logger.info(
-            "insert_cohort_from_filters_started",
-            cohort_id=cohort_id,
-            team_id=team_id,
-            filters=cohort.filters,
-        )
-
-        cohort.is_calculating = True
-        cohort.save(update_fields=["is_calculating"])
-        claimed = cohort
-
-        insert_cohort_filter_actors_into_ch(cohort, team=team)
-        logger.info(
-            "insert_cohort_from_filters_ch_complete",
-            cohort_id=cohort_id,
-            team_id=team_id,
-        )
-
-        insert_cohort_people_into_pg(cohort, team_id=team_id, raise_on_error=True)
-        logger.info(
-            "insert_cohort_from_filters_pg_complete",
-            cohort_id=cohort_id,
-            team_id=team_id,
-        )
-    except Exception as err:
-        processing_error = err
-        if not _is_final_attempt(self, _is_transient_population_error(err)):
-            retry = _schedule_population_retry(self, cohort_id, err, team_id=team_id)
-            raise retry
-        logger.exception(
-            "insert_cohort_from_filters_failed",
-            cohort_id=cohort_id,
-            team_id=team_id,
-            error=str(err),
-        )
-        capture_exception()
-    except BaseException as err:
-        # A run the worker cut short (shutdown, revoke) failed; it must not be saved as a success.
-        processing_error = err
-        raise
-    finally:
-        # Every exit but a scheduled retry finalizes state; see insert_cohort_from_query.
-        if claimed is not None and retry is None:
-            claimed._safe_save_cohort_state(team_id=claimed.team_id, processing_error=processing_error)
-            claimed.refresh_from_db(fields=["is_calculating", "errors_calculating"])
-            logger.info(
-                "insert_cohort_from_filters_finished",
-                cohort_id=cohort_id,
-                team_id=claimed.team_id,
-                is_calculating=claimed.is_calculating,
-                errors_calculating=claimed.errors_calculating,
-            )
-    if settings.DEBUG and processing_error is not None:
-        raise processing_error
+    _populate_static_cohort(
+        self,
+        cohort_id=cohort_id,
+        team_id=team_id,
+        ch_insert_done=ch_insert_done,
+        insert_actors_into_ch=insert_cohort_filter_actors_into_ch,
+        log_prefix="insert_cohort_from_filters",
+    )
 
 
-# No task-level retry: transient failures are already retried per page with backoff
-# inside get_cohort_actors_for_feature_flag, and by the time an exception propagates
-# here the task has recorded final error state (calculation history, errors_calculating,
-# is_calculating=False) — a Celery retry after that would contradict the recorded state.
+# No task-level retry. The per-page backoff inside get_cohort_actors_for_feature_flag covers the
+# call to the flags service and nothing else, so a transient personhog or ClickHouse error from the
+# member insert is terminal here, unlike in the sibling static population tasks. By the time any
+# exception propagates to this task, get_cohort_actors_for_feature_flag has recorded final error
+# state (calculation history, errors_calculating, is_calculating=False), and a Celery retry would
+# contradict what the cohort already reports.
 # Runs on the long-running queue (like the sibling cohort tasks) so a large paging run
 # can't clog the default workers, with a generous soft limit as a backstop ceiling.
 # SoftTimeLimitExceeded subclasses Exception, so get_cohort_actors_for_feature_flag's
