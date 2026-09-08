@@ -49,6 +49,12 @@ RECENTLY_ACTIVE_DAYS = 60
 # empty-properties condition group on every mount, so a short TTL collapses those into one scan.
 _RECENTLY_ACTIVE_COUNT_CACHE_TTL = 300
 
+# A personless event carries a synthetic person_id derived from its distinct id, and no persons row
+# is ever written for it. Counting it would put anonymous traffic in a denominator that the
+# matched-persons subquery can never return, and would raise the total for projects on posthog-js's
+# identified_only default, which is the opposite of what the window is for.
+_IDENTIFIED_PERSONS_ONLY = "person_mode != 'propertyless'"
+
 
 # ClickHouse codes for "this literal can't be parsed as the column's type": 6 CANNOT_PARSE_TEXT,
 # 72 CANNOT_PARSE_NUMBER — e.g. a numeric operator (gt/lt) against a null or non-numeric filter
@@ -187,7 +193,8 @@ def _recently_active_persons_count(team: Team) -> int:
 
     cutoff, upper = _recently_active_window()
     query = parse_select(
-        "SELECT uniq(person_id) FROM events WHERE timestamp >= {cutoff} AND timestamp < {upper}",
+        "SELECT uniq(person_id) FROM events "
+        f"WHERE timestamp >= {{cutoff}} AND timestamp < {{upper}} AND {_IDENTIFIED_PERSONS_ONLY}",
         placeholders={"cutoff": ast.Constant(value=cutoff), "upper": ast.Constant(value=upper)},
     )
 
@@ -241,7 +248,7 @@ def _get_person_blast_radius_recently_active(team: Team, filter: Filter) -> Blas
     # the denominator is never a second scan and both numbers come from the same rows.
     query = parse_select(
         "SELECT uniq(person_id), uniqIf(person_id, person_id IN {matched}) "
-        "FROM events WHERE timestamp >= {cutoff} AND timestamp < {upper}",
+        f"FROM events WHERE timestamp >= {{cutoff}} AND timestamp < {{upper}} AND {_IDENTIFIED_PERSONS_ONLY}",
         placeholders={
             "matched": _matched_persons_query(team, filter),
             "cutoff": ast.Constant(value=cutoff),

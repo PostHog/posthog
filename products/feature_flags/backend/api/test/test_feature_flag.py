@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
@@ -9485,6 +9486,35 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         # send it previews enumerates persons with no activity window.
         unwindowed = get_user_blast_radius(self.team, condition)
         self.assertEqual((unwindowed.affected, unwindowed.total), (5, 6))
+
+    def test_user_blast_radius_excludes_personless_events(self):
+        # An event captured with $process_person_profile: false carries a synthetic person_id and no
+        # persons row, so counting it would put anonymous traffic in a denominator the matched
+        # subquery can never return.
+        _create_active_person(team_id=self.team.pk, distinct_ids=["identified"], properties={"group": "match"})
+        _create_event(
+            team_id=self.team.pk,
+            event="$pageview",
+            distinct_id="anonymous-visitor",
+            person_id=uuid.uuid4(),
+            person_mode="propertyless",
+        )
+        flush_persons_and_events()
+
+        for condition in (
+            {"properties": [], "rollout_percentage": 100},
+            {
+                "properties": [{"key": "group", "type": "person", "value": ["match"], "operator": "exact"}],
+                "rollout_percentage": 100,
+            },
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+                {"condition": condition},
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertLessEqual({"affected": 1, "total": 1}.items(), response.json().items())
 
     def test_user_blast_radius_caches_the_unfiltered_active_count(self):
         # The flag editor sizes one condition group per mount, so repeat requests inside the TTL
