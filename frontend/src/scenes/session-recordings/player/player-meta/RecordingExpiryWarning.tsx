@@ -22,9 +22,16 @@ export function RecordingExpiryWarning(): JSX.Element | null {
 
     useEffect(() => {
         if (lowTtl) {
-            posthog.capture('recording viewed with very low TTL', sessionPlayerMetaData)
+            // Send named properties only. The recording metadata object also holds person properties,
+            // distinct IDs, and the start URL, which this expiry metric does not need.
+            posthog.capture('recording viewed with very low TTL', {
+                session_id: sessionPlayerMetaData?.id,
+                recording_ttl: recordingTtl,
+                retention_period_days: sessionPlayerMetaData?.retention_period_days,
+                expiry_time: sessionPlayerMetaData?.expiry_time,
+            })
         }
-    }, [sessionPlayerMetaData, lowTtl])
+    }, [sessionPlayerMetaData, lowTtl, recordingTtl])
 
     if (!lowTtl) {
         return null
