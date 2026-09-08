@@ -173,7 +173,9 @@ export function SurveyContainerAppearance({
             <LemonField.Pure
                 label="Position"
                 info={
-                    surveyType === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Selector
+                    surveyType === SurveyType.Widget &&
+                    (appearance.widgetType === SurveyWidgetType.Selector ||
+                        appearance.widgetType === SurveyWidgetType.Tab)
                         ? 'The "next to feedback button" option requires posthog.js version 1.235.2 or higher.'
                         : undefined
                 }
@@ -196,7 +198,7 @@ export function SurveyContainerAppearance({
                         disabledReason={disabledReason || undefined}
                     />
                 </div>
-                {surveyType === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Selector && (
+                {surveyType === SurveyType.Widget && (appearance.widgetType === SurveyWidgetType.Selector || appearance.widgetType === SurveyWidgetType.Tab) && (
                     <div className="flex flex-col gap-1 items-start w-60">
                         <LemonButton
                             key={SurveyPosition.NextToTrigger}
