@@ -122,12 +122,15 @@ def capture_space_context_changed(
     channel_id: str,
     action: str,
     source: str,
-    previous_version: int,
+    previous_version: int | None,
     new_version: int | None = None,
     content_bytes: int = 0,
     previous_content_bytes: int | None = None,
     base_version_provided: bool = False,
     versions_deleted: int | None = None,
+    storage: str = "legacy_instructions",
+    actor_type: str | None = None,
+    is_first_version: bool | None = None,
 ) -> None:
     """Record a Space's CONTEXT.md being published or cleared.
 
@@ -139,17 +142,22 @@ def capture_space_context_changed(
         properties: dict = {
             "action": action,
             "source": source,
+            "storage": storage,
             "team_id": team.id,
             "channel_id": str(channel_id),
             "previous_version": previous_version,
             "new_version": new_version,
-            "is_first_version": previous_version == 0 and new_version is not None,
+            "is_first_version": (
+                is_first_version if is_first_version is not None else previous_version == 0 and new_version is not None
+            ),
             "content_bytes": content_bytes,
             "previous_content_bytes": previous_content_bytes,
             "base_version_provided": base_version_provided,
         }
         if versions_deleted is not None:
             properties["versions_deleted"] = versions_deleted
+        if actor_type is not None:
+            properties["actor_type"] = actor_type
 
         posthoganalytics.capture(
             distinct_id=_distinct_id(team, user_id),

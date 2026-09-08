@@ -29,10 +29,57 @@ from products.context_layer.backend.presentation.serializers import (
     WikiTreeSerializer,
 )
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.models import Channel
+from products.tasks.backend.repository_config_analytics import capture_space_context_changed
 
 # Ordinary task runs can land wiki commits with nothing but the writer lock
 # pacing them, so a runaway sandbox agent gets a hard daily ceiling per run.
 RUN_COMMITS_PER_DAY_CAP = 20
+
+
+def _context_actor_type(request: Request) -> str:
+    access_token = get_oauth_access_token(request)
+    token_scopes = set((getattr(access_token, "scope", "") or "").split())
+    if LOOP_CONTEXT_INTERNAL_SCOPE in token_scopes:
+        return "loop_agent"
+    if INTERNAL_RUN_SCOPE in token_scopes:
+        return "task_agent"
+    return "user_or_api"
+
+
+def _capture_context_page_update(
+    organization_id,  # noqa: ANN001
+    request: Request,
+    *,
+    channel_id: str | None,
+    is_first_version: bool,
+    content_bytes: int,
+    base_version_provided: bool,
+) -> None:
+    if channel_id is None:
+        return
+    channel = (
+        Channel.objects.unscoped()
+        .select_related("team")
+        .filter(id=channel_id, team__organization_id=organization_id)
+        .first()
+    )
+    if channel is None:
+        return
+    actor_type = _context_actor_type(request)
+    capture_space_context_changed(
+        team=channel.team,
+        user_id=getattr(request.user, "id", None),
+        channel_id=channel_id,
+        action="published",
+        source="user" if actor_type == "user_or_api" else "agent",
+        previous_version=None,
+        content_bytes=content_bytes,
+        base_version_provided=base_version_provided,
+        storage="context_wiki",
+        actor_type=actor_type,
+        is_first_version=is_first_version,
+    )
 
 
 def _store_error_response(error: facade.ContextLayerStoreError) -> Response:
@@ -189,16 +236,32 @@ def _write_page(organization_id, request: Request, *, team_id=None) -> Response:
         if user and user.is_authenticated
         else None
     )
+    content = serializer.validated_data["content"]
+    channel_id = facade.page_frontmatter_channel_id(content)
+    is_first_version = False
+    if channel_id is not None:
+        try:
+            is_first_version = facade.resolve_channel_page(organization_id, channel_id) is None
+        except facade.ContextLayerStoreError:
+            pass
     try:
         head_sha = facade.write_page(
             organization_id,
             path=serializer.validated_data["path"],
-            content=serializer.validated_data["content"],
+            content=content,
             base_head=serializer.validated_data.get("base_head"),
             author=author,
         )
     except facade.ContextLayerStoreError as error:
         return _store_error_response(error)
+    _capture_context_page_update(
+        organization_id,
+        request,
+        channel_id=channel_id,
+        is_first_version=is_first_version,
+        content_bytes=len(content.encode("utf-8")),
+        base_version_provided=serializer.validated_data.get("base_head") is not None,
+    )
     return Response(ContextLayerStatusSerializer({"head_sha": head_sha}).data)
 
 

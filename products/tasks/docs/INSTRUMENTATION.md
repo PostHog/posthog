@@ -142,9 +142,11 @@ customer-authored free text.
 | ------------------------ | ------ | --------------------------------------------------------------- |
 | `action`                 | `str`  | `published` or `cleared`                                          |
 | `source`                 | `str`  | `user` or `agent`                                                 |
+| `storage`                | `str`  | `legacy_instructions` or `context_wiki`                            |
+| `actor_type`             | `str?` | `user_or_api`, `task_agent`, or `loop_agent` for context-wiki edits |
 | `team_id`                | `int`  |                                                                   |
 | `channel_id`             | `str`  |                                                                   |
-| `previous_version`       | `int`  | 0 when there was none                                             |
+| `previous_version`       | `int?` | 0 when there was none; null for context-wiki commits               |
 | `new_version`            | `int?` | Null on `cleared`                                                 |
 | `is_first_version`       | `bool` |                                                                   |
 | `content_bytes`          | `int`  | Length only, never content                                        |

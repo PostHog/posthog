@@ -355,6 +355,7 @@ function SetupTaskSection() {
           has_branch: false,
           cloud_run_source: "manual",
           adapter,
+          space_context_mode: "none",
         });
       } else {
         toastError("Failed to start Self-driving setup", result.error);
