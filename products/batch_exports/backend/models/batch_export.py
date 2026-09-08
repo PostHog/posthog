@@ -491,6 +491,11 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
             return offset_in_hours % 24
         return None
 
+    @property
+    def hogql_query(self) -> str | None:
+        """Return the HogQL query of this batch export's source, if it has one."""
+        return self.source.hogql_query if self.source is not None else None
+
 
 def get_batch_exports_using_integration(team_id: int, integration_id: int) -> list[BatchExport]:
     """Return a list of batch exports using integration_id.

@@ -334,3 +334,56 @@ async def test_s3_export_workflow_with_local_object_storage_and_custom_key_prefi
         s3_client=object_storage_client,
         destination_type="S3Compatible",
     )
+
+
+@pytest.mark.parametrize("interval", ["hour"], indirect=True)
+@pytest.mark.parametrize("events_table", ["sharded_events"], indirect=True)
+@pytest.mark.parametrize(
+    "hogql_query",
+    [
+        (
+            "SELECT uuid AS uuid, event AS event, timestamp AS timestamp FROM events "
+            "WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}"
+        ),
+        "SELECT uuid AS uuid, event AS event, timestamp AS timestamp FROM events",
+    ],
+    ids=["bounded-by-interval-placeholders", "unbounded"],
+)
+async def test_s3_export_workflow_with_local_object_storage_with_hogql_model(
+    clickhouse_client,
+    object_storage_client,
+    ateam,
+    s3_compatible_batch_export,
+    bucket_name,
+    interval,
+    s3_key_prefix,
+    data_interval_start,
+    data_interval_end,
+    generate_test_data,
+    hogql_query,
+):
+    """The S3 workflow exports a HogQL model query end-to-end.
+
+    The fixture creates events in the data interval, outside it, and for another team. The
+    bounded case proves the interval placeholders are substituted with the run's bounds:
+    only the in-interval events land in the bucket. The unbounded case proves any query
+    runs, placeholders or not: every row the query returns at run time is exported.
+
+    `events_table` is pinned to `sharded_events` because the HogQL `events` table reads it,
+    while the fixture would otherwise default to `events_recent` for a recent interval.
+    """
+    model = BatchExportModel(name="hogql", schema=None, hogql_query=hogql_query)
+
+    await run_s3_batch_export_workflow(
+        model=model,
+        ateam=ateam,
+        batch_export_id=str(s3_compatible_batch_export.id),
+        integration_id=s3_compatible_batch_export.destination.integration_id,
+        s3_destination_config=s3_compatible_batch_export.destination.config,
+        interval=interval,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        clickhouse_client=clickhouse_client,
+        s3_client=object_storage_client,
+        destination_type="S3Compatible",
+    )

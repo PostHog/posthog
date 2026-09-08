@@ -21,7 +21,9 @@ from posthog.temporal.common.logger import get_write_only_logger
 from products.batch_exports.backend.hogql_source import (
     UnsupportedHogQLQueryError,
     create_hogql_context_for_batch_export,
+    find_interval_placeholders,
     parse_hogql_select_for_batch_export,
+    replace_interval_placeholders,
 )
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.metrics import log_query_duration
@@ -355,26 +357,27 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
     The query is stored as a raw HogQL string and transpiled to ClickHouse SQL at run
     time, so it stays resilient to printer changes.
 
-    TODO: Data interval bounds are accepted to satisfy the base class contract but ignored: the
-    query has no interval semantics yet.
+    Attributes:
+        hogql_query: The user's HogQL SELECT query. It may reference the
+            `{data_interval_start}` and `{data_interval_end}` placeholders, which each
+            run replaces with its data interval bounds. A query that references none
+            runs as-is: every run exports all rows the query returns at run time.
     """
-
-    # The query is executed as-is with no data interval, so there is nothing to wait for.
-    wait_for_data_interval_end = False
 
     def __init__(self, team_id: int, hogql_query: str, batch_export_id: str | None = None):
         super().__init__(team_id=team_id, batch_export_id=batch_export_id)
         self.hogql_query = hogql_query
+        self.parsed_hogql_query = parse_hogql_select_for_batch_export(hogql_query)
+        # A query bounded by the interval end must wait for replication lag past it before
+        # reading, or the run misses rows that settle after it queries. A query without the
+        # placeholders is not bounded, so there is nothing to wait for.
+        self.wait_for_data_interval_end = bool(find_interval_placeholders(self.parsed_hogql_query))
 
     def get_hogql_query(
         self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
     ) -> ast.SelectQuery | ast.SelectSetQuery:
-        """Return the parsed HogQL query used for this model.
-
-        The data interval bounds are ignored: the query is exported as-is (see the class
-        docstring). They are accepted to satisfy the base class contract.
-        """
-        return parse_hogql_select_for_batch_export(self.hogql_query)
+        """Return the query with any interval placeholders replaced by this run's bounds."""
+        return replace_interval_placeholders(self.parsed_hogql_query, data_interval_start, data_interval_end)
 
     def get_count_hogql_query(
         self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
@@ -423,7 +426,9 @@ def resolve_batch_exports_model(
                 if model.hogql_query is None:
                     raise UnsupportedHogQLQueryError("Batch export model is 'hogql' but no HogQL query was provided")
                 record_batch_model = HogQLQueryRecordBatchModel(
-                    team_id=team_id, hogql_query=model.hogql_query, batch_export_id=batch_export_id
+                    team_id=team_id,
+                    hogql_query=model.hogql_query,
+                    batch_export_id=batch_export_id,
                 )
         else:
             model_name = "events"

@@ -339,6 +339,66 @@ class TestHogQLQueryRecordBatchModel:
         assert f"equals(events.team_id, {ateam.id})" in printed_query
         assert "FORMAT ArrowStream" in printed_query
         assert "log_comment" in query_parameters
+        # without interval placeholders the query runs as-is, as of now
+        assert f"toDateTime64('{data_interval_end:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')" not in printed_query
+        assert model.wait_for_data_interval_end is False
+
+    @pytest.mark.parametrize("has_data_interval_start", [True, False], ids=["with-start", "without-start"])
+    async def test_as_query_with_parameters_applies_data_interval(
+        self, ateam, data_interval_start, data_interval_end, has_data_interval_start
+    ):
+        model = HogQLQueryRecordBatchModel(
+            team_id=ateam.id,
+            hogql_query=(
+                "SELECT event AS event, timestamp AS timestamp FROM events "
+                "WHERE event = 'test' AND timestamp >= {data_interval_start} "
+                "AND timestamp < {data_interval_end}"
+            ),
+        )
+        printed_query, _ = await model.as_query_with_parameters(
+            data_interval_start if has_data_interval_start else None, data_interval_end
+        )
+
+        upper_bound = f"toDateTime64('{data_interval_end:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')"
+        lower_bound = f"toDateTime64('{data_interval_start:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')"
+        assert f"less(timestamp, {upper_bound})" in printed_query
+        if has_data_interval_start:
+            assert f"greaterOrEquals(timestamp, {lower_bound})" in printed_query
+        else:
+            # a missing start (backfill from the beginning of time) substitutes the epoch sentinel
+            assert "toDateTime64('1970-01-01 00:00:00.000000', 6, 'UTC')" in printed_query
+        # the user's own filters are kept
+        assert "equals(event, %(hogql_val_" in printed_query
+        assert model.wait_for_data_interval_end is True
+
+    async def test_as_query_with_parameters_selects_only_rows_in_data_interval(self, clickhouse_client, ateam):
+        await truncate_events(clickhouse_client)
+        data_interval_start = dt.datetime(2021, 1, 15, 10, 0, 0, tzinfo=dt.UTC)
+        data_interval_end = dt.datetime(2021, 1, 15, 11, 0, 0, tzinfo=dt.UTC)
+        events_in_range, _, _ = await generate_test_events_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=data_interval_start,
+            end_time=data_interval_end,
+            count=10,
+            count_outside_range=5,
+            count_other_team=0,
+            table="sharded_events",
+        )
+        model = HogQLQueryRecordBatchModel(
+            team_id=ateam.pk,
+            hogql_query=(
+                "SELECT uuid AS uuid, timestamp AS timestamp FROM events "
+                "WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}"
+            ),
+        )
+
+        printed_query, parameters = await model._print_query(
+            data_interval_start, data_interval_end, output_format="JSONEachRow"
+        )
+        rows = await clickhouse_client.read_query_as_jsonl(printed_query, query_parameters=parameters)
+
+        assert {row["uuid"] for row in rows} == {event["uuid"] for event in events_in_range}
 
     async def test_as_insert_into_s3_query_with_parameters(self, ateam, data_interval_start, data_interval_end):
         model = HogQLQueryRecordBatchModel(
@@ -396,21 +456,27 @@ class TestHogQLQueryRecordBatchModel:
     @pytest.mark.parametrize(
         "hogql_query,expected_message",
         [
-            ("SELECT event AS event FROM events WHERE {filters}", "Placeholders are not supported"),
-            ("SELECT event AS event FROM events WHERE event = {placeholder_field}", "Placeholders are not supported"),
-            ("SELECT event AS event FROM events WHERE event = {concat('a', 'b')}", "Placeholders are not supported"),
+            (
+                "SELECT event AS event FROM events WHERE {filters}",
+                "Unsupported placeholder. Only {data_interval_start} and {data_interval_end} are supported",
+            ),
+            (
+                "SELECT event AS event FROM events WHERE event = {placeholder_field}",
+                "Unknown placeholder '{placeholder_field}'",
+            ),
+            (
+                "SELECT event AS event FROM events WHERE event = {concat('a', 'b')}",
+                "Unsupported placeholder. Only {data_interval_start} and {data_interval_end} are supported",
+            ),
             ("not a valid query", "Failed to parse HogQL query"),
             ("DROP TABLE events", "Failed to parse HogQL query"),
         ],
         ids=["filters", "placeholder-field", "placeholder-expression", "invalid-syntax", "not-a-select"],
     )
-    async def test_get_hogql_query_raises_on_unsupported_query(
-        self, hogql_query, expected_message, data_interval_start, data_interval_end
-    ):
-        model = HogQLQueryRecordBatchModel(team_id=1, hogql_query=hogql_query)
-
+    async def test_construction_raises_on_unsupported_query(self, hogql_query, expected_message):
+        # The query is parsed at construction, so an unsupported one fails before any run does.
         with pytest.raises(UnsupportedHogQLQueryError, match=expected_message):
-            model.get_hogql_query(data_interval_start, data_interval_end)
+            HogQLQueryRecordBatchModel(team_id=1, hogql_query=hogql_query)
 
     @pytest.mark.parametrize(
         "hogql_query",
@@ -421,7 +487,7 @@ class TestHogQLQueryRecordBatchModel:
         ],
         ids=["top-level", "after-union", "in-cte"],
     )
-    async def test_get_hogql_query_rejects_a_settings_clause(self, hogql_query, data_interval_start, data_interval_end):
+    async def test_construction_rejects_a_settings_clause(self, hogql_query):
         """A user query carrying its own SETTINGS is rejected, wherever that clause appears.
 
         The per-query resource limits are sent as request settings, and a query-level SETTINGS clause
@@ -429,14 +495,17 @@ class TestHogQLQueryRecordBatchModel:
         time and bytes-read caps. The parser refusing these is what the limits rest on, and nothing
         else asserts it.
         """
-        model = HogQLQueryRecordBatchModel(team_id=1, hogql_query=hogql_query)
-
         with pytest.raises(UnsupportedHogQLQueryError, match="settingsClause"):
-            model.get_hogql_query(data_interval_start, data_interval_end)
+            HogQLQueryRecordBatchModel(team_id=1, hogql_query=hogql_query)
 
     async def test_resolve_batch_exports_model_returns_hogql_model(self):
         batch_export_model = BatchExportModel(
-            name="hogql", schema=None, hogql_query="SELECT event AS event FROM events"
+            name="hogql",
+            schema=None,
+            hogql_query=(
+                "SELECT event AS event, timestamp AS timestamp FROM events "
+                "WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}"
+            ),
         )
 
         _, record_batch_model, model_name, _, _, _ = resolve_batch_exports_model(
@@ -446,6 +515,7 @@ class TestHogQLQueryRecordBatchModel:
         assert isinstance(record_batch_model, HogQLQueryRecordBatchModel)
         assert model_name == "hogql"
         assert record_batch_model.hogql_query == batch_export_model.hogql_query
+        assert record_batch_model.wait_for_data_interval_end is True
 
     async def test_resolve_batch_exports_model_raises_without_hogql_query(self):
         """Without this, a missing query would fall through to the events template path and export the wrong data."""

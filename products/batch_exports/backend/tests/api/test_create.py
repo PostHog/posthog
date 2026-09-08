@@ -15,14 +15,14 @@ from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.models.integration import Integration
 
-from products.batch_exports.backend.models.batch_export import BatchExport
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportSource
 from products.batch_exports.backend.tests.api.conftest import (
     assert_is_daily_schedule,
     assert_is_weekly_schedule,
     describe_schedule,
 )
 from products.batch_exports.backend.tests.api.fixtures import create_organization
-from products.batch_exports.backend.tests.api.operations import create_batch_export
+from products.batch_exports.backend.tests.api.operations import create_batch_export, list_batch_exports_ok
 
 pytestmark = [
     pytest.mark.django_db,
@@ -583,6 +583,127 @@ def test_create_batch_export_fails_with_invalid_query(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
     assert response.json()["detail"] == expected_error_message
+
+
+@pytest.mark.usefixtures("hogql_batch_exports_enabled")
+def test_create_batch_export_with_hogql_model(
+    client: HttpClient, temporal, encryption_codec, organization, team, user, hogql_batch_export_data
+):
+    client.force_login(user)
+
+    response = create_batch_export(client, team.pk, hogql_batch_export_data)
+
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
+    data = response.json()
+    assert data["model"] == "hogql"
+    assert data["hogql_query"] == hogql_batch_export_data["hogql_query"]
+    assert data["schema"] is None
+
+    batch_export = BatchExport.objects.select_related("source").get(id=data["id"])
+    assert batch_export.source is not None
+    assert batch_export.source.team_id == team.pk
+    assert batch_export.source.hogql_query == hogql_batch_export_data["hogql_query"]
+
+    listed = list_batch_exports_ok(client, team.pk)
+    assert [export["hogql_query"] for export in listed["results"]] == [hogql_batch_export_data["hogql_query"]]
+
+    schedule = describe_schedule(temporal, data["id"])
+    decoded_payload = async_to_sync(encryption_codec.decode)(schedule.schedule.action.args)
+    args = json.loads(decoded_payload[0].data)
+    assert args["batch_export_model"] == {
+        "filters": None,
+        "name": "hogql",
+        "schema": None,
+        "hogql_query": hogql_batch_export_data["hogql_query"],
+    }
+
+
+@pytest.mark.usefixtures("hogql_batch_exports_enabled")
+def test_create_batch_export_with_hogql_model_allows_query_without_placeholders(
+    client: HttpClient, temporal, organization, team, user, hogql_batch_export_data
+):
+    """A query without interval placeholders is valid: every run exports all rows it returns."""
+    client.force_login(user)
+    hogql_query = "SELECT event AS event FROM events"
+
+    response = create_batch_export(client, team.pk, {**hogql_batch_export_data, "hogql_query": hogql_query})
+
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
+    batch_export = BatchExport.objects.select_related("source").get(id=response.json()["id"])
+    assert batch_export.source is not None
+    assert batch_export.source.hogql_query == hogql_query
+
+
+@pytest.mark.parametrize(
+    "overrides,expected_attr,expected_error_message",
+    [
+        (
+            {"hogql_query": "SELECT event AS event FROM events WHERE event = {unknown_placeholder}"},
+            "hogql_query",
+            "Unknown placeholder '{unknown_placeholder}'. "
+            "Only {data_interval_start} and {data_interval_end} are supported in batch export queries",
+        ),
+        (
+            {"hogql_query": "SELECT event AS event FROM events WHERE {filters}"},
+            "hogql_query",
+            "Unsupported placeholder. "
+            "Only {data_interval_start} and {data_interval_end} are supported in batch export queries",
+        ),
+        ({"hogql_query": None}, "hogql_query", "'hogql_query' is required when 'model' is 'hogql'"),
+        (
+            {"hogql_query": "SELECT count() FROM events"},
+            "hogql_query",
+            "Every column in the SELECT clause must be a field or have an alias (e.g. `count() AS event_count`)",
+        ),
+        (
+            {"filters": [{"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}]},
+            "filters",
+            "'filters' are not supported when 'model' is 'hogql'",
+        ),
+    ],
+    ids=[
+        "unknown-placeholder",
+        "filters-placeholder",
+        "missing-hogql-query",
+        "unaliased-column",
+        "filters",
+    ],
+)
+@pytest.mark.usefixtures("hogql_batch_exports_enabled")
+def test_create_batch_export_with_hogql_model_fails_with_invalid_request(
+    client: HttpClient,
+    temporal,
+    organization,
+    team,
+    user,
+    hogql_batch_export_data,
+    overrides,
+    expected_attr,
+    expected_error_message,
+):
+    client.force_login(user)
+
+    response = create_batch_export(client, team.pk, {**hogql_batch_export_data, **overrides})
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["attr"] == expected_attr
+    # HogQL may append field name suggestions to a resolution error, so match on the prefix.
+    assert response.json()["detail"].startswith(expected_error_message), response.json()["detail"]
+    assert BatchExportSource.objects.for_team(team.pk).count() == 0
+
+
+def test_cannot_create_batch_export_with_hogql_model_if_not_enabled(
+    client: HttpClient, temporal, organization, team, user, hogql_batch_export_data
+):
+    client.force_login(user)
+    with mock.patch(
+        "products.batch_exports.backend.api.utils.posthoganalytics.feature_enabled", return_value=False
+    ) as feature_enabled:
+        response = create_batch_export(client, team.pk, hogql_batch_export_data)
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+    assert feature_enabled.call_args[0][0] == "hogql-batch-exports"
+    assert BatchExportSource.objects.for_team(team.pk).count() == 0
 
 
 @pytest.mark.parametrize(
