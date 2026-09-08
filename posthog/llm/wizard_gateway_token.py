@@ -50,6 +50,13 @@ WIZARD_PRODUCT = "wizard"
 # The gateway's effort vocabulary, in order; the pin sent at mint is a subset.
 WIZARD_EFFORT_LEVELS: tuple[str, ...] = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
 
+# What the CLI can ask for, not what it was measured asking for: a flag payload
+# or a remote prompt's frontmatter can name any of these with no deploy here,
+# while widening this needs one. "none" is a call with no effort parameter,
+# which is also the CLI's "off". "max" is absent because the CLI cannot send it,
+# so the pin refuses it and the escalation stays out of reach.
+WIZARD_DECLARABLE_EFFORTS: tuple[str, ...] = ("none", "minimal", "low", "medium", "high", "xhigh")
+
 # Every (model, effort) pair the wizard CLI dispatches, measured over stamped
 # wizard traffic; "none" is a request with no effort parameter. Wizard-wide
 # rather than per program: the CLI picks models per switchboard flag. Pinned at
@@ -59,6 +66,7 @@ WIZARD_MODEL_ALLOWLIST: dict[str, tuple[str, ...]] = {
     "claude-sonnet-5": ("none", "high"),
     "claude-haiku-4-5": ("none",),
     "claude-haiku-4-5-20251001": ("none",),
+    "claude-opus-4-8": ("none", "high"),
     "gpt-5.6-luna": ("low",),
     "gpt-5.6-sol": ("medium",),
     "gpt-5.6-terra": ("low", "medium", "high"),
@@ -82,10 +90,9 @@ def allowed_models() -> list[str]:
 
 
 def allowed_efforts() -> list[str]:
-    """The union of every model's efforts, in vocabulary order. Flat per token: a
+    """Every effort the CLI can declare, in vocabulary order. Flat per token: a
     per-model pin is a gateway follow-up."""
-    declared = {effort.strip().lower() for efforts in WIZARD_MODEL_ALLOWLIST.values() for effort in efforts}
-    return [level for level in WIZARD_EFFORT_LEVELS if level in declared]
+    return [level for level in WIZARD_EFFORT_LEVELS if level in WIZARD_DECLARABLE_EFFORTS]
 
 
 # An organization's standing at mint time, which picks its tier of limits.

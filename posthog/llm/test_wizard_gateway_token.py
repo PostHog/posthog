@@ -12,6 +12,7 @@ import requests
 from posthog.llm.wizard_gateway_token import (
     _TIER_FLOORS,
     NO_OVERRIDE,
+    WIZARD_DECLARABLE_EFFORTS,
     WIZARD_EFFORT_LEVELS,
     WIZARD_GATEWAY_CONFIG_REJECTS,
     WIZARD_MODEL_ALLOWLIST,
@@ -82,11 +83,12 @@ class TestMintWizardGatewayToken:
                 "claude-sonnet-5",
                 "claude-haiku-4-5",
                 "claude-haiku-4-5-20251001",
+                "claude-opus-4-8",
                 "gpt-5.6-luna",
                 "gpt-5.6-sol",
                 "gpt-5.6-terra",
             ],
-            "allowed_efforts": ["none", "low", "medium", "high"],
+            "allowed_efforts": ["none", "minimal", "low", "medium", "high", "xhigh"],
         }
         assert post.call_args.kwargs["headers"] == {"Authorization": "Bearer phs_wizard_secret"}
         assert post.call_args.kwargs["timeout"] > 0
@@ -105,10 +107,16 @@ class TestWizardModelAllowlist:
         with patch("posthog.llm.wizard_gateway_token.WIZARD_MODEL_ALLOWLIST", table):
             assert allowed_models() == ["gpt-5.6-luna", "claude-sonnet-5"]
 
-    def test_efforts_are_the_union_in_vocabulary_order(self):
-        table = {"a": ("High", "none"), "b": ("medium",), "c": ("xhigh", "high")}
+    def test_efforts_cover_what_the_cli_can_declare_not_what_the_table_measured(self):
+        # A flag payload or a remote prompt can name any declarable level with
+        # no deploy here, so a pin built from the table would refuse those runs.
+        table = {"a": ("high", "none")}
         with patch("posthog.llm.wizard_gateway_token.WIZARD_MODEL_ALLOWLIST", table):
-            assert allowed_efforts() == ["none", "medium", "high", "xhigh"]
+            assert allowed_efforts() == ["none", "minimal", "low", "medium", "high", "xhigh"]
+
+    def test_the_effort_pin_withholds_the_level_the_cli_cannot_send(self):
+        assert "max" not in allowed_efforts()
+        assert set(WIZARD_DECLARABLE_EFFORTS) <= set(WIZARD_EFFORT_LEVELS)
 
     def test_every_effort_in_the_table_is_gateway_vocabulary(self):
         for model, efforts in WIZARD_MODEL_ALLOWLIST.items():
