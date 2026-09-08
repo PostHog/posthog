@@ -95,10 +95,8 @@ def increment_workflow_finished(status: str) -> None:
     ).add(1)
 
 
-# Error types the calc activity uses for a metric it cannot calculate yet, from the user's own metric
-# config or data (broken HogQL, no exposures for the control variant). See
-# `classify_experiment_query_error`. Rejecting such a metric is the correct outcome, not a failure of
-# the recalculation.
+# `classify_experiment_query_error` gives these to a metric the user's own config or data cannot
+# support yet. Rejecting one is the correct outcome, so it must not count against the failure rate.
 _EXPECTED_REJECTION_ERROR_TYPES = frozenset({"validation_error"})
 
 

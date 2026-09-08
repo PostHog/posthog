@@ -156,9 +156,7 @@ async def test_workflow_interceptor_emits_finished_failed_on_hard_failure():
 
 @parameterized.expand(
     [
-        # A metric the user's data cannot support yet (no exposures for the control variant) is rejected on
-        # purpose, and the activity raises it as validation_error. Counting that here makes a correct
-        # rejection read as a recalculation reliability failure on every success-rate dashboard.
+        # Counting a rejection here makes an experiment with no exposures yet read as a reliability failure.
         ("expected_rejection", ApplicationError("no exposures yet", type="validation_error"), False),
         ("platform_failure", ApplicationError("clickhouse unavailable", type="server_error"), True),
         ("plain_exception", RuntimeError("boom"), True),
