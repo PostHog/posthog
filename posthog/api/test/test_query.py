@@ -29,6 +29,7 @@ from posthog.schema import (
     HogQLQuery,
     PersonPropertyFilter,
     PropertyOperator,
+    QueryStatus,
 )
 
 from posthog.hogql.constants import LimitContext
@@ -1557,6 +1558,16 @@ class TestQueryCostHeaders(ClickhouseTestMixin, APIBaseTest):
         if api_key:
             assert int(response["X-PostHog-Query-Bytes-Read"]) >= 0
             assert int(response["X-PostHog-Query-Budget-Remaining-Bytes"]) > 0
+
+    def test_async_query_status_carries_the_cost_once_complete(self):
+        query_status = QueryStatus(
+            id="q1", team_id=self.team.id, complete=True, bytes_read=1234, budget_remaining_bytes=99
+        )
+        with patch("posthog.api.query.get_query_status", return_value=query_status):
+            response = self.client.get(f"/api/projects/{self.team.id}/query/q1/", headers=self._personal_key_headers())
+        assert response.status_code == 200
+        assert response["X-PostHog-Query-Bytes-Read"] == "1234"
+        assert response["X-PostHog-Query-Budget-Remaining-Bytes"] == "99"
 
     def test_budget_429_is_not_captured_as_an_error(self):
         with (

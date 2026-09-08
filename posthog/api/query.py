@@ -98,6 +98,12 @@ QUERY_VALIDATION_ERROR_TOTAL = Counter(
 )
 
 
+def _add_query_cost_headers(response: HttpResponseBase, bytes_read: int, remaining_bytes: int | None) -> None:
+    response["X-PostHog-Query-Bytes-Read"] = str(bytes_read)
+    if remaining_bytes is not None:
+        response["X-PostHog-Query-Budget-Remaining-Bytes"] = str(remaining_bytes)
+
+
 def _extract_validation_code(error: ValidationError) -> str:
     validation_codes = error.get_codes()
     if isinstance(validation_codes, list):
@@ -358,9 +364,11 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             response = Response(result, status=response_status)
             cost = get_request_query_cost()
             if cost is not None and get_query_tag_value("access_method") == "personal_api_key":
-                response["X-PostHog-Query-Bytes-Read"] = str(cost.bytes_read)
-                if cost.remaining_bytes is not None:
-                    response["X-PostHog-Query-Budget-Remaining-Bytes"] = str(int(cost.remaining_bytes))
+                _add_query_cost_headers(
+                    response,
+                    cost.bytes_read,
+                    int(cost.remaining_bytes) if cost.remaining_bytes is not None else None,
+                )
             return response
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             detail = str(e)
@@ -443,7 +451,10 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         elif query_status.complete:
             http_code = status.HTTP_200_OK
 
-        return JsonResponse(query_status_response.model_dump(), safe=False, status=http_code)
+        response = JsonResponse(query_status_response.model_dump(), safe=False, status=http_code)
+        if query_status.bytes_read is not None:
+            _add_query_cost_headers(response, query_status.bytes_read, query_status.budget_remaining_bytes)
+        return response
 
     @extend_schema(responses={200: OpenApiTypes.OBJECT})
     @action(methods=["POST"], detail=False)

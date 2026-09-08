@@ -16,6 +16,7 @@ from posthog.schema import ClickhouseQueryProgress, QueryStatus
 from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.api_queries_budget import QueryCost, record_request_query_cost
 from posthog.clickhouse.client import (
     execute_async as client,
     sync_execute,
@@ -217,6 +218,28 @@ class TestExecuteProcessQuery(TestCase):
         args, kwargs = mock_redis.set.call_args
         args_loaded = json.loads(args[1])
         self.assertEqual(args_loaded["results"], [None, None, None, 1.0, "👍"])
+
+    @patch("posthog.clickhouse.client.execute_async.redis.get_client")
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_execute_process_query_stores_the_query_cost(self, mock_process_query_dict, mock_redis_client):
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = json.dumps(
+            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
+        ).encode()
+        mock_redis_client.return_value = mock_redis
+
+        def run_and_meter(**kwargs):
+            record_request_query_cost(QueryCost(bytes_read=1234, remaining_bytes=99.9))
+            return {"results": []}
+
+        mock_process_query_dict.side_effect = run_and_meter
+
+        execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
+
+        args, _kwargs = mock_redis.set.call_args
+        stored = json.loads(args[1])
+        assert stored["bytes_read"] == 1234
+        assert stored["budget_remaining_bytes"] == 99
 
     @parameterized.expand(
         [
