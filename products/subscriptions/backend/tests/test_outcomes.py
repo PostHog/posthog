@@ -176,7 +176,7 @@ def test_missing_or_malformed_measurement_is_terminal_unavailable(team, measurem
     assert outcome.measurement_spec is None
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_due_read_queries_outside_the_terminal_write_lock(team, monkeypatch) -> None:
     artifact = _adopted_artifact(team, adopted_at=django_timezone.now() - timedelta(days=7))
     provisioned = provision_outcome_for_adopted_artifact(team_id=team.id, artifact_id=artifact.id)
