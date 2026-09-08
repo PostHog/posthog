@@ -508,9 +508,24 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         )
         # Tolerated drift on master: current_ flickers, baseline stays at
         # base-2 — must NOT create a new entry (the prod bug behind 252
-        # fake events on a single tolerated-drift story).
+        # fake events on a single tolerated-drift story). The pair aligned
+        # with nothing moved, which is a row shift of zero, not a shift.
         self._seed_history_row(
-            sha="ddd0000", branch="master", content_hash="hash-jitter", baseline_content_hash="base-2"
+            sha="ddd0000",
+            branch="master",
+            content_hash="hash-jitter",
+            baseline_content_hash="base-2",
+            diff_metadata={
+                "row_shift": {
+                    "inserted_rows": 0,
+                    "deleted_rows": 0,
+                    "changed_rows": 3,
+                    "residual_pixel_count": 40,
+                    "residual_percentage": 0.01,
+                    "raw_diff_percentage": 0.01,
+                    "bands": [],
+                }
+            },
         )
         # Absorbed shift on master: baseline stays at base-2, but the rows
         # moved, and that trace only lives in history — must be an entry.

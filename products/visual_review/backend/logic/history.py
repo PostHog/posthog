@@ -28,7 +28,10 @@ WITH ordered AS (
 SELECT id
 FROM ordered
 WHERE prev_baseline_id IS DISTINCT FROM baseline_artifact_id
-   OR jsonb_typeof(diff_metadata -> 'row_shift') = 'object'
+   OR GREATEST(
+        COALESCE((diff_metadata -> 'row_shift' ->> 'inserted_rows')::int, 0),
+        COALESCE((diff_metadata -> 'row_shift' ->> 'deleted_rows')::int, 0)
+      ) > 0
 ORDER BY created_at DESC
 """
 
