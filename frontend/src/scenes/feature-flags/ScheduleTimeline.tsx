@@ -3,7 +3,7 @@ import { pluralize } from 'lib/utils/strings'
 
 import { ScheduledChangeOperationType } from '~/types'
 
-import { ScheduleOccurrence } from './scheduleOccurrences'
+import { ScheduleOccurrence, ScheduleProjectedState } from './scheduleOccurrences'
 
 const WIDTH = 600
 const HEIGHT = 140
@@ -23,6 +23,16 @@ const TOP_LABEL_LANE_OFFSET = 10
  */
 const STEP_LABEL_EDGE_PAD = 65
 
+/**
+ * Names the level an added condition sits under. A disabled flag serves nobody whatever its rollout
+ * says, so the wording follows the projected status rather than claiming an audience either way.
+ */
+function coveringLevel(projected: ScheduleProjectedState): string {
+    return projected.active
+        ? `${projected.rolloutPercentage}% the flag already serves`
+        : `${projected.rolloutPercentage}% set on this disabled flag`
+}
+
 function describeOccurrence(occurrence: ScheduleOccurrence): string {
     const { operation, projected, addedRolloutPercentage } = occurrence
     if (operation === ScheduledChangeOperationType.UpdateStatus) {
@@ -36,7 +46,7 @@ function describeOccurrence(occurrence: ScheduleOccurrence): string {
         // appends a condition set, so an existing higher one would otherwise be misreported here.
         // Say when that existing one holds the level, or the plan reads as a ramp that does not ramp.
         return occurrence.rolloutUnchanged
-            ? `add a condition at ${addedRolloutPercentage}% rollout, no change from the ${projected.rolloutPercentage}% the flag already serves`
+            ? `add a condition at ${addedRolloutPercentage}% rollout, no change from the ${coveringLevel(projected)}`
             : `add a condition at ${addedRolloutPercentage}% rollout`
     }
     return `switch to ${pluralize(occurrence.projected.variantCount ?? 0, 'variant')}`
@@ -84,7 +94,7 @@ function markTitle(occurrence: ScheduleOccurrence): string {
     return [
         occurrence.needsApproval ? 'Needs approval' : '',
         occurrence.rolloutUnchanged
-            ? `This condition sits at ${occurrence.addedRolloutPercentage}%, at or below the ${occurrence.projected.rolloutPercentage}% the flag already serves`
+            ? `This condition sits at ${occurrence.addedRolloutPercentage}%, at or below the ${coveringLevel(occurrence.projected)}`
             : '',
     ]
         .filter(Boolean)

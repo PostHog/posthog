@@ -79,50 +79,73 @@ describe('ScheduleTimeline', () => {
         expect(screen.getByText('Next: add a condition at 10% rollout on Aug 26, 10:22 AM')).toBeInTheDocument()
     })
 
-    it('summarizes a covered condition add as no change', () => {
+    it.each([
+        {
+            name: 'a flag that serves the level',
+            active: true,
+            expected:
+                'Next: add a condition at 25% rollout, no change from the 100% the flag already serves on Aug 26, 10:22 AM',
+        },
+        {
+            // The chart has no On/Off marker beside a lone summary, so a claim about who the flag
+            // serves is the whole message a reader gets.
+            name: 'a flag that is off',
+            active: false,
+            expected:
+                'Next: add a condition at 25% rollout, no change from the 100% set on this disabled flag on Aug 26, 10:22 AM',
+        },
+    ])('summarizes a covered condition add as no change on $name', ({ active, expected }) => {
         const covered = occurrence({
             operation: ScheduledChangeOperationType.AddReleaseCondition,
             addedRolloutPercentage: 25,
             rolloutUnchanged: true,
-            projected: { active: true, rolloutPercentage: 100, variantCount: null },
+            projected: { active, rolloutPercentage: 100, variantCount: null },
         })
         render(<ScheduleTimeline occurrences={[covered]} currentRolloutPercentage={100} timezone="UTC" />)
 
-        expect(
-            screen.getByText(
-                'Next: add a condition at 25% rollout, no change from the 100% the flag already serves on Aug 26, 10:22 AM'
+        expect(screen.getByText(expected)).toBeInTheDocument()
+    })
+
+    it.each([
+        {
+            name: 'a flag that serves the level',
+            active: true,
+            expectedTitle: 'This condition sits at 25%, at or below the 100% the flag already serves',
+        },
+        {
+            name: 'a flag that is off',
+            active: false,
+            expectedTitle: 'This condition sits at 25%, at or below the 100% set on this disabled flag',
+        },
+    ])(
+        'labels a step that holds its level, so a flat line does not read as broken: $name',
+        ({ active, expectedTitle }) => {
+            const { container } = render(
+                <ScheduleTimeline
+                    occurrences={[
+                        occurrence({
+                            operation: ScheduledChangeOperationType.AddReleaseCondition,
+                            addedRolloutPercentage: 25,
+                            rolloutUnchanged: true,
+                            projected: { active, rolloutPercentage: 100, variantCount: null },
+                        }),
+                        occurrence({
+                            timestamp: '2099-08-28T10:22:00Z',
+                            operation: ScheduledChangeOperationType.AddReleaseCondition,
+                            addedRolloutPercentage: 50,
+                            rolloutUnchanged: true,
+                            projected: { active, rolloutPercentage: 100, variantCount: null },
+                        }),
+                    ]}
+                    currentRolloutPercentage={100}
+                    timezone="UTC"
+                />
             )
-        ).toBeInTheDocument()
-    })
 
-    it('labels a step that holds its level, so a flat line does not read as broken', () => {
-        const { container } = render(
-            <ScheduleTimeline
-                occurrences={[
-                    occurrence({
-                        operation: ScheduledChangeOperationType.AddReleaseCondition,
-                        addedRolloutPercentage: 25,
-                        rolloutUnchanged: true,
-                        projected: { active: true, rolloutPercentage: 100, variantCount: null },
-                    }),
-                    occurrence({
-                        timestamp: '2099-08-28T10:22:00Z',
-                        operation: ScheduledChangeOperationType.AddReleaseCondition,
-                        addedRolloutPercentage: 50,
-                        rolloutUnchanged: true,
-                        projected: { active: true, rolloutPercentage: 100, variantCount: null },
-                    }),
-                ]}
-                currentRolloutPercentage={100}
-                timezone="UTC"
-            />
-        )
-
-        expect(screen.getAllByText('still 100%')).toHaveLength(2)
-        expect(container.querySelector('g > title')?.textContent).toEqual(
-            'This condition sits at 25%, at or below the 100% the flag already serves'
-        )
-    })
+            expect(screen.getAllByText('still 100%')).toHaveLength(2)
+            expect(container.querySelector('g > title')?.textContent).toEqual(expectedTitle)
+        }
+    )
 
     it('anchors a step label at its mark near either edge, so the text stays in the plot', () => {
         // An uneven plan puts the first mark at the axis origin and the last at the right edge. The
