@@ -239,13 +239,13 @@ function collectZodIssueDetail(
             return
         }
         codes.add(issue.code)
+        const path = [...prefix, ...issue.path]
         if (issue.code === 'unrecognized_keys') {
             for (const key of issue.keys) {
-                fields.add(key)
+                fields.add([...path, key].map(String).join('.'))
             }
             continue
         }
-        const path = [...prefix, ...issue.path]
         fields.add(path.map(String).join('.') || '(root)')
         if (issue.code === 'invalid_union' && depth < MAX_VALIDATION_UNION_DEPTH) {
             for (const branch of issue.errors) {

@@ -1181,14 +1181,33 @@ describe('exec tool', () => {
             expect(JSON.stringify(detail)).not.toContain('SENSITIVE')
         })
 
-        it('surfaces rejected key names for unrecognized properties', () => {
-            const schema = z.object({ name: z.string() }).strict()
-            const result = schema.safeParse({ name: 'ok', notifcation_targets: ['x'] }, { reportInput: true })
+        it.each([
+            [
+                'top level',
+                z.object({ name: z.string() }).strict(),
+                { name: 'ok', notifcation_targets: ['x'] },
+                'notifcation_targets',
+            ],
+            [
+                'nested under a parent object',
+                // Mirrors ScoreDefinitionConfigSchema: a union of strict variants under `config`.
+                z.object({
+                    name: z.string(),
+                    config: z.union([
+                        z.object({ min: z.number().optional() }).strict(),
+                        z.object({ true_label: z.string().optional() }).strict(),
+                    ]),
+                }),
+                { name: 'ok', config: { min: 1, bogus: 2 } },
+                'config.bogus',
+            ],
+        ])('surfaces rejected key names for unrecognized properties (%s)', (_case, schema, input, expected) => {
+            const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
             const detail = extractZodValidationDetail((result as { error: z.ZodError }).error)
 
             expect(detail.codes).toContain('unrecognized_keys')
-            expect(detail.fields).toContain('notifcation_targets')
+            expect(detail.fields).toContain(expected)
         })
     })
 
