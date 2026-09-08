@@ -639,6 +639,12 @@ AI_GATEWAY_PUBLIC_URL = os.getenv("AI_GATEWAY_PUBLIC_URL", "http://localhost:808
 # Rust feature flags service URL
 # This is used to proxy flag evaluation requests to the Rust feature flags service
 FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
+HOGQL_LANGUAGE_SERVICE_URL = get_from_env(
+    "HOGQL_LANGUAGE_SERVICE_URL", "http://localhost:8091" if DEBUG and not TEST else ""
+)
+HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS = get_list(
+    get_from_env("HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS", "local-development-key" if DEBUG and not TEST else "")
+)
 
 # Definitions fleet, which serves remote_config (the eval fleet 404s it). Falls back until set per env.
 FEATURE_FLAGS_DEFINITIONS_SERVICE_URL = os.getenv("FEATURE_FLAGS_DEFINITIONS_SERVICE_URL", FEATURE_FLAGS_SERVICE_URL)
