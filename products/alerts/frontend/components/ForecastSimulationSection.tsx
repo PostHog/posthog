@@ -3,10 +3,14 @@ import { LemonButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjsNowInTimezone } from 'lib/dayjs'
 
-import { ForecastConditionType } from '~/queries/schema/schema-general'
+import { ForecastConditionType, InsightsThresholdBounds } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
 
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
+import {
+    hasInvertedThresholdBounds,
+    INVERTED_THRESHOLD_BOUNDS_FORM_ERROR,
+} from 'products/alerts/frontend/logic/alertFormSchema'
 import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import {
     forecastTargetDateError,
@@ -15,6 +19,18 @@ import {
 } from 'products/alerts/frontend/logic/forecastReach'
 
 import { getSimulationRangeOptions } from './editAlertModalUtils'
+
+/** Why an upcoming-breach forecast cannot be previewed yet, or null when it can. The form rejects
+ * the same bound pairs on save, but that error only shows once the user has tried to save. */
+function breachThresholdError(bounds: InsightsThresholdBounds | null | undefined): string | null {
+    if (bounds?.lower == null && bounds?.upper == null) {
+        return 'Set a less-than or more-than threshold first'
+    }
+    if (hasInvertedThresholdBounds(bounds)) {
+        return INVERTED_THRESHOLD_BOUNDS_FORM_ERROR
+    }
+    return null
+}
 
 interface ForecastSimulationSectionProps {
     alertForm: AlertFormType
@@ -44,12 +60,9 @@ export function ForecastSimulationSection({
         forecastConfig?.condition === ForecastConditionType.TARGET_BY_DATE
             ? forecastTargetValueError(forecastConfig.target)
             : null
-    const thresholdBounds = alertForm.threshold?.configuration?.bounds
     const thresholdError =
-        forecastConfig?.condition === ForecastConditionType.FUTURE_BREACH &&
-        thresholdBounds?.lower == null &&
-        thresholdBounds?.upper == null
-            ? 'Set a less-than or more-than threshold first'
+        forecastConfig?.condition === ForecastConditionType.FUTURE_BREACH
+            ? breachThresholdError(alertForm.threshold?.configuration?.bounds)
             : null
     const disabledReason = targetValueError ?? targetDateError ?? thresholdError ?? undefined
     const rangeOptions = usableSimulationRanges(

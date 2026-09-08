@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import { dayjs, dayjsNowInTimezone } from 'lib/dayjs'
 
-import { AlertConditionType, ForecastConditionType } from '~/queries/schema/schema-general'
+import { AlertConditionType, ForecastConditionType, InsightsThresholdBounds } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
 
 import type { AlertType } from '../types'
@@ -13,11 +13,18 @@ import { forecastTargetDateError, forecastTargetValueError } from './forecastRea
 import { quietHoursFormError } from './scheduleRestrictionValidation'
 
 export const THRESHOLD_BOUNDS_FORM_ERROR = 'Enter at least one threshold (less than or more than)'
+export const INVERTED_THRESHOLD_BOUNDS_FORM_ERROR = 'The “Less than” value must be lower than the “More than” value'
 
 const NAME_REQUIRED_MESSAGE = 'You need to give your alert a name'
 
 function isFiniteThresholdBound(value: number | null | undefined): value is number {
     return value != null && Number.isFinite(value)
+}
+
+/** Whether the pair of bounds is impossible to satisfy: every value sits outside one of them, so
+ * the comparator reports a breach on the very first point. */
+export function hasInvertedThresholdBounds(bounds: InsightsThresholdBounds | null | undefined): boolean {
+    return isFiniteThresholdBound(bounds?.lower) && isFiniteThresholdBound(bounds?.upper) && bounds.lower > bounds.upper
 }
 
 export function thresholdAlertHasBounds(alert: AlertFormType | AlertType): boolean {
@@ -82,17 +89,11 @@ const alertFormSchema = z
         const bounds = alert.threshold?.configuration?.bounds
         const forecast = (alert as AlertFormType).forecast_config
         const usesThresholdBounds = !forecast || forecast.condition === ForecastConditionType.FUTURE_BREACH
-        if (
-            !alert.detector_config &&
-            usesThresholdBounds &&
-            isFiniteThresholdBound(bounds?.lower) &&
-            isFiniteThresholdBound(bounds?.upper) &&
-            bounds.lower > bounds.upper
-        ) {
+        if (!alert.detector_config && usesThresholdBounds && hasInvertedThresholdBounds(bounds)) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
                 path: ['threshold'],
-                message: 'The “Less than” value must be lower than the “More than” value',
+                message: INVERTED_THRESHOLD_BOUNDS_FORM_ERROR,
             })
         }
 
