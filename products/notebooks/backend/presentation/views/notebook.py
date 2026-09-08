@@ -31,7 +31,6 @@ from rest_framework.serializers import BaseSerializer
 
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -47,7 +46,7 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.utils import UUIDT, uuid7
-from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
+from posthog.renderers import ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
 
@@ -157,7 +156,6 @@ from products.tasks.backend.facade.exceptions import SandboxProvisionError
 from products.tasks.backend.facade.sandbox import SandboxStatus
 
 from ee.hogai.utils.aio import async_to_sync
-from ee.hogai.utils.asgi import SyncIterableToAsync
 
 logger = structlog.get_logger(__name__)
 
@@ -485,22 +483,6 @@ class NotebookKernelExecuteSerializer(serializers.Serializer):
     timeout = serializers.FloatField(required=False, min_value=0.1, max_value=120)
 
 
-class NotebookHogQLExecuteSerializer(serializers.Serializer):
-    query = serializers.CharField(allow_blank=True)
-
-
-class NotebookKernelDataframeSerializer(serializers.Serializer):
-    variable_name = serializers.CharField()
-    offset = serializers.IntegerField(default=0, min_value=0)
-    limit = serializers.IntegerField(default=10, min_value=1, max_value=500)
-    timeout = serializers.FloatField(required=False, min_value=0.1, max_value=120)
-
-    def validate_variable_name(self, value: str) -> str:
-        if not value.isidentifier():
-            raise serializers.ValidationError("Variable name must be a valid identifier.")
-        return value
-
-
 ALLOWED_KERNEL_CPU_CORES = [0.125, 0.25, 0.5, 1, 2, 4, 6, 8, 16, 32, 64]
 ALLOWED_KERNEL_MEMORY_GB = [0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256]
 ALLOWED_KERNEL_IDLE_TIMEOUT_SECONDS = [600, 1800, 3600, 10800, 21600, 43200]
@@ -630,16 +612,6 @@ class NotebookCollabPresenceSerializer(serializers.Serializer):
 
 def _collab_user_name(user: User) -> str:
     return user.get_full_name() or "Wandering Hog"
-
-
-def _format_hogql_response_payload(response: Any) -> dict[str, Any]:
-    if hasattr(response, "model_dump"):
-        response_payload = response.model_dump(exclude_none=True)
-    else:
-        response_payload = response.dict(exclude_none=True)
-    for key in ("clickhouse", "hogql", "timings", "modifiers"):
-        response_payload.pop(key, None)
-    return response_payload
 
 
 IDENTITY_ONLY_DETAIL_ACTIONS = frozenset({"collab_presence", "collab_stream", "activity"})
@@ -1543,93 +1515,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response({"detail": "Failed to execute notebook code."}, status=503)
 
         return Response(execution.as_dict())
-
-    @action(methods=["POST"], url_path="hogql/execute", detail=True)
-    def hogql_execute(self, request: Request, **kwargs):
-        serializer = NotebookHogQLExecuteSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        notebook = self._get_notebook_for_kernel()
-
-        try:
-            response = execute_hogql_query(
-                query=serializer.validated_data["query"], team=self.team, user=self._current_user()
-            )
-        except Exception as err:
-            logger.exception("notebook_hogql_execute_failed", notebook_short_id=notebook.short_id)
-            return Response({"error": str(err)}, status=400)
-
-        return Response(_format_hogql_response_payload(response))
-
-    @action(
-        methods=["POST"],
-        url_path="kernel/execute/stream",
-        detail=True,
-        renderer_classes=[ServerSentEventRenderer],
-    )
-    def kernel_execute_stream(self, request: Request, **kwargs):
-        serializer = NotebookKernelExecuteSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        notebook = self._get_notebook_for_kernel()
-
-        analysis = analyze_python_globals(serializer.validated_data["code"])
-        variable_names = [entry["name"] for entry in analysis.exported_with_types]
-        renderer = SafeJSONRenderer()
-
-        def stream():
-            try:
-                for event in get_kernel_runtime(notebook, self._current_user()).execute_stream(
-                    serializer.validated_data["code"],
-                    capture_variables=serializer.validated_data.get("return_variables", True),
-                    variable_names=variable_names,
-                    timeout=serializer.validated_data.get("timeout"),
-                ):
-                    if event["type"] == "result":
-                        payload = event["data"]
-                    else:
-                        payload = {"text": event.get("text", "")}
-                    payload_json = renderer.render(payload).decode()
-                    yield f"event: {event['type']}\ndata: {payload_json}\n\n".encode()
-            except SandboxProvisionError:
-                logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
-                payload = {"error": "Failed to execute notebook code."}
-                payload_json = renderer.render(payload).decode()
-                yield f"event: error\ndata: {payload_json}\n\n".encode()
-            except RuntimeError:
-                logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
-                payload = {"error": "Failed to execute notebook code."}
-                payload_json = renderer.render(payload).decode()
-                yield f"event: error\ndata: {payload_json}\n\n".encode()
-
-        streaming_content = SyncIterableToAsync(stream()) if SERVER_GATEWAY_INTERFACE == "ASGI" else stream()
-        return sse_streaming_response(streaming_content, endpoint="notebook_stream")
-
-    @action(methods=["GET"], url_path="kernel/dataframe", detail=True)
-    def kernel_dataframe(self, request: Request, **kwargs):
-        serializer = NotebookKernelDataframeSerializer(data=request.query_params)
-        serializer.is_valid(raise_exception=True)
-        notebook = self._get_notebook_for_kernel()
-
-        try:
-            data = get_kernel_runtime(notebook, self._current_user()).dataframe_page(
-                serializer.validated_data["variable_name"],
-                offset=serializer.validated_data["offset"],
-                limit=serializer.validated_data["limit"],
-                timeout=serializer.validated_data.get("timeout"),
-            )
-        except ValueError:
-            logger.exception(
-                "notebook_kernel_dataframe_invalid_request",
-                notebook_short_id=notebook.short_id,
-            )
-            return Response({"detail": "Invalid dataframe request."}, status=400)
-        except SandboxProvisionError:
-            logger.exception("notebook_kernel_dataframe_failed", notebook_short_id=notebook.short_id)
-            return Response({"detail": "Failed to fetch dataframe data."}, status=503)
-        except RuntimeError:
-            logger.exception("notebook_kernel_dataframe_failed", notebook_short_id=notebook.short_id)
-            return Response({"detail": "Failed to fetch dataframe data."}, status=503)
-
-        return Response(data)
 
     @extend_schema(
         responses={200: NotebookSQLV2StateResponseSerializer},
