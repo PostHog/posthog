@@ -17,6 +17,14 @@ import {
 
 import { DataTableRow } from './dataTableLogic'
 
+export function projectExportRows(rows: DataTableRow[], columns: string[], exportColumns: string[]): DataTableRow[] {
+    const indexes = exportColumns.map((column) => columns.indexOf(column))
+    return rows.map((row) => {
+        const result = row.result
+        return Array.isArray(result) ? { ...row, result: indexes.map((index) => result[index]) } : row
+    })
+}
+
 const columnDisallowList = ['person.$delete', '*']
 
 // Helper function to recursively flatten objects for CSV export

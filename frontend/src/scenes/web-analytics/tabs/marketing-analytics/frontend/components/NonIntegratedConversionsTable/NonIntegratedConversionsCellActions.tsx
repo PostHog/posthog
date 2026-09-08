@@ -6,8 +6,11 @@ import { NativeMarketingSource } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import {
+    MappableColumn,
     MappingTypes,
     extractStringValue,
+    getMappableColumn,
+    isMappableValue,
     getAutoMatchedCampaigns,
     getAvailableIntegrationsForCampaign,
     getAvailableIntegrationsForSource,
@@ -28,17 +31,18 @@ export function NonIntegratedConversionsCellActions({
     columnName,
     value,
 }: NonIntegratedConversionsCellActionsProps): JSX.Element | null {
-    const columnLower = columnName.toLowerCase()
-
-    if (columnLower === 'source') {
-        return <SourceCellActions value={value} />
+    if (!isMappableValue(value)) {
+        return null
     }
 
-    if (columnLower === 'campaign') {
-        return <CampaignCellActions value={value} />
+    switch (getMappableColumn(columnName)) {
+        case MappableColumn.Source:
+            return <SourceCellActions value={value} />
+        case MappableColumn.Campaign:
+            return <CampaignCellActions value={value} />
+        default:
+            return null
     }
-
-    return null
 }
 
 function SourceCellActions({ value }: { value: unknown }): JSX.Element | null {

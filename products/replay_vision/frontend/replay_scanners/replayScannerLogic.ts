@@ -2305,6 +2305,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             actions.loadObservations()
             actions.loadObservationStats()
         }
+        // Setup re-runs when the tab becomes visible
+        cache.disposables.add(() => {
+            if (cache.teamRefreshArmed && !teamLogic.values.currentTeamLoading) {
+                teamLogic.actions.refreshCurrentTeam()
+            }
+            cache.teamRefreshArmed = true
+            return () => {}
+        }, 'refreshTeamOnVisible')
     }),
 
     beforeUnmount(({ values, props, cache }) => {
