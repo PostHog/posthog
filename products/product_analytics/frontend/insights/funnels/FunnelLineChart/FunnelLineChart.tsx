@@ -32,7 +32,11 @@ import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { buildBaseLegendConfig } from '../../trends/shared/buildBaseLegendConfig'
-import { FUNNEL_CONVERSION_SERIES_LABEL, type FunnelSeriesMeta } from '../shared/funnelSeriesMeta'
+import {
+    FUNNEL_CONVERSION_SERIES_LABEL,
+    formatFunnelConversionValue,
+    type FunnelSeriesMeta,
+} from '../shared/funnelSeriesMeta'
 import { buildFunnelLineSeries, buildFunnelLineTimeSeriesConfig, type IndexedFunnelStep } from './funnelChartTransforms'
 import { type FunnelLineChartClickDeps, handleFunnelLineChartClick } from './handleFunnelLineChartClick'
 
@@ -223,7 +227,14 @@ export function FunnelLineChart({
                 dateRange={insightData?.resolved_date_range ?? undefined}
                 groupTypeLabel={resolvedGroupTypeLabel}
                 renderSeriesOverride={(datum) => datum.label ?? ''}
-                renderCount={(value) => `${value}%`}
+                renderCount={(value, datum) =>
+                    formatFunnelConversionValue(
+                        value,
+                        ctx.dataIndex,
+                        datum ? ctx.seriesData[datum.datasetIndex]?.series.meta : undefined,
+                        resolvedGroupTypeLabel
+                    )
+                }
                 onRowClick={
                     showPersonsModal
                         ? (datum) => {

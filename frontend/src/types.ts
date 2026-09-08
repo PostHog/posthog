@@ -3579,6 +3579,10 @@ export interface FunnelStep {
     data?: number[]
     days?: string[]
 
+    /** Trends only: per-period counts behind each `data` conversion rate. */
+    reached_from_step_count?: number[]
+    reached_to_step_count?: number[]
+
     /** Set by the funnel compare orchestrator to tag which period a step belongs to. */
     compare_label?: 'current' | 'previous'
 

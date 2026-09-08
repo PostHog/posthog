@@ -29,6 +29,8 @@ interface NormalizedFunnelStep {
     order: number
     compare?: boolean
     compare_label?: string | null
+    reached_from_step_count?: number[]
+    reached_to_step_count?: number[]
 }
 
 function normalizeStep(step: IndexedFunnelStep): NormalizedFunnelStep {
@@ -41,6 +43,8 @@ function normalizeStep(step: IndexedFunnelStep): NormalizedFunnelStep {
         order: step.order,
         compare: step.compare,
         compare_label: step.compare_label,
+        reached_from_step_count: step.reached_from_step_count,
+        reached_to_step_count: step.reached_to_step_count,
     }
 }
 
@@ -63,6 +67,8 @@ export function buildFunnelLineSeries(
             compare_label: (step.compare_label ?? undefined) as SeriesDatum['compare_label'],
             order: step.order,
             label: step.label,
+            reached_from_step_count: step.reached_from_step_count,
+            reached_to_step_count: step.reached_to_step_count,
         }),
     })
 }

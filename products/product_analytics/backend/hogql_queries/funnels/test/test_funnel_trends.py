@@ -622,6 +622,34 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(0, friday["reached_from_step_count"])
         self.assertEqual(0, friday["conversion_rate"])
 
+    def test_summarized_results_carry_step_counts_per_period(self):
+        self._create_sample_data()
+
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-07 00:00:00",
+            ),
+            interval="day",
+            series=[
+                EventsNode(event="step one"),
+                EventsNode(event="step two"),
+                EventsNode(event="step three"),
+            ],
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
+
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        self.assertEqual(1, len(results))
+        self.assertEqual([100, 0, 0, 0, 0, 0, 0], results[0]["data"])
+        self.assertEqual([3, 2, 0, 0, 0, 1, 0], results[0]["reached_from_step_count"])
+        self.assertEqual([3, 0, 0, 0, 0, 0, 0], results[0]["reached_to_step_count"])
+
     def test_window_size_one_day(self):
         self._create_sample_data()
 
@@ -3429,6 +3457,8 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
                         "7-Jan-2024",
                         "8-Jan-2024",
                     ],
+                    "reached_from_step_count": [0, 1, 1, 0, 0, 0, 0, 0],
+                    "reached_to_step_count": [0, 0, 0, 0, 0, 0, 0, 0],
                 }
             ],
             results,
