@@ -78,10 +78,10 @@ export interface accountSidebarPropertiesLogicActions {
         errorObject?: any
     }
     loadPropertyDataSuccess: (
-        propertyData: AccountSidebarPropertyData,
+        propertyData: AccountSidebarPropertyData | null,
         payload?: void
     ) => {
-        propertyData: AccountSidebarPropertyData
+        propertyData: AccountSidebarPropertyData | null
         payload?: void
     }
     persistCustomProperty: ({
@@ -217,11 +217,14 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
             saveCustomProperty: (propertyKey: string, value: AccountCustomPropertyValue) => ({ propertyKey, value }),
             saveRelationship: (propertyKey: string, memberIds: number[]) => ({ propertyKey, memberIds }),
         }),
-        loaders(({ props }) => ({
+        loaders(({ props, values }) => ({
             propertyData: [
                 null as AccountSidebarPropertyData | null,
                 {
-                    loadPropertyData: async (_: void, breakpoint): Promise<AccountSidebarPropertyData> => {
+                    loadPropertyData: async (_: void, breakpoint): Promise<AccountSidebarPropertyData | null> => {
+                        if (values.resolvedPinnedProperties.length === 0) {
+                            return null
+                        }
                         const [customValues, relationships] = await Promise.all([
                             api.accountsCustomPropertyValuesList(String(props.projectId), props.accountId),
                             api.accountsRelationshipsList(String(props.projectId), props.accountId),
@@ -415,8 +418,12 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                 persistCustomPropertySuccess: refresh,
                 persistRelationshipSuccess: refresh,
                 persistRelationshipFailure: refresh,
-                [accountRelationshipsLogic({ accountId: props.accountId }).actionTypes.loadRelationshipsSuccess]: () =>
+                [accountSidebarConfigLogic({ projectId: props.projectId }).actionTypes.loadConfigSuccess]: () =>
                     actions.loadPropertyData(),
+                [accountSidebarConfigLogic({ projectId: props.projectId }).actionTypes.persistPinnedPropertiesSuccess]:
+                    () => actions.loadPropertyData(),
+                [accountSidebarConfigLogic({ projectId: props.projectId }).actionTypes.loadAvailableDefinitionsSuccess]:
+                    () => actions.loadPropertyData(),
             }
         }),
         afterMount(({ actions }) => actions.loadPropertyData()),

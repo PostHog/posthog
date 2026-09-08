@@ -8,6 +8,8 @@ the main account content on wide account scenes.
 Pinned rows load current values for the selected account. Missing custom values display
 "Not set" and relationships without current assignees display "Unassigned". Loading and
 failed requests have separate states, with retry available after a failure.
+The empty configuration does not request account values or relationships, so account-data
+failures cannot block the Pin properties action. Saving the first pin starts loading values.
 
 Account editors can edit manual and workflow-backed properties inline. Workflow-backed
 rows warn that a workflow may overwrite a manual change. Warehouse-backed and canonical
