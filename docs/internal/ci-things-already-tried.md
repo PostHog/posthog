@@ -505,7 +505,7 @@ uv run --with git+https://github.com/PostHog/django-nextgensquash python -m next
 uv run --with git+https://github.com/PostHog/django-nextgensquash python -m nextgensquash install --settings posthog.settings --input-dir /tmp/squash
 ```
 
-The generated finalize files import `posthog/migration_helpers/squash_idempotent.py`, so the package is a dev-only tool and not a dependency of this repo. The emit gate refuses young migrations that touch deferred foreign-key fields; bump the cutoff past them. Keep the window between cutoff and merge short: every migration that lands on master in that window sits before `finalize_fks` on a fresh database, and one that touches a deferred column forces a re-squash.
+The generated finalize files import `posthog/migration_helpers/squash_idempotent.py`, so the package is a dev-only tool and not a dependency of this repo. The emit gate refuses young migrations that touch deferred foreign-key fields; bump the cutoff past them. Keep the window between cutoff and merge short: every migration that lands on master in that window sits before `finalize_fks` on a fresh database, and one that touches a deferred column forces a re-squash. A dedicated migration test (`TestMigrations` with `migrate_from`) that targets a folded migration fails with "not a valid node", because the loader drops replaced nodes; delete those tests, since a folded migration has been applied everywhere by definition.
 
 _Also asked as:_ squash the migrations, compress the migration history, why are there so many migrations, speed up the migration replay, nextgensquash
 

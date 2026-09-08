@@ -27,7 +27,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("posthog", "1340_drop_userproductlist_reason_columns"),
-        ("tasks", "0114_taskrun_autovacuum_scale_factor"),
+        ("tasks", "0115_teamtasksconfig_usertasksconfig"),
     ]
 
     operations = [

@@ -129,6 +129,7 @@ class Migration(migrations.Migration):
         ("signals", "0110_signalreportartefact_team_type_recent_idx"),
         ("signals", "0111_signalreport_signals_researched"),
         ("signals", "0113_signalreport_inbox_notified_at"),
+        ("signals", "0114_signalscoutnote_reviewer_correction_origin"),
     ]
 
     initial = True
@@ -136,7 +137,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1340_drop_userproductlist_reason_columns"),
         ("posthog_ai", "0004_conversation_agent_runtime_conversation_task_and_more"),
-        ("tasks", "0114_taskrun_autovacuum_scale_factor"),
+        ("tasks", "0115_teamtasksconfig_usertasksconfig"),
     ]
 
     operations = [
@@ -680,6 +681,7 @@ class Migration(migrations.Migration):
                             ("report_dismissal", "Derived from inbox dismissal feedback"),
                             ("report_discussion", "Derived from inbox discussion feedback"),
                             ("report_feedback", "Derived from inbox report feedback"),
+                            ("report_reviewer_correction", "Derived from an inbox reviewer correction"),
                         ],
                         db_default="human",
                         default="human",

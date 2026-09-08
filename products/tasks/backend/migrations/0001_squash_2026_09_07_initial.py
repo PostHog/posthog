@@ -132,6 +132,7 @@ class Migration(migrations.Migration):
         ("tasks", "0112_taskrun_terminal_updated_idx"),
         ("tasks", "0113_task_team_live_list_indexes"),
         ("tasks", "0114_taskrun_autovacuum_scale_factor"),
+        ("tasks", "0115_teamtasksconfig_usertasksconfig"),
     ]
 
     initial = True
@@ -406,6 +407,62 @@ class Migration(migrations.Migration):
             options={
                 "indexes": [],
                 "constraints": [],
+            },
+        ),
+        migrations.CreateModel(
+            name="TeamTasksConfig",
+            fields=[
+                (
+                    "team",
+                    models.OneToOneField(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        primary_key=True,
+                        related_name="+",
+                        serialize=False,
+                        to="posthog.team",
+                    ),
+                ),
+                ("ai_run_preferences", models.JSONField(blank=True, null=True)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+            ],
+            options={
+                "indexes": [],
+                "constraints": [],
+            },
+        ),
+        migrations.CreateModel(
+            name="UserTasksConfig",
+            fields=[
+                ("id", models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
+                ("ai_run_preferences", models.JSONField(blank=True, null=True)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "team",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="+",
+                        to="posthog.team",
+                    ),
+                ),
+                (
+                    "user",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="+",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+            ],
+            options={
+                "constraints": [
+                    models.UniqueConstraint(fields=("team", "user"), name="user_tasks_config_team_user_unique")
+                ],
+                "indexes": [],
             },
         ),
         migrations.CreateModel(
