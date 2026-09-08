@@ -176,48 +176,6 @@ const mcpFeedbackSubmit = (): ToolBase<ReturnType<typeof McpFeedbackSubmitSchema
     },
 })
 
-const McpMissingCapabilityReportSchema = () => {
-    const McpAnalyticsMissingCapabilitiesCreateBody = orvalSchemas.McpAnalyticsMissingCapabilitiesCreateBody()
-    return McpAnalyticsMissingCapabilitiesCreateBody.omit({
-        mcp_client_name: true,
-        mcp_client_version: true,
-        mcp_protocol_version: true,
-        mcp_transport: true,
-        mcp_session_id: true,
-        mcp_trace_id: true,
-    })
-}
-
-const mcpMissingCapabilityReport = (): ToolBase<
-    ReturnType<typeof McpMissingCapabilityReportSchema>,
-    Schemas.MCPAnalyticsSubmission
-> => ({
-    name: 'mcp-missing-capability-report',
-    schema: McpMissingCapabilityReportSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof McpMissingCapabilityReportSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.attempted_tool !== undefined) {
-            body['attempted_tool'] = params.attempted_tool
-        }
-        if (params.goal !== undefined) {
-            body['goal'] = params.goal
-        }
-        if (params.missing_capability !== undefined) {
-            body['missing_capability'] = params.missing_capability
-        }
-        if (params.blocked !== undefined) {
-            body['blocked'] = params.blocked
-        }
-        const result = await context.api.request<Schemas.MCPAnalyticsSubmission>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/missing_capabilities/`,
-            body,
-        })
-        return result
-    },
-})
-
 // --- Query wrapper schemas from schema.json ---
 
 const DateRange = z.object({
@@ -706,7 +664,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'mcp-analytics-sessions-list': mcpAnalyticsSessionsList,
     'mcp-analytics-sessions-tool-calls': mcpAnalyticsSessionsToolCalls,
     'mcp-feedback-submit': mcpFeedbackSubmit,
-    'mcp-missing-capability-report': mcpMissingCapabilityReport,
     'query-mcp-harness-breakdown': createQueryWrapper({
         name: 'query-mcp-harness-breakdown',
         schema: MCPHarnessBreakdownQuery,

@@ -7955,21 +7955,6 @@
         },
         "feature_flag": "mcp-analytics"
     },
-    "mcp-missing-capability-report": {
-        "description": "Report that the current MCP tools are insufficient for the user's goal. Use this when a missing tool, missing workflow support, or missing explanation blocks progress. Describe the gap without personal data or sensitive query content. This records feedback for the PostHog team; continue with a fallback when possible.",
-        "category": "MCP analytics",
-        "feature": "mcp_analytics",
-        "summary": "Report missing capability",
-        "title": "Report missing capability",
-        "required_scopes": ["mcp_analytics:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "mcp-analytics"
-    },
     "media-image-upload-complete": {
         "description": "Step 2 of the presigned upload flow. Verifies the file uploaded via media-image-upload-start, sniffs its real content type, and activates it — after this it appears in media-images-list and is publicly servable. Returns the permanent url; for emails, put it in the image block's values.src.url.",
         "category": "Core",
