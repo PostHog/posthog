@@ -1519,15 +1519,17 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         item_context = {"author_type": "support", "is_private": data["is_private"]}
 
         def create_comment() -> Comment:
-            return Comment.objects.create(
-                team=self.team,
-                created_by=request.user,
-                scope="conversations_ticket",
-                item_id=str(ticket.id),
-                content=data["message"],
-                rich_content=data.get("rich_content"),
-                item_context=item_context,
-            )
+            # ATOMIC_REQUESTS is off, so wrap the comment insert with the email-outbox write.
+            with transaction.atomic():
+                return Comment.objects.create(
+                    team=self.team,
+                    created_by=request.user,
+                    scope="conversations_ticket",
+                    item_id=str(ticket.id),
+                    content=data["message"],
+                    rich_content=data.get("rich_content"),
+                    item_context=item_context,
+                )
 
         fingerprint = reply_dedupe.ReplyFingerprint.build(
             team_id=self.team_id,
