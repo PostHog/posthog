@@ -47,6 +47,9 @@ if TYPE_CHECKING:
     # modules stay off the django.setup() path. The runners that other products subclass must
     # resolve to their real class here, or subclass attribute inference collapses to Any. Ruff
     # cannot see the __getattr__ use, so each import carries an F401 guard.
+    from products.product_analytics.backend.hogql_queries.trends.aggregation_operations import (  # noqa: F401
+        ALLOWED_SESSION_MATH_PROPERTIES,
+    )
     from products.product_analytics.backend.hogql_queries.trends.boxplot_trends_query_runner import (  # noqa: F401
         BoxPlotTrendsQueryRunner,
     )
@@ -56,12 +59,14 @@ if TYPE_CHECKING:
     from products.product_analytics.backend.hogql_queries.trends.calendar_heatmap_trends_query_runner import (  # noqa: F401
         CalendarHeatmapTrendsQueryRunner,
     )
+    from products.product_analytics.backend.hogql_queries.trends.display import TrendsDisplay  # noqa: F401
     from products.product_analytics.backend.hogql_queries.trends.slope_graph_trends_query_runner import (  # noqa: F401
         SlopeGraphTrendsQueryRunner,
     )
     from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import (  # noqa: F401
         TrendsQueryRunner,
     )
+    from products.product_analytics.backend.hogql_queries.trends.utils import get_properties_chain  # noqa: F401
 
 
 def __getattr__(name: str):
