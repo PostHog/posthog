@@ -4,7 +4,8 @@ import { Fragment } from 'react'
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { dashboardLogic } from './dashboardLogic'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+
 import { DashboardSettingsChangesTooltip } from './DashboardSettingsChangesTooltip'
 
 export function DashboardUnsavedChangesIndicator(): JSX.Element | null {

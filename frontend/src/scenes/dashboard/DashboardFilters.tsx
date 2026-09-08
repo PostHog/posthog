@@ -8,10 +8,11 @@ import { urls } from 'scenes/urls'
 
 import { DashboardPlacement } from '~/types'
 
+import { DashboardUnsavedChangesIndicator } from 'products/dashboards/frontend/dashboardSettings/DashboardUnsavedChangesIndicator'
+
 import { DashboardEditBar } from './DashboardEditBar'
 import { dashboardLogic } from './dashboardLogic'
 import { DashboardReloadAction, LastRefreshText } from './DashboardReloadAction'
-import { DashboardUnsavedChangesIndicator } from './DashboardUnsavedChangesIndicator'
 
 interface DashboardFilterBarProps {
     backTo?: { url: string; name: string }

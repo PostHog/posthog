@@ -119,6 +119,14 @@ import {
 
 import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
 import { DashboardGridCompaction } from 'products/dashboards/frontend/dashboardCustomization'
+import {
+    dashboardFiltersEqual,
+    dashboardVariableValuesEqual,
+    getDashboardFilterChanges,
+    getDashboardVariableChanges,
+    type DashboardSettingsChange,
+    type DashboardFilterChange,
+} from 'products/dashboards/frontend/dashboardSettings/dashboardChanges'
 import type { DashboardAddTileType } from 'products/dashboards/frontend/types'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
@@ -136,14 +144,6 @@ import {
     hasUnresolvedBreakdownTiles,
     mergeBreakdownColorConfigs,
 } from './dashboardBreakdownColors'
-import {
-    dashboardFiltersEqual,
-    dashboardVariableValuesEqual,
-    getDashboardFilterChanges,
-    getDashboardVariableChanges,
-    type DashboardSettingsChange,
-    type DashboardFilterChange,
-} from './dashboardChanges'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from './dashboardConstants'
 import {
     BREAKPOINT_COLUMN_COUNTS,
