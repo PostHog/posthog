@@ -20,6 +20,7 @@ destination directory — used by the Modal build-context path.
 from __future__ import annotations
 
 import os
+import fcntl
 import shutil
 import hashlib
 import logging
@@ -83,12 +84,13 @@ class LocalSkillsCache:
     automatically — no manual busting required.
     """
 
-    def __init__(self, base_dir: Path | None = None) -> None:
+    def __init__(self, base_dir: Path | None = None, *, output_dir: Path | None = None) -> None:
         self.base_dir = base_dir or Path(settings.BASE_DIR)
-        self.dist_dir = self.base_dir / BUILT_SKILLS_RELATIVE_PATH
+        self.output_dir = output_dir or self.base_dir / "products" / "posthog_ai"
+        self.dist_dir = self.output_dir / "dist" / "skills"
         self.hash_file = self.dist_dir / BUILD_HASH_FILENAME
 
-    def ensure_built(self) -> Path:
+    def ensure_built(self, *, allow_stale: bool = True) -> Path:
         """Build skills if source changed; return ``dist/skills``.
 
         Priority:
@@ -114,6 +116,8 @@ class LocalSkillsCache:
             self._build(source_hash)
             return self.dist_dir
         except Exception as exc:
+            if not allow_stale:
+                raise RuntimeError(f"Local skill build failed: {exc}") from exc
             logger.warning("Local skill build failed: %s", exc)
 
         if self._has_existing_output():
@@ -153,7 +157,7 @@ class LocalSkillsCache:
     def _build(self, source_hash: str) -> None:
         from products.posthog_ai.scripts.build_skills import SkillBuilder
 
-        builder = SkillBuilder(self.base_dir, self.base_dir / "products", self.base_dir / "products" / "posthog_ai")
+        builder = SkillBuilder(self.base_dir, self.base_dir / "products", self.output_dir)
         manifest = builder.build_all()
         if not manifest.resources:
             raise RuntimeError("build_skills produced no skills")
@@ -194,8 +198,20 @@ class LocalSkillsCache:
                         continue
                     files.append(Path(dirpath) / name)
 
-        builder_script = self.base_dir / "products" / "posthog_ai" / "scripts" / "build_skills.py"
-        if builder_script.exists():
-            files.append(builder_script)
+        scripts_dir = self.base_dir / "products" / "posthog_ai" / "scripts"
+        if scripts_dir.exists():
+            files.extend(path for path in scripts_dir.rglob("*.py") if "__pycache__" not in path.parts)
 
         return sorted(files)
+
+
+def snapshot_local_task_skills(destination: Path, base_dir: Path | None = None) -> None:
+    root = base_dir or Path(settings.BASE_DIR)
+    output_dir = root / ".posthog" / ".generated" / "cloud-task-skills"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with (output_dir / ".build.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        skills_dir = LocalSkillsCache(root, output_dir=output_dir).ensure_built(allow_stale=False)
+        if not any(skills_dir.glob("*/SKILL.md")):
+            raise RuntimeError(f"No rendered local skills found at {skills_dir}")
+        shutil.copytree(skills_dir, destination, dirs_exist_ok=True, ignore=shutil.ignore_patterns(BUILD_HASH_FILENAME))
