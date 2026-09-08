@@ -74,6 +74,7 @@ from products.customer_analytics.backend.facade.contracts import (
     MeetingParticipantView,
     MeetingView,
 )
+from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
 
 
 class AccountTrackRuleFieldSerializer(serializers.Serializer):
@@ -1953,6 +1954,35 @@ class CustomPropertyValueSuggestionsResponseSerializer(serializers.Serializer):
     )
     refreshing = serializers.BooleanField(
         read_only=True, help_text="Always false — present for compatibility with the property-values consumer."
+    )
+
+
+class PinnedAccountPropertySerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=[
+            (AccountPropertyPinKind.CUSTOM_PROPERTY.value, "Custom property"),
+            (AccountPropertyPinKind.RELATIONSHIP.value, "Relationship"),
+        ],
+        help_text="Definition type for this pinned account property.",
+    )
+    id = serializers.UUIDField(
+        help_text="Team-scoped custom property or relationship definition UUID.",
+    )
+
+
+class UserCustomerAnalyticsConfigSerializer(serializers.Serializer):
+    pinned_properties = PinnedAccountPropertySerializer(
+        many=True,
+        read_only=True,
+        help_text="Account properties pinned in sidebar display order.",
+    )
+
+
+class UserCustomerAnalyticsConfigUpdateSerializer(serializers.Serializer):
+    pinned_properties = PinnedAccountPropertySerializer(
+        many=True,
+        allow_empty=True,
+        help_text="Complete ordered list of account properties to pin. Pass an empty list to clear it.",
     )
 
 
