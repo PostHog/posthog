@@ -74,7 +74,7 @@ export function AccountCustomPropertyEditor({
     const saveError = saveErrorFor(draft, definition)
 
     const save = (): void => {
-        if (saveError) {
+        if (saving || saveError) {
             return
         }
         if (typeof draft === 'boolean') {
@@ -87,6 +87,9 @@ export function AccountCustomPropertyEditor({
     }
 
     const confirmClear = (): void => {
+        if (saving) {
+            return
+        }
         LemonDialog.open({
             title: `Clear ${definition.name}?`,
             content: 'This will remove the current value. You can set it again later.',
@@ -157,6 +160,7 @@ export function AccountCustomPropertyEditor({
                     value={numericDraft}
                     onChange={(next) => setDraft(next === undefined ? '' : String(next))}
                     onPressEnter={save}
+                    disabled={saving}
                     size="small"
                     step="any"
                     fullWidth
@@ -169,6 +173,7 @@ export function AccountCustomPropertyEditor({
                     value={typeof draft === 'string' ? draft : ''}
                     onChange={setDraft}
                     onPressEnter={save}
+                    disabled={saving}
                     status={definition.display_type === 'link' && draft !== '' && saveError ? 'danger' : 'default'}
                     size="small"
                     fullWidth
@@ -181,7 +186,7 @@ export function AccountCustomPropertyEditor({
                     size="xsmall"
                     status="danger"
                     onClick={confirmClear}
-                    disabledReason={value === null ? 'This property has no value' : undefined}
+                    disabledReason={saving ? 'Saving' : value === null ? 'This property has no value' : undefined}
                     data-attr="account-property-clear"
                 >
                     Clear value
