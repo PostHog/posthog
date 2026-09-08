@@ -49,6 +49,7 @@ from posthog.clickhouse.events_json import (
     PERSON_PROPERTIES_JSON_SUBCOLUMNS,
 )
 from posthog.clickhouse.property_groups import property_groups
+from posthog.clickhouse.workload import Workload
 from posthog.schema_enums import MaterializationMode, PropertyGroupsMode
 
 # In non-nullable materialized columns these stored strings are treated as NULL.
@@ -610,7 +611,6 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
 # inline so the rows are unchanged. The bare column is index-eligible, so ClickHouse can skip granules.
 
 
-LOGS_TABLE_CLICKHOUSE_NAME = "logs_distributed"
 # A hint over a long IN list costs index analysis for every value and adds little pruning, since the bloom filter has
 # to keep every granule that could hold any of them.
 LOGS_BODY_IN_HINT_MAX_VALUES = 50
@@ -1193,7 +1193,9 @@ class ClickHousePropertyResolver(CloningVisitor):
         if not self._property_table_in_scope(expr.type):
             return None
         table_type = _unwrap_to_table_type(expr.type)
-        if table_type is None or table_type.table.to_printed_clickhouse(self.context) != LOGS_TABLE_CLICKHOUSE_NAME:
+        # Match on the table's workload, not on `to_printed_clickhouse`. Printing a warehouse table registers its
+        # credentials as query placeholders, so calling it here would shift every placeholder in the query.
+        if table_type is None or table_type.table.workload != Workload.LOGS:
             return None
         field = expr.type.resolve_database_field(self.context)
         if not isinstance(field, DatabaseField) or field.name != "body":
