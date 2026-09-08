@@ -200,6 +200,14 @@ class TestResolveTemplate(SimpleTestCase):
         self.assertTrue(lossy.output_person_property.startswith("predicted_p_adopt_checkout_started_"))
         self.assertEqual(exact.output_person_property, "predicted_p_adopt_checkout_started_14d")
         self.assertNotEqual(lossy.output_person_property, exact.output_person_property)
+        # An event literally named like the encoded form of another event still gets its own property.
+        encoded = lossy.output_person_property.removeprefix("predicted_p_adopt_").removesuffix("_14d")
+        literal = resolve_template(self._make_team(), "feature_adoption", target_event_override=encoded)
+        self.assertNotEqual(literal.output_person_property, lossy.output_person_property)
+
+    def test_overlong_target_override_raises(self) -> None:
+        with self.assertRaises(ValueError, msg="target_event must be at most 255 characters"):
+            resolve_template(self._make_team(), "feature_adoption", target_event_override="a" * 256)
 
     def test_long_target_fits_pipeline_columns(self) -> None:
         result = resolve_template(self._make_team(), "feature_adoption", target_event_override="a" * 250)

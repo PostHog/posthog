@@ -248,7 +248,9 @@ class ResolvedTemplate:
 
 
 def _target_digest(target_event: str) -> str:
-    return hashlib.sha256(target_event.encode()).hexdigest()[:6]
+    # Upper case on purpose: a normalized name is all lower case, so a name that carries a
+    # digest can never equal an event name that needed no normalization.
+    return hashlib.sha256(target_event.encode()).hexdigest()[:6].upper()
 
 
 def _safe_target_name(target_event: str) -> str:
@@ -298,6 +300,9 @@ def resolve_template(
 
     if horizon_days_override is not None and horizon_days_override < 1:
         raise ValueError("horizon_days must be at least 1.")
+
+    if target_event_override and len(target_event_override) > _PIPELINE_FIELD_MAX_LENGTH:
+        raise ValueError(f"target_event must be at most {_PIPELINE_FIELD_MAX_LENGTH} characters.")
 
     resolved_activity: Optional[str] = None
     alternatives: list[str] = []
