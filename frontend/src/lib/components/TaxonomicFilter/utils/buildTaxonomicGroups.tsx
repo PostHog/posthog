@@ -96,6 +96,7 @@ const COHORTS_WITH_ALL_USERS_OPTIONS: CohortType[] = [{ id: 'all', name: 'All Us
 
 // The cohort picker reads the trimmed `?basic=true` payload, which drops the
 // query/groups/last_error_message/experiment_set fields it never reads. `filters` is kept.
+// Keep in sync with taxonomicFilterLogic.tsx.
 const COHORTS_ENDPOINT_PARAMS = { basic: true }
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
