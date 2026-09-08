@@ -920,8 +920,14 @@ export default function FeatureFlagSchedule(): JSX.Element {
                     {scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition && (
                         <div className="flex flex-col gap-3">
                             <p className="text-muted text-sm m-0">
-                                This condition will be appended to the flag's existing release conditions; it will not
-                                replace them.
+                                This condition is added to the flag's existing release conditions and does not replace
+                                them. Someone gets the flag if any one condition matches them, and everyone keeps the
+                                same place in the rollout, so the widest condition decides who gets it. Conditions
+                                scheduled at 25%, then 50%, then 100% ramp the rollout up.
+                            </p>
+                            <p className="text-muted text-sm m-0">
+                                Scheduling cannot narrow or edit a condition. Ramp downs and cleanups have to be done by
+                                hand.
                             </p>
                             <div className="rounded border p-3">
                                 <FeatureFlagReleaseConditionsCollapsible
