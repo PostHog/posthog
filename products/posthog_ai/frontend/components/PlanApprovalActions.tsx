@@ -251,7 +251,7 @@ export function PlanApprovalSelector({
     // any element outside the card keeps native Tab/Enter behavior.
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent): void => {
-            if (rejectSelected || e.defaultPrevented) {
+            if (responding || rejectSelected || e.defaultPrevented) {
                 return
             }
             const target = e.target

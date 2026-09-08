@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconWarning } from '@posthog/icons'
-import { Button, Spinner } from '@posthog/quill-primitives'
+import { Button } from '@posthog/quill-primitives'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { cn } from 'lib/utils/css-classes'
@@ -393,20 +393,13 @@ export function PermissionInput({ streamKey, request }: PermissionInputProps): J
                     payload={display.payload}
                 />
             )}
-            {respondingToPermission ? (
-                <div className="flex items-center gap-2 text-muted pt-1">
-                    <Spinner className="size-4" />
-                    <span>Sending response…</span>
-                </div>
-            ) : (
-                <PermissionOptionRows
-                    options={mappedOptions}
-                    responding={respondingToPermission}
-                    onRespond={(optionId, customInput) =>
-                        respondToPermission({ requestId: request.requestId, optionId, customInput })
-                    }
-                />
-            )}
+            <PermissionOptionRows
+                options={mappedOptions}
+                responding={respondingToPermission}
+                onRespond={(optionId, customInput) =>
+                    respondToPermission({ requestId: request.requestId, optionId, customInput })
+                }
+            />
         </div>
     )
 }
