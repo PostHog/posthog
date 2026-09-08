@@ -6677,6 +6677,8 @@ class QueryStatus(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    budget_remaining_bytes: int | None = None
+    bytes_read: int | None = None
     complete: bool | None = Field(
         default=False,
         description=(
