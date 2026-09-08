@@ -1,6 +1,6 @@
 import type { Adapter } from "./adapter";
 import { EFFORT_LEVEL_LABELS, type EffortLevel } from "./domain-types";
-import { reasoningEffortsForModel } from "./model-catalog";
+import { normalizeModelId, reasoningEffortsForModel } from "./model-catalog";
 
 export type SupportedReasoningEffort = EffortLevel;
 
@@ -65,4 +65,30 @@ export function getCapabilityLadder(
   return adapter === "codex"
     ? CODEX_CAPABILITY_LADDER
     : CLAUDE_CAPABILITY_LADDER;
+}
+
+const MODELS_WITH_1M_CONTEXT = new Set([
+  "claude-opus-4-7",
+  "claude-opus-4-8",
+  "claude-opus-5",
+  "claude-sonnet-4-6",
+  "claude-sonnet-5",
+  "claude-fable-5",
+  "claude-fable-5-1",
+]);
+
+// Normalized like the effort lookup above: the gateway serves some ids provider-qualified,
+// and a raw check here would silently drop the model to 200k.
+export function supports1MContext(modelId: string): boolean {
+  return MODELS_WITH_1M_CONTEXT.has(normalizeModelId(modelId));
+}
+
+const MODELS_WITH_FAST_MODE = new Set([
+  "claude-opus-4-7",
+  "claude-opus-4-8",
+  "claude-opus-5",
+]);
+
+export function supportsFastMode(modelId: string): boolean {
+  return MODELS_WITH_FAST_MODE.has(normalizeModelId(modelId));
 }
