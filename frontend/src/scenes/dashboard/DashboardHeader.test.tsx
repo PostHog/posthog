@@ -86,6 +86,7 @@ describe('DashboardHeader', () => {
     function renderHeader(opts: {
         dashboard?: DashboardType<QueryBasedInsightModel> | null
         dashboardMode?: DashboardMode | null
+        dashboardEditing?: { filters: boolean; layout: boolean } | null
         dashboardModeSource?: DashboardEventSource
         loading?: boolean
         spyOnLoadDashboard?: boolean
@@ -93,6 +94,7 @@ describe('DashboardHeader', () => {
         const {
             dashboard = MOCK_DASHBOARD,
             dashboardMode = null,
+            dashboardEditing = null,
             dashboardModeSource = DashboardEventSource.Browser,
             loading = false,
         } = opts
@@ -103,7 +105,9 @@ describe('DashboardHeader', () => {
             ? jest.spyOn(logic.actions, 'loadDashboard').mockImplementation()
             : undefined
 
-        if (dashboardMode) {
+        if (dashboardEditing) {
+            logic.actions.setDashboardEditing(dashboardEditing, dashboardModeSource)
+        } else if (dashboardMode) {
             logic.actions.setDashboardMode(dashboardMode, dashboardModeSource)
         }
 
@@ -184,7 +188,7 @@ describe('DashboardHeader', () => {
         },
         {
             scenario: 'Filter edit mode',
-            dashboardMode: DashboardMode.Edit,
+            dashboardEditing: { filters: true, layout: false },
             dashboardModeSource: DashboardEventSource.DashboardFilters,
             canEdit: true,
             visible: [],
@@ -200,7 +204,7 @@ describe('DashboardHeader', () => {
         },
         {
             scenario: 'Layout edit mode',
-            dashboardMode: DashboardMode.Edit,
+            dashboardEditing: { filters: true, layout: true },
             dashboardModeSource: DashboardEventSource.SceneCommonButtons,
             canEdit: true,
             visible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save'],

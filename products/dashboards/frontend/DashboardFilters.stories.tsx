@@ -8,7 +8,6 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { mswDecorator } from '~/mocks/browser'
 import {
     AccessControlLevel,
-    DashboardMode,
     DashboardTile,
     DashboardType,
     PropertyFilterType,
@@ -52,7 +51,7 @@ const largeDashboard: DashboardType<QueryBasedInsightModel> = {
 }
 
 function applyUnsavedFilters(logic: ReturnType<typeof dashboardLogic.build>): void {
-    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+    logic.actions.setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
     logic.actions.setDates('-7d', null)
     logic.actions.setProperties([
         {

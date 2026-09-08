@@ -28,7 +28,6 @@ import {
     AccessControlLevel,
     AccessControlResourceType,
     DashboardBasicType,
-    DashboardMode,
     DashboardType,
 } from '~/types'
 
@@ -255,8 +254,8 @@ export function DashboardsTable({
                                               to={urls.dashboard(id)}
                                               onClick={() => {
                                                   dashboardLogic({ id }).mount()
-                                                  dashboardLogic({ id }).actions.setDashboardMode(
-                                                      DashboardMode.Edit,
+                                                  dashboardLogic({ id }).actions.setDashboardEditing(
+                                                      { filters: true, layout: true },
                                                       DashboardEventSource.DashboardsList
                                                   )
                                               }}

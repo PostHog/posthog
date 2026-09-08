@@ -10,7 +10,7 @@ import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, DashboardMode, DashboardPlacement, DashboardType, QueryBasedInsightModel } from '~/types'
+import { AccessControlLevel, DashboardPlacement, DashboardType, QueryBasedInsightModel } from '~/types'
 
 import { DashboardFilterBar } from './DashboardFilters'
 import { dashboardLogic } from './dashboardLogic'
@@ -75,7 +75,10 @@ describe('DashboardFilterBar', () => {
     ): ReturnType<typeof dashboardLogic.build> {
         const logic = dashboardLogic({ id: dashboard.id, dashboard, placement })
         logic.mount()
-        logic.actions.setDashboardMode(DashboardMode.Edit, dashboardModeSource)
+        logic.actions.setDashboardEditing(
+            { filters: true, layout: dashboardModeSource === DashboardEventSource.SceneCommonButtons },
+            dashboardModeSource
+        )
 
         render(
             <BindLogic logic={dashboardLogic} props={{ id: dashboard.id, dashboard, placement }}>
@@ -257,12 +260,12 @@ describe('DashboardFilterBar', () => {
         )
 
         await expectLogic(logic, () => {
-            logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+            logic.actions.setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
             logic.actions.setDates('-30d', null)
         }).toFinishAllListeners()
 
         await expectLogic(logic, () => {
-            logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+            logic.actions.setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.SceneCommonButtons)
             logic.actions.cancelLayoutEdit()
         }).toFinishAllListeners()
 
@@ -277,7 +280,7 @@ describe('DashboardFilterBar', () => {
         })
         const logic = dashboardLogic({ id: MOCK_DASHBOARD.id, dashboard: MOCK_DASHBOARD })
         logic.mount()
-        logic.actions.setDashboardMode(null, DashboardEventSource.DashboardFilters)
+        logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardFilters)
 
         await expectLogic(logic).toFinishAllListeners()
 

@@ -2,7 +2,7 @@ import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } fro
 
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
-import { DashboardMode, DashboardTile, QueryBasedInsightModel } from '~/types'
+import { DashboardTile, QueryBasedInsightModel } from '~/types'
 
 import {
     BreakdownColorConfig,
@@ -105,7 +105,7 @@ export const dashboardInsightColorsModalLogic = kea<dashboardInsightColorsModalL
                     ? {
                           colors: mountedDashboardLogic.values.temporaryBreakdownColors,
                           themeId: mountedDashboardLogic.values.temporaryDataColorThemeId,
-                          wasInEditMode: mountedDashboardLogic.values.dashboardMode === DashboardMode.Edit,
+                          wasInEditMode: mountedDashboardLogic.values.dashboardEditing !== null,
                       }
                     : null
             )
@@ -119,13 +119,10 @@ export const dashboardInsightColorsModalLogic = kea<dashboardInsightColorsModalL
                     // Edit mode predates the modal, so filter or layout edits may be pending.
                     // Revert only the color state and leave the rest of the edit session alone.
                     mountedDashboardLogic.actions.restoreTemporaryColorState(stateAtOpen.colors, stateAtOpen.themeId)
-                } else if (mountedDashboardLogic.values.dashboardMode === DashboardMode.Edit) {
+                } else if (mountedDashboardLogic.values.dashboardEditing !== null) {
                     // The modal entered edit mode itself, so the color edits are the only unsaved
                     // changes and a full discard both reverts them and exits edit mode.
-                    mountedDashboardLogic.actions.setDashboardMode(
-                        null,
-                        DashboardEventSource.DashboardHeaderDiscardChanges
-                    )
+                    mountedDashboardLogic.actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
                 }
             }
             actions.hideInsightColorsModal()

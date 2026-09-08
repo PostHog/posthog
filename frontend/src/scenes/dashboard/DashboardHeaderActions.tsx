@@ -17,7 +17,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { AccessControlLevel, AccessControlResourceType, DashboardMode } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { DashboardCustomizeMenu } from 'products/dashboards/frontend/components/DashboardCustomizeMenu/DashboardCustomizeMenu'
 
@@ -242,7 +242,7 @@ export function DashboardEditSaveCancelButtons({
 
 export function EditModeActions(): JSX.Element {
     const { layoutEditMode, tiles, dashboardCustomizeMenuOpen } = useValues(dashboardLogic)
-    const { setDashboardMode, setDashboardCustomizeMenuOpen } = useActions(dashboardLogic)
+    const { setDashboardEditing, setDashboardCustomizeMenuOpen } = useActions(dashboardLogic)
     const dashboardCustomizationEnabled = useFeatureFlag('DASHBOARD_CUSTOMIZATION')
 
     return (
@@ -260,7 +260,9 @@ export function EditModeActions(): JSX.Element {
                     <LemonButton
                         type="secondary"
                         data-attr="dashboard-edit-mode-button"
-                        onClick={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)}
+                        onClick={() =>
+                            setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.SceneCommonButtons)
+                        }
                         size="small"
                         icon={<IconGridMasonry fontSize="16" />}
                         tooltip="Customize dashboard"
@@ -329,7 +331,7 @@ export function FullscreenModeActions(): JSX.Element {
 
 export function ViewModeActions(): JSX.Element {
     const { dashboard, canEditDashboard, tiles } = useValues(dashboardLogic)
-    const { setDashboardMode } = useActions(dashboardLogic)
+    const { setDashboardEditing } = useActions(dashboardLogic)
     const dashboardCustomizationEnabled = useFeatureFlag('DASHBOARD_CUSTOMIZATION')
     const { push } = useActions(router)
     if (!dashboard) {
@@ -367,7 +369,9 @@ export function ViewModeActions(): JSX.Element {
                     <LemonButton
                         type="secondary"
                         data-attr="dashboard-edit-mode-button"
-                        onClick={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)}
+                        onClick={() =>
+                            setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.SceneCommonButtons)
+                        }
                         size="small"
                         icon={<IconGridMasonry fontSize="16" />}
                         tooltip="Customize dashboard"

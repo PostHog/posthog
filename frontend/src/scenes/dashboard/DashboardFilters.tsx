@@ -6,7 +6,7 @@ import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-import { DashboardMode, DashboardPlacement } from '~/types'
+import { DashboardPlacement } from '~/types'
 
 import { DashboardEditBar } from './DashboardEditBar'
 import { dashboardLogic } from './dashboardLogic'
@@ -18,7 +18,7 @@ interface DashboardFilterBarProps {
 }
 
 export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Element {
-    const { placement, dashboard, dashboardMode, hasVariables } = useValues(dashboardLogic)
+    const { placement, dashboard, dashboardEditing, hasVariables } = useValues(dashboardLogic)
     return (
         <div className="@container/dashboard-filters flex min-w-0 flex-1 flex-col gap-2">
             <div className="flex flex-wrap gap-x-2 gap-y-2 justify-between items-start">
@@ -49,7 +49,7 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                         <div className={`left-item ${placement === DashboardPlacement.Public ? 'text-right' : ''}`}>
                             {[DashboardPlacement.Public].includes(placement) ? (
                                 <LastRefreshText />
-                            ) : !(dashboardMode === DashboardMode.Edit) ? (
+                            ) : !dashboardEditing?.filters ? (
                                 <DashboardReloadAction />
                             ) : null}
                         </div>

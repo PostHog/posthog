@@ -36,7 +36,7 @@ import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { insightsModel } from '~/models/insightsModel'
-import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
+import { DashboardLayoutSize, DashboardPlacement, DashboardType } from '~/types'
 
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
@@ -84,7 +84,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         dashboard,
         tiles,
         layouts,
-        dashboardMode,
         layoutEditMode,
         placement,
         isRefreshingQueued,
@@ -119,7 +118,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         moveToDashboard,
         copyToDashboard,
         setTileOverride,
-        setDashboardMode,
+        setDashboardEditing,
         setAddWidgetModalOpen,
         setPendingInsertion,
         openTextTileModal,
@@ -322,12 +321,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         () =>
             canEnterEditModeFromEdge
                 ? (e: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => {
-                      setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardEdgeHover)
+                      setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.CardEdgeHover)
                       // continue the press into a live resize so the user doesn't have to release and grab again
                       continueResizeGestureInEditMode(e, edge)
                   }
                 : undefined,
-        [canEnterEditModeFromEdge, setDashboardMode]
+        [canEnterEditModeFromEdge, setDashboardEditing]
     )
 
     const onDragHandleMouseDown = useMemo(
@@ -354,12 +353,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                       }
                       e.preventDefault()
                       e.stopPropagation()
-                      setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardDragHandle)
+                      setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.CardDragHandle)
                       // continue the press into a live drag so the user doesn't have to release and grab again
                       continueDragGestureInEditMode(e)
                   }
                 : undefined,
-        [canEnterEditModeFromEdge, setDashboardMode]
+        [canEnterEditModeFromEdge, setDashboardEditing]
     )
 
     const requireDashboardId = useCallback(
@@ -685,7 +684,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         placement={placement}
                                         dashboardId={dashboard?.id}
                                         canEditDashboard={canEditDashboard}
-                                        isDashboardEditMode={dashboardMode === DashboardMode.Edit}
+                                        isDashboardEditMode={layoutEditMode}
                                         result={runResult?.result}
                                         error={getDashboardWidgetFetchDisplayError(
                                             runResult?.error ?? refreshState?.error

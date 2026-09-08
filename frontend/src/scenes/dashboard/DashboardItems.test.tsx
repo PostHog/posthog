@@ -9,7 +9,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { DashboardMode, DashboardPlacement } from '~/types'
+import { DashboardPlacement } from '~/types'
 
 import { DashboardItems } from './DashboardItems'
 
@@ -201,7 +201,7 @@ describe('DashboardItems', () => {
                     layouts: {
                         sm: [{ i: '1', x: 0, y: 0, w: 6, h: 5 }],
                     },
-                    dashboardMode: DashboardMode.Edit,
+                    dashboardEditing: { filters: true, layout: true },
                     layoutEditMode: true,
                     placement: DashboardPlacement.Dashboard,
                     isRefreshingQueued: () => false,
@@ -295,7 +295,7 @@ describe('DashboardItems', () => {
                     dashboard: { id: 5, customization: { tile_spacing: tileSpacing } },
                     tiles: [],
                     layouts: { sm: [] },
-                    dashboardMode: DashboardMode.Edit,
+                    dashboardEditing: { filters: true, layout: true },
                     layoutEditMode: true,
                     placement: DashboardPlacement.Dashboard,
                     isRefreshingQueued: () => false,
@@ -330,7 +330,7 @@ describe('DashboardItems', () => {
                     dashboard: { id: 5, customization: { tile_spacing: 'unknown' } },
                     tiles: [],
                     layouts: { sm: [] },
-                    dashboardMode: DashboardMode.Edit,
+                    dashboardEditing: { filters: true, layout: true },
                     layoutEditMode: true,
                     placement: DashboardPlacement.Dashboard,
                     isRefreshingQueued: () => false,
