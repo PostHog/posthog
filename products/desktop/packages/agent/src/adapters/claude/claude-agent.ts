@@ -1393,7 +1393,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               break;
             }
 
-            const result = handleResultMessage(message);
+            const result = handleResultMessage(
+              message,
+              session.activeTurn?.madeProgress === true,
+            );
             if (result.error) {
               if (!isTaskNotification) {
                 failActive(result.error);
@@ -1619,6 +1622,18 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                   },
                 });
               }
+            }
+
+            if (
+              session.activeTurn &&
+              message.parent_tool_use_id === null &&
+              Array.isArray(message.message.content) &&
+              message.message.content.some(
+                (block) =>
+                  block.type === "tool_use" || block.type === "tool_result",
+              )
+            ) {
+              session.activeTurn.madeProgress = true;
             }
 
             const result = await handleUserAssistantMessage(message, context);
