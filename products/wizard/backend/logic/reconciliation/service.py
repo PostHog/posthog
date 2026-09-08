@@ -89,7 +89,7 @@ def reconcile_pending_dispatches() -> ReconciliationSummary:
         scanned=scanned,
         reconciled=reconciled,
         failed=scanned - reconciled,
-        batch_limit_reached=len(pending) == RECONCILIATION_BATCH_SIZE,
+        batch_limit_reached=scanned == RECONCILIATION_BATCH_SIZE,
     )
 
 

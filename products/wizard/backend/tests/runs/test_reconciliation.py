@@ -68,7 +68,7 @@ def test_reconciliation_continues_after_expected_dispatch_failure(
 
     with patch(
         "products.wizard.backend.logic.reconciliation.service.dispatch_created_cloud_wizard_run_to_temporal_worker",
-        side_effect=WizardRunDispatchError(exhausted=exhausted),
+        side_effect=WizardRunDispatchError(is_exhausted=exhausted),
     ):
         result = reconciliation.reconcile_pending_dispatches()
 
