@@ -498,7 +498,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
         body = request.data if isinstance(request.data, dict) else {}
         program = body.get("program")
         product = wizard_product_node(program)
-        reads_reason = bool(body.get("reads_refusal_reason"))
+        # Only a literal true: any other truthy shape keeps the 404 a fallback needs.
+        reads_reason = body.get("reads_refusal_reason") is True
 
         def refuse(outcome: str, exc: exceptions.APIException, *, user: User | None = None) -> NoReturn:
             _refuse_mint(outcome, exc, program=program, product_node=product, user=user, team=team)
@@ -576,8 +577,9 @@ class SetupWizardViewSet(viewsets.ViewSet):
             # Ahead of the rollout gate, so a ban reads as a ban whatever the flag says.
             refuse("blocked", exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL), user=user)
 
-        # A kill switch, not a rollout: only a literal False refuses. An outage
-        # (None or a raise) mints, since refusing would end every wizard run.
+        # A kill switch, not a rollout gate: only a literal False refuses. With the
+        # legacy product off there is no second path, so reading an outage as "not
+        # rolled out" turns a flag-service blip into a global wizard outage.
         try:
             rolled_out = posthoganalytics.feature_enabled(
                 "wizard-gateway-v2",
@@ -590,13 +592,15 @@ class SetupWizardViewSet(viewsets.ViewSet):
         except Exception as e:
             logger.warning("wizard_gateway_token: rollout flag unavailable, minting", error=str(e))
             rolled_out = None
+        else:
+            if rolled_out is None:
+                logger.warning("wizard_gateway_token: rollout flag returned no verdict, minting")
         if rolled_out is False:
             refuse_absent_gateway(
                 "not_rolled_out", "Wizard gateway tokens are switched off for this organization.", user=user
             )
 
         # A closed set: refusing keeps every pinned node one that carries a budget.
-        # A program this deploy does not list is a stale or unregistered build.
         if product is None:
             refuse_absent_gateway(
                 "program_unknown", "Unrecognized wizard program. Upgrade with: npx @posthog/wizard@latest", user=user

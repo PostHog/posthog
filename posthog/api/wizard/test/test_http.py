@@ -783,8 +783,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
     @override_settings(WIZARD_GATEWAY_MINT_KEY="")
     def test_a_client_that_still_falls_back_keeps_its_404(self):
-        # A build without the reason reader renders a 403 as revoked project
-        # access; the 404 is what sends it to the legacy gateway's own message.
+        # The 404 is what sends a still-falling-back build to the legacy message.
         response = self.client.post(self.GATEWAY_TOKEN_URL, headers={"authorization": "Bearer pha_test"})
 
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.content
@@ -838,8 +837,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled")
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
     def test_a_rollout_flag_outage_mints(self, mock_authentication, mock_flag, mock_mint, mock_authorized):
-        # The flag is a kill switch: only a literal False refuses. An outage must
-        # not end every wizard run.
+        # An outage is not a False, and must not end every wizard run.
         self._mock_oauth(mock_authentication)
 
         for outage in ({"return_value": None}, {"side_effect": RuntimeError("flags down")}):
@@ -860,8 +858,6 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     def test_every_refusal_names_its_outcome_as_the_code(
         self, mock_authentication, mock_flag, mock_mint, mock_authorized
     ):
-        # The outcome the counter labels is what the CLI reports, whichever
-        # exception class the gate raised, including the re-raised ones.
         self._mock_oauth(mock_authentication, scoped_teams=[self.team.id, self.team.id + 1])
         ambiguous = self.client.post(
             self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
@@ -1179,6 +1175,25 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert response.json()["code"] == "program_unknown"
         assert "npx @posthog/wizard@latest" in response.json()["detail"]
+        mock_mint.assert_not_called()
+
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token")
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_a_non_boolean_capability_keeps_the_compatible_status(
+        self, mock_authentication, mock_flag, mock_authorized, mock_mint
+    ):
+        self._mock_oauth(mock_authentication)
+        for claimed in ("false", "true", 1, [], {"a": 1}):
+            with self.subTest(claimed=claimed):
+                response = self.client.post(
+                    self.GATEWAY_TOKEN_URL,
+                    data=json.dumps({"reads_refusal_reason": claimed}),
+                    content_type="application/json",
+                    headers={"authorization": "Bearer pha_test"},
+                )
+                assert response.status_code == status.HTTP_404_NOT_FOUND, response.content
         mock_mint.assert_not_called()
 
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token")
