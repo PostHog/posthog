@@ -69,7 +69,21 @@ jobs:
     build:
         needs: changes
         # Fail closed: if change detection itself failed, run instead of skipping.
-        if: ${{ !cancelled() && github.event_name != 'merge_group' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true') }}
+        #
+        # A draft pull request skips this job, so a draft pays for the quality, typecheck
+        # and unit test jobs only. This job is what proves the bundler still works, which
+        # a typecheck cannot tell you, so the signal comes back on ready_for_review, which
+        # desktop-ci.yml dispatches on for this reason.
+        #
+        # trunk-merge/** heads are exempt because Trunk opens its batch pull requests as
+        # drafts. Without that clause, the draft check would skip the one run that gates
+        # master.
+        if: >-
+            !cancelled() &&
+            github.event_name != 'merge_group' &&
+            (github.event.pull_request.draft != true ||
+            startsWith(github.head_ref, 'trunk-merge/')) &&
+            (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true')
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         permissions:

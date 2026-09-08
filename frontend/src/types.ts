@@ -3732,6 +3732,7 @@ export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     /** query when used as ad-hoc insight */
     query?: Q
     setQuery?: (node: Q) => void
+    refreshAfterDisplayOptionsChange?: (insight: QueryBasedInsightModel) => void
 
     /** Used to group DataNodes into a collection for group operations like refreshAll **/
     dataNodeCollectionId?: string
@@ -6304,8 +6305,6 @@ export interface DataModelingDAG {
     name: string
     description: string
     sync_frequency: DataModelingSyncInterval | null
-    /** True when per-model freshness targets drive scheduling, making the DAG-level frequency read-only */
-    frequency_managed_by_nodes?: boolean
     node_count: number
     created_at: string
     updated_at: string
@@ -6320,8 +6319,6 @@ export interface DataWarehouseSavedQuery {
     columns: DatabaseSchemaField[]
     last_run_at?: string
     sync_frequency?: string
-    /** True when the DAG's single schedule owns the cadence, so `sync_frequency` is not editable per view */
-    sync_frequency_managed_by_dag?: boolean
     /** Which cadences this view's lineage allows, and what withholds the rest. Single fetches only */
     sync_frequency_bounds?: SyncFrequencyBoundsApi
     status?: string
@@ -7843,6 +7840,12 @@ export interface FeaturePreviewGateConfig {
     title: string
     description: string
     docsURL?: string
+    /**
+     * Scene whose name and icon the gated state renders as its header. Without it the gate
+     * falls back to the router's active scene, which can resolve to Error404 ("Not found")
+     * and mislabel the page.
+     */
+    sceneId?: string
     /**
      * Offer a "Request access" support CTA. Set this for betas that aren't self-serve early-access
      * features, so the gated state offers a way to request access instead of dead-ending on the
