@@ -1217,17 +1217,17 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("default_includes", None, True),
-            ("explicit_true_includes", "true", True),
-            ("opt_out_omits", "false", False),
+            ("default_full", None, True),
+            ("basic_false_full", "false", True),
+            ("basic_true_summary", "true", False),
         ]
     )
-    def test_list_description_opt_out(self, _name, include_param, expect_description):
+    def test_list_basic_omits_description(self, _name, basic_param, expect_description):
         self.create_task("Task 1")
 
         url = "/api/projects/@current/tasks/"
-        if include_param is not None:
-            url += f"?include_description={include_param}"
+        if basic_param is not None:
+            url += f"?basic={basic_param}"
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 

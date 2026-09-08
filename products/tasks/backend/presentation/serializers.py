@@ -583,14 +583,14 @@ class TaskSerializer(DataclassSerializer):
         ]
 
 
-class TaskListSerializer(TaskSerializer):
-    """List response for a task without ``description``, used when a client opts out.
+class TaskBasicSerializer(TaskSerializer):
+    """Basic list response for a task, returned when the list is asked for ``basic=true``.
 
-    A client that does not render the description body passes ``include_description=false``
-    to the list endpoint and gets this smaller shape, since the description dominates the
-    list payload. The default list response keeps ``description``, and ``retrieve`` always
-    returns it. A client uses the ``search`` query parameter to match description text
-    server-side.
+    A surface that renders only a summary of each task asks for the basic payload and gets this
+    smaller shape. It currently drops ``description``, which dominates the list payload; more
+    heavy fields may follow. The default list response keeps every field, and ``retrieve``
+    always returns the description. A client uses the ``search`` query parameter to match
+    description text server-side.
     """
 
     class Meta(TaskSerializer.Meta):
@@ -1979,12 +1979,13 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False, help_text="Filter by repository name (can include org/repo format)"
     )
     created_by = serializers.IntegerField(required=False, help_text="Filter by creator user ID")
-    include_description = serializers.BooleanField(
+    basic = serializers.BooleanField(
         required=False,
-        default=True,
+        default=False,
         help_text=(
-            "Whether each row carries the task description body. Defaults to true. Pass false when "
-            "the client does not render the description, to drop the field that dominates the list payload."
+            "Return a basic payload with heavy fields dropped, for surfaces that render only a summary "
+            "of each task. Defaults to false. Currently this omits the description body, which dominates "
+            "the list payload; the search parameter still matches description text server-side."
         ),
     )
     search = serializers.CharField(

@@ -126,6 +126,7 @@ from products.tasks.backend.presentation.serializers import (
     SlackThreadContextThreadSerializer,
     StreamReadTokenResponseSerializer,
     TaskArtifactsResponseSerializer,
+    TaskBasicSerializer,
     TaskCommentDetailQuerySerializer,
     TaskCommentDetailSerializer,
     TaskCommentsQuerySerializer,
@@ -133,7 +134,6 @@ from products.tasks.backend.presentation.serializers import (
     TaskCreateSerializer,
     TaskHandoffRequestSerializer,
     TaskListQuerySerializer,
-    TaskListSerializer,
     TaskPinRequestSerializer,
     TaskPinResponseSerializer,
     TaskPresenceBeaconRequestSerializer,
@@ -464,7 +464,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: OpenApiResponse(response=TaskSerializer, description="List of tasks"),
         },
         summary="List tasks",
-        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task. Pass include_description=false to drop the description body from each row when a client does not render it; use the search parameter to match description text server-side.",
+        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task. Pass basic=true for a summary payload that drops the description body from each row; use the search parameter to match description text server-side.",
     )
     def list(self, request, *args, **kwargs):
         filters = {key: request.query_params.get(key) for key in request.query_params}
@@ -481,10 +481,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         page = self.paginate_queryset(tasks)
         assert page is not None, "TaskViewSet list requires an active paginator"
-        # Description bodies dominate the list payload. A client that does not render them
-        # opts out with include_description=false and keeps the smaller rows.
-        include_description = getattr(request, "validated_query_data", {}).get("include_description", True)
-        serializer_class = TaskSerializer if include_description else TaskListSerializer
+        # Description bodies dominate the list payload. A summary surface asks for basic=true
+        # and gets the smaller rows without them.
+        basic = getattr(request, "validated_query_data", {}).get("basic", False)
+        serializer_class = TaskBasicSerializer if basic else TaskSerializer
         return self.get_paginated_response(
             serializer_class(tasks_facade._tasks_to_dtos(page, self.team_id), many=True).data
         )
