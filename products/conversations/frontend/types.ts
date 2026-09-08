@@ -233,6 +233,35 @@ export interface ChatMessage {
     hasFullEmailContent?: boolean
 }
 
+/**
+ * Filter for the support side panel's ticket list. `unread` and `active` (everything not resolved)
+ * are the two views people actually want when they have more than a handful of tickets; the
+ * individual statuses stay available for drilling in.
+ */
+export type SidePanelTicketFilter = 'unread' | 'active' | 'all' | TicketStatus
+
+export const sidePanelTicketFilterLabels: Record<SidePanelTicketFilter, string> = {
+    unread: 'Unread',
+    active: 'Active',
+    all: 'All',
+    new: 'New',
+    open: 'Open',
+    pending: 'Pending',
+    on_hold: 'On hold',
+    resolved: 'Resolved',
+}
+
+export const sidePanelTicketFilterOrder: SidePanelTicketFilter[] = [
+    'unread',
+    'active',
+    'all',
+    'new',
+    'open',
+    'pending',
+    'on_hold',
+    'resolved',
+]
+
 export const statusOptions: { value: TicketStatus | 'all'; label: string }[] = [
     { value: 'all', label: 'All statuses' },
     { value: 'new', label: 'New' },

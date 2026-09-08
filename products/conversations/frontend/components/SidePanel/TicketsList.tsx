@@ -7,7 +7,12 @@ import { LemonBadge, LemonButton, LemonSelect, LemonTag, Link, Spinner } from '@
 import { TZLabel } from 'lib/components/TZLabel'
 import { stripMarkdown } from 'lib/utils/markdown'
 
-import { statusOptions, type ConversationTicket } from '../../types'
+import {
+    type ConversationTicket,
+    type SidePanelTicketFilter,
+    sidePanelTicketFilterLabels,
+    sidePanelTicketFilterOrder,
+} from '../../types'
 import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
 
 interface TicketsListProps {
@@ -16,10 +21,20 @@ interface TicketsListProps {
 }
 
 export function TicketsList({ selectedTicketId = null }: TicketsListProps): JSX.Element {
-    const { tickets, filteredTickets, ticketsLoading, canCreateTicket, statusFilter } = useValues(sidepanelTicketsLogic)
+    const { tickets, filteredTickets, ticketsLoading, canCreateTicket, effectiveStatusFilter, ticketFilterCounts } =
+        useValues(sidepanelTicketsLogic)
     const { setCurrentTicket, setView, setStatusFilter } = useActions(sidepanelTicketsLogic)
 
     const hasIdentityMode = !!window.JS_POSTHOG_IDENTITY_DISTINCT_ID
+
+    // Unread / Active / All always show so the user can widen the view; a status only earns an
+    // entry once there's at least one ticket in it, which keeps the dropdown short.
+    const filterOptions = sidePanelTicketFilterOrder
+        .filter((filter) => ['unread', 'active', 'all'].includes(filter) || ticketFilterCounts[filter] > 0)
+        .map((filter) => ({
+            value: filter,
+            label: `${sidePanelTicketFilterLabels[filter]} (${ticketFilterCounts[filter]})`,
+        }))
 
     if (!hasIdentityMode && (!posthog.conversations || !posthog.conversations.isAvailable())) {
         return (
@@ -69,13 +84,13 @@ export function TicketsList({ selectedTicketId = null }: TicketsListProps): JSX.
                 <LemonSelect
                     size="small"
                     fullWidth
-                    value={statusFilter}
-                    onChange={(status) => {
+                    value={effectiveStatusFilter}
+                    onChange={(status: SidePanelTicketFilter | null) => {
                         if (status) {
                             setStatusFilter(status)
                         }
                     }}
-                    options={statusOptions}
+                    options={filterOptions}
                     data-attr="sidebar-ticket-status-filter"
                     className="shrink-0"
                 />
@@ -90,7 +105,29 @@ export function TicketsList({ selectedTicketId = null }: TicketsListProps): JSX.
                     </div>
                 ) : filteredTickets.length === 0 ? (
                     <div className="text-center text-muted-alt py-8">
-                        <p>No tickets with this status.</p>
+                        {effectiveStatusFilter === 'unread' ? (
+                            <>
+                                <p>You're all caught up.</p>
+                                <Link
+                                    className="text-sm"
+                                    onClick={() => setStatusFilter('active')}
+                                    data-attr="sidebar-ticket-filter-show-active"
+                                >
+                                    Show active tickets
+                                </Link>
+                            </>
+                        ) : (
+                            <>
+                                <p>No tickets match this filter.</p>
+                                <Link
+                                    className="text-sm"
+                                    onClick={() => setStatusFilter('all')}
+                                    data-attr="sidebar-ticket-filter-show-all"
+                                >
+                                    Show all tickets
+                                </Link>
+                            </>
+                        )}
                     </div>
                 ) : (
                     <div className="flex flex-col gap-1">
@@ -132,12 +169,16 @@ export function TicketsList({ selectedTicketId = null }: TicketsListProps): JSX.
                                         )}
                                     </div>
                                     {ticket.last_message && (
-                                        <p className="text-sm text-primary truncate m-0">
+                                        <p
+                                            className={`text-sm text-primary truncate m-0 ${
+                                                (ticket.unread_count ?? 0) > 0 ? 'font-semibold' : ''
+                                            }`}
+                                        >
                                             {stripMarkdown(ticket.last_message)}
                                         </p>
                                     )}
                                     <p className="text-xs text-muted-alt m-0 mt-1">
-                                        <TZLabel time={ticket.created_at} />
+                                        <TZLabel time={ticket.last_message_at ?? ticket.created_at} />
                                     </p>
                                 </div>
                                 <IconChevronRight className="text-muted-alt" />

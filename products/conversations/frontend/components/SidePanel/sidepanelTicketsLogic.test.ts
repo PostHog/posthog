@@ -570,11 +570,60 @@ describe('sidepanelTicketsLogic', () => {
 
     // TicketsList renders filteredTickets, so a broken selector would show the wrong chats
     // (or none) once someone picks a status.
+    // Unread tickets sort first, then most recent activity, regardless of creation order.
     it.each([
-        ['all', ['t-open', 't-resolved']],
+        ['all', ['t-unread', 't-resolved', 't-open']],
+        ['active', ['t-unread', 't-open']],
+        ['unread', ['t-unread']],
         ['open', ['t-open']],
         ['resolved', ['t-resolved']],
-    ] as const)('filters the ticket list to status %s', async (status, expectedIds) => {
+    ] as const)('filters the ticket list to %s', async (filter, expectedIds) => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setTickets([
+            { id: 't-open', status: 'open', message_count: 1, created_at: '2026-07-13T00:00:00Z' },
+            { id: 't-resolved', status: 'resolved', message_count: 1, created_at: '2026-07-14T00:00:00Z' },
+            {
+                id: 't-unread',
+                status: 'pending',
+                message_count: 2,
+                unread_count: 1,
+                created_at: '2026-07-12T00:00:00Z',
+            },
+        ] as ConversationTicket[])
+        logic.actions.setStatusFilter(filter)
+
+        expect(logic.values.filteredTickets.map((ticket) => ticket.id)).toEqual(expectedIds)
+    })
+
+    it('counts tickets per filter for the dropdown labels', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setTickets([
+            { id: 't-open', status: 'open', message_count: 1, unread_count: 2, created_at: '2026-07-13T00:00:00Z' },
+            { id: 't-resolved', status: 'resolved', message_count: 1, created_at: '2026-07-14T00:00:00Z' },
+            { id: 't-hold', status: 'on_hold', message_count: 1, created_at: '2026-07-12T00:00:00Z' },
+        ] as ConversationTicket[])
+
+        expect(logic.values.ticketFilterCounts).toEqual({
+            unread: 1,
+            active: 2,
+            all: 3,
+            new: 0,
+            open: 1,
+            pending: 0,
+            on_hold: 1,
+            resolved: 1,
+        })
+    })
+
+    // A long ticket history shouldn't bury the reply you're waiting on: with nothing chosen the
+    // list shows unread tickets when there are any, otherwise active ones, until the user picks.
+    it('defaults the filter to unread, then active, until the user chooses', async () => {
         logic = sidepanelTicketsLogic.build()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -583,8 +632,17 @@ describe('sidepanelTicketsLogic', () => {
             { id: 't-open', status: 'open', message_count: 1, created_at: '2026-07-13T00:00:00Z' },
             { id: 't-resolved', status: 'resolved', message_count: 1, created_at: '2026-07-14T00:00:00Z' },
         ] as ConversationTicket[])
-        logic.actions.setStatusFilter(status)
+        expect(logic.values.effectiveStatusFilter).toBe('active')
+        expect(logic.values.filteredTickets.map((ticket) => ticket.id)).toEqual(['t-open'])
 
-        expect(logic.values.filteredTickets.map((ticket) => ticket.id)).toEqual(expectedIds)
+        logic.actions.setTickets([
+            { id: 't-open', status: 'open', message_count: 1, unread_count: 1, created_at: '2026-07-13T00:00:00Z' },
+            { id: 't-resolved', status: 'resolved', message_count: 1, created_at: '2026-07-14T00:00:00Z' },
+        ] as ConversationTicket[])
+        expect(logic.values.effectiveStatusFilter).toBe('unread')
+
+        logic.actions.setStatusFilter('all')
+        expect(logic.values.effectiveStatusFilter).toBe('all')
+        expect(logic.values.filteredTickets.map((ticket) => ticket.id)).toEqual(['t-open', 't-resolved'])
     })
 })
