@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
 
@@ -115,14 +116,13 @@ class TestAITrainingOptInHistory(APIBaseTest):
             (True, None, False),
         ]
     )
-    def test_warns_only_when_a_hipaa_organization_is_opted_in(
-        self, is_hipaa: bool, opted_in: bool | None, expect_warning: bool
+    def test_warns_only_when_an_organization_with_a_signed_baa_is_opted_in(
+        self, has_baa: bool, opted_in: bool | None, expect_warning: bool
     ) -> None:
-        self.organization.is_hipaa = is_hipaa
-        self.organization.save()
         self._set_opt_in_without_logging(opted_in)
 
-        history = get_ai_training_opt_in_history(self.organization)
+        with patch("posthog.admin.ai_training_opt_in_history.has_signed_baa", return_value=has_baa):
+            history = get_ai_training_opt_in_history(self.organization)
 
         self.assertEqual(history.warning is not None, expect_warning)
 

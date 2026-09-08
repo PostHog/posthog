@@ -84,6 +84,15 @@ def has_qualifying_baa_addon(organization: Organization) -> bool:
     return logic.has_qualifying_baa_addon(organization)
 
 
+def has_signed_baa(organization_id: UUID) -> bool:
+    """
+    True once the organization has a countersigned BAA on file. This is the
+    standing HIPAA gate: it decides whether AI training stays locked off, so it
+    must read the signature state rather than a cached flag.
+    """
+    return logic.has_signed_baa(organization_id)
+
+
 def verify_pandadoc_webhook_signature(*, secret: str, body: bytes, signature: str) -> bool:
     """Passthrough so the presentation layer never reaches past the facade."""
     return _verify_pandadoc_webhook_signature(secret=secret, body=body, signature=signature)

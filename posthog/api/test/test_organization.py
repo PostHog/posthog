@@ -185,6 +185,22 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertNotEqual(self.organization.name, "ASDFG")
 
+    def test_cannot_opt_into_ai_training_with_a_signed_baa(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.is_ai_training_opted_in = False
+        self.organization.save()
+
+        with patch("posthog.api.organization.has_signed_baa", return_value=True):
+            response = self.client.patch(
+                f"/api/organizations/{self.organization.id}/", {"is_ai_training_opted_in": True}
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "locked")
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.is_ai_training_opted_in, False)
+
     def test_cant_update_plugins_access_level(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

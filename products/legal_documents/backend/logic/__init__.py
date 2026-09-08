@@ -81,6 +81,14 @@ def has_qualifying_baa_addon(organization: Organization) -> bool:
     return False
 
 
+def has_signed_baa(organization_id: UUID) -> bool:
+    return LegalDocument.objects.filter(
+        organization_id=organization_id,
+        document_type=DocumentType.BAA,
+        status=LegalDocument.Status.SIGNED,
+    ).exists()
+
+
 def exists_for_organization_and_type(organization_id: UUID, document_type: str) -> bool:
     return LegalDocument.objects.filter(organization_id=organization_id, document_type=document_type).exists()
 
