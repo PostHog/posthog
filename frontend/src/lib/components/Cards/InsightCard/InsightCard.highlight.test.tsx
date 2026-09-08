@@ -42,6 +42,25 @@ const insight = {
 } as unknown as QueryBasedInsightModel
 
 describe('InsightCard highlight class', () => {
+    it('forwards the dashboard reveal contract to the card root', () => {
+        const { container } = render(
+            <InsightCard
+                insight={insight}
+                placement={DashboardPlacement.Dashboard}
+                className="ai-highlight-test"
+                data-dashboard-tile-id="41"
+                data-dashboard-tile-highlighted="true"
+                tabIndex={-1}
+            />
+        )
+
+        const card = container.querySelector('[data-attr="insight-card"]')
+        expect(card).toHaveClass('DashboardTileCard', 'InsightCard', 'ai-highlight-test')
+        expect(card).toHaveAttribute('data-dashboard-tile-id', '41')
+        expect(card).toHaveAttribute('data-dashboard-tile-highlighted', 'true')
+        expect(card).toHaveAttribute('tabindex', '-1')
+    })
+
     it('removes the highlighted class when the highlight expires upstream', () => {
         const { container, rerender } = render(
             <InsightCard insight={insight} placement={DashboardPlacement.Dashboard} highlighted />

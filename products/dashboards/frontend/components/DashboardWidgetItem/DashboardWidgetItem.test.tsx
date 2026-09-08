@@ -148,6 +148,29 @@ describe('DashboardWidgetItem', () => {
         }).unmount()
     })
 
+    it('forwards the dashboard reveal contract to the widget card root', () => {
+        const { container } = render(
+            <DashboardWidgetItem
+                tile={tile}
+                placement={DashboardPlacement.Dashboard}
+                dashboardId={99}
+                result={null}
+                loading={false}
+                onRefresh={jest.fn()}
+                className="ai-highlight-test"
+                data-dashboard-tile-id="41"
+                data-dashboard-tile-highlighted="true"
+                tabIndex={-1}
+            />
+        )
+
+        const card = container.querySelector('[data-slot="widget-card"]')
+        expect(card).toHaveClass('DashboardTileCard', 'WidgetCard', 'ai-highlight-test')
+        expect(card).toHaveAttribute('data-dashboard-tile-id', '41')
+        expect(card).toHaveAttribute('data-dashboard-tile-highlighted', 'true')
+        expect(card).toHaveAttribute('tabindex', '-1')
+    })
+
     it('does not render tile filters without product access', () => {
         jest.mocked(userHasDashboardWidgetProductAccess).mockReturnValue(false)
 

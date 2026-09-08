@@ -1153,6 +1153,58 @@ describe('resolveDashboardAiMutation candidate classification', () => {
             jest.useRealTimers()
         })
 
+        it('does not let a replaced highlight timer clear a newer highlight', async () => {
+            jest.useFakeTimers()
+            initKeaTests()
+            mockCommittedDashboard = dashboardWithInsight(42, 202, 'beta')
+            const firstReload = deferred<void>()
+            const secondReload = deferred<void>()
+            mockLoadDashboard
+                .mockReset()
+                .mockReturnValueOnce(firstReload.promise)
+                .mockReturnValueOnce(secondReload.promise)
+            const timeoutSpy = jest.spyOn(window, 'setTimeout')
+            const logic = dashboardAiSyncLogic({ dashboardId })
+            logic.mount()
+
+            logic.actions.applyToolCompletion(
+                eventFor(
+                    'dashboard-update-text-tile',
+                    { id: dashboardId, tile_id: 42 },
+                    { id: 42, dashboard_id: dashboardId }
+                ),
+                { id: dashboardId, tile_id: 42 }
+            )
+            firstReload.resolve()
+            await waitFor(() => expect(logic.values.transientHighlightedTileIds).toEqual([42]))
+            const firstExpiry = timeoutSpy.mock.calls.find((call: unknown[]) => call[1] === 3000)?.[0] as
+                | (() => void)
+                | undefined
+            expect(firstExpiry).not.toBeUndefined()
+
+            mockCommittedDashboard = {
+                ...committedDashboard(),
+                tiles: [committedDashboard().tiles[0], dashboardWithInsight(42, 202, 'beta').tiles[0]],
+            }
+            logic.actions.applyToolCompletion(
+                eventFor(
+                    'dashboard-update-text-tile',
+                    { id: dashboardId, tile_id: 41 },
+                    { id: 41, dashboard_id: dashboardId }
+                ),
+                { id: dashboardId, tile_id: 41 }
+            )
+            secondReload.resolve()
+            await waitFor(() => expect(logic.values.transientHighlightedTileIds).toEqual([41, 42]))
+
+            firstExpiry?.()
+
+            expect(logic.values.transientHighlightedTileIds).toEqual([41, 42])
+            logic.unmount()
+            timeoutSpy.mockRestore()
+            jest.useRealTimers()
+        })
+
         it('does not highlight a requested tile missing from the committed dashboard', async () => {
             jest.useFakeTimers()
             initKeaTests()
@@ -1204,6 +1256,66 @@ describe('resolveDashboardAiMutation candidate classification', () => {
 
             expect(setHighlightSpy).not.toHaveBeenCalled()
             jest.useRealTimers()
+        })
+
+        it('abandons an active reload and its queued successor after the keyed logic remounts', async () => {
+            initKeaTests()
+            mockCommittedDashboard = committedDashboard()
+            const activeReload = deferred<void>()
+            const successorReload = deferred<void>()
+            mockLoadDashboard
+                .mockReset()
+                .mockReturnValueOnce(activeReload.promise)
+                .mockReturnValueOnce(successorReload.promise)
+            const timeoutSpy = jest.spyOn(window, 'setTimeout')
+            const logic = dashboardAiSyncLogic({ dashboardId })
+            logic.mount()
+
+            logic.actions.applyToolCompletion(
+                eventFor('dashboard-create-tile', { id: dashboardId }, { id: 61, dashboard_id: dashboardId }),
+                { id: dashboardId }
+            )
+            logic.actions.applyToolCompletion(
+                eventFor(
+                    'dashboard-update-text-tile',
+                    { id: dashboardId, tile_id: 41 },
+                    { id: 41, dashboard_id: dashboardId }
+                ),
+                { id: dashboardId, tile_id: 41 }
+            )
+            expect(logic.values.queuedBatch?.tileIds).toEqual([41])
+
+            const setActiveBatchSpy = jest.spyOn(logic.actions, 'setActiveBatch')
+            const setQueuedBatchSpy = jest.spyOn(logic.actions, 'setQueuedBatch')
+            const setHighlightSpy = jest.spyOn(logic.actions, 'setTransientHighlightedTileIds')
+            const setKnownOwnershipSpy = jest.spyOn(logic.actions, 'setKnownOwnership')
+            const syncDashboardSpy = jest.spyOn(logic.actions, 'syncDashboard')
+            setActiveBatchSpy.mockClear()
+            setQueuedBatchSpy.mockClear()
+            setHighlightSpy.mockClear()
+            setKnownOwnershipSpy.mockClear()
+            syncDashboardSpy.mockClear()
+            timeoutSpy.mockClear()
+
+            logic.unmount()
+            const remountedLogic = dashboardAiSyncLogic({ dashboardId })
+            remountedLogic.mount()
+            mockCommittedDashboard = dashboardWithInsight(61, 303, 'gamma')
+            activeReload.resolve()
+            await activeReload.promise
+            await Promise.resolve()
+            await Promise.resolve()
+
+            expect(setActiveBatchSpy).not.toHaveBeenCalled()
+            expect(setQueuedBatchSpy).not.toHaveBeenCalled()
+            expect(setHighlightSpy).not.toHaveBeenCalled()
+            expect(setKnownOwnershipSpy).not.toHaveBeenCalled()
+            expect(syncDashboardSpy).not.toHaveBeenCalled()
+            expect(mockLoadDashboard).toHaveBeenCalledTimes(1)
+            expect(timeoutSpy.mock.calls.some((call: unknown[]) => call[1] === 3000)).toBe(false)
+
+            remountedLogic.unmount()
+            timeoutSpy.mockRestore()
         })
 
         it('refreshes only the mounted alert logic for the exact dashboard insight', async () => {

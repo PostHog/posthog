@@ -1,4 +1,4 @@
-import { LogicWrapper, MakeLogicType, actions, beforeUnmount, kea, key, listeners, path, props, reducers } from 'kea'
+import { LogicWrapper, MakeLogicType, actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { router } from 'kea-router'
 
 import { urls } from 'scenes/urls'
@@ -1077,42 +1077,49 @@ export const dashboardAiSyncLogic: LogicWrapper<dashboardAiSyncLogicType> = kea<
             actions.syncDashboard(batch)
         },
         syncDashboard: async ({ batch }) => {
+            const disposables = cache.disposables
             try {
                 await dashboardLogic({ id: props.dashboardId }).asyncActions.loadDashboard({
                     action: DashboardLoadAction.BackgroundUpdate,
                 })
 
+                if (disposables.isDisposed) {
+                    return
+                }
                 const committedDashboard = dashboardLogic({ id: props.dashboardId }).values.dashboard
                 const confirmedTileIds = confirmedHighlightTileIds(batch, committedDashboard)
                 if (confirmedTileIds.length > 0) {
                     actions.setTransientHighlightedTileIds(
                         sortedUniqueNumbers([...values.transientHighlightedTileIds, ...confirmedTileIds])
                     )
-                    if (cache.transientHighlightTimer !== undefined) {
-                        window.clearTimeout(cache.transientHighlightTimer)
-                    }
-                    cache.transientHighlightTimer = window.setTimeout(() => {
-                        actions.setTransientHighlightedTileIds([])
-                        cache.transientHighlightTimer = undefined
-                    }, TRANSIENT_HIGHLIGHT_DURATION_MS)
+                    cache.disposables.add(() => {
+                        let active = true
+                        const timer = window.setTimeout(() => {
+                            if (!active) {
+                                return
+                            }
+                            active = false
+                            actions.setTransientHighlightedTileIds([])
+                        }, TRANSIENT_HIGHLIGHT_DURATION_MS)
+                        return () => {
+                            active = false
+                            window.clearTimeout(timer)
+                        }
+                    }, 'transientHighlightExpiry')
                 }
             } catch {
                 // The dashboard loader keeps the last committed dashboard visible on failure.
             } finally {
-                const successor = values.queuedBatch
-                actions.setActiveBatch(null)
-                if (successor) {
-                    actions.setQueuedBatch(null)
-                    actions.setActiveBatch(successor)
-                    actions.syncDashboard(successor)
+                if (!disposables.isDisposed) {
+                    const successor = values.queuedBatch
+                    actions.setActiveBatch(null)
+                    if (successor) {
+                        actions.setQueuedBatch(null)
+                        actions.setActiveBatch(successor)
+                        actions.syncDashboard(successor)
+                    }
                 }
             }
         },
     })),
-    beforeUnmount(({ cache }) => {
-        if (cache.transientHighlightTimer !== undefined) {
-            window.clearTimeout(cache.transientHighlightTimer)
-            cache.transientHighlightTimer = undefined
-        }
-    }),
 ])
