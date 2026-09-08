@@ -35,3 +35,22 @@ export const Compact: Story = {
         </div>
     ),
 }
+
+/** Every grantable scope in a roster-width column, where the label list has to wrap rather than clip. */
+export const EveryScopeInANarrowRow: Story = {
+    render: () => (
+        <div className="max-w-60 p-4">
+            <ScoutWriteAccessTag
+                writeScopes={[
+                    'dashboard:write',
+                    'insight:write',
+                    'annotation:write',
+                    'alert:write',
+                    'llm_skill:write',
+                    'warehouse_view:write',
+                    'warehouse_table:write',
+                ]}
+            />
+        </div>
+    ),
+}
