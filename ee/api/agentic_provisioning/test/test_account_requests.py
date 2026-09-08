@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from freezegun import freeze_time
@@ -11,7 +12,6 @@ from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
-from rest_framework.response import Response
 
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning import PartnerTier
@@ -196,7 +196,7 @@ class TestAccountRequestCallerCaps(ProvisioningTestBase):
         payload.update(overrides)
         return payload
 
-    def _post(self, payload: dict[str, object], partner: OAuthApplication | None = None, **kwargs: object) -> Response:
+    def _post(self, payload: dict[str, object], partner: OAuthApplication | None = None, **kwargs: Any) -> Any:
         return self._post_with_client_secret(ACCOUNT_REQUESTS_URL, payload, partner=partner, **kwargs)
 
     def _jwks_partner(self) -> OAuthApplication:
@@ -227,7 +227,7 @@ class TestAccountRequestCallerCaps(ProvisioningTestBase):
             _provisioning_config=provisioning_config(active=True, can_create_accounts=True),
         )
 
-    def _post_public(self, payload: dict[str, object], partner: OAuthApplication, **kwargs: object) -> Response:
+    def _post_public(self, payload: dict[str, object], partner: OAuthApplication, **kwargs: Any) -> Any:
         return self._post_api(ACCOUNT_REQUESTS_URL, {**payload, "client_id": partner.client_id}, **kwargs)
 
     @patch("ee.api.agentic_provisioning.views.account_requests.wizard_identity_blocked", return_value=True)
