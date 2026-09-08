@@ -170,32 +170,6 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert delete.status_code == status.HTTP_404_NOT_FOUND, delete.content
         assert [a["id"] for a in listed.json()["results"]] == []
 
-    def test_create_alert_on_funnel_insight(self) -> None:
-        funnel_insight = self.client.post(
-            f"/api/projects/{self.team.id}/insights",
-            data={
-                "query": {
-                    "kind": "FunnelsQuery",
-                    "series": [
-                        {"kind": "EventsNode", "event": "$pageview"},
-                        {"kind": "EventsNode", "event": "$autocapture"},
-                    ],
-                }
-            },
-        ).json()
-        creation_request = {
-            "insight": funnel_insight["id"],
-            "subscribed_users": [self.user.id],
-            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
-            "config": {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None},
-            "name": "funnel alert",
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 50}}},
-            "calculation_interval": "daily",
-        }
-
-        response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
-        assert response.status_code == status.HTTP_201_CREATED, response.content
-
     def test_create_threshold_alert_rejects_empty_bounds(self) -> None:
         creation_request = {
             "insight": self.insight["id"],
@@ -787,7 +761,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
 
         insight_without_alert_support = deepcopy(self.default_insight_data)
-        insight_without_alert_support["query"] = {"kind": "RetentionQuery", "retentionFilter": {}}
+        insight_without_alert_support["query"] = {"kind": "EventsQuery", "select": ["*"]}
         self.client.patch(
             f"/api/projects/{self.team.id}/insights/{another_insight['id']}",
             data=insight_without_alert_support,
@@ -831,50 +805,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         # Changing to a kind that cannot carry alerts still cascades.
         self.client.patch(
             f"/api/projects/{self.team.id}/insights/{hogql_insight['id']}",
-            data={"query": {"kind": "RetentionQuery", "retentionFilter": {}}},
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-
-    def test_funnel_alert_survives_insight_update_and_is_listed_on_insight(self) -> None:
-        funnel_insight_data: dict[str, Any] = {
-            "query": {
-                "kind": "FunnelsQuery",
-                "series": [
-                    {"kind": "EventsNode", "event": "$pageview"},
-                    {"kind": "EventsNode", "event": "$autocapture"},
-                ],
-            },
-        }
-        funnel_insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=funnel_insight_data).json()
-
-        alert = self.client.post(
-            f"/api/projects/{self.team.id}/alerts",
-            {
-                "insight": funnel_insight["id"],
-                "subscribed_users": [self.user.id],
-                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
-                "config": {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None},
-                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 50}}},
-                "name": "funnel alert",
-            },
-        ).json()
-
-        # The insight response must list the alert inline — the UI trusts this list on reload.
-        insight_response = self.client.get(f"/api/projects/{self.team.id}/insights/{funnel_insight['id']}").json()
-        assert [a["id"] for a in insight_response["alerts"]] == [alert["id"]]
-
-        # Updating the insight while it stays funnel-backed must not cascade-delete the alert.
-        updated = deepcopy(funnel_insight_data)
-        updated["query"]["series"][1]["event"] = "$pageleave"
-        self.client.patch(f"/api/projects/{self.team.id}/insights/{funnel_insight['id']}", data=updated)
-        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
-        assert response.status_code == status.HTTP_200_OK
-
-        # Changing to a kind that cannot carry alerts still cascades.
-        self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{funnel_insight['id']}",
-            data={"query": {"kind": "RetentionQuery", "retentionFilter": {}}},
+            data={"query": {"kind": "EventsQuery", "select": ["*"]}},
         )
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
         assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -1631,7 +1562,19 @@ class TestAlertSimulate(APIBaseTest):
         assert isinstance(data["scores"], list)
         assert len(data["scores"]) == 34
 
-    def test_simulate_missing_detector_config_returns_400(self) -> None:
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_detector_on_insight")
+    def test_simulate_uses_default_detector_config(self, mock_simulate) -> None:
+        mock_simulate.return_value = {
+            "data": [],
+            "dates": [],
+            "scores": [],
+            "triggered_indices": [],
+            "triggered_dates": [],
+            "interval": "day",
+            "total_points": 0,
+            "anomaly_count": 0,
+        }
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/alerts/simulate",
             {
@@ -1639,7 +1582,59 @@ class TestAlertSimulate(APIBaseTest):
                 "series_index": 0,
             },
         )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        detector_config = mock_simulate.call_args.kwargs["detector_config"]
+        assert detector_config["type"] == "zscore"
+        assert detector_config["threshold"] == 0.95
+        assert detector_config["window"] == 90
+        assert detector_config["preprocessing"]["diffs_n"] == 1
+
+    def test_simulate_null_detector_config_returns_400(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {
+                "insight": self.insight["id"],
+                "detector_config": None,
+            },
+        )
+
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_simulate_unknown_insight_short_id_returns_not_found_error(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {
+                "insight": "not-a-real-short-id",
+                "detector_config": {"type": "zscore"},
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "does_not_exist"
+
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_detector_on_insight")
+    def test_simulate_accepts_insight_short_id(self, mock_simulate) -> None:
+        mock_simulate.return_value = {
+            "data": [],
+            "dates": [],
+            "scores": [],
+            "triggered_indices": [],
+            "triggered_dates": [],
+            "interval": "day",
+            "total_points": 0,
+            "anomaly_count": 0,
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {
+                "insight": self.insight["short_id"],
+                "detector_config": {"type": "zscore"},
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert mock_simulate.call_args.kwargs["insight"].id == self.insight["id"]
 
     def test_simulate_invalid_detector_config_returns_400(self) -> None:
         response = self.client.post(

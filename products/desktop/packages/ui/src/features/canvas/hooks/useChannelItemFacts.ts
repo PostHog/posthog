@@ -15,7 +15,7 @@ import type { ReactNode } from "react";
  * resolution is how a row and its section header end up disagreeing about which
  * repository a session belongs to.
  */
-export type ChannelItemFacts = Partial<
+type ChannelItemFacts = Partial<
   Record<ListItemMetadataField, ListItemMetadataValue | string>
 >;
 
@@ -29,7 +29,7 @@ export function channelItemAuthor(item: ChannelItemModel): string | null {
   return item.authorName;
 }
 
-export function channelItemFacts(item: ChannelItemModel): ChannelItemFacts {
+function channelItemFacts(item: ChannelItemModel): ChannelItemFacts {
   return {
     repository: item.repository?.label,
     branch: item.branch ?? undefined,

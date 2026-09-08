@@ -6,11 +6,11 @@ import { LemonInput, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { getExperimentStatus } from 'scenes/experiments/experimentStatus'
 
 import { Experiment } from '~/types'
 
 import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
+import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
 
 import { addExperimentsToNotebookModalLogic } from './addExperimentsToNotebookModalLogic'
 

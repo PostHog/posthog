@@ -727,8 +727,13 @@ class OauthIntegration:
             # to read the warehouse resources (emails/audiences/contacts/domains/broadcasts).
             # The token response carries no account identifier, so id/name are derived from the
             # access-token JWT below (see the resend branch in integration_from_oauth_response).
+            # Every OAuth endpoint lives on api.resend.com, including the authorize endpoint that
+            # the user's browser opens. This is what Resend publishes at
+            # https://api.resend.com/.well-known/oauth-authorization-server. The dashboard host
+            # resend.com has no /oauth/authorize route and answers with its own 404 page, so do
+            # not move the authorize URL there to match the address users see in the dashboard.
             return OauthConfig(
-                authorize_url="https://resend.com/oauth/authorize",
+                authorize_url="https://api.resend.com/oauth/authorize",
                 token_url="https://api.resend.com/oauth/token",
                 token_revoke_url="https://api.resend.com/oauth/revoke",
                 client_id=settings.RESEND_APP_CLIENT_ID,

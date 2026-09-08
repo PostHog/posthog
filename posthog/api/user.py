@@ -6,6 +6,7 @@ import secrets
 import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
@@ -46,11 +47,7 @@ from two_factor.utils import default_device
 
 from posthog.schema import UserUIConfiguration
 
-from posthog.api.email_verification import (
-    EmailVerifier,
-    email_verification_code_verifier,
-    email_verification_token_generator,
-)
+from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.oauth.toolbar_service import (
     ToolbarOAuthError,
     ToolbarOAuthState,
@@ -64,7 +61,7 @@ from posthog.api.oauth.toolbar_service import (
 )
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.services.flags_service import get_flags_from_service
-from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
+from posthog.api.shared import OrganizationBasicSerializer, OrganizationNotificationLockSerializer, TeamBasicSerializer
 from posthog.api.utils import (
     ClassicBehaviorBooleanFieldSerializer,
     action,
@@ -112,6 +109,7 @@ from posthog.models.oauth import OAuthGrant, find_oauth_refresh_token, has_live_
 from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_notification_lock import GovernedSetting, notification_locks_for_users
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import (
     NOTIFICATION_DEFAULTS,
@@ -163,6 +161,46 @@ NUM_2FA_BACKUP_CODES = 10
 MAX_PIPELINE_NOTIFICATIONS = 1000
 _PIPELINE_ID_PATTERN = re.compile(r"^(?:hog_function|batch_export|plugin_config):[0-9a-zA-Z-]{1,128}$")
 
+# `product_intro_seen` is exempt from the re-auth gate, so it gets a ceiling of its own. Only a new key
+# is refused at the ceiling, so an intro the user already dismissed still reopens and closes.
+MAX_PRODUCT_INTROS_SEEN = 100
+
+
+def _reject_locked_notification_settings(user: User, incoming: Notifications, current: Mapping[str, Any]) -> None:
+    """Stop a member changing a setting their organization enforces.
+
+    The settings page disables these controls, but the disabling has to be enforced here too, or
+    the rule is only a suggestion to anyone using the API directly. Only a changed value is
+    refused: the page submits the whole map on every save, so an untouched governed setting has
+    to pass through.
+
+    Deliberately not scoped to one organization: a value the member stores is the one every
+    organization that has no rule of its own falls back to, so any single rule freezes it.
+    """
+    locks = notification_locks_for_users([user.id]).get(user.id, {})
+    if not locks:
+        return
+
+    for key, value in incoming.items():
+        if isinstance(value, dict):
+            stored: dict = current.get(key) or {}
+            blocked = [
+                scope_id
+                for scope_id, scoped_value in value.items()
+                if GovernedSetting(setting=key, scope_id=str(scope_id)) in locks
+                and stored.get(scope_id) != scoped_value
+            ]
+            if blocked:
+                raise serializers.ValidationError(
+                    f"{key} is set by your organization for {', '.join(sorted(blocked))} and cannot be changed here",
+                    code="permission_denied",
+                )
+        elif GovernedSetting(setting=key, scope_id="") in locks and current.get(key) != value:
+            raise serializers.ValidationError(
+                f"{key} is set by your organization and cannot be changed here",
+                code="permission_denied",
+            )
+
 
 def _validate_pipeline_notifications(incoming: dict, merged: dict) -> None:
     for pipeline_id in incoming:
@@ -199,37 +237,23 @@ class PendingInviteSerializer(serializers.Serializer):
 
 
 class VerifyEmailRequestSerializer(serializers.Serializer):
-    """Request body for POST /api/users/verify_email/. Exactly one of token or code is required."""
+    """Request body for POST /api/users/verify_email/."""
 
-    # A string, not a UUIDField: the E2E test sentinel is not a UUID, and an unknown uuid must
-    # answer the same way as a wrong credential rather than as a shape error.
+    # A string, not a UUIDField: an unknown uuid must answer the same way as a wrong code rather
+    # than as a shape error.
     uuid = serializers.CharField(help_text="UUID of the user whose email is being verified.")
-    token = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        help_text="Verification token from the emailed link. Required unless a code is provided.",
-    )
     code = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        help_text="The 6-digit verification code emailed at signup. Whitespace, invisible characters, "
+        help_text="The 6-digit verification code from the email. Whitespace, invisible characters, "
         "and grouping hyphens are removed and compatibility digits are folded to ASCII before checking.",
     )
 
     def validate_code(self, value: str) -> str:
-        if not value:
-            return value
         # Same rule as the login code: exactly 6 digits after normalization, so malformed input is
         # rejected here and never reaches the attempt budget.
         cleaned = normalize_verification_code(value)
         if not re.fullmatch(r"\d{6}", cleaned):
             raise serializers.ValidationError("Enter the 6-digit code from your email.")
         return cleaned
-
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if not attrs.get("token") and not attrs.get("code"):
-            raise serializers.ValidationError({"token": ["This field is required."]}, code="required")
-        return attrs
 
 
 class OnboardingSkipRequestSerializer(serializers.Serializer):
@@ -333,6 +357,13 @@ class UserSerializer(serializers.ModelSerializer):
             "once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only."
         ),
     )
+    notification_locks = serializers.SerializerMethodField(
+        help_text=(
+            "Notification settings an organization admin enforces on this user. The matching "
+            "controls are read-only, and `notification_settings` still holds the user's own "
+            "choice underneath. Read-only."
+        ),
+    )
 
     class Meta:
         model = User
@@ -346,6 +377,7 @@ class UserSerializer(serializers.ModelSerializer):
             "pending_email",
             "is_email_verified",
             "notification_settings",
+            "notification_locks",
             "anonymize_data",
             "allow_impersonation",
             "toolbar_mode",
@@ -388,6 +420,7 @@ class UserSerializer(serializers.ModelSerializer):
             "active_realtime_notification_types",
             "pending_invites",
             "requires_credential_review",
+            "notification_locks",
         ]
 
         read_only_fields = [
@@ -566,6 +599,17 @@ class UserSerializer(serializers.ModelSerializer):
     def get_active_realtime_notification_types(self, _: User) -> list[str]:
         return [t.value for t in NotificationType]
 
+    @extend_schema_field(OrganizationNotificationLockSerializer(many=True))
+    def get_notification_locks(self, instance: User) -> list[dict]:
+        """Every rule that reaches this person, across all the organizations they belong to."""
+        if not self._is_self_request(instance):
+            return []
+        locks = notification_locks_for_users([instance.id]).get(instance.id, {})
+        return [
+            {"setting": governed.setting, "scope_id": governed.scope_id, "locked_value": value}
+            for governed, value in sorted(locks.items(), key=lambda item: (item[0].setting, item[0].scope_id))
+        ]
+
     @extend_schema_field(PendingInviteSerializer(many=True))
     @tracer.start_as_current_span("user_serializer.pending_invites")
     def get_pending_invites(self, instance: User) -> list[dict]:
@@ -640,6 +684,8 @@ class UserSerializer(serializers.ModelSerializer):
             **NOTIFICATION_DEFAULTS,
             **(instance.partial_notification_settings or {}),
         }
+
+        _reject_locked_notification_settings(instance, notification_settings, current_settings)
 
         _dict_notification_keys = (
             "project_weekly_digest_disabled",
@@ -836,23 +882,11 @@ class UserSerializer(serializers.ModelSerializer):
                     code="sso_enforced_new_email",
                 )
             validated_data.pop("email", None)  # staged as pending_email below, not written to `email` directly
-            # Serialize concurrent email changes for this user under a row lock so the token is
-            # minted against one consistent pending_email. Without it, interleaved requests can
-            # bind a token to one address but deliver its verification email to another.
-            with transaction.atomic():
-                User.objects.select_for_update().get(pk=instance.pk)
-                instance.pending_email = new_email
-                instance.save(update_fields=["pending_email"])
-                token = email_verification_token_generator.make_token(instance)
-            # Send after the transaction commits (never inside the atomic block), pinning the
-            # recipient to the captured address so a later pending_email change can't redirect
-            # this verification email. The code path stores that address as the code's target,
-            # so a stale code stops verifying once a different address is staged.
-            if not (
-                EmailVerifier.use_verification_code(instance)
-                and email_verification_code_verifier.send_code(instance, target_email=new_email)
-            ):
-                EmailVerifier.send_verification_email(instance, token, target_email=new_email)
+            instance.pending_email = new_email
+            instance.save(update_fields=["pending_email"])
+            # The code is bound to the captured address, so a concurrent email change cannot
+            # redirect this code: once a different address is staged, the code stops verifying.
+            email_verification_code_verifier.send_code(instance, target_email=new_email)
 
         if validated_data.get("notification_settings"):
             validated_data["partial_notification_settings"] = validated_data.pop("notification_settings")
@@ -954,6 +988,23 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
             scene=validated_data["scene"],
             defaults={"dashboard": validated_data["dashboard"]},
         )
+
+
+class ProductIntroSeenSerializer(serializers.Serializer):
+    """Request body for PATCH /api/users/@me/product_intro_seen."""
+
+    product_key = serializers.CharField(
+        max_length=128,
+        help_text=(
+            "Which key in `has_seen_product_intro_for` to set. Any string is accepted: besides the "
+            "product keys, the map holds keys composed per team and keys for surfaces that are not "
+            "products."
+        ),
+    )
+    seen = serializers.BooleanField(
+        default=True,
+        help_text="Whether the intro counts as seen. Send false to show it again.",
+    )
 
 
 class UserAuthSessionSerializer(serializers.ModelSerializer):
@@ -1073,6 +1124,7 @@ class UserViewSet(
     time_sensitive_exclude_actions = [
         "hedgehog_config",
         "scene_personalisation",
+        "product_intro_seen",
     ]
     time_sensitive_allow_actions = ["hedgehog_config"]
     filter_backends = [DjangoFilterBackend]
@@ -1195,54 +1247,44 @@ class UserViewSet(
     def verify_email(self, request, **kwargs):
         body = VerifyEmailRequestSerializer(data=request.data if isinstance(request.data, dict) else {})
         body.is_valid(raise_exception=True)
-        token = body.validated_data.get("token") or None
-        code = body.validated_data.get("code") or None
+        code = body.validated_data["code"]
         user_uuid = body.validated_data["uuid"]
-
-        # Special handling for E2E tests
-        if settings.E2E_TESTING and user_uuid == "e2e_test_user" and token == "e2e_test_token":
-            return {"success": True, "token": token}
 
         try:
             user: Optional[User] = User.objects.filter(is_active=True).get(uuid=user_uuid)
         except User.DoesNotExist:
             user = None
 
-        # A replay of a spent token or code (double click, scanner prefetch) is not a failure:
-        # the address is verified. Do not create a session - no valid credential was presented.
+        # A replay of a spent code (double submit) is not a failure: the address is verified.
+        # Do not create a session - no valid credential was presented.
         if user and user.is_email_verified is True and not user.pending_email:
             return Response({"success": True, "requires_login": True})
 
-        if code and not token:
-            if not user:
-                raise serializers.ValidationError(
-                    {"code": ["This verification code is invalid or has expired."]},
-                    code="invalid_code",
-                )
-            attempts = email_verification_code_verifier.reserve_attempt(user)
-            if email_verification_code_verifier.attempts_exceeded(attempts):
-                # Refuse until the budget expires, but keep the code: anyone with the uuid can
-                # reach this endpoint, and deleting the code here would let them block the user.
-                raise serializers.ValidationError(
-                    {"code": ["Too many incorrect attempts. Try again later."]},
-                    code="too_many_attempts",
-                )
-            if not email_verification_code_verifier.check_code(user, code):
-                raise serializers.ValidationError(
-                    {"code": ["This verification code is invalid or has expired."]},
-                    code="invalid_code",
-                )
-            email_verification_code_verifier.invalidate(user)
-        elif not user or not token or not EmailVerifier.check_token(user, token):
+        if not user:
             raise serializers.ValidationError(
-                {"token": ["This verification token is invalid or has expired."]},
-                code="invalid_token",
+                {"code": ["This code is invalid or has expired."]},
+                code="invalid_code",
             )
+        attempts = email_verification_code_verifier.reserve_attempt(user)
+        if email_verification_code_verifier.attempts_exceeded(attempts):
+            # Refuse until the budget expires, but keep the code: anyone with the uuid can
+            # reach this endpoint, and deleting the code here would let them block the user.
+            raise serializers.ValidationError(
+                {"code": ["Too many incorrect attempts. Try again later."]},
+                code="too_many_attempts",
+            )
+        if not email_verification_code_verifier.check_code(user, code):
+            raise serializers.ValidationError(
+                {"code": ["This code is invalid or has expired."]},
+                code="invalid_code",
+            )
+        email_verification_code_verifier.invalidate(user)
 
-        # The swap needs a credential issued for the staged address. A token always is (its hash
-        # includes pending_email). A code is only for a verified user; an unverified user's code
-        # proves the account address, so their staged change stays pending.
-        if user.pending_email and (token or user.is_email_verified):
+        # An unverified user's code proves the account address, not the staged one, so their
+        # staged change stays pending until they verify it with a code sent to the new address.
+        # A legacy account (is_email_verified None) counts as verified, like in the login flow
+        # and in the verifier.
+        if user.pending_email and user.is_email_verified is not False:
             old_email = user.email
             with transaction.atomic():
                 user.email = user.pending_email
@@ -1260,21 +1302,21 @@ class UserViewSet(
         user_has_passkeys = has_passkeys(user)
         passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
         if default_device(user) or passkeys_enabled_for_2fa:
-            return Response({"success": True, "token": token, "requires_2fa": True})
+            return Response({"success": True, "requires_2fa": True})
 
         # Don't hand a non-SSO session to an account whose domain enforces SSO — verifying an email
         # must not become a password-backend login path around the IdP. The user logs in via SSO.
         if OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email):
-            return Response({"success": True, "token": token, "requires_sso": True})
+            return Response({"success": True, "requires_sso": True})
 
         # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
         if not resolve_login_organization(user):
-            return Response({"success": True, "token": token, "requires_login": True})
+            return Response({"success": True, "requires_login": True})
 
         login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
         set_two_factor_verified_in_session(self.request)
         report_user_logged_in(user)
-        return Response({"success": True, "token": token})
+        return Response({"success": True})
 
     @action(
         methods=["POST"],
@@ -1301,7 +1343,7 @@ class UserViewSet(
                     "Email is already verified.",
                     code="already_verified",
                 )
-            EmailVerifier.create_token_and_send_email_verification(user)
+            email_verification_code_verifier.send_code(user)
 
         return Response({"success": True})
 
@@ -1443,6 +1485,53 @@ class UserViewSet(
         instance.refresh_from_db()
 
         return Response(self.get_serializer(instance=instance).data)
+
+    @extend_schema(
+        request=ProductIntroSeenSerializer,
+        responses={
+            200: OpenApiResponse(
+                response={"type": "object", "additionalProperties": {"type": "boolean"}},
+                description="The user's whole `has_seen_product_intro_for` map, after the merge.",
+            )
+        },
+    )
+    # `required_scopes` is explicit because the viewset resolves scopes from `scope_object` plus the
+    # read/write action lists, and a custom @action is in neither — leaving it unset resolves to no
+    # scopes at all, which `APIScopePermission` refuses outright, even for a wildcard token.
+    @action(methods=["PATCH"], detail=True, required_scopes=["user:write"])
+    def product_intro_seen(self, request, **kwargs) -> Response:
+        """Record that this user has seen one product intro.
+
+        Separate from the `has_seen_product_intro_for` field on the main user PATCH, which requires a
+        recently authenticated session. Dismissing an intro must not depend on that: a re-auth prompt
+        would cover the intro it interrupts, and the dismissal would never persist. Nothing reachable
+        here changes an account, an organization, or a profile.
+
+        Merging server-side also keeps two intros dismissed from separate tabs from dropping each
+        other's key, which a read-modify-write of the whole map cannot avoid.
+        """
+        serializer = ProductIntroSeenSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        product_key = serializer.validated_data["product_key"]
+
+        instance = self.get_object()
+
+        with transaction.atomic():
+            # Lock the user row so concurrent dismissals from separate tabs merge into the map instead of
+            # overwriting it wholesale, and so the size cap counts committed keys rather than a stale read.
+            locked = User.objects.select_for_update().get(pk=instance.pk)
+            seen_for = locked.has_seen_product_intro_for or {}
+
+            if product_key not in seen_for and len(seen_for) >= MAX_PRODUCT_INTROS_SEEN:
+                raise serializers.ValidationError(
+                    f"Cannot track more than {MAX_PRODUCT_INTROS_SEEN} product intros",
+                    code="invalid_input",
+                )
+
+            locked.has_seen_product_intro_for = {**seen_for, product_key: serializer.validated_data["seen"]}
+            locked.save(update_fields=["has_seen_product_intro_for"])
+
+        return Response(locked.has_seen_product_intro_for)
 
     @action(
         methods=["GET", "PATCH"],

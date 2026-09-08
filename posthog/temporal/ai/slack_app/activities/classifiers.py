@@ -20,9 +20,9 @@ from products.slack_app.backend.facade.run_preferences import (
     available_model_choices,
     find_model_choice,
     group_by_runtime,
-    is_slack_app_model_classifier_enabled,
 )
 from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.slack_app.backend.services.slack_messages import SlackThreadMessage
 
 logger = structlog.get_logger(__name__)
 
@@ -57,7 +57,7 @@ AGENT_DIRECTED_MAX_RETRIES = 1
 
 def classify_task_needs_repo(
     event_text: str,
-    thread_messages: list[dict[str, str]],
+    thread_messages: list[SlackThreadMessage],
 ) -> bool:
     """Classify whether a Slack conversation requires code repository access.
 
@@ -69,7 +69,7 @@ def classify_task_needs_repo(
     spends a discovery-agent sandbox run on "what's my DAU". Defaults to False
     on error for the same reason.
     """
-    conversation = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
+    conversation = "\n".join(f"{msg.user}: {msg.text}" for msg in thread_messages)
     normalized = f"{conversation}\nLatest message: {event_text}".lower()
 
     # Substring match: keep the shortest form that uniquely identifies the
@@ -192,7 +192,7 @@ def classify_task_needs_repo(
 @activity.defn
 def classify_posthog_code_task_needs_repo_activity(
     event_text: str,
-    thread_messages: list[dict[str, str]],
+    thread_messages: list[SlackThreadMessage],
 ) -> bool:
     return classify_task_needs_repo(event_text, thread_messages)
 
@@ -221,7 +221,7 @@ def _agent_directed_response_format() -> ResponseFormatJSONSchema:
 def classify_message_is_agent_directed(
     event_text: str,
     task_title: str,
-    thread_history: list[dict[str, str]],
+    thread_history: list[SlackThreadMessage],
 ) -> bool:
     """Classify whether an untagged Slack thread reply is an instruction to the running
     PostHog Slack App, or people talking to each other.
@@ -234,7 +234,7 @@ def classify_message_is_agent_directed(
     ``False`` for the same reason.
 
     ``thread_history`` is the conversation so far (oldest first), as returned
-    by ``collect_thread_messages`` — each entry is ``{"user", "text", "ts"}``.
+    by ``collect_thread_messages``.
 
     Whether the prompt holds that line is measured by
     ``products/slack_app/evals/eval_followup_classifier.py``.
@@ -246,7 +246,7 @@ def classify_message_is_agent_directed(
 
     # Bound the number of lines and the per-line length to keep the prompt predictable.
     recent = thread_history[-CLASSIFIER_THREAD_HISTORY_MESSAGES:]
-    history_block = "\n".join(f"{m.get('user', 'Unknown')}: {m.get('text', '')[:500]}" for m in recent) or "(empty)"
+    history_block = "\n".join(f"{m.user or 'Unknown'}: {m.text[:500]}" for m in recent) or "(empty)"
 
     prompt = (
         "The PostHog agent is working on a task in this Slack thread. People in the thread "
@@ -536,7 +536,7 @@ def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput
     different model than the first one announced. The workflow calls it once, above the
     point where the mention and follow-up paths diverge.
 
-    Every message behind the flag reaches the classifier. A keyword pre-filter would
+    Every message reaches the classifier. A keyword pre-filter would
     save the Haiku call on the majority that name no model, but it also decides — on
     a substring match — which phrasings can ever steer a run, and that judgement
     belongs to the model reading the sentence, not to a word list. Blank text is not
@@ -550,9 +550,6 @@ def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput
         kind="slack",
         integration_id=input.slack_team_id,
     )
-    if not is_slack_app_model_classifier_enabled(integration):
-        return None
-
     choices = available_model_choices()
     if not choices:
         # The gateway is the source of truth for what can run; with no catalogue we

@@ -1,5 +1,5 @@
-import { heatmapApiPath, isWithinBounds } from 'lib/components/heatmaps/heatmapDataLogic'
-import { HeatmapBoundsFilter } from 'lib/components/heatmaps/types'
+import { eventFilterParam, heatmapApiPath, isWithinBounds } from 'lib/components/heatmaps/heatmapDataLogic'
+import { CommonFilters, HeatmapBoundsFilter } from 'lib/components/heatmaps/types'
 
 import { AppContext } from '~/types'
 
@@ -55,5 +55,22 @@ describe('heatmapApiPath', () => {
             : { current_team: { id: teamId } }) as unknown as AppContext
 
         expect(heatmapApiPath(context, endpoint)).toBe(expected)
+    })
+})
+
+describe('eventFilterParam', () => {
+    it.each([
+        ['no events', undefined, undefined],
+        ['an empty list', [], undefined],
+        // ActionFilter adds the row before the user picks an event, and the API rejects a null id.
+        ['only rows without a picked event', [{ id: null }, { id: null }], undefined],
+        ['a mix of picked and unpicked rows', [{ id: null }, { id: 'purchase' }], '[{"id":"purchase"}]'],
+        [
+            'the property filters a picked row carries',
+            [{ id: 'purchase', properties: [{ type: 'event', key: 'plan', value: 'pro' }] }],
+            '[{"id":"purchase","properties":[{"type":"event","key":"plan","value":"pro"}]}]',
+        ],
+    ] as const)('%s', (_name, events, expected) => {
+        expect(eventFilterParam(events as CommonFilters['events'])).toBe(expected)
     })
 })

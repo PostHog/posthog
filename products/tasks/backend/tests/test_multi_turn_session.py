@@ -1485,7 +1485,7 @@ class TestMultiTurnSessionStartFallback:
             task_run=FakeTaskRun(),  # type: ignore[arg-type]
             _workflow_handle=AsyncMock(),
         )
-        session.end = AsyncMock()  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+        session.end = AsyncMock()  # type: ignore[method-assign]
         return session
 
     @pytest.mark.asyncio

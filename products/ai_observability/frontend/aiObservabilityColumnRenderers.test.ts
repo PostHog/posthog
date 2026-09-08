@@ -1,14 +1,68 @@
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
     FilterIdentifier,
     PersonData,
     createPersonFilter,
+    getEventData,
     getFilterIdentifier,
     getTracesUrlWithPersonFilter,
 } from './aiObservabilityColumnRenderers'
 
 describe('aiObservabilityColumnRenderers', () => {
+    describe('getEventData', () => {
+        // Regression: without traceId + timestamp, useAIData can never fetch stripped heavy props,
+        // so Input/Output cells fall back to empty instead of loading the full payload.
+        it('extracts trace coordinates from object-format records', () => {
+            const eventData = getEventData({
+                uuid: 'event-1',
+                timestamp: '2026-04-30T10:00:00Z',
+                properties: {
+                    $ai_trace_id: 'trace-1',
+                    $ai_input: [{ role: 'user', content: 'hi' }],
+                    $ai_output_choices: [{ role: 'assistant', content: 'hello' }],
+                },
+            })
+
+            expect(eventData).toEqual({
+                uuid: 'event-1',
+                input: [{ role: 'user', content: 'hi' }],
+                output: [{ role: 'assistant', content: 'hello' }],
+                traceId: 'trace-1',
+                timestamp: '2026-04-30T10:00:00Z',
+            })
+        })
+
+        it('extracts trace coordinates from array-format records by select column position', () => {
+            const query: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: [
+                        'uuid',
+                        'properties.$ai_input[-1]',
+                        'properties.$ai_output_choices',
+                        'properties.$ai_trace_id',
+                        'timestamp',
+                    ],
+                },
+            }
+            const eventData = getEventData(
+                ['event-1', 'stripped-input', 'stripped-output', 'trace-1', '2026-04-30T10:00:00Z'],
+                query
+            )
+
+            expect(eventData).toEqual({
+                uuid: 'event-1',
+                input: 'stripped-input',
+                output: 'stripped-output',
+                traceId: 'trace-1',
+                timestamp: '2026-04-30T10:00:00Z',
+            })
+        })
+    })
+
     describe('getFilterIdentifier', () => {
         it.each<[string, PersonData | null | undefined, FilterIdentifier | null]>([
             ['returns null when person is null', null, null],

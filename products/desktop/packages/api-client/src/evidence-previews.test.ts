@@ -16,7 +16,9 @@ import {
   shapeEvaluationPreview,
   shapeEventDefinitionPreview,
   shapeExperimentPreview,
+  shapeExperimentResults,
   shapeFlagPreview,
+  shapeInboxReportPreview,
   shapePersonPreview,
   shapeRecordingPreview,
   shapeSurveyPreview,
@@ -27,6 +29,257 @@ import type { Schemas } from "./generated";
 
 // The shapers only read the fields they show; build minimal inputs and cast.
 describe("evidence preview shaping", () => {
+  const experimentWithMetrics = (
+    overrides: Partial<Schemas.Experiment> = {},
+  ): Schemas.Experiment =>
+    ({
+      id: 1234,
+      name: "Checkout prompt",
+      feature_flag_key: "checkout-prompt",
+      feature_flag: { id: 3, key: "checkout-prompt" },
+      start_date: "2026-01-01T00:00:00Z",
+      metrics: [
+        {
+          kind: "ExperimentMetric",
+          uuid: "primary-1",
+          name: "Checkout conversion",
+          metric_type: "funnel",
+        },
+      ],
+      metrics_secondary: [
+        {
+          kind: "ExperimentMetric",
+          uuid: "secondary-1",
+          name: "Orders per user",
+          metric_type: "mean",
+        },
+      ],
+      saved_metrics: [],
+      ...overrides,
+    }) as unknown as Schemas.Experiment;
+
+  const exposureResponse = {
+    kind: "ExperimentExposureQuery",
+    timeseries: [],
+    total_exposures: { control: 1050, test: 1020 },
+    date_range: { date_from: "2026-01-01", date_to: null },
+  } as Schemas.ExperimentExposureQueryResponse;
+
+  const readyMetricResponse = {
+    kind: "ExperimentQuery",
+    baseline: {
+      key: "control",
+      number_of_samples: 1000,
+      sum: 100,
+      sum_squares: 100,
+    },
+    variant_results: [
+      {
+        key: "test",
+        method: "frequentist",
+        number_of_samples: 1000,
+        sum: 125,
+        sum_squares: 125,
+        confidence_interval: [0.05, 0.45],
+        p_value: 0.02,
+        significant: true,
+      },
+    ],
+    significance_code: "significant",
+    is_cached: true,
+    last_refresh: new Date().toISOString(),
+  } as unknown as Schemas.ExperimentQueryResponse;
+
+  it("shapes running experiment results with primary and secondary metrics", () => {
+    const results = shapeExperimentResults(
+      experimentWithMetrics(),
+      exposureResponse,
+      [{ response: readyMetricResponse }],
+      [{ response: readyMetricResponse }],
+    );
+
+    expect(results.state).toBe("ready");
+    expect(results.primaryMetrics[0]).toMatchObject({
+      name: "Checkout conversion",
+      metricType: "primary",
+      outcomeLabel: "Conversions",
+      state: "ready",
+      bestVariant: {
+        key: "test",
+        uplift: "+25.0%",
+        significance: "significant",
+        isImprovement: true,
+      },
+      variants: [
+        {
+          key: "control",
+          outcome: "100 · 10.0%",
+          sampleContext: "1K samples · 1.1K exposed",
+          uplift: null,
+          upliftDirection: null,
+          isImprovement: null,
+        },
+        {
+          key: "test",
+          outcome: "125 · 12.5%",
+          sampleContext: "1K samples · 1K exposed",
+          uplift: "+25.0%",
+          upliftDirection: "positive",
+          isImprovement: true,
+          interval: "+5.00% to +45.0%",
+          pValue: "0.020",
+          significance: "significant",
+        },
+      ],
+    });
+    expect(results.secondaryMetrics[0]).toMatchObject({
+      name: "Orders per user",
+      metricType: "secondary",
+    });
+  });
+
+  it("selects the strongest variant using a decrease metric's goal", () => {
+    const experiment = experimentWithMetrics({
+      metrics: [
+        {
+          kind: "ExperimentMetric",
+          uuid: "primary-1",
+          name: "Support requests",
+          metric_type: "mean",
+          goal: "decrease",
+        },
+      ],
+      metrics_secondary: [],
+    } as unknown as Partial<Schemas.Experiment>);
+    const response = {
+      ...readyMetricResponse,
+      baseline: {
+        key: "control",
+        number_of_samples: 100,
+        sum: 100,
+        sum_squares: 100,
+      },
+      variant_results: [
+        {
+          key: "fewer-requests",
+          number_of_samples: 100,
+          sum: 80,
+          sum_squares: 80,
+          significant: true,
+        },
+        {
+          key: "more-requests",
+          number_of_samples: 100,
+          sum: 120,
+          sum_squares: 120,
+          significant: true,
+        },
+      ],
+    } as unknown as Schemas.ExperimentQueryResponse;
+
+    const results = shapeExperimentResults(
+      experiment,
+      exposureResponse,
+      [{ response }],
+      [],
+    );
+
+    expect(results.primaryMetrics[0].bestVariant).toMatchObject({
+      key: "fewer-requests",
+      uplift: "-20.0%",
+      isImprovement: true,
+    });
+  });
+
+  it("keeps a draft experiment distinct from missing results", () => {
+    const results = shapeExperimentResults(
+      experimentWithMetrics({ start_date: null }),
+      null,
+      [],
+      [],
+    );
+
+    expect(results.state).toBe("draft");
+    expect(results.primaryMetrics).toHaveLength(1);
+    expect(results.primaryMetrics[0].state).toBe("insufficient_data");
+    expect(results.secondaryMetrics).toHaveLength(1);
+  });
+
+  it("marks an old cached result as stale while the experiment is running", () => {
+    const oldResponse = {
+      ...readyMetricResponse,
+      last_refresh: "2020-01-01T00:00:00Z",
+    } as unknown as Schemas.ExperimentQueryResponse;
+    const results = shapeExperimentResults(
+      experimentWithMetrics(),
+      exposureResponse,
+      [{ response: oldResponse }],
+      [{ response: oldResponse }],
+    );
+
+    expect(results.stale).toBe(true);
+    expect(results.lastRefresh).toBe("2020-01-01T00:00:00Z");
+  });
+
+  it("does not mark final completed results as stale", () => {
+    const oldResponse = {
+      ...readyMetricResponse,
+      last_refresh: "2025-01-01T00:00:00Z",
+    } as unknown as Schemas.ExperimentQueryResponse;
+    const results = shapeExperimentResults(
+      experimentWithMetrics({ end_date: "2026-01-15T00:00:00Z" }),
+      exposureResponse,
+      [{ response: oldResponse }],
+      [{ response: oldResponse }],
+    );
+
+    expect(results.state).toBe("ready");
+    expect(results.stale).toBe(false);
+  });
+
+  it("preserves a failed metric query in its configured position", () => {
+    const results = shapeExperimentResults(
+      experimentWithMetrics(),
+      exposureResponse,
+      [{ response: null }],
+      [{ response: readyMetricResponse }],
+    );
+
+    expect(results.state).toBe("error");
+    expect(results.primaryMetrics[0]).toMatchObject({
+      name: "Checkout conversion",
+      state: "error",
+      error: "Couldn't calculate this metric.",
+    });
+    expect(results.secondaryMetrics[0].state).toBe("ready");
+  });
+
+  it("shows outcomes while marking low-exposure results as insufficient", () => {
+    const insufficientResponse = {
+      ...readyMetricResponse,
+      significance_code: "not_enough_exposure",
+      significant: false,
+    } as unknown as Schemas.ExperimentQueryResponse;
+    const results = shapeExperimentResults(
+      experimentWithMetrics(),
+      exposureResponse,
+      [{ response: insufficientResponse }],
+      [{ response: insufficientResponse }],
+    );
+
+    expect(results.state).toBe("insufficient_data");
+    expect(results.primaryMetrics[0]).toMatchObject({
+      state: "insufficient_data",
+      variants: [
+        expect.any(Object),
+        expect.objectContaining({
+          outcome: "125 · 12.5%",
+          significance: "insufficient_data",
+        }),
+      ],
+    });
+  });
+
   it("keys the flag preview by key and carries the numeric id for links", () => {
     const preview = shapeFlagPreview({
       id: 42,
@@ -50,7 +303,6 @@ describe("evidence preview shaping", () => {
       title: "Configuration",
       fields: expect.arrayContaining([
         { label: "Type", value: "Multivariate" },
-        { label: "Release conditions", value: "1 condition" },
       ]),
     });
   });
@@ -77,15 +329,19 @@ describe("evidence preview shaping", () => {
       },
     } as unknown as Schemas.FeatureFlag);
 
-    expect(preview.sections).toContainEqual({
-      title: "Release conditions",
-      fields: [
-        {
-          label: "Set 1",
-          value: "plan exact pro · 25% rollout · Variant: test",
-        },
-      ],
-    });
+    expect(preview.flagAudience?.rules).toEqual([
+      expect.objectContaining({
+        conditions: [
+          {
+            subject: "plan",
+            operator: "is",
+            values: [{ label: "pro" }],
+          },
+        ],
+        share: 25,
+        result: { kind: "variant", key: "test" },
+      }),
+    ]);
   });
 
   it("shows a disabled flag without a name as just the state", () => {
@@ -152,7 +408,7 @@ describe("evidence preview shaping", () => {
       name: "TypeError in CouponValidator",
       status: "pending_release",
       first_seen: "2024-01-03T10:00:00Z",
-    } as Schemas.ErrorTrackingIssueFull);
+    } as Schemas.ErrorTrackingIssueRead);
     expect(preview.detail).toMatch(/^First seen Jan 3/);
     expect(preview.status).toEqual({
       label: "Pending release",
@@ -355,37 +611,41 @@ describe("evidence preview shaping", () => {
     ]);
   });
 
-  it("renders negated criteria as their negative meaning", () => {
-    const sections = cohortCriteriaSection({
-      properties: {
-        type: "AND",
-        values: [
-          {
-            type: "AND",
-            values: [
-              {
-                type: "behavioral",
-                value: "performed_event",
-                key: "checkout",
-                negation: true,
-              },
-              {
-                type: "cohort",
-                value: "Power users",
-                negation: true,
-              },
-              {
-                type: "person",
-                key: "email",
-                operator: "icontains",
-                value: "@example.com",
-                negation: true,
-              },
-            ],
-          },
-        ],
+  it("renders negated criteria and resolved cohort names", () => {
+    const sections = cohortCriteriaSection(
+      {
+        properties: {
+          type: "AND",
+          values: [
+            {
+              type: "AND",
+              values: [
+                {
+                  type: "behavioral",
+                  value: "performed_event",
+                  key: "checkout",
+                  negation: true,
+                },
+                {
+                  type: "cohort",
+                  value: 42,
+                  negation: true,
+                },
+                { type: "cohort", value: 77 },
+                {
+                  type: "person",
+                  key: "email",
+                  operator: "icontains",
+                  value: "@example.com",
+                  negation: true,
+                },
+              ],
+            },
+          ],
+        },
       },
-    });
+      new Map([["42", "Power users"]]),
+    );
     expect(sections).toEqual([
       {
         title: "Membership criteria",
@@ -393,7 +653,7 @@ describe("evidence preview shaping", () => {
           {
             label: "Criteria",
             value:
-              "Did not complete checkout and Is not in cohort Power users and email does not contain @example.com",
+              "Did not complete checkout and Is not in cohort Power users and Is in cohort 77 and email does not contain @example.com",
           },
         ],
       },
@@ -540,6 +800,29 @@ describe("evidence preview shaping", () => {
     expect(preview.title).toBe("Ticket #841");
   });
 
+  it("summarizes an Inbox report separately from a support ticket", () => {
+    const preview = shapeInboxReportPreview({
+      id: "rep-1",
+      title: "Checkout latency increased",
+      summary: "Requests became slower after the latest release.",
+      status: "pending_input",
+      priority: "P2",
+      signal_count: 4,
+      total_weight: 4,
+      artefact_count: 2,
+      source_products: ["error_tracking"],
+      created_at: "2026-01-02T10:00:00Z",
+      updated_at: "2026-01-03T10:00:00Z",
+    });
+
+    expect(preview).toMatchObject({
+      title: "Checkout latency increased",
+      detail: "Requests became slower after the latest release.",
+      status: { label: "Pending input", tone: "caution" },
+      facts: ["P2", "4 signals", "Error tracking"],
+    });
+  });
+
   it("identifies a person by name or email and carries the uuid for links", () => {
     expect(
       shapePersonPreview({
@@ -623,7 +906,16 @@ describe("evidence preview shaping", () => {
         detail: "Enabled · Old rollout",
         facts: ["100% rollout"],
       },
-      { status: "stale", reason: "Rolled out to 100% for at least 30 days" },
+      {
+        status: "stale",
+        reason: "Rolled out to 100% for at least 30 days",
+        rollout: {
+          effectively_full_rollout: true,
+          has_targeting_conditions: false,
+          max_rollout_percentage: 100,
+          is_multivariate: false,
+        },
+      },
       [
         ["2024-01-01", 900000],
         ["2024-01-02", 1200000],
@@ -691,6 +983,37 @@ describe("evidence preview shaping", () => {
     ]);
   });
 
+  it("describes who sees a running survey from its targeting flag and display conditions", () => {
+    const preview = shapeSurveyPreview({
+      id: "srv-12",
+      name: "Checkout survey",
+      start_date: "2026-08-01T00:00:00Z",
+      targeting_flag: {
+        key: "survey-targeting-checkout",
+        filters: {
+          groups: [
+            {
+              properties: [{ key: "plan", operator: "exact", value: "pro" }],
+              rollout_percentage: 25,
+            },
+          ],
+        },
+      },
+      conditions: { url: "/checkout", urlMatchType: "icontains" },
+    } as unknown as Schemas.Survey);
+
+    expect(preview.flagAudience?.headline).toBe(
+      "Shown to 25% of people matching one condition.",
+    );
+    expect(preview.displayConditions).toEqual([
+      {
+        subject: "URL",
+        operator: "contains",
+        values: [{ label: "/checkout" }],
+      },
+    ]);
+  });
+
   it("describes a survey that has not started as a draft", () => {
     const preview = shapeSurveyPreview({
       id: "srv-11",
@@ -699,6 +1022,7 @@ describe("evidence preview shaping", () => {
     expect(preview).toMatchObject({
       title: "Checkout survey",
       status: { label: "Draft", tone: "neutral" },
+      flagAudience: { headline: "Not shown to anyone." },
     });
   });
 });

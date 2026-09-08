@@ -17,6 +17,7 @@ from django.db.models.fields.reverse_related import ForeignObjectRel
 from django.db.models.sql.query import Query
 from django.urls import resolvers
 
+from _pytest.fixtures import FixtureManager
 from rest_framework.utils import model_meta
 
 from posthog.clickhouse.client.connection import get_client_from_pool, get_pool
@@ -97,6 +98,24 @@ def test_clickhouse_checkout_counter_is_wired():
     with get_pool().get_client():
         pass
     assert test_base._clickhouse_pool_checkouts > before
+
+
+def test_fixture_parent_nodeids_cache_matches_unpatched_pytest(request):
+    # Assumption: a node's parents, and their nodeids, are fixed once the node is
+    # constructed, so the set can be memoized per node instead of rebuilt per lookup.
+    manager = request._fixturemanager
+    node = request.node
+    orig = _unpatched(FixtureManager._matchfactories)
+    names = sorted(manager._arg2fixturedefs)
+    assert names, "no fixtures registered — this canary needs a populated fixture manager"
+    for argname in names:
+        fixturedefs = manager._arg2fixturedefs[argname]
+        fresh = list(orig(manager, fixturedefs, node))
+        assert list(manager._matchfactories(fixturedefs, node)) == fresh, (
+            f"cached parent nodeids changed which fixtures match {argname!r}"
+        )
+        # The second call is served from the memo and must still agree.
+        assert list(manager._matchfactories(fixturedefs, node)) == fresh
 
 
 def test_drf_field_info_cache_matches_unpatched_drf():

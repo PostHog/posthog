@@ -1,13 +1,15 @@
+import { isCustomModelOption } from "@posthog/shared";
+
 /**
  * List prices per 1M tokens for every model the pickers can show, and the
  * relative per-token cost derived from them. One place on the client; keep in
  * sync with the gateway's billing source
  * (services/llm-gateway/src/llm_gateway/rate_limiting/model_cost_overrides.py).
  *
- * Sources, checked 2026-08-22:
+ * Sources, checked 2026-09-07:
  * - Anthropic (Opus, Sonnet, Haiku): platform.claude.com/docs/en/about-claude/pricing
  * - GPT-5.5: developers.openai.com/api/docs/pricing
- * - Fable, GPT-5.6, Kimi K3, GLM, DeepSeek: the gateway's billing rates, what
+ * - Fable, GPT-5.6, GPT-6 Astra, Kimi K3, GLM, DeepSeek: the gateway's billing rates, what
  *   the user is actually charged (pinned in the file above). The drift test
  *   binds these rows to it.
  */
@@ -25,12 +27,31 @@ export interface ModelCostInfo {
   approximate: boolean;
 }
 
+interface ModelPickerOptionBase {
+  value: string;
+  name: string;
+  _meta?: Record<string, unknown> | null;
+}
+
+export interface PricedModelPickerOption extends ModelPickerOptionBase {
+  kind: "priced";
+  cost: ModelCostInfo;
+}
+
+export interface CustomModelPickerOption extends ModelPickerOptionBase {
+  kind: "custom";
+}
+
+export type ModelPickerOption =
+  | PricedModelPickerOption
+  | CustomModelPickerOption;
+
 /** The 1× anchor every multiplier is stated against. */
 export const MODEL_COST_BASELINE_NAME = "Claude Sonnet 5";
 const BASELINE: ModelListPrice = { inputPerMtok: 2, outputPerMtok: 10 };
 
 // Matched by lowercase substring, first hit wins, so keep specific ids
-// (gpt-5.6-*, sonnet-4) ahead of their broader families.
+// (gpt-5.6-*, glm-5.3-flash, sonnet-4) ahead of their broader families.
 const LIST_PRICES: [family: string, price: ModelListPrice][] = [
   ["fable", { inputPerMtok: 10, outputPerMtok: 50 }],
   ["mythos", { inputPerMtok: 10, outputPerMtok: 50 }],
@@ -38,11 +59,13 @@ const LIST_PRICES: [family: string, price: ModelListPrice][] = [
   ["sonnet-4", { inputPerMtok: 3, outputPerMtok: 15 }],
   ["sonnet", { inputPerMtok: 2, outputPerMtok: 10 }],
   ["haiku", { inputPerMtok: 1, outputPerMtok: 5 }],
+  ["gpt-6-astra", { inputPerMtok: 10, outputPerMtok: 50 }],
   ["gpt-5.6-sol", { inputPerMtok: 5, outputPerMtok: 30 }],
   ["gpt-5.6-terra", { inputPerMtok: 2.5, outputPerMtok: 15 }],
   ["gpt-5.6-luna", { inputPerMtok: 1, outputPerMtok: 6 }],
   ["gpt-5.5", { inputPerMtok: 5, outputPerMtok: 30 }],
   ["kimi", { inputPerMtok: 3, outputPerMtok: 15 }],
+  ["glm-5.3-flash", { inputPerMtok: 0.15, outputPerMtok: 0.5 }],
   ["glm", { inputPerMtok: 1.4, outputPerMtok: 4.4 }],
   ["deepseek", { inputPerMtok: 0.13, outputPerMtok: 0.26 }],
 ];
@@ -117,19 +140,27 @@ export function modelCostInfo(modelId: string): ModelCostInfo | null {
 }
 
 /**
- * Per-token rate of `toModelId` relative to `fromModelId`, e.g. "0.2×", for
- * the switch dialog, whose copy already frames it as approximate ("about").
- * Null when either model has no known list price, or when the rates match.
+ * Converts an ACP model into the picker contract. Gateway models require cost
+ * data; only options explicitly marked as custom can omit it.
  */
-export function relativeCostLabel(
-  fromModelId: string,
-  toModelId: string,
-): string | null {
-  const from = modelListPrice(fromModelId);
-  const to = modelListPrice(toModelId);
-  if (!from || !to) return null;
-  const { blended, approximate } = blendedRatio(to, from);
-  // Same list price reads as no line at all, not "1×".
-  if (!approximate && Math.abs(blended - 1) < 0.001) return null;
-  return formatMultiplier(blended, false);
+export function toModelPickerOption(
+  model: ModelPickerOptionBase,
+): ModelPickerOption {
+  if (isCustomModelOption(model._meta)) {
+    return { ...model, kind: "custom" };
+  }
+  const cost = modelCostInfo(model.value);
+  if (!cost) {
+    throw new Error(`Missing pricing for gateway model: ${model.value}`);
+  }
+  return { ...model, kind: "priced", cost };
+}
+
+export function estimateUncachedInputCost(
+  modelId: string,
+  inputTokens: number,
+): number | null {
+  const price = modelListPrice(modelId);
+  if (!price || inputTokens <= 0) return null;
+  return (inputTokens / 1_000_000) * price.inputPerMtok;
 }

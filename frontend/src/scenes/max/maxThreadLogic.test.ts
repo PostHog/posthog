@@ -33,7 +33,7 @@ import { initKeaTests } from '~/test/init'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType, OrganizationType } from '~/types'
 
 import { attachedContextLogic, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
-import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { EnhancedToolCall, TOOL_DEFINITIONS } from './max-constants'
 import { maxContextLogic } from './maxContextLogic'
@@ -721,7 +721,7 @@ describe('maxThreadLogic', () => {
             const conversation: ConversationDetail = {
                 ...MOCK_IN_PROGRESS_CONVERSATION,
                 agent_runtime: 'sandbox',
-                task: { id: 'pi-task', latest_run: 'pi-run', runtime: RuntimeEnumApi.Pi },
+                task: { id: 'pi-task', latest_run: 'pi-run', runtime: TaskRuntimeEnumApi.Pi },
             }
 
             logic.actions.setConversation(conversation)
@@ -1713,7 +1713,7 @@ describe('maxThreadLogic', () => {
 
         function sandboxConversation(
             currentRunId: string | null,
-            runtime: RuntimeEnumApi = RuntimeEnumApi.Acp
+            runtime: TaskRuntimeEnumApi = TaskRuntimeEnumApi.Acp
         ): ConversationDetail {
             return {
                 id: MOCK_CONVERSATION_ID,
@@ -1755,7 +1755,7 @@ describe('maxThreadLogic', () => {
 
         it('does not bootstrap a Pi task run', async () => {
             logic.unmount()
-            const conversation = sandboxConversation(SANDBOX_RUN_ID, RuntimeEnumApi.Pi)
+            const conversation = sandboxConversation(SANDBOX_RUN_ID, TaskRuntimeEnumApi.Pi)
             jest.spyOn(api.conversations, 'get').mockResolvedValue(conversation)
             const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries')
             const streamSpy = mockStream()
@@ -3631,7 +3631,7 @@ describe('maxThreadLogic', () => {
             maxLogicInstance.actions.setPendingBindTaskId('pi-task')
             const taskSpy = jest
                 .spyOn(api.tasks, 'get')
-                .mockResolvedValue({ id: 'pi-task', runtime: RuntimeEnumApi.Pi } as any)
+                .mockResolvedValue({ id: 'pi-task', runtime: TaskRuntimeEnumApi.Pi } as any)
             const openSpy = jest.spyOn(api.conversations, 'open')
 
             logic.actions.askMax('hello')
@@ -3648,7 +3648,7 @@ describe('maxThreadLogic', () => {
             maxLogicInstance.actions.setPendingBindTaskId('acp-task')
             const taskSpy = jest
                 .spyOn(api.tasks, 'get')
-                .mockResolvedValue({ id: 'acp-task', runtime: RuntimeEnumApi.Acp } as any)
+                .mockResolvedValue({ id: 'acp-task', runtime: TaskRuntimeEnumApi.Acp } as any)
             jest.spyOn(api.conversations, 'open').mockResolvedValue(sandboxRunResponse)
 
             await expectLogic(logic, () => {

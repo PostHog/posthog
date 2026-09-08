@@ -290,7 +290,6 @@ vi.mock("@posthog/core/sessions/sessionEvents", async () => {
     extractPromptText: vi.fn((p) => (typeof p === "string" ? p : "text")),
     getUserShellExecutesSinceLastPrompt: vi.fn(() => []),
     isFatalSessionError: actual.isFatalSessionError,
-    isRateLimitError: actual.isRateLimitError,
     normalizePromptToBlocks: vi.fn((p) =>
       typeof p === "string" ? [{ type: "text", text: p }] : p,
     ),

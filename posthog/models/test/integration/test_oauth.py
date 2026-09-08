@@ -1363,7 +1363,7 @@ def _make_resend_jwt(payload: dict) -> str:
 class TestResendIntegrationModel(BaseTest):
     def test_oauth_config(self):
         config = OauthIntegration.oauth_config_for_kind("resend")
-        assert config.authorize_url == "https://resend.com/oauth/authorize"
+        assert config.authorize_url == "https://api.resend.com/oauth/authorize"
         assert config.token_url == "https://api.resend.com/oauth/token"
         assert config.token_revoke_url == "https://api.resend.com/oauth/revoke"
         assert config.client_id == "resend-client-id"

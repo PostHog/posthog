@@ -62,7 +62,7 @@ class PathFilter(
     OffsetMixin,
     PathLimitsMixin,
     GroupsAggregationMixin,
-    FunnelCorrelationMixin,  # Typing pain because ColumnOptimizer expects a uniform filter
+    FunnelCorrelationMixin,  # Kept so all filter classes expose the same attribute surface
     ClientQueryIdMixin,
     SimplifyFilterMixin,
     IncludeRecordingsMixin,
