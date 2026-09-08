@@ -113,9 +113,8 @@ describe('CapturedEventsService', () => {
             expect(internalCaptureService.capture).toHaveBeenCalledTimes(2)
         })
 
-        // A timeout on this best-effort write is the far side failing, and one queued batch can
-        // hold thousands of events. Filing an exception per event floods error tracking, so only
-        // a failure this process can act on becomes an exception.
+        // One queued batch can hold thousands of events, so a remote-origin failure must not
+        // become an exception.
         it.each([
             { name: 'a timeout', cause: Object.assign(new Error('aborted'), { name: 'TimeoutError' }), captured: 0 },
             {

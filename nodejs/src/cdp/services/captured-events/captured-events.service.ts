@@ -103,10 +103,8 @@ export class CapturedEventsService {
         await Promise.all(
             events.map((event) =>
                 this.internalCaptureService.capture(event, 'CapturedEventsService.flush').catch((error) => {
-                    // capture() already logs the failure and counts it under
-                    // internalCaptureCounter{status="error"}. A timeout or a dropped connection
-                    // comes from the far side of a best-effort write, so it stops there: one
-                    // exception per queued event buried every other signal in error tracking.
+                    // capture() already logs and counts the failure. One exception per queued
+                    // event buries every other signal in error tracking, so it stops there.
                     if (isRemoteOriginError(error)) {
                         return
                     }

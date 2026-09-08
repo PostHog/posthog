@@ -11,12 +11,8 @@ const internalCaptureCounter = new Counter({
     labelNames: ['status'],
 })
 
-/**
- * A failure of a best-effort internal capture write, tagged with the caller and the target URL.
- * The wrapper puts a frame in this file, so an exception that reaches error tracking has an
- * in_app frame and a fingerprint per caller, instead of one shared bucket keyed on a stack that
- * holds only Node timers.
- */
+// The raw rejection carries only Node timer frames, so error tracking groups every caller into one
+// frameless bucket.
 export class InternalCaptureError extends Error {
     constructor(
         readonly caller: string,
@@ -48,11 +44,7 @@ const REMOTE_ORIGIN_CODES = new Set([
     'EAI_AGAIN',
 ])
 
-/**
- * True when the write failed on the network or on the far side of it: a timeout, a dropped
- * connection, a name that did not resolve. Nothing in this process can act on one, so a
- * best-effort caller counts it and logs it rather than filing an exception per event.
- */
+// True when the write failed on the network or beyond it, which no caller can act on.
 export function isRemoteOriginError(error: unknown): boolean {
     if (error instanceof InternalCaptureError) {
         return isRemoteOriginError(error.cause)

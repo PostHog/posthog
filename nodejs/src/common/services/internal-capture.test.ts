@@ -79,9 +79,6 @@ describe('InternalCaptureService', () => {
         `)
     })
 
-    // A raw fetch rejection carries only Node timer frames, so error tracking groups every
-    // caller into one bucket with no in_app frame. The wrapper is what keeps a captured
-    // failure attributable.
     it('wraps a failure with the caller and the target url', async () => {
         mockInternalFetch.mockRejectedValue(new Error('connect ECONNREFUSED'))
 
