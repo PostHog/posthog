@@ -104,7 +104,8 @@ function forecastSummary(config: AlertFormType['forecast_config']): string {
         return 'the forecast crosses your threshold'
     }
     if (config.condition === ForecastConditionType.TARGET_BY_DATE) {
-        const target = config.target != null ? humanFriendlyNumber(config.target) : 'a target'
+        // An empty target input is stored as NaN, which would otherwise format as the text "NaN".
+        const target = Number.isFinite(config.target) ? humanFriendlyNumber(config.target) : 'a target'
         const direction = config.target_direction === ForecastTargetDirection.AT_MOST ? 'above' : 'below'
         const on = config.target_date ? ` on ${dayjs(config.target_date).format('MMM D, YYYY')}` : ''
         return `the point forecast is ${direction} ${target}${on}`
