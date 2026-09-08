@@ -1215,6 +1215,28 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertIn("Task 1", task_titles)
         self.assertIn("Task 2", task_titles)
 
+    @parameterized.expand(
+        [
+            ("default_includes", None, True),
+            ("explicit_true_includes", "true", True),
+            ("opt_out_omits", "false", False),
+        ]
+    )
+    def test_list_description_opt_out(self, _name, include_param, expect_description):
+        self.create_task("Task 1")
+
+        url = "/api/projects/@current/tasks/"
+        if include_param is not None:
+            url += f"?include_description={include_param}"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        row = response.json()["results"][0]
+        if expect_description:
+            self.assertEqual(row["description"], "Test Description")
+        else:
+            self.assertNotIn("description", row)
+
     def test_list_tasks_includes_latest_run(self):
         task1 = self.create_task("Task 1")
         task2 = self.create_task("Task 2")

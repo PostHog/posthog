@@ -583,6 +583,20 @@ class TaskSerializer(DataclassSerializer):
         ]
 
 
+class TaskListSerializer(TaskSerializer):
+    """List response for a task without ``description``, used when a client opts out.
+
+    A client that does not render the description body passes ``include_description=false``
+    to the list endpoint and gets this smaller shape, since the description dominates the
+    list payload. The default list response keeps ``description``, and ``retrieve`` always
+    returns it. A client uses the ``search`` query parameter to match description text
+    server-side.
+    """
+
+    class Meta(TaskSerializer.Meta):
+        fields = [field for field in TaskSerializer.Meta.fields if field != "description"]
+
+
 class TaskWriteSerializer(serializers.Serializer):
     """Request body for creating or updating a task.
 
@@ -1965,6 +1979,14 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False, help_text="Filter by repository name (can include org/repo format)"
     )
     created_by = serializers.IntegerField(required=False, help_text="Filter by creator user ID")
+    include_description = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether each row carries the task description body. Defaults to true. Pass false when "
+            "the client does not render the description, to drop the field that dominates the list payload."
+        ),
+    )
     search = serializers.CharField(
         required=False,
         allow_blank=True,
