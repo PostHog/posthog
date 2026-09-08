@@ -19,6 +19,7 @@ from temporalio import activity
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
 from posthog.credentials import AWSKeyPair
+from posthog.dataclasses import frozen
 
 from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
 
@@ -262,7 +263,7 @@ class S3StagingFolder:
     url: str
 
 
-@dataclass
+@frozen
 class InternalStageResult:
     """Result of staging a batch export run's data in the internal S3 area."""
 
