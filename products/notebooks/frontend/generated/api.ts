@@ -32,10 +32,13 @@ import type {
     ReusableWidgetDetailApi,
     ReusableWidgetPageApi,
     ReusableWidgetPublishRequestApi,
+    ReusableWidgetRestoreRequestApi,
     ReusableWidgetReviewRequestApi,
+    ReusableWidgetVersionPageApi,
     ReusableWidgetsDemoFrameParams,
     ReusableWidgetsListParams,
     ReusableWidgetsSourceParams,
+    ReusableWidgetsVersionsParams,
     WidgetCancelRequestApi,
     WidgetFrameApi,
     WidgetGenerateRequestApi,
@@ -175,6 +178,24 @@ export const reusableWidgetsGenerate = async (
     })
 }
 
+export const getReusableWidgetsRestoreUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/notebook_widgets/${id}/restore/`
+}
+
+export const reusableWidgetsRestore = async (
+    projectId: string,
+    id: string,
+    reusableWidgetRestoreRequestApi: ReusableWidgetRestoreRequestApi,
+    options?: RequestInit
+): Promise<ReusableWidgetDetailApi> => {
+    return apiMutator<ReusableWidgetDetailApi>(getReusableWidgetsRestoreUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reusableWidgetRestoreRequestApi),
+    })
+}
+
 export const getReusableWidgetsSaveVersionUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/notebook_widgets/${id}/save-version/`
 }
@@ -231,6 +252,38 @@ export const reusableWidgetsStatus = async (
     options?: RequestInit
 ): Promise<WidgetStatusApi> => {
     return apiMutator<WidgetStatusApi>(getReusableWidgetsStatusUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getReusableWidgetsVersionsUrl = (
+    projectId: string,
+    id: string,
+    params?: ReusableWidgetsVersionsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/notebook_widgets/${id}/versions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/notebook_widgets/${id}/versions/`
+}
+
+export const reusableWidgetsVersions = async (
+    projectId: string,
+    id: string,
+    params?: ReusableWidgetsVersionsParams,
+    options?: RequestInit
+): Promise<ReusableWidgetVersionPageApi> => {
+    return apiMutator<ReusableWidgetVersionPageApi>(getReusableWidgetsVersionsUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

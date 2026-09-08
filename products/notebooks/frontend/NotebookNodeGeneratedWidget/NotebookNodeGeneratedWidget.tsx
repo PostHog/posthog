@@ -205,8 +205,7 @@ function ExpandedWidget({
         userId: user?.id ?? null,
         buildHash: selectedBuildHash,
     })
-    const cleanReviewHasNoDataAccess = selectedSecurityReview?.severity === 'none' && activeFrameNames.length === 0
-    const requiresVerification = !widgetTrust.buildTrusted && !cleanReviewHasNoDataAccess
+    const requiresVerification = !widgetTrust.buildTrusted && selectedSecurityReview?.severity !== 'none'
     const trustControls = (variant: 'gate' | 'toolbar'): JSX.Element => (
         <NotebookWidgetTrustControls
             buildHash={selectedBuildHash}

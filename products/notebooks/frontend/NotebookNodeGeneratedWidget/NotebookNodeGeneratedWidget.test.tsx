@@ -414,9 +414,9 @@ describe('NotebookNodeGeneratedWidget', () => {
             isReusable: true,
         },
         {
-            label: 'requires consent for a green widget with dataframe access',
+            label: 'runs a green widget immediately with dataframe access',
             frameNames: ['events_df'],
-            autoRuns: false,
+            autoRuns: true,
             isReusable: false,
         },
     ])('$label', async ({ frameNames, autoRuns, isReusable }) => {

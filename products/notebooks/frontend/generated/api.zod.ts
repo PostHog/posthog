@@ -49,6 +49,11 @@ export const ReusableWidgetsGenerateBody = /* @__PURE__ */ zod.object({
         .describe('Current widget version the improvement is based on. Required for improve operations.'),
 })
 
+export const ReusableWidgetsRestoreBody = /* @__PURE__ */ zod.object({
+    version_id: zod.uuid().describe('Published version to copy into a new latest version.'),
+    expected_current_version_id: zod.uuid().describe('Latest version observed before restoring.'),
+})
+
 export const ReusableWidgetsSaveVersionBody = /* @__PURE__ */ zod.object({
     pending_version_id: zod.uuid().describe('Draft version being reviewed.'),
     expected_current_version_id: zod.uuid().describe('Published version observed when the review action started.'),

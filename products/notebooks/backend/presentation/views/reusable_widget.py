@@ -32,7 +32,9 @@ from products.notebooks.backend.presentation.reusable_widget_serializers import 
     ReusableWidgetDetailSerializer,
     ReusableWidgetGenerateRequestSerializer,
     ReusableWidgetPageSerializer,
+    ReusableWidgetRestoreRequestSerializer,
     ReusableWidgetReviewRequestSerializer,
+    ReusableWidgetVersionPageSerializer,
 )
 from products.notebooks.backend.presentation.widget_serializers import (
     WidgetErrorSerializer,
@@ -40,6 +42,11 @@ from products.notebooks.backend.presentation.widget_serializers import (
     WidgetSourceQuerySerializer,
     WidgetSourceSerializer,
     WidgetStatusSerializer,
+    WidgetVersionQuerySerializer,
+)
+from products.notebooks.backend.reusable_widget_versions import (
+    list_reusable_widget_versions,
+    restore_reusable_widget_version,
 )
 
 
@@ -100,6 +107,57 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         self._require_feature()
         try:
             result = get_reusable_widget(team_id=self.team_id, widget_id=self._widget_id())
+        except WidgetError as error:
+            return self._error_response(error)
+        return Response(ReusableWidgetDetailSerializer(result).data)
+
+    @extend_schema(
+        operation_id="reusable_widgets_versions",
+        responses={200: ReusableWidgetVersionPageSerializer, 400: WidgetErrorSerializer, 404: WidgetErrorSerializer},
+        parameters=[WidgetVersionQuerySerializer],
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["notebook:read"])
+    def versions(self, request: Request, **kwargs) -> Response:
+        self._require_feature()
+        query = WidgetVersionQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        try:
+            result = list_reusable_widget_versions(
+                team_id=self.team_id,
+                widget_id=self._widget_id(),
+                offset=query.validated_data["offset"],
+                limit=query.validated_data["limit"],
+            )
+        except WidgetError as error:
+            return self._error_response(error)
+        return Response(ReusableWidgetVersionPageSerializer(result).data)
+
+    @extend_schema(
+        operation_id="reusable_widgets_restore",
+        request=ReusableWidgetRestoreRequestSerializer,
+        responses={
+            200: ReusableWidgetDetailSerializer,
+            400: WidgetErrorSerializer,
+            404: WidgetErrorSerializer,
+            409: WidgetErrorSerializer,
+            429: WidgetErrorSerializer,
+        },
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["notebook:write"])
+    def restore(self, request: Request, **kwargs) -> Response:
+        self._require_feature()
+        if not isinstance(request.user, User):
+            raise PermissionDenied("A user is required to make a reusable widget version latest.")
+        serializer = ReusableWidgetRestoreRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = restore_reusable_widget_version(
+                team_id=self.team_id,
+                widget_id=self._widget_id(),
+                version_id=serializer.validated_data["version_id"],
+                expected_current_version_id=serializer.validated_data["expected_current_version_id"],
+                user_id=request.user.id,
+            )
         except WidgetError as error:
             return self._error_response(error)
         return Response(ReusableWidgetDetailSerializer(result).data)

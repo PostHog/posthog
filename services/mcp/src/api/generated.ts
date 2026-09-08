@@ -76698,11 +76698,30 @@ export namespace Schemas {
       tags?: string[];
     }
 
+    export interface ReusableWidgetRestoreRequest {
+      /** Published version to copy into a new latest version. */
+      version_id: string;
+      /** Latest version observed before restoring. */
+      expected_current_version_id: string;
+    }
+
     export interface ReusableWidgetReviewRequest {
       /** Draft version being reviewed. */
       pending_version_id: string;
       /** Published version observed when the review action started. */
       expected_current_version_id: string;
+    }
+
+    export interface ReusableWidgetVersionPage {
+      /** Published versions, newest first. */
+      results: ReusableWidgetVersionDetail[];
+      /** Total number of published versions. */
+      count: number;
+      /**
+         * Next page offset, or null on the final page.
+         * @nullable
+         */
+      next_offset: number | null;
     }
 
     export interface ReviewBlindSpotsConfig {
@@ -100070,6 +100089,20 @@ export namespace Schemas {
      * Immutable reusable widget version whose source should be returned.
      */
     version_id?: string;
+    };
+
+    export type ReusableWidgetsVersionsParams = {
+    /**
+     * Maximum versions to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Zero-based version offset.
+     * @minimum 0
+     */
+    offset?: number;
     };
 
     export type NotebooksListParams = {

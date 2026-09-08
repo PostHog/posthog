@@ -67,6 +67,11 @@ class ReusableWidgetReviewRequestSerializer(serializers.Serializer):
     )
 
 
+class ReusableWidgetRestoreRequestSerializer(serializers.Serializer):
+    version_id = serializers.UUIDField(help_text="Published version to copy into a new latest version.")
+    expected_current_version_id = serializers.UUIDField(help_text="Latest version observed before restoring.")
+
+
 class ReusableWidgetCatalogQuerySerializer(serializers.Serializer):
     search = serializers.CharField(
         required=False,
@@ -156,6 +161,13 @@ class ReusableWidgetVersionDetailSerializer(serializers.Serializer):
     )
     has_demo_data = serializers.BooleanField(help_text="Whether this version has saved demo data.")
     created_at = serializers.DateTimeField(help_text="When this immutable version was created.")
+
+
+@extend_schema_serializer(many=False)
+class ReusableWidgetVersionPageSerializer(serializers.Serializer):
+    results = ReusableWidgetVersionDetailSerializer(many=True, help_text="Published versions, newest first.")
+    count = serializers.IntegerField(help_text="Total number of published versions.")
+    next_offset = serializers.IntegerField(allow_null=True, help_text="Next page offset, or null on the final page.")
 
 
 class ReusableWidgetDetailSerializer(serializers.Serializer):

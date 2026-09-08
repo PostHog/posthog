@@ -10,7 +10,7 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 - A new widget uses “Create an interactive visualization of the data in this notebook” when its instruction field is left empty.
 - Running a widget re-runs only its connected SQL and Python data cells in dependency order. It reloads the existing preview without generating a new version.
 - A fast model reviews the exact generated source before Canvas publishes it. A review failure stops publication.
-- A preview runs immediately only when its automated review found no potential issues and its immutable version exposes no notebook dataframes. Every dataframe-bearing, flagged, or legacy unreviewed version stops at a gate that shows the result and links to the source.
+- A preview runs immediately when its automated review found no potential issues, including versions with dataframe inputs and reusable-widget drafts. Flagged or legacy unreviewed versions stop at a gate that shows the result and links to the source.
 - Every ready build exposes the SHA-256 of its frozen Canvas artifact manifest. Choosing “Run widget” at a gate records consent for that exact hash. A later gated build with different artifact contents requires a new decision. A build with identical contents reuses the earlier consent.
 - “View source” remains available before a widget runs and reads the source belonging to the selected historical version.
 - Every dataframe must have a completed run before generation. Each preview load pins permission-checked pages to one run and reads at most 5,000 rows per connected dataframe without sending values to the model. Across all its dataframes, one preview reads at most 200 pages and 32 MiB of response data.
@@ -28,7 +28,9 @@ A generated widget can be published to the project-scoped reusable widget catalo
 
 Newly generated widgets and reusable placements follow the latest version by default. The version history shows **Following latest version** while this is enabled. Choosing **Pin this version** adds a `version="…"` attribute to the notebook's Markdown, including for private widgets. **Follow latest version** removes that attribute and the pin. Generating or restoring a private version preserves whether the placement follows latest or is pinned. Shared source changes must be made from the catalog page; **Fork and edit here** copies the selected version into a private notebook widget that follows latest before enabling notebook-local changes.
 
-Improving or regenerating a reusable widget creates a draft instead of changing the published version. Review the draft's runnable demo, input contract, security review, and source on the catalog detail page. **View source** shows the draft's source while a draft is awaiting review; otherwise, it shows the published source. **Save version** publishes it for unpinned placements, while **Discard draft** leaves the published version unchanged.
+Improving or regenerating a reusable widget creates a draft instead of changing the published version. Review the draft's runnable demo, input contract, security review, and source on the catalog detail page. Clean drafts render automatically; **Save version** still publishes them for unpinned placements, while **Discard draft** leaves the published version unchanged.
+
+The version dropdown above the preview includes the draft, latest published version, and paginated older versions. Selecting a version switches its preview, input contract, review, demo data, and **View source** together. An older version's **Make latest** action creates a new version from its source, input contract, saved demo data, model, and review. Existing history and notebook pins stay intact. Finish or discard an in-progress update before restoring an older version; stale restore requests are rejected.
 
 On wide detail pages, the controls sit beside the preview in a one-third/two-thirds layout. Narrow pages stack them. Drag the preview's bottom-right corner to increase its height. Choose a **Model** in the update form for either **Improve** or **Regenerate**; it defaults to the published version's model. Both actions share an update lock; only the selected action shows a spinner while the other action and model selector are disabled.
 
@@ -52,14 +54,13 @@ The generated-code trust flow works as follows:
 2. A fast model reviews the validated source as untrusted input. It looks for concrete exfiltration, deception, dynamic execution, browser access, side effects, and resource-abuse risks that static checks cannot reliably identify.
 3. The immutable widget version stores the highest severity, summary, findings, review model, review-instruction version, and review time. Restoring a version carries forward the review of that exact source.
 4. Canvas publishes the source only after the review returns a valid result. A missing, malformed, or failed review fails the generation job closed.
-5. A build whose review found no potential issues runs immediately only when its immutable dataframe allow-list is empty. The review result stays visible above the preview.
-6. Every build with notebook dataframe access stops before execution and requires exact-build consent, even when its review is green.
-7. Reviews with findings and legacy versions without a persisted review also stop before execution.
-8. Canvas records a SHA-256 over the complete frozen artifact manifest. The hash covers artifact contents only, with no build or version id, so a build with different contents has a different hash and requires a new execution decision when gated. A build with identical contents keeps the same hash and reuses the earlier decision.
+5. A build whose review found no potential issues runs immediately, including builds with notebook dataframe access. In notebooks, the review result remains available in the title menu.
+6. Reviews with findings and legacy versions without a persisted review stop before execution and require exact-build consent.
+7. Canvas records a SHA-256 over the complete frozen artifact manifest. The hash covers artifact contents only, with no build or version id, so a build with different contents has a different hash and requires a new execution decision when gated. A build with identical contents keeps the same hash and reuses the earlier decision.
 
 Exact-build execution choices are stored in the browser, partitioned by PostHog user ID. Generated widgets are not rendered in publicly shared notebooks. This client-side consent state is a user-experience boundary; server authorization remains the data boundary.
 
-The automatic path requires an empty dataframe allow-list, exposes no PostHog capability, and grants no network origin. The Canvas CSP keeps `connect-src 'none'`. A green automated verdict never substitutes for viewer consent when generated code can access notebook data.
+The automatic path exposes only the version's declared notebook dataframes through the permission-checked bridge and grants no network origin. The Canvas CSP keeps `connect-src 'none'`. A clean review skips the execution prompt; it does not bypass project permissions or dataframe limits.
 
 There is intentionally no “trust widgets by this author” option. An author is not the sole authority over a collaborative notebook node: another editor can change its instructions, regenerate it, restore a version, or otherwise replace the artifact after the original author created it. Binding trust to an immutable build is stable; binding it to a mutable ownership label is not.
 

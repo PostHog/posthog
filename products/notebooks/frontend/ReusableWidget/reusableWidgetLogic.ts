@@ -9,11 +9,17 @@ import {
     reusableWidgetsDiscardVersion,
     reusableWidgetsGenerate,
     reusableWidgetsRetrieve,
+    reusableWidgetsRestore,
     reusableWidgetsSaveVersion,
     reusableWidgetsSource,
     reusableWidgetsStatus,
+    reusableWidgetsVersions,
 } from 'products/notebooks/frontend/generated/api'
-import type { ReusableWidgetDetailApi } from 'products/notebooks/frontend/generated/api.schemas'
+import type {
+    ReusableWidgetDetailApi,
+    ReusableWidgetVersionDetailApi,
+    ReusableWidgetVersionPageApi,
+} from 'products/notebooks/frontend/generated/api.schemas'
 
 import { DEFAULT_WIDGET_MODEL, isWidgetModel, WidgetModel } from '../NotebookNodeGeneratedWidget/widgetModels'
 
@@ -32,6 +38,11 @@ export interface reusableWidgetLogicValues {
     reviewError: string | null
     reviewResult: ReusableWidgetDetailApi | null
     reviewResultLoading: boolean
+    selectedVersionId: string | null
+    selectedVersion: ReusableWidgetVersionDetailApi | null
+    versionHistory: ReusableWidgetVersionPageApi | null
+    versionHistoryLoading: boolean
+    versionHistoryError: string | null
     runtimeError: string | null
     source: string | null
     sourceError: string | null
@@ -44,6 +55,19 @@ export interface reusableWidgetLogicValues {
 }
 
 export interface reusableWidgetLogicActions {
+    selectVersion: (versionId: string | null) => { versionId: string | null }
+    loadVersionHistory: (offset?: number) => { offset: number }
+    loadVersionHistorySuccess: (
+        versionHistory: ReusableWidgetVersionPageApi,
+        payload?: { offset: number }
+    ) => { versionHistory: ReusableWidgetVersionPageApi; payload?: { offset: number } }
+    loadVersionHistoryFailure: (error: string, errorObject?: unknown) => { error: string; errorObject?: unknown }
+    restoreVersion: () => { value: true }
+    restoreVersionSuccess: (
+        reviewResult: ReusableWidgetDetailApi,
+        payload?: { value: true }
+    ) => { reviewResult: ReusableWidgetDetailApi; payload?: { value: true } }
+    restoreVersionFailure: (error: string, errorObject?: unknown) => { error: string; errorObject?: unknown }
     closeSourceModal: () => { value: true }
     loadReusableWidget: () => { value: true }
     loadReusableWidgetFailure: (error: string, errorObject?: unknown) => { error: string; errorObject?: unknown }
@@ -95,6 +119,8 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
     path((key) => ['products', 'notebooks', 'ReusableWidget', 'reusableWidgetLogic', key]),
     connect(() => ({ values: [teamLogic, ['currentTeamId']] })),
     actions({
+        loadVersionHistory: (offset: number = 0) => ({ offset }),
+        selectVersion: (versionId: string | null) => ({ versionId }),
         closeSourceModal: true,
         markArtifactUnavailable: true,
         openSourceModal: true,
@@ -108,12 +134,30 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
         updateStarted: (operation: 'improve' | 'regenerate' = 'improve') => ({ operation }),
     }),
     reducers({
+        selectedVersionId: [
+            null as string | null,
+            {
+                selectVersion: (_, { versionId }) => versionId,
+                updateStarted: () => null,
+                saveVersionSuccess: () => null,
+                discardVersionSuccess: () => null,
+                restoreVersionSuccess: () => null,
+            },
+        ],
+        versionHistoryError: [
+            null as string | null,
+            {
+                loadVersionHistory: () => null,
+                loadVersionHistoryFailure: (_, { error }) => error,
+            },
+        ],
         artifactUnavailable: [
             false,
             {
                 markArtifactUnavailable: () => true,
                 loadReusableWidget: () => false,
                 loadReusableWidgetSuccess: () => false,
+                selectVersion: () => false,
             },
         ],
         changePrompt: ['', { setChangePrompt: (_, { prompt }) => prompt, updateFinished: () => '' }],
@@ -127,7 +171,11 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
         ],
         runtimeError: [
             null as string | null,
-            { setRuntimeError: (_, { error }) => error, loadReusableWidgetSuccess: () => null },
+            {
+                setRuntimeError: (_, { error }) => error,
+                loadReusableWidgetSuccess: () => null,
+                selectVersion: () => null,
+            },
         ],
         sourceError: [
             null as string | null,
@@ -141,8 +189,11 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
             {
                 saveVersion: () => null,
                 discardVersion: () => null,
+                restoreVersion: () => null,
+                selectVersion: () => null,
                 saveVersionFailure: (_, { error }) => error,
                 discardVersionFailure: (_, { error }) => error,
+                restoreVersionFailure: (_, { error }) => error,
             },
         ],
         sourceModalOpen: [false, { openSourceModal: () => true, closeSourceModal: () => false }],
@@ -160,6 +211,24 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
         ],
     }),
     loaders(({ props, values }) => ({
+        versionHistory: [
+            null as ReusableWidgetVersionPageApi | null,
+            {
+                loadVersionHistory: async ({ offset }, breakpoint) => {
+                    if (!values.currentTeamId) {
+                        throw new Error('Select a project to load version history.')
+                    }
+                    const page = await reusableWidgetsVersions(String(values.currentTeamId), props.widgetId, {
+                        offset,
+                    })
+                    breakpoint()
+                    return {
+                        ...page,
+                        results: offset ? [...(values.versionHistory?.results ?? []), ...page.results] : page.results,
+                    }
+                },
+            },
+        ],
         reusableWidget: [
             null as ReusableWidgetDetailApi | null,
             {
@@ -174,16 +243,17 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
         source: [
             null as string | null,
             {
-                loadSource: async () => {
+                loadSource: async (_, breakpoint) => {
                     if (!values.currentTeamId) {
                         throw new Error('Select a project to load this reusable widget.')
                     }
-                    const versionId = values.reusableWidget?.pending_version?.id
+                    const versionId = values.selectedVersion?.id
                     const response = await reusableWidgetsSource(
                         String(values.currentTeamId),
                         props.widgetId,
                         versionId ? { version_id: versionId } : undefined
                     )
+                    breakpoint()
                     return response.source
                 },
             },
@@ -191,6 +261,21 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
         reviewResult: [
             null as ReusableWidgetDetailApi | null,
             {
+                restoreVersion: async () => {
+                    if (
+                        !values.currentTeamId ||
+                        !values.reusableWidget ||
+                        !values.selectedVersion ||
+                        values.updateInFlight ||
+                        values.reusableWidget.pending_version
+                    ) {
+                        throw new Error('Finish the current update before making a version latest.')
+                    }
+                    return await reusableWidgetsRestore(String(values.currentTeamId), props.widgetId, {
+                        version_id: values.selectedVersion.id,
+                        expected_current_version_id: values.reusableWidget.current_version.id,
+                    })
+                },
                 saveVersion: async () => {
                     if (!values.currentTeamId || !values.reusableWidget?.pending_version) {
                         throw new Error('Reload the reusable widget before saving this draft.')
@@ -213,6 +298,21 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
         ],
     })),
     selectors({
+        selectedVersion: [
+            (s) => [s.selectedVersionId, s.reusableWidget, s.versionHistory],
+            (selectedVersionId, widget, history): ReusableWidgetVersionDetailApi | null => {
+                if (!widget) {
+                    return null
+                }
+                return (
+                    [widget.pending_version, widget.current_version, ...(history?.results ?? [])].find(
+                        (version) => version?.id === selectedVersionId
+                    ) ??
+                    widget.pending_version ??
+                    widget.current_version
+                )
+            },
+        ],
         updateInFlight: [(s) => [s.updateOperation], (operation): boolean => operation !== null],
         updateModel: [
             (s) => [s.modelOverride, s.reusableWidget],
@@ -225,11 +325,16 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
     }),
     listeners(({ actions, cache, props, values }) => ({
         openSourceModal: actions.loadSource,
+        selectVersion: actions.closeSourceModal,
         loadReusableWidgetSuccess: ({ reusableWidget }) => {
+            const historyKey = `${reusableWidget.current_version.id}:${reusableWidget.pending_version?.id ?? ''}`
+            if (cache.historyKey !== historyKey) {
+                cache.historyKey = historyKey
+                actions.loadVersionHistory()
+            }
+            const previewVersion = reusableWidget.pending_version ?? reusableWidget.current_version
             if (
-                reusableWidget.pending_version &&
-                reusableWidget.pending_version.build_status !== 'ready' &&
-                reusableWidget.pending_version.build_status !== 'failed' &&
+                (previewVersion.build_status === 'queued' || previewVersion.build_status === 'building') &&
                 !values.updateInFlight
             ) {
                 actions.updateStarted()
@@ -242,11 +347,17 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
         },
         updateReusableWidget: async ({ operation }) => {
             const prompt = values.changePrompt.trim()
-            if (!values.currentTeamId || !values.reusableWidget || !prompt || values.updateInFlight) {
+            if (
+                !values.currentTeamId ||
+                !values.reusableWidget ||
+                !prompt ||
+                values.updateInFlight ||
+                values.reviewResultLoading ||
+                values.reusableWidget.pending_version
+            ) {
                 return
             }
             actions.updateStarted(operation)
-            cache.updateStartingVersion = values.reusableWidget.current_version.id
             try {
                 await reusableWidgetsGenerate(String(values.currentTeamId), props.widgetId, {
                     prompt,
@@ -280,13 +391,11 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
                 }
                 const reusableWidget = await reusableWidgetsRetrieve(String(values.currentTeamId), props.widgetId)
                 actions.loadReusableWidgetSuccess(reusableWidget)
+                const previewVersion = reusableWidget.pending_version ?? reusableWidget.current_version
+                if (previewVersion.build_status === 'queued' || previewVersion.build_status === 'building') {
+                    return
+                }
                 if (reusableWidget.pending_version) {
-                    if (
-                        reusableWidget.pending_version.build_status !== 'ready' &&
-                        reusableWidget.pending_version.build_status !== 'failed'
-                    ) {
-                        return
-                    }
                     cache.disposables.dispose('widgetUpdatePoll')
                     if (
                         reusableWidget.pending_version.build_status === 'ready' &&
@@ -300,10 +409,7 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
                     return
                 }
                 cache.disposables.dispose('widgetUpdatePoll')
-                if (
-                    status.lifecycle_status === 'ready' &&
-                    reusableWidget.current_version.id !== cache.updateStartingVersion
-                ) {
+                if (previewVersion.build_status === 'ready' && previewVersion.artifact_url) {
                     actions.updateFinished()
                     lemonToast.success('Reusable widget updated')
                     return
@@ -318,6 +424,11 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
             actions.loadReusableWidgetSuccess(reviewResult)
             actions.closeSourceModal()
             lemonToast.success('Reusable widget version saved')
+        },
+        restoreVersionSuccess: ({ reviewResult }) => {
+            actions.loadReusableWidgetSuccess(reviewResult)
+            actions.closeSourceModal()
+            lemonToast.success(`Version ${reviewResult.current_version.version} is now the latest`)
         },
         discardVersionSuccess: ({ reviewResult }) => {
             actions.loadReusableWidgetSuccess(reviewResult)

@@ -516,9 +516,28 @@ export interface WidgetStatusApi {
     build_hash: string | null
 }
 
+export interface ReusableWidgetRestoreRequestApi {
+    /** Published version to copy into a new latest version. */
+    version_id: string
+    /** Latest version observed before restoring. */
+    expected_current_version_id: string
+}
+
 export interface WidgetSourceApi {
     /** Read-only source code for the current widget version. */
     source: string
+}
+
+export interface ReusableWidgetVersionPageApi {
+    /** Published versions, newest first. */
+    results: ReusableWidgetVersionDetailApi[]
+    /** Total number of published versions. */
+    count: number
+    /**
+     * Next page offset, or null on the final page.
+     * @nullable
+     */
+    next_offset: number | null
 }
 
 /**
@@ -1346,6 +1365,20 @@ export type ReusableWidgetsSourceParams = {
      * Immutable reusable widget version whose source should be returned.
      */
     version_id?: string
+}
+
+export type ReusableWidgetsVersionsParams = {
+    /**
+     * Maximum versions to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Zero-based version offset.
+     * @minimum 0
+     */
+    offset?: number
 }
 
 export type NotebooksListParams = {

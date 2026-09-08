@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from typing import Protocol, cast
+from typing import TYPE_CHECKING, Protocol, cast
 from uuid import UUID
 
 from django.db import transaction
@@ -31,6 +31,9 @@ MAX_REUSABLE_WIDGET_DEMO_ROWS = 20
 MAX_REUSABLE_WIDGET_DEMO_BYTES = 512 * 1_024
 MAX_REUSABLE_WIDGET_BINDING_HOG_LENGTH = 10_000
 MAX_REUSABLE_WIDGET_BINDINGS_BYTES = 256 * 1_024
+
+if TYPE_CHECKING:
+    from products.canvas.backend.notebook_integration import NotebookCanvasVersion
 
 
 class _WidgetCounts(Protocol):
@@ -170,9 +173,8 @@ def _canvas_version(widget: GeneratedWidget, version: GeneratedWidgetVersion):
 
 
 def _version_detail(
-    *, widget: GeneratedWidget, version: GeneratedWidgetVersion, version_number: int
+    *, version: GeneratedWidgetVersion, version_number: int, canvas_version: "NotebookCanvasVersion | None"
 ) -> ReusableWidgetVersionDetail:
-    canvas_version = _canvas_version(widget, version)
     contract = _input_contract(version.input_contract)
     return ReusableWidgetVersionDetail(
         id=version.id,
@@ -213,15 +215,15 @@ def get_reusable_widget(*, team_id: int, widget_id: UUID) -> ReusableWidgetDetai
         tags=_tag_list(widget.tags),
         publication_status=widget.publication_status,
         current_version=_version_detail(
-            widget=widget,
             version=widget.current_version,
             version_number=version_count,
+            canvas_version=_canvas_version(widget, widget.current_version),
         ),
         pending_version=(
             _version_detail(
-                widget=widget,
                 version=widget.pending_version,
                 version_number=version_count + 1,
+                canvas_version=_canvas_version(widget, widget.pending_version),
             )
             if widget.pending_version is not None
             else None

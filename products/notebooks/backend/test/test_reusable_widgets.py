@@ -594,6 +594,141 @@ class TestReusableWidgets(APIBaseTest):
         assert self.widget.pending_version_id is None
         assert not GeneratedWidgetVersion.objects.for_team(self.team.id).filter(id=candidate.id).exists()
 
+    def _add_published_version(self) -> GeneratedWidgetVersion:
+        version = GeneratedWidgetVersion.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            widget=self.widget,
+            canvas_source_version_id=uuid4(),
+            parent_version=self.version,
+            title="Revenue over time",
+            operation=GeneratedWidgetVersion.Operation.IMPROVE,
+            input_contract=[],
+            demo_data={},
+            created_by=self.user,
+        )
+        self.widget.current_version = version
+        self.widget.save(update_fields=["current_version"])
+        return version
+
+    def test_catalog_history_pages_keep_versions_and_their_preview_data_together(self) -> None:
+        self._publish()
+        latest = self._add_published_version()
+        draft = GeneratedWidgetVersion.objects.for_team(self.team.id).create(
+            team_id=self.team.id, widget=self.widget, canvas_source_version_id=uuid4()
+        )
+        self.widget.pending_version = draft
+        self.widget.save(update_fields=["pending_version"])
+        url = f"/api/projects/{self.team.id}/notebook_widgets/{self.widget.id}/versions/"
+        canvas_versions = [
+            self._canvas_version(),
+            NotebookCanvasVersion(
+                id=latest.canvas_source_version_id, build_status="ready", artifact_url="https://example.com/latest.html"
+            ),
+        ]
+        with patch(
+            "products.canvas.backend.notebook_integration.list_notebook_canvas_versions", return_value=canvas_versions
+        ):
+            response = self.client.get(url, {"limit": 1})
+            older = self.client.get(url, {"offset": 1, "limit": 1})
+        assert response.status_code == 200
+        assert response.json()["count"] == 2
+        assert response.json()["next_offset"] == 1
+        assert response.json()["results"][0]["id"] == str(latest.id)
+        assert response.json()["results"][0]["version"] == 2
+        assert response.json()["results"][0]["input_contract"] == []
+        assert older.json()["next_offset"] is None
+        assert older.json()["results"][0]["id"] == str(self.version.id)
+        assert older.json()["results"][0]["version"] == 1
+        assert older.json()["results"][0]["input_contract"][0]["slot"] == self.input_name
+        assert older.json()["results"][0]["artifact_url"] == self._canvas_version().artifact_url
+        assert self.client.get(url, {"limit": 0}).status_code == 400
+        assert self.client.get(f"/api/projects/{self.team.id}/notebook_widgets/{uuid4()}/versions/").status_code == 404
+
+    def test_making_an_older_version_latest_preserves_history_pins_and_demo_data(self) -> None:
+        self._publish()
+        self.version.refresh_from_db()
+        latest = self._add_published_version()
+        self.instance.pinned_version = latest
+        self.instance.save(update_fields=["pinned_version"])
+        self.version.security_review_severity = "none"
+        self.version.security_reviewed_at = timezone.now()
+        self.version.model = "claude-sonnet-4.6"
+        self.version.save(update_fields=["security_review_severity", "security_reviewed_at", "model"])
+        source_version_id = uuid4()
+        with (
+            patch(
+                "products.canvas.backend.notebook_integration.get_notebook_canvas_source",
+                return_value="export default function Widget() { return null }",
+            ),
+            patch("products.canvas.backend.notebook_integration.prepare_notebook_canvas_source", return_value=object()),
+            patch(
+                "products.canvas.backend.notebook_integration.publish_prepared_notebook_canvas_source",
+                return_value=source_version_id,
+            ),
+            patch(
+                "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
+                return_value=[self._canvas_version()],
+            ),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/notebook_widgets/{self.widget.id}/restore/",
+                {"version_id": str(self.version.id), "expected_current_version_id": str(latest.id)},
+                format="json",
+            )
+        assert response.status_code == 200
+        assert response.json()["current_version"]["version"] == 3
+        self.widget.refresh_from_db()
+        self.instance.refresh_from_db()
+        restored = self.widget.current_version
+        assert restored is not None
+        assert restored.id not in {self.version.id, latest.id}
+        assert restored.reverted_from_version_id == self.version.id
+        assert restored.parent_version_id == latest.id
+        assert restored.input_contract == self.version.input_contract
+        assert restored.demo_data == self.version.demo_data
+        assert restored.security_review_severity == "none"
+        assert restored.model == self.version.model
+        assert restored.canvas_source_version_id == source_version_id
+        assert self.instance.pinned_version_id == latest.id
+        assert GeneratedWidgetVersion.objects.for_team(self.team.id).filter(widget=self.widget).count() == 3
+
+    @parameterized.expand(["stale", "pending", "active", "foreign_widget", "foreign_team"])
+    def test_restore_rejects_conflicts_and_versions_outside_the_widget(self, reason: str) -> None:
+        self._publish()
+        latest = self._add_published_version()
+        expected = latest.id
+        target = self.version.id
+        if reason == "stale":
+            expected = self.version.id
+        elif reason == "pending":
+            self.widget.pending_version = self.version
+            self.widget.save(update_fields=["pending_version"])
+        elif reason == "active":
+            GeneratedWidgetGenerationJob.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                widget=self.widget,
+                instance=self.instance,
+                status=GeneratedWidgetGenerationJob.Status.GENERATING,
+                base_version=latest,
+            )
+        else:
+            team = self.team if reason == "foreign_widget" else Team.objects.create(organization=self.organization)
+            foreign_widget = GeneratedWidget.objects.for_team(team.id).create(team_id=team.id, canvas_id=uuid4())
+            target = (
+                GeneratedWidgetVersion.objects.for_team(team.id)
+                .create(team_id=team.id, widget=foreign_widget, canvas_source_version_id=uuid4())
+                .id
+            )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebook_widgets/{self.widget.id}/restore/",
+            {"version_id": str(target), "expected_current_version_id": str(expected)},
+            format="json",
+        )
+        assert response.status_code == (400 if reason.startswith("foreign") else 409)
+        self.widget.refresh_from_db()
+        assert self.widget.current_version_id == latest.id
+        assert GeneratedWidgetVersion.objects.for_team(self.team.id).filter(widget=self.widget).count() == 2
+
     def test_fork_replaces_the_placement_with_an_independent_private_widget(self) -> None:
         self._publish()
         forked_canvas_id = uuid4()

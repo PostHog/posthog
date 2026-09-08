@@ -49,6 +49,10 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
         reviewError,
         reviewResultLoading,
         runtimeError,
+        selectedVersion,
+        versionHistory,
+        versionHistoryLoading,
+        versionHistoryError,
         updateError,
         updateInFlight,
         updateModel,
@@ -60,6 +64,9 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
         openSourceModal,
         discardVersion,
         saveVersion,
+        restoreVersion,
+        selectVersion,
+        loadVersionHistory,
         setChangePrompt,
         setRuntimeError,
         setUpdateModel,
@@ -78,12 +85,14 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
             </SceneContent>
         )
     }
-    if (!reusableWidget) {
+    if (!reusableWidget || !selectedVersion) {
         return reusableWidgetError ? <NotFound object="reusable widget" /> : <></>
     }
 
     const pendingVersion = reusableWidget.pending_version
-    const version = pendingVersion ?? reusableWidget.current_version
+    const version = selectedVersion
+    const isDraft = version.id === pendingVersion?.id
+    const isHistorical = !isDraft && version.id !== reusableWidget.current_version.id
     const draftReady = pendingVersion?.build_status === 'ready' && !!pendingVersion.artifact_url
     const trust = getNotebookWidgetTrust({
         trustByUser,
@@ -134,9 +143,7 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
                         </div>
                     </div>
                     <div className="rounded border bg-surface-primary p-3">
-                        <div className="mb-2 font-semibold">
-                            {pendingVersion ? 'Draft input contract' : 'Input contract'}
-                        </div>
+                        <div className="mb-2 font-semibold">{isDraft ? 'Draft input contract' : 'Input contract'}</div>
                         {version.input_contract.length ? (
                             <div className="flex flex-col gap-2">
                                 {version.input_contract.map((input) => (
@@ -156,7 +163,7 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
                             <div className="text-sm text-secondary">This widget does not require notebook data.</div>
                         )}
                     </div>
-                    {pendingVersion ? (
+                    {isDraft && pendingVersion ? (
                         <div className="rounded border bg-surface-primary p-3">
                             <div className="mb-1 font-semibold">Review draft version {pendingVersion.version}</div>
                             <div className="mb-3 text-sm text-secondary">
@@ -204,6 +211,47 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
                             </div>
                             {reviewError ? <LemonBanner type="error">{reviewError}</LemonBanner> : null}
                         </div>
+                    ) : isHistorical ? (
+                        <div className="rounded border bg-surface-primary p-3">
+                            <div className="mb-1 font-semibold">Restore version {version.version}</div>
+                            <div className="mb-3 text-sm text-secondary">
+                                Make this version the latest to use it in every unpinned notebook. This creates a new
+                                version and keeps the existing history and pins.
+                            </div>
+                            <LemonButton
+                                type="primary"
+                                loading={reviewResultLoading}
+                                disabledReason={
+                                    pendingVersion || updateInFlight
+                                        ? 'Finish or discard the current update first.'
+                                        : !version.artifact_url || version.build_status !== 'ready'
+                                          ? 'This version has no ready preview.'
+                                          : undefined
+                                }
+                                onClick={() =>
+                                    LemonDialog.open({
+                                        title: `Make version ${version.version} the latest?`,
+                                        description: `This creates version ${reusableWidget.version_count + 1} and updates every unpinned notebook using this widget. Pinned notebooks keep their selected version.`,
+                                        primaryButton: { children: 'Make latest', onClick: restoreVersion },
+                                        secondaryButton: { children: 'Cancel' },
+                                    })
+                                }
+                            >
+                                Make latest
+                            </LemonButton>
+                            {reviewError ? (
+                                <LemonBanner type="error" className="mt-2">
+                                    {reviewError}
+                                </LemonBanner>
+                            ) : null}
+                        </div>
+                    ) : pendingVersion ? (
+                        <LemonBanner
+                            type="info"
+                            action={{ children: 'Review draft', onClick: () => selectVersion(pendingVersion.id) }}
+                        >
+                            A draft is awaiting review.
+                        </LemonBanner>
                     ) : (
                         <div className="rounded border bg-surface-primary p-3">
                             <div className="mb-1 font-semibold">Update this reusable widget</div>
@@ -275,14 +323,49 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
                     style={{ height: 640 }}
                     data-attr="reusable-widget-preview"
                 >
-                    <div className="border-b px-3 py-2">
-                        <div className="font-semibold">{pendingVersion ? 'Draft preview' : 'Published preview'}</div>
-                        {pendingVersion ? (
-                            <div className="text-xs text-secondary">
-                                Saving this draft will publish version {version.version}.
-                            </div>
-                        ) : null}
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
+                        <div className="font-semibold">
+                            {isDraft ? 'Draft preview' : isHistorical ? 'Version preview' : 'Published preview'}
+                        </div>
+                        <LemonSelect
+                            aria-label="Widget version"
+                            value={version.id}
+                            loading={versionHistoryLoading}
+                            disabled={reviewResultLoading}
+                            options={[
+                                ...(pendingVersion
+                                    ? [{ value: pendingVersion.id, label: `Version ${pendingVersion.version} · Draft` }]
+                                    : []),
+                                {
+                                    value: reusableWidget.current_version.id,
+                                    label: `Version ${reusableWidget.current_version.version} · Latest`,
+                                },
+                                ...(versionHistory?.results ?? [])
+                                    .filter(
+                                        (item) =>
+                                            item.id !== reusableWidget.current_version.id &&
+                                            item.id !== pendingVersion?.id
+                                    )
+                                    .map((item) => ({ value: item.id, label: `Version ${item.version}` })),
+                                ...(versionHistory?.next_offset != null
+                                    ? [{ value: 'load-more', label: 'Load older versions' }]
+                                    : []),
+                            ]}
+                            onChange={(id) => {
+                                if (id === 'load-more') {
+                                    loadVersionHistory(versionHistory?.next_offset ?? 0)
+                                } else {
+                                    selectVersion(id)
+                                }
+                            }}
+                            data-attr="reusable-widget-version"
+                        />
                     </div>
+                    {versionHistoryError ? (
+                        <LemonBanner type="warning" action={{ children: 'Retry', onClick: () => loadVersionHistory() }}>
+                            Version history couldn't be loaded.
+                        </LemonBanner>
+                    ) : null}
                     {reusableWidgetError ? (
                         <LemonBanner type="warning" action={{ children: 'Retry', onClick: loadReusableWidget }}>
                             The widget couldn't be refreshed. The last loaded version is shown.
@@ -296,19 +379,20 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
                     {!version.artifact_url || artifactUnavailable ? (
                         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
                             <span>
-                                {pendingVersion && pendingVersion.build_status !== 'failed'
-                                    ? 'The draft preview is still building.'
+                                {version.build_status === 'queued' || version.build_status === 'building'
+                                    ? 'The preview is still building.'
                                     : "This widget's demo preview is unavailable."}
                             </span>
                             <LemonButton onClick={openSourceModal}>View source</LemonButton>
                         </div>
-                    ) : !trust.buildTrusted ? (
+                    ) : !trust.buildTrusted && version.security_review?.severity !== 'none' ? (
                         trustControls('gate')
                     ) : (
                         <>
                             {trustControls('toolbar')}
                             <div className="min-h-0 flex-1">
                                 <WidgetArtifactFrame
+                                    key={version.id}
                                     artifactUrl={version.artifact_url}
                                     title={`${reusableWidget.name} demo`}
                                     allowedFrames={version.frame_names}
