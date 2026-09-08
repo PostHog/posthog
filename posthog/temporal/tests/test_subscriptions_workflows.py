@@ -33,6 +33,7 @@ from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.types import ExportError
+from posthog.test.insight_queries import default_pageview_query
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -57,7 +58,10 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.activities 
     _skip_ai_delivery_over_credit_limit_sync,
     generate_ai_subscription_report,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
+    AiReportResult,
+    QueryStepDiagnostic,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
 from products.exports.backend.temporal.subscriptions.delivery_common import deliver_email
 from products.exports.backend.temporal.subscriptions.types import (
@@ -1105,7 +1109,11 @@ async def test_create_export_assets_creates_exported_assets(
     team,
     user,
 ):
-    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="prep01", name="Prep Test")
+    # The query is load-bearing: the query_service SLO assertion below only holds while the
+    # snapshot build has a query to run.
+    insight = await sync_to_async(Insight.objects.create)(
+        team=team, short_id="prep01", name="Prep Test", query=default_pageview_query()
+    )
     subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
 
     env = ActivityEnvironment()
@@ -1383,7 +1391,11 @@ async def test_create_export_assets_dashboard_with_multiple_insights(
 ):
     dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="Multi-insight", created_by=user)
     for i in range(3):
-        insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"prep{i:02d}", name=f"Insight {i}")
+        # The query is load-bearing: the query_service SLO assertion below only holds while the
+        # snapshot build has a query to run.
+        insight = await sync_to_async(Insight.objects.create)(
+            team=team, short_id=f"prep{i:02d}", name=f"Insight {i}", query=default_pageview_query()
+        )
         await sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=insight)
 
     subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
@@ -2563,13 +2575,35 @@ async def test_generate_ai_report_persists_report_for_delivery(team, user):
 
     with patch(
         _GENERATE_REPORT,
-        return_value=AiReportResult(markdown="# Report", diagnostics=(), window_end_utc="2026-06-25T12:00:00+00:00"),
+        return_value=AiReportResult(
+            markdown="# Report",
+            diagnostics=(
+                QueryStepDiagnostic(
+                    description="adoption",
+                    hogql="SELECT expensive",
+                    ok=False,
+                    error_type="ClickHouseQueryMemoryLimitExceeded",
+                    error_code="clickhouse_memory_limit_exceeded",
+                    human_readable_error="Query exceeded the memory limit.",
+                ),
+            ),
+            window_end_utc="2026-06-25T12:00:00+00:00",
+        ),
     ):
         result = await ActivityEnvironment().run(
             generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
         )
 
     assert result.aborted is False
+    assert result.failed_step_count == 1
+    assert result.total_step_count == 1
+    assert result.query_errors == [
+        {
+            "type": "ClickHouseQueryMemoryLimitExceeded",
+            "code": "clickhouse_memory_limit_exceeded",
+            "message": "Query exceeded the memory limit.",
+        }
+    ]
     # The report is handed to delivery via the row, not the activity return value.
     refreshed = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery.id)
     assert refreshed.content_snapshot["ai_report"] == "# Report"

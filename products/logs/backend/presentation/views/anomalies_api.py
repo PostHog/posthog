@@ -22,9 +22,18 @@ from posthog.rate_limit import (
 
 from products.logs.backend.anomaly_scan import MAX_EVAL_DAYS, ScanBudgetExceeded, floor_to_bucket, run_scan
 from products.logs.backend.series_bands import (
+    ALIVE_SLOT_FRACTION,
     BASELINE_WEEKS,
+    BUCKET_TARGET,
+    INTERVAL_LADDER_MINUTES,
+    MAX_BUCKETS_PER_SERIES,
+    MAX_WINDOW_DAYS,
+    MAX_WINDOW_START_AGE_DAYS,
     MIN_BASELINE_WEEKS_FOR_BAND,
+    MIN_MEAN_PER_ALIVE_BUCKET,
     SeriesBandsFetchTruncated,
+    SeriesBandsWindowInvalid,
+    resolve_window,
     run_series_bands,
 )
 
@@ -50,6 +59,7 @@ class LogsAnomalyVerdict(models.TextChoices):
 
 _VERDICT_CHOICES = list(LogsAnomalyVerdict.values)
 _TIER_CHOICES = ["a", "b", "c", "d"]
+_COARSENED_REASON_CHOICES = ["sparse", "quiet"]
 _CONSTRAINT_CHOICES = ["team_retention", "byte_budget"]
 
 
@@ -209,14 +219,43 @@ class LogsAnomalyScanErrorSerializer(serializers.Serializer):
     error = serializers.CharField(help_text="Human readable description of why the scan could not run.")
 
 
+class _SeriesBandsDateRangeSerializer(serializers.Serializer):
+    date_from = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Start of the window. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1wStart, etc.",
+    )
+    date_to = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text='End of the window. Same format as date_from. Omit or null for "now".',
+    )
+
+
 class LogsSeriesBandsRequestSerializer(serializers.Serializer):
     serviceName = serializers.CharField(
         help_text="Service whose per-series volume to chart (the log record's service_name).",
     )
+    dateRange = _SeriesBandsDateRangeSerializer(
+        required=False,
+        help_text=(
+            f"Window to chart. Defaults to the last {MAX_WINDOW_DAYS} days. It may span at most "
+            f"{MAX_WINDOW_DAYS} days and start at most {MAX_WINDOW_START_AGE_DAYS} days ago, "
+            f"past which the volume rollup no longer reaches."
+        ),
+    )
     intervalMinutes = serializers.ChoiceField(
-        choices=[60],
-        default=60,
-        help_text="Display grain in minutes for buckets and bands. Only hourly is supported today.",
+        choices=list(INTERVAL_LADDER_MINUTES),
+        required=False,
+        allow_null=True,
+        help_text=(
+            f"Display grain in minutes for buckets and bands. One of {', '.join(map(str, INTERVAL_LADDER_MINUTES))}. "
+            f"The window may hold at most {MAX_BUCKETS_PER_SERIES} buckets per series at the chosen grain, "
+            f"so a finer grain needs a shorter window. Omit it to let the window pick its grain, the coarsest "
+            f"that still cuts it into about {BUCKET_TARGET} buckets. "
+            f"A series too sparse to read at this grain is returned at a coarser one; see each series' "
+            f"interval_minutes."
+        ),
     )
 
 
@@ -251,7 +290,11 @@ class LogsSeriesBandSeriesSerializer(serializers.Serializer):
         )
     )
     history_start = serializers.DateTimeField(
-        help_text="Earliest bucket with data inside the fetched lookback.",
+        help_text=(
+            "Start of sustained traffic inside the fetched lookback: the first bucket followed by a week with "
+            "enough non-empty buckets. A stray earlier row does not move it. The window start when no traffic "
+            "is sustained yet."
+        ),
     )
     band_ready_at = serializers.DateTimeField(
         allow_null=True,
@@ -259,9 +302,29 @@ class LogsSeriesBandSeriesSerializer(serializers.Serializer):
             "When this series gains its band, so a learning series can count down to it. Null once the band is drawn."
         ),
     )
+    interval_minutes = serializers.IntegerField(
+        help_text=(
+            "Grain of this series' buckets, in minutes. Equals the response interval_minutes unless the series "
+            "was too sparse at that grain and was coarsened to the next rung it is dense enough to read at."
+        ),
+    )
+    coarsened_reason = serializers.ChoiceField(
+        choices=_COARSENED_REASON_CHOICES,
+        allow_null=True,
+        help_text=(
+            f"Why this series was too thin to read at the requested grain, or null when it was not. sparse: fewer "
+            f"than {ALIVE_SLOT_FRACTION:.0%} of its buckets held any records. quiet: its non-empty buckets averaged "
+            f"under {MIN_MEAN_PER_ALIVE_BUCKET:g} records. A series that fails every rung is returned at the "
+            f"coarsest one. A series that a coarser rung has no rows for, or that the request's time budget "
+            f"cannot refetch, keeps the requested grain and still carries its reason."
+        ),
+    )
     buckets = LogsSeriesBandBucketSerializer(
         many=True,
-        help_text="One entry per display bucket across the whole window, oldest first, zero-filled.",
+        help_text=(
+            "One entry per display bucket across the window at this series' interval_minutes, oldest first, "
+            "zero-filled. A coarsened series' window is snapped to its grain, so it can end short of window_end."
+        ),
     )
 
 
@@ -269,7 +332,12 @@ class LogsSeriesBandsResponseSerializer(serializers.Serializer):
     service_name = serializers.CharField(help_text="Service the series belong to.")
     window_start = serializers.DateTimeField(help_text="Start of the observed window (UTC, inclusive).")
     window_end = serializers.DateTimeField(help_text="End of the observed window (UTC, exclusive).")
-    interval_minutes = serializers.IntegerField(help_text="Display grain of the buckets, in minutes.")
+    interval_minutes = serializers.IntegerField(
+        help_text=(
+            f"Display grain requested, or picked to cut the window into about {BUCKET_TARGET} buckets when the "
+            f"request left it out."
+        ),
+    )
     series_truncated = serializers.BooleanField(
         help_text="True when the service has more series than the response carries; the quietest were dropped."
     )
@@ -350,6 +418,10 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 response=LogsSeriesBandsResponseSerializer,
                 description="Observed volume and expected band per series of the service.",
             ),
+            400: OpenApiResponse(
+                response=LogsSeriesBandsErrorSerializer,
+                description="The requested window is empty, too wide, or starts before the volume rollup reaches.",
+            ),
             422: OpenApiResponse(
                 response=LogsSeriesBandsErrorSerializer,
                 description="The service has too many series to chart in one response.",
@@ -357,9 +429,10 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         },
         summary="Per-series log volume with expected bands",
         description=(
-            "Returns the last 7 days of log volume for every (namespace, environment, severity) series "
-            "of one service, with a time-of-week expected band derived from the prior weeks of the "
-            "volume rollup. Synchronous and read only."
+            "Returns log volume over the requested window for every (namespace, environment, severity) "
+            "series of one service, with a time-of-week expected band derived from the prior weeks of "
+            f"the volume rollup. The window defaults to the last {MAX_WINDOW_DAYS} days and may span at "
+            f"most {MAX_WINDOW_DAYS} days. Synchronous and read only."
         ),
     )
     @action(
@@ -372,18 +445,36 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def series_bands(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         data = request.validated_data
         service_name: str = data["serviceName"]
-        interval_minutes: int = int(data["intervalMinutes"])
+        date_range: dict[str, Any] = data.get("dateRange") or {}
+        try:
+            window = resolve_window(
+                date_range.get("date_from"),
+                date_range.get("date_to"),
+                interval_minutes=data.get("intervalMinutes"),
+            )
+        except SeriesBandsWindowInvalid as err:
+            return Response({"error": str(err)}, status=status.HTTP_400_BAD_REQUEST)
+        interval_minutes = window.interval_minutes
 
         cache_key = (
             "logs_series_bands/"
-            + hashlib.sha256(f"{self.team.id}/{service_name}/{interval_minutes}".encode()).hexdigest()
+            + hashlib.sha256(
+                f"{self.team.id}/{service_name}/{interval_minutes}/"
+                f"{window.start.isoformat()}/{window.end.isoformat()}".encode()
+            ).hexdigest()
         )
         cached = cache.get(cache_key)
         if cached is not None:
             return Response(cached)
 
         try:
-            result = run_series_bands(self.team, service_name, interval_minutes=interval_minutes)
+            result = run_series_bands(
+                self.team,
+                service_name,
+                window_start=window.start,
+                window_end=window.end,
+                interval_minutes=interval_minutes,
+            )
         except SeriesBandsFetchTruncated as err:
             return Response({"error": str(err)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 

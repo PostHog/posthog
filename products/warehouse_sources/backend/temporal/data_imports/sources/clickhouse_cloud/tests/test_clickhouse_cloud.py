@@ -187,7 +187,7 @@ class TestActivities:
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 6, 30, tzinfo=UTC),
         )
-        assert "from_date=2026-06-30T00%3A00%3A00Z" in calls[1]
+        assert "from_date=2026-06-30T00%3A00%3A00.000Z" in calls[1]
         assert [r["id"] for r in rows] == ["a-1", "a-2"]
 
     def test_full_refresh_omits_from_date(self, monkeypatch: Any) -> None:

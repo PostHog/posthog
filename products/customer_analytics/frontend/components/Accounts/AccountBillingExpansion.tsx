@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 
+import * as burningMoneyHogPng from '@posthog/brand/hoggies/png/burning-money'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { BurningMoneyHog } from 'lib/components/hedgehogs'
 
 import { Query } from '~/queries/Query/Query'
 import { InsightShortId } from '~/types'
@@ -13,10 +13,12 @@ import { InsightShortId } from '~/types'
 import { AccountBillingChart, canRenderBillingChart } from './AccountBillingChart'
 import { AccountBillingKind, accountBillingLogic } from './accountBillingLogic'
 
+const HedgehogBurningMoney = pngHoggie(burningMoneyHogPng)
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 function BillingInsightNotFound({ kind }: { kind: AccountBillingKind }): JSX.Element {
-    const Hog = kind === 'spend' ? BurningMoneyHog : HedgehogMagnifyingGlass
+    const Hog = kind === 'spend' ? HedgehogBurningMoney : HedgehogMagnifyingGlass
+
     return (
         <div
             className="flex flex-col items-center justify-center gap-2 p-8 text-center"
@@ -35,10 +37,12 @@ export function AccountBillingExpansion({
     accountId,
     externalId,
     kind,
+    embedded = true,
 }: {
     accountId: string
     externalId: string
     kind: AccountBillingKind
+    embedded?: boolean
 }): JSX.Element {
     const logic = accountBillingLogic({ accountId, externalId, kind })
     const { savedInsights, savedInsightsLoading, dateRange, variableOverridesByShortId, queryKeyFor } = useValues(logic)
@@ -89,7 +93,7 @@ export function AccountBillingExpansion({
                                     query={insight.query}
                                     variablesOverride={variablesOverride}
                                     readOnly
-                                    embedded
+                                    embedded={embedded}
                                     // Attach the insight's data logic to accountBillingLogic (mounted at the expanded-row
                                     // root) so the loaded results survive tab switches instead of refetching on return.
                                     attachTo={logic}

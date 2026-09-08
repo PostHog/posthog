@@ -184,6 +184,9 @@ tools:
     identity-provider-configs-retrieve:
         operation: identity_provider_configs_retrieve
         enabled: false
+    identity-provider-configs-scim-logs-retrieve:
+        operation: identity_provider_configs_scim_logs_retrieve
+        enabled: false
     identity-provider-configs-scim-token-create:
         operation: identity_provider_configs_scim_token_create
         enabled: false
@@ -643,6 +646,9 @@ tools:
         enabled: false
     users-onboarding-skip-create:
         operation: users_onboarding_skip_create
+        enabled: false
+    users-product-intro-seen-partial-update:
+        operation: users_product_intro_seen_partial_update
         enabled: false
     users-push-tokens-create:
         operation: users_push_tokens_create

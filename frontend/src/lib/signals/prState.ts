@@ -1,6 +1,15 @@
+import type {
+    PullRequestCiStatusEnumApi,
+    SignalReportAssignmentPrStateEnumApi,
+} from 'products/signals/frontend/generated/api.schemas'
 import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 
 export const PR_BADGE_STATE = {
+    draft: {
+        label: 'Draft',
+        className: 'border-primary bg-surface-secondary text-secondary',
+        hoverClassName: 'hover:text-primary',
+    },
     open: {
         label: 'Open',
         className: 'border-success bg-success-highlight text-success',
@@ -24,7 +33,11 @@ export const PR_BADGE_STATE = {
 
 export type PrBadgeState = keyof typeof PR_BADGE_STATE
 
-export function derivePrState(status: SignalReportStatus | string, prMerged: boolean): PrBadgeState {
+export function derivePrState(
+    status: SignalReportStatus | string,
+    prMerged: boolean,
+    prState?: SignalReportAssignmentPrStateEnumApi | null
+): PrBadgeState {
     if (prMerged) {
         return 'merged'
     }
@@ -38,5 +51,36 @@ export function derivePrState(status: SignalReportStatus | string, prMerged: boo
     ) {
         return 'closed'
     }
+    // GitHub keeps a draft pull request in the `open` state, so the draft flag is the only thing
+    // that separates work in review from work still being written.
+    if (prState === 'draft') {
+        return 'draft'
+    }
     return 'open'
+}
+
+/**
+ * The CI states the pill says something about, and the words and color each gets. A head commit with
+ * no checks (`none`) and a status GitHub could not answer for both mean there is nothing to report,
+ * so neither draws a glyph. An absent glyph never claims a pull request is green.
+ */
+export const PR_CI_GLYPH = {
+    passing: { label: 'checks passing', className: 'text-success' },
+    failing: { label: 'checks failing', className: 'text-danger' },
+    pending: { label: 'checks running', className: 'text-warning' },
+}
+
+export type PrCiGlyphStatus = keyof typeof PR_CI_GLYPH
+
+/** The glyph an open pull request's CI state earns, or null when there is nothing to show. */
+export function prCiGlyphStatus(
+    state: PrBadgeState,
+    ciStatus?: PullRequestCiStatusEnumApi | null
+): PrCiGlyphStatus | null {
+    // Only a pull request still in flight has CI a reader can act on; on a merged or closed one it is
+    // history. A draft still builds, so it keeps its glyph.
+    if ((state !== 'open' && state !== 'draft') || !ciStatus || !(ciStatus in PR_CI_GLYPH)) {
+        return null
+    }
+    return ciStatus as PrCiGlyphStatus
 }

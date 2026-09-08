@@ -48,7 +48,7 @@ from posthog.models.tagged_item import TaggedItem
 from posthog.permissions import get_authenticator_scopes
 from posthog.rate_limit import AlertTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit
-from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 from posthog.tasks.alerts.schedule_restriction import validate_and_normalize_schedule_restriction
 from posthog.tasks.alerts.utils import (
@@ -465,11 +465,11 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     )
     investigation_agent_enabled = serializers.BooleanField(
         required=False,
-        help_text="When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts.",
+        help_text="When enabled, an investigation agent runs on each check where the alert fires, up to three times per firing episode, and writes findings to a Notebook linked from the alert check. An episode is the run of consecutive firing checks since the last check that did not fire. A later investigation of the same episode that reaches a different verdict sends one follow-up notification, unless investigation_inconclusive_action suppresses it. Only effective for detector-based (anomaly) alerts.",
     )
     investigation_gates_notifications = serializers.BooleanField(
         required=False,
-        help_text="When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls.",
+        help_text="When enabled (and investigation_agent_enabled is on), the first fire of an episode is held until the investigation agent produces a verdict, and that notification is suppressed when the verdict is false_positive (and optionally when inconclusive). Later fires of the same episode notify without waiting. A safety-net task force-fires after a few minutes if the investigation stalls.",
     )
     investigation_inconclusive_action = serializers.ChoiceField(
         choices=[("notify", "Notify"), ("suppress", "Suppress")],
@@ -770,7 +770,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         # keep working when the flag is off.
         _enforce_alert_feature_flags(self.context, insight)
         _require_metrics_scope_for_programmatic_auth(self.context, insight)
-        with upgrade_query(insight):
+        with upgrade_insight(insight):
             query = insight.query
             if query is None:
                 raise ValidationError({"insight": ["Insight has no valid query."]})

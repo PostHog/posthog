@@ -1,4 +1,3 @@
-import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -6,7 +5,7 @@ from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pyarrow as pa
 import deltalake
@@ -175,23 +174,26 @@ def test_resolve_raises_when_parent_has_no_synced_table(tmp_path: Path) -> None:
         _patched_resolve(str(tmp_path / "does_not_exist"))
 
 
-def test_resolve_pins_to_last_completed_snapshot_while_parent_is_syncing(tmp_path: Path) -> None:
-    uri = _write_parent_table(tmp_path)
-    v0_table = deltalake.DeltaTable(uri)
-    v0 = v0_table.version()
-    v0_timestamp = datetime.fromtimestamp(v0_table.history()[0]["timestamp"] / 1000, tz=UTC)
+def test_resolve_pins_to_last_completed_snapshot_while_parent_is_syncing() -> None:
+    snapshot_committed_at = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
+    delta_table = Mock()
+    delta_table.history.return_value = [
+        {"version": 1, "timestamp": int((snapshot_committed_at + timedelta(minutes=2)).timestamp() * 1000)},
+        {"version": 0, "timestamp": int(snapshot_committed_at.timestamp() * 1000)},
+    ]
+    delta_table.version.return_value = 1
 
-    # An in-flight full refresh has already committed a partial overwrite on top of v0.
-    deltalake.write_deltalake(uri, pa.table({"id": ["partial"], "last_seen": ["x"], "title": ["y"]}), mode="overwrite")
-    partial_refresh_log = Path(uri) / "_delta_log" / "00000000000000000001.json"
-    entries = partial_refresh_log.read_text().splitlines()
-    partial_refresh_commit = json.loads(entries[0])
-    partial_refresh_commit["commitInfo"]["timestamp"] = int(v0_timestamp.timestamp() * 1000) + 1
-    partial_refresh_log.write_text("\n".join([json.dumps(partial_refresh_commit), *entries[1:]]) + "\n")
+    def load_as_version(version: int | datetime) -> None:
+        delta_table.version.return_value = 1 if isinstance(version, datetime) else version
 
-    pinned = _patched_resolve(uri, snapshot_timestamp=v0_timestamp)
+    delta_table.load_as_version.side_effect = load_as_version
+    with patch.object(warehouse_parent.deltalake, "DeltaTable", return_value=delta_table) as delta_table_class:
+        delta_table_class.is_deltatable.return_value = True
+        pinned = _patched_resolve(
+            "s3://warehouse/issues", snapshot_timestamp=snapshot_committed_at + timedelta(minutes=1)
+        )
 
-    assert pinned.version == v0
+    assert pinned.version == 0
 
 
 class TestParentSnapshotCoversThrough(APIBaseTest):

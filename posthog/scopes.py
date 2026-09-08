@@ -22,6 +22,7 @@ APIScopeObject = Literal[
     "alert",
     "annotation",
     "approvals",
+    "autoresearch",
     "batch_export",
     "batch_import",
     "batch_import_support",
@@ -32,7 +33,9 @@ APIScopeObject = Literal[
     "cohort",
     "comment",
     "conversation",
+    "context_layer_internal",
     "customer_analytics",
+    "customer_task",
     "customer_journey",
     "customer_profile_config",
     "data_catalog",
@@ -121,7 +124,7 @@ APIScopeObject = Literal[
     "usage_metric",
     "user",
     "user_interview",  # Alpha product — access gated by feature flag at the MCP/API layer rather than by hiding the scope.
-    "vision_action",
+    "vision_action",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "vision_alert",
     "visual_review",
     "warehouse_objects",
@@ -156,6 +159,9 @@ API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
 INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     {
         "clickhouse_test_cluster_perf",
+        # Grants Context Wiki writes only to write-enabled sandbox runs. Kept
+        # separate from internal_run because read-only runs carry that marker.
+        "context_layer_internal",
         # Narrows `internal_run`: the run behind this token was started by a person
         # pressing a button, not by one of PostHog's own schedulers. Both markers are
         # minted server-side, so neither can be self-granted; the LLM gateway meters
@@ -221,6 +227,9 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # `loops/:id/trigger/`. PSAKs are project-wide, so a leaked key can fire any loop
     # in the project (accepted and documented in products/tasks/docs/LOOPS.md).
     ("loop", "write"),
+    # Read-only export of experiment definitions (list/retrieve), so services syncing
+    # experiments into a warehouse don't need a credential tied to one person's account.
+    ("experiment", "read"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope

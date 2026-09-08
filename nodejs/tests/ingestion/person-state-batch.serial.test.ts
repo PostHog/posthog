@@ -27,8 +27,9 @@ import { defaultRetryConfig } from '~/common/utils/retries'
 import { UUIDT } from '~/common/utils/utils'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { PersonOutputs } from '~/ingestion/common/persons/person-context'
-import { PersonContext, personMergeEventProducedCounter } from '~/ingestion/common/persons/person-context'
+import { PersonContext } from '~/ingestion/common/persons/person-context'
 import { PersonEventProcessor } from '~/ingestion/common/persons/person-event-processor'
+import { personMergeEventProducedCounter } from '~/ingestion/common/persons/person-merge-postgres'
 import { PersonMergeService } from '~/ingestion/common/persons/person-merge-service'
 import {
     SourcePersonNotFoundError,
@@ -296,7 +297,7 @@ describe('PersonState.processEvent()', () => {
         timestampParam = timestamp,
         team = mainTeam,
         mergeMode = createDefaultSyncMergeMode(),
-        mergeEventsConfig?: { enabled: boolean; partitionCount: number; isTeamEnabled?: (teamId: number) => boolean },
+        mergeEventsConfig?: { enabled: boolean; partitionCount: number; teamAllowlist?: string },
         customPersonsStore?: BatchWritingPersonsStore,
         mergeTombstoneEnabled = false
     ) {
@@ -306,12 +307,22 @@ describe('PersonState.processEvent()', () => {
             ...event,
         }
 
+        // A custom store carries its own merge options; the merge policy
+        // params here configure only the store this helper builds.
         const personsStore =
             customPersonsStore ??
             new BatchWritingPersonsStore(
                 customPersonRepository ??
                     (customHub ? new PostgresPersonRepository(customHub.postgres) : personRepository),
-                createPersonOutputs(kafkaProducer)
+                createPersonOutputs(kafkaProducer),
+                {
+                    mergeTombstoneTeamAllowlist: mergeTombstoneEnabled ? '*' : '',
+                    mergeEventsEnabled: mergeEventsConfig?.enabled ?? false,
+                    mergeEventsPartitionCount: mergeEventsConfig?.partitionCount ?? 64,
+                    // Allow-all default so the enabled/produce tests are unaffected by the
+                    // team gate; pass an allowlist explicitly to exercise it.
+                    mergeEventsTeamAllowlist: mergeEventsConfig?.teamAllowlist ?? '*',
+                }
             )
 
         const context = new PersonContext(
@@ -325,12 +336,7 @@ describe('PersonState.processEvent()', () => {
             0,
             mergeMode,
             false,
-            false,
-            // isTeamEnabled defaults to allow-all so the enabled/produce tests are unaffected by the
-            // team gate; pass it explicitly to exercise the allowlist.
-            { isTeamEnabled: () => true, ...(mergeEventsConfig ?? { enabled: false, partitionCount: 64 }) },
-            undefined,
-            mergeTombstoneEnabled
+            false
         )
         return new PersonMergeService(context)
     }
@@ -2773,19 +2779,14 @@ describe('PersonState.processEvent()', () => {
                 distinctId: firstUserDistinctId,
             })
 
-            const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
                 distinctId: secondUserDistinctId,
             })
 
             const mergeService: PersonMergeService = personMergeService({}, hub, personRepository)
             jest.spyOn(kafkaProducer, 'produce')
 
-            const result = await mergeService.mergePeople({
-                mergeInto: first,
-                mergeIntoDistinctId: firstUserDistinctId,
-                otherPerson: second,
-                otherPersonDistinctId: secondUserDistinctId,
-            })
+            const result = await mergeService.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
             expect(result.success).toBe(true)
             if (!result.success) {
                 throw new Error('Merge should have succeeded')
@@ -2859,21 +2860,16 @@ describe('PersonState.processEvent()', () => {
 
         it(`does not emit a person_merge_events message when the gate is off (default)`, async () => {
             mockProducerObserver.resetKafkaProducer()
-            const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
                 distinctId: firstUserDistinctId,
             })
-            const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
                 distinctId: secondUserDistinctId,
             })
 
             // No mergeEventsConfig → gate defaults off.
             const mergeService = personMergeService({}, hub, personRepository)
-            const result = await mergeService.mergePeople({
-                mergeInto: first,
-                mergeIntoDistinctId: firstUserDistinctId,
-                otherPerson: second,
-                otherPersonDistinctId: secondUserDistinctId,
-            })
+            const result = await mergeService.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
             expect(result.success).toBe(true)
             if (!result.success) {
                 throw new Error('Merge should have succeeded')
@@ -2884,10 +2880,10 @@ describe('PersonState.processEvent()', () => {
         })
 
         it(`emits exactly one person_merge_events message with correct key, partition, and payload when the gate is on`, async () => {
-            const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
                 distinctId: firstUserDistinctId,
             })
-            const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
                 distinctId: secondUserDistinctId,
             })
 
@@ -2915,12 +2911,7 @@ describe('PersonState.processEvent()', () => {
                 createDefaultSyncMergeMode(),
                 { enabled: true, partitionCount: 64 }
             )
-            const result = await mergeService.mergePeople({
-                mergeInto: first,
-                mergeIntoDistinctId: firstUserDistinctId,
-                otherPerson: second,
-                otherPersonDistinctId: secondUserDistinctId,
-            })
+            const result = await mergeService.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
             expect(result.success).toBe(true)
             if (!result.success) {
                 throw new Error('Merge should have succeeded')
@@ -2953,10 +2944,10 @@ describe('PersonState.processEvent()', () => {
 
         it(`detaches the person_merge_events produce from the ack chain: a stuck produce cannot stall kafkaAck`, async () => {
             mockProducerObserver.resetKafkaProducer()
-            const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
                 distinctId: firstUserDistinctId,
             })
-            const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
                 distinctId: secondUserDistinctId,
             })
 
@@ -2987,12 +2978,7 @@ describe('PersonState.processEvent()', () => {
                     createDefaultSyncMergeMode(),
                     { enabled: true, partitionCount: 64 }
                 )
-                const result = await mergeService.mergePeople({
-                    mergeInto: first,
-                    mergeIntoDistinctId: firstUserDistinctId,
-                    otherPerson: second,
-                    otherPersonDistinctId: secondUserDistinctId,
-                })
+                const result = await mergeService.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
                 expect(result.success).toBe(true)
                 if (!result.success) {
                     throw new Error('Merge should have succeeded')
@@ -3012,10 +2998,10 @@ describe('PersonState.processEvent()', () => {
         })
 
         it(`does not emit or count a person_merge_events message for a team outside the allowlist`, async () => {
-            const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
                 distinctId: firstUserDistinctId,
             })
-            const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
                 distinctId: secondUserDistinctId,
             })
 
@@ -3040,14 +3026,9 @@ describe('PersonState.processEvent()', () => {
                 timestamp,
                 mainTeam,
                 createDefaultSyncMergeMode(),
-                { enabled: true, partitionCount: 64, isTeamEnabled: () => false }
+                { enabled: true, partitionCount: 64, teamAllowlist: '' }
             )
-            const result = await mergeService.mergePeople({
-                mergeInto: first,
-                mergeIntoDistinctId: firstUserDistinctId,
-                otherPerson: second,
-                otherPersonDistinctId: secondUserDistinctId,
-            })
+            const result = await mergeService.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
             expect(result.success).toBe(true)
             if (!result.success) {
                 throw new Error('Merge should have succeeded')
@@ -3063,10 +3044,10 @@ describe('PersonState.processEvent()', () => {
 
         it(`does not emit a person_merge_events message when the merge rolls back (moveDistinctIds throws)`, async () => {
             mockProducerObserver.resetKafkaProducer()
-            const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
                 distinctId: firstUserDistinctId,
             })
-            const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
                 distinctId: secondUserDistinctId,
             })
 
@@ -3080,18 +3061,15 @@ describe('PersonState.processEvent()', () => {
                 createDefaultSyncMergeMode(),
                 { enabled: true, partitionCount: 64 }
             )
-            // Force the transaction to fail before the post-commit emission point.
-            jest.spyOn(BatchWritingPersonsStore.prototype, 'inTransaction').mockRejectedValueOnce(
+            // Force every transaction attempt to fail before the post-commit
+            // emission point; merge() retries, so a single rejection would let
+            // the retry succeed.
+            jest.spyOn(BatchWritingPersonsStore.prototype, 'inTransaction').mockRejectedValue(
                 new Error('moveDistinctIds blew up')
             )
 
             await expect(
-                mergeService.mergePeople({
-                    mergeInto: first,
-                    mergeIntoDistinctId: firstUserDistinctId,
-                    otherPerson: second,
-                    otherPersonDistinctId: secondUserDistinctId,
-                })
+                mergeService.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
             ).rejects.toThrow()
 
             expect(getMergeEventMessages()).toHaveLength(0)
@@ -3135,7 +3113,7 @@ describe('PersonState.processEvent()', () => {
         })
 
         it(`hitting the move limit drops the event: no merge, no IDs moved, goes to DLQ`, async () => {
-            const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
                 distinctId: firstUserDistinctId,
             })
             const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
@@ -3158,12 +3136,7 @@ describe('PersonState.processEvent()', () => {
                 { type: 'LIMIT' as const, limit: 2 }
             )
 
-            const result = await mergeService.mergePeople({
-                mergeInto: first,
-                mergeIntoDistinctId: firstUserDistinctId,
-                otherPerson: { ...second },
-                otherPersonDistinctId: secondUserDistinctId,
-            })
+            const result = await mergeService.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
 
             expect(result.success).toBe(false)
             if (result.success) {
@@ -3184,7 +3157,7 @@ describe('PersonState.processEvent()', () => {
         it(`exact limit hit: delete source and do not emit warning`, async () => {
             mockProducerObserver.resetKafkaProducer()
 
-            const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
                 distinctId: firstUserDistinctId,
             })
             const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
@@ -3205,12 +3178,7 @@ describe('PersonState.processEvent()', () => {
                 { type: 'LIMIT' as const, limit: 2 }
             )
 
-            const result = await mergeService.mergePeople({
-                mergeInto: first,
-                mergeIntoDistinctId: firstUserDistinctId,
-                otherPerson: { ...second },
-                otherPersonDistinctId: secondUserDistinctId,
-            })
+            const result = await mergeService.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
             expect(result.success).toBe(true)
             if (!result.success) {
                 throw new Error('Merge should have succeeded')
@@ -3236,11 +3204,11 @@ describe('PersonState.processEvent()', () => {
         })
 
         it(`throws if postgres unavailable`, async () => {
-            const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
                 distinctId: firstUserDistinctId,
             })
 
-            const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
                 distinctId: secondUserDistinctId,
             })
             const state: PersonMergeService = personMergeService({}, hub)
@@ -3251,17 +3219,13 @@ describe('PersonState.processEvent()', () => {
                 throw error
             })
 
-            await expect(
-                state.mergePeople({
-                    mergeInto: first,
-                    mergeIntoDistinctId: firstUserDistinctId,
-                    otherPerson: second,
-                    otherPersonDistinctId: secondUserDistinctId,
-                })
-            ).rejects.toThrow(error)
+            await expect(state.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)).rejects.toThrow(
+                error
+            )
             await kafkaProducer.flush()
 
-            expect(hub.postgres.transaction).toHaveBeenCalledTimes(1)
+            // merge() retries transient failures, so every attempt opens a transaction.
+            expect(hub.postgres.transaction).toHaveBeenCalledTimes(3)
             jest.spyOn(hub.postgres, 'transaction').mockRestore()
             expect(kafkaProducer.produce).not.toHaveBeenCalled()
             // verify Postgres persons
@@ -3299,9 +3263,9 @@ describe('PersonState.processEvent()', () => {
             jest.spyOn(kafkaProducer, 'produce')
             // break postgres
             const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
-            jest.spyOn(state, 'mergePeople').mockImplementation(() => {
-                throw error
-            })
+            // A rejection, not a synchronous throw: the retry wrapper only
+            // catches rejections, matching how the async store fails for real.
+            jest.spyOn(state.getContext().personStore, 'mergePersons').mockRejectedValue(error)
 
             await expect(state.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)).rejects.toThrow(
                 error
@@ -3309,8 +3273,8 @@ describe('PersonState.processEvent()', () => {
 
             await kafkaProducer.flush()
 
-            expect(state.mergePeople).toHaveBeenCalledTimes(3)
-            jest.spyOn(state, 'mergePeople').mockRestore()
+            expect(state.getContext().personStore.mergePersons).toHaveBeenCalledTimes(3)
+            jest.spyOn(state.getContext().personStore, 'mergePersons').mockRestore()
             expect(kafkaProducer.produce).not.toHaveBeenCalled()
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
@@ -3356,15 +3320,15 @@ describe('PersonState.processEvent()', () => {
             jest.spyOn(kafkaProducer, 'produce')
             // break postgres
             const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
-            jest.spyOn(state, 'mergePeople').mockImplementation(() => {
-                throw error
-            })
+            // A rejection, not a synchronous throw: the retry wrapper only
+            // catches rejections, matching how the async store fails for real.
+            jest.spyOn(state.getContext().personStore, 'mergePersons').mockRejectedValue(error)
 
             await state.handleIdentifyOrAlias()
             await kafkaProducer.flush()
 
-            expect(state.mergePeople).toHaveBeenCalledTimes(3)
-            jest.spyOn(state, 'mergePeople').mockRestore()
+            expect(state.getContext().personStore.mergePersons).toHaveBeenCalledTimes(3)
+            jest.spyOn(state.getContext().personStore, 'mergePersons').mockRestore()
             expect(kafkaProducer.produce).not.toHaveBeenCalled()
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
@@ -3702,12 +3666,7 @@ describe('PersonState.processEvent()', () => {
                 })
 
             // Attempt to merge persons - this should trigger the retry logic
-            const result = await mergeService.mergePeople({
-                mergeInto: person2,
-                mergeIntoDistinctId: secondUserDistinctId,
-                otherPerson: person1, // This person "no longer exists"
-                otherPersonDistinctId: firstUserDistinctId,
-            })
+            const result = await mergeService.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
             expect(result.success).toBe(true)
             if (!result.success) {
                 throw new Error('Merge should have succeeded')
@@ -3786,12 +3745,7 @@ describe('PersonState.processEvent()', () => {
                 })
 
             // Attempt to merge persons - this should trigger the retry logic
-            const result = await mergeService.mergePeople({
-                mergeInto: person2,
-                mergeIntoDistinctId: secondUserDistinctId,
-                otherPerson: person1, // This person "no longer exists"
-                otherPersonDistinctId: firstUserDistinctId,
-            })
+            const result = await mergeService.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
             expect(result.success).toBe(true)
             if (!result.success) {
                 throw new Error('Merge should have succeeded')
@@ -3846,7 +3800,17 @@ describe('PersonState.processEvent()', () => {
             // A concurrent operation tombstones the source after our stale fetch, while an
             // identity write that raced the tombstone left a live mapping pointing at it.
             // Without the post-claim source liveness check the merge would move that mapping
-            // and merge the stale source properties into the target.
+            // and merge the stale source properties into the target. The stale fetch is
+            // seeded into the store's cache: a fresh fetch filters tombstoned persons, and
+            // the race this pins is precisely a fetch that predates the tombstone.
+            const staleCacheStore = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer), {
+                mergeTombstoneTeamAllowlist: '*',
+            })
+            staleCacheStore.setCachedPersonForUpdate(
+                teamId,
+                secondUserDistinctId,
+                fromInternalPerson(source, secondUserDistinctId)
+            )
             await hub.postgres.query(
                 PostgresUse.PERSONS_WRITE,
                 'UPDATE posthog_person SET is_deleted = true, version = version + 1 WHERE team_id = $1 AND id = $2',
@@ -3867,16 +3831,11 @@ describe('PersonState.processEvent()', () => {
                 mainTeam,
                 createDefaultSyncMergeMode(),
                 undefined,
-                undefined,
+                staleCacheStore,
                 true
             )
 
-            const result = await mergeService.mergePeople({
-                mergeInto: target,
-                mergeIntoDistinctId: firstUserDistinctId,
-                otherPerson: source,
-                otherPersonDistinctId: secondUserDistinctId,
-            })
+            const result = await mergeService.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
 
             // The retry refreshes by the source distinct id, which no longer resolves to a
             // live person, so the merge converges to a no-op on the untouched target.
@@ -4009,21 +3968,12 @@ describe('PersonState.processEvent()', () => {
         })
 
         it('tombstone-mode merge stamps the exact death version on the source row and its death message', async () => {
-            const target = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
                 distinctId: firstUserDistinctId,
             })
-            const source = await createPerson(
-                hub,
-                timestamp,
-                { plan: 'pro' },
-                {},
-                {},
-                teamId,
-                null,
-                false,
-                secondUserUuid,
-                { distinctId: secondUserDistinctId }
-            )
+            await createPerson(hub, timestamp, { plan: 'pro' }, {}, {}, teamId, null, false, secondUserUuid, {
+                distinctId: secondUserDistinctId,
+            })
 
             const producerObserver = new KafkaProducerObserver(kafkaProducer)
             // The delete mode is a repository option, separate from the context flag.
@@ -4048,12 +3998,7 @@ describe('PersonState.processEvent()', () => {
                 true
             )
 
-            const result = await mergeService.mergePeople({
-                mergeInto: target,
-                mergeIntoDistinctId: firstUserDistinctId,
-                otherPerson: source,
-                otherPersonDistinctId: secondUserDistinctId,
-            })
+            const result = await mergeService.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
             expect(result.success).toBe(true)
             if (!result.success) {
                 throw new Error('Merge should have succeeded')
@@ -4084,7 +4029,7 @@ describe('PersonState.processEvent()', () => {
 
         describe('SYNC mode with batch processing', () => {
             it('merges all distinct IDs when batch size is larger than total distinct IDs', async () => {
-                const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+                await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
                     distinctId: firstUserDistinctId,
                 })
                 const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
@@ -4104,12 +4049,7 @@ describe('PersonState.processEvent()', () => {
 
                 jest.spyOn(repo, 'moveDistinctIds')
 
-                const result = await mergeService.mergePeople({
-                    mergeInto: first,
-                    mergeIntoDistinctId: firstUserDistinctId,
-                    otherPerson: second,
-                    otherPersonDistinctId: secondUserDistinctId,
-                })
+                const result = await mergeService.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
 
                 expect(result.success).toBe(true)
                 if (!result.success) {
@@ -4133,7 +4073,7 @@ describe('PersonState.processEvent()', () => {
             })
 
             it('merges all distinct IDs in multiple batches when batch size is smaller than total', async () => {
-                const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+                await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
                     distinctId: firstUserDistinctId,
                 })
                 const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
@@ -4155,12 +4095,7 @@ describe('PersonState.processEvent()', () => {
 
                 jest.spyOn(repo, 'moveDistinctIds')
 
-                const result = await mergeService.mergePeople({
-                    mergeInto: first,
-                    mergeIntoDistinctId: firstUserDistinctId,
-                    otherPerson: second,
-                    otherPersonDistinctId: secondUserDistinctId,
-                })
+                const result = await mergeService.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
 
                 expect(result.success).toBe(true)
                 if (!result.success) {
@@ -4191,7 +4126,7 @@ describe('PersonState.processEvent()', () => {
             })
 
             it('handles edge case with batch size of 1', async () => {
-                const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+                await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
                     distinctId: firstUserDistinctId,
                 })
                 const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
@@ -4210,12 +4145,7 @@ describe('PersonState.processEvent()', () => {
 
                 jest.spyOn(repo, 'moveDistinctIds')
 
-                const result = await mergeService.mergePeople({
-                    mergeInto: first,
-                    mergeIntoDistinctId: firstUserDistinctId,
-                    otherPerson: second,
-                    otherPersonDistinctId: secondUserDistinctId,
-                })
+                const result = await mergeService.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
                 expect(result.success).toBe(true)
                 if (!result.success) {
                     throw new Error('Merge should have succeeded')
@@ -4238,7 +4168,7 @@ describe('PersonState.processEvent()', () => {
             })
 
             it('handles SYNC mode with undefined batch size (unlimited)', async () => {
-                const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+                await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
                     distinctId: firstUserDistinctId,
                 })
                 const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
@@ -4259,12 +4189,7 @@ describe('PersonState.processEvent()', () => {
 
                 jest.spyOn(repo, 'moveDistinctIds')
 
-                const result = await mergeService.mergePeople({
-                    mergeInto: first,
-                    mergeIntoDistinctId: firstUserDistinctId,
-                    otherPerson: second,
-                    otherPersonDistinctId: secondUserDistinctId,
-                })
+                const result = await mergeService.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
 
                 expect(result.success).toBe(true)
                 if (!result.success) {
@@ -4313,7 +4238,7 @@ describe('PersonState.processEvent()', () => {
 
             describe('SYNC mode', () => {
                 it('merges all distinct IDs in unlimited batches when batchSize is undefined', async () => {
-                    const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+                    await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
                         distinctId: firstUserDistinctId,
                     })
                     const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
@@ -4339,12 +4264,12 @@ describe('PersonState.processEvent()', () => {
                     )
 
                     jest.spyOn(repo, 'moveDistinctIds')
-                    const result = await mergeService.mergePeople({
-                        mergeInto: first,
-                        mergeIntoDistinctId: firstUserDistinctId,
-                        otherPerson: second,
-                        otherPersonDistinctId: secondUserDistinctId,
-                    })
+                    const result = await mergeService.merge(
+                        secondUserDistinctId,
+                        firstUserDistinctId,
+                        teamId,
+                        timestamp
+                    )
 
                     expect(result.success).toBe(true)
                     if (!result.success) {
@@ -4370,7 +4295,7 @@ describe('PersonState.processEvent()', () => {
                 })
 
                 it('merges distinct IDs in specified batches when batchSize is set', async () => {
-                    const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+                    await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
                         distinctId: firstUserDistinctId,
                     })
                     const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
@@ -4396,12 +4321,12 @@ describe('PersonState.processEvent()', () => {
                     )
 
                     jest.spyOn(repo, 'moveDistinctIds')
-                    const result = await mergeService.mergePeople({
-                        mergeInto: first,
-                        mergeIntoDistinctId: firstUserDistinctId,
-                        otherPerson: second,
-                        otherPersonDistinctId: secondUserDistinctId,
-                    })
+                    const result = await mergeService.merge(
+                        secondUserDistinctId,
+                        firstUserDistinctId,
+                        teamId,
+                        timestamp
+                    )
 
                     expect(result.success).toBe(true)
                     if (!result.success) {
@@ -4427,7 +4352,7 @@ describe('PersonState.processEvent()', () => {
                 })
 
                 it('merges distinct IDs when count exactly equals batch size', async () => {
-                    const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+                    await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
                         distinctId: firstUserDistinctId,
                     })
                     const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
@@ -4452,12 +4377,12 @@ describe('PersonState.processEvent()', () => {
                     )
 
                     jest.spyOn(repo, 'moveDistinctIds')
-                    const result = await mergeService.mergePeople({
-                        mergeInto: first,
-                        mergeIntoDistinctId: firstUserDistinctId,
-                        otherPerson: second,
-                        otherPersonDistinctId: secondUserDistinctId,
-                    })
+                    const result = await mergeService.merge(
+                        secondUserDistinctId,
+                        firstUserDistinctId,
+                        teamId,
+                        timestamp
+                    )
 
                     expect(result.success).toBe(true)
                     if (!result.success) {
@@ -4484,7 +4409,7 @@ describe('PersonState.processEvent()', () => {
 
             describe('LIMIT mode', () => {
                 it('successfully merges when distinct ID count is within limit', async () => {
-                    const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+                    await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
                         distinctId: firstUserDistinctId,
                     })
                     const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
@@ -4508,12 +4433,12 @@ describe('PersonState.processEvent()', () => {
                         limitMode
                     )
 
-                    const result = await mergeService.mergePeople({
-                        mergeInto: first,
-                        mergeIntoDistinctId: firstUserDistinctId,
-                        otherPerson: second,
-                        otherPersonDistinctId: secondUserDistinctId,
-                    })
+                    const result = await mergeService.merge(
+                        secondUserDistinctId,
+                        firstUserDistinctId,
+                        teamId,
+                        timestamp
+                    )
 
                     expect(result.success).toBe(true)
                     if (!result.success) {
@@ -4535,7 +4460,7 @@ describe('PersonState.processEvent()', () => {
                 })
 
                 it('fails with PersonMergeLimitExceededError when distinct ID count exceeds limit', async () => {
-                    const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+                    await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
                         distinctId: firstUserDistinctId,
                     })
                     const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
@@ -4560,12 +4485,12 @@ describe('PersonState.processEvent()', () => {
                         limitMode
                     )
 
-                    const result = await mergeService.mergePeople({
-                        mergeInto: first,
-                        mergeIntoDistinctId: firstUserDistinctId,
-                        otherPerson: second,
-                        otherPersonDistinctId: secondUserDistinctId,
-                    })
+                    const result = await mergeService.merge(
+                        secondUserDistinctId,
+                        firstUserDistinctId,
+                        teamId,
+                        timestamp
+                    )
 
                     expect(result.success).toBe(false)
                     if (result.success) {
@@ -4588,7 +4513,7 @@ describe('PersonState.processEvent()', () => {
                 })
 
                 it('successfully merges when distinct ID count exactly equals limit', async () => {
-                    const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+                    await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
                         distinctId: firstUserDistinctId,
                     })
                     const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
@@ -4612,12 +4537,12 @@ describe('PersonState.processEvent()', () => {
                         limitMode
                     )
 
-                    const result = await mergeService.mergePeople({
-                        mergeInto: first,
-                        mergeIntoDistinctId: firstUserDistinctId,
-                        otherPerson: second,
-                        otherPersonDistinctId: secondUserDistinctId,
-                    })
+                    const result = await mergeService.merge(
+                        secondUserDistinctId,
+                        firstUserDistinctId,
+                        teamId,
+                        timestamp
+                    )
 
                     expect(result.success).toBe(true)
                     if (!result.success) {
@@ -4641,7 +4566,7 @@ describe('PersonState.processEvent()', () => {
 
             describe('ASYNC mode', () => {
                 it('successfully merges when distinct ID count is within limit', async () => {
-                    const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+                    await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
                         distinctId: firstUserDistinctId,
                     })
                     const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
@@ -4664,12 +4589,12 @@ describe('PersonState.processEvent()', () => {
                         asyncMode
                     )
 
-                    const result = await mergeService.mergePeople({
-                        mergeInto: first,
-                        mergeIntoDistinctId: firstUserDistinctId,
-                        otherPerson: second,
-                        otherPersonDistinctId: secondUserDistinctId,
-                    })
+                    const result = await mergeService.merge(
+                        secondUserDistinctId,
+                        firstUserDistinctId,
+                        teamId,
+                        timestamp
+                    )
 
                     expect(result.success).toBe(true)
                     if (!result.success) {
@@ -4690,7 +4615,7 @@ describe('PersonState.processEvent()', () => {
                 })
 
                 it('fails with PersonMergeLimitExceededError when distinct ID count exceeds limit', async () => {
-                    const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+                    await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
                         distinctId: firstUserDistinctId,
                     })
                     const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
@@ -4715,12 +4640,12 @@ describe('PersonState.processEvent()', () => {
                         asyncMode
                     )
 
-                    const result = await mergeService.mergePeople({
-                        mergeInto: first,
-                        mergeIntoDistinctId: firstUserDistinctId,
-                        otherPerson: second,
-                        otherPersonDistinctId: secondUserDistinctId,
-                    })
+                    const result = await mergeService.merge(
+                        secondUserDistinctId,
+                        firstUserDistinctId,
+                        teamId,
+                        timestamp
+                    )
 
                     expect(result.success).toBe(false)
                     if (result.success) {
@@ -4743,7 +4668,7 @@ describe('PersonState.processEvent()', () => {
                 })
 
                 it('successfully merges when distinct ID count exactly equals limit', async () => {
-                    const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+                    await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
                         distinctId: firstUserDistinctId,
                     })
                     const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
@@ -4767,12 +4692,12 @@ describe('PersonState.processEvent()', () => {
                         asyncMode
                     )
 
-                    const result = await mergeService.mergePeople({
-                        mergeInto: first,
-                        mergeIntoDistinctId: firstUserDistinctId,
-                        otherPerson: second,
-                        otherPersonDistinctId: secondUserDistinctId,
-                    })
+                    const result = await mergeService.merge(
+                        secondUserDistinctId,
+                        firstUserDistinctId,
+                        teamId,
+                        timestamp
+                    )
 
                     expect(result.success).toBe(true)
                     if (!result.success) {
@@ -4799,6 +4724,7 @@ describe('PersonState.processEvent()', () => {
                     const fullEvent = {
                         team_id: teamId,
                         properties: {},
+                        uuid: 'event-uuid',
                         ...event,
                     }
 
@@ -4826,7 +4752,7 @@ describe('PersonState.processEvent()', () => {
                     return processor
                 }
 
-                it('SYNC mode throws PersonMergeLimitExceededError when limit exceeded', async () => {
+                it('SYNC mode routes the event to the DLQ when the saga-side limit is exceeded', async () => {
                     const syncMode = { type: 'SYNC' as const, batchSize: undefined }
                     const processor = createPersonEventProcessor(syncMode, {
                         event: '$identify',
@@ -4846,8 +4772,19 @@ describe('PersonState.processEvent()', () => {
                         error: new PersonMergeLimitExceededError('person_merge_move_limit_hit'),
                     })
 
-                    // In SYNC mode, this should throw the error
-                    await expect(processor.processEvent()).rejects.toThrow('person_merge_move_limit_hit')
+                    // The Postgres world cannot produce this in SYNC mode, but the
+                    // personhog saga's move limit can; the event goes to the DLQ —
+                    // payload preserved for replay once the limit is raised or
+                    // chunked moves land — rather than being dropped or failing
+                    // the batch into a redelivery loop.
+                    const result = await processor.processEvent()
+                    expect(result.type).toBe(PipelineResultType.DLQ)
+                    expect(result.warnings).toEqual([
+                        expect.objectContaining({
+                            type: 'merge_move_limit_exceeded',
+                            details: expect.objectContaining({ eventUuid: expect.any(String) }),
+                        }),
+                    ])
                 })
 
                 it('LIMIT mode returns DLQ result when limit exceeded', async () => {

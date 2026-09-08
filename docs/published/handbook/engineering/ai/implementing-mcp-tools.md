@@ -267,6 +267,8 @@ Product teams own their definitions and control which operations are exposed as 
    #### Custom input schemas
 
    By default, tool input schemas are auto-derived from OpenAPI via Orval.
+   The generated exports in `src/generated/<product>/api.ts` are builder functions, so call them (`FeatureFlagsCreateBody()`) wherever you import one.
+   A schema then exists only while a call uses it, and the server does not keep every schema in memory.
    When the auto-derived schema isn't ideal for an LLM tool interface,
    you can override it at two levels:
 
@@ -380,6 +382,13 @@ see the [`improving-drf-endpoints` skill](https://github.com/PostHog/posthog/blo
   without it, drf-spectacular can't discover the request body
   and the generated tool gets an empty schema with zero parameters.
   `ModelViewSet` with `serializer_class` works automatically.
+
+### Defaults in partially updated settings
+
+For JSON settings that merge on PATCH, leave nested `default` values out of the shared request schema.
+Orval turns them into Zod defaults, so MCP sends values the caller omitted and overwrites stored settings.
+For example, evaluation updates must preserve `allows_na` when the caller changes only `true_is_failure`, and vice versa.
+Apply creation defaults in backend validation and describe them in the field's help text.
 
 ### Root-router viewsets
 
