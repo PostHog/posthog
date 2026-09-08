@@ -94654,7 +94654,26 @@ export namespace Schemas {
      */
     offset?: number;
     saved_query_id?: string;
+    /**
+     * * `Cancelled` - Cancelled
+     * * `Completed` - Completed
+     * * `Failed` - Failed
+     * * `Running` - Running
+     * * `Skipped` - Skipped
+     */
+    status?: DataModelingJobsListStatus;
     };
+
+    export type DataModelingJobsListStatus = typeof DataModelingJobsListStatus[keyof typeof DataModelingJobsListStatus];
+
+
+    export const DataModelingJobsListStatus = {
+      Cancelled: 'Cancelled',
+      Completed: 'Completed',
+      Failed: 'Failed',
+      Running: 'Running',
+      Skipped: 'Skipped',
+    } as const;
 
     export type DataModelingNodesListParams = {
     /**
