@@ -74,6 +74,28 @@ export function maxTargetDaysForInterval(interval: IntervalType | null | undefin
     return Math.max(1, Math.min(MAX_FORECAST_REACH_DAYS, byPoints))
 }
 
+/** Mirrors `DEFAULT_HORIZON` in products/alerts/backend/forecasting/engine.py. */
+export const DEFAULT_FORECAST_HORIZON = 7
+
+/** Mirrors `default_horizon` there: a config with no horizon looks 7 intervals ahead, or fewer
+ * when 7 intervals would reach past the limits. A monthly insight resolves to 3, not 7. */
+export function defaultHorizonForInterval(interval: IntervalType | null | undefined): number {
+    return Math.min(DEFAULT_FORECAST_HORIZON, maxHorizonForInterval(interval))
+}
+
+/** The horizon a stored config evaluates at. The API accepts a breach config without one, and the
+ * backend then resolves its own default, so fill in the same value here. Otherwise the editor
+ * offers a look-ahead the forecast beside it never used. */
+export function resolveHorizon<T extends { horizon?: number | null }>(
+    config: T,
+    interval: IntervalType | null | undefined
+): T {
+    if (config.horizon == null) {
+        return { ...config, horizon: defaultHorizonForInterval(interval) }
+    }
+    return clampHorizon(config, interval)
+}
+
 export function clampHorizon<T extends { horizon?: number | null }>(
     config: T,
     interval: IntervalType | null | undefined

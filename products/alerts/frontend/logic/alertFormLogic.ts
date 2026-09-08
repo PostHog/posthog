@@ -35,7 +35,7 @@ import {
     getDefaultSimulationRange,
     isSubDailyAlertInterval,
 } from 'products/alerts/frontend/logic/alertIntervalHelpers'
-import { clampHorizon, resolveForecastSimulationRange } from 'products/alerts/frontend/logic/forecastReach'
+import { resolveForecastSimulationRange, resolveHorizon } from 'products/alerts/frontend/logic/forecastReach'
 import { resolveSnoozeUntil } from 'products/alerts/frontend/utils'
 
 import {
@@ -273,7 +273,7 @@ function alertToFormType(
         ...alert,
         forecast_config:
             alert.forecast_config?.condition === ForecastConditionType.FUTURE_BREACH
-                ? clampHorizon(alert.forecast_config, insightInterval)
+                ? resolveHorizon(alert.forecast_config, insightInterval)
                 : (alert.forecast_config ?? null),
         insight: insightId,
     }

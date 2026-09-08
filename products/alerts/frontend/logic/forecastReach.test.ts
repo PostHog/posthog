@@ -6,6 +6,7 @@ import { ChartDisplayType, IntervalType } from '~/types'
 import {
     clampHorizon,
     dateRangeSupportsForecast,
+    defaultHorizonForInterval,
     displaySupportsForecast,
     forecastTargetDateError,
     intervalSupportsForecast,
@@ -14,6 +15,7 @@ import {
     targetByDateSupportsForecast,
     pointsInSimulationRange,
     resolveForecastSimulationRange,
+    resolveHorizon,
     usableSimulationRanges,
 } from './forecastReach'
 
@@ -74,6 +76,27 @@ describe('clampHorizon', () => {
     it('returns the same object when nothing changes', () => {
         const config = { horizon: 7 }
         expect(clampHorizon(config, 'day')).toBe(config)
+    })
+})
+
+describe('resolveHorizon', () => {
+    // A config saved through the API can leave the horizon out; the backend then resolves
+    // default_horizon(interval), so the editor has to show that same number.
+    it.each<[string, { horizon?: number | null }, IntervalType | null, number]>([
+        ['a missing monthly horizon', {}, 'month', 3],
+        ['a null monthly horizon', { horizon: null }, 'month', 3],
+        ['a missing daily horizon', {}, 'day', 7],
+        ['a missing weekly horizon', {}, 'week', 7],
+        ['a missing horizon with no interval set', {}, null, 7],
+        ['a stored horizon inside the cap', { horizon: 2 }, 'month', 2],
+        ['a stored horizon above the cap', { horizon: 7 }, 'month', 3],
+    ])('%s resolves to %i', (_name, config, interval, expected) => {
+        expect(resolveHorizon(config, interval).horizon).toBe(expected)
+    })
+
+    it('matches the default the backend would resolve', () => {
+        expect(defaultHorizonForInterval('month')).toBe(3)
+        expect(defaultHorizonForInterval('day')).toBe(7)
     })
 })
 

@@ -16,6 +16,8 @@ import { IntervalType } from '~/types'
 
 import {
     clampHorizon,
+    DEFAULT_FORECAST_HORIZON,
+    defaultHorizonForInterval,
     forecastTargetDateError,
     forecastTargetValueError,
     maxHorizonForInterval,
@@ -30,7 +32,6 @@ const HORIZON_UNIT: Partial<Record<IntervalType, string>> = {
     month: 'months',
 }
 
-const DEFAULT_HORIZON = 7
 const DEFAULT_TARGET_DAYS = 90
 
 /** Merges a horizon the user typed. An emptied number input reports NaN, which `??` does not
@@ -41,7 +42,7 @@ export function withEnteredHorizon(
     entered: number | null | undefined,
     insightInterval?: IntervalType | null
 ): ForecastConfig {
-    const horizon = entered != null && Number.isFinite(entered) ? entered : (config.horizon ?? DEFAULT_HORIZON)
+    const horizon = entered != null && Number.isFinite(entered) ? entered : (config.horizon ?? DEFAULT_FORECAST_HORIZON)
     return clampHorizon({ ...config, horizon }, insightInterval)
 }
 
@@ -58,8 +59,8 @@ export function withConditionDefaults(
             condition,
             horizon:
                 config.condition === ForecastConditionType.FUTURE_BREACH
-                    ? (config.horizon ?? DEFAULT_HORIZON)
-                    : DEFAULT_HORIZON,
+                    ? (config.horizon ?? DEFAULT_FORECAST_HORIZON)
+                    : DEFAULT_FORECAST_HORIZON,
         }
         return clampHorizon(nextConfig, insightInterval)
     }
@@ -88,7 +89,7 @@ export function getDefaultForecastConfig(insightInterval?: IntervalType | null):
         type: 'ForecastConfig',
         engine: ForecastEngineType.PROPHET,
         condition: ForecastConditionType.FUTURE_BREACH,
-        horizon: DEFAULT_HORIZON,
+        horizon: DEFAULT_FORECAST_HORIZON,
     }
     return clampHorizon(config, insightInterval)
 }
@@ -165,7 +166,7 @@ export function ForecastSelector({
                         aria-label="Forecast horizon"
                         min={1}
                         max={maxHorizon}
-                        value={config.horizon ?? DEFAULT_HORIZON}
+                        value={config.horizon ?? defaultHorizonForInterval(insightInterval)}
                         disabledReason={disabledReason}
                         onChange={(horizon) => onChange(withEnteredHorizon(config, horizon, insightInterval))}
                     />

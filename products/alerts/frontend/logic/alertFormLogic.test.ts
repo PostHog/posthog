@@ -369,6 +369,27 @@ describe('alertFormLogic', () => {
         expect(updateSpy.mock.calls[0][1]).not.toHaveProperty('forecast_config')
     })
 
+    it('fills in the horizon the backend resolves for a config saved without one', async () => {
+        const existingAlert = makeSavedAlert({
+            id: 'alert-existing-id',
+            forecast_config: {
+                type: 'ForecastConfig',
+                engine: ForecastEngineType.PROPHET,
+                condition: ForecastConditionType.FUTURE_BREACH,
+            },
+        } as any)
+        const logic = alertFormLogic({
+            alert: existingAlert,
+            insightId: 42,
+            onEditSuccess: jest.fn(),
+            insightVizDataLogicProps: insightLogicProps,
+            insightInterval: 'month',
+        })
+        logic.mount()
+
+        expect((logic.values.alertForm.forecast_config as any).horizon).toBe(3)
+    })
+
     it('sends the forecast config when it actually changed', async () => {
         const existingAlert = makeSavedAlert({ id: 'alert-existing-id', forecast_config: null } as any)
         const logic = alertFormLogic({
