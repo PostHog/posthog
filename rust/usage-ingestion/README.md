@@ -45,6 +45,7 @@ The input topic can live on a different cluster from the ClickHouse output:
 | `USAGE_INGESTION_KAFKA_INPUT_TLS` | `KAFKA_TLS` |
 | `USAGE_INGESTION_KAFKA_INPUT_TOPIC` | `usage_ingestion` |
 | `USAGE_INGESTION_KAFKA_DEAD_LETTER_TOPIC` | `usage_ingestion_dlq` |
+| `USAGE_INGESTION_KAFKA_DEAD_LETTER_MESSAGE_TIMEOUT_MS` | `20000` |
 | `USAGE_INGESTION_KAFKA_CONSUMER_GROUP` | `usage-ingestion` |
 | `USAGE_INGESTION_KAFKA_CONSUMER_CLIENT_ID` | `usage-ingestion-consumer` |
 | `USAGE_INGESTION_KAFKA_CONSUMER_TOPIC_METADATA_REFRESH_INTERVAL_MS` | `60000` |

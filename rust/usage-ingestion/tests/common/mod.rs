@@ -49,7 +49,7 @@ pub fn topic() -> String {
 }
 
 #[derive(Clone)]
-struct TestLiveness;
+pub struct TestLiveness;
 
 impl SyncLivenessReporter for TestLiveness {
     fn report_healthy(&self) {}
@@ -178,6 +178,9 @@ impl KafkaService {
     pub async fn start(max_batch_size: usize, organization_id: Uuid) -> Self {
         let service = service(max_batch_size, organization_id, None).await;
         let input_topic = format!("usage_ingestion_e2e_{}", Uuid::new_v4());
+        let dead_letter_topic = format!("{input_topic}_dlq");
+        create_topic(&input_topic, 1).await;
+        create_topic(&dead_letter_topic, 1).await;
         let group = format!("usage-ingestion-e2e-{}", Uuid::new_v4());
         let consumer_config = ConsumerConfigBuilder::for_batch_consumer(&kafka_hosts(), &group)
             .with_offset_reset("earliest")
@@ -185,13 +188,14 @@ impl KafkaService {
         let transport = KafkaUsageIngestion::new(
             &consumer_config,
             &input_topic,
-            format!("{input_topic}_dlq"),
+            dead_letter_topic,
             service,
             KafkaBatchConfig {
                 max_messages: 100,
                 max_wait: Duration::from_millis(10),
                 concurrency: 16,
             },
+            TestLiveness,
         )
         .expect("failed to create the Kafka transport");
         let handle = tokio::spawn(async move {

@@ -73,6 +73,11 @@ pub struct Config {
     )]
     pub kafka_dead_letter_topic: String,
     #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_DEAD_LETTER_MESSAGE_TIMEOUT_MS",
+        default = "20000"
+    )]
+    pub kafka_dead_letter_message_timeout_ms: u32,
+    #[envconfig(
         from = "USAGE_INGESTION_KAFKA_CONSUMER_GROUP",
         default = "usage-ingestion"
     )]
@@ -192,6 +197,11 @@ impl Config {
                 "USAGE_INGESTION_KAFKA_CONSUMER_RETRY_BACKOFF_MAX_MS must be positive".to_string(),
             );
         }
+        if self.kafka_dead_letter_message_timeout_ms == 0 {
+            return Err(
+                "USAGE_INGESTION_KAFKA_DEAD_LETTER_MESSAGE_TIMEOUT_MS must be positive".to_string(),
+            );
+        }
         // A few seconds would make every producer spend its time reconnecting.
         if self.grpc_max_connection_age_secs > 0 && self.grpc_max_connection_age_secs < 10 {
             return Err(
@@ -269,6 +279,12 @@ impl Config {
                 "retry.backoff.max.ms",
                 &self.kafka_consumer_retry_backoff_max_ms.to_string(),
             )
+            .set("statistics.interval.ms", "10000")
+            .set("allow.auto.create.topics", "false")
+            .set(
+                "message.timeout.ms",
+                &self.kafka_dead_letter_message_timeout_ms.to_string(),
+            )
             .build()
     }
 
@@ -297,6 +313,7 @@ mod tests {
             kafka_input_tls: None,
             kafka_input_topic: "usage_ingestion".to_string(),
             kafka_dead_letter_topic: "usage_ingestion_dlq".to_string(),
+            kafka_dead_letter_message_timeout_ms: 20_000,
             kafka_consumer_group: "usage-ingestion".to_string(),
             kafka_consumer_client_id: "usage-ingestion-consumer".to_string(),
             kafka_consumer_topic_metadata_refresh_interval_ms: 60_000,
@@ -394,6 +411,9 @@ mod tests {
         assert_eq!(kafka.get("socket.send.buffer.bytes"), Some("0"));
         assert_eq!(kafka.get("socket.receive.buffer.bytes"), Some("0"));
         assert_eq!(kafka.get("retry.backoff.max.ms"), Some("60000"));
+        assert_eq!(kafka.get("statistics.interval.ms"), Some("10000"));
+        assert_eq!(kafka.get("allow.auto.create.topics"), Some("false"));
+        assert_eq!(kafka.get("message.timeout.ms"), Some("20000"));
 
         let batch = config.kafka_batch_config();
         assert_eq!(batch.max_messages, 100);
@@ -402,7 +422,7 @@ mod tests {
     }
 
     #[test]
-    fn redis_counter_configuration_requires_positive_values() {
+    fn configuration_requires_positive_values() {
         for (config, expected) in [
             (
                 Config {
@@ -417,6 +437,13 @@ mod tests {
                     ..config()
                 },
                 "USAGE_INGESTION_REDIS_FLUSH_CONCURRENCY must be positive",
+            ),
+            (
+                Config {
+                    kafka_dead_letter_message_timeout_ms: 0,
+                    ..config()
+                },
+                "USAGE_INGESTION_KAFKA_DEAD_LETTER_MESSAGE_TIMEOUT_MS must be positive",
             ),
         ] {
             assert_eq!(config.validate(), Err(expected.to_string()));

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use common::{create_topic, kafka_hosts, service_with_resolver};
+use common::{create_topic, kafka_hosts, service_with_resolver, TestLiveness};
 use common_kafka_consumer::config::ConsumerConfigBuilder;
 use prost::Message as ProstMessage;
 use rdkafka::consumer::{Consumer, StreamConsumer};
@@ -113,6 +113,7 @@ async fn processes_multiple_partitions_concurrently() {
         dead_letter_topic,
         service,
         batch_config(),
+        TestLiveness,
     )
     .unwrap();
     let handle = tokio::spawn(async move { transport.run().await });
@@ -144,6 +145,7 @@ async fn malformed_input_is_preserved_on_the_dead_letter_topic() {
         dead_letter_topic.clone(),
         service,
         batch_config(),
+        TestLiveness,
     )
     .unwrap();
     let handle = tokio::spawn(async move { transport.run().await });
