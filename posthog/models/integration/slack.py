@@ -107,13 +107,20 @@ class SlackIntegration:
         try:
             response = self.client.conversations_info(channel=channel_id, include_num_members=True)
             channel = response["channel"]
-            members_response = self.client.conversations_members(channel=channel_id, limit=channel["num_members"] + 1)
-            isMember = authed_user in members_response["members"]
 
-            if not isMember:
-                return None
-
-            isPrivateWithoutAccess = channel["is_private"] and not should_include_private_channels
+            # For private channels, verify that authed_user is a member.
+            # For public channels, skip this check — a public channel is discoverable
+            # by anyone in the workspace, so the authed_user membership check is unnecessary
+            # and causes false negatives (blocking access to channels the user should reach).
+            isPrivateWithoutAccess = False
+            if channel["is_private"] and authed_user is not None:
+                members_response = self.client.conversations_members(
+                    channel=channel_id, limit=channel["num_members"] + 1
+                )
+                isMember = authed_user in members_response["members"]
+                if not isMember:
+                    return None
+                isPrivateWithoutAccess = not should_include_private_channels
 
             return {
                 "id": channel["id"],
