@@ -82,6 +82,39 @@ export namespace Schemas {
         | "count_pageviews"
         | "uniq_urls"
         | "uniq_page_screen_autocaptures";
+    export type CustomBotField =
+        | "$raw_user_agent"
+        | "$ip"
+        | "$lib"
+        | "$host"
+        | "$pathname"
+        | "$current_url"
+        | "$browser"
+        | "$os"
+        | "$browser_language"
+        | "$screen_width"
+        | "$screen_height"
+        | "$geoip_country_code"
+        | "$referrer"
+        | "$referring_domain";
+    export type CustomBotMatcher = "contains" | "regex" | "cidr";
+    export type CustomBotDefinition = {
+        category?: (string | null) | undefined;
+        id: string;
+        /**
+         * The event property this rule reads.
+         */
+        key: CustomBotField;
+        matcher: CustomBotMatcher;
+        /**
+         * Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches.
+         */
+        name: string;
+        /**
+         * Matched against the property named by `key`.
+         */
+        pattern: string;
+    };
     export type FilterLogicalOperator = "AND" | "OR";
     export type CustomChannelField =
         | "utm_source"
@@ -152,6 +185,7 @@ export namespace Schemas {
         bounceRateDurationSeconds: number | null;
         bounceRatePageViewMode: BounceRatePageViewMode | null;
         convertToProjectTimezone: boolean | null;
+        customBotDefinitions: Array<CustomBotDefinition> | null;
         customChannelTypeRules: Array<CustomChannelRule> | null;
         dataWarehouseEventsModifiers: Array<DataWarehouseEventsModifier> | null;
         debug: boolean | null;
@@ -8580,7 +8614,7 @@ export namespace Schemas {
                     }
                   | {
                         /**
-                         * Hog source code. Must return true (pass), false (fail), or null for N/A.
+                         * Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
                          */
                         source: string;
                     }
@@ -8608,6 +8642,10 @@ export namespace Schemas {
                    * Whether the evaluation can return N/A for non-applicable generations.
                    */
                   allows_na: boolean;
+                  /**
+                   * Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.
+                   */
+                  true_is_failure: boolean;
               }>
             | undefined;
         /**
@@ -11258,6 +11296,9 @@ export namespace Schemas {
      * * `Medusa` - Medusa
      * * `Membrain` - Membrain
      * * `RecallAI` - RecallAI
+     * * `Tenjin` - Tenjin
+     * * `Folk` - Folk
+     * * `Cybersource` - Cybersource
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -12588,7 +12629,10 @@ export namespace Schemas {
         | "Strato"
         | "Medusa"
         | "Membrain"
-        | "RecallAI";
+        | "RecallAI"
+        | "Tenjin"
+        | "Folk"
+        | "Cybersource";
     /**
      * * `web` - web
      * * `api` - api
@@ -13928,6 +13972,9 @@ export namespace Schemas {
          * * `Medusa` - Medusa
          * * `Membrain` - Membrain
          * * `RecallAI` - RecallAI
+         * * `Tenjin` - Tenjin
+         * * `Folk` - Folk
+         * * `Cybersource` - Cybersource
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -14231,11 +14278,11 @@ export namespace Schemas {
          */
         effectively_full_rollout: boolean;
         /**
-         * True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. When true, `max_rollout_percentage` is a percentage within the targeted segment, not of the whole user base.
+         * True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. This says nothing about which condition produced `max_rollout_percentage`: the two fields are computed independently over the whole condition list.
          */
         has_targeting_conditions: boolean;
         /**
-         * Highest rollout percentage (0-100) across the flag's release conditions, treating a missing percentage as 100. Null when the flag has no release conditions. Interpret together with `has_targeting_conditions`.
+         * Highest rollout percentage (0-100) across the flag's release conditions, treating a missing percentage as 100. Null when the flag has no release conditions. The maximum can come from an untargeted condition even when `has_targeting_conditions` is true, so it cannot be attributed to a targeted condition or read as a share of a targeted segment.
          */
         max_rollout_percentage: number | null;
         /**
@@ -14252,6 +14299,10 @@ export namespace Schemas {
          * Human-readable explanation of the status
          */
         reason: string;
+        /**
+         * True when `reason` already describes the flag's rollout, which happens when the status was reached from the configuration rather than from evaluation data. A caller that narrates the rollout separately should stay quiet rather than repeat it.
+         */
+        reason_states_rollout: boolean;
         /**
          * Summary of the flag's rollout configuration, for determining whether it is fully rolled out.
          */
@@ -17634,7 +17685,10 @@ export namespace Schemas {
             | { source: string }
             | Partial<{ source: "user_messages" }>;
         output_type: OutputTypeEnum;
-        output_config: Partial<{ allows_na: boolean }>;
+        output_config: Partial<{
+            allows_na: boolean;
+            true_is_failure: boolean;
+        }>;
         conditions: Array<EvaluationCondition>;
         target: EvaluationTargetEnum;
         target_config:
@@ -18123,13 +18177,6 @@ export namespace Schemas {
         | "auto"
         | "read-only"
         | "full-access";
-    /**
-     * Request body for creating or updating a task.
-     *
-     * Field required/default semantics match the ``Task`` model. The view passes
-     * ``validated_data`` (integration/report PK fields already resolved to instances) to the
-     * facade ``create_task`` / ``update_task`` functions.
-     */
     export type PatchedTaskWrite = Partial<{
         title: string;
         title_manually_set: boolean;
@@ -18268,6 +18315,604 @@ export namespace Schemas {
         requires_credential_review: boolean;
     }>;
     /**
+     * * `30d` - 30 Days
+     * * `90d` - 90 Days
+     * * `1y` - 1 Year
+     * * `5y` - 5 Years
+     */
+    export type SessionRecordingRetentionPeriodEnum =
+        | "30d"
+        | "90d"
+        | "1y"
+        | "5y";
+    /**
+     * * `0` - Sunday
+     * * `1` - Monday
+     */
+    export type WeekStartDayEnum = 0 | 1;
+    export type TeamRevenueAnalyticsConfig = Partial<{
+        base_currency: BaseCurrencyEnum;
+        events: unknown;
+        filter_test_accounts: boolean;
+    }>;
+    export type TeamMarketingAnalyticsConfig = Partial<{
+        sources_map: MarketingAnalyticsSourceMapping;
+        conversion_goals: MarketingAnalyticsConversionGoalList;
+        attribution_window_days: number;
+        attribution_mode: AttributionModeEnum;
+        filter_test_accounts: boolean;
+        campaign_name_mappings: MarketingAnalyticsCampaignNameMappings;
+        custom_source_mappings: MarketingAnalyticsCustomSourceMappings;
+        campaign_field_preferences: MarketingAnalyticsCampaignFieldPreferences;
+    }>;
+    export type TeamCustomerAnalyticsConfig = Partial<{
+        activity_event: unknown;
+        signup_pageview_event: unknown;
+        signup_event: unknown;
+        subscription_event: unknown;
+        payment_event: unknown;
+        account_group_type_index: number | null;
+    }>;
+    export type TeamWorkflowsConfig = Partial<{
+        capture_workflows_engagement_events: boolean;
+        email_tracking_consent_mode: EmailTrackingConsentModeEnum;
+    }>;
+    export type TeamFeatureFlagPolicyConfig = Partial<{
+        require_tags: boolean;
+    }>;
+    /**
+     * A project and its settings, including the settings that live on its passthrough Team.
+     *
+     * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+     * onto /api/projects/ never loses a field.
+     */
+    export type ProjectBackwardCompat = {
+        id: number;
+        organization: string;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        name?: string | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        product_description?: (string | null) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        tags?: Array<string> | undefined;
+        created_at: string;
+        effective_membership_level: OrganizationMembershipLevelEnum & unknown;
+        has_group_types: boolean;
+        group_types: Array<Record<string, unknown>>;
+        live_events_token: string | null;
+        updated_at: string | null;
+        uuid: string;
+        api_token: string;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        app_urls?: Array<string | null> | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        anonymize_ips?: boolean | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        completed_snippet_onboarding?: boolean | undefined;
+        ingested_event: boolean;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        test_account_filters?: unknown | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        test_account_filters_default_checked?: (boolean | null) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        path_cleaning_filters?: unknown | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        is_demo?: boolean | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        timezone?: TimezoneEnum | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        data_attributes?: unknown | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        person_display_name_properties?: (Array<string> | null) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        correlation_config?: unknown | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        autocapture_opt_out?: (boolean | null) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        autocapture_exceptions_opt_in?: (boolean | null) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        autocapture_web_vitals_opt_in?: (boolean | null) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        autocapture_web_vitals_allowed_metrics?: unknown | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        autocapture_exceptions_errors_to_ignore?: unknown | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        capture_console_log_opt_in?: (boolean | null) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        capture_performance_opt_in?: (boolean | null) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        session_recording_opt_in?: boolean | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        session_recording_sample_rate?: (string | null) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        session_recording_minimum_duration_milliseconds?:
+            | (number | null)
+            | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        session_recording_linked_flag?: unknown | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        session_recording_network_payload_capture_config?: unknown | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        session_recording_masking_config?: unknown | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        session_recording_url_trigger_config?:
+            | (Array<unknown> | null)
+            | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        session_recording_url_blocklist_config?:
+            | (Array<unknown> | null)
+            | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        session_recording_event_trigger_config?:
+            | (Array<string | null> | null)
+            | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        session_recording_trigger_match_type_config?:
+            | (string | null)
+            | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        session_recording_trigger_groups?: unknown | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        session_recording_retention_period?:
+            | SessionRecordingRetentionPeriodEnum
+            | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        session_replay_config?: unknown | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        survey_config?: unknown | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        access_control?: boolean | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        week_start_day?: (WeekStartDayEnum | NullEnum) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        primary_dashboard?: (number | null) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        live_events_columns?: (Array<string> | null) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        recording_domains?: (Array<string | null> | null) | undefined;
+        person_on_events_querying_enabled: boolean;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        inject_web_apps?: (boolean | null) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        extra_settings?: unknown | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        modifiers?: unknown | undefined;
+        default_modifiers: Record<string, unknown>;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        has_completed_onboarding_for?: unknown | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        surveys_opt_in?: (boolean | null) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        heatmaps_opt_in?: (boolean | null) | undefined;
+        product_intents: Array<
+            Partial<{
+                product_type: string;
+                created_at: string;
+                onboarding_completed_at: string | null;
+                updated_at: string;
+            }>
+        >;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        flags_persistence_default?: (boolean | null) | undefined;
+        secret_api_token: string | null;
+        secret_api_token_backup: string | null;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        receive_org_level_activity_logs?: (boolean | null) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        business_model?: (BusinessModelEnum | BlankEnum | NullEnum) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        conversations_enabled?: (boolean | null) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        conversations_settings?: unknown | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        logs_settings?: unknown | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        proactive_tasks_enabled?: (boolean | null) | undefined;
+        available_setup_task_ids: Array<AvailableSetupTaskIdsEnum>;
+        /**
+         * Set to True when project deletion has been initiated. Blocks UI access to this project until the async task completes.
+         */
+        is_pending_deletion: boolean | null;
+        /**
+         * ID of the project this environment belongs to.
+         */
+        project_id: number;
+        /**
+         * The effective access level the user has for this object
+         */
+        user_access_level: string | null;
+        managed_viewsets: Record<string, boolean>;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        revenue_analytics_config?: TeamRevenueAnalyticsConfig | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        marketing_analytics_config?: TeamMarketingAnalyticsConfig | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        customer_analytics_config?: TeamCustomerAnalyticsConfig | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        workflows_config?: TeamWorkflowsConfig | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        feature_flag_policy_config?: TeamFeatureFlagPolicyConfig | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        base_currency?: BaseCurrencyEnum | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        capture_dead_clicks?: (boolean | null) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        cookieless_server_hash_mode?:
+            | (CookielessServerHashModeEnum | NullEnum)
+            | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        human_friendly_comparison_periods?: (boolean | null) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        feature_flag_confirmation_enabled?: (boolean | null) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        feature_flag_confirmation_message?: (string | null) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        default_evaluation_contexts_enabled?: (boolean | null) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        require_evaluation_contexts?: (boolean | null) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        default_data_theme?: (number | null) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        onboarding_tasks?: unknown | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        web_analytics_pre_aggregated_tables_enabled?:
+            | (boolean | null)
+            | undefined;
+        /**
+         * The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031
+         */
+        event_retention_months: number;
+        /**
+         * Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031
+         */
+        events_retention_enforced: boolean;
+    };
+    /**
      * * `exact` - exact
      * * `is_not` - is_not
      * * `icontains` - icontains
@@ -18376,17 +19021,6 @@ export namespace Schemas {
          */
         event_count: number | null;
     };
-    /**
-     * * `30d` - 30 Days
-     * * `90d` - 90 Days
-     * * `1y` - 1 Year
-     * * `5y` - 5 Years
-     */
-    export type SessionRecordingRetentionPeriodEnum =
-        | "30d"
-        | "90d"
-        | "1y"
-        | "5y";
     /**
      * Mixin for serializers to add user access control fields
      */
@@ -18804,13 +19438,6 @@ export namespace Schemas {
         rates: Record<string, unknown>;
         per_question_stats?: Array<unknown> | undefined;
     };
-    /**
-     * Request body for creating or updating a task.
-     *
-     * Field required/default semantics match the ``Task`` model. The view passes
-     * ``validated_data`` (integration/report PK fields already resolved to instances) to the
-     * facade ``create_task`` / ``update_task`` functions.
-     */
     export type TaskCreate = Partial<{
         title: string;
         title_manually_set: boolean;
@@ -18836,6 +19463,7 @@ export namespace Schemas {
         pending_user_artifact_ids: Array<string>;
         auto_publish: boolean | null;
         channel: string | null;
+        signal_report_discussion_question: string;
         naming_source: string;
         sandbox_environment_id: string | null;
         custom_image_id: string | null;
@@ -18885,13 +19513,6 @@ export namespace Schemas {
          */
         ids: Array<string>;
     };
-    /**
-     * Request body for creating or updating a task.
-     *
-     * Field required/default semantics match the ``Task`` model. The view passes
-     * ``validated_data`` (integration/report PK fields already resolved to instances) to the
-     * facade ``create_task`` / ``update_task`` functions.
-     */
     export type TaskWrite = Partial<{
         title: string;
         title_manually_set: boolean;
@@ -18918,152 +19539,6 @@ export namespace Schemas {
         auto_publish: boolean | null;
         channel: string | null;
     }>;
-    /**
-     * * `0` - Sunday
-     * * `1` - Monday
-     */
-    export type WeekStartDayEnum = 0 | 1;
-    export type TeamRevenueAnalyticsConfig = Partial<{
-        base_currency: BaseCurrencyEnum;
-        events: unknown;
-        filter_test_accounts: boolean;
-    }>;
-    export type TeamMarketingAnalyticsConfig = Partial<{
-        sources_map: MarketingAnalyticsSourceMapping;
-        conversion_goals: MarketingAnalyticsConversionGoalList;
-        attribution_window_days: number;
-        attribution_mode: AttributionModeEnum;
-        campaign_name_mappings: MarketingAnalyticsCampaignNameMappings;
-        custom_source_mappings: MarketingAnalyticsCustomSourceMappings;
-        campaign_field_preferences: MarketingAnalyticsCampaignFieldPreferences;
-    }>;
-    export type TeamCustomerAnalyticsConfig = Partial<{
-        activity_event: unknown;
-        signup_pageview_event: unknown;
-        signup_event: unknown;
-        subscription_event: unknown;
-        payment_event: unknown;
-        account_group_type_index: number | null;
-    }>;
-    export type TeamWorkflowsConfig = Partial<{
-        capture_workflows_engagement_events: boolean;
-        email_tracking_consent_mode: EmailTrackingConsentModeEnum;
-    }>;
-    export type Team = {
-        id: number;
-        uuid: string;
-        name?: string | undefined;
-        access_control?: boolean | undefined;
-        organization: string;
-        project_id: number;
-        api_token: string;
-        secret_api_token: string | null;
-        secret_api_token_backup: string | null;
-        created_at: string;
-        updated_at: string;
-        ingested_event: boolean;
-        default_modifiers: Record<string, unknown>;
-        person_on_events_querying_enabled: boolean;
-        /**
-         * The effective access level the user has for this object
-         */
-        user_access_level: string | null;
-        app_urls?: Array<string | null> | undefined;
-        anonymize_ips?: boolean | undefined;
-        completed_snippet_onboarding?: boolean | undefined;
-        test_account_filters?: unknown | undefined;
-        test_account_filters_default_checked?: (boolean | null) | undefined;
-        path_cleaning_filters?: unknown | undefined;
-        is_demo?: boolean | undefined;
-        timezone?: TimezoneEnum | undefined;
-        data_attributes?: unknown | undefined;
-        person_display_name_properties?: (Array<string> | null) | undefined;
-        correlation_config?: unknown | undefined;
-        autocapture_opt_out?: (boolean | null) | undefined;
-        autocapture_exceptions_opt_in?: (boolean | null) | undefined;
-        autocapture_web_vitals_opt_in?: (boolean | null) | undefined;
-        autocapture_web_vitals_allowed_metrics?: unknown | undefined;
-        autocapture_exceptions_errors_to_ignore?: unknown | undefined;
-        capture_console_log_opt_in?: (boolean | null) | undefined;
-        logs_settings?: unknown | undefined;
-        capture_performance_opt_in?: (boolean | null) | undefined;
-        session_recording_opt_in?: boolean | undefined;
-        session_recording_sample_rate?: (string | null) | undefined;
-        session_recording_minimum_duration_milliseconds?:
-            | (number | null)
-            | undefined;
-        session_recording_linked_flag?: unknown | undefined;
-        session_recording_network_payload_capture_config?: unknown | undefined;
-        session_recording_masking_config?: unknown | undefined;
-        session_recording_url_trigger_config?:
-            | (Array<unknown> | null)
-            | undefined;
-        session_recording_url_blocklist_config?:
-            | (Array<unknown> | null)
-            | undefined;
-        session_recording_event_trigger_config?:
-            | (Array<string | null> | null)
-            | undefined;
-        session_recording_trigger_match_type_config?:
-            | (string | null)
-            | undefined;
-        session_recording_trigger_groups?: unknown | undefined;
-        session_recording_retention_period?:
-            | SessionRecordingRetentionPeriodEnum
-            | undefined;
-        session_replay_config?: unknown | undefined;
-        survey_config?: unknown | undefined;
-        week_start_day?: (WeekStartDayEnum | NullEnum) | undefined;
-        primary_dashboard?: (number | null) | undefined;
-        live_events_columns?: (Array<string> | null) | undefined;
-        recording_domains?: (Array<string | null> | null) | undefined;
-        cookieless_server_hash_mode?:
-            | (CookielessServerHashModeEnum | NullEnum)
-            | undefined;
-        human_friendly_comparison_periods?: (boolean | null) | undefined;
-        inject_web_apps?: (boolean | null) | undefined;
-        extra_settings?: unknown | undefined;
-        modifiers?: unknown | undefined;
-        has_completed_onboarding_for?: unknown | undefined;
-        surveys_opt_in?: (boolean | null) | undefined;
-        heatmaps_opt_in?: (boolean | null) | undefined;
-        flags_persistence_default?: (boolean | null) | undefined;
-        feature_flag_confirmation_enabled?: (boolean | null) | undefined;
-        feature_flag_confirmation_message?: (string | null) | undefined;
-        default_evaluation_contexts_enabled?: (boolean | null) | undefined;
-        require_evaluation_contexts?: (boolean | null) | undefined;
-        capture_dead_clicks?: (boolean | null) | undefined;
-        default_data_theme?: (number | null) | undefined;
-        revenue_analytics_config?: TeamRevenueAnalyticsConfig | undefined;
-        marketing_analytics_config?: TeamMarketingAnalyticsConfig | undefined;
-        customer_analytics_config?: TeamCustomerAnalyticsConfig | undefined;
-        onboarding_tasks?: unknown | undefined;
-        base_currency?: (BaseCurrencyEnum & unknown) | undefined;
-        web_analytics_pre_aggregated_tables_enabled?:
-            | (boolean | null)
-            | undefined;
-        receive_org_level_activity_logs?: (boolean | null) | undefined;
-        business_model?: (BusinessModelEnum | BlankEnum | NullEnum) | undefined;
-        conversations_enabled?: (boolean | null) | undefined;
-        conversations_settings?: unknown | undefined;
-        proactive_tasks_enabled?: (boolean | null) | undefined;
-        workflows_config?: TeamWorkflowsConfig | undefined;
-        effective_membership_level: OrganizationMembershipLevelEnum & unknown;
-        has_group_types: boolean;
-        group_types: Array<Record<string, unknown>>;
-        live_events_token: string | null;
-        product_intents: Array<Record<string, unknown>>;
-        managed_viewsets: Record<string, boolean>;
-        available_setup_task_ids: Array<AvailableSetupTaskIdsEnum>;
-        /**
-         * The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031
-         */
-        event_retention_months: number;
-        /**
-         * Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031
-         */
-        events_retention_enforced: boolean;
-    };
     /**
      * Serializer for ticket assignment (user or role).
      */

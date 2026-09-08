@@ -58,6 +58,9 @@ GITHUB_ACCOUNT_NAME_HEAL_COOLDOWN_SECONDS = 5 * 60
 # for a process that dies mid-heal, so it just has to outlast the 10s request timeout.
 GITHUB_ACCOUNT_NAME_HEAL_CLAIM_TTL_SECONDS = 60
 
+# GitHub's add-assignees endpoint caps a single call at 10 logins and silently drops the rest.
+MAX_PR_ASSIGNEES = 10
+
 # Reactions cost one extra round trip per reacted comment, and GitHub offers no way to fetch them in
 # bulk, so bound the fan-out. Set high enough that a real pull request never reaches it: past this
 # point a comment renders without its pills, which is worse than the extra requests.
@@ -1159,6 +1162,52 @@ class GitHubIntegrationBase:
         if parsed is None:
             return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
         return self.comment_on_pull_request(parsed.repository, parsed.number, body)
+
+    def add_pull_request_assignees(self, repository: str, pr_number: int, assignees: Iterable[str]) -> dict[str, Any]:
+        """Add assignees to a pull request. ``repository`` is ``owner/repo`` or a bare repo.
+
+        Additive only. GitHub's add-assignees endpoint never removes an assignee, so a caller
+        cannot unassign anybody by leaving them out of ``assignees``, and calling it again with a
+        login that is already assigned changes nothing. GitHub also drops a login without push
+        access to the repository instead of failing the request, so the returned ``assignees``
+        list reports who is on the pull request rather than who was asked for.
+
+        Assignees use the issues endpoint (a PR is an issue for assignment purposes).
+        """
+        wanted = list(dict.fromkeys(login for login in assignees if login))[:MAX_PR_ASSIGNEES]
+        if not wanted:
+            return {"success": True, "assignees": []}
+
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        response = self._installation_authenticated_post(
+            f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/assignees",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/assignees",
+            json_body={"assignees": wanted},
+        )
+        if response is None:
+            return {"success": False, "error": "Network error assigning pull request"}
+        if response.status_code != 201:
+            return {
+                "success": False,
+                "error": f"Failed to assign pull request: {response.text}",
+                "status_code": response.status_code,
+            }
+        try:
+            issue = response.json()
+        except Exception:
+            issue = {}
+        assigned = [
+            entry["login"] for entry in (issue.get("assignees") or []) if isinstance(entry, dict) and entry.get("login")
+        ]
+        return {"success": True, "assignees": assigned}
+
+    def add_pull_request_assignees_from_url(self, pr_url: str, assignees: Iterable[str]) -> dict[str, Any]:
+        """Add assignees to a pull request by its HTML URL."""
+        parsed = self.parse_pull_request_url(pr_url)
+        if parsed is None:
+            return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
+        return self.add_pull_request_assignees(parsed.repository, parsed.number, assignees)
 
     def get_pull_request_checks(self, repository: str, pr_number: int) -> dict[str, Any]:
         """Fetch the CI status for a PR — GitHub Actions check runs plus commit statuses from external

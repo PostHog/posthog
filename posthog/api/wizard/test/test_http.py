@@ -13,7 +13,7 @@ from django.utils import timezone
 
 from prometheus_client import REGISTRY
 from rest_framework import status
-from rest_framework.exceptions import Throttled
+from rest_framework.exceptions import AuthenticationFailed, Throttled
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
@@ -772,9 +772,22 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         return mock_authenticator
 
     @override_settings(WIZARD_GATEWAY_MINT_KEY="")
-    def test_unconfigured_is_404(self):
+    def test_unconfigured_is_403_with_a_reason(self):
+        response = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"reads_refusal_reason": True}, headers={"authorization": "Bearer pha_test"}
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert response.json()["code"] == "unconfigured"
+        assert response.json()["detail"] == "The PostHog AI gateway is not configured on this instance."
+
+    @override_settings(WIZARD_GATEWAY_MINT_KEY="")
+    def test_a_client_that_still_falls_back_keeps_its_404(self):
+        # The 404 is what sends a still-falling-back build to the legacy message.
         response = self.client.post(self.GATEWAY_TOKEN_URL, headers={"authorization": "Bearer pha_test"})
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.content
+        assert response.json()["code"] == "unconfigured"
 
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
@@ -803,17 +816,75 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=False)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_flag_off_is_404(self, mock_authentication, mock_flag, mock_authorized):
+    def test_flag_off_is_403_with_a_reason(self, mock_authentication, mock_flag, mock_authorized):
         self._mock_oauth(mock_authentication)
-        response = self.client.post(self.GATEWAY_TOKEN_URL, headers={"authorization": "Bearer pha_test"})
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        response = self.client.post(
+            self.GATEWAY_TOKEN_URL,
+            {"program": "integration", "reads_refusal_reason": True},
+            headers={"authorization": "Bearer pha_test"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert response.json()["code"] == "not_rolled_out"
+
+        legacy = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+        )
+        assert legacy.status_code == status.HTTP_404_NOT_FOUND, legacy.content
+
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled")
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_a_rollout_flag_outage_mints(self, mock_authentication, mock_flag, mock_mint, mock_authorized):
+        # An outage is not a False, and must not end every wizard run.
+        self._mock_oauth(mock_authentication)
+
+        for outage in ({"return_value": None}, {"side_effect": RuntimeError("flags down")}):
+            mock_flag.reset_mock(return_value=True, side_effect=True)
+            mock_flag.configure_mock(**outage)
+            response = self.client.post(
+                self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+            )
+            assert response.status_code == status.HTTP_201_CREATED, (outage, response.content)
+
+        assert mock_mint.call_count == 2
+
+    @override_settings(DEBUG=False)
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_every_refusal_names_its_outcome_as_the_code(
+        self, mock_authentication, mock_flag, mock_mint, mock_authorized
+    ):
+        self._mock_oauth(mock_authentication, scoped_teams=[self.team.id, self.team.id + 1])
+        ambiguous = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+        )
+        assert (ambiguous.status_code, ambiguous.json()["code"]) == (status.HTTP_400_BAD_REQUEST, "team_ambiguous")
+
+        self._mock_oauth(mock_authentication)
+        for _ in range(5):
+            self.client.post(
+                self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+            )
+        throttled = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+        )
+        assert (throttled.status_code, throttled.json()["code"]) == (status.HTTP_429_TOO_MANY_REQUESTS, "throttled")
+
+        mock_authentication.return_value.authenticate.side_effect = AuthenticationFailed("Invalid access token.")
+        invalid = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+        )
+        assert (invalid.status_code, invalid.json()["code"]) == (status.HTTP_401_UNAUTHORIZED, "invalid_token")
 
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
     @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
     def test_blocked_identity_is_403_and_never_mints(self, mock_authentication, mock_flag, mock_mint, mock_authorized):
-        # 403 rather than 404, which the CLI reads as "stay on legacy".
         self._mock_oauth(mock_authentication)
         self.mock_blocklist.return_value = True
 
@@ -830,8 +901,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=False)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
     def test_a_ban_outranks_the_rollout_gate(self, mock_authentication, mock_flag, mock_mint, mock_authorized):
-        # Not-rolled-out answers 404 and downgrades to legacy, so the ban has to
-        # land first whatever the rollout says.
+        # A banned account reads "blocked", not "switched off", whatever the flag says.
         self._mock_oauth(mock_authentication)
         self.mock_blocklist.return_value = True
 
@@ -1098,9 +1168,33 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     def test_unlisted_program_is_refused(self, mock_authentication, mock_flag, mock_authorized, mock_mint):
         self._mock_oauth(mock_authentication)
         response = self.client.post(
-            self.GATEWAY_TOKEN_URL, {"program": "invented"}, headers={"authorization": "Bearer pha_test"}
+            self.GATEWAY_TOKEN_URL,
+            {"program": "invented", "reads_refusal_reason": True},
+            headers={"authorization": "Bearer pha_test"},
         )
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert response.json()["code"] == "program_unknown"
+        assert "npx @posthog/wizard@latest" in response.json()["detail"]
+        mock_mint.assert_not_called()
+
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token")
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_a_non_boolean_capability_keeps_the_compatible_status(
+        self, mock_authentication, mock_flag, mock_authorized, mock_mint
+    ):
+        self._mock_oauth(mock_authentication)
+        claimed: object
+        for claimed in ("false", "true", 1, [], {"a": 1}):
+            with self.subTest(claimed=claimed):
+                response = self.client.post(
+                    self.GATEWAY_TOKEN_URL,
+                    data=json.dumps({"reads_refusal_reason": claimed}),
+                    content_type="application/json",
+                    headers={"authorization": "Bearer pha_test"},
+                )
+                assert response.status_code == status.HTTP_404_NOT_FOUND, response.content
         mock_mint.assert_not_called()
 
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token")
@@ -1109,8 +1203,11 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
     def test_missing_program_is_refused(self, mock_authentication, mock_flag, mock_authorized, mock_mint):
         self._mock_oauth(mock_authentication)
-        response = self.client.post(self.GATEWAY_TOKEN_URL, headers={"authorization": "Bearer pha_test"})
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        response = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"reads_refusal_reason": True}, headers={"authorization": "Bearer pha_test"}
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert response.json()["code"] == "program_unknown"
         mock_mint.assert_not_called()
 
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token")
@@ -1125,11 +1222,11 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         self._mock_oauth(mock_authentication)
         response = self.client.post(
             self.GATEWAY_TOKEN_URL,
-            data=json.dumps({"program": ["integration"]}),
+            data=json.dumps({"program": ["integration"], "reads_refusal_reason": True}),
             content_type="application/json",
             headers={"authorization": "Bearer pha_test"},
         )
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         mock_mint.assert_not_called()
 
     @override_settings(DEBUG=False)

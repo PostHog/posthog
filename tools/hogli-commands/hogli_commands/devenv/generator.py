@@ -305,6 +305,11 @@ class MprocsGenerator(ConfigGenerator):
             if name == "temporal-worker":
                 proc_config = self._add_uv_groups(proc_config, resolved)
 
+            if name in {"desktop", "temporal-worker"} and "desktop_app" in resolved.capabilities:
+                proc_config["shell"] = (
+                    'export POSTHOG_DESKTOP_SKILLS="${POSTHOG_DESKTOP_SKILLS:-local}"; ' + proc_config["shell"]
+                )
+
             # Wrap Python/Node service commands in the dev sandbox when opted in
             proc_config = self._add_sandbox_wrapper(proc_config, name)
 
