@@ -1,5 +1,6 @@
 import type { GoalLineConfig } from '@posthog/quill-charts'
 
+import { dayjs } from 'lib/dayjs'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import {
@@ -39,6 +40,18 @@ export function findObservedBreach(
     const index = data.length - 1
     const value = data[index]
     return valueBreachesBounds(value, bounds) ? { index, value } : null
+}
+
+/** Names the bucket the backend evaluated. History and forecast dates are bucket timestamps in
+ *  project-local wall time with no zone attached, so formatting them as parsed keeps the bucket
+ *  intact. An hourly insight puts up to 24 buckets on one calendar day, so the label has to keep
+ *  the hour to say which bucket the value belongs to. */
+export function bucketLabel(value: string, interval: string | null | undefined): string {
+    const parsed = dayjs(value)
+    if (!parsed.isValid()) {
+        return value
+    }
+    return parsed.format(interval === 'hour' ? 'MMM D, YYYY HH:mm' : 'MMM D, YYYY')
 }
 
 export function targetSummary(projection: ForecastTargetProjectionApi, direction: ForecastTargetDirection): string {

@@ -5,7 +5,13 @@ import {
     ForecastTargetDirection,
 } from '~/queries/schema/schema-general'
 
-import { findFirstCrossing, findObservedBreach, forecastGoalLines, targetSummary } from './forecastPreviewUtils'
+import {
+    bucketLabel,
+    findFirstCrossing,
+    findObservedBreach,
+    forecastGoalLines,
+    targetSummary,
+} from './forecastPreviewUtils'
 
 describe('findFirstCrossing', () => {
     it.each([
@@ -31,6 +37,21 @@ describe('findObservedBreach', () => {
         ['no history', [], { upper: 5 }, null],
     ] as const)('%s', (_name, data, bounds, expected) => {
         expect(findObservedBreach([...data], bounds)).toEqual(expected)
+    })
+})
+
+describe('bucketLabel', () => {
+    it.each([
+        // An hourly insight puts up to 24 buckets on one day, so the hour identifies the bucket.
+        ['hourly bucket keeps the hour', '2026-09-13T23:00:00', 'hour', 'Sep 13, 2026 23:00'],
+        ['hourly bucket from a space-separated timestamp', '2026-09-13 07:00:00', 'hour', 'Sep 13, 2026 07:00'],
+        ['daily bucket drops the time', '2026-09-13T00:00:00', 'day', 'Sep 13, 2026'],
+        ['weekly bucket drops the time', '2026-09-13T00:00:00', 'week', 'Sep 13, 2026'],
+        ['monthly bucket drops the time', '2026-09-01T00:00:00', 'month', 'Sep 1, 2026'],
+        ['unknown interval falls back to the day', '2026-09-13T23:00:00', null, 'Sep 13, 2026'],
+        ['an unparseable value is passed through', 'not a date', 'hour', 'not a date'],
+    ] as const)('%s', (_name, value, interval, expected) => {
+        expect(bucketLabel(value, interval)).toBe(expected)
     })
 })
 

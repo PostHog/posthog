@@ -19,10 +19,18 @@ import {
 import { ForecastSimulateResponseApi } from 'products/alerts/frontend/generated/api.schemas'
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
-import { findFirstCrossing, findObservedBreach, forecastGoalLines, targetSummary } from './forecastPreviewUtils'
+import {
+    bucketLabel,
+    findFirstCrossing,
+    findObservedBreach,
+    forecastGoalLines,
+    targetSummary,
+} from './forecastPreviewUtils'
 
 const handleChartError = makeChartErrorHandler('alerts-forecast-preview-chart')
 
+/** For the target date the user picked, which is a calendar day rather than a bucket. Bucket
+ *  timestamps go through `bucketLabel`, which keeps the hour on an hourly insight. */
 function dateLabel(value: string): string {
     const parsed = dayjs(value)
     return parsed.isValid() ? parsed.format('MMM D, YYYY') : value
@@ -140,19 +148,23 @@ export function ForecastPreview({
                     <span>
                         {targetSummary(result.target_projection, forecastConfig.target_direction)}. Projected{' '}
                         {humanFriendlyNumber(result.target_projection.predicted)} in the{' '}
-                        {dateLabel(result.target_projection.evaluated_date)} bucket, against a target of{' '}
+                        {bucketLabel(result.target_projection.evaluated_date, result.interval)} bucket, against a target
+                        of{' '}
                         {forecastConfig.target_direction === ForecastTargetDirection.AT_MOST ? 'at most' : 'at least'}{' '}
                         {humanFriendlyNumber(result.target_projection.target)} on{' '}
                         {dateLabel(result.target_projection.target_date)}.
                     </span>
                 ) : observedBreach ? (
                     <span>
-                        The latest value on {dateLabel(result.dates[observedBreach.index])} (
+                        The latest value on {bucketLabel(result.dates[observedBreach.index], result.interval)} (
                         {humanFriendlyNumber(observedBreach.value)}) already crosses the threshold, so this alert fires
                         on the next check.
                     </span>
                 ) : crossingIndex != null ? (
-                    <span>Predicted to cross the threshold on {dateLabel(result.forecast_dates[crossingIndex])}.</span>
+                    <span>
+                        Predicted to cross the threshold on{' '}
+                        {bucketLabel(result.forecast_dates[crossingIndex], result.interval)}.
+                    </span>
                 ) : (
                     <span>No threshold breach is predicted within this forecast window.</span>
                 )}
