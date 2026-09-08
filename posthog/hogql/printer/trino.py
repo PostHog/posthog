@@ -298,7 +298,7 @@ class TrinoPrinter(PostgresPrinter):
         if name in {"in", "notin"}:
             if len(node.args) != 2:
                 self._invalid_function_arguments(node, f"{node.name} expects exactly 2 arguments in Trino mode.")
-            return f"({self.visit(node.args[0])} {'NOT IN' if name == 'notin' else 'IN'} {self._visit_in_values(node.args[1])})"
+            return self._visit_membership(node.args[0], node.args[1], negated=name == "notin")
         if name == "mapfromarrays":
             return self._visit_map_from_arrays(node)
         if name == "length" and node.args and isinstance(self._resolve_type(node.args[0]), ast.ArrayType):
@@ -497,6 +497,8 @@ class TrinoPrinter(PostgresPrinter):
         return super().visit_order_expr(node)
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> str:
+        if node.op in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
+            return self._visit_membership(node.left, node.right, negated=node.op == ast.CompareOperationOp.NotIn)
         left_type = self._resolve_type(node.left)
         right_type = self._resolve_type(node.right)
         left_cast: str | None = None
@@ -525,10 +527,13 @@ class TrinoPrinter(PostgresPrinter):
             right = f"CAST({right} AS {right_cast})"
         return self._get_compare_op(node.op, left, right)
 
+    def _visit_membership(self, left: ast.Expr, right: ast.Expr, *, negated: bool) -> str:
+        if isinstance(right, ast.Array) and not right.exprs:
+            return "TRUE" if negated else "FALSE"
+        return f"({self.visit(left)} {'NOT IN' if negated else 'IN'} {self._visit_in_values(right)})"
+
     def _visit_in_values(self, node: ast.Expr) -> str:
         if isinstance(node, ast.Array):
-            if not node.exprs:
-                return "(SELECT NULL WHERE FALSE)"
             return f"({', '.join(self.visit(value) for value in node.exprs)})"
         return super()._visit_in_values(node)
 
