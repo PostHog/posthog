@@ -60,7 +60,9 @@ class TestCanvasArtifacts(APIBaseTest):
         assert response.status_code == 200
         assert response.content == CONTENT
         assert response["ETag"] == f'"{self.content_hash}"'
-        assert response["Content-Security-Policy"].startswith("sandbox allow-scripts; default-src 'none'")
+        assert response["Content-Security-Policy"].startswith(
+            "sandbox allow-scripts allow-pointer-lock; default-src 'none'"
+        )
         assert "connect-src https://api.example.com" in response["Content-Security-Policy"]
         assert "style-src 'self' 'unsafe-inline' https://api.example.com" in response["Content-Security-Policy"]
         assert "img-src 'self' data: blob: https://api.example.com" in response["Content-Security-Policy"]

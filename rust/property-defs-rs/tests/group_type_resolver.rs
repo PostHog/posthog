@@ -915,6 +915,7 @@ async fn test_end_to_end_poisoned_group_def_recovers_and_persists(db: PgPool) {
         &config,
         cache.clone(),
         &db,
+        None,
         round1,
         &test_lifecycle_handle(),
     )
@@ -945,6 +946,7 @@ async fn test_end_to_end_poisoned_group_def_recovers_and_persists(db: PgPool) {
         &config,
         cache.clone(),
         &db,
+        None,
         round2,
         &test_lifecycle_handle(),
     )

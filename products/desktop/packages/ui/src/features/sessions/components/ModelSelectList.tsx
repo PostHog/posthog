@@ -3,6 +3,7 @@ import type {
   SessionConfigSelectOptions,
 } from "@agentclientprotocol/sdk";
 import { compareModelsForPicker } from "@posthog/agent/gateway-models";
+import { toModelPickerOption } from "@posthog/core/billing/modelPricing";
 import {
   DropdownMenuGroup,
   DropdownMenuLabel,
@@ -35,7 +36,7 @@ const renderEntries = (
     .map((model) => (
       <ModelRadioItem
         key={model.value}
-        model={model}
+        model={toModelPickerOption(model)}
         closeOnClick={false}
         unavailableReason={unavailableReason?.(model.value)}
       />

@@ -92,6 +92,10 @@ pub struct UrlCollector {
     /// A refusal is invisible in the collected count, so the lane would look like traffic carries
     /// fewer images than it does.
     declines: HashMap<&'static str, u32>,
+    /// URLs the walker refused before they reached the policy. A repeat, or a re-walk after the
+    /// byte walker hands an event to the tree path, must not count twice. The memo cannot hold
+    /// these, because a `None` there would also stop a later visible use of the same URL.
+    walker_declined: HashSet<String>,
 }
 
 impl UrlCollector {
@@ -102,7 +106,22 @@ impl UrlCollector {
             seen: HashSet::new(),
             memo: HashMap::new(),
             declines: HashMap::new(),
+            walker_declined: HashSet::new(),
         }
+    }
+
+    /// Count a refusal the walker made for `raw`, once per distinct URL in this message. Past the
+    /// memo cap, or for an over-length URL, the refusal counts every time, because a second count
+    /// costs less than unbounded memory.
+    pub(crate) fn decline_once(&mut self, raw: &str, reason: &'static str) {
+        let remember = raw.len() <= MAX_URL_LEN && self.walker_declined.len() < MAX_MEMO_ENTRIES;
+        if self.walker_declined.contains(raw) {
+            return;
+        }
+        if remember {
+            self.walker_declined.insert(raw.to_string());
+        }
+        self.decline(reason);
     }
 
     /// Collect a remote image URL and return its ref, or `None` when the URL is not fetchable or a
@@ -132,7 +151,7 @@ impl UrlCollector {
         raw.len() <= MAX_URL_LEN && self.memo.len() < MAX_MEMO_ENTRIES
     }
 
-    fn decline(&mut self, reason: &'static str) {
+    pub(crate) fn decline(&mut self, reason: &'static str) {
         *self.declines.entry(reason).or_insert(0) += 1;
     }
 

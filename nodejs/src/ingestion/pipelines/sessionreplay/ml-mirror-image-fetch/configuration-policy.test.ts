@@ -420,6 +420,7 @@ describe('HttpConfigurationFetcher', () => {
             ['https://example.com/robots.txt'],
             ['https://cdn.example.com/robots'],
         ])
+        expect(fetchStreamedMock.mock.calls.map(([, options]) => options.allowH2)).toEqual([true, true])
     })
 
     it('does not follow a configuration redirect to another registrable domain', async () => {

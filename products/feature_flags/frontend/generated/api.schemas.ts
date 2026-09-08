@@ -172,11 +172,28 @@ export interface StaffWarmRunCancelResponseApi {
     cancel_requested: boolean
 }
 
+/**
+ * * `1` - Legacy
+ * * `2` - Explicit
+ */
+export type PropertyMatchingVersionEnumApi =
+    (typeof PropertyMatchingVersionEnumApi)[keyof typeof PropertyMatchingVersionEnumApi]
+
+export const PropertyMatchingVersionEnumApi = {
+    Number1: 1,
+    Number2: 2,
+} as const
+
 export interface StaffTeamConfigApi {
     /** Team id. */
     team_id: number
     /** Whether this team's SDKs receive the slim $feature_flag_called event shape (omitting fields only needed for experiments) instead of the full legacy shape. */
     minimal_flag_called_events: boolean
+    /** Property matching semantics used by /flags, local evaluation, and cohort generation.
+     *
+     * * `1` - Legacy
+     * * `2` - Explicit */
+    property_matching_version: PropertyMatchingVersionEnumApi
     /**
      * Per-team override for the maximum number of feature flags this team may create, or null when the team uses the global default.
      * @nullable
@@ -198,6 +215,11 @@ export interface StaffTeamConfigMutationApi {
     team_id: number
     /** New value for the team's minimal_flag_called_events setting. Omit to leave it unchanged. Only set true after confirming that team's SDK versions support the slim $feature_flag_called event shape. */
     minimal_flag_called_events?: boolean
+    /** New property matching version for the team. Version 1 preserves legacy behavior. Version 2 uses explicit scalar and array equality. Only set version 2 after confirming that the team's local-evaluation SDK versions support it. Omit to leave it unchanged.
+     *
+     * * `1` - Legacy
+     * * `2` - Explicit */
+    property_matching_version?: PropertyMatchingVersionEnumApi
     /**
      * New per-team flag-count limit (1-20,000). Send null to clear the override so the team falls back to the global default. Omit to leave it unchanged.
      * @minimum 1
@@ -372,6 +394,39 @@ export interface EvaluationContextSuggestionResponseApi {
     name: string
     /** Whether the context is now hidden from the flag editor's suggestion list. */
     hidden_from_suggestions: boolean
+}
+
+/**
+ * * `remote_evaluation` - remote_evaluation
+ * * `local_evaluation` - local_evaluation
+ */
+export type FeatureFlagRequestTypeEnumApi =
+    (typeof FeatureFlagRequestTypeEnumApi)[keyof typeof FeatureFlagRequestTypeEnumApi]
+
+export const FeatureFlagRequestTypeEnumApi = {
+    RemoteEvaluation: 'remote_evaluation',
+    LocalEvaluation: 'local_evaluation',
+} as const
+
+export interface FeatureFlagRequestUsageItemApi {
+    /** Remote flag evaluation or local flag-definition request.
+     *
+     * * `remote_evaluation` - remote_evaluation
+     * * `local_evaluation` - local_evaluation */
+    request_type: FeatureFlagRequestTypeEnumApi
+    /** Start of the UTC billing-aggregation bucket. Hourly buckets approximate request time. */
+    bucket: string
+    /** SDK family parsed from the request user agent. */
+    sdk: string
+    /** Number of billable requests in this bucket. */
+    request_count: number
+    /** Estimated billing units. Local evaluation requests count as 10 units each. */
+    billing_units: number
+}
+
+export interface FeatureFlagRequestUsageResponseApi {
+    /** Feature flag request usage by SDK. */
+    results: FeatureFlagRequestUsageItemApi[]
 }
 
 /**
@@ -1505,7 +1560,11 @@ export interface BulkUpdateTagsRequestApi {
      * * `remove` - remove
      * * `set` - set */
     action: BulkUpdateTagsActionEnumApi
-    /** Tag names to add, remove, or set. */
+    /**
+     * Tag names to add, remove, or set.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
     tags: string[]
 }
 
@@ -1851,12 +1910,32 @@ export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
     context_name: string
 }
 
-export type EnvironmentsEvaluationContextSuggestionsDestroyParams = {
+export type FeatureFlagRequestUsageListParams = {
     /**
-     * Name of the evaluation context to restore to suggestions.
+     * Inclusive start of the usage period.
      */
-    context_name: string
+    date_from: string
+    /**
+     * Exclusive end of the usage period.
+     */
+    date_to: string
+    /**
+     * Time bucket used to group request usage. Hourly queries are limited to 8 days.
+     *
+     * * `hour` - hour
+     * * `day` - day
+     * @minLength 1
+     */
+    time_interval?: FeatureFlagRequestUsageListTimeInterval
 }
+
+export type FeatureFlagRequestUsageListTimeInterval =
+    (typeof FeatureFlagRequestUsageListTimeInterval)[keyof typeof FeatureFlagRequestUsageListTimeInterval]
+
+export const FeatureFlagRequestUsageListTimeInterval = {
+    Hour: 'hour',
+    Day: 'day',
+} as const
 
 export type FeatureFlagsListParams = {
     active?: FeatureFlagsListActive

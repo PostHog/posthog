@@ -35,7 +35,6 @@ from temporalio.common import RetryPolicy
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.exceptions_capture import capture_exception
-from posthog.ph_client import feature_enabled_or_false
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_update_schedule, delete_schedule
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
@@ -78,27 +77,9 @@ from products.data_modeling.backend.schedule import (
 )
 
 if TYPE_CHECKING:
-    from posthog.models.team import Team
-
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 logger = structlog.get_logger(__name__)
-
-TIERED_SCHEDULES_FLAG = "data-modeling-tiered-schedules"
-
-
-def tiered_schedules_enabled(team: "Team") -> bool:
-    """Whether per-node cadence tiers may drive this team's DAG schedules."""
-    return feature_enabled_or_false(
-        TIERED_SCHEDULES_FLAG,
-        str(team.uuid),
-        groups={"organization": str(team.organization_id), "project": str(team.id)},
-        group_properties={
-            "organization": {"id": str(team.organization_id)},
-            "project": {"id": str(team.id)},
-        },
-        send_feature_flag_events=False,
-    )
 
 
 def maybe_reconcile_dag(dag: DAG) -> None:
@@ -539,7 +520,11 @@ async def _apply_reconciliation(
 
     temporal = await async_connect()
     existing_ids = await _list_execute_dag_schedule_ids(temporal, dag_id)
-    if require_tiered and not any(is_tier_schedule_id(schedule_id) for schedule_id in existing_ids):
+    # `require_tiered` protects a DAG that still holds legacy (non-tier) schedules: tiering only
+    # the seeded nodes would delete the whole-DAG schedule and leave the unseeded ones with no
+    # scheduler. A DAG holding no schedule at all carries no such risk and has no scheduler to
+    # lose, so it reconciles: that is a DAG whose views were all paused and one re-enabled.
+    if require_tiered and existing_ids and not any(is_tier_schedule_id(schedule_id) for schedule_id in existing_ids):
         logger.debug("DAG not converted to cadence tiers yet, skipping reconcile", dag_id=dag_id)
         return False
     # An empty tier set on a DAG that still has only legacy (non-tier) schedules means an unseeded

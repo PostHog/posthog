@@ -30,6 +30,7 @@ pub mod group_type_resolver;
 pub mod measuring_channel;
 pub mod metrics_buckets;
 pub mod metrics_consts;
+pub mod read_filter;
 pub mod types;
 pub mod update_cache;
 
@@ -139,7 +140,15 @@ pub async fn update_consumer_loop(
             });
         handle.report_healthy();
 
-        process_batch(&config, cache.clone(), &context.pool, batch, &handle).await;
+        process_batch(
+            &config,
+            cache.clone(),
+            &context.pool,
+            context.read_pool.clone(),
+            batch,
+            &handle,
+        )
+        .await;
     }
 }
 

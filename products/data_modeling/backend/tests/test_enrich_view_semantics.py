@@ -4,8 +4,6 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
-from django.utils import timezone
-
 from parameterized import parameterized
 
 from posthog.models import Organization, Team
@@ -259,15 +257,17 @@ class TestBuildViewEnrichmentPrompt:
 
 
 class TestComputeEnrichmentHash:
-    def test_sample_bit_changes_hash_after_materialization(self):
-        # The first successful materialization (table + last_run_at) must register as a change so the view
-        # re-enriches once with real row data.
+    def test_sample_bit_flips_when_a_table_is_linked(self, django_assert_num_queries):
+        # The first successful materialization links the table; that must register as a change so the
+        # view re-enriches once with real row data. The hash also runs from the save signal, so it must
+        # read nothing but the row it was given.
         team = _team()
         sq = _saved_query(team, columns=_columns("amount"))
-        unsampled = compute_enrichment_hash(sq)
-        sq.table_id = uuid.uuid4()
-        sq.last_run_at = timezone.now()
-        assert compute_enrichment_hash(sq) != unsampled
+        with django_assert_num_queries(0):
+            unsampled = compute_enrichment_hash(sq)
+            sq.table_id = uuid.uuid4()
+            sampled = compute_enrichment_hash(sq)
+        assert sampled != unsampled
 
 
 class TestMaybeDispatchEnrichment:
