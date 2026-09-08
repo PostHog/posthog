@@ -66,7 +66,7 @@ export function HogFlowEditorPanel({
                 'flex min-h-0 max-h-full flex-col justify-end overflow-hidden',
                 layout === 'floating'
                     ? 'absolute right-0 max-w-full p-2'
-                    : 'relative h-full shrink-0 bg-surface-primary'
+                    : 'relative h-full shrink-0 bg-surface-primary @max-[48rem]/workflow-editor:!h-96 @max-[48rem]/workflow-editor:!min-w-0 @max-[48rem]/workflow-editor:!w-full @max-[48rem]/workflow-editor:!max-w-full @max-[48rem]/workflow-editor:border-t'
             )}
             style={
                 layout === 'floating'
@@ -81,7 +81,9 @@ export function HogFlowEditorPanel({
                     onReset={clearPanelWidth}
                 />
             ) : (
-                <Resizer {...resizerProps} />
+                <div className="@max-[48rem]/workflow-editor:hidden">
+                    <Resizer {...resizerProps} />
+                </div>
             )}
             <div
                 className={clsx(

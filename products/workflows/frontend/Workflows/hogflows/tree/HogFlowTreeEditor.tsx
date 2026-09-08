@@ -143,7 +143,11 @@ export function HogFlowTreeEditor(): JSX.Element {
     }
 
     return (
-        <ScrollArea className="min-h-0 min-w-0 flex-1 bg-background" data-quill data-attr="workflow-tree-editor">
+        <ScrollArea
+            className="min-h-0 min-w-0 flex-1 bg-background @max-[48rem]/workflow-editor:min-h-80 @max-[48rem]/workflow-editor:shrink-0"
+            data-quill
+            data-attr="workflow-tree-editor"
+        >
             <div
                 ref={treeRef}
                 className="group/tree mx-auto flex w-full max-w-3xl flex-col p-4"

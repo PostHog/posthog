@@ -129,7 +129,10 @@ function HogFlowGraphEditor(): JSX.Element {
 
 function HogFlowTreeEditorContent(): JSX.Element {
     return (
-        <div className="relative flex min-h-0 flex-1 overflow-hidden" data-attr="workflow-editor">
+        <div
+            className="relative flex min-h-0 flex-1 overflow-hidden @max-[48rem]/workflow-editor:flex-col @max-[48rem]/workflow-editor:overflow-y-auto"
+            data-attr="workflow-editor"
+        >
             <HogFlowTreeEditor />
             <HogFlowEditorPanel layout="panel" />
         </div>
@@ -141,15 +144,17 @@ export function HogFlowEditor({ isTreeView }: { isTreeView: boolean }): JSX.Elem
     return (
         <BindLogic logic={hogFlowEditorLogic} props={logicProps}>
             <HogFlowBranchSelectionProvider>
-                {isTreeView ? (
-                    <ReactFlowProvider>
-                        <HogFlowTreeEditorContent />
-                    </ReactFlowProvider>
-                ) : (
-                    <ReactFlowProvider>
-                        <HogFlowGraphEditor />
-                    </ReactFlowProvider>
-                )}
+                <div className="@container/workflow-editor flex min-h-0 flex-1">
+                    {isTreeView ? (
+                        <ReactFlowProvider>
+                            <HogFlowTreeEditorContent />
+                        </ReactFlowProvider>
+                    ) : (
+                        <ReactFlowProvider>
+                            <HogFlowGraphEditor />
+                        </ReactFlowProvider>
+                    )}
+                </div>
             </HogFlowBranchSelectionProvider>
         </BindLogic>
     )

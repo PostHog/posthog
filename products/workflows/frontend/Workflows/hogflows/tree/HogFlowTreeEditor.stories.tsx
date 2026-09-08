@@ -331,9 +331,9 @@ const PICKABLE_WORKFLOWS: Record<string, HogFlow> = {
     ...EXAMPLE_WORKFLOWS,
 }
 
-const InteractiveWorkflow = ({ id }: { id: string }): JSX.Element => (
+const InteractiveWorkflow = ({ id, className }: { id: string; className?: string }): JSX.Element => (
     <BindLogic logic={workflowLogic} props={{ id }}>
-        <div className="h-screen [&>div]:!h-full [&>div]:!max-h-none">
+        <div className={`h-screen ${className ?? ''} [&>div]:!h-full [&>div]:!max-h-none`}>
             <Workflow id={id} />
         </div>
     </BindLogic>
@@ -341,6 +341,7 @@ const InteractiveWorkflow = ({ id }: { id: string }): JSX.Element => (
 
 export const CustomerOnboardingAndRetention: StoryFn = () => <InteractiveWorkflow id={COMPLEX_WORKFLOW_ID} />
 export const NewWorkflow: StoryFn = () => <InteractiveWorkflow id="new" />
+export const NarrowWorkflow: StoryFn = () => <InteractiveWorkflow id="new" className="w-[40rem] max-w-full" />
 export const SupportSlaRouting: StoryFn = () => <InteractiveWorkflow id="example-support-sla-routing" />
 export const RenewalWindowAlerts: StoryFn = () => <InteractiveWorkflow id="example-renewal-window-alerts" />
 export const PendingTicketCleanup: StoryFn = () => <InteractiveWorkflow id="example-pending-ticket-cleanup" />
