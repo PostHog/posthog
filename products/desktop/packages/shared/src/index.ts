@@ -211,8 +211,10 @@ export {
   splitMentionSegments,
 } from "./mentions";
 export {
+  customModelMeta,
   DEFAULT_OPTION_META_KEY,
   defaultEligibleModel,
+  isCustomModelOption,
   isDefaultSelectOption,
   isRestrictedModelOption,
   modelHarnessMeta,

@@ -1,1 +1,1 @@
-0116_signalscoutconfig_write_scopes
+0117_drop_signalscoutconfig_team_id_fk_idx

@@ -155,12 +155,10 @@ function CanvasBadgeStack({
 function rowAuthor(
   item: ChannelItemModel,
 ): { user: AvatarPerson; label: string } | null {
-  if (item.kind === "task") {
-    if (!item.authorUser) return null;
+  if (item.authorUser) {
     return { user: item.authorUser, label: userDisplayName(item.authorUser) };
   }
-  // A canvas carries only a display name and uuid — no email or photo — so its
-  // face is an initials bubble seeded off the uuid.
+  if (item.kind === "task") return null;
   const name = item.authorName;
   if (!name && !item.authorUuid) return null;
   const [first, ...rest] = (name ?? "").split(/\s+/).filter(Boolean);

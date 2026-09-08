@@ -202,6 +202,7 @@ def update_team_marketing_analytics_config(team: Team, validated_data: dict[str,
         ),
         "attribution_window_days": team.marketing_analytics_config.attribution_window_days,
         "attribution_mode": team.marketing_analytics_config.attribution_mode,
+        "filter_test_accounts": team.marketing_analytics_config.filter_test_accounts,
     }
 
     marketing_serializer = TeamMarketingAnalyticsConfigSerializer(
@@ -219,6 +220,7 @@ def update_team_marketing_analytics_config(team: Team, validated_data: dict[str,
         "sources_map": validated_data.get("sources_map", {}),
         "attribution_window_days": validated_data.get("attribution_window_days"),
         "attribution_mode": validated_data.get("attribution_mode"),
+        "filter_test_accounts": validated_data.get("filter_test_accounts"),
     }
 
     capture_team_config_diff(team, "marketing_analytics_config", old_config, new_config, context=context)
