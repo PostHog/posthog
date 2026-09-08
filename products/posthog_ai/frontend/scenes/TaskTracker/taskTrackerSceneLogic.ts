@@ -920,8 +920,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         return {
             // An embedded instance never navigates the main app on its own creation (see `submitNewTask`), so
             // main-app URL changes are unrelated to its run — never release the side panel's active creation.
-            '/tasks': () => (props.panelId ? undefined : clearIfLeftCreatedTask()),
             '/tasks/:taskId': ({ taskId }) => (props.panelId ? undefined : clearIfLeftCreatedTask(taskId)),
+            '*': () => (props.panelId ? undefined : clearIfLeftCreatedTask()),
         }
     }),
 ])
