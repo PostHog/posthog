@@ -11,6 +11,13 @@ import type { AccountCustomPropertyValue } from './accountPropertyTypes'
 
 const NUMERIC_DISPLAY_TYPES = new Set(['number', 'currency', 'percent'])
 
+// Percent values are stored as fractions and scaled by 100 for the input, which leaves binary
+// artifacts: 0.29 * 100 is 28.999999999999996, so the field disagrees with the row's 29%. Scaling
+// back on save needs the same treatment, because a stored 0.007 displays as 0.7 and divides to
+// 0.006999999999999999. 15 significant digits clear the artifact and, unlike a fixed number of
+// decimal places, keep very small fractions intact.
+const clearFloatArtifacts = (value: number): number => Number(value.toPrecision(15))
+
 export interface AccountCustomPropertyEditorProps {
     definition: CustomPropertyDefinitionApi
     value: AccountCustomPropertyValue
@@ -30,7 +37,7 @@ export function AccountCustomPropertyEditor({
         definition.display_type === 'boolean'
             ? value === true || String(value) === 'true'
             : definition.display_type === 'percent' && value !== null && value !== ''
-              ? String(Number(value) * 100)
+              ? String(clearFloatArtifacts(Number(value) * 100))
               : String(value ?? '')
     )
     const isDate = definition.display_type === 'date' || definition.display_type === 'datetime'
@@ -42,7 +49,7 @@ export function AccountCustomPropertyEditor({
         if (typeof draft === 'boolean') {
             onSave(draft)
         } else if (isNumeric && numericDraft !== undefined && Number.isFinite(numericDraft)) {
-            onSave(definition.display_type === 'percent' ? numericDraft / 100 : numericDraft)
+            onSave(definition.display_type === 'percent' ? clearFloatArtifacts(numericDraft / 100) : numericDraft)
         } else if (!isNumeric) {
             onSave(draft)
         }
