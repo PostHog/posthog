@@ -2499,166 +2499,144 @@ export const TasksRunsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Store one verified inefficiency finding on a task-analysis run. Only the run's own task-bound sandbox agent may call it, and only on a task-analysis run. The findings list is server-owned: it is not writable through the run update endpoint.
- * @summary Report an analysis finding
+ * Store one activity record on a task-analysis run. Only the run's own task-bound sandbox agent may call it, and only on a task-analysis run. Activities arrive in log order and do not overlap. An exact repeat of a stored activity returns its index without storing it again. The activities list is server-owned: it is not writable through the run update endpoint.
+ * @summary Report an analysis activity
  */
-export const tasksRunsAnalysisInsightCreateBodyObservationMin = 80
-export const tasksRunsAnalysisInsightCreateBodyObservationMax = 500
+export const tasksRunsAnalysisActivityCreateBodyGoalMin = 3
+export const tasksRunsAnalysisActivityCreateBodyGoalMax = 80
 
-export const tasksRunsAnalysisInsightCreateBodyEvidenceItemQuoteMin = 20
-export const tasksRunsAnalysisInsightCreateBodyEvidenceItemQuoteMax = 300
+export const tasksRunsAnalysisActivityCreateBodyBlockerNameMax = 120
 
-export const tasksRunsAnalysisInsightCreateBodyOtherJustificationMin = 50
-export const tasksRunsAnalysisInsightCreateBodyOtherJustificationMax = 200
+export const tasksRunsAnalysisActivityCreateBodyRepairMax = 300
 
-export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneChangeMin = 50
-export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneChangeMax = 400
+export const tasksRunsAnalysisActivityCreateBodyEvidenceMin = 10
+export const tasksRunsAnalysisActivityCreateBodyEvidenceMax = 200
 
-export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneDoneWhenMin = 30
-export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneDoneWhenMax = 200
+export const tasksRunsAnalysisActivityCreateBodyToolCallsMin = 0
 
-export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneSetupCommandsItemMax = 500
+export const tasksRunsAnalysisActivityCreateBodyFailedCallsMin = 0
 
-export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneSetupCommandsMax = 10
+export const tasksRunsAnalysisActivityCreateBodySecondsMin = 0
 
-export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneRequiredServicesItemMax = 100
+export const tasksRunsAnalysisActivityCreateBodyIdleSecondsMin = 0
 
-export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneRequiredServicesMax = 10
+export const tasksRunsAnalysisActivityCreateBodyCommandsItemMax = 60
 
-export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneEnvVarNamesItemMax = 100
+export const tasksRunsAnalysisActivityCreateBodyCommandsMax = 24
 
-export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneEnvVarNamesMax = 10
+export const tasksRunsAnalysisActivityCreateBodyGuidanceReadItemMax = 200
 
-export const TasksRunsAnalysisInsightCreateBody = /* @__PURE__ */ zod
+export const tasksRunsAnalysisActivityCreateBodyGuidanceReadMax = 20
+
+export const TasksRunsAnalysisActivityCreateBody = /* @__PURE__ */ zod
     .object({
-        no_findings_reason: zod
-            .enum(['run_was_efficient', 'too_short_to_judge', 'insufficient_visibility'])
-            .describe(
-                '\* `run_was_efficient` - run_was_efficient\n\* `too_short_to_judge` - too_short_to_judge\n\* `insufficient_visibility` - insufficient_visibility'
-            )
-            .optional()
-            .describe(
-                'Only for a run with zero findings; never combined with a finding.\n\n\* `run_was_efficient` - run_was_efficient\n\* `too_short_to_judge` - too_short_to_judge\n\* `insufficient_visibility` - insufficient_visibility'
-            ),
-        observation: zod
-            .string()
-            .min(tasksRunsAnalysisInsightCreateBodyObservationMin)
-            .max(tasksRunsAnalysisInsightCreateBodyObservationMax)
-            .optional()
-            .describe('What happened, 1-3 sentences.'),
-        evidence: zod
-            .array(
-                zod.object({
-                    quote: zod
-                        .string()
-                        .min(tasksRunsAnalysisInsightCreateBodyEvidenceItemQuoteMin)
-                        .max(tasksRunsAnalysisInsightCreateBodyEvidenceItemQuoteMax)
-                        .describe('Verbatim span copied from the analysed run log.'),
-                    evidence_type: zod
-                        .enum(['transcript_quote', 'command_output', 'measured_count'])
-                        .describe(
-                            '\* `transcript_quote` - transcript_quote\n\* `command_output` - command_output\n\* `measured_count` - measured_count'
-                        )
-                        .describe(
-                            'What kind of log content the quote was taken from.\n\n\* `transcript_quote` - transcript_quote\n\* `command_output` - command_output\n\* `measured_count` - measured_count'
-                        ),
-                })
-            )
-            .optional()
-            .describe('Quotes from the analysed log backing the observation.'),
-        occurrence_count: zod.number().min(1).optional().describe('How often this happened.'),
-        category: zod
+        goal_kind: zod
             .enum([
-                'environment_failure',
-                'missing_tool',
-                'verbose_output',
-                'redundant_work',
-                'missing_capability',
-                'instruction_gap',
-                'wasted_retry',
-                'other',
+                'orient',
+                'explore',
+                'gather',
+                'produce',
+                'verify',
+                'setup_env',
+                'ship',
+                'wait',
+                'operate',
+                'deliver',
             ])
             .describe(
-                '\* `environment_failure` - environment_failure\n\* `missing_tool` - missing_tool\n\* `verbose_output` - verbose_output\n\* `redundant_work` - redundant_work\n\* `missing_capability` - missing_capability\n\* `instruction_gap` - instruction_gap\n\* `wasted_retry` - wasted_retry\n\* `other` - other'
+                '\* `orient` - orient\n\* `explore` - explore\n\* `gather` - gather\n\* `produce` - produce\n\* `verify` - verify\n\* `setup_env` - setup_env\n\* `ship` - ship\n\* `wait` - wait\n\* `operate` - operate\n\* `deliver` - deliver'
             )
-            .optional()
             .describe(
-                'The kind of inefficiency observed.\n\n\* `environment_failure` - environment_failure\n\* `missing_tool` - missing_tool\n\* `verbose_output` - verbose_output\n\* `redundant_work` - redundant_work\n\* `missing_capability` - missing_capability\n\* `instruction_gap` - instruction_gap\n\* `wasted_retry` - wasted_retry\n\* `other` - other'
+                'Which kind of work the agent did in this span.\n\n\* `orient` - orient\n\* `explore` - explore\n\* `gather` - gather\n\* `produce` - produce\n\* `verify` - verify\n\* `setup_env` - setup_env\n\* `ship` - ship\n\* `wait` - wait\n\* `operate` - operate\n\* `deliver` - deliver'
             ),
-        other_justification: zod
+        goal: zod
             .string()
-            .min(tasksRunsAnalysisInsightCreateBodyOtherJustificationMin)
-            .max(tasksRunsAnalysisInsightCreateBodyOtherJustificationMax)
-            .optional()
-            .describe("Required when category is 'other'."),
-        wasted_effort: zod
-            .object({
-                tool_calls: zod.number().min(1).optional().describe('Wasted tool calls, counted from the log.'),
-                seconds: zod.number().min(1).optional().describe('Wall-clock seconds across the wasted span.'),
-                tokens: zod.number().min(1).optional().describe('Token delta across the wasted span.'),
-                output_bytes: zod
-                    .number()
-                    .min(1)
-                    .optional()
-                    .describe('Sum of tool-output sizes across the wasted span.'),
-            })
-            .optional()
-            .describe('Effort measured from the log, never estimated.'),
-        recurrence: zod
-            .enum(['every_run_in_this_repo', 'runs_touching_this_area', 'one_off'])
+            .min(tasksRunsAnalysisActivityCreateBodyGoalMin)
+            .max(tasksRunsAnalysisActivityCreateBodyGoalMax)
+            .describe('What the agent tried, in 3 to 8 words.'),
+        outcome: zod
+            .enum(['worked', 'failed', 'abandoned', 'unknown'])
+            .describe('\* `worked` - worked\n\* `failed` - failed\n\* `abandoned` - abandoned\n\* `unknown` - unknown')
             .describe(
-                '\* `every_run_in_this_repo` - every_run_in_this_repo\n\* `runs_touching_this_area` - runs_touching_this_area\n\* `one_off` - one_off'
-            )
-            .optional()
-            .describe(
-                'How widely this is expected to recur.\n\n\* `every_run_in_this_repo` - every_run_in_this_repo\n\* `runs_touching_this_area` - runs_touching_this_area\n\* `one_off` - one_off'
+                'How the activity ended for the agent.\n\n\* `worked` - worked\n\* `failed` - failed\n\* `abandoned` - abandoned\n\* `unknown` - unknown'
             ),
-        confidence_basis: zod
-            .enum(['directly_observed', 'inferred'])
-            .describe('\* `directly_observed` - directly_observed\n\* `inferred` - inferred')
+        blocker_kind: zod
+            .union([
+                zod
+                    .enum([
+                        'missing_binary',
+                        'missing_package',
+                        'service_down',
+                        'missing_build_artifact',
+                        'missing_credential',
+                        'memory_limit',
+                        'network',
+                        'shallow_git',
+                        'tool_error',
+                        'tool_syntax',
+                        'api_error',
+                        'missing_flag',
+                        'unclear_instructions',
+                        'user_redirect',
+                    ])
+                    .describe(
+                        '\* `missing_binary` - missing_binary\n\* `missing_package` - missing_package\n\* `service_down` - service_down\n\* `missing_build_artifact` - missing_build_artifact\n\* `missing_credential` - missing_credential\n\* `memory_limit` - memory_limit\n\* `network` - network\n\* `shallow_git` - shallow_git\n\* `tool_error` - tool_error\n\* `tool_syntax` - tool_syntax\n\* `api_error` - api_error\n\* `missing_flag` - missing_flag\n\* `unclear_instructions` - unclear_instructions\n\* `user_redirect` - user_redirect'
+                    ),
+                zod.null(),
+            ])
             .optional()
             .describe(
-                'How the finding was established.\n\n\* `directly_observed` - directly_observed\n\* `inferred` - inferred'
+                'What stopped the agent, when something did. Omit for healthy work.\n\n\* `missing_binary` - missing_binary\n\* `missing_package` - missing_package\n\* `service_down` - service_down\n\* `missing_build_artifact` - missing_build_artifact\n\* `missing_credential` - missing_credential\n\* `memory_limit` - memory_limit\n\* `network` - network\n\* `shallow_git` - shallow_git\n\* `tool_error` - tool_error\n\* `tool_syntax` - tool_syntax\n\* `api_error` - api_error\n\* `missing_flag` - missing_flag\n\* `unclear_instructions` - unclear_instructions\n\* `user_redirect` - user_redirect'
             ),
-        suggested_fix: zod
-            .object({
-                change: zod
-                    .string()
-                    .min(tasksRunsAnalysisInsightCreateBodySuggestedFixOneChangeMin)
-                    .max(tasksRunsAnalysisInsightCreateBodySuggestedFixOneChangeMax)
-                    .describe('The specific change to make.'),
-                done_when: zod
-                    .string()
-                    .min(tasksRunsAnalysisInsightCreateBodySuggestedFixOneDoneWhenMin)
-                    .max(tasksRunsAnalysisInsightCreateBodySuggestedFixOneDoneWhenMax)
-                    .describe('A checkable condition confirming the fix worked.'),
-                setup_commands: zod
-                    .array(
-                        zod.string().min(1).max(tasksRunsAnalysisInsightCreateBodySuggestedFixOneSetupCommandsItemMax)
-                    )
-                    .max(tasksRunsAnalysisInsightCreateBodySuggestedFixOneSetupCommandsMax)
-                    .optional()
-                    .describe('Single-line commands only; these may become image build steps.'),
-                required_services: zod
-                    .array(
-                        zod
-                            .string()
-                            .min(1)
-                            .max(tasksRunsAnalysisInsightCreateBodySuggestedFixOneRequiredServicesItemMax)
-                    )
-                    .max(tasksRunsAnalysisInsightCreateBodySuggestedFixOneRequiredServicesMax)
-                    .optional()
-                    .describe('Services the fix needs available.'),
-                env_var_names: zod
-                    .array(zod.string().min(1).max(tasksRunsAnalysisInsightCreateBodySuggestedFixOneEnvVarNamesItemMax))
-                    .max(tasksRunsAnalysisInsightCreateBodySuggestedFixOneEnvVarNamesMax)
-                    .optional()
-                    .describe('Environment variable names only, never values.'),
-            })
+        blocker_name: zod
+            .string()
+            .max(tasksRunsAnalysisActivityCreateBodyBlockerNameMax)
+            .nullish()
+            .describe(
+                'The exact binary, package, service, file, flag, or error the blocker names. Required with blocker_kind.'
+            ),
+        repair: zod
+            .string()
+            .max(tasksRunsAnalysisActivityCreateBodyRepairMax)
+            .nullish()
+            .describe('The command or step that removed the blocker, when the agent found one. Requires blocker_kind.'),
+        evidence: zod
+            .string()
+            .min(tasksRunsAnalysisActivityCreateBodyEvidenceMin)
+            .max(tasksRunsAnalysisActivityCreateBodyEvidenceMax)
+            .describe("One exact quote from the run log inside the activity's line range."),
+        start_line: zod.number().min(1).describe('First log line of the activity, 1-based.'),
+        end_line: zod.number().min(1).describe('Last log line of the activity, 1-based.'),
+        tool_calls: zod
+            .number()
+            .min(tasksRunsAnalysisActivityCreateBodyToolCallsMin)
+            .describe('Distinct tool calls started inside the line range.'),
+        failed_calls: zod
+            .number()
+            .min(tasksRunsAnalysisActivityCreateBodyFailedCallsMin)
+            .describe('Tool calls started inside the line range that ended as failed.'),
+        seconds: zod
+            .number()
+            .min(tasksRunsAnalysisActivityCreateBodySecondsMin)
+            .describe(
+                'Wall-clock seconds from the last timestamp before the line range to the last timestamp inside it.'
+            ),
+        idle_seconds: zod
+            .number()
+            .min(tasksRunsAnalysisActivityCreateBodyIdleSecondsMin)
+            .describe('Sum of the gaps longer than 4 minutes between those consecutive timestamps.'),
+        commands: zod
+            .array(zod.string().min(1).max(tasksRunsAnalysisActivityCreateBodyCommandsItemMax))
+            .max(tasksRunsAnalysisActivityCreateBodyCommandsMax)
             .optional()
-            .describe('The fix the finding argues for.'),
+            .describe('Command heads run in the activity, in order, adjacent duplicates removed.'),
+        guidance_read: zod
+            .array(zod.string().min(1).max(tasksRunsAnalysisActivityCreateBodyGuidanceReadItemMax))
+            .max(tasksRunsAnalysisActivityCreateBodyGuidanceReadMax)
+            .optional()
+            .describe('Skills, AGENTS.md files, templates, and wiki pages the agent read in the activity.'),
     })
-    .describe('One analysis finding. The shape the server stores, independent of what the tool sent.')
+    .describe('One activity record from a task-run analysis: what the agent tried, how it went, and what blocked it.')
 
 /**
  * Append one or more log entries to the task run log array

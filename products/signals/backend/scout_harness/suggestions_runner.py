@@ -28,7 +28,7 @@ from products.signals.backend.scout_harness.config_registry import (
     MIN_RUN_INTERVAL_MINUTES,
     cron_schedule_error,
 )
-from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
+from products.signals.backend.scout_harness.skill_loader import reserved_scout_name_error
 from products.signals.backend.scout_harness.suggestions import (
     MAX_DESCRIPTION_CHARS,
     MAX_DRAFT_BODY_CHARS,
@@ -60,13 +60,15 @@ def _valid_cron(expression: str) -> bool:
 
 
 def _valid_custom_name(name: str) -> bool:
-    if not name.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
-        return False
+    # Any valid skill name is a valid scout name. The producer prompt still asks for prefixed
+    # names, which is a prompt choice rather than a validity rule.
     try:
         validate_skill_name_value(name)
     except serializers.ValidationError:
         return False
-    return True
+    # The inbox-reserved names clear the generic contract but the create serializer refuses them,
+    # so a draft under one would fail on the click this validation exists to protect.
+    return reserved_scout_name_error(name) is None
 
 
 def validate_suggestion_items(
