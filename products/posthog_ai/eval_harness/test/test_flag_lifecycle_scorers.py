@@ -11,6 +11,7 @@ from products.feature_flags.evals.scorers import (
     CreatedFlagWithTags,
     FinalMessageJudge,
     GenericUpdateOmitsFields,
+    GenericUpdateSetsFields,
     PreservedUnrelatedConfig,
 )
 from products.feature_flags.evals.seeders import (
@@ -86,6 +87,9 @@ SEEDED_FLAG_ID = 7
 SEEDED_FLAG_KEY = "smart-upload-retry"
 FLAG_SEED = {"feature_flag_id": SEEDED_FLAG_ID, "feature_flag_key": SEEDED_FLAG_KEY}
 
+RENAMED_KEY = "file-preview-tiles"
+NEW_DESCRIPTION = "Show grid thumbnails in the file browser"
+
 
 def _merged_filters() -> dict[str, Any]:
     merged = json.loads(json.dumps(SEEDED_FILTERS))
@@ -136,6 +140,7 @@ def _group_level_variant_override() -> dict[str, Any]:
         (CalledExpectedTool(), "called_expected_tool"),
         (AvoidedTool(), "avoided_tool"),
         (GenericUpdateOmitsFields(), "generic_update_omits_fields"),
+        (GenericUpdateSetsFields(), "generic_update_sets_fields"),
         (CreatedFlagWithTags(), "created_flag_with_tags"),
         (PreservedUnrelatedConfig(), "preserved_unrelated_config"),
     ]
@@ -268,6 +273,76 @@ def test_generic_update_omits_fields(
 ) -> None:
     scorer = GenericUpdateOmitsFields()
     score = scorer._run_eval_sync({"raw_log": _tool_log(calls)}, {"generic_update_omits_fields": {"fields": fields}})
+
+    assert score.score == expected_score
+
+
+# `name` holds the description on this model, so the rename and the redescribe land in two
+# different fields. The neighbouring omits-fields check passes on a body carrying nothing at
+# all, which is why the positive half exists.
+@parameterized.expand(
+    [
+        (
+            "wrote_both_halves",
+            [(UPDATE_TOOL, {"id": SEEDED_FLAG_ID, "key": RENAMED_KEY, "name": NEW_DESCRIPTION}, "completed")],
+            1.0,
+        ),
+        ("update_carried_nothing", [(UPDATE_TOOL, {"id": SEEDED_FLAG_ID}, "completed")], 0.0),
+        # The agent heard "rename" and wrote the new key into the description field.
+        (
+            "wrote_the_key_into_the_description",
+            [(UPDATE_TOOL, {"id": SEEDED_FLAG_ID, "name": RENAMED_KEY}, "completed")],
+            0.0,
+        ),
+        (
+            "renamed_but_left_the_description",
+            [(UPDATE_TOOL, {"id": SEEDED_FLAG_ID, "key": RENAMED_KEY}, "completed")],
+            0.0,
+        ),
+        (
+            "wrote_a_description_of_its_own",
+            [(UPDATE_TOOL, {"id": SEEDED_FLAG_ID, "key": RENAMED_KEY, "name": "Thumbnails"}, "completed")],
+            0.0,
+        ),
+        # Two calls is chatty, not wrong, so the fields may arrive separately.
+        (
+            "split_the_edit_across_two_updates",
+            [
+                (UPDATE_TOOL, {"id": SEEDED_FLAG_ID, "key": RENAMED_KEY}, "completed"),
+                (UPDATE_TOOL, {"id": SEEDED_FLAG_ID, "name": NEW_DESCRIPTION}, "completed"),
+            ],
+            1.0,
+        ),
+        (
+            "case_and_spacing_are_the_agents_to_choose",
+            [
+                (
+                    UPDATE_TOOL,
+                    {"id": SEEDED_FLAG_ID, "key": RENAMED_KEY, "name": f"  {NEW_DESCRIPTION.upper()} "},
+                    "completed",
+                )
+            ],
+            1.0,
+        ),
+        (
+            "rejected_update_changed_nothing",
+            [(UPDATE_TOOL, {"id": SEEDED_FLAG_ID, "key": RENAMED_KEY, "name": NEW_DESCRIPTION}, "failed")],
+            0.0,
+        ),
+        (
+            "edited_another_flag",
+            [(UPDATE_TOOL, {"id": 4242, "key": RENAMED_KEY, "name": NEW_DESCRIPTION}, "completed")],
+            0.0,
+        ),
+    ]
+)
+def test_generic_update_sets_fields(
+    _name: str, calls: list[tuple[str, dict[str, Any], str]], expected_score: float
+) -> None:
+    score = GenericUpdateSetsFields()._run_eval_sync(
+        {"raw_log": _tool_log(calls), "seed": FLAG_SEED},
+        {"generic_update_sets_fields": {"fields": {"key": RENAMED_KEY, "name": NEW_DESCRIPTION}}},
+    )
 
     assert score.score == expected_score
 

@@ -33,6 +33,7 @@ __all__ = [
     "CreatedFlagWithTags",
     "FinalMessageJudge",
     "GenericUpdateOmitsFields",
+    "GenericUpdateSetsFields",
     "PreservedUnrelatedConfig",
 ]
 
@@ -189,6 +190,57 @@ class GenericUpdateOmitsFields(Scorer):
         if sent:
             return Score(name=self._name(), score=0.0, metadata={"sent_via_generic_update": sent})
         return Score(name=self._name(), score=1.0, metadata={"forbidden_fields": sorted(fields)})
+
+
+def _same_text(written: Any, asked: Any) -> bool:
+    """Compare what the agent wrote against what the prompt asked for.
+
+    Case and surrounding whitespace are the agent's to choose; the words are not.
+    """
+    if isinstance(written, str) and isinstance(asked, str):
+        return written.strip().casefold() == asked.strip().casefold()
+    return bool(written == asked)
+
+
+class GenericUpdateSetsFields(Scorer):
+    """Binary: did the generic updates carry every ``expected.fields`` value?
+
+    The check above passes by inaction, because an update carrying nothing omits every
+    forbidden field too. This is the positive half: the edit the user asked for has to
+    be in a body somewhere. `name` holds the description on this model, so an agent
+    that hears "rename" and writes the new key into `name` fails here while looking
+    right to every other row on the case.
+
+    The fields may arrive across more than one update, because splitting the rename
+    from the description is chatty rather than wrong.
+    """
+
+    def _name(self) -> str:
+        return "generic_update_sets_fields"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = _spec(expected, self._name())
+        raw = spec.get("fields") if spec else None
+        fields = raw if isinstance(raw, dict) and raw else None
+        if not fields:
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()}.fields on case"})
+        parser = _parser(output)
+        if not parser:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        writes = _on_seeded_flag(_successful(parser, GENERIC_UPDATE_TOOL), _seed(output))
+        written = {field: [call.input[field] for call in writes if field in call.input] for field in fields}
+        missing = sorted(
+            field for field, values in written.items() if not any(_same_text(value, fields[field]) for value in values)
+        )
+        return Score(
+            name=self._name(),
+            score=0.0 if missing else 1.0,
+            metadata={
+                "not_written_as_asked": missing,
+                "written": {field: values for field, values in written.items() if values},
+            },
+        )
 
 
 class CreatedFlagWithTags(Scorer):

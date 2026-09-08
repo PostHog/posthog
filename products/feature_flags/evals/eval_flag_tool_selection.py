@@ -9,7 +9,8 @@ final state, which cannot tell the two apart.
 
 Five conversations, one per way the choice goes wrong:
 
-* ``metadata_rename_and_description`` — a rename must not carry `filters`.
+* ``metadata_rename_and_description`` — a rename must land both edits and must not
+  carry `filters`.
 * ``existing_key_create_recovers`` — an already-taken key must resolve by key and
   continue, not create a second flag or dead-end.
 * ``disable_uses_lifecycle_tool`` / ``enable_uses_lifecycle_tool`` — a state flip must
@@ -33,6 +34,7 @@ from products.feature_flags.evals.scorers import (
     CalledExpectedTool,
     FinalMessageJudge,
     GenericUpdateOmitsFields,
+    GenericUpdateSetsFields,
     PreservedUnrelatedConfig,
 )
 from products.feature_flags.evals.seeders import (
@@ -54,14 +56,19 @@ from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import RequiredToolCall
 
+# The rename case asks for these two values, so the prompt and the scorer read the same
+# constants: a prompt that changed without the expectation would grade the old request.
+METADATA_RENAMED_KEY = "file-preview-tiles"
+METADATA_NEW_DESCRIPTION = "Show grid thumbnails in the file browser"
+
 
 async def eval_flag_tool_selection(ctx: EvalContext) -> None:
     cases: list[SandboxedEvalCase] = [
         SandboxedEvalCase(
             name="metadata_rename_and_description",
             prompt=(
-                f"Rename the {METADATA_FLAG_KEY} feature flag to file-preview-tiles, and change its "
-                "description to 'Show grid thumbnails in the file browser'."
+                f"Rename the {METADATA_FLAG_KEY} feature flag to {METADATA_RENAMED_KEY}, and change its "
+                f"description to '{METADATA_NEW_DESCRIPTION}'."
             ),
             setup=seed_metadata_flag,
             expected={
@@ -69,6 +76,12 @@ async def eval_flag_tool_selection(ctx: EvalContext) -> None:
                 # A rename has no reason to send targeting. Sending it replaces the
                 # seeded plan condition with whatever the agent last read.
                 "generic_update_omits_fields": {"fields": ["filters"]},
+                # `name` is the description on this model, so the two halves of the
+                # request land in two different fields and an agent can write one into
+                # the other.
+                "generic_update_sets_fields": {
+                    "fields": {"key": METADATA_RENAMED_KEY, "name": METADATA_NEW_DESCRIPTION}
+                },
             },
         ),
         SandboxedEvalCase(
@@ -132,6 +145,7 @@ async def eval_flag_tool_selection(ctx: EvalContext) -> None:
             CalledExpectedTool(),
             AvoidedTool(),
             GenericUpdateOmitsFields(),
+            GenericUpdateSetsFields(),
             PreservedUnrelatedConfig(),
             FinalMessageJudge(name="explained_key_reuse", question=EXPLAINED_KEY_REUSE_QUESTION),
         ],
