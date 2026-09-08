@@ -1,11 +1,16 @@
 import { getTaskRepository, parseRepository } from "@posthog/shared";
-import type { Task } from "@posthog/shared/domain-types";
+import type { Task, TaskRunStatus } from "@posthog/shared/domain-types";
+import {
+  deriveTaskRunState,
+  type SidebarTask,
+  type TaskSession,
+} from "../sidebar/buildSidebarData";
 
 export type CellStatus = "running" | "waiting" | "idle" | "error" | "completed";
 
 export interface SessionStatusInput {
   status: string;
-  cloudStatus?: string;
+  cloudStatus?: TaskRunStatus;
   pendingPermissions: { size: number };
   isPromptPending: boolean;
 }
@@ -26,6 +31,34 @@ export function deriveStatus(
     return "running";
 
   return "idle";
+}
+
+export function deriveTaskCellStatus(
+  task: Pick<SidebarTask, "id" | "latest_run">,
+  session: (TaskSession & SessionStatusInput) | undefined,
+): CellStatus {
+  const runState = deriveTaskRunState(task, session);
+  switch (runState.taskRunStatus) {
+    case "completed":
+      return "completed";
+    case "failed":
+    case "cancelled":
+      return "error";
+  }
+
+  const sessionRunsLatestRun = session?.taskRunId === runState.taskRunId;
+  if (
+    sessionRunsLatestRun &&
+    session &&
+    (session.status === "error" ||
+      session.cloudStatus === "failed" ||
+      session.cloudStatus === "cancelled")
+  ) {
+    return "error";
+  }
+  if (runState.needsPermission) return "waiting";
+  if (runState.isGenerating) return "running";
+  return sessionRunsLatestRun ? deriveStatus(session) : "idle";
 }
 
 export function getRepoName(task: Task): string | null {

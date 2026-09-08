@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"weak"
 )
 
 func TestProcessLineCleansEventProperties(t *testing.T) {
@@ -250,6 +252,77 @@ func TestRunChunked(t *testing.T) {
 	}
 	if output.String() != want {
 		t.Fatalf("runChunked() = %q, want %q", output.String(), want)
+	}
+}
+
+func TestProcessLineReleasesPreviousInput(t *testing.T) {
+	for _, kind := range []propertiesKind{eventProperties, personProperties, temporaryProperties} {
+		t.Run(fmt.Sprint(kind), func(t *testing.T) {
+			proc := processor{kind: kind}
+			var output bytes.Buffer
+			input := []byte(`{"$set":1,"discard":null}`)
+			previousInput := weak.Make(&input[0])
+			if err := proc.processLine(input, &output); err != nil {
+				t.Fatal(err)
+			}
+			input = nil
+			if err := proc.processLine([]byte(`{"$set":2}`), &output); err != nil {
+				t.Fatal(err)
+			}
+			runtime.GC()
+			if previousInput.Value() != nil {
+				t.Error("processor retains a previous input after garbage collection")
+			}
+			runtime.KeepAlive(&proc)
+		})
+	}
+}
+
+func TestProcessLineReleasesOversizedContainers(t *testing.T) {
+	var object strings.Builder
+	object.WriteByte('{')
+	for i := range 64 {
+		if i > 0 {
+			object.WriteByte(',')
+		}
+		fmt.Fprintf(&object, `"key%d":1`, i)
+	}
+	object.WriteByte('}')
+	for name, input := range map[string]string{
+		"object": object.String(),
+		"array":  "[" + strings.Repeat("1,", 63) + "1]",
+	} {
+		t.Run(name, func(t *testing.T) {
+			var proc processor
+			var output bytes.Buffer
+			if err := proc.processLine([]byte(input), &output); err != nil {
+				t.Fatal(err)
+			}
+			var entries weak.Pointer[entry]
+			var values weak.Pointer[*value]
+			for _, v := range proc.free {
+				if cap(v.entries) >= 64 {
+					entries = weak.Make(&v.entries[:cap(v.entries)][0])
+				}
+				if cap(v.values) >= 64 {
+					values = weak.Make(&v.values[:cap(v.values)][0])
+				}
+			}
+			if entries.Value() == nil && values.Value() == nil {
+				t.Fatal("wide row did not retain a reusable container")
+			}
+			if err := proc.processLine([]byte(`{}`), &output); err != nil {
+				t.Fatal(err)
+			}
+			if output.String() != "{}" {
+				t.Fatalf("unexpected output: %s", output.String())
+			}
+			runtime.GC()
+			if entries.Value() != nil || values.Value() != nil {
+				t.Error("small row retains an oversized container after garbage collection")
+			}
+			runtime.KeepAlive(&proc)
+		})
 	}
 }
 

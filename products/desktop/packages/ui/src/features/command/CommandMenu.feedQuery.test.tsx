@@ -36,6 +36,7 @@ vi.mock("@posthog/ui/features/archive/useTaskArchive", () => ({
 }));
 vi.mock("@posthog/ui/features/workspace/useWorkspace", () => ({
   useWorkspaces: () => ({ data: [], isFetched: true }),
+  useWorkspace: () => undefined,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [], isLoading: false }),
@@ -76,6 +77,10 @@ vi.mock("@posthog/ui/router/useAppView", () => ({
 }));
 vi.mock("@posthog/ui/features/sidebar/useTaskPrStatus", () => ({
   useTaskPrStatus: () => ({ prState: null, hasDiff: false, prUrl: null }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskStatus", () => ({
+  useTaskStatusInput: () => null,
+  useChannelTaskStatus: () => null,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskFeedResults", () => ({
   useTaskFeedResults: (query: string | undefined) => ({
