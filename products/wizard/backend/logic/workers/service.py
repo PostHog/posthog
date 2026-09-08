@@ -204,6 +204,7 @@ def prepare_local_wizard(sandbox_id: str, source_root: Path) -> None:
 
 def execute_wizard(request: WizardExecutionRequest) -> None:
     sandbox = get_sandbox_class().get_by_id(request.sandbox_id)
+
     wizard_result = sandbox.execute(
         build_wizard_command(
             request.workspace_path,
@@ -214,8 +215,10 @@ def execute_wizard(request: WizardExecutionRequest) -> None:
         ),
         timeout_seconds=SANDBOX_EXECUTION_TIMEOUT_SECONDS,
     )
+
     if wizard_result.exit_code == WIZARD_TIMEOUT_EXIT_CODE:
         raise WizardWorkerTimeoutError
+
     _raise_for_failure(
         "execution",
         wizard_result.exit_code,

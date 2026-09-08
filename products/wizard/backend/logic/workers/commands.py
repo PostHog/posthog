@@ -41,17 +41,21 @@ def build_wizard_command(
     else:
         install_path = shlex.quote(WIZARD_PACKAGE_INSTALL_PATH)
         package = shlex.quote(f"@posthog/wizard@{wizard_version}")
+
         setup_commands = [
             f"rm -rf {install_path}",
             f"mkdir -p {install_path}",
+            # removes previous npm configs, creating an empty one
             "rm -f /tmp/posthog-wizard-global.npmrc",
             "touch /tmp/posthog-wizard-global.npmrc",
             (
+                # this helps reproducibility by avoiding global configs being inherited
                 "npm --userconfig=/dev/null --globalconfig=/tmp/posthog-wizard-global.npmrc install "
                 "--ignore-scripts --no-package-lock --no-save "
                 f"--prefix {install_path} --registry=https://registry.npmjs.org {package}"
             ),
         ]
+
         executable = f"node {install_path}/node_modules/@posthog/wizard/dist/bin.js"
 
     invocation = [
