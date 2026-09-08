@@ -45,31 +45,49 @@ export function TestAccountFilterSwitch({
     const { currentTeam } = useValues(teamLogic)
     const filters = currentTeam?.test_account_filters || []
     const hasFilters = filters.length > 0
+    const settingsUrl = urls.settings('environment-customization', 'internal-user-filtering')
+
+    // With no filters configured the toggle does nothing, so a disabled switch just invites
+    // clicks that never register. Send people to set the filters up instead. When the caller marks
+    // the surface unusable (a data warehouse insight, a form mid-save), setup cannot help, so honor
+    // that reason and keep the control disabled rather than promise a trip that changes nothing.
+    if (!hasFilters) {
+        return (
+            <LemonButton
+                type="secondary"
+                size={props.size}
+                data-attr={props['data-attr']}
+                fullWidth={props.fullWidth}
+                icon={<IconGear />}
+                to={settingsUrl}
+                targetBlank
+                disabledReason={props.disabledReason}
+                tooltip="Choose which users count as internal or test, then come back to filter them out. Opens in a new tab."
+            >
+                Set up internal and test user filtering
+            </LemonButton>
+        )
+    }
+
     const unusedReason = applicableFilterTypes ? getUnusedTestAccountFilterReason(filters, applicableFilterTypes) : null
     return (
         <LemonSwitch
-            id="test-account-filter"
             bordered
             {...props}
-            disabledReason={
-                !hasFilters
-                    ? "You haven't set any internal test filters. Click the gear icon to configure."
-                    : (unusedReason ?? props.disabledReason)
-            }
+            disabledReason={unusedReason ?? props.disabledReason}
             checked={checked}
             onChange={onChange}
             label={
                 <div className="flex items-center">
                     <span>Filter out internal and test users</span>
                     {/* Opens in a new tab: this switch sits inside forms that hold unsaved work (a
-                        half-built scanner, an unsaved cohort, an insight in progress), and the
-                        disabledReason below actively sends people here when no filters are set up. */}
+                        half-built scanner, an unsaved cohort, an insight in progress). */}
                     <LemonButton
                         icon={<IconGear />}
                         size="small"
                         noPadding
                         className="ml-1"
-                        to={urls.settings('environment-customization', 'internal-user-filtering')}
+                        to={settingsUrl}
                         targetBlank
                         hideExternalLinkIcon
                         tooltip="Configure internal and test users. Opens in a new tab."

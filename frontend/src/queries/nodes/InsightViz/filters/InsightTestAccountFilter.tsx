@@ -1,8 +1,7 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { InsightQueryNode } from '~/queries/schema/schema-general'
 
@@ -17,12 +16,10 @@ export function InsightTestAccountFilter({
     setQuery,
     disabledReason,
 }: TestAccountFilterProps): JSX.Element | null {
-    const { currentTeam } = useValues(teamLogic)
     const { setLocalDefault } = useActions(filterTestAccountsDefaultsLogic)
-    const hasFilters = (currentTeam?.test_account_filters || []).length > 0
     return (
         <TestAccountFilterSwitch
-            checked={hasFilters ? !!query.filterTestAccounts : false}
+            checked={!!query.filterTestAccounts}
             onChange={(checked: boolean) => {
                 setQuery({ ...query, filterTestAccounts: checked })
                 setLocalDefault(checked)

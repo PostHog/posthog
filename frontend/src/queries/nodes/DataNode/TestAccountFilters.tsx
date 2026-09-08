@@ -1,8 +1,7 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
 import {
     ActorsQuery,
@@ -19,8 +18,6 @@ interface TestAccountFiltersProps {
     setQuery?: (query: ActorsQuery | EventsQuery | HogQLQuery | SessionsQuery | TracesQuery) => void
 }
 export function TestAccountFilters({ query, setQuery }: TestAccountFiltersProps): JSX.Element | null {
-    const { currentTeam } = useValues(teamLogic)
-    const hasFilters = (currentTeam?.test_account_filters || []).length > 0
     const { setLocalDefault } = useActions(filterTestAccountsDefaultsLogic)
 
     // A source-less ActorsQuery is the persons list, which carries its own filterTestAccounts flag
@@ -36,13 +33,12 @@ export function TestAccountFilters({ query, setQuery }: TestAccountFiltersProps)
     ) {
         return null
     }
-    const checked = hasFilters
-        ? !!(isHogQLQuery(query)
-              ? query.filters?.filterTestAccounts
-              : isEventsQuery(query) || isSessionsQuery(query) || isTracesQuery(query) || isSourcelessActorsQuery
-                ? query.filterTestAccounts
-                : false)
-        : false
+    // Reflect the query's real value so the switch never reads "off" while filtering is on.
+    const checked = !!(isHogQLQuery(query)
+        ? query.filters?.filterTestAccounts
+        : isEventsQuery(query) || isSessionsQuery(query) || isTracesQuery(query) || isSourcelessActorsQuery
+          ? query.filterTestAccounts
+          : false)
     const onChange = isHogQLQuery(query)
         ? (checked: boolean) => {
               const newQuery: HogQLQuery = {
