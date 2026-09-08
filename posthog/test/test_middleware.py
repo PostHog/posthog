@@ -2107,6 +2107,12 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         ("/login", "next=/dashboard", "same-origin"),
         ("/login", "next=/connect/vercel/../../admin", "same-origin"),
         ("/some/other/path", "", "same-origin"),
+        ("/login/google-oauth2/", "next=/connect/vercel/link", "unsafe-none"),
+        ("/login/github/", "", "unsafe-none"),
+        ("/complete/google-oauth2/", "code=x&state=y", "unsafe-none"),
+        ("/signup", "next=/connect/vercel/link", "unsafe-none"),
+        ("/signup", "", "same-origin"),
+        ("/signup", "next=/dashboard", "same-origin"),
     ],
     ids=[
         "direct-oauth-vercel",
@@ -2117,6 +2123,12 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         "login-next-non-oauth",
         "login-next-path-traversal",
         "unrelated-path",
+        "social-login-start-with-next",
+        "social-login-start-no-query",
+        "social-login-complete",
+        "signup-next-oauth",
+        "signup-no-next",
+        "signup-next-non-oauth",
     ],
 )
 def test_oauth_coop_middleware(path, query_string, expected_coop):

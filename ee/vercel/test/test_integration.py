@@ -1315,12 +1315,18 @@ class TestPushSecretsToVercel(TestCase):
     @patch("ee.vercel.integration.VercelAPIClient")
     def test_push_secrets_handles_api_error_gracefully(self, mock_client_class, mock_capture):
         mock_client = Mock()
-        mock_client.update_resource_secrets.return_value = Mock(success=False, error="API error")
+        mock_client.update_resource_secrets.return_value = Mock(
+            success=False, error="HTTP error", status_code=403, error_detail="Forbidden"
+        )
         mock_client_class.return_value = mock_client
 
         VercelIntegration.push_secrets_to_vercel(self.team)
 
         mock_capture.assert_called_once()
+        exception, properties = mock_capture.call_args[0]
+        assert "403" in str(exception)
+        assert properties["status_code"] == 403
+        assert properties["resource_id"] == str(self.resource.pk)
 
     @patch("ee.vercel.integration.capture_exception")
     @patch("ee.vercel.integration.VercelAPIClient")

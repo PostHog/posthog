@@ -114,6 +114,10 @@ class InstallationConfig:
     account: InstallationAccount
 
 
+class VercelSecretPushError(Exception):
+    pass
+
+
 @dataclass
 class VercelSetupResult:
     client: VercelAPIClient
@@ -1258,31 +1262,39 @@ class VercelIntegration:
 
         secrets = VercelIntegration._build_secrets(team)
 
+        log_context = {
+            "team_id": team.id,
+            "integration_config_id": setup_result.integration_config_id,
+            "resource_id": setup_result.resource_id,
+            "integration": "vercel",
+        }
         try:
             result = setup_result.client.update_resource_secrets(
                 integration_config_id=setup_result.integration_config_id,
                 resource_id=setup_result.resource_id,
                 secrets=secrets,
             )
-            if not result.success:
-                raise Exception(f"Failed to push secrets to Vercel: {result.error}")
-
-            logger.info(
-                "Pushed secrets to Vercel",
-                team_id=team.id,
-                integration_config_id=setup_result.integration_config_id,
-                resource_id=setup_result.resource_id,
-                integration="vercel",
-            )
         except Exception as e:
-            logger.exception(
-                "Error pushing secrets to Vercel",
-                team_id=team.id,
-                integration_config_id=setup_result.integration_config_id,
-                resource_id=setup_result.resource_id,
-                integration="vercel",
-            )
+            logger.exception("Error pushing secrets to Vercel", **log_context)
             capture_exception(e, {"team_id": team.id, "resource_id": setup_result.resource_id})
+            return
+
+        if result.success:
+            logger.info("Pushed secrets to Vercel", **log_context)
+            return
+
+        logger.error(
+            "Error pushing secrets to Vercel", status_code=result.status_code, error=result.error, **log_context
+        )
+        capture_exception(
+            VercelSecretPushError(f"Failed to push secrets to Vercel: {result.error} (status: {result.status_code})"),
+            {
+                "team_id": team.id,
+                "resource_id": setup_result.resource_id,
+                "status_code": result.status_code,
+                "error_detail": result.error_detail,
+            },
+        )
 
 
 def _safe_vercel_sync(

@@ -1091,11 +1091,19 @@ class OAuthCoopMiddleware:
                 return True
         return False
 
+    @staticmethod
+    def _is_social_auth_path(path: str) -> bool:
+        for prefix in ("/login/", "/complete/"):
+            if path.startswith(prefix) and path != prefix:
+                return True
+        return False
+
     def __call__(self, request):
         response = self.get_response(request)
-        if self._matches_oauth_prefix(request.path, self.OAUTH_PATH_PREFIXES):
+        path = request.path
+        if self._matches_oauth_prefix(path, self.OAUTH_PATH_PREFIXES) or self._is_social_auth_path(path):
             response["Cross-Origin-Opener-Policy"] = "unsafe-none"
-        elif request.path == "/login" or request.path == "/login/":
+        elif path in ("/login", "/login/", "/signup", "/signup/"):
             next_url = request.GET.get("next", "")
             normalized = posixpath.normpath(next_url) if next_url.startswith("/") else next_url
             if self._matches_oauth_prefix(normalized, self.OAUTH_PATH_PREFIXES):

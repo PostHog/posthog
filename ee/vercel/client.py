@@ -121,8 +121,8 @@ class VercelAPIClient:
             logger.exception("Request timeout", method=method, url=url, integration="vercel")
             raise APIError("Request timed out", detail=str(e))
         except HTTPError as e:
-            status_code = e.response.status_code if e.response else None
-            detail = e.response.text if e.response else str(e)
+            status_code = e.response.status_code if e.response is not None else None
+            detail = e.response.text if e.response is not None else str(e)
             logger.exception("HTTP error", method=method, url=url, status_code=status_code, integration="vercel")
             raise APIError("HTTP error", status_code=status_code, detail=detail)
         except RequestException as e:
