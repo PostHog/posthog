@@ -172,7 +172,7 @@ describe('SupportTicketsTable selection', () => {
     })
 })
 
-describe('SupportTicketsTableFilters count', () => {
+describe('SupportTicketsTableFilters', () => {
     let logic: ReturnType<typeof supportTicketsSceneLogic.build>
     let mockCount = 0
 
@@ -218,5 +218,29 @@ describe('SupportTicketsTableFilters count', () => {
         )
 
         expect(await screen.findByText(expected)).toBeInTheDocument()
+    })
+
+    // Regression: a chip tracked its open editor in local state only, so the filter bar could not
+    // tell an open chip from a closed one. Clearing the last value of an open filter dropped the
+    // chip and unmounted the panel the person was picking from.
+    it('keeps an open filter chip on screen when its last value is cleared', async () => {
+        act(() => {
+            logic.actions.setStatusFilter(['open'])
+        })
+
+        render(
+            <Provider>
+                <SupportTicketsTableFilters />
+            </Provider>
+        )
+
+        await userEvent.click(screen.getByText('Status'))
+
+        // Unchecking the last option in the open editor is exactly this action.
+        act(() => {
+            logic.actions.setStatusFilter([])
+        })
+
+        expect(screen.getByText('Status')).toBeInTheDocument()
     })
 })

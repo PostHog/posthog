@@ -153,11 +153,22 @@ export function TicketFilterChip({ filterKey, autoOpen = false }: TicketFilterCh
         setTagsExcludeFilter,
         setDateRange,
     } = useActions(logic)
-    const { closeFilter } = useActions(ticketFilterBarLogic(logic.props))
+    const { openFilter, closeFilter } = useActions(ticketFilterBarLogic(logic.props))
     const { tags: tagsAvailable } = useValues(tagsModel)
     const [visible, setVisible] = useState(autoOpen)
 
     const name = TICKET_FILTER_LABELS[filterKey]
+
+    // The filter bar shows a chip without a value only while its editor is open, so the open
+    // state has to reach the logic. If the editor kept it local, clearing the last value would
+    // unmount the panel the person is still picking from.
+    const setEditorOpen = (open: boolean): void => {
+        if (open) {
+            openFilter(filterKey)
+        } else {
+            closeFilter(filterKey)
+        }
+    }
 
     // Every chip clears its value and hides itself from the same X, so a chip never lingers
     // after its filter is gone.
@@ -185,7 +196,10 @@ export function TicketFilterChip({ filterKey, autoOpen = false }: TicketFilterCh
         <LemonDropdown
             closeOnClickInside={closeOnClickInside}
             visible={visible}
-            onVisibilityChange={setVisible}
+            onVisibilityChange={(open) => {
+                setVisible(open)
+                setEditorOpen(open)
+            }}
             overlay={overlay}
         >
             {trigger}
@@ -303,6 +317,7 @@ export function TicketFilterChip({ filterKey, autoOpen = false }: TicketFilterCh
                     onChange={setAssigneeFilter}
                     emptyLabel={name}
                     defaultOpen={autoOpen}
+                    onVisibilityChange={setEditorOpen}
                     onRemove={() => closeFilter(filterKey)}
                 />
             )

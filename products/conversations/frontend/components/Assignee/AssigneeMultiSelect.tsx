@@ -24,12 +24,15 @@ export function AssigneeMultiSelect({
     onChange,
     emptyLabel = 'All assignees',
     defaultOpen = false,
+    onVisibilityChange,
     onRemove,
 }: {
     value: AssigneeFilterEntry[]
     onChange: (value: AssigneeFilterEntry[]) => void
     emptyLabel?: string
     defaultOpen?: boolean
+    /** Reports every open and close of the dropdown, so a filter chip can stay on screen while it is open. */
+    onVisibilityChange?: (visible: boolean) => void
     /** When set, the X on an empty trigger calls this instead of showing a chevron, so a filter chip can dismiss itself. */
     onRemove?: () => void
 }): JSX.Element {
@@ -61,6 +64,7 @@ export function AssigneeMultiSelect({
                 if (!visible) {
                     setSearch('')
                 }
+                onVisibilityChange?.(visible)
             }}
             overlay={
                 <div className="max-w-100 deprecated-space-y-2">
