@@ -171,6 +171,42 @@ OPERATIONAL_METRIC_DEFINITION: dict = {
         "ORDER BY day DESC"
     ),
 }
+
+DAILY_ACTIVE_ORGS_METRIC_NAME = "daily_active_orgs"
+DAILY_ACTIVE_ORGS_METRIC_DISPLAY_NAME = "Daily active organizations"
+DAILY_ACTIVE_ORGS_METRIC_DESCRIPTION = "Daily count of active Hedgebox organizations, using the account group attached to any event in the trailing 30 days."
+DAILY_ACTIVE_ORGS_METRIC_DEFINITION: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT\n"
+        "    toStartOfDay(timestamp) AS day,\n"
+        "    uniq(toString(properties.$group_0)) AS active_organizations\n"
+        "FROM events\n"
+        "WHERE notEmpty(toString(properties.$group_0))\n"
+        "  AND timestamp >= now() - INTERVAL 30 DAY\n"
+        "GROUP BY day\n"
+        "ORDER BY day DESC"
+    ),
+}
+
+MCP_TOOL_CALL_FAIL_PCT_METRIC_NAME = "mcp_tool_call_fail_pct"
+MCP_TOOL_CALL_FAIL_PCT_METRIC_DISPLAY_NAME = "MCP tool-call failure rate"
+MCP_TOOL_CALL_FAIL_PCT_METRIC_DESCRIPTION = (
+    "Daily percentage of hosted MCP tool calls that failed, measured from canonical $mcp_tool_call events."
+)
+MCP_TOOL_CALL_FAIL_PCT_METRIC_DEFINITION: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT\n"
+        "    toStartOfDay(timestamp) AS day,\n"
+        "    round(100 * countIf(toBool(properties.$mcp_is_error)) / nullIf(count(), 0), 2) AS failure_rate_pct\n"
+        "FROM events\n"
+        "WHERE event = '$mcp_tool_call'\n"
+        "  AND timestamp >= now() - INTERVAL 30 DAY\n"
+        "GROUP BY day\n"
+        "ORDER BY day DESC"
+    ),
+}
 SCOUT_PRESCRIBED_OPS_SWEEP_SQL = (
     "SELECT\n"
     "    toStartOfDay(timestamp) AS day,\n"
