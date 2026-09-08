@@ -25,8 +25,8 @@ from typing import Any, Literal
 from posthog.dataclasses import frozen
 
 ConfigFormatKind = Literal["v1", "v2", "unsupported"]
-FlagReturnType = Literal["boolean", "string", "number", "json"]
-ReleaseType = Literal["targeted_release", "percentage_rollout", "variant_rollout", "experiment"]
+FlagReturnType = Literal["boolean", "string", "number", "object"]
+RuleType = Literal["targeted_release", "percentage_rollout", "variant_rollout", "experiment"]
 FlagValue = bool | str | int | float | dict[str, Any]
 
 
@@ -70,14 +70,14 @@ class ExperimentRuleIdentity:
 @frozen
 class RuleV2:
     id: str
-    release_type: ReleaseType
+    rule_type: RuleType
     experiment: ExperimentRuleIdentity | None
 
 
 @frozen
 class ConfigV2:
     return_type: FlagReturnType
-    fallthrough_value: FlagValue | None
+    default_value: FlagValue | None
     rules: tuple[RuleV2, ...]  # stored order, which is evaluation order
     aggregation_group_type_index: int | None
 
@@ -93,18 +93,18 @@ def parse_v2_config(filters: Mapping[str, Any]) -> ConfigV2:
         raise ConfigFormatError(config_format)
     return ConfigV2(
         return_type=filters["return_type"],
-        fallthrough_value=filters["fallthrough_value"],
+        default_value=filters["default_value"],
         rules=tuple(_rule_v2(rule) for rule in filters["rules"]),
         aggregation_group_type_index=filters.get("aggregation_group_type_index"),
     )
 
 
 def _rule_v2(rule: Mapping[str, Any]) -> RuleV2:
-    release_type = rule["release_type"]
+    rule_type = rule["rule_type"]
     return RuleV2(
         id=rule["id"],
-        release_type=release_type,
+        rule_type=rule_type,
         experiment=ExperimentRuleIdentity(rule_id=rule["id"], experiment_id=rule["experiment_id"])
-        if release_type == "experiment"
+        if rule_type == "experiment"
         else None,
     )

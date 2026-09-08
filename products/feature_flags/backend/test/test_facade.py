@@ -819,7 +819,7 @@ class TestExperimentRuleFromFilters:
 
     @parameterized.expand(
         [
-            ("v2_document", {"version": 2, "return_type": "boolean", "fallthrough_value": False, "rules": []}),
+            ("v2_document", {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}),
             ("version_string", {"version": "1", "groups": [{"properties": [], "rollout_percentage": 40}]}),
             ("version_boolean", {"version": True, "groups": [{"properties": [], "rollout_percentage": 40}]}),
             ("unknown_future_version", {"version": 3, "groups": [{"properties": [], "rollout_percentage": 40}]}),

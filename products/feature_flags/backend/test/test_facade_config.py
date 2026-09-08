@@ -18,11 +18,11 @@ from products.feature_flags.backend.facade.config import (
 V2_BOOLEAN_ALL_RULE_TYPES: dict[str, Any] = {
     "version": 2,
     "return_type": "boolean",
-    "fallthrough_value": False,
+    "default_value": False,
     "rules": [
         {
             "id": "11111111-1111-4111-8111-111111111111",
-            "release_type": "targeted_release",
+            "rule_type": "targeted_release",
             "targeting": {
                 "properties": [
                     {
@@ -40,32 +40,32 @@ V2_BOOLEAN_ALL_RULE_TYPES: dict[str, Any] = {
         },
         {
             "id": "22222222-2222-4222-8222-222222222222",
-            "release_type": "percentage_rollout",
+            "rule_type": "percentage_rollout",
             "targeting": {"properties": []},
             "value": True,
             "rollout_percentage": 25.5,
             "on_rollout_miss": "continue",
             "assignment_algorithm": "sha1_60_v1",
             "seed": "release-preview",
-            "assign_variant_by": "user",
+            "assign_by": "person",
         },
         {
             "id": "33333333-3333-4333-8333-333333333333",
-            "release_type": "variant_rollout",
+            "rule_type": "variant_rollout",
             "targeting": {"properties": []},
             "rollout_percentage": 80,
-            "on_rollout_miss": "return_fallthrough",
+            "on_rollout_miss": "return_default",
             "assignment_algorithm": "sha1_60_v1",
             "seed": "variant-preview",
-            "assign_variant_by": "user",
+            "assign_by": "person",
             "variants": [
-                {"key": "disabled", "rollout_percentage": 33.33, "value": False},
-                {"key": "enabled", "rollout_percentage": 66.67, "value": True},
+                {"key": "disabled", "weight": 33.33, "value": False},
+                {"key": "enabled", "weight": 66.67, "value": True},
             ],
         },
         {
             "id": "44444444-4444-4444-8444-444444444444",
-            "release_type": "experiment",
+            "rule_type": "experiment",
             "targeting": {"properties": []},
             "experiment_id": 42,
             "paused": False,
@@ -73,10 +73,10 @@ V2_BOOLEAN_ALL_RULE_TYPES: dict[str, Any] = {
             "on_rollout_miss": "continue",
             "assignment_algorithm": "sha1_60_v1",
             "seed": "experiment-preview",
-            "assign_variant_by": "user",
+            "assign_by": "person",
             "variants": [
-                {"key": "control", "rollout_percentage": 50, "value": True},
-                {"key": "test", "rollout_percentage": 50, "value": True},
+                {"key": "control", "weight": 50, "value": True},
+                {"key": "test", "weight": 50, "value": True},
             ],
             "holdout": {"id": 7, "seed": "holdout-", "exclusion_percentage": 5},
         },
@@ -86,12 +86,12 @@ V2_BOOLEAN_ALL_RULE_TYPES: dict[str, Any] = {
 V2_STRING_GROUP_ASSIGNMENT: dict[str, Any] = {
     "version": 2,
     "return_type": "string",
-    "fallthrough_value": "standard",
+    "default_value": "standard",
     "aggregation_group_type_index": 0,
     "rules": [
         {
             "id": "55555555-5555-4555-8555-555555555555",
-            "release_type": "percentage_rollout",
+            "rule_type": "percentage_rollout",
             "targeting": {
                 "properties": [
                     {
@@ -139,14 +139,14 @@ class TestParseV2Config:
     def test_boolean_document_with_every_rule_type(self):
         assert parse_v2_config(V2_BOOLEAN_ALL_RULE_TYPES) == ConfigV2(
             return_type="boolean",
-            fallthrough_value=False,
+            default_value=False,
             rules=(
-                RuleV2(id="11111111-1111-4111-8111-111111111111", release_type="targeted_release", experiment=None),
-                RuleV2(id="22222222-2222-4222-8222-222222222222", release_type="percentage_rollout", experiment=None),
-                RuleV2(id="33333333-3333-4333-8333-333333333333", release_type="variant_rollout", experiment=None),
+                RuleV2(id="11111111-1111-4111-8111-111111111111", rule_type="targeted_release", experiment=None),
+                RuleV2(id="22222222-2222-4222-8222-222222222222", rule_type="percentage_rollout", experiment=None),
+                RuleV2(id="33333333-3333-4333-8333-333333333333", rule_type="variant_rollout", experiment=None),
                 RuleV2(
                     id="44444444-4444-4444-8444-444444444444",
-                    release_type="experiment",
+                    rule_type="experiment",
                     experiment=ExperimentRuleIdentity(rule_id="44444444-4444-4444-8444-444444444444", experiment_id=42),
                 ),
             ),
@@ -156,17 +156,15 @@ class TestParseV2Config:
     def test_string_group_document(self):
         assert parse_v2_config(V2_STRING_GROUP_ASSIGNMENT) == ConfigV2(
             return_type="string",
-            fallthrough_value="standard",
-            rules=(
-                RuleV2(id="55555555-5555-4555-8555-555555555555", release_type="percentage_rollout", experiment=None),
-            ),
+            default_value="standard",
+            rules=(RuleV2(id="55555555-5555-4555-8555-555555555555", rule_type="percentage_rollout", experiment=None),),
             aggregation_group_type_index=0,
         )
 
     def test_float_version_literal_selects_v2(self):
         assert parse_v2_config(
-            {"version": 2.0, "return_type": "boolean", "fallthrough_value": None, "rules": []}
-        ) == ConfigV2(return_type="boolean", fallthrough_value=None, rules=(), aggregation_group_type_index=None)
+            {"version": 2.0, "return_type": "boolean", "default_value": None, "rules": []}
+        ) == ConfigV2(return_type="boolean", default_value=None, rules=(), aggregation_group_type_index=None)
 
     @parameterized.expand(
         [
