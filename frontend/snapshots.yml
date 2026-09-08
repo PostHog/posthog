@@ -5964,6 +5964,10 @@ snapshots:
         hash: v1.k794b7964.9621e94ace22f6b0c839d8f7890e3cdf4aa9951c7bfee8f2a089e46a5f7f977a.dZbjaDtE-CMiMTkhTxV1u5NVSvEugAeaZ5oBS64HcH4
     replay-tabs-home-filters-banner--product-analytics-under-limit--light:
         hash: v1.k794b7964.621980b6676868038ef6fda307d5b134d3879bc0638acf8936832351dc325f9e.q32al8_1uMGCjpaxXcoxMHz611C3uiHkep-dhcwXkjM
+    replay-tabs-home-filters-banner--scanner-cross-sell--dark:
+        hash: v1.k794b7964.4b7a86e24d7b4aecd1b2051c74066379234055102679d2cd9e3377cabfec1c85.lU1XSNZg9HsA_jvvHz2_-MCOut14PyOkhmtd0y58ryA
+    replay-tabs-home-filters-banner--scanner-cross-sell--light:
+        hash: v1.k794b7964.2ebece8a17cef6899018a8385b263e143b45c4d45dd1654c24e541f1ce9407e2.hqvO1qD8EnGP7XACzYjS7NbTi0zlhZw7rTCgJPrSTas
     replay-tabs-home-success--filters-expanded--dark:
         hash: v1.k794b7964.e85cac90eb14f279e3367d8d2ab0db3011d7bb6c5d85fee2fb5cd2d0095ea956.9KZY5n5cdZIaHcp8HzrLMg-rgB2x7i_uH93bqNN_MzU
     replay-tabs-home-success--filters-expanded--light:
@@ -6785,9 +6789,9 @@ snapshots:
     scenes-app-engineering-analytics-repo-overview--repo-overview--light:
         hash: v1.k794b7964.f709ff67c44f86f69d951fc6fbb18b17b6090f6c5793bf6bc16fc803e0a0498c.SmWuVYGMNsp3hU9ipmoQyalTt57uRsG0DrLJlw7LzPU
     scenes-app-engineering-analytics-repo-overview--repo-overview-with-trunk-queue-data--dark:
-        hash: v1.k794b7964.1a470083e7a94ff46652f4368277eae5d35c927d65b58685e43ce34881e1e728.JjIWr0Wfj8Nzl407D1c7pkfeDecNV2UVZEKUSyLdGrE
+        hash: v1.k794b7964.99bcc4aa618c0c6ceb0f5589213426fb51865d6353f30beaed25b64578f5ffc0.F-ci8KA9aLO2BdWqAoyqoJe0vw3cdwL870yzUWI1ilI
     scenes-app-engineering-analytics-repo-overview--repo-overview-with-trunk-queue-data--light:
-        hash: v1.k794b7964.f709ff67c44f86f69d951fc6fbb18b17b6090f6c5793bf6bc16fc803e0a0498c.CCyr3jIgq9vy0b1RORwsIhSMVbL0qyRKSNgdK6Y_oZg
+        hash: v1.k794b7964.fb0d3e9e51c16c40878d5b96d93d31aad8842801049a97f647ad0635b4a224c4.a9xQ7QWBiUGQMZHwjUBzX1e93fYB2mxdleiXIswFwnM
     scenes-app-engineering-analytics-run-activity-chart--default--dark:
         hash: v1.k794b7964.7f17c5ac7c6862493f7c4d59e6e3c3146c42e3d7b08908ee1716d387c129ba64.lPsE9KrOSZee9wJq8zjqYnvk09numvEFWOn4mdCOgJE
     scenes-app-engineering-analytics-run-activity-chart--default--light:
