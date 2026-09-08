@@ -2504,7 +2504,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 // are stale until the graph is laid out again. Before the first graph arrives
                 // there is nothing to lay out, and the edges have no nodes to point at.
                 const nodes = nodesBeingLaidOut ?? values.nodes
-                if (nodes.length > 0) {
+                // Only the metrics summary changes that height, so every other mode would lay
+                // the graph out to the size and the coordinates it already has. A node still
+                // waiting for its first layout carries no height, which reads as stale here.
+                if (nodes.some((node) => node.height !== values.nodeHeight)) {
                     actions.setNodes(nodes)
                 }
             },

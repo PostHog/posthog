@@ -638,6 +638,19 @@ describe('hogFlowEditorLogic', () => {
             expect(branch?.data.name).toBe('Renamed branch')
             expect(branch?.height).toBe(NODE_HEIGHT + NODE_METRICS_SUMMARY_HEIGHT)
         })
+
+        it('does not relayout for a mode that draws the same node', async () => {
+            await applyFlow(makeFlow())
+            const nodesBefore = logic.values.nodes
+
+            // Only the metrics summary changes how tall a node is, so this tab would lay the
+            // graph out to the coordinates it already has.
+            await expectLogic(logic, () => {
+                logic.actions.setMode('variables')
+            }).toNotHaveDispatchedActions(['setNodes'])
+
+            expect(logic.values.nodes).toBe(nodesBefore)
+        })
     })
 
     describe('showDropzones placement', () => {
