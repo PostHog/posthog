@@ -41,6 +41,16 @@ class ExecResult:
 
 
 @dataclasses.dataclass
+class LongJob:
+    """A detached ``run_long`` that is still executing in the box."""
+
+    name: str
+    log: str
+    done: str
+    fail: str
+
+
+@dataclasses.dataclass
 class SSHTarget:
     """How to reach a box over ssh. This — host/port/user/key — is the whole of
     what differs between layers at the data-plane level."""
@@ -110,31 +120,61 @@ class PreviewBackend(abc.ABC):
         exec round-trip, so 3s is comfortably affordable.
         """
         with timing.span(name):
-            return self._run_long(script, name=name, timeout=timeout, interval=interval)
+            job = self._launch(script, name=name)
+            return self._join(job, timeout=timeout, interval=interval)
 
-    def _run_long(self, script: str, *, name: str, timeout: int, interval: int) -> ExecResult:
+    def launch_long(self, script: str, *, name: str) -> LongJob:
+        """Start a slow command and return at once, without waiting for it.
+
+        The counterpart of ``run_long`` for work that the steps which follow do
+        not need: the box runs it while the control side moves on, and
+        ``join_long`` collects it later. ``run_long`` already launches detached
+        and then polls a marker, so this is that same mechanism with the poll
+        deferred — nothing new has to run in the box.
+        """
+        job = self._launch(script, name=name)
+        timing.stage(f"{name} launched in the background")
+        return job
+
+    def join_long(self, job: LongJob, *, timeout: int = 1800, interval: int = 3) -> ExecResult:
+        """Wait for a ``launch_long`` job, with the same success / failure /
+        timeout contract as ``run_long``.
+
+        The recorded span is the RESIDUAL wait only: the part of the job that
+        did not fit under the steps which ran in between. A span near zero means
+        the overlap paid for the whole job, which is the point.
+        """
+        with timing.span(f"{job.name}-wait"):
+            return self._join(job, timeout=timeout, interval=interval)
+
+    def _launch(self, script: str, *, name: str) -> LongJob:
         base = f"/tmp/hogbox-{name}"
-        log, done, fail = f"{base}.log", f"{base}.done", f"{base}.fail"
+        job = LongJob(name=name, log=f"{base}.log", done=f"{base}.done", fail=f"{base}.fail")
         self.write_file(f"{base}.sh", script + "\n")
-        inner = f"bash {base}.sh > {log} 2>&1 && touch {done} || touch {fail}"
-        launch = f"rm -f {done} {fail}; setsid bash -c {shlex.quote(inner)} </dev/null >/dev/null 2>&1 & echo launched"
+        inner = f"bash {base}.sh > {job.log} 2>&1 && touch {job.done} || touch {job.fail}"
+        launch = (
+            f"rm -f {job.done} {job.fail}; "
+            f"setsid bash -c {shlex.quote(inner)} </dev/null >/dev/null 2>&1 & echo launched"
+        )
         self.exec(launch, timeout=60)
+        return job
 
+    def _join(self, job: LongJob, *, timeout: int, interval: int) -> ExecResult:
         deadline = time.time() + timeout
         while time.time() < deadline:
             probe = self.exec(
-                f"if [ -f {done} ]; then echo DONE; elif [ -f {fail} ]; then echo FAIL; else echo RUN; fi",
+                f"if [ -f {job.done} ]; then echo DONE; elif [ -f {job.fail} ]; then echo FAIL; else echo RUN; fi",
                 timeout=30,
             )
             state = probe.stdout.strip().splitlines()[-1] if probe.stdout.strip() else "RUN"
             if state == "DONE":
-                return self.exec(f"tail -n 80 {log}", timeout=30)
+                return self.exec(f"tail -n 80 {job.log}", timeout=30)
             if state == "FAIL":
-                tail = self.exec(f"tail -n 60 {log}", timeout=30).stdout
-                raise RuntimeError(f"{name} failed:\n{tail}")
+                tail = self.exec(f"tail -n 60 {job.log}", timeout=30).stdout
+                raise RuntimeError(f"{job.name} failed:\n{tail}")
             time.sleep(interval)
-        tail = self.exec(f"tail -n 60 {log}", timeout=30).stdout
-        raise TimeoutError(f"{name} did not finish within {timeout}s:\n{tail}")
+        tail = self.exec(f"tail -n 60 {job.log}", timeout=30).stdout
+        raise TimeoutError(f"{job.name} did not finish within {timeout}s:\n{tail}")
 
     def wait_http_ok(self, url_path: str, *, expect: int = 200, timeout: int = 600, interval: int = 3) -> None:
         """Poll an in-box HTTP path until it returns ``expect`` (probed from
