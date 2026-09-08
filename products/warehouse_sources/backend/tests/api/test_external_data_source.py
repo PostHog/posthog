@@ -2822,6 +2822,34 @@ class TestExternalDataSource(APIBaseTest):
         assert source.auto_sync_new_schemas is (expected_status == 200)
 
     @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(False, "Could not reach your source."),
+    )
+    def test_patch_external_data_source_probes_connection_when_stored_config_cannot_be_parsed(self, mock_validate):
+        # A stored secret that still carries the Fernet marker (e.g. decrypted with a key that's since
+        # been rotated out) makes the stored config unparseable. The submitted config is otherwise the
+        # same shape the source was created with, so a naive comparison could call this "unchanged" —
+        # but with nothing valid to compare against, the probe must still run rather than being skipped.
+        source = self._create_external_data_source()
+        source.job_inputs = {"auth_method": {"selection": "api_key", "stripe_secret_key": "gAAAAA_undecryptable"}}
+        source.save()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
+                "auto_sync_new_schemas": True,
+            },
+        )
+
+        assert response.status_code == 400, response.json()
+        assert mock_validate.called is True
+        source.refresh_from_db()
+        # The rejected probe means the save didn't go through — the corrupted secret is still stored,
+        # not silently replaced by an unvalidated one.
+        assert source.job_inputs["auth_method"]["stripe_secret_key"] == "gAAAAA_undecryptable"
+
+    @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.SnowflakeSource.validate_credentials",
         return_value=(True, None),
     )
