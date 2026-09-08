@@ -78,6 +78,28 @@ describe('dataCatalogMetricSceneLogic', () => {
         ;(ApiConfig.getCurrentTeamId as jest.Mock).mockReturnValue(1)
     })
 
+    it('synchronizes the Tests tab with navigation and preserves it on rename', async () => {
+        router.actions.push(urls.dataCatalogMetric('weekly_active_users'), { tab: 'tests' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.activeTab).toBe('tests')
+        logic.actions.setActiveTab('definition')
+        expect(router.values.searchParams.tab).toBeUndefined()
+        logic.actions.setActiveTab('tests')
+        expect(router.values.searchParams.tab).toBe('tests')
+        ;(dataCatalogMetricsPartialUpdate as jest.Mock).mockResolvedValue(buildMetric({ name: 'wau' }))
+        logic.actions.renameMetric('wau')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.searchParams.tab).toBe('tests')
+    })
+
+    it.each(['HogQLQuery', 'TrendsQuery', 'FunnelsQuery', 'EventsNode', 'MarkdownDefinition', null])(
+        'allows check authoring only for a HogQL definition (%s)',
+        (definition_kind) => {
+            logic.actions.setMetric(buildMetric({ definition_kind }))
+            expect(logic.values.supportsMetricChecks).toBe(definition_kind === 'HogQLQuery')
+        }
+    )
+
     it('saving an approved metric edit reflects the proposed status from the response', async () => {
         ;(dataCatalogMetricsPartialUpdate as jest.Mock).mockResolvedValue(
             buildMetric({ status: 'proposed', definition: { kind: 'HogQLQuery', query: 'SELECT 2' } })

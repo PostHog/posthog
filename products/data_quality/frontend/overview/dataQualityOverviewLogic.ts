@@ -77,6 +77,9 @@ function subjectRefOf(check: DataQualityOverviewCheckApi): DataQualitySubjectRef
 
 /** Where the subject's own page lives, or null when it has none and the name renders as text. */
 export function subjectDetailUrl(check: DataQualityOverviewCheckApi): string | null {
+    if (check.subject_type === 'metric') {
+        return check.subject_metric_name ? urls.dataCatalogMetric(check.subject_metric_name, 'tests') : null
+    }
     if (check.subject_type === 'view') {
         return check.subject_node_id ? urls.nodeDetail(check.subject_node_id, 'tests') : null
     }
@@ -522,7 +525,7 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                     return null
                 }
                 if (failingCheckCount > 0) {
-                    return `${failingCheckCount} of ${checks.length} checks failing, across ${failingSubjectCount} tables and views.`
+                    return `${failingCheckCount} of ${checks.length} checks failing, across ${failingSubjectCount} tables, views, and metrics.`
                 }
                 const passed = checks.filter((check) => check.last_status === 'passed').length
                 if (passed === checks.length) {

@@ -283,7 +283,7 @@ describe('dataQualityOverviewLogic', () => {
     it('summarises a project that has failing checks', async () => {
         await mountLogic()
 
-        expect(logic.values.overviewSummary).toEqual('1 of 3 checks failing, across 1 tables and views.')
+        expect(logic.values.overviewSummary).toEqual('1 of 3 checks failing, across 1 tables, views, and metrics.')
     })
 
     it('counts a subject whose only failure is warning-only among the failing subjects', async () => {
@@ -300,7 +300,7 @@ describe('dataQualityOverviewLogic', () => {
 
         expect(logic.values.failingCheckCount).toEqual(1)
         expect(logic.values.failingSubjectCount).toEqual(1)
-        expect(logic.values.overviewSummary).toEqual('1 of 1 checks failing, across 1 tables and views.')
+        expect(logic.values.overviewSummary).toEqual('1 of 1 checks failing, across 1 tables, views, and metrics.')
     })
 
     it.each<[string, (string | null)[], string]>([
@@ -517,6 +517,12 @@ describe('dataQualityOverviewLogic', () => {
     it.each<[string, Partial<DataQualityOverviewCheckApi>, string | null]>([
         ['a view on a DAG node', { subject_type: 'view', subject_node_id: 'node-1' }, '/models/node-1/tests'],
         ['a view on no DAG', { subject_type: 'view', subject_node_id: null }, null],
+        [
+            'a metric',
+            { subject_type: 'metric', subject_metric_name: 'weekly_signups' },
+            '/data-catalog/metrics/weekly_signups?tab=tests',
+        ],
+        ['a deleted metric', { subject_type: 'metric', subject_metric_name: null }, null],
         [
             'a synced table',
             { subject_type: 'table', subject_source_id: 'source-1', subject_schema_id: 'schema-1' },

@@ -20,6 +20,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -52,6 +53,8 @@ import {
     definitionField,
 } from './dataCatalogMetricSceneLogic'
 import type { DataCatalogMetricApi } from './generated/api.schemas'
+import { MetricTestsTab } from './tabs/MetricTestsTab'
+import { MetricTestsTabLabel } from './tabs/MetricTestsTabLabel'
 
 export const scene: SceneExport<DataCatalogMetricSceneLogicProps> = {
     component: DataCatalogMetricScene,
@@ -72,8 +75,17 @@ interface MetricAction {
 const DRIFT_APPROVE_DISABLED = 'This metric has drifted from its source insight. Refresh it first.'
 
 export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProps): JSX.Element {
-    const { metric, metricLoading, mutating, runResult, runResultLoading, editingDefinition, draftMarkdown } =
-        useValues(dataCatalogMetricSceneLogic)
+    const {
+        metric,
+        metricLoading,
+        mutating,
+        runResult,
+        runResultLoading,
+        editingDefinition,
+        draftMarkdown,
+        activeTab,
+        supportsMetricChecks,
+    } = useValues(dataCatalogMetricSceneLogic)
     const {
         approveMetric,
         refreshMetricFromInsight,
@@ -84,6 +96,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
         setEditingDefinition,
         setDraftMarkdown,
         startEditingMarkdown,
+        setActiveTab,
     } = useActions(dataCatalogMetricSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
@@ -339,27 +352,45 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                     </LemonBanner>
                 )}
 
-                <MetricMetadata metric={metric} onSaveUnit={(unit) => confirmAndUpdate({ unit })} />
-
-                <MetricDefinition
-                    metric={metric}
-                    editingDefinition={editingDefinition}
-                    draftMarkdown={draftMarkdown}
-                    saving={mutating}
-                    runResult={runResult}
-                    runResultLoading={runResultLoading}
-                    onDraftMarkdown={setDraftMarkdown}
-                    onEdit={setEditingDefinition}
-                    onStartEditingMarkdown={startEditingMarkdown}
-                    onSaveMarkdown={(markdown) =>
-                        confirmAndUpdate({ definition: { kind: 'MarkdownDefinition', markdown } })
-                    }
-                    onRun={loadRunResult}
-                    onRunWithAI={runMarkdownMetricWithAI}
-                    runWithAIDisabledReason={
-                        isMaxAvailable ? undefined : 'PostHog AI is not available on this instance'
-                    }
+                <LemonTabs
+                    activeKey={activeTab}
+                    onChange={setActiveTab}
+                    tabs={[
+                        { key: 'definition', label: 'Definition' },
+                        {
+                            key: 'tests',
+                            label: supportsMetricChecks ? <MetricTestsTabLabel metricId={metric.id} /> : 'Tests',
+                        },
+                    ]}
                 />
+
+                {activeTab === 'tests' ? (
+                    <MetricTestsTab />
+                ) : (
+                    <>
+                        <MetricMetadata metric={metric} onSaveUnit={(unit) => confirmAndUpdate({ unit })} />
+
+                        <MetricDefinition
+                            metric={metric}
+                            editingDefinition={editingDefinition}
+                            draftMarkdown={draftMarkdown}
+                            saving={mutating}
+                            runResult={runResult}
+                            runResultLoading={runResultLoading}
+                            onDraftMarkdown={setDraftMarkdown}
+                            onEdit={setEditingDefinition}
+                            onStartEditingMarkdown={startEditingMarkdown}
+                            onSaveMarkdown={(markdown) =>
+                                confirmAndUpdate({ definition: { kind: 'MarkdownDefinition', markdown } })
+                            }
+                            onRun={loadRunResult}
+                            onRunWithAI={runMarkdownMetricWithAI}
+                            runWithAIDisabledReason={
+                                isMaxAvailable ? undefined : 'PostHog AI is not available on this instance'
+                            }
+                        />
+                    </>
+                )}
             </SceneContent>
 
             <ScenePanel>
