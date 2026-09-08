@@ -45,15 +45,15 @@ jobs:
 
             # Turbo only, not the workspace. The dry run builds the task graph
             # from the package manifests, turbo.json and the lockfile. It runs no
-            # task, so it never reads node_modules. The root install this
-            # replaces pulled the whole toolchain — Playwright, Parcel, the
-            # TypeScript preview — for a step that finishes in about a second,
-            # and it became the slowest part of PR housekeeping whenever the
-            # pnpm store cache restored only part of the store.
+            # task, so it never reads node_modules.
             #
             # The version comes from package.json, so a bump there cannot leave
             # this job on an older Turbo than the workspace pins. Turbo warns
             # that it found no local install. That warning is expected here.
+            #
+            # Turbo ships a prebuilt binary, and this job runs no package
+            # script, so the runner's own Node is enough to start it and the job
+            # needs no setup-node step.
             - name: Install turbo
               env:
                   # Keep a registry blip from failing the job.
@@ -68,10 +68,6 @@ jobs:
                   npm install --prefix "$RUNNER_TEMP/turbo" --no-audit --no-fund --no-save "turbo@$version"
                   echo "$RUNNER_TEMP/turbo/node_modules/.bin" >> "$GITHUB_PATH"
 
-            # Turbo ships a prebuilt binary, and this job runs no package
-            # script, so the runner's own Node is enough to start it. That
-            # removes setup-node, and with it the app token that served only
-            # setup-node's version-manifest lookups.
             - name: Turbo Affected
               run: turbo build --affected --dry-run
               env:
