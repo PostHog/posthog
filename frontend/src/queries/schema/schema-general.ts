@@ -9817,6 +9817,11 @@ export enum SubscriptionAIPromptMaxLength {
     CHARACTERS = 4000,
 }
 
+/** Maximum number of dashboards and insights an AI subscription may use as context. */
+export enum SubscriptionAIContextLimit {
+    COUNT = 3,
+}
+
 export type UsageMetricFormat = 'numeric' | 'currency'
 
 export type UsageMetricDisplay = 'number' | 'sparkline'

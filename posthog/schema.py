@@ -2942,6 +2942,13 @@ class SubagentUpdateEvent(BaseModel):
     tool_call_id: str
 
 
+class SubscriptionAIContextLimit(RootModel[Literal[3]]):
+    root: Literal[3] = Field(
+        3,
+        description=("Maximum number of dashboards and insights an AI subscription may use as context."),
+    )
+
+
 class SubscriptionAIPromptMaxLength(RootModel[Literal[4000]]):
     root: Literal[4000] = Field(4000, description="Maximum length, in characters, of an AI subscription prompt.")
 
