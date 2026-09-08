@@ -382,6 +382,7 @@ export interface dashboardLogicValues {
     pendingInsertion: PendingInsertion | null
     persistableDashboardFilters: DashboardFilter
     placement: DashboardPlacement
+    previewedDashboardSettings: DashboardSettings | null
     projectTreeRef: ProjectTreeRef
     refreshMetrics: {
         completed: number
@@ -391,6 +392,7 @@ export interface dashboardLogicValues {
     refreshTilesTotal: number | null
     savedDashboardSettings: DashboardSettings
     scrollToBottomSignal: number
+    settingsForRefresh: DashboardSettings
     shouldReportOnAPILoad: boolean
     shouldUseStreaming: boolean
     showApplyFiltersBanner: boolean
@@ -905,6 +907,9 @@ export interface dashboardLogicActions {
     setPendingInsertion: (pendingInsertion: PendingInsertion | null) => {
         pendingInsertion: PendingInsertion | null
     }
+    setPreviewedDashboardSettings: (settings: DashboardSettings | null) => {
+        settings: DashboardSettings | null
+    }
     setProperties: (properties: AnyPropertyFilter[] | null) => {
         properties: AnyPropertyFilter[] | null
     }
@@ -1113,6 +1118,11 @@ export interface dashboardLogicMeta {
             initialDashboardSettingsOverride: DashboardSettings,
             dashboardSettingsDraft: DashboardSettings | null
         ) => DashboardSettings
+        settingsForRefresh: (
+            savedDashboardSettings: DashboardSettings,
+            initialDashboardSettingsOverride: DashboardSettings,
+            previewedDashboardSettings: DashboardSettings | null
+        ) => DashboardSettings
         dashboardSettingsState: (
             savedDashboardSettings: DashboardSettings,
             currentDashboardSettings: DashboardSettings,
@@ -1161,7 +1171,7 @@ export interface dashboardLogicMeta {
         ) => boolean
         effectiveRefreshFilters: (
             externalFilters: DashboardFilter,
-            currentDashboardSettings: DashboardSettings
+            settingsForRefresh: DashboardSettings
         ) => DashboardFilter
         currentDashboardVariables: (currentDashboardSettings: DashboardSettings) => Record<string, HogQLVariable>
         hasUnsavedLayoutChanges: (
@@ -1459,6 +1469,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setFilterTestAccounts: (filterTestAccounts: boolean | null) => ({ filterTestAccounts }),
         setExternalFilters: (filters: DashboardFilter) => ({ filters }),
         setDashboardSettingsDraft: (settings: DashboardSettings | null) => ({ settings }),
+        setPreviewedDashboardSettings: (settings: DashboardSettings | null) => ({ settings }),
         setInitialDashboardSettingsOverride: (settings: DashboardSettings) => ({ settings }),
         clearInitialDashboardSettingsOverride: true,
         clearDashboardSettingsUrlOverrides: true,
@@ -2548,6 +2559,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 discardDashboardChanges: () => null,
             },
         ],
+        previewedDashboardSettings: [
+            null as DashboardSettings | null,
+            {
+                setPreviewedDashboardSettings: (_, { settings }) => settings,
+                saveDashboardChangesSuccess: () => null,
+            },
+        ],
         initialDashboardSettingsOverride: [
             {
                 filters: parseURLFilters(router.values.searchParams),
@@ -2733,6 +2751,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     variables: { ...saved.variables, ...initialOverride.variables },
                 },
         ],
+        settingsForRefresh: [
+            (s) => [s.savedDashboardSettings, s.initialDashboardSettingsOverride, s.previewedDashboardSettings],
+            (
+                saved: DashboardSettings,
+                initialOverride: DashboardSettings,
+                previewed: DashboardSettings | null
+            ): DashboardSettings =>
+                previewed || {
+                    filters: combineDashboardFilters(saved.filters, initialOverride.filters),
+                    variables: { ...saved.variables, ...initialOverride.variables },
+                },
+        ],
         dashboardSettingsState: [
             (s) => [s.savedDashboardSettings, s.currentDashboardSettings, s.variables],
             (saved: DashboardSettings, current: DashboardSettings, variables: Variable[]): DashboardSettingsState => {
@@ -2868,7 +2898,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 placement !== DashboardPlacement.Export,
         ],
         effectiveRefreshFilters: [
-            (s) => [s.externalFilters, s.currentDashboardSettings],
+            (s) => [s.externalFilters, s.settingsForRefresh],
             (externalFilters: DashboardFilter, settings: DashboardSettings): DashboardFilter => {
                 return combineDashboardFilters(settings.filters, externalFilters)
             },
@@ -4276,7 +4306,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // only cancels on newer invocations, not on unmount).
                 const { currentTeamId, effectiveRefreshFilters, urlFilters, dashboardLoadData, lastDashboardRefresh } =
                     values
-                const urlVariables = values.currentDashboardVariables
+                const urlVariables = values.settingsForRefresh.variables
 
                 const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
                     const insight = tile.insight
@@ -4387,6 +4417,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 if (previewUnsavedFilters && (tilesErroredCount > 0 || tilesAbortedCount > 0)) {
                     actions.previewDashboardChangesFailure()
+                } else if (previewUnsavedFilters) {
+                    actions.setPreviewedDashboardSettings(values.currentDashboardSettings)
                 }
             }
 
@@ -4547,12 +4579,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.saveDashboardChangesSuccess(getQueryBasedDashboard(dashboard), settings)
                 actions.clearDashboardSettingsUrlOverrides()
                 actions.clearInitialDashboardSettingsOverride()
-                if (!values.canAutoPreview) {
-                    actions.refreshDashboardItems({
-                        action: RefreshDashboardItemsAction.Preview,
-                        forceRefresh: false,
-                    })
-                }
                 lemonToast.success('Dashboard changes saved')
             } catch (error) {
                 actions.saveDashboardChangesFailure(String(error))
@@ -4562,6 +4588,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         discardDashboardChanges: () => {
             actions.clearDashboardSettingsUrlOverrides()
             actions.clearInitialDashboardSettingsOverride()
+            actions.setPreviewedDashboardSettings(null)
             actions.refreshDashboardItems({
                 action: RefreshDashboardItemsAction.Preview,
                 forceRefresh: false,
@@ -4616,6 +4643,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.refreshDashboardItems({
                     action: RefreshDashboardItemsAction.Preview,
                     forceRefresh: false,
+                    previewUnsavedFilters: true,
                 })
             }
         },
@@ -4881,6 +4909,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.refreshDashboardItems({
                     action: RefreshDashboardItemsAction.Preview,
                     forceRefresh: false,
+                    previewUnsavedFilters: true,
                 })
             }
         },
@@ -4903,6 +4932,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.refreshDashboardItems({
                     action: RefreshDashboardItemsAction.Preview,
                     forceRefresh: false,
+                    previewUnsavedFilters: true,
                 })
             }
         },
@@ -4919,6 +4949,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.refreshDashboardItems({
                     action: RefreshDashboardItemsAction.Preview,
                     forceRefresh: false,
+                    previewUnsavedFilters: true,
                 })
             }
         },
@@ -4935,6 +4966,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.refreshDashboardItems({
                     action: RefreshDashboardItemsAction.Preview,
                     forceRefresh: false,
+                    previewUnsavedFilters: true,
                 })
             }
         },
