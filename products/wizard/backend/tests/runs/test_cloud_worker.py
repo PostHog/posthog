@@ -22,6 +22,7 @@ from products.wizard.backend.logic.workers.config import (
     local_wizard_source_root,
 )
 from products.wizard.backend.logic.workers.contracts import RepositoryPullRequest
+from products.wizard.backend.logic.workers.errors import InvalidWizardProgramCommandError, InvalidWizardVersionError
 from products.wizard.backend.logic.workers.service import (
     GitRepositoryCloneRequest,
     GitRepositoryHandoffRequest,
@@ -273,7 +274,7 @@ def test_execute_wizard_rejects_program_options(get_sandbox_class: MagicMock) ->
         program_command=("--base-url",),
     )
 
-    with pytest.raises(ValueError, match="Invalid Wizard program command"):
+    with pytest.raises(InvalidWizardProgramCommandError, match="Invalid Wizard program command"):
         execute_wizard(request)
 
     get_sandbox_class.return_value.get_by_id.return_value.execute.assert_not_called()
@@ -289,7 +290,7 @@ def test_execute_wizard_rejects_mutable_version(get_sandbox_class: MagicMock) ->
         program_command=(),
     )
 
-    with pytest.raises(ValueError, match="Invalid Wizard version"):
+    with pytest.raises(InvalidWizardVersionError, match="Invalid Wizard version"):
         execute_wizard(request)
 
     get_sandbox_class.return_value.get_by_id.return_value.execute.assert_not_called()

@@ -16,6 +16,7 @@ from products.wizard.backend.logic.workers.config import (
     WIZARD_PACKAGE_INSTALL_PATH,
     WIZARD_TIMEOUT_SECONDS,
 )
+from products.wizard.backend.logic.workers.errors import InvalidWizardProgramCommandError, InvalidWizardVersionError
 
 _WIZARD_PROGRAM_COMMAND_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
@@ -29,10 +30,10 @@ def build_wizard_command(
     use_local_wizard_source: bool = False,
 ) -> str:
     if not is_executable_wizard_version(wizard_version):
-        raise ValueError("Invalid Wizard version")
+        raise InvalidWizardVersionError
 
     if any(_WIZARD_PROGRAM_COMMAND_PATTERN.fullmatch(argument) is None for argument in program_command):
-        raise ValueError("Invalid Wizard program command")
+        raise InvalidWizardProgramCommandError
 
     setup_commands: list[str] = []
     if use_local_wizard_source:
