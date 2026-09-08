@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -171,7 +172,7 @@ export function InsightVizDisplay({
         theme,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
-    const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
+    const { exportContext, queryId, insightDataError } = useValues(insightDataLogic(insightProps))
     const { funnelVizType, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
         useValues(funnelDataLogic(insightProps))
 
@@ -274,6 +275,9 @@ export function InsightVizDisplay({
                 <InsightErrorState
                     query={query}
                     queryId={erroredQueryId}
+                    title={insightDataError?.detail ?? insightDataError?.error ?? null}
+                    titleStatus={insightDataError?.status}
+                    retryAfter={insightDataError instanceof ApiError ? insightDataError.formattedRetryAfter : undefined}
                     onRetry={() => {
                         loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
                     }}

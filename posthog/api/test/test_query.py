@@ -1292,6 +1292,8 @@ class TestQueryRetrieve(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 500)
         self.assertTrue(response.json()["query_status"]["error"])
+        # The worker withheld the raw error, so the client gets a generic message rather than an empty one
+        self.assertTrue(response.json()["query_status"]["error_message"])
 
     def test_failed_query_with_exposed_error(self):
         self.redis_client_mock.get.return_value = json.dumps(
