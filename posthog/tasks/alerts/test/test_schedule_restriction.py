@@ -94,7 +94,7 @@ class TestNextCheckAtAfterScheduleRestrictionChange:
         with freeze_time("2026-04-06T20:00:00Z"):
             alert = self._hourly_alert(
                 schedule_restriction={"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
-                schedule_start_time={"time": "22:30"},
+                schedule_start_time="22:30",
                 next_check_at=None,
             )
             out = next_check_at_after_schedule_restriction_change(alert)

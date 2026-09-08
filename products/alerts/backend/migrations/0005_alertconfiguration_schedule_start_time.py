@@ -10,6 +10,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="alertconfiguration",
             name="schedule_start_time",
-            field=models.JSONField(blank=True, default=None, null=True),
+            field=models.CharField(blank=True, default=None, max_length=5, null=True),
         ),
     ]

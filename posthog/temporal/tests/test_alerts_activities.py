@@ -218,7 +218,7 @@ class TestPrepareAlert:
             ),
             pytest.param(
                 "2024-12-21T08:00:00Z",  # Saturday
-                {"skip_weekend": True, "schedule_start_time": {"time": "08:30"}},
+                {"skip_weekend": True, "schedule_start_time": "08:30"},
                 SkipReason.WEEKEND,
                 True,
                 id="weekend",

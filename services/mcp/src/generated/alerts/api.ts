@@ -137,17 +137,8 @@ export const AlertsCreateBody = () => zod.object({
         ),
     enabled: zod.boolean().optional().describe('Whether the alert is actively being evaluated.'),
     schedule_start_time: zod
-        .union([
-            zod.object({
-                time: zod
-                    .string()
-                    .describe(
-                        'Local project time in HH:MM format. The scheduler uses this time to start the alert cadence.'
-                    ),
-            }),
-            zod.null(),
-        ])
-        .optional()
+        .string()
+        .nullish()
         .describe(
             "Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior."
         ),
@@ -1459,17 +1450,8 @@ export const AlertsPartialUpdateBody = () => zod.object({
         ),
     enabled: zod.boolean().optional().describe('Whether the alert is actively being evaluated.'),
     schedule_start_time: zod
-        .union([
-            zod.object({
-                time: zod
-                    .string()
-                    .describe(
-                        'Local project time in HH:MM format. The scheduler uses this time to start the alert cadence.'
-                    ),
-            }),
-            zod.null(),
-        ])
-        .optional()
+        .string()
+        .nullish()
         .describe(
             "Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior."
         ),

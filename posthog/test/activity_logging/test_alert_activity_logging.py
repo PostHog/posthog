@@ -152,7 +152,7 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
     def test_alert_schedule_start_time_change_is_logged(self):
         alert = self.create_alert_configuration("Alert with schedule start time")
 
-        self.update_alert_configuration(alert["id"], {"schedule_start_time": {"time": "08:02"}})
+        self.update_alert_configuration(alert["id"], {"schedule_start_time": "08:02"})
 
         update_log = (
             ActivityLog.objects.filter(

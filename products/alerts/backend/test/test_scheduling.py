@@ -126,7 +126,7 @@ class TestValidateAndNormalizeScheduleRestriction:
 
 class TestScheduleStartTime:
     def test_accepts_any_valid_minute(self) -> None:
-        assert validate_and_normalize_schedule_start_time({"time": "08:02"}) == {"time": "08:02"}
+        assert validate_and_normalize_schedule_start_time("08:02") == "08:02"
 
     def test_hourly_check_returns_to_the_custom_minute_after_a_quiet_hours_delay(self) -> None:
         assert next_calendar_check_time(
@@ -134,7 +134,7 @@ class TestScheduleStartTime:
             now=datetime(2026, 4, 7, 7, 0, tzinfo=UTC),
             tz_name="UTC",
             next_check_at=datetime(2026, 4, 7, 7, 0, tzinfo=UTC),
-            schedule_start_time={"time": "22:30"},
+            schedule_start_time="22:30",
         ) == datetime(2026, 4, 7, 8, 30, tzinfo=UTC)
 
     def test_hourly_alert_created_after_its_start_time_uses_the_first_future_check(self) -> None:
@@ -143,7 +143,7 @@ class TestScheduleStartTime:
             now=datetime(2026, 4, 6, 23, 50, tzinfo=UTC),
             tz_name="UTC",
             next_check_at=None,
-            schedule_start_time={"time": "09:35"},
+            schedule_start_time="09:35",
         ) == datetime(2026, 4, 7, 0, 35, tzinfo=UTC)
 
     @parameterized.expand(
@@ -165,7 +165,7 @@ class TestScheduleStartTime:
                 now=datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
                 tz_name="UTC",
                 next_check_at=None,
-                schedule_start_time={"time": "09:35"},
+                schedule_start_time="09:35",
             )
             == expected
         )
@@ -222,7 +222,7 @@ class TestScheduleStartTime:
             now=now,
             tz_name="UTC",
             next_check_at=datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
-            schedule_start_time={"time": "09:35"},
+            schedule_start_time="09:35",
         )
         assert result == expected
 

@@ -1210,13 +1210,13 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 "name": "scheduled alert",
                 "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
                 "calculation_interval": calculation_interval,
-                "schedule_start_time": {"time": "09:35"},
+                "schedule_start_time": "09:35",
             },
             format="json",
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.content
-        assert response.json()["schedule_start_time"] == {"time": "09:35"}
+        assert response.json()["schedule_start_time"] == "09:35"
         assert datetime.fromisoformat(
             response.json()["next_check_at"].replace("Z", "+00:00")
         ) == datetime.fromisoformat(expected_next_check_at)
@@ -1250,7 +1250,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 "name": "scheduled alert",
                 "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
                 "calculation_interval": calculation_interval,
-                "schedule_start_time": {"time": "09:30"},
+                "schedule_start_time": "09:30",
             },
             format="json",
         ).json()
@@ -1259,12 +1259,12 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/alerts/{alert['id']}",
-            {"schedule_start_time": {"time": "08:35"}},
+            {"schedule_start_time": "08:35"},
             format="json",
         )
 
         assert response.status_code == status.HTTP_200_OK, response.content
-        assert response.json()["schedule_start_time"] == {"time": "08:35"}
+        assert response.json()["schedule_start_time"] == "08:35"
         assert datetime.fromisoformat(response.json()["next_check_at"].replace("Z", "+00:00")) == scheduled_check
 
     @freeze_time("2026-03-18T09:00:00Z")
@@ -1279,7 +1279,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 "name": "scheduled alert",
                 "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
                 "calculation_interval": "hourly",
-                "schedule_start_time": {"time": "09:30"},
+                "schedule_start_time": "09:30",
             },
             format="json",
         ).json()
@@ -1289,7 +1289,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/alerts/{alert['id']}",
             {
-                "schedule_start_time": {"time": "09:35"},
+                "schedule_start_time": "09:35",
                 "schedule_restriction": {"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
             },
             format="json",

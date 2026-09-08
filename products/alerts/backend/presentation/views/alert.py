@@ -76,7 +76,6 @@ from products.alerts.backend.insight_alert_state_machine import (
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.alerts.backend.presentation.views.alert_schedule_restriction import AlertScheduleRestriction
-from products.alerts.backend.presentation.views.alert_schedule_start_time import AlertScheduleStartTime
 from products.alerts.backend.scheduling import validate_and_normalize_schedule_start_time
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
@@ -207,11 +206,6 @@ class TeamScopedInsightReferenceField(TeamScopedPrimaryKeyRelatedField):
 
 @extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
 class ScheduleRestrictionField(serializers.JSONField):
-    pass
-
-
-@extend_schema_field(AlertScheduleStartTime)  # type: ignore[arg-type]
-class ScheduleStartTimeField(serializers.JSONField):
     pass
 
 
@@ -454,7 +448,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         required=False,
         help_text="How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.",
     )
-    schedule_start_time = ScheduleStartTimeField(
+    schedule_start_time = serializers.CharField(
         required=False,
         allow_null=True,
         help_text="Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior.",
@@ -695,7 +689,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         )
         return instance
 
-    def validate_schedule_start_time(self, value: dict[str, Any] | None) -> dict[str, str] | None:
+    def validate_schedule_start_time(self, value: str | None) -> str | None:
         try:
             return validate_and_normalize_schedule_start_time(value)
         except ValueError:

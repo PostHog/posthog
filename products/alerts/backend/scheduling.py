@@ -154,9 +154,9 @@ def _next_check_at_for_schedule_start_time(
     team_timezone: BaseTzInfo,
     local_now: datetime,
     next_check_at: datetime | None,
-    schedule_start_time: dict[str, str],
+    schedule_start_time: str,
 ) -> datetime:
-    start_minutes = _parse_hhmm(schedule_start_time["time"])
+    start_minutes = _parse_hhmm(schedule_start_time)
     start_hour, start_minute = divmod(start_minutes, 60)
     start_local = local_now.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
     start_utc = _localize_wall_time(team_timezone, start_local.replace(tzinfo=None)).astimezone(UTC)
@@ -235,7 +235,7 @@ def next_calendar_check_time(
     now: datetime,
     tz_name: str,
     next_check_at: datetime | None,
-    schedule_start_time: dict[str, str] | None = None,
+    schedule_start_time: str | None = None,
 ) -> datetime:
     """Nominal next check instant, before quiet-hours snapping.
 
@@ -344,13 +344,12 @@ def _parse_hhmm(value: str) -> int:
     return h * 60 + m
 
 
-def validate_and_normalize_schedule_start_time(raw: Any) -> dict[str, str] | None:
-    if raw is None or raw == {}:
+def validate_and_normalize_schedule_start_time(raw: Any) -> str | None:
+    if raw is None:
         return None
-    if not isinstance(raw, dict) or set(raw) != {"time"}:
-        raise ValueError("schedule_start_time must contain only time")
-    minutes = _parse_hhmm(raw["time"])
-    return {"time": _hhmm(minutes)}
+    if not isinstance(raw, str):
+        raise ValueError("schedule_start_time must be a HH:MM string")
+    return _hhmm(_parse_hhmm(raw))
 
 
 def _parse_window_pair(start_s: str, end_s: str) -> BlockedWindow:
