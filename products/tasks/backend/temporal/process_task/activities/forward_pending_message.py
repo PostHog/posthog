@@ -275,12 +275,8 @@ def _extract_trace_id_from_command_result(command_result_data: Any) -> str | Non
     Absent for a turn that ran without the traceparent hook, and for any agent other
     than Claude, which is what a rating with no ``$ai_trace_id`` then reflects.
     """
-    if not isinstance(command_result_data, dict):
-        return None
-    result = command_result_data.get("result")
-    if not isinstance(result, dict):
-        return None
-    trace_id = result.get("trace_id")
+    result = command_result_data.get("result") if isinstance(command_result_data, dict) else None
+    trace_id = result.get("trace_id") if isinstance(result, dict) else None
     return trace_id if isinstance(trace_id, str) and trace_id else None
 
 
