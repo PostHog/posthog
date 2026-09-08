@@ -609,8 +609,8 @@ export interface sqlEditorLogicValues {
     suggestedSource: 'hogql_fixer' | 'materialization_fix' | 'max_ai' | 'query_history' | null
     suggestionPayload: SuggestionPayload | null
     upstream: {
-        modelId: string
         edges: DataModelingEdge[]
+        modelId: string
         nodes: DataModelingNode[]
     } | null
     upstreamLoadFailed: boolean
@@ -891,6 +891,7 @@ export interface sqlEditorLogicActions {
     loadUpstreamSuccess: (
         upstream: {
             edges: DataModelingEdge[]
+            modelId: string
             nodes: DataModelingNode[]
         },
         payload?: {
@@ -899,6 +900,7 @@ export interface sqlEditorLogicActions {
     ) => {
         upstream: {
             edges: DataModelingEdge[]
+            modelId: string
             nodes: DataModelingNode[]
         }
         payload?: {
