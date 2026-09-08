@@ -27,14 +27,11 @@ export function AccountSidebar({ account }: { account: AccountApi }): JSX.Elemen
     const configLogic = accountSidebarConfigLogic({ projectId: currentProjectId ?? 0 })
     const {
         availableDefinitions,
-        availableDefinitionsLoadFailed,
         canSavePinnedProperties,
         config,
-        configLoadFailed,
         configLoading,
         draftPinnedProperties,
         isConfiguring,
-        resolvedPinnedProperties,
         stalePinnedProperties,
     } = useValues(configLogic)
     const {
@@ -48,8 +45,8 @@ export function AccountSidebar({ account }: { account: AccountApi }): JSX.Elemen
     const propertyLogic = accountSidebarPropertiesLogic({ accountId: account.id, projectId: currentProjectId ?? 0 })
     const {
         sidebarProperties,
-        propertyData,
-        propertyDataLoadFailed,
+        propertiesPanelState,
+        propertiesRefreshFailed,
         propertySaveFailed,
         editingPropertyKey,
         savingPropertyKey,
@@ -58,12 +55,11 @@ export function AccountSidebar({ account }: { account: AccountApi }): JSX.Elemen
     } = useValues(propertyLogic)
     const { loadPropertyData, editProperty, cancelEditing, saveCustomProperty, saveRelationship } =
         useActions(propertyLogic)
-    const hasPinnedProperties = resolvedPinnedProperties.length > 0
-    const loadFailed =
-        configLoadFailed || availableDefinitionsLoadFailed || (hasPinnedProperties && propertyDataLoadFailed)
-    const loading =
-        !loadFailed &&
-        (config === null || availableDefinitions === null || (hasPinnedProperties && propertyData === null))
+    const retryLoad = (): void => {
+        loadConfig()
+        loadAvailableDefinitions()
+        loadPropertyData()
+    }
     const propertyOptions: AccountPropertyOption[] = [
         ...(availableDefinitions?.customProperties ?? []).map((definition) => ({
             key: pinnedPropertyToConfiguratorKey({ kind: 'custom_property', id: definition.id }),
@@ -94,21 +90,11 @@ export function AccountSidebar({ account }: { account: AccountApi }): JSX.Elemen
             </div>
             <LemonDivider className="my-0" />
             <div className="flex flex-col flex-1 min-h-0" data-attr="account-rail-properties">
-                {loading || loadFailed ? (
+                {propertiesPanelState !== 'ready' ? (
                     <div className="flex flex-col gap-3 p-4">
                         <span className="secondary text-secondary">Properties</span>
-                        {loadFailed ? (
-                            <LemonBanner
-                                type="error"
-                                action={{
-                                    children: 'Try again',
-                                    onClick: () => {
-                                        loadConfig()
-                                        loadAvailableDefinitions()
-                                        loadPropertyData()
-                                    },
-                                }}
-                            >
+                        {propertiesPanelState === 'failed' ? (
+                            <LemonBanner type="error" action={{ children: 'Try again', onClick: retryLoad }}>
                                 Couldn't load pinned properties.
                             </LemonBanner>
                         ) : (
@@ -131,6 +117,13 @@ export function AccountSidebar({ account }: { account: AccountApi }): JSX.Elemen
                             <div className="px-4 pt-4">
                                 <LemonBanner type="error">
                                     Couldn't save this property. Review the value and try again.
+                                </LemonBanner>
+                            </div>
+                        ) : null}
+                        {propertiesRefreshFailed ? (
+                            <div className="px-4 pt-4">
+                                <LemonBanner type="warning" action={{ children: 'Try again', onClick: retryLoad }}>
+                                    Couldn't refresh pinned properties. These values might be out of date.
                                 </LemonBanner>
                             </div>
                         ) : null}
