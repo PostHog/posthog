@@ -229,7 +229,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
 
         return []
 
-    def throttled(self, request: Request, wait: float) -> NoReturn:
+    def throttled(self, request: Request, wait: float) -> None:
         # A rejection from DRF's own throttle check returns before the action body, so
         # it counts here. A reservation that raises inside a body counts there instead.
         if self.action == "cloud_run":
@@ -495,18 +495,28 @@ class SetupWizardViewSet(viewsets.ViewSet):
         shown to the user and its `code` naming the outcome.
         """
         # Resolved above the first gate so every refusal names the program.
-        program = request.data.get("program") if isinstance(request.data, dict) else None
+        body = request.data if isinstance(request.data, dict) else {}
+        program = body.get("program")
         product = wizard_product_node(program)
+        reads_reason = bool(body.get("reads_refusal_reason"))
 
         def refuse(outcome: str, exc: exceptions.APIException, *, user: User | None = None) -> NoReturn:
             _refuse_mint(outcome, exc, program=program, product_node=product, user=user, team=team)
 
+        def refuse_absent_gateway(outcome: str, message: str, *, user: User | None = None) -> NoReturn:
+            """Refuse one of the three outcomes the CLI's legacy fallback absorbed.
+
+            A build that still falls back needs the 404 to reach the legacy
+            gateway, which carries its own retirement message; it renders a 403
+            as revoked project access instead. Only a client that says it reads
+            the reason gets one. Drop this once those builds are gone.
+            """
+            exc = exceptions.PermissionDenied(message) if reads_reason else exceptions.NotFound(message)
+            refuse(outcome, exc, user=user)
+
         team: Team | None = None
         if not wizard_gateway_configured():
-            refuse(
-                "unconfigured",
-                exceptions.PermissionDenied("The PostHog AI gateway is not configured on this instance."),
-            )
+            refuse_absent_gateway("unconfigured", "The PostHog AI gateway is not configured on this instance.")
 
         authenticator = OAuthAccessTokenAuthentication()
         # authenticate() raises its own AuthenticationFailed, so the count wraps the
@@ -581,19 +591,15 @@ class SetupWizardViewSet(viewsets.ViewSet):
             logger.warning("wizard_gateway_token: rollout flag unavailable, minting", error=str(e))
             rolled_out = None
         if rolled_out is False:
-            refuse(
-                "not_rolled_out",
-                exceptions.PermissionDenied("Wizard gateway tokens are switched off for this organization."),
-                user=user,
+            refuse_absent_gateway(
+                "not_rolled_out", "Wizard gateway tokens are switched off for this organization.", user=user
             )
 
         # A closed set: refusing keeps every pinned node one that carries a budget.
         # A program this deploy does not list is a stale or unregistered build.
         if product is None:
-            refuse(
-                "program_unknown",
-                exceptions.PermissionDenied("Unrecognized wizard program. Upgrade with: npx @posthog/wizard@latest"),
-                user=user,
+            refuse_absent_gateway(
+                "program_unknown", "Unrecognized wizard program. Upgrade with: npx @posthog/wizard@latest", user=user
             )
         override = wizard_limit_override(
             distinct_id=distinct_id,
