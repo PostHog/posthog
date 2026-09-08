@@ -18,7 +18,7 @@ Use three explicit sources:
 | Source               | Contents                                      | Lifetime                             |
 | -------------------- | --------------------------------------------- | ------------------------------------ |
 | Saved settings       | `persisted_filters` and `persisted_variables` | Persists for every applicable viewer |
-| Initial URL override | `query_filters` and `query_variables`         | Applies to the initial view          |
+| Initial URL override | `query_filters` and `query_variables`         | Applies on load and survives reloads |
 | User draft           | Current filter and variable edits             | Local until save or discard          |
 
 Resolve the current settings in this order:
@@ -84,12 +84,13 @@ Discard behavior:
 - Do not use `saveDashboardFilters` for combined changes.
 - Do not use `saveEditModeChanges` for SQL-variable-only changes.
 - Do not use `DashboardHeaderOverridesBanner` to clear dashboard configuration overrides.
-- For automatic preview, filter and variable controls can update their URL parameters after the draft exists.
+- Filter and variable controls always update their URL parameters after the draft exists.
 - Remove a URL variable when the selected value equals its default.
 - Map action payload field names to URL filter field names explicitly. Date actions use camel case. URL filters use snake case.
-- Above the automatic-preview threshold, Preview updates data without clearing or saving the draft.
+- Above the automatic-preview threshold, Preview updates data without clearing or saving the draft. URL overrides persist the draft across reloads.
+- A successful initial load with URL overrides above the automatic-preview threshold is an active preview.
 - Any later filter or variable edit invalidates the prior Preview result and returns the Preview action to its idle state.
-- Disable the Preview action while its current refresh runs. Do not use a loading spinner for this state.
+- Disable Previewing while the dashboard data shows the current unsaved settings. Do not use a loading spinner for this state.
 
 ## Unified change list
 
@@ -138,7 +139,7 @@ Additional requirements:
 - Show SQL-variable controls before the advanced-options ellipsis.
 - Keep the status visible at narrow dashboard widths.
 - Move actions into a dropdown at the defined narrow container breakpoint.
-- Change Preview to Previewing while the dashboard refresh runs.
+- Change Preview to Previewing while the dashboard data shows the current unsaved settings.
 - Disable Previewing without a spinner.
 - Show save and discard labels that describe dashboard settings changes.
 
@@ -153,12 +154,12 @@ Use one parameterized Kea logic scenario suite for configuration transitions:
 5. Open a URL override view. Confirm the unsaved state. Edit a SQL variable. Confirm one combined draft.
 6. Edit filters and variables from a URL override view. Discard. Confirm that saved state returns.
 7. Edit filters and variables from a URL override view. Save. Confirm that the final state persists.
-8. Above the automatic-preview threshold, preview filters and variables. Confirm that preview changes data only.
+8. Above the automatic-preview threshold, preview filters and variables. Confirm that preview changes data only and URL overrides survive reload.
 9. Check the complete layout independence matrix for save and discard actions.
 10. Save without Preview above the threshold. Confirm that all affected tiles refresh with the saved settings.
 11. Edit a SQL variable during or after Preview. Confirm that Preview returns to its idle, enabled state.
 12. Select a SQL variable default with absent and false `isNull`. Confirm no change row and no URL override.
-13. Set date filters. Confirm that action fields map to the URL and survive reload.
+13. Set every filter type and a SQL variable. Confirm that action fields map to the URL and survive reload.
 
 Use DOM tests only for these visible outcomes:
 
@@ -186,19 +187,19 @@ Also check these separate boundaries:
 Use one local dashboard with at least two working insight tiles and three SQL variables.
 
 1. Set `dashboard-auto-preview-limit` above the insight-tile count. Edit filters and variables. Confirm immediate preview and one draft.
-2. Set the limit at or below the insight-tile count. Edit filters and variables. Confirm that Preview changes data only.
-3. Open with both URL override parameters. Confirm the unsaved state. Make one edit. Confirm one combined draft.
-4. Save combined changes. Confirm both URL parameters clear. Reload and confirm the saved values.
-5. Open with both URL override parameters. Make combined edits. Discard and confirm the original saved values return.
-6. Create both dashboard configuration and layout drafts. Run each save and discard action. Confirm that each draft remains independent.
+2. Set the limit at or below the insight-tile count. Edit filters and variables. Confirm that the URL changes without an automatic preview.
+3. Reload the URL override view. Confirm that the dashboard data uses the overrides and the status shows Previewing.
+4. Select Preview. Confirm that Preview updates data without saving the draft.
+5. Save combined changes. Confirm both URL parameters clear. Reload and confirm the saved values.
+6. Open with both URL override parameters. Make combined edits. Discard and confirm the original saved values return.
+7. Create both dashboard configuration and layout drafts. Run each save and discard action. Confirm that each draft remains independent.
 
 ## Storybook coverage
 
 - Keep dashboard stories under `products/dashboards/frontend`, not `scenes`.
-- Keep the existing filter variants focused on the visible change list.
-- Show up to five different filter changes, including breakdown and date range.
-- Do not add variants for URL overrides or layout editing with unsaved filters.
-- Do not add a SQL-variable-order variant.
+- Keep one main filter-bar story with controls for saved and unsaved state, read-only access, narrow width, filter changes, and URL overrides.
+- Include date, properties, breakdown, interval, test-account, and SQL-variable changes in both change controls.
+- Keep one separate story for the unsaved-changes popover.
 - Do not create a dashboard filter-bar story for embedded context when the embedding surface owns that context.
 
 ## Source files
