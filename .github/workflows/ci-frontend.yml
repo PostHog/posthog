@@ -1198,7 +1198,16 @@ jobs:
                       }
 
     frontend_tests:
-        needs: [jest, jest-replay-shared, frontend-format, frontend-bundle-size, frontend-typescript-checks]
+        needs:
+            [
+                changes,
+                select-jest-tests,
+                jest,
+                jest-replay-shared,
+                frontend-format,
+                frontend-bundle-size,
+                frontend-typescript-checks,
+            ]
         name: Frontend Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -1207,6 +1216,16 @@ jobs:
             - run: exit 0
             - name: Check outcomes
               run: |
+                  # Change detection and jest selection gate every job below. A failure in either
+                  # skips those jobs, and this gate reads a skip as a pass, so test both directly.
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.select-jest-tests.result }}" != "success" && "${{ needs.select-jest-tests.result }}" != "skipped" ]]; then
+                    echo "Jest test selection did not succeed (result: ${{ needs.select-jest-tests.result }})."
+                    exit 1
+                  fi
                   if [[ "${{ needs.jest.result }}" != "success" && "${{ needs.jest.result }}" != "skipped" ]]; then
                     echo "Frontend jest tests failed."
                     exit 1

@@ -140,9 +140,10 @@ Four rules for the gate body:
 1. **Allowlist every dependency, never denylist.** Assert `success`/`skipped` and fail everything else.
    A dependency tested only against `== 'failure'` lets `cancelled` through, and one bad dependency is enough — a gate that clears four correctly and one with a bare `failure` test is still wrong.
    The trap is the `changes` detector: clearing it with `== 'failure'` and then reading `needs.changes.outputs.*` reports green on cancellation, because those outputs are empty and the gate takes its "nothing to test" exit.
-2. **`needs` every job that produces coverage.**
+2. **`needs` every job that produces coverage, and everything those jobs need.**
    If a job's failure would only cascade into a downstream job being _skipped_, the gate reads that as a pass and you get a green check with zero tests run.
-   Name the upstream job explicitly.
+   The usual shape is a `changes` detector or a test selector one step above the suite: it fails, the suite skips, and the gate reports success having run nothing ([measured on ci-nodejs](https://github.com/PostHog/posthog/actions/runs/32472790735)).
+   Name every job the dependencies reach, not only the direct ones.
 3. **Legitimate skips must still pass.** A frontend-only PR skips backend jobs by design.
 4. **Every dependency's result must reach a fail-closed allowlist guard.**
    One inline `if` per dependency is the clearest form, but a shared shell helper or an `env:` block is equally fine: `WF007` traces each result through assignments, `${!var}` indirection, and helper argument positions within that step.
@@ -150,8 +151,9 @@ Four rules for the gate body:
    Comparisons in another step, comments, logs, or branches that do not exit nonzero prove nothing and are rejected.
    A result whose guard `WF007` cannot follow is reported rather than assumed safe, so an unusual routing may need the checks moved inline.
 
-`WF007` enforces 1, 4, and the `!cancelled()` condition, and it takes the dependency list from `needs:` as well as the step body, so a job you wired into `needs:` and then forgot to test is reported rather than silently trusted.
-The half of rule 2 it cannot check is whether you named the right jobs in `needs:` to begin with: "reporting job" and "coverage job" look identical to a linter, so that one is on you and the reviewer.
+`WF007` enforces 1, 2, 4, and the `!cancelled()` condition, and it takes the dependency list from `needs:` as well as the step body, so a job you wired into `needs:` and then forgot to test is reported rather than silently trusted.
+For rule 2 it walks the `needs:` graph above each dependency and reports any job the gate does not test, which is the half a linter can see.
+The half it cannot see is a coverage job with no `needs:` edge into the gate at all: "reporting job" and "coverage job" look identical from outside the graph, so that one is on you and the reviewer.
 
 ### What GitHub does with each conclusion
 

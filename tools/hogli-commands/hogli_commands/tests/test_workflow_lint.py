@@ -1419,6 +1419,44 @@ def _nested_allow_marker_gate() -> str:
     )
 
 
+_CHAIN_GUARD = """
+    if [[ "${{ needs.DEP.result }}" != "success" && "${{ needs.DEP.result }}" != "skipped" ]]; then
+      exit 1
+    fi
+"""
+
+
+def _chained_gate(*dependencies: str) -> str:
+    """A gate over `build`, which itself needs `detect`.
+
+    GitHub skips `build` when `detect` fails, and the gate reads that skip as a
+    pass, so `detect` has to be a dependency of the gate too.
+    """
+    body = "".join(_CHAIN_GUARD.replace("DEP", dep) for dep in dependencies)
+    return f"""
+    name: ci-thing
+    on: pull_request
+    jobs:
+      detect:
+        timeout-minutes: 5
+        steps:
+          - run: echo detect
+      build:
+        needs: [detect]
+        timeout-minutes: 5
+        steps:
+          - run: echo build
+      thing_tests:
+        name: Thing Tests Pass
+        needs: [{", ".join(dependencies)}]
+        timeout-minutes: 5
+        if: ${{{{ !cancelled() }}}}
+        steps:
+          - run: |
+{textwrap.indent(textwrap.dedent(body).strip(), " " * 14)}
+"""
+
+
 class TestRequiredGateCheck:
     @pytest.mark.parametrize(
         "content",
@@ -1522,6 +1560,19 @@ class TestRequiredGateCheck:
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
         assert [i.message.split("'")[1] for i in issues] == ["lint"]
         assert "never reaches" in issues[0].message
+
+    @pytest.mark.parametrize(
+        "dependencies,expected_missing",
+        [(("build",), ["detect"]), (("detect", "build"), [])],
+        ids=["upstream-of-a-dependency-unnamed", "whole-chain-named"],
+    )
+    def test_flags_upstream_of_a_dependency_that_the_gate_never_tests(
+        self, tmp_path: Path, dependencies: tuple[str, ...], expected_missing: list[str]
+    ) -> None:
+        _write(tmp_path, "ci-thing.yml", _chained_gate(*dependencies))
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert [i.message.split("'")[1] for i in issues] == expected_missing
+        assert all("is not a dependency of this gate" in i.message for i in issues)
 
     def test_ignores_non_gate_jobs(self, tmp_path: Path) -> None:
         # Worker jobs share the !cancelled() condition, but they gate nothing,

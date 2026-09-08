@@ -1035,7 +1035,7 @@ jobs:
 
     node_tests:
         # report-test-speed is deliberately not in needs: it is visible but non-gating.
-        needs: [tests, rust_ingestion_e2e, build, lint]
+        needs: [changes, tests, rust_ingestion_e2e, build, lint]
         name: Node.js Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -1044,6 +1044,12 @@ jobs:
             - run: exit 0
             - name: Check outcomes
               run: |
+                  # Change detection gates every job below. A failure there skips them all, and
+                  # this gate reads a skip as a pass, so test its result directly.
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
+                    exit 1
+                  fi
                   if [[ "${{ needs.tests.result }}" != "success" && "${{ needs.tests.result }}" != "skipped" ]]; then
                     echo "One or more jobs in the Node.js test matrix failed."
                     exit 1

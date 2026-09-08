@@ -1333,7 +1333,7 @@ jobs:
 
     # Collate test + VR completion status for the required check
     playwright_tests:
-        needs: [playwright, vr-complete]
+        needs: [changes, select-specs, playwright, vr-complete]
         name: Playwright tests pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -1341,6 +1341,16 @@ jobs:
         steps:
             - name: Check outcome
               run: |
+                  # Change detection and spec selection gate the playwright job. A failure in
+                  # either skips it, and this gate reads a skip as a pass, so test both directly.
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.select-specs.result }}" != "success" && "${{ needs.select-specs.result }}" != "skipped" ]]; then
+                    echo "Spec selection did not succeed (result: ${{ needs.select-specs.result }})."
+                    exit 1
+                  fi
                   if [[ "${{ needs.playwright.result }}" != "success" && "${{ needs.playwright.result }}" != "skipped" ]]; then
                     echo "Playwright tests failed."
                     exit 1

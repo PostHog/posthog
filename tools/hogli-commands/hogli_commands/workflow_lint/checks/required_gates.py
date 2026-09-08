@@ -1,7 +1,7 @@
 """Collate gates must run on every completed run and fail closed on every dependency.
 
 A "collate gate" is the job that emits a required status check by inspecting its
-dependencies' ``needs.*.result``. Two properties keep it honest:
+dependencies' ``needs.*.result``. Three properties keep it honest:
 
 1. ``if: !cancelled()`` — the gate must emit an explicit verdict on every run that
    is not superseded. On a cancelled run a ``!cancelled()`` job records conclusion
@@ -22,6 +22,13 @@ dependencies' ``needs.*.result``. Two properties keep it honest:
    cleared with a bare ``== 'failure'`` test: ``cancelled`` passes it, the gate
    then reads ``needs.changes.outputs.*``, which is empty on a cancelled job, and
    takes its "nothing to test" exit — green, with zero tests run.
+
+3. ``needs`` closed under the dependency graph — the gate must name every job its
+   dependencies reach, not only the ones it needs directly. GitHub skips a job when a
+   job in its ``needs:`` fails, and the gate reads a skip as a pass. So a detector or
+   selector one step further up produces a green check with zero tests behind it when
+   it fails. Measured on ci-nodejs in run 32472790735: change detection failed, every
+   Node.js job skipped, and "Node.js Tests Pass" reported success.
 
 Gates are found two ways, because the "name it ``… Pass``" convention is not
 universally followed: by that name, and structurally when a step reads
@@ -363,6 +370,13 @@ def _reachable(start: str, edges: dict[str, set[str]]) -> Iterable[str]:
                 queue.append(nxt)
 
 
+def _declared_needs(job: Job) -> set[str]:
+    """The job ids in ``needs:``, whether written as one string or a list."""
+    declared = job.raw.get("needs") or []
+    declared = [declared] if isinstance(declared, str) else declared
+    return {dep for dep in declared if isinstance(dep, str)}
+
+
 def _dependencies(job: Job) -> set[str]:
     """Every dependency the gate is answerable for.
 
@@ -371,14 +385,31 @@ def _dependencies(job: Job) -> set[str]:
     reading only the body would judge the assertions that were written and stay
     silent about the one that was forgotten.
     """
-    declared = job.raw.get("needs") or []
-    declared = [declared] if isinstance(declared, str) else declared
-    named = {dep for dep in declared if isinstance(dep, str)}
     referenced = {dep for source in _result_sources(job) for dep in READS_RESULT.findall(source)}
-    return named | referenced
+    return _declared_needs(job) | referenced
 
 
-def _problems(job: Job) -> Iterator[str]:
+def _upstream_gaps(job: Job, jobs: dict[str, Job]) -> Iterator[str]:
+    """Jobs the gate's dependencies need, that the gate itself never tests.
+
+    GitHub skips a job when a job in its ``needs:`` fails, and the gate reads a
+    skip as a pass. A failure one step further up the graph therefore arrives at
+    the gate as a green verdict with no tests behind it. Only a closed set fixes
+    this: the gate must name every job its dependencies reach, so an upstream
+    failure meets a guard instead of disappearing into a skip.
+    """
+    needs_graph = {name: _declared_needs(other) & jobs.keys() for name, other in jobs.items()}
+    dependencies = _dependencies(job) & jobs.keys()
+    reached = {upstream for dep in dependencies for upstream in _reachable(dep, needs_graph)}
+    for missing in sorted(reached - dependencies):
+        yield (
+            f"upstream '{missing}' is not a dependency of this gate. A failure there skips the jobs "
+            f"that need it, and the gate reads those skips as a pass. Add '{missing}' to `needs:` "
+            "and test its result"
+        )
+
+
+def _problems(job: Job, jobs: dict[str, Job]) -> Iterator[str]:
     if not _gate_condition_ok(job.raw.get("if")):
         yield (
             "required-check gate must use `if: ${{ !cancelled() }}` so it emits a verdict on every "
@@ -396,6 +427,8 @@ def _problems(job: Job) -> Iterator[str]:
                 f'cancelled \'{dep}\'. Test `!= "success" && != "skipped"`, then exit nonzero'
             )
 
+    yield from _upstream_gaps(job, jobs)
+
 
 class RequiredGateCheck(WorkflowCheck):
     id = "WF007-required-check-gates"
@@ -409,7 +442,8 @@ class RequiredGateCheck(WorkflowCheck):
             "`&&`-ing it, and test every dependency as "
             '`!= "success" && != "skipped"` rather than `== "failure"`. Inline tests, an `env:` '
             "block and a shared shell helper all work, so long as the failing branch exits nonzero. "
-            "A job that reads results without gating anything opts out with "
+            "`needs:` every job your dependencies need, so an upstream failure meets a guard "
+            "instead of a skip. A job that reads results without gating anything opts out with "
             f"`# {ALLOW_MARKER} — <reason>`. See .agents/skills/authoring-ci-workflows/SKILL.md."
         )
 
@@ -421,9 +455,10 @@ class RequiredGateCheck(WorkflowCheck):
                 continue
             # Only worth re-reading the file once we know there's a gate to exempt.
             exempt = _exempt_jobs(wf.path, frozenset(job.name for job in wf.jobs))
+            jobs = {job.name: job for job in wf.jobs}
             for job in gates:
                 if job.name in exempt:
                     continue
-                for message in _problems(job):
+                for message in _problems(job, jobs):
                     result.issues.append(Issue(workflow=wf.path.name, job=job.name, message=message, file=str(wf.path)))
         return result
