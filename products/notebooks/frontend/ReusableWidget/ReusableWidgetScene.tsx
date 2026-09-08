@@ -1,6 +1,14 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonDialog, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDialog,
+    LemonLabel,
+    LemonSelect,
+    LemonTag,
+    LemonTextArea,
+} from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -19,6 +27,7 @@ import {
     notebookWidgetTrustLogic,
 } from '../NotebookNodeGeneratedWidget/notebookWidgetTrustLogic'
 import { WidgetArtifactFrame } from '../NotebookNodeGeneratedWidget/WidgetArtifactFrame'
+import { WIDGET_MODEL_OPTIONS } from '../NotebookNodeGeneratedWidget/widgetModels'
 import { ReusableWidgetLogicProps, reusableWidgetLogic } from './reusableWidgetLogic'
 import { ReusableWidgetSourceModal } from './ReusableWidgetSourceModal'
 
@@ -42,6 +51,7 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
         runtimeError,
         updateError,
         updateInFlight,
+        updateModel,
         updateOperation,
     } = useValues(logic)
     const {
@@ -52,6 +62,7 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
         saveVersion,
         setChangePrompt,
         setRuntimeError,
+        setUpdateModel,
         updateReusableWidget,
     } = useActions(logic)
     const { sessionBuildHashes, trustByUser } = useValues(trustLogic)
@@ -210,6 +221,19 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
                                     className="ph-no-capture"
                                     disabled={updateInFlight}
                                 />
+                                <div>
+                                    <LemonLabel htmlFor={`reusable-widget-model-${widgetId}`}>Model</LemonLabel>
+                                    <LemonSelect
+                                        id={`reusable-widget-model-${widgetId}`}
+                                        value={updateModel}
+                                        options={WIDGET_MODEL_OPTIONS}
+                                        onChange={setUpdateModel}
+                                        disabled={updateInFlight}
+                                        fullWidth
+                                        className="mt-1"
+                                        data-attr="reusable-widget-model"
+                                    />
+                                </div>
                                 <div className="flex flex-wrap items-center gap-2">
                                     <LemonButton
                                         type="primary"

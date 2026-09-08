@@ -30,7 +30,7 @@ Newly generated widgets and reusable placements follow the latest version by def
 
 Improving or regenerating a reusable widget creates a draft instead of changing the published version. Review the draft's runnable demo, input contract, security review, and source on the catalog detail page. **View source** shows the draft's source while a draft is awaiting review; otherwise, it shows the published source. **Save version** publishes it for unpinned placements, while **Discard draft** leaves the published version unchanged.
 
-On wide detail pages, the controls sit beside the preview in a one-third/two-thirds layout. Narrow pages stack them. Drag the preview's bottom-right corner to increase its height. **Improve** and **Regenerate** share an update lock; only the selected action shows a spinner while the other is disabled.
+On wide detail pages, the controls sit beside the preview in a one-third/two-thirds layout. Narrow pages stack them. Drag the preview's bottom-right corner to increase its height. Choose a **Model** in the update form for either **Improve** or **Regenerate**; it defaults to the published version's model. Both actions share an update lock; only the selected action shows a spinner while the other action and model selector are disabled.
 
 `<Widget>` nodes use a stable notebook `nodeId` and an optional `version`. Reusable placements also store the catalog `id` and notebook-local `inputs`. The server remains the source of truth for the placement and its bindings. A binding maps each logical contract slot to a local SQL or Python dataframe, so two instances of the same reusable widget can use different notebook data.
 

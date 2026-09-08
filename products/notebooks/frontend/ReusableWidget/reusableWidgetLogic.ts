@@ -15,7 +15,7 @@ import {
 } from 'products/notebooks/frontend/generated/api'
 import type { ReusableWidgetDetailApi } from 'products/notebooks/frontend/generated/api.schemas'
 
-import { DEFAULT_WIDGET_MODEL, isWidgetModel } from '../NotebookNodeGeneratedWidget/widgetModels'
+import { DEFAULT_WIDGET_MODEL, isWidgetModel, WidgetModel } from '../NotebookNodeGeneratedWidget/widgetModels'
 
 export type ReusableWidgetLogicProps = {
     widgetId: string
@@ -25,6 +25,7 @@ export interface reusableWidgetLogicValues {
     artifactUnavailable: boolean
     changePrompt: string
     currentTeamId: number | null
+    modelOverride: WidgetModel | null
     reusableWidget: ReusableWidgetDetailApi | null
     reusableWidgetError: string | null
     reusableWidgetLoading: boolean
@@ -38,6 +39,7 @@ export interface reusableWidgetLogicValues {
     sourceModalOpen: boolean
     updateError: string | null
     updateInFlight: boolean
+    updateModel: WidgetModel
     updateOperation: 'improve' | 'regenerate' | null
 }
 
@@ -69,6 +71,7 @@ export interface reusableWidgetLogicActions {
         payload?: { value: true }
     ) => { reviewResult: ReusableWidgetDetailApi; payload?: { value: true } }
     setChangePrompt: (prompt: string) => { prompt: string }
+    setUpdateModel: (model: WidgetModel) => { model: WidgetModel }
     updateFailed: (error: string) => { error: string }
     updateFinished: () => { value: true }
     updateReusableWidget: (operation?: 'improve' | 'regenerate') => { operation: 'improve' | 'regenerate' }
@@ -97,6 +100,7 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
         openSourceModal: true,
         pollUpdate: true,
         setChangePrompt: (prompt: string) => ({ prompt }),
+        setUpdateModel: (model: WidgetModel) => ({ model }),
         setRuntimeError: (error: string | null) => ({ error }),
         updateFailed: (error: string) => ({ error }),
         updateFinished: true,
@@ -113,6 +117,7 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
             },
         ],
         changePrompt: ['', { setChangePrompt: (_, { prompt }) => prompt, updateFinished: () => '' }],
+        modelOverride: [null as WidgetModel | null, { setUpdateModel: (_, { model }) => model }],
         reusableWidgetError: [
             null as string | null,
             {
@@ -209,6 +214,14 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
     })),
     selectors({
         updateInFlight: [(s) => [s.updateOperation], (operation): boolean => operation !== null],
+        updateModel: [
+            (s) => [s.modelOverride, s.reusableWidget],
+            (modelOverride, reusableWidget): WidgetModel =>
+                modelOverride ??
+                (isWidgetModel(reusableWidget?.current_version.model)
+                    ? reusableWidget.current_version.model
+                    : DEFAULT_WIDGET_MODEL),
+        ],
     }),
     listeners(({ actions, cache, props, values }) => ({
         openSourceModal: actions.loadSource,
@@ -238,9 +251,7 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
                 await reusableWidgetsGenerate(String(values.currentTeamId), props.widgetId, {
                     prompt,
                     generation_id: uuidv4(),
-                    model: isWidgetModel(values.reusableWidget.current_version.model)
-                        ? values.reusableWidget.current_version.model
-                        : DEFAULT_WIDGET_MODEL,
+                    model: values.updateModel,
                     generation_operation: operation,
                     expected_current_version_id: values.reusableWidget.current_version.id,
                 })
