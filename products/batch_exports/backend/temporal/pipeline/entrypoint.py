@@ -237,7 +237,7 @@ async def execute_batch_export_using_internal_stage(
     maximum_stage_retry_interval_seconds: int = DEFAULT_MAX_STAGE_RETRY_INTERVAL_SECONDS,
     override_start_to_close_timeout_seconds: int | None = None,
     is_workflows: bool = False,
-) -> BatchExportResultType | BatchExportResult:
+) -> BatchExportResult:
     """Run one batch export: stage its data, write it to the destination, record how it went.
 
     All batch exports boil down to inserting some data somewhere, and they all follow the same error
