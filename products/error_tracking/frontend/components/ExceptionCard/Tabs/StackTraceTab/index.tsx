@@ -34,7 +34,7 @@ export function StackTraceTab({ className, renderActions, ...props }: StackTrace
                 </div>
                 {renderActions?.()}
             </SubHeader>
-            {releaseIdMissingFromSDK && !loading && <MissingReleaseIdBanner />}
+            {releaseIdMissingFromSDK && !loading && <MissingReleaseIdBanner runtime={exceptionAttributes?.runtime} />}
             <div className="flex-1 min-h-0 overflow-y-auto">
                 <StacktraceIssueDisplay className="p-2" />
             </div>

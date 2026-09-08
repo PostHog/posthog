@@ -23,5 +23,5 @@ const meta: Meta = {
 export default meta
 
 export function Default(): JSX.Element {
-    return <MissingReleaseIdBanner />
+    return <MissingReleaseIdBanner runtime="web" />
 }

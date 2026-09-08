@@ -1,19 +1,33 @@
+import { useActions } from 'kea'
+
 import { LemonBanner } from '@posthog/lemon-ui'
 
-export function MissingReleaseIdBanner(): JSX.Element {
+import { ErrorTrackingRuntime } from 'lib/components/Errors/types'
+
+import { MissingReleaseIdModal } from './MissingReleaseIdModal'
+import { missingReleaseIdModalLogic } from './missingReleaseIdModalLogic'
+
+export interface MissingReleaseIdBannerProps {
+    runtime?: ErrorTrackingRuntime
+}
+
+export function MissingReleaseIdBanner({ runtime }: MissingReleaseIdBannerProps): JSX.Element {
+    const { openModal } = useActions(missingReleaseIdModalLogic)
+
     return (
-        <LemonBanner
-            type="warning"
-            action={{
-                to: 'https://posthog.com/docs/error-tracking/upload-source-maps',
-                targetBlank: true,
-                children: 'Read more',
-                'data-attr': 'error-tracking-missing-release-id-docs',
-            }}
-            className="m-2"
-        >
-            This exception has no release attached. Your symbol sets were uploaded without one, so the release has to
-            come from the SDK. This event did not report it. Update your PostHog SDK package to the latest version.
-        </LemonBanner>
+        <>
+            <LemonBanner
+                type="warning"
+                action={{
+                    onClick: openModal,
+                    children: 'Read more',
+                    'data-attr': 'error-tracking-missing-release-id-read-more',
+                }}
+                className="m-2"
+            >
+                This exception has no release attached. Please update your PostHog SDK to the latest version.
+            </LemonBanner>
+            <MissingReleaseIdModal runtime={runtime} />
+        </>
     )
 }
