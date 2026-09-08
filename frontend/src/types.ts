@@ -7853,6 +7853,11 @@ export interface FeaturePreviewGateConfig {
      * feature previews page.
      */
     offerRequestAccess?: boolean
+    /**
+     * Product intent recorded when a user joins the waitlist from the gate, so waitlist sign-ups
+     * count as product intent the same way opting in from the feature previews page does.
+     */
+    productIntent?: ProductKey
 }
 
 export interface ProductManifest {
