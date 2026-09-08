@@ -1,9 +1,9 @@
-import { type ReactNode, type RefObject, useRef } from 'react'
+import { type ReactNode, type RefObject, useLayoutEffect, useRef } from 'react'
 
 import { useEventListener } from 'lib/hooks/useEventListener'
 import posthog from 'lib/posthog-typed'
 
-// The optimistic and attached views remount; keep body-focus ownership through that swap.
+// The optimistic and attached views remount; keep ancestor-focus ownership through that swap.
 const lastChatFocus = new WeakMap<Document, { key: string; ownsFocus: boolean }>()
 
 function isVisible(element: Element | null): boolean {
@@ -35,17 +35,21 @@ export function RunEscapeBoundary({
     children,
 }: RunEscapeBoundaryProps): JSX.Element {
     const containerRef = useRef<HTMLDivElement>(null)
-    const previousFocus = lastChatFocus.get(document)
-    const ownsBodyFocus = useRef(
-        scope === 'chat' &&
+    const ownsAncestorFocus = useRef(false)
+
+    useLayoutEffect(() => {
+        // The submitted composer must unmount before we inspect where its focus landed.
+        const previousFocus = lastChatFocus.get(document)
+        ownsAncestorFocus.current =
+            scope === 'chat' &&
             document.activeElement === document.body &&
             (!focusKey || previousFocus?.key !== focusKey || previousFocus.ownsFocus)
-    )
+    }, [focusKey, scope])
 
     const recordFocus = (target: EventTarget | null): void => {
-        ownsBodyFocus.current = target instanceof Node && !!containerRef.current?.contains(target)
+        ownsAncestorFocus.current = target instanceof Node && !!containerRef.current?.contains(target)
         if (focusKey && scope === 'chat') {
-            lastChatFocus.set(document, { key: focusKey, ownsFocus: ownsBodyFocus.current })
+            lastChatFocus.set(document, { key: focusKey, ownsFocus: ownsAncestorFocus.current })
         }
     }
 
@@ -53,7 +57,8 @@ export function RunEscapeBoundary({
         recordFocus(event.target)
     })
     useEventListener('focusin', (event) => {
-        if (event.target !== document.body) {
+        // Clicking noninteractive transcript text can focus a tabindex ancestor outside this boundary.
+        if (event.target instanceof Node && !event.target.contains(containerRef.current)) {
             recordFocus(event.target)
         }
     })
@@ -89,7 +94,7 @@ export function RunEscapeBoundary({
                 )) ||
             (scope === 'composer'
                 ? !composerFocused && !approvalFocused
-                : !container.contains(target) && !(target === document.body && ownsBodyFocus.current))
+                : !container.contains(target) && !(target.contains(container) && ownsAncestorFocus.current))
         ) {
             return
         }

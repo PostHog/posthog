@@ -63,28 +63,49 @@ describe('RunEscapeBoundary', () => {
         )
     })
 
-    it('retains main chat ownership while reading, and relinquishes it on another panel interaction', () => {
-        const main = jest.fn()
-        const sidebar = jest.fn()
-        render(
-            <>
-                <RunEscapeBoundary scope="chat" onEscape={main}>
-                    <p>Main message</p>
-                </RunEscapeBoundary>
-                <RunEscapeBoundary scope="composer" onEscape={sidebar}>
-                    <p>Sidebar message</p>
-                </RunEscapeBoundary>
-            </>
+    it('handles Escape after the focused new-task composer is replaced by startup', () => {
+        const onEscape = jest.fn()
+        const { rerender } = render(<textarea data-attr="new-task-composer" />)
+        screen.getByTestId('new-task-composer').focus()
+
+        rerender(
+            <RunEscapeBoundary scope="chat" focusKey="startup" onEscape={onEscape}>
+                <p>Starting task</p>
+            </RunEscapeBoundary>
         )
-        fireEvent.pointerDown(screen.getByText('Main message'))
+        expect(document.activeElement).toBe(document.body)
         fireEvent.keyDown(document.body, { key: 'Escape' })
-        expect(main).toHaveBeenCalledTimes(1)
-        fireEvent.pointerDown(screen.getByText('Sidebar message'))
-        fireEvent.keyDown(document.body, { key: 'Escape' })
-        expect(main).toHaveBeenCalledTimes(1)
-        expect(sidebar).not.toHaveBeenCalled()
-        expect(posthog.capture).toHaveBeenCalledTimes(1)
+        expect(onEscape).toHaveBeenCalledTimes(1)
     })
+
+    it.each(['body', 'main'])(
+        'retains main chat ownership while reading with %s focus, and relinquishes it on another panel interaction',
+        (focusTarget) => {
+            const main = jest.fn()
+            const sidebar = jest.fn()
+            render(
+                <main tabIndex={-1} data-attr="page">
+                    <RunEscapeBoundary scope="chat" onEscape={main}>
+                        <p>Main message</p>
+                    </RunEscapeBoundary>
+                    <RunEscapeBoundary scope="composer" onEscape={sidebar}>
+                        <p>Sidebar message</p>
+                    </RunEscapeBoundary>
+                </main>
+            )
+            const target = focusTarget === 'main' ? screen.getByTestId('page') : document.body
+            fireEvent.pointerDown(screen.getByText('Main message'))
+            target.focus()
+            fireEvent.keyDown(target, { key: 'Escape' })
+            expect(main).toHaveBeenCalledTimes(1)
+            fireEvent.pointerDown(screen.getByText('Sidebar message'))
+            target.focus()
+            fireEvent.keyDown(target, { key: 'Escape' })
+            expect(main).toHaveBeenCalledTimes(1)
+            expect(sidebar).not.toHaveBeenCalled()
+            expect(posthog.capture).toHaveBeenCalledTimes(1)
+        }
+    )
 
     it.each([false, true])(
         'preserves focus ownership through attachment after another panel interaction=%s',
