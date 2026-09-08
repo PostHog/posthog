@@ -1,4 +1,8 @@
+import pytest
 from unittest import mock
+
+from structlog.processors import EventRenamer
+from structlog.testing import capture_logs
 
 from posthog.exceptions_capture import (
     ambient_exception_properties,
@@ -44,3 +48,24 @@ def test_bind_exception_context_is_fire_and_forget_within_scope():
         bind_exception_context(k="v")
         assert ambient_exception_properties()["k"] == "v"
     assert "k" not in ambient_exception_properties()
+
+
+@pytest.mark.parametrize("api_key,capture_uuid", [("phc_test", "uuid-1"), (None, None)])
+def test_capture_exception_without_error_survives_the_temporal_log_chain(api_key, capture_uuid):
+    # The temporal log chain renames `event` to `msg`, so a missing `event` key raises KeyError
+    # and hides the real exception. A bare capture_exception() must still log a string event.
+    with (
+        capture_logs(processors=[EventRenamer("msg")]) as records,
+        mock.patch("posthog.clickhouse.query_tagging.get_query_tags") as mock_tags,
+        mock.patch("posthoganalytics.api_key", api_key),
+        mock.patch("posthoganalytics.capture_exception", return_value=capture_uuid),
+    ):
+        mock_tags.return_value.model_dump.return_value = {}
+        try:
+            raise ValueError("boom")
+        except Exception:
+            capture_exception(additional_properties={"ticket_id": "t1"})
+
+    assert len(records) == 1
+    assert isinstance(records[0]["msg"], str) and records[0]["msg"]
+    assert records[0]["exc_info"] is True
