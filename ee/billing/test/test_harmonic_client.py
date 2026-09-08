@@ -1,4 +1,6 @@
 import asyncio
+from collections.abc import Callable
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -27,7 +29,7 @@ _REAL_SLEEP = asyncio.sleep
 
 
 # Bypasses the real thread pool so pacing stays single-threaded and deterministic under test.
-async def _fake_to_thread(func, *args, **kwargs):
+async def _fake_to_thread(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
     return func(*args, **kwargs)
 
 
@@ -361,7 +363,18 @@ async def test_enrich_companies_batch_starts_the_next_lookup_as_soon_as_any_slot
 
     domains = [f"d{i}.com" for i in range(_ENRICH_MAX_CONCURRENT_LOOKUPS + 1)]
 
-    async def request(session, method, url, *, source, priority, endpoint, headers, json, **kwargs):
+    async def request(
+        session: Any,
+        method: str,
+        url: str,
+        *,
+        source: str,
+        priority: Priority,
+        endpoint: str,
+        headers: dict[str, str],
+        json: dict[str, Any],
+        **kwargs: Any,
+    ) -> MagicMock:
         website_url = json["variables"]["identifiers"]["websiteUrl"]
         bare_domain = website_url.removeprefix("https://").removeprefix("www.")
         started_domains.append(bare_domain)
@@ -394,7 +407,18 @@ async def test_enrich_companies_batch_starts_the_next_lookup_as_soon_as_any_slot
 async def test_enrich_companies_batch_retries_a_denied_domain_in_a_later_attempt(mock_sleep, mock_pace):
     deny_count = {"c.com": 0}
 
-    async def request(session, method, url, *, source, priority, endpoint, headers, json, **kwargs):
+    async def request(
+        session: Any,
+        method: str,
+        url: str,
+        *,
+        source: str,
+        priority: Priority,
+        endpoint: str,
+        headers: dict[str, str],
+        json: dict[str, Any],
+        **kwargs: Any,
+    ) -> MagicMock:
         website_url = json["variables"]["identifiers"]["websiteUrl"]
         bare_domain = website_url.removeprefix("https://").removeprefix("www.")
         if bare_domain == "c.com" and deny_count["c.com"] < 2:
@@ -421,7 +445,18 @@ async def test_enrich_companies_batch_retries_a_denied_domain_in_a_later_attempt
 async def test_enrich_companies_batch_reports_denied_forever_distinctly_from_a_not_found(
     mock_capture, mock_sleep, mock_pace
 ):
-    async def request(session, method, url, *, source, priority, endpoint, headers, json, **kwargs):
+    async def request(
+        session: Any,
+        method: str,
+        url: str,
+        *,
+        source: str,
+        priority: Priority,
+        endpoint: str,
+        headers: dict[str, str],
+        json: dict[str, Any],
+        **kwargs: Any,
+    ) -> MagicMock:
         website_url = json["variables"]["identifiers"]["websiteUrl"]
         bare_domain = website_url.removeprefix("https://").removeprefix("www.")
         if bare_domain == "denied.com":
@@ -485,7 +520,7 @@ async def test_enrich_companies_batch_skips_pacing_for_critical_priority(mock_sl
 @patch(ASYNCIO_SLEEP, new_callable=AsyncMock)
 @patch("ee.billing.salesforce_enrichment.harmonic_client.capture_exception")
 async def test_enrich_companies_batch_names_the_domain_of_an_operational_failure(mock_capture, mock_sleep, mock_pace):
-    async def request(session, method, url, *, json, **kwargs):
+    async def request(session: Any, method: str, url: str, *, json: dict[str, Any], **kwargs: Any) -> MagicMock:
         website_url = json["variables"]["identifiers"]["websiteUrl"]
         if "broken.com" in website_url:
             return _graphql_errors()
