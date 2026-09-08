@@ -650,6 +650,49 @@ describe('supportTicketSceneLogic send outcome handling', () => {
     })
 })
 
+describe('supportTicketSceneLogic archive', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+    const ticketUpdateMock = conversationsTicketsPartialUpdate as jest.Mock
+
+    const loadedTicket = (): Ticket => ({ ...makeTicket(), priority: 'medium', assignee: null }) as Ticket
+
+    beforeEach(async () => {
+        initKeaTests()
+        ticketGetMock.mockReset().mockResolvedValue(loadedTicket())
+        ticketUpdateMock.mockReset()
+        logic = supportTicketSceneLogic({ id: 42 })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['setTicket'])
+    })
+
+    afterEach(() => {
+        stopPolling(logic)
+    })
+
+    // The archive moves the ticket's updated_at server-side, and the info card reads that
+    // field. Applying only the archive stamp left the card showing a time from before the
+    // archive until the page was reloaded.
+    it.each([
+        ['archiving', true, '2026-02-02T10:00:00Z'],
+        ['restoring', false, null],
+    ])('applies the response timestamps when %s', async (_label, archived, archivedAt) => {
+        ticketUpdateMock.mockResolvedValue({
+            ...loadedTicket(),
+            archived_at: archivedAt,
+            updated_at: '2026-02-02T10:00:00Z',
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.setArchived(archived as boolean)
+        }).toFinishAllListeners()
+
+        expect(logic.values.ticket?.archived_at).toBe(archivedAt)
+        expect(logic.values.ticket?.updated_at).toBe('2026-02-02T10:00:00Z')
+    })
+})
+
 describe('supportTicketSceneLogic tag pool refresh', () => {
     let logic: ReturnType<typeof supportTicketSceneLogic.build>
 

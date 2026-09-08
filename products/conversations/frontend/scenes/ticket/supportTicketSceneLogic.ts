@@ -493,8 +493,12 @@ export interface supportTicketSceneLogicActions {
     setTicket: (ticket: Ticket | null) => {
         ticket: Ticket | null
     }
-    setTicketArchivedAt: (archivedAt: string | null) => {
+    setTicketArchivedAt: (
+        archivedAt: string | null,
+        updatedAt: string
+    ) => {
         archivedAt: string | null
+        updatedAt: string
     }
     setTicketLoading: (loading: boolean) => {
         loading: boolean
@@ -602,7 +606,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setTicketUpdating: (updating: boolean) => ({ updating }),
         setArchived: (archived: boolean) => ({ archived }),
         setArchiving: (archiving: boolean) => ({ archiving }),
-        setTicketArchivedAt: (archivedAt: string | null) => ({ archivedAt }),
+        setTicketArchivedAt: (archivedAt: string | null, updatedAt: string) => ({ archivedAt, updatedAt }),
 
         loadMessages: true,
         setMessages: (messages: CommentType[]) => ({ messages }),
@@ -810,9 +814,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 setTicket: (_, { ticket }) => ticket,
                 incrementUnreadCustomerCount: (state) =>
                     state ? { ...state, unread_customer_count: state.unread_customer_count + 1 } : state,
-                // Patch only the archive stamp instead of replacing the ticket, because
-                // setTicket re-seeds the sidebar form reducers and drops unsaved edits.
-                setTicketArchivedAt: (state, { archivedAt }) => (state ? { ...state, archived_at: archivedAt } : state),
+                // Patch only the fields the archive moved instead of replacing the ticket,
+                // because setTicket re-seeds the sidebar form reducers and drops unsaved edits.
+                setTicketArchivedAt: (state, { archivedAt, updatedAt }) =>
+                    state ? { ...state, archived_at: archivedAt, updated_at: updatedAt } : state,
             },
         ],
         archiving: [
@@ -1337,7 +1342,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 const updated = await conversationsTicketsPartialUpdate(String(getCurrentTeamId()), ticketId, {
                     archived,
                 })
-                actions.setTicketArchivedAt(updated.archived_at)
+                actions.setTicketArchivedAt(updated.archived_at, updated.updated_at)
                 lemonToast.success(archived ? 'Ticket archived' : 'Ticket restored')
                 actions.loadTickets()
             } catch {
