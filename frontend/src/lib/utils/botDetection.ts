@@ -853,6 +853,49 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
         pattern: 'MrAnandPortfolio',
         definition: { name: 'MrAnandPortfolio', category: 'http_client', trafficType: 'Bot', operator: 'mranand.com' },
     },
+    // Link checkers, SEO and research crawlers seen in production `$http_log` traffic
+    {
+        pattern: 'lychee/',
+        definition: { name: 'lychee', category: 'seo_crawler', trafficType: 'Bot', operator: 'lycheeverse' },
+    },
+    {
+        pattern: 'Lychee/',
+        definition: { name: 'lychee', category: 'seo_crawler', trafficType: 'Bot', operator: 'lycheeverse' },
+    },
+    {
+        pattern: 'lychee-link',
+        definition: { name: 'lychee', category: 'seo_crawler', trafficType: 'Bot', operator: 'lycheeverse' },
+    },
+    {
+        pattern: 'lychee link',
+        definition: { name: 'lychee', category: 'seo_crawler', trafficType: 'Bot', operator: 'lycheeverse' },
+    },
+    {
+        pattern: 'textiqSEO',
+        definition: { name: 'textiqSEO', category: 'seo_crawler', trafficType: 'Bot', operator: 'textiqSEO' },
+    },
+    {
+        pattern: 'internal-link-study',
+        definition: {
+            name: 'internal-link-study',
+            category: 'seo_crawler',
+            trafficType: 'Bot',
+            operator: 'nadiamohamed.me',
+        },
+    },
+    {
+        pattern: 'PurityBot',
+        definition: { name: 'PurityBot', category: 'search_crawler', trafficType: 'Bot', operator: 'Purili' },
+    },
+    {
+        pattern: 'NumbatTopicCalibration',
+        definition: {
+            name: 'Numbat Topic Calibration',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'Numbat',
+        },
+    },
 ]
 
 export const CATEGORY_LABELS: Record<BotCategory, string> = {
