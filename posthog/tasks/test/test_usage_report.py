@@ -3655,6 +3655,47 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             assert org_1_report[field] == value, field
             assert team_1_report[field] == value, field
 
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_metrics_usage_metrics(
+        self,
+        billing_task_mock: MagicMock,
+        posthog_capture_mock: MagicMock,
+    ) -> None:
+        self._setup_teams()
+
+        for metric_name, count in {"bytes_ingested": 3_500_000, "records_ingested": 120}.items():
+            create_app_metric2(
+                team_id=self.org_1_team_1.id,
+                app_source="metrics",
+                metric_name=metric_name,
+                count=count,
+            )
+        # Same metric names under the logs app_source must not leak into the metrics counters.
+        create_app_metric2(
+            team_id=self.org_1_team_1.id,
+            app_source="logs",
+            metric_name="records_ingested",
+            count=999,
+        )
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        all_reports = _get_all_org_reports(period=period)
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        expected = {
+            "metrics_records_in_period": 120,
+            "metrics_mb_in_period": 3,
+        }
+        # Only org_1_team_1 has metrics usage, so the org-level rollup equals that team's values.
+        team_1_report = org_1_report["teams"][str(self.org_1_team_1.id)]
+        for field, value in expected.items():
+            assert org_1_report[field] == value, field
+            assert team_1_report[field] == value, field
+
 
 @freeze_time("2022-01-10T10:00:00Z")
 class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
