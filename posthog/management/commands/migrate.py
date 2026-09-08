@@ -212,12 +212,16 @@ def check_database_version(connection: BaseDatabaseWrapper) -> None:
             "No migration ran, so the database is unchanged. Upgrade the PostgreSQL "
             "server to a supported version, then deploy again.\n\n"
             "On a Docker Compose deployment:\n"
-            "  1. Back up the data:\n"
-            "     docker compose exec -T db pg_dumpall --clean -U posthog | gzip > posthog-backup.sql.gz\n"
-            "  2. Stop the stack, then delete the old postgres-data volume.\n"
-            "  3. Start the db service again. It uses the PostgreSQL version PostHog pins.\n"
-            "  4. Restore the data:\n"
-            "     gunzip -c posthog-backup.sql.gz | docker compose exec -T db psql -U posthog\n\n"
+            "  1. Back up the data. Stop here if this reports an error:\n"
+            "     docker compose exec -T db pg_dumpall --clean -U posthog > posthog-backup.sql && gzip -f posthog-backup.sql\n"
+            "  2. Check that the backup is complete. The last lines must say the cluster dump is complete:\n"
+            "     gunzip -c posthog-backup.sql.gz | tail -3\n"
+            "  3. Stop the stack, then delete the old postgres-data volume. The backup file is now the only copy of the data.\n"
+            "  4. Start the db service again. It uses the PostgreSQL version PostHog pins.\n"
+            "  5. Restore the data. Errors about the posthog role and database already existing are expected:\n"
+            "     gunzip -c posthog-backup.sql.gz | docker compose exec -T db psql -U posthog\n"
+            "  6. Check that the data is back. This must print a count, not an error:\n"
+            "     docker compose exec -T db psql -U posthog -c 'select count(*) from django_migrations'\n\n"
             "Run './bin/upgrade-postgres --help' for more detail.",
             returncode=UNSUPPORTED_DATABASE_EXIT_CODE,
         ) from exc
