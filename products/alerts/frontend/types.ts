@@ -14,7 +14,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryBasedInsightModel, UserBasicType } from '~/types'
 
-import type { AlertDeliveryApi, AlertScheduleStartTimeApi } from './generated/api.schemas'
+import type { AlertDeliveryApi } from './generated/api.schemas'
 
 export type AlertCheckDelivery = AlertDeliveryApi
 
@@ -117,7 +117,7 @@ export interface AlertTypeBase {
     config: AlertConfig
     skip_weekend?: boolean
     schedule_restriction?: ScheduleRestriction | null
-    schedule_start_time?: AlertScheduleStartTimeApi | null
+    schedule_start_time?: string | null
     detector_config?: DetectorConfig | null
     investigation_agent_enabled?: boolean
     investigation_gates_notifications?: boolean

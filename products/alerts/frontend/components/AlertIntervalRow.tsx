@@ -169,8 +169,8 @@ export function AlertIntervalRow({
                 <LemonInput
                     type="time"
                     step={60}
-                    value={alertForm.schedule_start_time?.time ?? ''}
-                    onChange={(time) => onSetAlertFormValue('schedule_start_time', time ? { time } : null)}
+                    value={alertForm.schedule_start_time ?? ''}
+                    onChange={(time) => onSetAlertFormValue('schedule_start_time', time || null)}
                     aria-label="Alert check start time"
                     data-attr="alertForm-schedule-start-time"
                 />

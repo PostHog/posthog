@@ -54,7 +54,7 @@ export function normalizeScheduleRestrictionForCompare(
 export type SchedulingSnapshot = {
     calculation_interval: AlertCalculationInterval
     schedule_restriction?: ScheduleRestriction | null
-    schedule_start_time?: { time: string } | null
+    schedule_start_time?: string | null
     skip_weekend?: boolean | null
     config?: { check_ongoing_interval?: boolean } | null
 }
@@ -81,7 +81,7 @@ export function isNextPlannedEvaluationStale(
     if (Boolean(form.skip_weekend) !== Boolean(saved.skip_weekend)) {
         return true
     }
-    if (form.schedule_start_time?.time !== saved.schedule_start_time?.time) {
+    if (form.schedule_start_time !== saved.schedule_start_time) {
         return true
     }
     if (Boolean(form.config?.check_ongoing_interval) !== Boolean(saved.config?.check_ongoing_interval)) {

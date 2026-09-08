@@ -98,7 +98,7 @@ describe('alertSchedulingStale', () => {
                 {
                     calculation_interval: AlertCalculationInterval.DAILY,
                     schedule_restriction: null,
-                    schedule_start_time: { time: '08:30' },
+                    schedule_start_time: '08:30',
                     skip_weekend: false,
                     config: { check_ongoing_interval: false },
                 },
