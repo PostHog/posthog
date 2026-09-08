@@ -241,6 +241,37 @@ export function fakeUtcToReal(date: Date, timezone?: string): dayjs.Dayjs {
     return timezone ? dayjs.tz(utcStr, timezone) : dayjs.utc(utcStr)
 }
 
+/**
+ * Inverse of fakeUtcToReal: encode a real moment as the "fake UTC" date whose UTC values
+ * hold its local time in the schedule timezone, so it can be compared against occurrences.
+ */
+function realToFakeUtc(date: dayjs.Dayjs, timezone?: string): Date {
+    const local = timezone ? date.tz(timezone) : date
+    return new Date(Date.UTC(local.year(), local.month(), local.date(), local.hour(), local.minute(), local.second()))
+}
+
+/**
+ * Next occurrence of a saved rrule after now, or null when the schedule has none left.
+ *
+ * Expands the saved rule as written rather than through ScheduleState, so rules the picker
+ * cannot express (an hourly frequency, an explicit month day) keep their meaning. Asking the
+ * rule for the occurrence after now also holds for a schedule that started long ago, which a
+ * scan of a fixed number of occurrences does not.
+ */
+export function computeNextOccurrence(rruleStr: string, startsAt: string, timezone?: string): dayjs.Dayjs | null {
+    try {
+        const options = RRule.parseString(rruleStr)
+        if (options.freq === undefined) {
+            return null
+        }
+        const rule = new RRule({ ...options, dtstart: realToFakeUtc(dayjs(startsAt), timezone) })
+        const next = rule.after(realToFakeUtc(dayjs(), timezone))
+        return next ? fakeUtcToReal(next, timezone) : null
+    } catch {
+        return null
+    }
+}
+
 export function buildSummary(state: ScheduleState, startsAt: string | null): string {
     const freqLabel = state.frequency === 'daily' ? 'day' : state.frequency.replace('ly', '')
     const intervalStr = state.interval > 1 ? `${state.interval} ${freqLabel}s` : freqLabel

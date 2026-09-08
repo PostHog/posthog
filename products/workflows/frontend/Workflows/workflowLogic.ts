@@ -29,6 +29,7 @@ import { resourceEditedLogic } from 'products/notifications/frontend/resourceEdi
 import type { ResourceEditedEvent, UserBasicType, UserType } from '../../../../frontend/src/types'
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
 import {
+    computeNextOccurrence,
     DEFAULT_STATE,
     isOneTimeSchedule,
     ONE_TIME_RRULE,
@@ -48,6 +49,7 @@ import {
     HogFlowActionValidationResult,
     type HogFlowEdge,
     type HogFlowSchedule,
+    type HogFlowWithSchedules,
 } from './hogflows/types'
 import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
@@ -188,6 +190,12 @@ function pickWorkflowEdits(workflow: HogFlow): Partial<HogFlow> {
     return result as Partial<HogFlow>
 }
 
+/** The next time the saved schedule fires on its own, as a real moment plus the schedule's timezone. */
+export interface NextScheduledRun {
+    at: string
+    timezone?: string
+}
+
 /** What a save was dispatched with, kept per save because a later save moves the shared state. */
 interface SaveContext {
     initiatedByAutoSave: boolean
@@ -228,6 +236,7 @@ export interface workflowLogicValues {
     isWorkflowValid: boolean
     lastSavedAt: string | null
     logicProps: WorkflowLogicProps
+    nextScheduledRun: NextScheduledRun | null
     originalWorkflow: HogFlow | null
     originalWorkflowLoading: boolean
     pendingSchedule:
@@ -2796,6 +2805,7 @@ export interface workflowLogicMeta {
         logicProps: (arg: WorkflowLogicProps) => WorkflowLogicProps
         workflowUserAccessLevel: (originalWorkflow: HogFlow | null) => AccessControlLevel | null
         currentSchedule: (schedules: HogFlowSchedule[]) => HogFlowSchedule | null
+        nextScheduledRun: (currentSchedule: HogFlowSchedule | null, workflow: HogFlow) => NextScheduledRun | null
         pendingSchedule: (
             currentSchedule: HogFlowSchedule | null,
             scheduleState: ScheduleState,
@@ -3448,6 +3458,27 @@ export const workflowLogic = kea<workflowLogicType>([
             (s) => [s.schedules],
             (schedules: HogFlowSchedule[]): HogFlowSchedule | null => schedules[0] ?? null,
         ],
+        nextScheduledRun: [
+            (s) => [s.currentSchedule, s.workflow],
+            (currentSchedule: HogFlowSchedule | null, workflow: HogFlow): NextScheduledRun | null => {
+                if (!currentSchedule || workflow?.status !== 'active') {
+                    return null
+                }
+                if ((currentSchedule.status ?? 'active') !== 'active') {
+                    return null
+                }
+                const timezone = currentSchedule.timezone
+                if (currentSchedule.next_run_at && dayjs(currentSchedule.next_run_at).isAfter(dayjs())) {
+                    return { at: currentSchedule.next_run_at, timezone }
+                }
+                // The scheduler fills next_run_at only after its first tick, so expand the rrule until then.
+                const nextRun = computeNextOccurrence(currentSchedule.rrule, currentSchedule.starts_at, timezone)
+                if (!nextRun?.isAfter(dayjs())) {
+                    return null
+                }
+                return { at: nextRun.toISOString(), timezone }
+            },
+        ],
         pendingSchedule: [
             (s) => [s.currentSchedule, s.scheduleState, s.scheduleStartsAt, s.scheduleTimezone, s.isScheduleRepeating],
             (
@@ -3988,6 +4019,13 @@ export const workflowLogic = kea<workflowLogicType>([
             // This response is now the save baseline. Discarding a draft moves its stamp backwards,
             // so a copy kept from an earlier save would fence later saves too loosely.
             cache.lastSavedWorkflow = undefined
+            // The response already carries the schedules, so seed them before the sub-resource read
+            // below. An empty list must mean "no schedule", not "not read yet". The trigger button
+            // tells a person whether a manual run is extra on top of a schedule.
+            const { schedules } = originalWorkflow as HogFlowWithSchedules
+            if (schedules) {
+                actions.setSchedules(schedules)
+            }
             // The form edits the staged draft when one exists; the live config keeps running underneath.
             actions.resetWorkflow(withStagedDraft(originalWorkflow))
             actions.replayDeferredResourceEdited()
