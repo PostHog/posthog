@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { CommonConfig } from '~/common/config'
-import { logger } from '~/common/utils/logger'
+import { logger, serializeError } from '~/common/utils/logger'
 import { FetchResponse, internalFetch } from '~/common/utils/request'
 
 const internalCaptureCounter = new Counter({
@@ -113,7 +113,7 @@ export class InternalCaptureService {
             return response
         } catch (e) {
             internalCaptureCounter.inc({ status: 'error' })
-            logger.error('Error capturing internal event', { error: e, caller })
+            logger.error('Error capturing internal event', { error: serializeError(e), caller })
             throw new InternalCaptureError(caller, this.config.CAPTURE_INTERNAL_URL, e)
         }
     }
