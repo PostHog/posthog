@@ -809,12 +809,18 @@ describe('resolveDashboardAiMutation candidate classification', () => {
         ).toBeNull()
     })
 
-    it('learns an alert on an insight in the open dashboard', () => {
-        const result = resolveFor(
-            'alert-create',
-            { insight: '101' },
-            { id: 'alert-new', insight: 101, insight_short_id: 'alpha' }
-        )
+    it.each([
+        ['a bare insight ID', { id: 'alert-new', insight: 101, insight_short_id: 'alpha' }],
+        [
+            'the serialized insight object the alert API returns',
+            {
+                id: 'alert-new',
+                insight: { id: 101, short_id: 'alpha', name: 'Weekly signups' },
+                insight_short_id: 'alpha',
+            },
+        ],
+    ])('learns an alert on an insight in the open dashboard from %s', (_case, output) => {
+        const result = resolveFor('alert-create', { insight: '101' }, output)
 
         expect(result.candidate).toEqual({
             family: 'alert',
@@ -964,6 +970,10 @@ describe('resolveDashboardAiMutation candidate classification', () => {
         ['an insight outside this dashboard', { id: 'alert-new', insight: 999 }],
         ['a mismatched numeric insight ID', { id: 'alert-new', insight: 202, insight_short_id: 'alpha' }],
         ['a mismatched insight short ID', { id: 'alert-new', insight: 101, insight_short_id: 'beta' }],
+        [
+            'a serialized insight object that contradicts the top-level short ID',
+            { id: 'alert-new', insight: { id: 101, short_id: 'alpha' }, insight_short_id: 'beta' },
+        ],
     ])('rejects an alert candidate with %s', (_case, output) => {
         expect(resolveFor('alert-create', { insight: 101 }, output).candidate).toBeNull()
     })

@@ -745,17 +745,34 @@ function targetInsightForAlertId(target: DashboardAiSyncTarget, alertId: string)
     return { tileId: tile.tileId, numericId: tile.insightId, shortId: tile.insightShortId }
 }
 
+function parseAlertInsightField(value: unknown): InsightIdentity | null {
+    const nested = asRecord(value)
+    if (nested !== null) {
+        return parseOutputInsightIdentity(nested)
+    }
+    const numericId = asPositiveSafeInteger(value)
+    return numericId === null ? null : { numericId, shortId: null, identifiers: [numericId] }
+}
+
 function alertInsightIdentity(output: Record<string, unknown>): InsightIdentity | null | undefined {
-    const hasNumericId = Object.prototype.hasOwnProperty.call(output, 'insight')
+    const hasInsight = Object.prototype.hasOwnProperty.call(output, 'insight')
     const hasShortId = Object.prototype.hasOwnProperty.call(output, 'insight_short_id')
-    if (!hasNumericId && !hasShortId) {
+    if (!hasInsight && !hasShortId) {
         return undefined
     }
-    const numericId = hasNumericId ? asPositiveSafeInteger(output.insight) : null
-    const shortId = hasShortId ? asNonEmptyString(output.insight_short_id) : null
-    if ((hasNumericId && numericId === null) || (hasShortId && shortId === null)) {
+    // The alert serializer replaces `insight` with the full insight object in every response, so
+    // the identity arrives nested even though the generated type declares a bare ID.
+    const insight = hasInsight ? parseAlertInsightField(output.insight) : null
+    const topShortId = hasShortId ? asNonEmptyString(output.insight_short_id) : null
+    if ((hasInsight && insight === null) || (hasShortId && topShortId === null)) {
         return null
     }
+    const numericId = insight?.numericId ?? null
+    const nestedShortId = insight?.shortId ?? null
+    if (nestedShortId !== null && topShortId !== null && nestedShortId !== topShortId) {
+        return null
+    }
+    const shortId = nestedShortId ?? topShortId
     return {
         numericId,
         shortId,
