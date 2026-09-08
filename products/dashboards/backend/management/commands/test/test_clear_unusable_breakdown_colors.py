@@ -136,13 +136,26 @@ class TestClearUnusableBreakdownColorsCommand(BaseTest):
         assert self._stored(other) == {"Firefox": "preset-2"}
 
     def test_dry_run_reports_the_change_without_writing(self) -> None:
-        dashboard = self._dashboard("Affected", {"Chrome": "preset-1"})
+        dashboard = self._dashboard("Affected", {"SecretCustomerValue": "preset-1"})
 
         output = self._run()
 
-        assert self._stored(dashboard) == {"Chrome": "preset-1"}
+        assert self._stored(dashboard) == {"SecretCustomerValue": "preset-1"}
         assert f"dashboard {dashboard.id}" in output
         assert "would_change=1" in output
+        # A breakdown value is customer data and a command runner can retain what a command prints,
+        # so the default output carries ids and counts only.
+        assert "SecretCustomerValue" not in output
+
+    def test_show_values_prints_the_stored_value(self) -> None:
+        # The dropped entries are not reconstructable from what stays, so an operator needs a way to
+        # record them before a live run.
+        dashboard = self._dashboard("Affected", {"SecretCustomerValue": "preset-1"})
+
+        output = self._run("--show-values")
+
+        assert "SecretCustomerValue" in output
+        assert self._stored(dashboard) == {"SecretCustomerValue": "preset-1"}
 
     def test_leaves_a_dashboard_whose_value_changed_since_it_was_read(self) -> None:
         # Entries are read in batches and written one row at a time, so a save can land in between.

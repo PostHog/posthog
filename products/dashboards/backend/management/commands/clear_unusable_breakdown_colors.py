@@ -7,8 +7,10 @@ such as `breakdown_value` and `color`, and entries whose token is a CSS color. T
 give every viewer an error screen instead of tiles on every load. The rest never render, so the
 colors silently do nothing.
 
-Dropped entries are not recoverable from what stays, so the run prints each stored value before it
-writes. Re-running is safe: a row already cleared reports no change.
+Dropped entries are not recoverable from what stays. A run reports ids and counts only, because a
+breakdown value is customer data and a command runner can retain what a command prints. To keep a
+record of what a live run would drop, take a dry run with `--show-values` somewhere the output is
+not retained. Re-running is safe: a row already cleared reports no change.
 
 Usage:
     # Dry-run (the default): reports what it would change and writes nothing
@@ -20,6 +22,9 @@ Usage:
     # Restrict to one team or one dashboard
     python manage.py clear_unusable_breakdown_colors --live-run --team-id 2
     python manage.py clear_unusable_breakdown_colors --live-run --dashboard-id 1234
+
+    # Print the stored and cleared values as well
+    python manage.py clear_unusable_breakdown_colors --show-values
 """
 
 from __future__ import annotations
@@ -57,6 +62,12 @@ class BreakdownColorsChange:
     stored: Any
     cleared: Any
     outcome: Outcome
+
+    @property
+    def summary(self) -> str:
+        if isinstance(self.stored, list):
+            return f"dropped {len(self.stored) - len(self.cleared)} of {len(self.stored)} entries"
+        return f"replaced a stored {type(self.stored).__name__} with an empty list"
 
 
 def _can_apply(entry: Any) -> bool:
@@ -147,9 +158,18 @@ class Command(BaseCommand):
         parser.add_argument(
             "--sleep-interval", type=float, default=0.2, help="Seconds to wait between batches (default: 0.2)."
         )
+        parser.add_argument(
+            "--show-values",
+            action="store_true",
+            help=(
+                "Also print the stored and cleared values. A breakdown value is customer data, so "
+                "only use this where the output is not retained."
+            ),
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         live_run: bool = options["live_run"]
+        show_values: bool = options["show_values"]
         counts: Counter[Outcome] = Counter()
         prefix = "[live] " if live_run else "[dry-run] "
 
@@ -161,12 +181,12 @@ class Command(BaseCommand):
             sleep_interval=options["sleep_interval"],
         ):
             counts[change.outcome] += 1
-            # The stored value goes to the operator's terminal and not to a log, because it is the
-            # only record of what was dropped and it can carry customer breakdown values.
-            self.stdout.write(
-                f"{prefix}dashboard {change.dashboard_id} (team={change.team_id}) {change.outcome}: "
-                f"{change.stored!r} -> {change.cleared!r}"
-            )
+            # The values stay behind a flag because a breakdown value is customer data and a command
+            # runner can retain what a command prints. Ids and counts are enough to follow a run.
+            line = f"{prefix}dashboard {change.dashboard_id} (team={change.team_id}) {change.outcome}: {change.summary}"
+            if show_values:
+                line += f" | {change.stored!r} -> {change.cleared!r}"
+            self.stdout.write(line)
 
         logger.info(
             "Cleared unusable breakdown colors",
