@@ -1,4 +1,5 @@
 import io
+import re
 import json
 import time
 import typing
@@ -139,6 +140,66 @@ BigQueryTypeName = typing.Literal[
     "TINYINT",
     "BYTEINT",
 ]
+
+
+# Messages BigQuery reports when a load job fails because the destination table's schema
+# does not match the data we export, mapped to an explanation of the next step. BigQuery
+# only reports what it rejected, so without this mapping a user cannot tell which column
+# is at fault or what to do about it.
+_LOAD_JOB_SCHEMA_ERRORS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(r"Required field (?P<column>[\w$.-]+) cannot be null"),
+        "The column '{column}' is REQUIRED in the destination table, but the data we export can contain"
+        " NULL values for it. Update the destination table so the column is NULLABLE. Tables created by"
+        " the batch export always use NULLABLE columns.",
+    ),
+    (
+        re.compile(r"Unsupported field type: JSON"),
+        "BigQuery rejects a load job that declares a JSON column. Grant the service account permission to"
+        " run queries on the destination table, so the batch export can load into a staging table and merge"
+        " from it. As an alternative, change the JSON columns of the destination table to STRING.",
+    ),
+    (
+        re.compile(
+            r"Field (?P<column>[\w$.-]+) has changed type from (?P<exported>[\w<>]+) to (?P<destination>[\w<>]+)"
+        ),
+        "The column '{column}' has type {destination} in the destination table, but the batch export sends"
+        " {exported}. Update the type of the column, or remove the column from the destination table so the"
+        " batch export can add it again.",
+    ),
+    (
+        re.compile(r"[Nn]o such field: (?P<column>[\w$.-]+)"),
+        "The destination table has no column named '{column}'. Add the column to the destination table, or"
+        " remove the field from the model of the batch export.",
+    ),
+    (
+        re.compile(r"Could not (?:parse|convert) .{0,200}? for field (?P<column>[\w$.-]+)"),
+        "BigQuery could not read a value we export for the column '{column}' as the type of that column in"
+        " the destination table. Update the type of the column, or remove the column from the destination"
+        " table so the batch export can add it again.",
+    ),
+    # Keep last, as it matches the schema failures we cannot attribute to one column.
+    (
+        re.compile(r"Provided Schema does not match|Schema mismatch"),
+        "The data we export does not match the schema of the destination table. Check the columns of the"
+        " destination table and their types, or remove the table so the batch export can create it again.",
+    ),
+)
+
+
+def _describe_load_job_schema_error(err_msg: str) -> str | None:
+    """Explain a load job failure caused by the destination table's schema.
+
+    Returns `None` if the failure is not about the schema, as we must not report other
+    failures as a schema problem.
+    """
+    for pattern, explanation in _LOAD_JOB_SCHEMA_ERRORS:
+        match = pattern.search(err_msg)
+
+        if match is not None:
+            return explanation.format(**match.groupdict())
+
+    return None
 
 
 def bigquery_default_fields() -> list[BatchExportField]:
@@ -1030,7 +1091,14 @@ class BigQueryClient:
 
     async def load_file(self, file, format: FileFormat, table: BigQueryTable):
         """Load a file into BigQuery table."""
-        schema = tuple(field.to_destination_field() for field in table.fields)
+        schema: tuple[bigquery.SchemaField, ...] | None = tuple(field.to_destination_field() for field in table.fields)
+
+        if any(field.bigquery_type.name == "JSON" for field in table.fields):
+            # BigQuery load jobs reject any schema that declares a 'JSON' field with
+            # "Unsupported field type: JSON". The table already exists at this point, so
+            # we can omit the schema and let BigQuery use the schema of the table.
+            schema = None
+
         if format == "Parquet":
             opts = bigquery.format_options.ParquetOptions()
             opts.enable_list_inference = True
@@ -1137,22 +1205,20 @@ class BigQueryClient:
                     attempt += 1
                     continue
 
-                if err.reason != "invalidQuery" or "Required field" not in str(err):
+                explanation = _describe_load_job_schema_error(str(err))
+
+                if explanation is None:
                     raise
-                try:
-                    field_name = str(err).split(" ")[2]
-                except IndexError:
-                    field_name = "unknown"
 
                 self.external_logger.warning(
-                    "BigQuery load job failed as a nullable field ('%s') is REQUIRED in the destination table."
-                    " Consider updating your table's schema so that the field is not REQUIRED."
-                    " Tables created automatically by the batch export always use non-REQUIRED fields.",
-                    field_name,
+                    "BigQuery rejected the load job because of the schema of the destination table. %s"
+                    " BigQuery reported: %s",
+                    explanation,
+                    err,
                     error_code=err.code,
                     exc_info=True,
                 )
-                raise BigQueryIncompatibleSchemaError(repr(field_name))
+                raise BigQueryIncompatibleSchemaError(explanation)
 
             else:
                 return result
@@ -1496,8 +1562,6 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
             record_batch_schema = pa.schema(
                 field.with_type(JsonType()) if field.name in json_fields else field for field in record_batch_schema
             )
-        else:
-            json_fields = set()
 
         merge_settings = _get_merge_settings(model)
         target_table = BigQueryTable.from_arrow_schema(
@@ -1591,13 +1655,12 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                         expires=dt.datetime.now(dt.UTC) + dt.timedelta(days=7),
                     )
 
-                    if inputs.use_json_type:
-                        for field_name in json_fields:
-                            if field_name not in consumer_table:
-                                continue
-
-                            field = consumer_table[field_name]
-                            consumer_table[field_name] = field.with_new_arrow_type(pa.string())
+                    # Load jobs reject a schema that declares a 'JSON' field, so we stage
+                    # every 'JSON' column of the final table as 'STRING'. The merge then
+                    # parses it back with 'SAFE.PARSE_JSON'. This covers the columns we
+                    # export as 'JSON' and any 'JSON' column set by the user.
+                    for field in [field for field in consumer_table.fields if field.bigquery_type.name == "JSON"]:
+                        consumer_table[field.name] = field.with_new_arrow_type(pa.string())
 
                     consumer_tables.append(consumer_table)
 
