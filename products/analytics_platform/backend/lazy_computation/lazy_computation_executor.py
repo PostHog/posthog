@@ -35,6 +35,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.clickhouse.query_tagging import tags_context
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.settings import DEBUG, HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
 from posthog.utils import relative_date_parse_with_delta_mapping
@@ -212,7 +213,7 @@ def _ttl_jitter_offset(window_start: datetime, jitter_seconds: int) -> int:
     return int.from_bytes(digest[:8], "big") % jitter_seconds
 
 
-@dataclass
+@frozen
 class TtlSchedule:
     """Maps time windows to TTL values based on their recency.
 
