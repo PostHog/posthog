@@ -82,7 +82,7 @@ def _measurement_call(*, insight_id: int, short_id: str) -> CompletedMCPCallEvid
                 "kind": "TrendsQuery",
                 "series": [{"kind": "EventsNode", "event": "signed_up", "math": "total"}],
                 "interval": "day",
-                "dateRange": {"date_from": "2026-09-01", "date_to": "2026-09-08"},
+                "dateRange": {"date_from": "2026-09-01", "date_to": "2026-09-07"},
             },
             "results": [{"count": 0}],
         },
