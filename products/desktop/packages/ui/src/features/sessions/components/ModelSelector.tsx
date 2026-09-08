@@ -1,5 +1,6 @@
 import type { SessionConfigSelectGroup } from "@agentclientprotocol/sdk";
 import { CaretDown } from "@phosphor-icons/react";
+import { toModelPickerOption } from "@posthog/core/billing/modelPricing";
 import type { SessionService } from "@posthog/core/sessions/sessionService";
 import { SESSION_SERVICE } from "@posthog/core/sessions/sessionService";
 import { useService } from "@posthog/di/react";
@@ -114,7 +115,10 @@ export function ModelSelector({
                 {index > 0 && <DropdownMenuSeparator />}
                 <MenuLabel>{group.name}</MenuLabel>
                 {group.options.map((model) => (
-                  <ModelRadioItem key={model.value} model={model} />
+                  <ModelRadioItem
+                    key={model.value}
+                    model={toModelPickerOption(model)}
+                  />
                 ))}
               </Fragment>
             ))}
@@ -125,7 +129,10 @@ export function ModelSelector({
             onValueChange={handleChange}
           >
             {options.map((model) => (
-              <ModelRadioItem key={model.value} model={model} />
+              <ModelRadioItem
+                key={model.value}
+                model={toModelPickerOption(model)}
+              />
             ))}
           </DropdownMenuRadioGroup>
         )}

@@ -93,13 +93,12 @@ describe('useInsightsLegendConfig', () => {
         setup({ trendsFilter: { showLegend: true }, results: SERIES })
         const { result } = renderHook(() => useInsightsLegendConfig({ insightProps }), { wrapper })
         const logic = trendsDataLogic(insightProps)
+        const persistenceLogic = insightVizDataLogic(insightProps)
         const [first, second] = logic.values.indexedResults
 
-        // The isolate reaches the query through updateInsightFilter, which debounces. Wait on that
-        // listener rather than polling, so a loaded CI machine can't outrun the assertion.
-        await expectLogic(logic, () => {
+        await expectLogic(persistenceLogic, () => {
             result.current.onSetHiddenSeries!([String(second.id)])
-        }).toFinishAllListeners()
+        }).toFinishListeners()
 
         const { getTrendsHidden } = logic.values
         expect([getTrendsHidden(first), getTrendsHidden(second)]).toEqual([false, true])

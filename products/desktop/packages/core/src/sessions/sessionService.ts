@@ -25,6 +25,7 @@ import {
   type BedrockGatewayVariant,
   type CloudRegion,
   classifyGatewayLimitError,
+  customModelMeta,
   type ExecutionMode,
   flattenSelectOptions,
   getBackoffDelay,
@@ -328,6 +329,7 @@ export interface SessionTrpc {
     onSessionIdleKilled: TrpcSubscription;
   };
   workspace: { verify: TrpcQuery };
+  claudeSubscriptionToken: { has: TrpcQuery };
   cloudTask: {
     watch: TrpcMutation;
     unwatch: TrpcMutation;
@@ -335,6 +337,7 @@ export interface SessionTrpc {
     sendCommand: TrpcMutation;
     stop: TrpcMutation;
     designateRelayedMcpServers: TrpcMutation;
+    designateClaudeSubscription: TrpcMutation;
     onUpdate: TrpcSubscription;
   };
   logs: {
@@ -356,7 +359,7 @@ export interface SessionTrpc {
 export interface ISessionStore {
   setSession(session: AgentSession): void;
   removeSession(taskRunId: string): void;
-  setTaskStarting?(taskId: string): void;
+  setTaskStarting?(taskId: string, runId?: string): void;
   clearTaskStarting?(taskId: string): void;
   updateSession(taskRunId: string, updates: Partial<AgentSession>): void;
   appendEvents(
@@ -502,6 +505,8 @@ export interface SessionServiceDeps {
     bedrockGatewayVariant?: BedrockGatewayVariant;
     codexModelAccess?: ModelAccess;
     claudeModelAccess?: ModelAccess;
+    claudeCloudSubscriptionOn?: boolean;
+    claudeCloudSubscriptionEnabled?: boolean;
   };
   usageLimit: { show: (...args: any[]) => any };
   readonly addDirectoryDialog: { open: boolean };
@@ -1917,7 +1922,7 @@ export class SessionService {
       return;
     }
     if (task.latest_run?.environment !== "cloud") {
-      this.d.store.setTaskStarting?.(taskId);
+      this.d.store.setTaskStarting?.(taskId, task.latest_run?.id);
     }
     if (existingSession?.status === "connecting") {
       this.d.log.info("Session already in connecting state", { taskId });
@@ -2204,6 +2209,9 @@ export class SessionService {
     // previous in-memory events when the log read produced nothing.
     session.events =
       events.length === 0 && previous?.events.length ? previous.events : events;
+    if (hasSessionPromptEvent(session.events)) {
+      session.firstPromptForRunId = taskRunId;
+    }
     if (logUrl) {
       session.logUrl = logUrl;
     }
@@ -3424,11 +3432,19 @@ export class SessionService {
         } else if (kind === "output") turnTally.agentOutputEvents += 1;
       }
       if (isJsonRpcRequest(msg) && msg.method === "session/prompt") {
+        const promptSession = this.d.store.getSessions()[taskRunId];
+        const promptPosition = getStoredLogEventPosition(acpMsg);
+        const promptBelongsToRun = promptSession?.isCloud
+          ? promptPosition?.taskRunId === taskRunId
+          : true;
         this.d.store.updateSession(taskRunId, {
           isPromptPending: true,
           promptStartedAt: acpMsg.ts,
           pausedDurationMs: 0,
           currentPromptId: msg.id,
+          ...(promptBelongsToRun
+            ? { firstPromptForRunId: taskRunId }
+            : undefined),
         });
         this.liveTurnContent.set(taskRunId, {
           startedAtTs: acpMsg.ts,
@@ -3436,7 +3452,6 @@ export class SessionService {
           agentOutputEvents: 0,
           agentText: "",
         });
-        const promptSession = this.d.store.getSessions()[taskRunId];
         if (promptSession?.isCloud) {
           this.cloudRunIdleTracker.markBusy(promptSession);
           if (promptSession.agentIdleForRunId) {
@@ -4939,6 +4954,16 @@ export class SessionService {
     }
     const { auth } = authStatus;
 
+    if (session.claudeModelAccess === "own-subscription") {
+      await this.designateClaudeSubscription(
+        session.taskId,
+        session.taskRunId,
+      ).catch((error) => {
+        this.d.store.clearTailOptimisticItems(session.taskRunId);
+        throw error;
+      });
+    }
+
     this.watchCloudTask(
       session.taskId,
       session.taskRunId,
@@ -5250,13 +5275,6 @@ export class SessionService {
     let updatedTask: Task;
     let runtimeOptions: CloudRuntimeOptions;
     try {
-      const artifactIds = await this.d.h.uploadTaskStagedAttachments(
-        authCredentials.client,
-        session.taskId,
-        transport.filePaths,
-        transport.skillBundles,
-      );
-
       const previousRun = await authCredentials.client.getTaskRun(
         session.taskId,
         session.taskRunId,
@@ -5286,6 +5304,23 @@ export class SessionService {
       });
 
       runtimeOptions = getCloudRuntimeOptions(session, previousRun);
+      if (previousState.claude_model_access === "own-subscription") {
+        if (session.isTaskAuthor === false) {
+          const task = await authCredentials.client.getTask(session.taskId);
+          if (task.channel) {
+            throw new Error(
+              "Only the person who created this task can resume it. Start a new task to continue.",
+            );
+          }
+        }
+        await this.resolveClaudeCloudModelAccess("own-subscription");
+      }
+      const artifactIds = await this.d.h.uploadTaskStagedAttachments(
+        authCredentials.client,
+        session.taskId,
+        transport.filePaths,
+        transport.skillBundles,
+      );
 
       try {
         this.markTaskCreationInFlight(session.taskId);
@@ -5299,6 +5334,10 @@ export class SessionService {
             reasoningLevel: runtimeOptions.reasoningLevel,
             initialPermissionMode: runtimeOptions.initialPermissionMode,
             resumeFromRunId: session.taskRunId,
+            claudeModelAccess:
+              previousState.claude_model_access === "own-subscription"
+                ? "own-subscription"
+                : undefined,
             pendingUserMessage: transport.messageText,
             pendingUserArtifactIds:
               artifactIds.length > 0 ? artifactIds : undefined,
@@ -5312,6 +5351,22 @@ export class SessionService {
                 : undefined,
           },
         );
+        if (
+          previousState.claude_model_access === "own-subscription" &&
+          updatedTask.latest_run?.id
+        ) {
+          try {
+            await this.designateClaudeSubscription(
+              session.taskId,
+              updatedTask.latest_run.id,
+            );
+          } catch (error) {
+            await authCredentials.client
+              .cancelTaskRun(session.taskId, updatedTask.latest_run.id)
+              .catch(() => undefined);
+            throw error;
+          }
+        }
       } catch (error) {
         // Only the resume call gates on authorship: non-creators of a channeled
         // task get a 404 (not a 403) here, so on a task the app can already read
@@ -5339,6 +5394,7 @@ export class SessionService {
       throw new Error("Failed to create resume run");
     }
 
+    this.d.store.setTaskStarting?.(session.taskId, newRun.id);
     this.supersededRunIds.add(session.taskRunId);
     while (this.supersededRunIds.size > MAX_SUPERSEDED_RUN_IDS) {
       const oldest = this.supersededRunIds.values().next().value;
@@ -5354,6 +5410,10 @@ export class SessionService {
     );
     newSession.status = "disconnected";
     newSession.isCloud = true;
+    newSession.resumeAncestorRunIds = [
+      ...(session.resumeAncestorRunIds ?? []),
+      session.taskRunId,
+    ];
     newSession.isPromptPending = true;
     newSession.promptStartedAt = Date.now();
     newSession.events = [...session.events];
@@ -6342,6 +6402,7 @@ export class SessionService {
           option.category === "thought_level"
             ? (reasoningLabels[preferredValue] ?? preferredValue)
             : preferredValue,
+        ...(option.category === "model" ? { _meta: customModelMeta() } : {}),
       };
 
       if (option.options.length > 0 && "group" in option.options[0]) {
@@ -6436,6 +6497,39 @@ export class SessionService {
     });
   }
 
+  async resolveClaudeCloudModelAccess(
+    requested?: ModelAccess,
+  ): Promise<ModelAccess> {
+    const access =
+      requested ??
+      (this.d.settings.claudeCloudSubscriptionOn
+        ? "own-subscription"
+        : "posthog-gateway");
+    if (access === "own-subscription") {
+      if (!this.d.settings.claudeCloudSubscriptionEnabled) {
+        throw new Error(
+          "Claude plan billing is unavailable for cloud tasks. Try again later.",
+        );
+      }
+      if (!(await this.d.trpc.claudeSubscriptionToken.has.query())) {
+        throw new Error(
+          "Save a Claude token in Settings > Harness before you start or resume this task.",
+        );
+      }
+    }
+    return access;
+  }
+
+  async designateClaudeSubscription(
+    taskId: string,
+    runId: string,
+  ): Promise<void> {
+    await this.d.trpc.cloudTask.designateClaudeSubscription.mutate({
+      taskId,
+      runId,
+    });
+  }
+
   watchCloudTask(
     taskId: string,
     runId: string,
@@ -6454,6 +6548,21 @@ export class SessionService {
     isTaskAuthor = true,
   ): () => void {
     const taskRunId = runId;
+    const watchedSession = this.d.store.getSessionByTaskId(taskId);
+    if (
+      !isTerminalStatus(runStatus) &&
+      watchedSession?.firstPromptForRunId !== taskRunId
+    ) {
+      this.d.store.setTaskStarting?.(taskId, taskRunId);
+    }
+    const claudeModelAccess =
+      runState?.claude_model_access === "own-subscription" ||
+      runState?.claude_model_access === "posthog-gateway"
+        ? runState.claude_model_access
+        : undefined;
+    if (claudeModelAccess && watchedSession?.taskRunId === taskRunId) {
+      this.d.store.updateSession(taskRunId, { claudeModelAccess });
+    }
     const persistedConfigOptions = this.d.getPersistedConfigOptions(taskRunId);
     const persistedAdapter = this.d.adapterStore.getAdapter(taskRunId);
     const buildInitialConfigOptions = (
@@ -6646,7 +6755,12 @@ export class SessionService {
       session.status = "disconnected";
       session.isCloud = true;
       session.isTaskAuthor = isTaskAuthor;
+      session.resumeAncestorRunIds =
+        typeof runState?.resume_from_run_id === "string"
+          ? [runState.resume_from_run_id]
+          : undefined;
       session.adapter = adapter;
+      session.claudeModelAccess = claudeModelAccess;
       session.configOptions = buildInitialConfigOptions(
         initialMode,
         existing?.taskRunId === taskRunId ? existing.adapter : persistedAdapter,
@@ -7013,6 +7127,37 @@ export class SessionService {
     }
   }
 
+  private async runPromptExistsBefore(
+    client: SessionLogsClient,
+    taskId: string,
+    taskRunId: string,
+    endOffset: number,
+  ): Promise<boolean> {
+    try {
+      let offset = 0;
+      const scanEnd = Math.min(endOffset, CLOUD_HYDRATION_MAX_ENTRIES);
+      while (offset < scanEnd) {
+        const page = await client.getTaskRunSessionLogsPage(taskId, taskRunId, {
+          limit: Math.min(SESSION_LOGS_MAX_PAGE_SIZE, scanEnd - offset),
+          offset,
+        });
+        if (page.entries.length === 0) return false;
+        if (hasSessionPromptEvent(convertStoredEntriesToEvents(page.entries))) {
+          return true;
+        }
+        offset += page.entries.length;
+      }
+    } catch (error) {
+      this.d.log.warn("Cloud prompt history check failed", {
+        taskId,
+        taskRunId,
+        endOffset,
+        error,
+      });
+    }
+    return false;
+  }
+
   /**
    * A one-entry probe learns the chain total without downloading a page an
    * oversized log would throw away, then only the newest
@@ -7175,6 +7320,7 @@ export class SessionService {
     let liveStreamLineCount: number;
     let resumeLeafEntryStartIndex: number | undefined;
     let transcriptWindow: ChainTranscriptWindow | null = null;
+    let hasPromptBeforeWindow = false;
     // How many entries a capped fetch dropped off the front of rawEntries on
     // paths that produce no window. The stream cursors count from the start of
     // the chain, and the engine's own totals still include those entries, so
@@ -7323,14 +7469,15 @@ export class SessionService {
         liveStreamLineCount = local.totalLineCount;
       } else {
         const authStatus = await this.getAuthCredentialsStatus();
-        const window =
-          authStatus.kind === "ready"
-            ? await this.fetchChainTranscriptWindow(
-                authStatus.auth.client,
-                taskId,
-                taskRunId,
-              )
-            : null;
+        const sessionLogsClient =
+          authStatus.kind === "ready" ? authStatus.auth.client : null;
+        const window = sessionLogsClient
+          ? await this.fetchChainTranscriptWindow(
+              sessionLogsClient,
+              taskId,
+              taskRunId,
+            )
+          : null;
         // An empty persisted chain can trail an S3 log that already has
         // entries (persistence lag), so only a non-empty window short-circuits
         // the full read.
@@ -7338,6 +7485,14 @@ export class SessionService {
           transcriptWindow = window;
           rawEntries = window.entries;
           liveStreamLineCount = window.chainTotal;
+          if (sessionLogsClient && window.windowStart > 0) {
+            hasPromptBeforeWindow = await this.runPromptExistsBefore(
+              sessionLogsClient,
+              taskId,
+              taskRunId,
+              window.windowStart,
+            );
+          }
         } else {
           const parsed = await this.fetchSessionLogs(logUrl, taskRunId);
           rawEntries = parsed.rawEntries;
@@ -7388,9 +7543,21 @@ export class SessionService {
         );
       }
     }
+    const hasCurrentRunOutput = events.some((event) => {
+      const position = getStoredLogEventPosition(event);
+      return (
+        (!isResumeRun || position?.taskRunId === taskRunId) &&
+        classifyTurnEventKind(event.message) !== "other"
+      );
+    });
     const hasCurrentRunUserPrompt = isResumeRun
       ? hasSessionPromptEventForTaskRun(events, taskRunId)
-      : hasSessionPromptEvent(events);
+      : hasPromptBeforeWindow || hasSessionPromptEvent(events);
+    if (hasCurrentRunUserPrompt || hasCurrentRunOutput) {
+      this.d.store.updateSession(taskRunId, {
+        firstPromptForRunId: taskRunId,
+      });
+    }
 
     // A reload loses the in-memory placeholder; restore it from the resume
     // state or initial task description until the active run records its prompt.
@@ -7793,6 +7960,8 @@ export class SessionService {
       throw new Error("No active cloud session for task");
     }
 
+    if (session.errorRetryable === false) return;
+
     const previousErrorTitle = session.errorTitle;
     const previousErrorMessage = session.errorMessage;
     const previousErrorRetryable = session.errorRetryable;
@@ -7842,6 +8011,7 @@ export class SessionService {
     for (const session of Object.values(sessions)) {
       if (!session.isCloud) continue;
       if (session.status !== "error") continue;
+      if (session.errorRetryable === false) continue;
       this.d.log.info("Auto-retrying errored cloud session on focus", {
         taskId: session.taskId,
       });
@@ -8024,6 +8194,10 @@ export class SessionService {
     this.d.store.setTaskStarting?.(taskId);
   }
 
+  public clearVisibleTaskStarting(taskId: string): void {
+    this.d.store.clearTaskStarting?.(taskId);
+  }
+
   private clearTaskCreationInFlight(taskId: string): void {
     this.taskCreationMarks.delete(taskId);
     this.d.store.clearTaskStarting?.(taskId);
@@ -8035,7 +8209,7 @@ export class SessionService {
     const expired =
       Date.now() - markedAt > SessionService.TASK_CREATION_IN_FLIGHT_TTL_MS;
     if (expired) {
-      this.clearTaskCreationInFlight(taskId);
+      this.taskCreationMarks.delete(taskId);
       return false;
     }
     return true;
@@ -8521,6 +8695,28 @@ export class SessionService {
         // Pending resume messages can never be sent to a settled run.
         this.clearTerminalCloudPromptState(taskRunId);
         this.stopCloudTaskWatch(update.taskId);
+      }
+    }
+    if (update.kind === "logs" || update.kind === "snapshot") {
+      for (const entry of update.newEntries) {
+        if (entry.type !== "notification") continue;
+        const notification = entry.notification as {
+          method?: string;
+          params?: { initializationPhase?: string; message?: string };
+        };
+        if (
+          notification.method === POSTHOG_NOTIFICATIONS.INITIALIZATION_FAILED &&
+          notification.params?.initializationPhase === "credential_relay"
+        ) {
+          this.d.store.updateSession(taskRunId, {
+            status: "error",
+            errorTitle: "Claude token unavailable",
+            errorMessage:
+              "Open Desktop and check your Claude token in Settings > Harness. Then start the task again.",
+            errorRetryable: false,
+            isPromptPending: false,
+          });
+        }
       }
     }
   }

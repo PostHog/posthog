@@ -61,6 +61,10 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataTableMaxPaginationLimit?: number
     /** Stop Data Table pagination after this many accumulated rows. */
     dataTableMaxPaginationRows?: number
+    /** Keep the Data Table toolbar fixed while its table content scrolls. */
+    dataTableAllowContentScroll?: boolean
+    /** Override the nouns used by Data Table counts and pagination. */
+    dataTableNouns?: [string, string]
     compactDataTableToolbar?: boolean
     hideRecordingButton?: boolean
     /** Custom expandable config for DataTable rows */

@@ -59,6 +59,11 @@ def get_batch_audience_count(
     Count how many sends a batch workflow would produce with dedup applied — i.e. the
     number of dedupe groups (unique emails, plus one group per email-less person).
     Mirrors get_batch_audience_person_ids so the preview matches the actual audience.
+
+    The count is exact up to uniqCombined's hash-table threshold and approximate above it,
+    so a very large audience can read a fraction of a percent off the delivered send count.
+    Nothing gates on this number: the confirm token signs the filters rather than the count,
+    and the batch trigger cap is applied by the resolver at dispatch.
     """
     # Defence-in-depth against a new dedupe key slipping past the endpoint's allowlist:
     # if we ever add another supported key, this raise forces the caller to teach this
@@ -80,8 +85,15 @@ def get_batch_audience_count(
             property_to_expr(cleaned_filter.property_groups, team, scope="person"),
         ]
 
+        # uniqCombined, not count(DISTINCT ...): the latter compiles to uniqExact, which holds
+        # every distinct email of the matching audience in memory and runs the query out of memory
+        # on large person tables. uniqCombined keeps an exact set below its threshold and switches
+        # to a fixed-size sketch above it, so the aggregate state stops growing with the audience.
+        # The persons expansion still holds one entry per matching person, in the id set it pushes
+        # the filter into and in the group-by that picks the latest version, so this drops one term
+        # from peak memory instead of making it flat.
         select_query = ast.SelectQuery(
-            select=[ast.Call(name="count", distinct=True, args=[group_expr])],
+            select=[ast.Call(name="uniqCombined", args=[group_expr])],
             select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
             where=ast.And(exprs=where_exprs),
         )

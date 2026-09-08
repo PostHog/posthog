@@ -1,3 +1,5 @@
+import { isCustomModelOption } from "@posthog/shared";
+
 /**
  * List prices per 1M tokens for every model the pickers can show, and the
  * relative per-token cost derived from them. One place on the client; keep in
@@ -24,6 +26,25 @@ export interface ModelCostInfo {
   /** True when input and output ratios diverge and the label is approximate. */
   approximate: boolean;
 }
+
+interface ModelPickerOptionBase {
+  value: string;
+  name: string;
+  _meta?: Record<string, unknown> | null;
+}
+
+export interface PricedModelPickerOption extends ModelPickerOptionBase {
+  kind: "priced";
+  cost: ModelCostInfo;
+}
+
+export interface CustomModelPickerOption extends ModelPickerOptionBase {
+  kind: "custom";
+}
+
+export type ModelPickerOption =
+  | PricedModelPickerOption
+  | CustomModelPickerOption;
 
 /** The 1× anchor every multiplier is stated against. */
 export const MODEL_COST_BASELINE_NAME = "Claude Sonnet 5";
@@ -116,6 +137,23 @@ export function modelCostInfo(modelId: string): ModelCostInfo | null {
     multiplierLabel: formatMultiplier(blended, approximate),
     approximate,
   };
+}
+
+/**
+ * Converts an ACP model into the picker contract. Gateway models require cost
+ * data; only options explicitly marked as custom can omit it.
+ */
+export function toModelPickerOption(
+  model: ModelPickerOptionBase,
+): ModelPickerOption {
+  if (isCustomModelOption(model._meta)) {
+    return { ...model, kind: "custom" };
+  }
+  const cost = modelCostInfo(model.value);
+  if (!cost) {
+    throw new Error(`Missing pricing for gateway model: ${model.value}`);
+  }
+  return { ...model, kind: "priced", cost };
 }
 
 export function estimateUncachedInputCost(
