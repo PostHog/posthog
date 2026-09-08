@@ -54,6 +54,7 @@ import {
 } from "@posthog/shared/analytics-events";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useTaskArchive } from "@posthog/ui/features/archive/useTaskArchive";
+import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import {
   EDITOR_TEXT_CLASS,
@@ -74,6 +75,10 @@ import {
   taskRowParts,
   taskRowRecency,
 } from "@posthog/ui/features/command/commandRowFacts";
+import {
+  channelHref,
+  taskHref,
+} from "@posthog/ui/features/command/commandRowHref";
 import { commandRowMeta } from "@posthog/ui/features/command/commandRowMeta";
 import {
   addRecentCommand,
@@ -151,6 +156,13 @@ const CreateChannelModalLazy = lazy(() =>
 );
 
 const DEFAULT_RESULT_LIMIT = 8;
+
+/** The palette hands the highlighted row itself, not its value. */
+function highlightedCommandId(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  const id = (value as { id?: unknown } | null)?.id;
+  return typeof id === "string" ? id : null;
+}
 const COLLAPSED_CHIP_COUNT = 5;
 
 function PaletteQueryMirror({
@@ -246,6 +258,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
   const inboxAvailable = useInboxAvailable();
   const { channels } = useChannels({ enabled: bluebirdEnabled });
+  const openBrowserTab = useOpenBrowserTab();
   const { theme, setTheme } = useThemeStore();
   const toggleLeftSidebar = useSidebarStore((state) => state.toggle);
   const view = useAppView();
@@ -713,6 +726,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
           icon: <TaskCommandIcon task={task} />,
           action: "open-task" as CommandMenuAction,
           channelId: bluebirdEnabled ? channel?.id : undefined,
+          href: taskHref(task, bluebirdEnabled ? channel?.id : undefined),
           onRun: () => {
             closeSettingsDialog();
             // Bluebird: a task filed to a channel opens in the channel-
@@ -763,6 +777,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
           }),
           action: "open-channel" as CommandMenuAction,
           channelId: channel.id,
+          href: channelHref(channel.id),
           onRun: () => {
             closeSettingsDialog();
             navigateToChannel(channel.id);
@@ -949,12 +964,31 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   );
 
   const highlightedId = useRef<string | null>(null);
+  // Any row with a place of its own can open in a tab, so the footer says so
+  // once rather than following the highlight, which re-renders on every move.
+  const anyRowOpensInTab = useMemo(
+    () => allCommands.some((command) => command.href),
+    [allCommands],
+  );
   const showMatchSummary = mode === "querying" || matchCount != null;
 
-  const handleSelect = (id: string | null): void => {
+  const openInNewTab = (cmd: Command): boolean => {
+    if (!cmd.href) return false;
+    track(ANALYTICS_EVENTS.COMMAND_MENU_ACTION, {
+      action_type: cmd.action,
+      channel_id: cmd.channelId,
+    });
+    openBrowserTab(cmd.href);
+    onOpenChange(false);
+    setQuery("");
+    return true;
+  };
+
+  const handleSelect = (id: string | null, newTab = false): void => {
     if (id === null) return;
     const cmd = allCommands.find((c) => c.id === id);
     if (!cmd) return;
+    if (newTab && openInNewTab(cmd)) return;
     track(ANALYTICS_EVENTS.COMMAND_MENU_ACTION, {
       action_type: cmd.action,
       channel_id: cmd.channelId,
@@ -969,6 +1003,16 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   };
 
   const onInputKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      const highlighted = allCommands.find(
+        (command) => command.id === highlightedId.current,
+      );
+      if (highlighted?.href) {
+        event.preventDefault();
+        openInNewTab(highlighted);
+        return;
+      }
+    }
     if (
       event.key.toLowerCase() === "s" &&
       (event.metaKey || event.ctrlKey) &&
@@ -1009,7 +1053,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
             autoHighlight
             keepHighlight
             onItemHighlighted={(value) => {
-              highlightedId.current = typeof value === "string" ? value : null;
+              highlightedId.current = highlightedCommandId(value);
             }}
             onValueChange={(val, eventDetails) => {
               if (typeof val !== "string") return;
@@ -1089,7 +1133,9 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
                         key={cmd.id}
                         value={cmd.id}
                         title={cmd.label}
-                        onClick={() => handleSelect(cmd.id)}
+                        onClick={(event) =>
+                          handleSelect(cmd.id, event.metaKey || event.ctrlKey)
+                        }
                         className="group flex h-auto! min-h-7 w-full items-center gap-2 py-1 pr-2 text-left leading-snug [&>span]:w-full [&>span]:overflow-visible"
                       >
                         <span className="flex size-4 shrink-0 items-center justify-center opacity-80 group-data-highlighted:opacity-100">
@@ -1127,7 +1173,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
               )}
             </AutocompleteList>
           </Autocomplete>
-          <CommandKeyHints>
+          <CommandKeyHints newTabHint={anyRowOpensInTab}>
             {hasFilterTokens && (
               <div className="flex items-center gap-2">
                 <KbdGroup>

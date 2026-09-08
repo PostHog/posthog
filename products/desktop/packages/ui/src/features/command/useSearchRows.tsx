@@ -8,6 +8,7 @@ import {
   searchResultParts,
   searchResultRecency,
 } from "@posthog/ui/features/command/commandRowFacts";
+import { searchResultHref } from "@posthog/ui/features/command/commandRowHref";
 import { commandRowMeta } from "@posthog/ui/features/command/commandRowMeta";
 import type { ResultRow } from "@posthog/ui/features/command/rankResultRows";
 import { searchResultIcon } from "@posthog/ui/features/command/searchResultIcon";
@@ -104,6 +105,7 @@ export function useSearchRows({
           detailPrefix: "",
           keywords: `${remoteQuery} ${result.subtitle} ${Object.values(result.metadata).join(" ")}`,
           icon: searchResultIcon(result, { title, task }),
+          href: searchResultHref(result, { task, bluebirdEnabled }),
           action: SEARCH_ACTIONS[result.kind],
           channelId: bluebirdEnabled
             ? (result.channel_id ?? undefined)

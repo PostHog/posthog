@@ -16,6 +16,8 @@ export type Command = {
   channelId?: string;
   /** Hotkey string (e.g. "mod+b") shown right-aligned when present. */
   shortcut?: string;
+  /** Where this row lives, for a mod-click or mod+enter that opens a new tab. */
+  href?: string;
   /** Running this keeps the palette open (e.g. completing a filter token). */
   keepOpen?: boolean;
   onRun: () => void;

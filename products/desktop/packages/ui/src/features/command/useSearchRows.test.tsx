@@ -91,6 +91,40 @@ describe("useSearchRows", () => {
     expect(rows).toEqual([]);
   });
 
+  it("gives every row a place of its own to open in a tab", () => {
+    const rows = render([
+      searchResult({
+        id: "t3",
+        kind: "task",
+        task_id: "task-d",
+        channel_id: "channel-a",
+      }),
+      searchResult({
+        id: "cv2",
+        kind: "canvas",
+        channel_id: "channel-a",
+        metadata: { canvas_id: "canvas-2" },
+      }),
+      searchResult({ id: "c2", kind: "channel", channel_id: "channel-b" }),
+      searchResult({ id: "pr1", kind: "pull_request", task_id: "task-e" }),
+    ]);
+
+    expect(rows.map((row) => row.command.href)).toEqual([
+      "/spaces/channel-a/tasks/task-d",
+      "/spaces/channel-a/dashboards/canvas-2",
+      "/spaces/channel-b",
+      "/tasks/task-e",
+    ]);
+  });
+
+  it("leaves a row with no route of its own without an href", () => {
+    const rows = render([
+      searchResult({ id: "cv3", kind: "canvas", metadata: {} }),
+    ]);
+
+    expect(rows[0].command.href).toBeUndefined();
+  });
+
   it("reads a title that arrived with a labeled link as one line", () => {
     const rows = render([
       searchResult({
