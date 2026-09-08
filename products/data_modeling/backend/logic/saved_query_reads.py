@@ -62,6 +62,19 @@ def all_saved_query_names(team_id: int) -> dict[str, str]:
     return {str(saved_query_id): name for saved_query_id, name in rows}
 
 
+def saved_query_ids_by_names(team_id: int, names: Iterable[str]) -> dict[str, UUID]:
+    """The stable IDs for live saved queries with these logical names."""
+    unique_names = set(names)
+    if not unique_names:
+        return {}
+    rows = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, name__in=unique_names)
+        .exclude(deleted=True)
+        .values_list("name", "id")
+    )
+    return dict(rows)
+
+
 def backing_table_ids_by_saved_query(team_id: int) -> dict[UUID, UUID]:
     """Private backing table ids mapped to their saved query ids. One query.
 
