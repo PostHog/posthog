@@ -292,8 +292,8 @@ function ExperimentScopeNote({ experimentName }: { experimentName?: string }): J
     }
     return (
         <LemonBanner type="info" data-attr="vision-template-experiment-scope">
-            This scanner watches sessions of people exposed to {experimentName}. Pick a template, then narrow it to one
-            variant on the Recordings step.
+            This scanner watches sessions of people exposed to {experimentName}. That holds whichever way you set it up
+            below, and you can narrow it to one variant on the Recordings step.
         </LemonBanner>
     )
 }
