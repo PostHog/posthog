@@ -1099,11 +1099,39 @@ class _SnapshotPlan:
 
     ``ready``: walkable instances exist. ``pending``: Apple is (or may still be) generating one.
     ``absent``: every fulfilled snapshot request lists reports and none of them is this one, so
-    the account isn't entitled to it and there is nothing to wait for.
+    the account isn't entitled to it and there is nothing to wait for. ``forbidden``: the key's
+    role can't create the snapshot request, so there is nothing to wait for either.
     """
 
-    state: Literal["ready", "pending", "absent"]
+    state: Literal["ready", "pending", "absent", "forbidden"]
     instances: list[tuple[str, date]] = dataclasses.field(default_factory=list)
+
+
+def _request_snapshot(
+    session: requests.Session,
+    token_provider: AppStoreConnectTokenProvider,
+    logger: FilteringBoundLogger,
+    config: AppStoreConnectEndpointConfig,
+    app_id: str,
+) -> bool:
+    """POST a ONE_TIME_SNAPSHOT request. ``False`` when the key's role can't create one.
+
+    Apple gates this create on Admin, but a Finance or Sales key reads the ongoing reports
+    fine. The backfill is an addition to that stream, so losing it must not take the stream
+    down with it: the 403 degrades this app's snapshot instead of failing the sync. A 403 on
+    the ONGOING create stays fatal, because nothing can be read without that request.
+    """
+    try:
+        _create_report_request(session, token_provider, logger, app_id, SNAPSHOT_ACCESS_TYPE)
+    except AppStoreConnectPermissionError:
+        logger.warning(
+            f"App Store Connect: this API key cannot request the one-time historical snapshot, "
+            f"which Apple allows only for an Admin key. The ongoing analytics stream keeps "
+            f"syncing without it. To backfill history, give the key the Admin role and resync "
+            f"this table. endpoint={config.name}, app_id={app_id}"
+        )
+        return False
+    return True
 
 
 def _resolve_snapshot_plan(
@@ -1124,7 +1152,8 @@ def _resolve_snapshot_plan(
     """
     snapshot_requests = [row for row in report_requests if row.get("accessType") == SNAPSHOT_ACCESS_TYPE]
     if not snapshot_requests:
-        _create_report_request(session, token_provider, logger, app_id, SNAPSHOT_ACCESS_TYPE)
+        if not _request_snapshot(session, token_provider, logger, config, app_id):
+            return _SnapshotPlan(state="forbidden")
         logger.info(
             f"App Store Connect: requested a one-time historical snapshot for app {app_id}; "
             f"Apple generates it in 1-2 days. endpoint={config.name}"
@@ -1165,7 +1194,8 @@ def _resolve_snapshot_plan(
         # Fulfilled once, but the instances aged out before they were downloaded — and no other
         # snapshot request is mid-generation, so re-requesting won't pile requests up while a
         # replacement is already on its way.
-        _create_report_request(session, token_provider, logger, app_id, SNAPSHOT_ACCESS_TYPE)
+        if not _request_snapshot(session, token_provider, logger, config, app_id):
+            return _SnapshotPlan(state="forbidden")
         logger.info(
             f"App Store Connect: the existing historical snapshot for app {app_id} has expired; "
             f"requested a fresh one. endpoint={config.name}"
@@ -1342,7 +1372,7 @@ def _get_analytics_report(
                 )
             # The app can't be walked this run, so an available snapshot can't be emitted in
             # order either — everything for this app has to land together on a later run.
-            if snapshot_plan is not None and snapshot_plan.state != "absent":
+            if snapshot_plan is not None and snapshot_plan.state not in ("absent", "forbidden"):
                 hold_for_snapshot = True
             continue
 

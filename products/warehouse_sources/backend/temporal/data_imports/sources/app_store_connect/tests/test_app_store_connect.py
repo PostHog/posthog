@@ -601,9 +601,11 @@ class _FakeAnalyticsApi(_FakeApi):
         self,
         bodies: dict[str, dict[str, Any]],
         segment_payloads: dict[str, bytes] | None = None,
+        forbidden_access_types: tuple[str, ...] = (),
     ) -> None:
         super().__init__(bodies)
         self.segment_payloads = segment_payloads or {}
+        self.forbidden_access_types = forbidden_access_types
         self.posts: list[tuple[str, Any]] = []
 
     def get(self, url: str, **kwargs: Any) -> MagicMock:
@@ -616,6 +618,10 @@ class _FakeAnalyticsApi(_FakeApi):
         payload = kwargs["json"]
         self.posts.append((url, payload))
         access_type = payload["data"]["attributes"]["accessType"]
+        if access_type in self.forbidden_access_types:
+            return _json_response(
+                {"errors": [{"code": "FORBIDDEN_ERROR", "detail": "Admin role required"}]}, status_code=403
+            )
         body = {
             "data": {
                 "type": "analyticsReportRequests",
@@ -636,6 +642,7 @@ def _analytics_api(
     snapshot_instances: list[dict[str, Any]] | None = None,
     segments_by_instance: dict[str, list[dict[str, Any]]] | None = None,
     segment_payloads: dict[str, bytes] | None = None,
+    forbidden_access_types: tuple[str, ...] = (),
 ) -> _FakeAnalyticsApi:
     # The default snapshot topology is a fulfilled request whose reports don't include the
     # synced one, so tests about the ongoing stream keep their exact pre-snapshot behavior.
@@ -669,7 +676,7 @@ def _analytics_api(
     }
     for instance_id, segment_resources in (segments_by_instance or {}).items():
         bodies[_segments_url(instance_id)] = _page(segment_resources)
-    return _FakeAnalyticsApi(bodies, segment_payloads=segment_payloads)
+    return _FakeAnalyticsApi(bodies, segment_payloads=segment_payloads, forbidden_access_types=forbidden_access_types)
 
 
 def _collect_analytics(
@@ -1186,6 +1193,32 @@ class TestAnalyticsSnapshotBackfill:
         rows = _collect_analytics(api, _FakeManager(), should_use_incremental_field=True)
 
         assert rows == []
+        assert [payload["data"]["attributes"]["accessType"] for _, payload in api.posts] == ["ONE_TIME_SNAPSHOT"]
+
+    @parameterized.expand(
+        [
+            ("never_requested", {"snapshot_requests_page": []}),
+            ("expired", {"snapshot_reports": _SNAPSHOT_READY_REPORTS, "snapshot_instances": []}),
+        ]
+    )
+    def test_a_forbidden_snapshot_request_leaves_the_ongoing_stream_syncing(
+        self, _name: str, topology: dict[str, Any]
+    ) -> None:
+        # Apple gates the snapshot create on Admin, but a Finance or Sales key reads the ongoing
+        # reports fine. The backfill only adds to that stream, so its 403 must not take the stream
+        # down: the app loses its history, and nothing waits for a snapshot that can never exist.
+        payload = _gzip_csv("Date,Sessions\n2026-07-31,7\n")
+        api = _analytics_api(
+            instances=[_instance("I1", "2026-08-01")],
+            segments_by_instance={"I1": [_segment("S1", "https://r.s3.amazonaws.com/o1", payload)]},
+            segment_payloads={"https://r.s3.amazonaws.com/o1": payload},
+            forbidden_access_types=("ONE_TIME_SNAPSHOT",),
+            **topology,
+        )
+
+        rows = _collect_analytics(api, _FakeManager(), should_use_incremental_field=True)
+
+        assert [(row["processing_date"], row["_line"], row["sessions"]) for row in rows] == [(date(2026, 8, 1), 1, 7)]
         assert [payload["data"]["attributes"]["accessType"] for _, payload in api.posts] == ["ONE_TIME_SNAPSHOT"]
 
     def test_no_new_snapshot_request_while_a_replacement_is_generating(self) -> None:
