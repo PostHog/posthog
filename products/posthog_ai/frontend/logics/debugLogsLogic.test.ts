@@ -41,7 +41,6 @@ describe('debugLogsLogic', () => {
     })
 
     it('ignores a value left under a superseded storage key', () => {
-        // A staff user who saw debug rows before they became opt-in must not inherit that state.
         localStorage.setItem('posthog_ai.debugLogsEnabled', 'true')
         setup({ user: { is_staff: true }, isDev: false })
         expect(logic.values.debugLogsEnabled).toBe(false)

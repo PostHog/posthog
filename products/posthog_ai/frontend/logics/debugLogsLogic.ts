@@ -54,8 +54,6 @@ export const debugLogsLogic = kea<debugLogsLogicType>([
     reducers({
         debugLogsEnabled: [
             false,
-            // Keyed on the opt-in semantics, so a value stored while debug rows rendered for every
-            // staff user cannot switch them back on for someone who never asked for them.
             { persist: true, storageKey: 'posthog_ai.debugLogsOptIn' },
             {
                 setDebugLogsEnabled: (_, { enabled }) => enabled,
