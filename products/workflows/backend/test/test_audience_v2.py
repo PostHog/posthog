@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from posthog.hogql.query import execute_hogql_query
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius
 from products.workflows.backend.services.audience_v2 import (
     bounded_memory_settings,
@@ -53,6 +54,63 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
         result = get_person_audience_count_v2(self.team, {})
 
         assert (result.affected, result.total) == (2, 2)
+
+    def test_person_whose_latest_version_no_longer_matches_is_excluded(self):
+        # The id prefilter matches any row version, but only the latest version decides
+        # membership. A person updated from subscribed=true to false must not count.
+        churned_uuid = "01970000-0000-0000-0000-0000000000a1"
+        _create_person(
+            team=self.team,
+            distinct_ids=["churned"],
+            uuid=churned_uuid,
+            properties={"subscribed": "true"},
+            version=0,
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["churned-v1"],
+            uuid=churned_uuid,
+            properties={"subscribed": "false"},
+            version=1,
+        )
+        _create_person(team=self.team, distinct_ids=["kept"], properties={"subscribed": "true"})
+        flush_persons_and_events()
+
+        result = get_person_audience_count_v2(self.team, FILTERS)
+
+        assert (result.affected, result.total) == (1, 2)
+
+    def test_cohort_filter_matches_v1(self):
+        # Cohort filters compile to a different subquery shape than plain property filters,
+        # so the sampled query and the bounded settings must not break them.
+        for i in range(6):
+            _create_person(team=self.team, distinct_ids=[f"cohort-user-{i}"], properties={"group": str(i)})
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="cohort1",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {"type": "OR", "values": [{"key": "group", "value": ["1", "2", "3"], "type": "person"}]}
+                    ],
+                }
+            },
+        )
+        filters = {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}]}
+
+        result = get_person_audience_count_v2(self.team, filters)
+        v1_result = get_user_blast_radius(self.team, filters)
+
+        assert (result.affected, result.total) == (3, 6)
+        assert (result.affected, result.total) == (v1_result.affected, v1_result.total)
+
+        cohort.calculate_people_ch(pending_version=0)
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            result = get_person_audience_count_v2(self.team, filters)
+
+        assert (result.affected, result.total) == (3, 6)
 
     def test_sampling_predicate_reaches_raw_person_prefilter(self):
         # The memory bound depends on WhereClauseExtractor pushing the call-form sampling
