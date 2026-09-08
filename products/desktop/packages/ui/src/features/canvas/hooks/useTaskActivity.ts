@@ -11,7 +11,7 @@ import { TASK_ACTIVITY_QUERY_KEY } from "../task-activity/taskActivityQuery";
 
 export { TASK_ACTIVITY_QUERY_KEY } from "../task-activity/taskActivityQuery";
 
-const TASK_ACTIVITY_REFETCH_INTERVAL_MS = 60_000;
+export const TASK_ACTIVITY_REFETCH_INTERVAL_MS = 60_000;
 
 /**
  * Task lifecycle and comment activity for the current user, newest first. Task
