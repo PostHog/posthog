@@ -7,7 +7,7 @@ Versioned migrations for the JSON query schema (`TrendsQuery`, `RetentionQuery`,
 - Every query node has an optional `version` field. **A missing or `null` version means version 1.**
 - A migration file (`NNNN_description.py`) declares `targets = {"<NodeKind>": <version>}` and a `transform(query: dict) -> dict` that converts a node from that version to the next. The version bump happens in the base class, not in `transform`.
 - `upgrade(query)` (`upgrade.py`) walks a query dict recursively (any nesting: `InsightVizNode.source`, series arrays, ...) and replays migrations on every node whose `version` is below `LATEST_VERSIONS[kind]`.
-- `upgrade_query(insight)` (`upgrade_manager.py`) additionally converts legacy filters-based insights to query-based ones first. Note: it mutates `insight.query` in memory and does not restore it on exit.
+- `upgrade_insight(insight)` (`upgrade_manager.py`) upgrades an insight's stored query. Note: it mutates `insight.query` in memory and does not restore it on exit.
 - Discovery (`__init__.py`) is lazy and validated: duplicate `(kind, version)` targets raise, and `validate.py` (exercised in CI by `test_validate.py::test_linear`) rejects gaps and non-linear versions.
 
 ## Where upgrades happen
@@ -16,7 +16,7 @@ Read/execute-time (always-on):
 
 - `/api/.../query` and `process_query_dict` upgrade before pydantic validation.
 - `POST /api/environments/:id/query/upgrade` is called by the frontend for untrusted queries (URL-embedded, notebook nodes).
-- Insight serializers upgrade on read; caching, alerts, exports, and subscriptions go through `upgrade_query`.
+- Insight serializers upgrade on read; caching, alerts, exports, and subscriptions go through `upgrade_insight`.
 - Endpoints upgrade their immutable `EndpointVersion.query` snapshots at execution/materialization time; cohorts upgrade their saved `query` when compiling.
 
 Write-time (backfill): a Temporal schedule (`upgrade-queries-schedule`, every 6 hours, see `posthog/temporal/product_analytics/`) rewrites stored **insights** whose queries are below the latest versions. Other stores (endpoint snapshots, notebook content, dashboard templates, cohort queries) are _not_ rewritten and rely on read-time upgrades forever.
