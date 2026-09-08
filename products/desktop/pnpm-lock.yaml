@@ -1449,8 +1449,8 @@ importers:
         specifier: ^11.17.0
         version: 11.17.0
       posthog-js:
-        specifier: ^1.428.3
-        version: 1.428.3(@types/react@19.2.17)(react@19.2.6)
+        specifier: ^1.428.5
+        version: 1.428.5(@types/react@19.2.17)(react@19.2.6)
       radix-themes-tw:
         specifier: 0.2.3
         version: 0.2.3
@@ -1745,8 +1745,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
       posthog-js:
-        specifier: ^1.428.3
-        version: 1.428.3(@types/react@19.2.17)(react@19.2.6)
+        specifier: ^1.428.5
+        version: 1.428.5(@types/react@19.2.17)(react@19.2.6)
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -13931,8 +13931,8 @@ packages:
     resolution: {integrity: sha512-g50586zr4bZmwFiTlflMu8E0bDTb5I5gertgwAKmsdUlTQIhZtunzUlD1WSzwcVWPoAVpsrA6vlfCD7oXvRwgg==}
     engines: {node: ^10 || ^12 || >=14}
 
-  posthog-js@1.428.3:
-    resolution: {integrity: sha512-39BloFeL5koaAC8FmbDFx1RQGUwZkqO46M2d1wCi2vVkmiv+TrjC37t5hT9QjAszAeGn7gXeBX7E+MgND5Tygw==}
+  posthog-js@1.428.5:
+    resolution: {integrity: sha512-c5681UZNjYNx8KsLRT4B6P3P/beta0rgVPwhK/85715G5Sgbq0LBczCD31cQq7shbjr3HlcixZX86/8fd/LyxA==}
     peerDependencies:
       '@types/react': ^19.2.15
       react: 19.2.6
@@ -30031,7 +30031,7 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
-  posthog-js@1.428.3(@types/react@19.2.17)(react@19.2.6):
+  posthog-js@1.428.5(@types/react@19.2.17)(react@19.2.6):
     dependencies:
       '@posthog/browser-common': 0.8.2
       '@posthog/core': 1.51.0

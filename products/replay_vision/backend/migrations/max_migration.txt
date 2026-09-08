@@ -1,1 +1,1 @@
-0089_replayscanner_search_suggestions
+0091_squash_2026_09_07_schema_addons

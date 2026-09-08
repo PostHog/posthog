@@ -60,6 +60,11 @@ import {
   emptyBaseline,
   estimateTokens,
 } from "../claude/context-breakdown";
+import {
+  classifyAgentError,
+  isRetryableUpstreamErrorClassification,
+  sanitizeAgentErrorCause,
+} from "../error-classification";
 import { isLocalSkillCommandChunk } from "../local-skill";
 import { LOCAL_TOOLS_MCP_NAME } from "../local-tools";
 import { visiblePromptBlocks } from "../prompt-blocks";
@@ -106,21 +111,19 @@ import { parseStructuredOutput } from "./structured-output";
 import { TurnController } from "./turn-controller";
 import { mergeUsage, UsageTracker } from "./usage-tracker";
 
-const ACP_INTERNAL_ERROR_CODE = -32603;
 const CYBER_POLICY_ERROR_MESSAGE =
   "This request was blocked because it may pose a cybersecurity risk. Revise the request and try again.";
 const POLICY_ERROR_MESSAGE =
   "This request was blocked by a safety policy. Revise the request and try again.";
 const GENERIC_FATAL_ERROR_MESSAGE =
   "The agent stopped before completing this request. Please try again.";
-/** Keeps a verbose upstream payload out of the chat bubble and the run's error field. */
+/** Keeps an excessively long upstream payload out of the chat bubble. */
 const MAX_FATAL_CAUSE_LENGTH = 400;
 
 /**
  * Frame an unclassified fatal error for the reader, keeping the upstream cause.
  *
- * Without the cause every unclassified failure reads the same, so a burst of them
- * cannot be told apart in the run's error field or in analytics.
+ * Without the cause every unclassified failure looks the same to the user.
  */
 function describeFatalError(upstream: string): string {
   const cause = upstream.trim();
@@ -343,6 +346,8 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   private readonly mcp = new McpManager();
   private readonly turns = new TurnController();
   private readonly usage = new UsageTracker();
+  /** True after the current turn completes a tool that can have side effects. */
+  private turnMadeProgress = false;
   /** Pause/clear can race a goal continuation already queued by app-server. */
   private cancelNextGoalTurn = false;
   /** Native goal ticks start outside prompt(), so TurnController does not own them. */
@@ -1185,6 +1190,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     this.lastAgentMessage = "";
     this.lastTurnError = undefined;
     this.resetUsage();
+    this.turnMadeProgress = false;
     this.planProposal = undefined;
     this.streamedPlanToolCallId = undefined;
     // A new turn owns the idle boundary; its own completion emits the signal.
@@ -1528,7 +1534,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   /** Echo each user prompt block (text + image, so an image-only turn still renders) for the host log/UI. */
   private broadcastUserInput(prompt: PromptRequest["prompt"]): void {
     if (!this.sessionId) return;
-    for (const block of prompt) {
+    for (const block of visiblePromptBlocks(prompt)) {
       if (block.type !== "text" && block.type !== "image") continue;
       void this.client
         .sessionUpdate({
@@ -1672,6 +1678,19 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     }
 
     if (method === APP_SERVER_NOTIFICATIONS.ITEM_COMPLETED) {
+      const itemType = (params as { item?: AppServerItem })?.item?.type;
+      if (
+        itemType &&
+        [
+          "commandExecution",
+          "fileChange",
+          "mcpToolCall",
+          "dynamicToolCall",
+          "collabAgentToolCall",
+        ].includes(itemType)
+      ) {
+        this.turnMadeProgress = true;
+      }
       this.captureAgentMessage(params);
       this.capturePlanProposal(params);
     }
@@ -1806,11 +1825,12 @@ export class CodexAppServerAgent extends BaseAcpAgent {
           void this.refuseTurnWithMessage(message);
           return;
         }
+        // The client displays the full cause. The error data keeps only the
+        // fields that can enter wider diagnostic sinks.
+        const failure = this.classifiedTurnFailure(message);
         void this.failTurn(
-          new RequestError(
-            ACP_INTERNAL_ERROR_CODE,
-            describeFatalError(message),
-          ),
+          failure.error,
+          !isRetryableUpstreamErrorClassification(failure.classification),
         );
       }
     }
@@ -2128,7 +2148,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     });
   }
 
-  private async failTurn(error: Error): Promise<void> {
+  private async failTurn(error: Error, emitTurnComplete = true): Promise<void> {
     this.turns.markInterrupted();
     const pending = this.turns.claim();
     if (!pending) return;
@@ -2138,7 +2158,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     }
     const usage = this.usage.perTurnUsage();
     pending.reject(error);
-    void this.emitTurnCompleteSignal("refusal", usage);
+    if (emitTurnComplete) {
+      void this.emitTurnCompleteSignal("refusal", usage);
+    }
     void this.emitUsageBreakdown(this.usage.contextTokens());
   }
 
@@ -2165,10 +2187,31 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         turnId !== undefined &&
         saved.turnId !== turnId;
       const savedCause = saved && !mismatched ? saved.message : "";
-      this.refuseTurnWithMessage(
-        describeFatalError(terminalCause || savedCause),
-      );
+      const cause = terminalCause || savedCause;
+      const failure = this.classifiedTurnFailure(cause);
+      if (isRetryableUpstreamErrorClassification(failure.classification)) {
+        void this.failTurn(failure.error, false);
+        return;
+      }
+      this.refuseTurnWithMessage(describeFatalError(cause));
     }, 250);
+  }
+
+  private classifiedTurnFailure(message: string): {
+    classification: ReturnType<typeof classifyAgentError>;
+    error: RequestError;
+  } {
+    const classification = classifyAgentError(message);
+    const usage = this.usage.perTurnUsage();
+    return {
+      classification,
+      error: new RequestError(-32603, describeFatalError(message), {
+        classification,
+        result: sanitizeAgentErrorCause(message, classification),
+        madeProgress: this.turnMadeProgress,
+        ...(usage ? { usage } : {}),
+      }),
+    };
   }
 
   private refuseTurnWithMessage(message: string): void {
