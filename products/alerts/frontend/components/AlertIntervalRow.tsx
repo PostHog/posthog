@@ -72,7 +72,9 @@ export function AlertIntervalRow({
         evaluatedWindow = <div>{getHogQLEvaluatedText(alertForm)}</div>
     } else {
         const period =
-            isTrendsAlertConfig(alertForm.config) && alertForm.config.check_ongoing_interval ? 'current' : 'last'
+            isTrendsAlertConfig(alertForm.config) && alertForm.config.check_ongoing_interval && canCheckOngoingInterval
+                ? 'current'
+                : 'last'
         evaluatedWindow = (
             <div data-attr="alertForm-trend-interval">
                 and check {period}{' '}

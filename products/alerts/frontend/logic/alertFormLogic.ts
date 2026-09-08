@@ -93,6 +93,10 @@ export function canCheckOngoingInterval(
     if (isFunnelsAlertConfig(alert?.config)) {
         return isTrendsFunnel
     }
+    // A forecast is fitted on completed intervals only, so there is no ongoing period to check.
+    if (alert?.forecast_config) {
+        return false
+    }
     const upper = alert?.threshold?.configuration?.bounds?.upper
     return (
         (alert?.condition?.type === AlertConditionType.ABSOLUTE_VALUE ||
@@ -118,10 +122,15 @@ export interface OngoingIntervalField {
 
 /** State of the "Check ongoing period" advanced-option, keyed on alert kind — so the per-kind
  * branching lives here rather than growing inside the component as more alert types are added. */
-export function ongoingIntervalField(config: AlertConfig | null | undefined, canCheck: boolean): OngoingIntervalField {
+export function ongoingIntervalField(
+    alert: { config?: AlertConfig | null; forecast_config?: object | null },
+    canCheck: boolean
+): OngoingIntervalField {
+    const config = alert.config
     return {
         // Trends alerts show the toggle even when ineligible (disabled); funnels only when eligible.
-        show: supportsOngoingInterval(config) && (isTrendsAlertConfig(config) || canCheck),
+        // A forecast never reads it, so the option is left out of that mode entirely.
+        show: !alert.forecast_config && supportsOngoingInterval(config) && (isTrendsAlertConfig(config) || canCheck),
         checked: supportsOngoingInterval(config) && !!config.check_ongoing_interval && canCheck,
         disabledReason: canCheck ? undefined : ONGOING_DISABLED_REASON,
         tooltip: isFunnelsAlertConfig(config) ? ONGOING_TOOLTIP_FUNNEL : ONGOING_TOOLTIP_TRENDS,

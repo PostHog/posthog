@@ -36,7 +36,7 @@ export function AlertAdvancedOptionsSection({
     defaultOpen,
     onSetAlertFormValue,
 }: AlertAdvancedOptionsSectionProps): JSX.Element {
-    const ongoing = ongoingIntervalField(alertForm.config, canCheckOngoingInterval)
+    const ongoing = ongoingIntervalField(alertForm, canCheckOngoingInterval)
     const quietHoursCadenceMinutes = alertCadenceMinutes(alertForm.calculation_interval)
     const quietHoursCoarseIntervalLabel = QUIET_HOURS_COARSE_INTERVAL_LABELS[alertForm.calculation_interval]
 

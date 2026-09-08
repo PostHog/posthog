@@ -393,6 +393,28 @@ describe('alertFormLogic', () => {
         expect(updateSpy.mock.calls[0][1]).toHaveProperty('forecast_config')
     })
 
+    it('saves a forecast alert without the ongoing-period flag the forecast never reads', async () => {
+        const logic = mountForm()
+        logic.actions.setAlertFormValues({
+            ...makeFormDefaults({
+                config: { type: 'TrendsAlertConfig', series_index: 0, check_ongoing_interval: true },
+                forecast_config: {
+                    type: 'ForecastConfig',
+                    engine: ForecastEngineType.PROPHET,
+                    condition: ForecastConditionType.FUTURE_BREACH,
+                    horizon: 7,
+                },
+            }),
+            checks: undefined,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        expect(createSpy.mock.calls[0][0].config.check_ongoing_interval).toBe(false)
+    })
+
     it('blocks save when threshold alert has no lower or upper bound', async () => {
         const logic = mountForm()
         logic.actions.setAlertFormValues({
@@ -1283,6 +1305,16 @@ describe('alertFormLogic', () => {
             expect(canCheckOngoingInterval(alert)).toBe(false)
         })
 
+        // A forecast is fitted on completed intervals, so the option cannot apply however the
+        // threshold is set — and an upcoming-breach forecast always has an upper bound.
+        it('canCheckOngoingInterval: a forecast alert cannot, whatever its bounds', () => {
+            const alert: any = {
+                ...trendsAbsoluteWithUpper(AlertConditionType.ABSOLUTE_VALUE),
+                forecast_config: { type: 'ForecastConfig', condition: 'future_breach' },
+            }
+            expect(canCheckOngoingInterval(alert)).toBe(false)
+        })
+
         // The util the advanced-options section renders from — one place for the per-kind branching.
         it.each([
             [
@@ -1305,11 +1337,22 @@ describe('alertFormLogic', () => {
             ['trends funnel (canCheck true → shown, no reason)', funnelConfig, true, true, false, false],
             ['SQL (never shown)', { type: 'HogQLAlertConfig', evaluation: 'last_row' }, false, false, false, true],
         ])('ongoingIntervalField: %s', (_name, config, canCheck, show, checked, hasReason) => {
-            const field = ongoingIntervalField(config as any, canCheck)
+            const field = ongoingIntervalField({ config } as any, canCheck)
             expect(field.show).toBe(show)
             expect(field.checked).toBe(checked)
             expect(field.disabledReason !== undefined).toBe(hasReason)
             expect(field.tooltip.length).toBeGreaterThan(0)
+        })
+
+        it('ongoingIntervalField: a forecast alert never shows the option', () => {
+            const field = ongoingIntervalField(
+                {
+                    config: { type: 'TrendsAlertConfig', series_index: 0, check_ongoing_interval: true },
+                    forecast_config: { type: 'ForecastConfig', condition: 'future_breach' },
+                } as any,
+                true
+            )
+            expect(field.show).toBe(false)
         })
     })
 })
