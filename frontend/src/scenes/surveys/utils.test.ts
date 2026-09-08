@@ -62,16 +62,16 @@ afterEach(() => {
 
 describe('survey utils', () => {
     it.each([
-        ['survey sent', { $survey_completed: false }, 'Partially completed'],
-        ['survey dismissed', { $survey_partially_completed: true }, 'Partially completed · Dismissed'],
-        ['survey abandoned', { $survey_partially_completed: 'true' }, 'Partially completed · Abandoned'],
+        ['survey sent', { $survey_completed: false }, 'Abandoned'],
+        ['survey dismissed', { $survey_partially_completed: true }, 'Dismissed'],
+        ['survey abandoned', { $survey_partially_completed: 'true' }, 'Abandoned'],
         ['survey sent', {}, null],
         ['survey dismissed', { $survey_completed: true, $survey_partially_completed: true }, null],
-    ])('labels %s using the recorded outcome', (event, properties, expected) => {
+    ])('labels %s using completion and dismissal status', (event, properties, expected) => {
         expect(getSurveyResponseStatus(event, properties)).toBe(expected)
     })
 
-    it('renders merged answers and the final outcome instead of the last event properties', () => {
+    it.each(['completed', 'abandoned'])('renders merged answers and the %s outcome', (outcome) => {
         const survey = {
             questions: [
                 { id: 'rating', type: SurveyQuestionType.Rating },
@@ -92,8 +92,9 @@ describe('survey utils', () => {
                             $survey_response_text: 'Final answer',
                             $survey_completed: false,
                         }),
-                        'completed',
+                        outcome,
                         ['9', 'Final answer'],
+                        SurveyEventName.SENT,
                     ],
                 ],
             },
@@ -105,8 +106,8 @@ describe('survey utils', () => {
             properties: {
                 $survey_response_rating: '9',
                 $survey_response_text: 'Final answer',
-                $survey_completed: true,
-                $survey_partially_completed: false,
+                $survey_completed: outcome === 'completed',
+                $survey_partially_completed: outcome !== 'completed',
             },
         })
     })
