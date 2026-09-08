@@ -194,9 +194,7 @@ def rollback_orphaned_migration(app_label: str, migration_name: str, previous: s
         return False
 
 
-# Exit code for a database this build cannot migrate. Callers use it to tell an
-# unsupported server apart from a transient connection failure, which is worth
-# retrying. Matches sysexits.h EX_CONFIG.
+# EX_CONFIG from sysexits.h. bin/migrate reads it to skip its retries.
 UNSUPPORTED_DATABASE_EXIT_CODE = 78
 
 

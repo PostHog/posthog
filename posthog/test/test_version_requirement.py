@@ -99,9 +99,6 @@ class TestServiceVersionRequirement(TestCase):
         self.assertEqual(in_range, True)
 
     def test_postgres_requirement_starts_at_the_version_django_needs(self):
-        # Below Django's floor the driver refuses to connect, so migrations cannot
-        # run. A requirement that advertises anything lower sends operators to a
-        # PostgreSQL version PostHog cannot migrate.
         requirement = next(r for r in settings.SERVICE_VERSION_REQUIREMENTS if r.service == "postgresql")
         minimum = PostgresFeatures.minimum_database_version
         assert minimum is not None
