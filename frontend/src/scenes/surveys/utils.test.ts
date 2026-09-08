@@ -22,7 +22,6 @@ import {
     buildAggregateQuery,
     buildOpenEndedQuery,
     buildSurveyExampleInvocationGlobals,
-    buildPartialResponsesFilter,
     buildSurveyOptionalBooleanPropertyFilter,
     buildSurveyTimestampFilter,
     calculateNpsBreakdown,
@@ -36,6 +35,8 @@ import {
     getSurveyDisplayConditionsSummary,
     getSurveyEndDateForQuery,
     getSurveyResponse,
+    getSurveyResponseStatus,
+    transformSurveyResponseRows,
     getSurveyStartDateForQuery,
     isSimpleSurveyAudienceTargeting,
     sanitizeColor,
@@ -60,6 +61,56 @@ afterEach(() => {
 })
 
 describe('survey utils', () => {
+    it.each([
+        ['survey sent', { $survey_completed: false }, 'Partially completed'],
+        ['survey dismissed', { $survey_partially_completed: true }, 'Partially completed · Dismissed'],
+        ['survey abandoned', { $survey_partially_completed: 'true' }, 'Partially completed · Abandoned'],
+        ['survey sent', {}, null],
+        ['survey dismissed', { $survey_completed: true, $survey_partially_completed: true }, null],
+    ])('labels %s using the recorded outcome', (event, properties, expected) => {
+        expect(getSurveyResponseStatus(event, properties)).toBe(expected)
+    })
+
+    it('renders merged answers and the final outcome instead of the last event properties', () => {
+        const survey = {
+            questions: [
+                { id: 'rating', type: SurveyQuestionType.Rating },
+                { id: 'text', type: SurveyQuestionType.Open },
+            ],
+        } as Survey
+        const rows = [
+            {
+                result: [
+                    [
+                        'event-id',
+                        'respondent',
+                        '2026-09-08T12:00:00Z',
+                        'person-id',
+                        '{}',
+                        JSON.stringify({
+                            $survey_id: 'survey-id',
+                            $survey_response_text: 'Final answer',
+                            $survey_completed: false,
+                        }),
+                        'completed',
+                        ['9', 'Final answer'],
+                    ],
+                ],
+            },
+        ]
+        const [row] = transformSurveyResponseRows(rows, survey)
+        expect(Array.isArray(row.result) ? row.result[0] : null).toMatchObject({
+            uuid: 'event-id',
+            event: SurveyEventName.SENT,
+            properties: {
+                $survey_response_rating: '9',
+                $survey_response_text: 'Final answer',
+                $survey_completed: true,
+                $survey_partially_completed: false,
+            },
+        })
+    })
+
     beforeAll(() => {
         // Mock CSS.supports
         global.CSS = {
@@ -1013,55 +1064,6 @@ describe('survey utils', () => {
         })
     })
 
-    describe('buildPartialResponsesFilter', () => {
-        it('keeps missing survey_completed values eligible for complete-response queries', () => {
-            const survey = {
-                id: 'test-survey-id',
-                created_at: '2024-11-19T00:00:00Z',
-                end_date: null,
-                enable_partial_responses: false,
-            } as Survey
-
-            expect(buildPartialResponsesFilter(survey)).toBe(
-                `AND ${buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_COMPLETED, 'false')}`
-            )
-        })
-
-        it('uses same date bounds as buildSurveyTimestampFilter', () => {
-            const survey = {
-                id: 'test-survey-id',
-                created_at: '2024-11-19T00:00:00Z',
-                end_date: '2024-11-25T00:00:00Z',
-                enable_partial_responses: true,
-            } as Survey
-            const dateRange = { date_from: '2024-11-20', date_to: '2024-11-22' }
-
-            const timestampFilter = buildSurveyTimestampFilter(survey, dateRange)
-            const partialFilter = buildPartialResponsesFilter(survey, dateRange)
-
-            const fromMatch = timestampFilter.match(/timestamp >= '([^']+)'/)
-            const toMatch = timestampFilter.match(/timestamp <= '([^']+)'/)
-
-            expect(partialFilter).toContain(`greaterOrEquals(timestamp, '${fromMatch?.[1]}')`)
-            expect(partialFilter).toContain(`lessOrEquals(timestamp, '${toMatch?.[1]}')`)
-        })
-
-        it('uses direct property access for fixed survey properties', () => {
-            const survey = {
-                id: 'test-survey-id',
-                created_at: '2024-11-19T00:00:00Z',
-                end_date: null,
-                enable_partial_responses: true,
-            } as Survey
-
-            const partialFilter = buildPartialResponsesFilter(survey)
-
-            expect(partialFilter).toContain('properties.`$survey_id`')
-            expect(partialFilter).toContain('properties.`$survey_submission_id`')
-            expect(partialFilter).not.toContain('JSONExtractString')
-        })
-    })
-
     describe('submission merging in the results queries', () => {
         const buildSurvey = (enablePartialResponses: boolean): Survey =>
             ({
@@ -1099,61 +1101,24 @@ describe('survey utils', () => {
 
             const query = buildAggregateQuery(survey, buildFilters(survey))
 
-            expect(query).toContain(`argMaxIf(q${index}_raw, timestamp, ${presenceExpr}) AS q${index}_answer`)
+            expect(query).toContain(
+                `argMaxIf(q${index}_raw, tuple(timestamp, event_uuid), ${presenceExpr}) AS q${index}_answer`
+            )
             expect(query).toContain('GROUP BY submission_key')
         })
 
-        it('requires a completed event per submission rather than per event when partial responses are off', () => {
-            const survey = buildSurvey(false)
-
-            const query = buildAggregateQuery(survey, buildFilters(survey))
-
-            // The completed check has to run over the grouped submission. Back in the event-level
-            // WHERE it removes the partial events before their answers can be merged, which is
-            // exactly how a rating sent on its own event went missing.
-            expect(query).toContain('HAVING countIf(is_completed_event) > 0')
-            expect(query).toContain(
-                `${buildSurveyOptionalBooleanPropertyFilter(
-                    SurveyEventProperties.SURVEY_COMPLETED,
-                    'false'
-                )} AS is_completed_event`
-            )
-        })
-
-        it.each([
-            ['the survey collects partial responses', true, {}],
-            // The switch on the results filters has to reach the question charts too, otherwise a
-            // partial answer stays hidden there after the user asked to see it.
-            ['the viewer asked to see partial responses', false, { includePartialResponses: true }],
-        ])('surfaces every submission regardless of completion when %s', (_case, enablePartialResponses, overrides) => {
-            const survey = buildSurvey(enablePartialResponses)
-
-            const query = buildAggregateQuery(survey, buildFilters(survey, overrides))
-
-            expect(query).not.toContain('is_completed_event')
-        })
-
-        it.each([
-            ['the question charts', (survey: Survey, f: SurveyQueryFilters) => buildAggregateQuery(survey, f)],
-            ['the open text panel', (survey: Survey, f: SurveyQueryFilters) => buildOpenEndedQuery(survey, f)?.query],
-        ])('reads partially completed dismissals for %s only when the viewer asked for them', (_surface, build) => {
-            const survey = buildSurvey(true)
-
-            // A submission the respondent only ever dismissed has no `survey sent` event to read.
-            // Scanning that event alone hides answers the responses table already lists, so the
-            // switch would mean one thing in the table and another in the charts.
-            const withPartials = build(survey, buildFilters(survey, { includePartialResponses: true }))
-            // The dismissal branch stays parenthesized, so its `AND` cannot be read as part of
-            // the `survey sent` branch.
-            expect(withPartials).toContain(
-                `event = '${SurveyEventName.SENT}' OR (event == '${SurveyEventName.DISMISSED}'`
-            )
-            expect(withPartials).toContain(SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED)
-            // The same submission key merges a dismissal with the `survey sent` event that
-            // followed it, so a submission that produced both stays one row.
-            expect(withPartials).toContain('GROUP BY submission_key')
-
-            expect(build(survey, buildFilters(survey))).not.toContain(SurveyEventName.DISMISSED)
+        it.each([true, false])('includes captured answers with partial collection set to %s', (enabled) => {
+            const survey = buildSurvey(enabled)
+            for (const query of [
+                buildAggregateQuery(survey, buildFilters(survey)),
+                buildOpenEndedQuery(survey, buildFilters(survey))?.query,
+            ]) {
+                expect(query).toContain("event = 'survey sent'")
+                expect(query).toContain("'survey dismissed', 'survey abandoned'")
+                expect(query).toContain(SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED)
+                expect(query).toContain('GROUP BY submission_key')
+                expect(query).not.toContain('HAVING countIf(is_completed_event) > 0')
+            }
         })
 
         it('applies answer and archive filters to the merged answer, not to single events', () => {

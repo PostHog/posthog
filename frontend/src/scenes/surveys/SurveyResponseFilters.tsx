@@ -79,17 +79,9 @@ function CopyResponseKeyButton({ questionId }: { questionId: string }): JSX.Elem
 }
 
 export const SurveyResponseFilters = React.memo(function SurveyResponseFilters(): JSX.Element {
-    const {
-        survey,
-        answerFilters,
-        propertyFilters,
-        defaultAnswerFilters,
-        dateRange,
-        showArchivedResponses,
-        showPartialResponses,
-    } = useValues(surveyLogic)
-    const { setAnswerFilters, setPropertyFilters, setDateRange, setShowArchivedResponses, setShowPartialResponses } =
-        useActions(surveyLogic)
+    const { survey, answerFilters, propertyFilters, defaultAnswerFilters, dateRange, showArchivedResponses } =
+        useValues(surveyLogic)
+    const { setAnswerFilters, setPropertyFilters, setDateRange, setShowArchivedResponses } = useActions(surveyLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const [sqlHelperOpen, setSqlHelperOpen] = useState(false)
     const [questionFiltersExpanded, setQuestionFiltersExpanded] = useState(false)
@@ -193,13 +185,7 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
                         ]}
                     />
                 </div>
-                <div className="flex gap-2 items-center flex-wrap">
-                    <LemonSwitch
-                        checked={showPartialResponses}
-                        onChange={setShowPartialResponses}
-                        label="Show partial responses"
-                        tooltip="Include answers people gave before they finished or closed the survey."
-                    />
+                <div className="flex gap-2 items-center">
                     <LemonSwitch
                         checked={showArchivedResponses}
                         onChange={setShowArchivedResponses}
