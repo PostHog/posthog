@@ -194,6 +194,39 @@ describe('replayScannerLogic', () => {
             expect(logic.values.scanner?.experiment_targeting).toEqual({ experiment_id: 11, variant: 'test' })
         })
 
+        it('keeps an experiment prefill the AI draft did not name', async () => {
+            // The experiment cross-sell deep-links targeting the goal text never mentions. Dropping it
+            // here would save a scanner watching every visitor of the drafted pages, not the participants.
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id/': () => [200, { id: 7, name: 'Checkout redesign' }],
+                },
+            })
+            draftSpy.mockReturnValue([
+                200,
+                {
+                    name: 'Billing drop-off',
+                    description: 'Watches where people give up.',
+                    scanner_type: 'monitor',
+                    scanner_config: { prompt: 'Watch for drop-off.' },
+                    rationale: '',
+                    query: { kind: 'RecordingsQuery' },
+                },
+            ])
+            router.actions.push(urls.replayVisionScannerTemplate('new'), { experiment: '7' })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            expect(logic.values.experimentContext).toMatchObject({ experiment: { id: 7 }, variantKey: null })
+
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal('where do people give up in billing')
+            ).toFinishAllListeners()
+
+            expect(logic.values.scanner).toMatchObject({
+                name: 'Billing drop-off: Checkout redesign',
+                experiment_targeting: { experiment_id: 7, variant: null },
+            })
+        })
+
         it('drops a stale draft when the user has left the template step mid-request', async () => {
             draftSpy.mockReturnValue([
                 200,
