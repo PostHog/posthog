@@ -60,6 +60,9 @@ def main() -> int:
     parser.add_argument("--retries", type=int)
     parser.add_argument("--repeat-each", type=int, default=1)
     parser.add_argument("--grep")
+    parser.add_argument(
+        "--surface", action="store_true", help="Run browser interaction tests with controlled task APIs"
+    )
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--image-cache", type=Path)
     args = parser.parse_args()
@@ -337,6 +340,7 @@ def main() -> int:
                 "AI_E2E_BASE_URL": server.url,
                 "AI_E2E_OUTPUT": str(output),
                 "AI_E2E_PROXY_URL": proxy_url,
+                "AI_E2E_SURFACE": "1" if args.surface else "0",
             }
             command = [
                 "pnpm",

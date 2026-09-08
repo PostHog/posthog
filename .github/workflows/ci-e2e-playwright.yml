@@ -629,7 +629,14 @@ jobs:
               if: steps.tooling.outputs.available == 'true'
               run: |
                   echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
-                  .codex/with-flox --prepare true
+                  if ! .codex/with-flox --prepare true; then
+                      for activation_log in .flox/cache/activation-error-logs/*.log; do
+                          if [[ -f "$activation_log" ]]; then
+                              cat "$activation_log"
+                          fi
+                      done
+                      exit 1
+                  fi
 
             - name: Restore matching database schema
               if: steps.tooling.outputs.available == 'true' && needs.changes.outputs.schema_migrations_key != ''
