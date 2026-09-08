@@ -6,12 +6,13 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, Union
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models.query import QuerySet
 from django.db.models.query_utils import Q
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
+from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 
 import structlog
@@ -23,7 +24,7 @@ from posthog.constants import INVITE_DAYS_VALIDITY, MAX_SLUG_LENGTH, AvailableFe
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.utils import LowercaseSlugField, UUIDTModel, create_with_slug, sane_repr
+from posthog.models.utils import LowercaseSlugField, UUIDTModel, create_with_slug, generate_slug_candidates, sane_repr
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -210,6 +211,8 @@ class Organization(ModelActivityMixin, UUIDTModel):
 
     # General settings
     name = models.CharField(max_length=64)
+    # Name this instance last saw in the DB; save() compares it to self.name to detect a rename.
+    _loaded_name: Optional[str] = None
     slug: LowercaseSlugField = LowercaseSlugField(unique=True, max_length=MAX_SLUG_LENGTH)
     logo_media = models.ForeignKey("posthog.UploadedMedia", on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -369,6 +372,47 @@ class Organization(ModelActivityMixin, UUIDTModel):
         return self.name
 
     __repr__ = sane_repr("name")
+
+    @classmethod
+    def from_db(cls, db: Any, field_names: Any, values: Any) -> "Organization":
+        instance = super().from_db(db, field_names, values)
+        instance._loaded_name = instance.__dict__.get("name")
+        return instance
+
+    def refresh_from_db(self, using: Any = None, fields: Any = None, from_queryset: Any = None) -> None:
+        super().refresh_from_db(using=using, fields=fields, from_queryset=from_queryset)
+        if fields is None or "name" in fields:
+            self._loaded_name = self.name
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        update_fields = kwargs.get("update_fields")
+        name_is_written = update_fields is None or "name" in update_fields
+        renamed = (
+            not self._state.adding
+            and name_is_written
+            and self._loaded_name is not None
+            and self._loaded_name != self.name
+        )
+        # Read self.name only after a rename is known, so a deferred name costs no query.
+        base_slug = slugify(self.name)[:MAX_SLUG_LENGTH] if renamed else ""
+        if renamed and base_slug != self.slug:
+            if update_fields is not None:
+                kwargs["update_fields"] = {*update_fields, "slug"}
+            self._save_with_regenerated_slug(base_slug, *args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
+        if name_is_written and "name" in self.__dict__:
+            self._loaded_name = self.name
+
+    def _save_with_regenerated_slug(self, base_slug: str, *args: Any, **kwargs: Any) -> None:
+        for candidate in generate_slug_candidates(base_slug):
+            self.slug = candidate
+            try:
+                with transaction.atomic():
+                    return super().save(*args, **kwargs)
+            except IntegrityError:
+                continue
+        raise Exception("Could not save organization with a unique slug in 10 tries!")
 
     @property
     def _billing_plan_details(self) -> tuple[str | None, str | None]:
