@@ -60,10 +60,25 @@ export function getPostHogExecDisplay(
   }
 }
 
+// The pi harness names tools `<prefix>_<server>_<tool>`, so a proxy call to
+// posthog exec carries the full name (`mcp_posthog_exec`), not the bare tool
+// name. The single-underscore form cannot go through parseMcpToolName, which
+// expects the double-underscore canonical key.
+const PI_POSTHOG_EXEC_RE =
+  /^(?:[a-zA-Z0-9]+_)?((?:plugin_)?posthog(?:_[^_]+)*)_exec$/;
+
+/** Whether the `mcp` proxy tool's `tool` argument targets posthog exec. */
+function isPostHogExecProxyTool(tool: unknown): boolean {
+  if (typeof tool !== "string") return false;
+  return (
+    tool === "exec" || PI_POSTHOG_EXEC_RE.test(tool) || isPostHogExecTool(tool)
+  );
+}
+
 /**
  * Accept the exec arguments directly (`{command, input}`) or wrapped in the
- * desktop Pi harness's `mcp` proxy tool (`{tool: "exec", args: "<json>"}`),
- * where the real arguments arrive as a JSON-encoded string.
+ * desktop Pi harness's `mcp` proxy tool (`{tool, args: "<json>"}`), where
+ * the real arguments arrive as a JSON-encoded string.
  */
 function readExecToolInput(
   toolInput: unknown,
@@ -76,7 +91,10 @@ function readExecToolInput(
     args?: unknown;
   };
   if (typeof candidate.command === "string") return candidate;
-  if (candidate.tool === "exec" && typeof candidate.args === "string") {
+  if (
+    isPostHogExecProxyTool(candidate.tool) &&
+    typeof candidate.args === "string"
+  ) {
     try {
       const parsed: unknown = JSON.parse(candidate.args);
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
