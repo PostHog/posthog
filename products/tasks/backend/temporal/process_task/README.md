@@ -149,6 +149,33 @@ Per-team configuration for sandbox execution: network access level (trusted/full
 | GitHub App      | Installation access tokens via the team's GitHub integration                                                      |
 | API permissions | `PostHogFeatureFlagPermission` + `APIScopePermission` on all endpoints                                            |
 
+### Claude subscription token relay
+
+A run created with `claude_model_access: "own-subscription"` uses the user's Claude plan for model usage.
+Sandbox compute still uses PostHog credits.
+The `posthog-code-claude-own-subscription-cloud` flag controls rollout.
+If the backend cannot confirm that the flag is enabled, an explicitly requested subscription run fails without switching to PostHog billing.
+
+Desktop stores a `claude setup-token` token in its encrypted local store.
+The server records the user who selected subscription billing in protected run state.
+Desktop and the command endpoint check this owner before sending a token.
+Sandbox credentials cannot select subscription billing or inherit it from a resumed run.
+The response uses the authenticated `/command/` proxy, with redirects blocked and a five-second request timeout.
+Subscription runs always use direct event ingest so the request can reach Desktop before session readiness.
+The separate event-ingest rollout flag does not control this path.
+The request metadata can be replayed through the durable event stream; the token is never included in that stream, task state, logs, or analytics.
+If no token arrives within 120 seconds, the run fails with setup instructions.
+
+Subscription runs require the `--claudeSubscription` startup option.
+The launcher checks support before starting the process.
+Subscription health checks have a 155-second command limit, leaving time for setup and diagnostics within the five-minute activity.
+The PID check applies only when the PID file exists, so servers launched before deployment can still pass the health check.
+Continuation inherits the selected billing mode unless the caller explicitly changes it.
+Subscription runs do not reuse prewarmed sessions, because those processes have already selected their credentials.
+
+Keep the flag off while deploying the backend and publishing the sandbox agent build, then enable it for the intended users.
+Desktop and backend use the same flag; a stale client cannot bypass the backend check.
+
 ## Sandbox providers
 
 |                   | DockerSandbox                                                  | ModalSandbox                                                          |
