@@ -49,6 +49,7 @@ const conversationsTicketsList = (): ToolBase<
                 tags_all: params.tags_all,
                 tags_exclude: params.tags_exclude,
                 view: params.view,
+                zendesk_ticket_ids: params.zendesk_ticket_ids,
             },
         })
         const filtered = {
@@ -66,6 +67,7 @@ const conversationsTicketsList = (): ToolBase<
                     'unread_team_count',
                     'created_at',
                     'updated_at',
+                    'zendesk_ticket_id',
                 ])
             ),
         } as typeof result
