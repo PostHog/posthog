@@ -46,6 +46,7 @@ jest.mock('./components/FeatureRequests/FeatureRequestsTabContent', () => ({ Fea
 jest.mock('./components/Feed/FeedTabContent', () => ({ FeedTabContent: () => null }))
 jest.mock('./components/FeedbackButton', () => ({ FeedbackButton: () => null }))
 jest.mock('./components/Insights/ActiveUsersInsights', () => ({ ActiveUsersInsights: () => null }))
+jest.mock('./components/Insights/RetentionInsights', () => ({ RetentionInsights: () => null }))
 jest.mock('./components/Insights/SessionInsights', () => ({ SessionInsights: () => null }))
 jest.mock('./components/Insights/SignupInsights', () => ({ SignupInsights: () => null }))
 

@@ -6,6 +6,7 @@ import { emptySceneParams } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { NodeKind, RetentionFilter, RetentionQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
@@ -50,6 +51,66 @@ describe('customerAnalyticsSceneLogic', () => {
             }).toMatchValues({
                 filterTestAccounts: true,
             })
+        })
+    })
+
+    describe('retentionInsights', () => {
+        const retentionFilters = (): RetentionFilter[] =>
+            customerAnalyticsSceneLogic
+                .findMounted()!
+                .values.retentionInsights.map((insight) => (insight.query.source as RetentionQuery).retentionFilter)
+
+        it('builds daily and weekly retention on the configured activity event', () => {
+            expect(retentionFilters()).toEqual([
+                expect.objectContaining({
+                    period: 'Day',
+                    totalIntervals: 8,
+                    targetEntity: { type: 'events', id: '$pageview', name: '$pageview' },
+                }),
+                expect.objectContaining({
+                    period: 'Week',
+                    totalIntervals: 5,
+                    targetEntity: { type: 'events', id: '$pageview', name: '$pageview' },
+                }),
+            ])
+        })
+
+        it('aggregates on the selected group type for b2b', () => {
+            logic.actions.setBusinessType('b2b')
+            logic.actions.setSelectedGroupType(1)
+
+            for (const insight of logic.values.retentionInsights) {
+                expect(insight.query.source).toMatchObject({ aggregation_group_type_index: 1 })
+            }
+        })
+    })
+
+    describe('period comparison', () => {
+        it('is on for every signup and session tile whose query kind supports it', () => {
+            // Lifecycle is the one overview query kind with no compareFilter in the schema.
+            const tiles = [...logic.values.signupInsights, ...logic.values.sessionInsights].filter(
+                (insight) => insight.query.source.kind !== NodeKind.LifecycleQuery
+            )
+
+            expect(tiles.length).toBeGreaterThan(0)
+            expect(
+                tiles
+                    .filter(
+                        (insight) =>
+                            !('compareFilter' in insight.query.source) || !insight.query.source.compareFilter?.compare
+                    )
+                    .map((insight) => insight.name)
+            ).toEqual([])
+        })
+
+        it('is off for every signup tile on the all time range', () => {
+            logic.actions.setDates('all', null)
+
+            expect(
+                logic.values.signupInsights
+                    .filter((insight) => 'compareFilter' in insight.query.source)
+                    .map((insight) => insight.name)
+            ).toEqual([])
         })
     })
 
