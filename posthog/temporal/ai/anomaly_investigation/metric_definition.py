@@ -163,12 +163,19 @@ def _describe_sql(sql: str, alert_config: dict[str, Any], chart_settings: dict[s
         "sources, and the alerted column may not come from the first one named.",
         f"- SQL:\n{_clip_sql(sql)}",
     ]
-    if not column:
-        lines.append("- Alerted column: not recorded on the alert. Do not assume it is the first column.")
-        return lines
+    if column:
+        lines.append(f'- Alerted column: "{column}". Every other column this statement returns is a different metric.')
+        lines.extend(_describe_column_presentation(column, chart_settings))
+    else:
+        # Naming no column is the documented default rather than a misconfiguration, and it is what
+        # the alert form writes for a single-column statement. The units stay out, because they are
+        # looked up by column name, and no name is recorded to look up.
+        lines.append(
+            "- Alerted column: the alert names none, which is its default. The check then reads the "
+            "single column of a one-column statement, or the only numeric column of a wider one. "
+            "Trace that column rather than assuming the first one."
+        )
 
-    lines.append(f'- Alerted column: "{column}". Every other column this statement returns is a different metric.')
-    lines.extend(_describe_column_presentation(column, chart_settings))
     evaluation = alert_config.get("evaluation")
     if evaluation:
         lines.append(f"- Row scored per check: {evaluation}")

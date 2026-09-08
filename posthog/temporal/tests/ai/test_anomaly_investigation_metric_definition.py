@@ -202,10 +202,32 @@ def test_declared_units_reach_the_block_instead_of_the_no_units_warning(
     assert forbidden not in described
 
 
-def test_sql_metric_without_a_configured_column_says_so() -> None:
-    described = describe_metric_definition(SQL_OVER_TWO_SOURCES, alert_config={})
+@parameterized.expand(
+    [
+        # Naming no column is the documented default, so the block says how the check resolves it
+        # instead of warning the agent off the reading that is right for a one-column statement.
+        ("names_the_resolution_rule", {"evaluation": "last_row", "label_column": "hour"}, "only numeric column"),
+        # Neither of these depends on the column, and both used to be dropped whenever it was unset.
+        (
+            "keeps_the_evaluation_mode",
+            {"evaluation": "last_row", "label_column": "hour"},
+            "Row scored per check: last_row",
+        ),
+        (
+            "keeps_the_label_column",
+            {"evaluation": "last_row", "label_column": "hour"},
+            'labels come from column "hour"',
+        ),
+        # A legacy alert stores no config at all, and still needs the statement read correctly.
+        ("survives_an_empty_config", {}, "only numeric column"),
+    ]
+)
+def test_a_sql_alert_that_names_no_column_still_reports_how_it_is_scored(
+    _name: str, alert_config: dict, expected: str
+) -> None:
+    described = describe_metric_definition(SQL_OVER_TWO_SOURCES, alert_config=alert_config)
 
-    assert "not recorded on the alert" in described
+    assert expected in described
 
 
 def test_insight_description_reaches_the_definition_block() -> None:
