@@ -5,6 +5,8 @@ import { LemonSegmentedButton, LemonSlider, LemonSwitch, LemonTag, type LemonTag
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { cn } from 'lib/utils/css-classes'
 
+import { OverlayRect } from './OverlayRect'
+
 export type VisualDiffResult = 'changed' | 'new' | 'removed' | 'unchanged'
 
 export type ComparisonMode = 'sideBySide' | 'blend' | 'split' | 'diff'
@@ -221,66 +223,10 @@ const OVERLAY_FILL_HIGHLIGHT = 'rgba(245, 134, 52, 0.28)'
 const BAND_STROKE = 'rgb(124, 92, 214)'
 const BAND_FILL = 'rgba(124, 92, 214, 0.22)'
 
-// A one-row band is a zero-area rect once the SVG scales it down. The stroke
-// is non-scaling so it still draws, but the fill needs a floor to be visible.
-const MIN_OVERLAY_SIDE_PX = 3
-
 // A deleted band marks a seam, not a region, so it gets a fixed thin height
 // instead of the rows it removed. A deletion at the bottom edge sits at
 // y = height, so the seam is clamped to keep it inside the image.
 const BAND_SEAM_HEIGHT = 3
-
-interface OverlayRectProps {
-    x: number
-    y: number
-    width: number
-    height: number
-    fill: string
-    stroke: string
-    strokeWidth: number
-    strokeDasharray?: string
-    opacity?: number
-    onHover?: (index: number | null) => void
-    index?: number
-}
-
-/** One overlay rectangle, clamped so a one-pixel side still has an area to fill. */
-function OverlayRect({
-    x,
-    y,
-    width,
-    height,
-    fill,
-    stroke,
-    strokeWidth,
-    strokeDasharray,
-    opacity,
-    onHover,
-    index,
-}: OverlayRectProps): JSX.Element {
-    const hoverable = !!onHover && index !== undefined
-    return (
-        <rect
-            x={x}
-            y={y}
-            width={Math.max(width, MIN_OVERLAY_SIDE_PX)}
-            height={Math.max(height, MIN_OVERLAY_SIDE_PX)}
-            fill={fill}
-            stroke={stroke}
-            strokeWidth={strokeWidth}
-            strokeDasharray={strokeDasharray}
-            opacity={opacity}
-            vectorEffect="non-scaling-stroke"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                pointerEvents: hoverable ? 'auto' : 'none',
-                cursor: hoverable ? 'pointer' : undefined,
-            }}
-            onMouseEnter={hoverable ? () => onHover(index) : undefined}
-            onMouseLeave={hoverable ? () => onHover(null) : undefined}
-        />
-    )
-}
 
 function BboxOverlay({ boxes, bands, width, height, highlightedIndex, onHover }: BboxOverlayProps): JSX.Element {
     return (
