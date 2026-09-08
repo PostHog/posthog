@@ -53,23 +53,25 @@ function ScoutTemplateCard({
         <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-3">
             <div className="flex min-w-0 items-start gap-2">
                 <span className="mt-0.5 shrink-0 text-muted">{TEMPLATE_ICONS[template.key]}</span>
-                <div className="min-w-0">
-                    <h3 className="m-0 text-sm font-semibold">{template.title}</h3>
-                    <p className="m-0 text-xs text-muted">{template.description}</p>
+                {/* The schedule tag sits with the copy, not beside the button: it names a timezone now,
+                    and the pair no longer fits on one line when four cards sit across a narrow scene. */}
+                <div className="flex min-w-0 flex-col gap-2">
+                    <div>
+                        <h3 className="m-0 text-sm font-semibold">{template.title}</h3>
+                        <p className="m-0 text-xs text-muted">{template.description}</p>
+                    </div>
+                    {/* The scratch card carries the same default cron, but it isn't a ready-made scout,
+                        so advertising a schedule would promise more than it hands you. */}
+                    {template.key !== 'scratch' && (
+                        <Tooltip title={`This time is in the project timezone (${timezone}).`}>
+                            <LemonTag type="muted" size="small" className="self-start">
+                                {templateScheduleLabel(template, timezone)}
+                            </LemonTag>
+                        </Tooltip>
+                    )}
                 </div>
             </div>
-            {/* Wraps rather than overflows: four cards across a narrow scene leave the tag and the
-                button too little room to sit on one line. */}
-            <div className="mt-auto flex flex-wrap items-center justify-end gap-2">
-                {/* The scratch card carries the same default cron, but it isn't a ready-made scout,
-                    so advertising a schedule would promise more than it hands you. */}
-                {template.key !== 'scratch' && (
-                    <Tooltip title={`This time is in the project timezone (${timezone}).`}>
-                        <LemonTag type="muted" size="small" className="mr-auto">
-                            {templateScheduleLabel(template, timezone)}
-                        </LemonTag>
-                    </Tooltip>
-                )}
+            <div className="mt-auto flex justify-end">
                 <LemonButton
                     type="primary"
                     size="small"
@@ -148,16 +150,20 @@ export function ScannerScoutsTab({ scannerId }: { scannerId: string }): JSX.Elem
                         worth a look. Pick a starting point, then review and edit it before saving.
                     </p>
                 </div>
-                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-                    {templates.map((template) => (
-                        <ScoutTemplateCard
-                            key={template.key}
-                            template={template}
-                            timezone={currentTeam?.timezone ?? 'UTC'}
-                            disabledReason={createDisabledReason}
-                            onUse={() => openCreateModal(template.key)}
-                        />
-                    ))}
+                {/* Columns follow the space the cards actually have. The scene keeps far less than the
+                    window once the nav and a side panel are open, and viewport breakpoints miss that. */}
+                <div className="@container">
+                    <div className="grid gap-2 @md:grid-cols-2 @4xl:grid-cols-4">
+                        {templates.map((template) => (
+                            <ScoutTemplateCard
+                                key={template.key}
+                                template={template}
+                                timezone={currentTeam?.timezone ?? 'UTC'}
+                                disabledReason={createDisabledReason}
+                                onUse={() => openCreateModal(template.key)}
+                            />
+                        ))}
+                    </div>
                 </div>
             </section>
 
