@@ -707,6 +707,12 @@ impl Client for RedisClient {
                 PipelineCommand::SAdd { key, member } => {
                     pipe.cmd("SADD").arg(key).arg(member);
                 }
+                PipelineCommand::ZAdd { key, members } => {
+                    let cmd = pipe.cmd("ZADD").arg(key);
+                    for (score, member) in members {
+                        cmd.arg(*score).arg(member);
+                    }
+                }
                 PipelineCommand::Expire { key, seconds } => {
                     pipe.cmd("EXPIRE").arg(key).arg(*seconds);
                 }
@@ -769,6 +775,7 @@ impl RedisClient {
             PipelineCommand::Set { .. }
             | PipelineCommand::SetEx { .. }
             | PipelineCommand::Del { .. }
+            | PipelineCommand::ZAdd { .. }
             | PipelineCommand::HIncrBy { .. } => Ok(PipelineResult::Ok),
             PipelineCommand::Expire { .. } => {
                 // EXPIRE returns 1 if the timeout was set, 0 if the key does not exist

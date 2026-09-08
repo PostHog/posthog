@@ -714,6 +714,16 @@ impl MockRedisClient {
                 self.record_call("pipeline_sadd", &key, MockRedisValue::String(member));
                 Self::lookup_or_ok(&self.sadd_ret, &key).map(|_| PipelineResult::Count(1))
             }
+            PipelineCommand::ZAdd { key, members } => {
+                for (score, member) in members {
+                    self.record_call(
+                        "pipeline_zadd",
+                        format!("{key}:{member}"),
+                        MockRedisValue::I64(score),
+                    );
+                }
+                Ok(PipelineResult::Ok)
+            }
             PipelineCommand::Expire { key, seconds } => {
                 let ttl_i64 = i64::try_from(seconds).unwrap_or(i64::MAX);
                 self.record_call("pipeline_expire", &key, MockRedisValue::I64(ttl_i64));
