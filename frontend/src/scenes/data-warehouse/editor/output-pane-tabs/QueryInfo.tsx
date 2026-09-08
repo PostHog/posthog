@@ -1,7 +1,7 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconTarget } from '@posthog/icons'
-import { LemonTable, Link, Spinner, lemonToast } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTable, Link, Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -30,14 +30,20 @@ interface QueryInfoProps {
 }
 
 export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
-    const { editingView, upstream, upstreamViewMode } = useValues(sqlEditorLogic)
+    const {
+        editingView,
+        upstream: loadedUpstream,
+        upstreamLoading,
+        upstreamLoadFailed,
+        upstreamViewMode,
+    } = useValues(sqlEditorLogic)
     const targetView = view ?? editingView
-    const infoLogic = infoTabLogic({ tabId, viewId: targetView?.id })
-    const { sourceTableItems } = useValues(infoLogic)
-    const { saveAsView, setUpstreamViewMode, editView } = useActions(sqlEditorLogic)
+    // Mounting it loads the lineage for the view being edited.
+    useMountedLogic(infoTabLogic({ tabId, viewId: targetView?.id }))
+    const { saveAsView, setUpstreamViewMode, editView, loadUpstream } = useActions(sqlEditorLogic)
+    // The loaded lineage is shared across views, so only use it when it was loaded for this one.
+    const upstream = loadedUpstream && targetView && loadedUpstream.modelId === targetView.id ? loadedUpstream : null
     const { featureFlags } = useValues(featureFlagLogic)
-
-    const isLineageDependencyViewEnabled = featureFlags[FEATURE_FLAGS.LINEAGE_DEPENDENCY_VIEW]
 
     const currentNodeId = upstream?.nodes.find((n) => n.saved_query_id && n.saved_query_id === targetView?.id)?.id
     const openInEditor = async (node: DataModelingNode): Promise<void> => {
@@ -102,78 +108,16 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                         </LemonButton>
                     </div>
                 )}
-                {!isLineageDependencyViewEnabled && (
-                    <>
-                        <div>
-                            <h3>Dependencies</h3>
-                            <p className="text-xs">Dependencies are tables that this query uses.</p>
-                        </div>
-                        <LemonTable
-                            size="small"
-                            columns={[
-                                {
-                                    key: 'Name',
-                                    title: 'Name',
-                                    render: (_, { name }) => name,
-                                },
-                                {
-                                    key: 'Type',
-                                    title: 'Type',
-                                    render: (_, { type }) => type,
-                                },
-                                {
-                                    key: 'Status',
-                                    title: 'Status',
-                                    render: (_, { type, status, last_run_at }) => {
-                                        if (type === 'source') {
-                                            return (
-                                                <Tooltip title="This is a source table, so it doesn't have a status">
-                                                    <span className="text-secondary">N/A</span>
-                                                </Tooltip>
-                                            )
-                                        }
-                                        if (!last_run_at && !status) {
-                                            return (
-                                                <Tooltip title="This is a view, so it's always available with the latest data">
-                                                    <span className="text-secondary">Available</span>
-                                                </Tooltip>
-                                            )
-                                        }
-                                        return status
-                                    },
-                                },
-                                {
-                                    key: 'Last run at',
-                                    title: 'Last run at',
-                                    render: (_, { type, last_run_at, status }) => {
-                                        if (type === 'source') {
-                                            return (
-                                                <Tooltip title="This is a source table, so it is never run">
-                                                    <span className="text-secondary">N/A</span>
-                                                </Tooltip>
-                                            )
-                                        }
-                                        if (!last_run_at) {
-                                            return status ? (
-                                                <Tooltip title="This materialized view hasn't completed a run yet">
-                                                    <span className="text-secondary">Not yet run</span>
-                                                </Tooltip>
-                                            ) : (
-                                                <Tooltip title="This is a view, so it is never run">
-                                                    <span className="text-secondary">N/A</span>
-                                                </Tooltip>
-                                            )
-                                        }
-                                        return humanFriendlyDetailedTime(last_run_at)
-                                    },
-                                },
-                            ]}
-                            dataSource={sourceTableItems}
-                        />
-                    </>
+                {targetView && upstreamLoading && <Spinner />}
+                {targetView && upstreamLoadFailed && !upstreamLoading && (
+                    <LemonBanner
+                        type="warning"
+                        action={{ children: 'Retry', onClick: () => loadUpstream(targetView.id) }}
+                    >
+                        Couldn't load this view's lineage.
+                    </LemonBanner>
                 )}
-
-                {upstream && targetView && upstream.nodes.length > 0 && isLineageDependencyViewEnabled && (
+                {upstream && targetView && upstream.nodes.length > 0 && (
                     <>
                         <div>
                             <div className="flex items-center justify-between">

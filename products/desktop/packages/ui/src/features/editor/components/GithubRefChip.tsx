@@ -53,19 +53,27 @@ export const GithubRefChipLink = forwardRef<
       }
       {...buttonProps}
       className={cn(
-        "cli-file-mention focus-visible:-outline-offset-1 mx-0.5 max-w-full cursor-pointer! whitespace-nowrap pl-1.5 align-baseline no-underline",
+        "cli-file-mention focus-visible:-outline-offset-1 mx-0.5 inline-block max-w-full cursor-pointer! select-text whitespace-nowrap pl-1.5 align-baseline leading-[1.375rem] no-underline",
         buttonProps.className,
       )}
     >
       <RefIcon
         size={12}
         weight="bold"
-        className={cn("shrink-0", toneClass)}
+        className={cn("mr-1 inline-block align-[-0.125em]", toneClass)}
         aria-label={iconLabel}
         aria-hidden={iconLabel ? undefined : true}
         role={iconLabel ? "img" : undefined}
       />
-      <span className={cn("min-w-0 max-w-64 truncate", toneClass)}>
+      <span
+        // 1rem is the icon and its margin, which share the chip's content box
+        // with the label. Without that subtraction the label paints past the
+        // chip edge in a narrow panel instead of truncating.
+        className={cn(
+          "inline-block max-w-[min(16rem,calc(100%-1rem))] truncate align-top",
+          toneClass,
+        )}
+      >
         {children}
       </span>
     </Button>
