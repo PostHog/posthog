@@ -38,6 +38,7 @@ export class CdpPersonUpdatesConsumer extends CdpConsumerBase {
             hogWatcherMirror: this.hogWatcherMirror,
             hogMasker: this.hogMasker,
             hogFunctionMonitoringService: this.hogFunctionMonitoringService,
+            hogInvocationResultsService: this.invocationResultsService.invocationResultsRowsService,
             cdpUsageReporter: this.cdpUsageReporter,
             quotaLimiting: deps.quotaLimiting,
             redis: this.redis,
@@ -72,6 +73,11 @@ export class CdpPersonUpdatesConsumer extends CdpConsumerBase {
                         logger.error('🔴', 'Error producing queued messages for monitoring', { err })
                     }
                 }),
+                // No other flush of the lifecycle rows runs in this consumer — without
+                // this one, the pipeline's `failed` rows accumulate in memory forever.
+                instrumentFn({ key: 'cdp.background_task.lifecycle_failed_flush', sendException: false }, () =>
+                    this.invocationResultsService.invocationResultsRowsService.flush()
+                ),
             ]),
             invocations: invocationsToBeQueued,
         }

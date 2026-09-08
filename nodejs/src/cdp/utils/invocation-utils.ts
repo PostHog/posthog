@@ -36,9 +36,16 @@ export function createInvocation(
     }
 }
 
+export interface FailedHogFunctionInvocation {
+    invocation: CyclotronJobInvocationHogFunction
+    error: unknown
+}
+
 /**
  * Matches a batch of hog functions against one event's globals and builds an invocation per match,
  * resolving each one's inputs. Filter metrics/logs come back alongside for the caller to queue.
+ * Matches whose inputs could not be built come back as `failedInvocations` so the caller can
+ * record a terminal `failed` lifecycle row — they are never enqueued for execution.
  */
 export async function buildHogFunctionInvocations(
     hogInputsService: HogInputsService,
@@ -46,12 +53,14 @@ export async function buildHogFunctionInvocations(
     triggerGlobals: HogFunctionInvocationGlobals
 ): Promise<{
     invocations: CyclotronJobInvocationHogFunction[]
+    failedInvocations: FailedHogFunctionInvocation[]
     metrics: MinimalAppMetric[]
     logs: LogEntry[]
 }> {
     const metrics: MinimalAppMetric[] = []
     const logs: LogEntry[] = []
     const invocations: CyclotronJobInvocationHogFunction[] = []
+    const failedInvocations: FailedHogFunctionInvocation[] = []
 
     // TRICKY: The frontend generates filters matching the Clickhouse event type so we are converting back
     const filterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
@@ -78,15 +87,15 @@ export async function buildHogFunctionInvocations(
         hogFunction: HogFunctionType,
         additionalInputs?: HogFunctionType['inputs']
     ): Promise<CyclotronJobInvocationHogFunction | null> => {
-        try {
-            const globalsWithSource = {
-                ...triggerGlobals,
-                source: {
-                    name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
-                    url: `${triggerGlobals.project.url}/functions/${hogFunction.id}/configuration/`,
-                },
-            }
+        const globalsWithSource = {
+            ...triggerGlobals,
+            source: {
+                name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
+                url: `${triggerGlobals.project.url}/functions/${hogFunction.id}/configuration/`,
+            },
+        }
 
+        try {
             const globalsWithInputs = await hogInputsService.buildInputsWithGlobals(
                 hogFunction,
                 globalsWithSource,
@@ -95,11 +104,17 @@ export async function buildHogFunctionInvocations(
 
             return createInvocation(globalsWithInputs, hogFunction)
         } catch (error) {
+            // Mint an invocation anyway so the terminal lifecycle row and the log entry
+            // can reference its id. The empty inputs never execute — a rerun rebuilds
+            // inputs from the current function config.
+            const failedInvocation = createInvocation({ ...globalsWithSource, inputs: {} }, hogFunction)
+            failedInvocations.push({ invocation: failedInvocation, error })
+
             logs.push({
                 team_id: hogFunction.team_id,
                 log_source: 'hog_function',
                 log_source_id: hogFunction.id,
-                instance_id: new UUIDT().toString(), // random UUID, like it would be for an invocation
+                instance_id: failedInvocation.id,
                 timestamp: DateTime.now(),
                 level: 'error',
                 message: `Error building inputs for event ${triggerGlobals.event.uuid}: ${error.message}`,
@@ -154,6 +169,7 @@ export async function buildHogFunctionInvocations(
 
     return {
         invocations,
+        failedInvocations,
         metrics,
         logs,
     }

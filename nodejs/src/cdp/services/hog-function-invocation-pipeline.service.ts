@@ -20,6 +20,7 @@ import { buildHogFunctionInvocations } from '../utils/invocation-utils'
 import { HogInputsService } from './hog-inputs.service'
 import { HogFunctionManagerService } from './managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
+import { HogInvocationResultsService } from './monitoring/hog-invocation-results.service'
 import { HogMaskerService } from './monitoring/hog-masker.service'
 import { HogWatcherService, HogWatcherState, sameWatcherStates } from './monitoring/hog-watcher.service'
 import { CdpUsageReporterService } from './usage/cdp-usage-reporter.service'
@@ -38,6 +39,7 @@ export interface HogFunctionInvocationPipelineDeps {
     hogWatcherMirror: HogWatcherService
     hogMasker: HogMaskerService
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    hogInvocationResultsService: HogInvocationResultsService
     cdpUsageReporter?: CdpUsageReporterService
     quotaLimiting: QuotaLimiting
     redis: RedisV2
@@ -93,7 +95,7 @@ export class HogFunctionInvocationPipeline {
                         ? hogFunctionsByTeam[globals.project.id].filter((fn) => opts.invocationFilterFn!(fn, globals))
                         : hogFunctionsByTeam[globals.project.id]
 
-                    const { invocations, metrics, logs } = await buildHogFunctionInvocations(
+                    const { invocations, failedInvocations, metrics, logs } = await buildHogFunctionInvocations(
                         this.deps.hogInputsService,
                         teamHogFunctions,
                         globals
@@ -101,6 +103,13 @@ export class HogFunctionInvocationPipeline {
 
                     this.deps.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_function')
                     this.deps.hogFunctionMonitoringService.queueLogs(logs, 'hog_function')
+
+                    for (const { invocation, error } of failedInvocations) {
+                        this.deps.hogInvocationResultsService.queueLifecycleRow(invocation, 'failed', {
+                            error,
+                            errorKind: 'inputs_failed',
+                        })
+                    }
 
                     return invocations
                 })

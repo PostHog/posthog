@@ -47,6 +47,7 @@ export class CdpEventsConsumer<
             hogWatcherMirror: this.hogWatcherMirror,
             hogMasker: this.hogMasker,
             hogFunctionMonitoringService: this.hogFunctionMonitoringService,
+            hogInvocationResultsService: this.invocationResultsService.invocationResultsRowsService,
             cdpUsageReporter: this.cdpUsageReporter,
             quotaLimiting: deps.quotaLimiting,
             redis: this.redis,

@@ -253,6 +253,13 @@ describe('Invocation utils', () => {
                     message: expect.stringContaining('Error building inputs for event uuid:'),
                 },
             ])
+
+            expect(results.failedInvocations).toHaveLength(1)
+            const failed = results.failedInvocations[0]
+            expect(failed.invocation.functionId).toBe(broken.id)
+            expect(failed.invocation.state.globals.inputs).toEqual({})
+            expect(failed.error).toBeInstanceOf(Error)
+            expect(results.logs[0].instance_id).toBe(failed.invocation.id)
         })
     })
 
