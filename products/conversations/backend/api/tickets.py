@@ -558,7 +558,17 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
             # Move the stamp only on a state change, so a repeated archive keeps the first time.
             if archived != (instance.archived_at is not None):
                 validated_data["archived_at"] = timezone.now() if archived else None
-        return super().update(instance, validated_data)
+
+        # Save only the columns this request set, or the whole-row write from the get_object()
+        # snapshot reverts a message signal that landed mid-request. updated_at is auto_now, so
+        # it moves only when named, and a tags-only request still needs the list sort to move.
+        concrete_fields = {field.name for field in Ticket._meta.concrete_fields}
+        touched = [name for name in validated_data if name in concrete_fields]
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save(update_fields=[*touched, "updated_at"])
+        self._attempt_set_tags(self.initial_data.get("tags"), instance)
+        return instance
 
 
 TICKET_ID_PARAM = OpenApiParameter(

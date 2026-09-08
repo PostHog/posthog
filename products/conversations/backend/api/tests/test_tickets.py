@@ -18,6 +18,7 @@ from posthog.test.base import (
 from unittest.mock import patch
 
 from django.db import close_old_connections, connection, transaction
+from django.db.models import F
 from django.db.utils import IntegrityError
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -39,7 +40,11 @@ from posthog.test.persons import create_person
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role
 from products.conversations.backend.api.ticket_filters import query_params_to_view_filters
-from products.conversations.backend.api.tickets import ComposeTicketSerializer, TicketReplyRequestSerializer
+from products.conversations.backend.api.tickets import (
+    ComposeTicketSerializer,
+    TicketReplyRequestSerializer,
+    TicketUpdateRequestSerializer,
+)
 from products.conversations.backend.models import (
     EmailChannel,
     EmailChannelKind,
@@ -3467,7 +3472,6 @@ class TestTicketArchive(APIBaseTest):
 
         second = self.client.patch(self._ticket_url(self.ticket), {"archived": True}, format="json")
 
-        # The stamp records when the ticket left the queue, so a retry must not move it.
         assert second.json()["archived_at"] == archived_at
         self.ticket.refresh_from_db()
         assert self.ticket.archived_at.isoformat().replace("+00:00", "Z") == archived_at
@@ -3600,6 +3604,27 @@ class TestTicketArchive(APIBaseTest):
         assert response.json()["updated"] == 1
         denied.refresh_from_db()
         assert denied.archived_at is None
+
+    def test_archiving_does_not_revert_a_message_that_lands_mid_request(self, mock_on_commit):
+        """The update path saved the whole row from the snapshot get_object() read, so a customer
+        message arriving during the request had its counters written back to their old values."""
+        snapshot = Ticket.objects.get(id=self.ticket.id)
+
+        Ticket.objects.filter(id=self.ticket.id).update(
+            message_count=F("message_count") + 1,
+            unread_team_count=F("unread_team_count") + 1,
+            last_message_text="One more thing",
+        )
+
+        serializer = TicketUpdateRequestSerializer(snapshot, data={"archived": True}, partial=True)
+        assert serializer.is_valid(), serializer.errors
+        serializer.save()
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.archived_at is not None
+        assert self.ticket.message_count == 1
+        assert self.ticket.unread_team_count == 1
+        assert self.ticket.last_message_text == "One more thing"
 
     def test_bulk_archive_logs_activity_per_ticket(self, mock_on_commit):
         second = self._create_ticket()
