@@ -169,6 +169,35 @@ describe('NotebookNodeGeneratedWidget', () => {
         logic.actions.clearLocalContent()
     })
 
+    it('leaves a widget tag with unparsable props on its derived id', async () => {
+        logic.unmount()
+        const malformedSource = '<Widget showResults prompt="Render a globe" 42 />'
+        const widgetWithUnparsableProps = {
+            ...cachedNotebook,
+            content: buildMarkdownNotebookContent(malformedSource),
+        }
+        jest.mocked(api.notebooks.get).mockResolvedValue(widgetWithUnparsableProps)
+        jest.spyOn(api.notebooks, 'markdownSave').mockResolvedValue(widgetWithUnparsableProps)
+        logic = notebookLogic(logicProps)
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+        logic.actions.setEditable(true)
+
+        render(
+            <BindLogic logic={notebookLogic} props={logicProps}>
+                <MarkdownNotebookV2 />
+            </BindLogic>
+        )
+
+        // The status request proves the block mounted, so the id write had its chance to run.
+        await waitFor(() => expect(jest.mocked(notebooksWidgetStatus)).toHaveBeenCalled())
+        // The text the parser could not read survives only in the block's raw source, which an
+        // id write clears.
+        expect(getMarkdownNotebookMarkdown(logic.values.content ?? {})).toContain(malformedSource)
+        logic.actions.clearLocalContent()
+    })
+
     it('does not offer initial generation in the settings panel while status is still loading', async () => {
         // The status request never resolves, so `status` stays null through the render.
         jest.mocked(notebooksWidgetStatus).mockImplementation(() => new Promise(() => {}))
