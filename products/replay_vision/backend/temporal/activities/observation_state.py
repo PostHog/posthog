@@ -47,6 +47,63 @@ def _kind_from_error_reason(error_reason: str, valid_kinds: Container[str]) -> s
     return kind if kind in valid_kinds else "unknown"
 
 
+# One event per terminal status, so a scan that produced nothing is countable next to
+# `replay_vision_scan_completed` instead of only reaching Prometheus.
+_TERMINAL_SCAN_EVENTS: dict[str, str] = {
+    ObservationStatus.FAILED: "replay_vision_scan_failed",
+    ObservationStatus.INELIGIBLE: "replay_vision_scan_ineligible",
+}
+
+
+def _capture_terminal_scan(*, observation_id: UUID, status: ObservationStatus, scanner_type: str, kind: str) -> None:
+    """Internal cross-customer telemetry for a scan that ended with no result.
+
+    `replay_vision_scan_completed` fires only on success, so on its own it is a numerator with no
+    denominator: no failure rate is computable for any team, model, or scanner type. The
+    human-readable half of `error_reason` stays out, because a provider message can quote session
+    content, and `kind` is the enum a rate would be segmented by anyway.
+    """
+    event = _TERMINAL_SCAN_EVENTS.get(status)
+    if event is None:
+        return
+    obs = ReplayObservation.objects.values(
+        "team_id",
+        "team__organization_id",
+        "team__uuid",
+        "scanner_id",
+        "triggered_by",
+        "scanner_snapshot__model",
+        "scanner_snapshot__scanner_version",
+    ).get(pk=observation_id)
+    posthoganalytics.capture(
+        distinct_id=replay_vision_distinct_id(obs["team_id"]),
+        event=event,
+        # Deterministic dedup key. Exactly one terminal transition ever lands per observation, so
+        # sharing the key with `replay_vision_scan_completed` also stops one scan being counted as
+        # both a success and a failure.
+        uuid=str(observation_id),
+        properties={
+            "observation_id": str(observation_id),
+            "scanner_id": str(obs["scanner_id"]),
+            "scanner_type": str(scanner_type),
+            "model": obs["scanner_snapshot__model"] or "",
+            "triggered_by": obs["triggered_by"],
+            "kind": kind,
+            # The version that produced this scan, from the snapshot rather than the live scanner, so a
+            # later edit cannot retro-attribute a failure to the config that replaced it.
+            "scanner_version": obs["scanner_snapshot__scanner_version"],
+            "team_id": obs["team_id"],
+            "organization_id": str(obs["team__organization_id"]),
+        },
+        # Mirrors posthog.event_usage.groups() without fetching the Team row.
+        groups={
+            "instance": SITE_URL,
+            "organization": str(obs["team__organization_id"]),
+            "project": str(obs["team__uuid"]),
+        },
+    )
+
+
 @activity.defn
 @track_activity()
 def mark_observation_running_activity(inputs: MarkObservationRunningInputs) -> None:
@@ -90,6 +147,12 @@ def mark_observation_terminal(
         kind=kind,
         error_reason=error_reason,
     )
+    try:
+        _capture_terminal_scan(observation_id=observation_id, status=status, scanner_type=scanner_type, kind=kind)
+    except Exception:
+        # Fail-soft: the row is already settled, and the transition is sticky, so raising here would
+        # retry an activity that has nothing left to do.
+        logger.exception("replay_vision.observation.terminal_capture_failed", observation_id=str(observation_id))
     return True
 
 
@@ -145,6 +208,7 @@ def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) 
             "triggered_by",
             "created_at",
             "scanner_snapshot__model",
+            "scanner_snapshot__scanner_version",
         ).get(pk=inputs.observation_id)
         model = obs["scanner_snapshot__model"] or ""
         credits = observation_credits_for_model(model)
@@ -189,6 +253,9 @@ def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) 
             "model": model,
             "credits": credits,
             "triggered_by": obs["triggered_by"],
+            # Pairs with the same property on the failure events, so a failure rate splits by the
+            # config that produced it and a prompt edit's effect on quality becomes measurable.
+            "scanner_version": obs["scanner_snapshot__scanner_version"],
             "team_id": obs["team_id"],
             "organization_id": str(obs["team__organization_id"]),
         },

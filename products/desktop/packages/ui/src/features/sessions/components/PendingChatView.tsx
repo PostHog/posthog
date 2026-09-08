@@ -1,4 +1,3 @@
-import { Brain } from "@phosphor-icons/react";
 import {
   ChatBubble,
   ChatBubbleContent,
@@ -14,6 +13,7 @@ import {
   CHAT_CONTENT_PADDING_INLINE,
 } from "@posthog/ui/features/sessions/constants";
 import type { UserMessageAttachment } from "@posthog/ui/features/sessions/userMessageTypes";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 
 interface PendingChatViewProps {
   /**
@@ -22,13 +22,11 @@ interface PendingChatViewProps {
    */
   content: string;
   attachments?: UserMessageAttachment[];
-  statusText?: string;
 }
 
 export function PendingChatView({
   content,
   attachments,
-  statusText,
 }: PendingChatViewProps) {
   return (
     <div className="absolute inset-0 flex flex-col bg-background">
@@ -59,10 +57,8 @@ export function PendingChatView({
             className="mx-auto flex w-full items-center gap-2 px-2.5"
             style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
           >
-            <Brain size={12} className="ph-pulse text-accent-11" />
-            <span className="text-[13px] text-accent-11">
-              {statusText ?? "Starting task..."}
-            </span>
+            <Spinner size={12} className="text-accent-11" />
+            <span className="text-[13px] text-accent-11">Loading</span>
           </div>
         </div>
       </div>

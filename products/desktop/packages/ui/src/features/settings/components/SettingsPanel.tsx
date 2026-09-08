@@ -24,12 +24,10 @@ import {
   Wrench,
 } from "@phosphor-icons/react";
 import { Input, MenuLabel } from "@posthog/quill";
-import { BILLING_FLAG } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useQuickAskAvailable } from "@posthog/ui/features/quick-ask/useQuickAskAvailable";
 import { SettingsPageContent } from "@posthog/ui/features/settings/components/SettingsPageContent";
 import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
@@ -44,7 +42,6 @@ import {
   type SettingsCategory,
 } from "@posthog/ui/features/settings/types";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
-import { useSpendAnalysisEnabled } from "@posthog/ui/features/usage/useSpendAnalysisEnabled";
 import * as nav from "@posthog/ui/router/navigationBridge";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { type ReactNode, useState } from "react";
@@ -148,14 +145,10 @@ export function SettingsPanel({
   );
   const client = useOptionalAuthenticatedClient();
   const { data: user } = useCurrentUser({ client });
-  const billingEnabled = useFeatureFlag(BILLING_FLAG);
   const { localWorkspaces } = useHostCapabilities();
   const quickAskAvailable = useQuickAskAvailable();
 
-  const spendAnalysisEnabled = useSpendAnalysisEnabled();
   const hiddenCategories = getHiddenSettingsCategories({
-    billingEnabled,
-    spendAnalysisEnabled,
     localWorkspaces,
     quickAskAvailable,
   });

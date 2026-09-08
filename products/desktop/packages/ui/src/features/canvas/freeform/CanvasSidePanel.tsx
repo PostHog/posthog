@@ -1,6 +1,15 @@
-import { SidebarSimpleIcon, SpinnerGapIcon } from "@phosphor-icons/react";
+import {
+  ChatCircleIcon,
+  SidebarSimpleIcon,
+  SpinnerGapIcon,
+} from "@phosphor-icons/react";
 import {
   Button,
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
   Tabs,
   TabsList,
   TabsTrigger,
@@ -24,10 +33,11 @@ import { type Ref, useEffect, useRef } from "react";
 
 // The canvas's right-hand dock. While a generation/edit run is in flight it
 // shows that run's live chat (steering/queue included); otherwise it shows the
-// edit composer for the next change. Header carries a minimize control that
-// collapses the panel to a thin rail (handled by the parent).
+// edit composer, which starts a new run (and so a new session) for the next
+// change. Header carries a minimize control that collapses the panel to a thin
+// rail (handled by the parent).
 export function CanvasSidePanel({
-  effectiveTaskId,
+  chatTaskId,
   commentTaskId,
   interactive,
   onMinimize,
@@ -43,10 +53,14 @@ export function CanvasSidePanel({
   editorRef,
   onStarted,
 }: {
-  effectiveTaskId: string | null;
+  /** The run whose live chat the panel shows: the one in flight right now, or
+   * null once it finished. A finished run's chat is not shown again, so every
+   * visit starts from the composer instead of the session that built the
+   * canvas. */
+  chatTaskId: string | null;
   commentTaskId: string | null;
   /** Whether the canvas is being edited. The composer is an edit affordance, so
-   * view mode falls back to the conversation that last built the canvas. */
+   * view mode shows an empty chat when no run is in flight. */
   interactive?: boolean;
   onMinimize: () => void;
   dashboardId: string;
@@ -66,17 +80,14 @@ export function CanvasSidePanel({
 }) {
   const tab = useCanvasChatPanelStore((state) => state.tab);
   const setTab = useCanvasChatPanelStore((state) => state.setTab);
-  const previousTaskId = useRef(effectiveTaskId);
-  // With no run in flight, edit mode gets the composer for the next change,
-  // while view mode gets the chat of the run that produced this canvas.
-  const chatTaskId = effectiveTaskId ?? (interactive ? null : commentTaskId);
+  const previousTaskId = useRef(chatTaskId);
 
   useEffect(() => {
-    if (effectiveTaskId && effectiveTaskId !== previousTaskId.current) {
+    if (chatTaskId && chatTaskId !== previousTaskId.current) {
       setTab("chat");
     }
-    previousTaskId.current = effectiveTaskId;
-  }, [effectiveTaskId, setTab]);
+    previousTaskId.current = chatTaskId;
+  }, [chatTaskId, setTab]);
 
   return (
     <div className="flex h-full min-w-0 flex-col bg-gray-1">
@@ -127,6 +138,19 @@ export function CanvasSidePanel({
           />
         ) : chatTaskId ? (
           <CanvasChatLoader taskId={chatTaskId} />
+        ) : !interactive ? (
+          <Empty className="h-full border-0">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <ChatCircleIcon size={24} />
+              </EmptyMedia>
+              <EmptyTitle>No active run</EmptyTitle>
+              <EmptyDescription>
+                Select Edit to start a new agent run on this canvas. Each run
+                publishes a new version.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : (
           <div className="flex h-full min-h-0 flex-col gap-3 p-3">
             <FreeformGenerateBar
