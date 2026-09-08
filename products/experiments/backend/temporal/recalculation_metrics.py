@@ -98,6 +98,9 @@ def increment_workflow_finished(status: str) -> None:
 # `classify_experiment_query_error` gives these to a metric the user's own config or data cannot
 # support yet. Rejecting one is the correct outcome, so it must not count against the failure rate.
 _EXPECTED_REJECTION_ERROR_TYPES = frozenset({"validation_error"})
+# Status label the latency histogram carries for an expected rejection, instead of the `FAILED` that
+# `ExecutionTimeRecorder` gives to every escaping exception.
+_REJECTED_HISTOGRAM_STATUS = "REJECTED"
 
 
 def _is_expected_rejection(exc: BaseException) -> bool:
@@ -138,6 +141,7 @@ class _ActivityInboundInterceptor(ActivityInboundInterceptor):
             "Number of experiment metrics recalculation activity attempts (each retry is one attempt).",
         ).add(1)
 
+        rejection: BaseException | None = None
         try:
             with ExecutionTimeRecorder(
                 "experiment_metrics_recalculation_activity_execution_latency",
@@ -146,15 +150,27 @@ class _ActivityInboundInterceptor(ActivityInboundInterceptor):
                     "activity_type": activity_type,
                     "workflow_type": _RECALCULATION_WORKFLOW_TYPE,
                 },
-            ):
-                result = await super().execute_activity(input)
+            ) as recorder:
+                try:
+                    result = await super().execute_activity(input)
+                except Exception as e:
+                    if not _is_expected_rejection(e):
+                        raise
+                    # `ExecutionTimeRecorder` labels the sample `FAILED` for any exception that leaves the
+                    # block, and its `set_status` applies only when no exception leaves. So hold the rejection,
+                    # let the block close with the `REJECTED` label, then raise the rejection again below.
+                    # Otherwise a rate query over the histogram's `status` label still reads the rejection as a
+                    # failure, which contradicts the failure counter.
+                    recorder.set_status(_REJECTED_HISTOGRAM_STATUS)
+                    rejection = e
         except Exception as e:
-            if not _is_expected_rejection(e):
-                meter.with_additional_attributes({"error_type": _failure_error_type(e)}).create_counter(
-                    "experiment_metrics_recalculation_activity_failures",
-                    "Number of failed experiment metrics recalculation activity executions.",
-                ).add(1)
+            meter.with_additional_attributes({"error_type": _failure_error_type(e)}).create_counter(
+                "experiment_metrics_recalculation_activity_failures",
+                "Number of failed experiment metrics recalculation activity executions.",
+            ).add(1)
             raise
+        if rejection is not None:
+            raise rejection
         meter.create_counter(
             "experiment_metrics_recalculation_activity_successes",
             "Number of successful experiment metrics recalculation activity executions.",

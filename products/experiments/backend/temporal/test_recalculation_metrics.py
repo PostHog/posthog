@@ -157,13 +157,14 @@ async def test_workflow_interceptor_emits_finished_failed_on_hard_failure():
 @parameterized.expand(
     [
         # Counting a rejection here makes an experiment with no exposures yet read as a reliability failure.
-        ("expected_rejection", ApplicationError("no exposures yet", type="validation_error"), False),
-        ("platform_failure", ApplicationError("clickhouse unavailable", type="server_error"), True),
-        ("plain_exception", RuntimeError("boom"), True),
+        # The histogram's status label is the second read of the same run, so it has to agree with the counter.
+        ("expected_rejection", ApplicationError("no exposures yet", type="validation_error"), False, "REJECTED"),
+        ("platform_failure", ApplicationError("clickhouse unavailable", type="server_error"), True, "FAILED"),
+        ("plain_exception", RuntimeError("boom"), True, "FAILED"),
     ]
 )
-async def test_activity_interceptor_counts_only_unexpected_failures(
-    name: str, exc: BaseException, expects_failure_count: bool
+async def test_activity_interceptor_marks_only_unexpected_failures(
+    name: str, exc: BaseException, expects_failure_count: bool, expected_histogram_status: str
 ):
     next_interceptor = MagicMock()
     next_interceptor.execute_activity = AsyncMock(side_effect=exc)
@@ -183,7 +184,7 @@ async def test_activity_interceptor_counts_only_unexpected_failures(
             "products.experiments.backend.temporal.recalculation_metrics.activity.metric_meter",
             return_value=mock_meter,
         ),
-        patch("posthog.temporal.common.metrics.get_metric_meter", return_value=MagicMock()),
+        patch("posthog.temporal.common.metrics.get_metric_meter", return_value=MagicMock()) as mock_histogram_meter,
     ):
         with pytest.raises(type(exc)):
             await interceptor.execute_activity(MagicMock())
@@ -193,3 +194,5 @@ async def test_activity_interceptor_counts_only_unexpected_failures(
         for call in labeled_meter.create_counter.call_args_list
     )
     assert counted is expects_failure_count
+    # ExecutionTimeRecorder passes the histogram's attributes to get_metric_meter on exit.
+    assert mock_histogram_meter.call_args.args[0]["status"] == expected_histogram_status
