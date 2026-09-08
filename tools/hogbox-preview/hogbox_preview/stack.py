@@ -32,7 +32,7 @@ import sys
 import secrets
 
 from . import timing
-from .backend import PreviewBackend
+from .backend import LongJob, PreviewBackend
 
 # The tool's compose override MUST stay in sync with the golden bake script (hogland
 # scripts/posthog-preview-setup.sh): both write docker-compose.preview.yml, and
@@ -165,11 +165,23 @@ class PostHogPreviewStack:
             self.reset_database()
         # Prepare the database and service-backed templates BEFORE web serves:
         # web is not restarted to pick up a PR's delta migrations, so all setup
-        # must finish before it boots.
+        # must finish before it boots. That is an ordering constraint, not a
+        # reason to run each stage alone: both service-backed stages overlap
+        # what precedes them, so only the wait each one has left over stays on
+        # the serial path.
+        #
+        # The CDP service boots on its own clock and nothing in migrate() reads
+        # from it, so it starts first and warms up under the migrate. Except on
+        # --reset-db, which wipes the schema it reads: golden bakes pay that boot
+        # serially, per-PR previews delta-migrate a restored golden and never do.
         self.up_deps()
+        cdp = self.start_cdp_service() if not self.reset_db else None
         self.migrate()
-        self.start_cdp_service()
-        self.sync_hog_function_templates()
+        cdp = cdp or self.start_cdp_service()
+        self.await_cdp_service(cdp)
+        # The sync needs the schema AND the CDP service, but nothing before
+        # deep_health() reads the templates, so it runs under the web boot.
+        templates = self.start_hog_function_template_sync()
         if self.seed_demo_data:
             # Best-effort: a transient build/model issue shouldn't sink an
             # otherwise-good preview — it just opens empty.
@@ -184,6 +196,7 @@ class PostHogPreviewStack:
             self.swap_frontend()
         self.up_web()
         self.wait_for_health()
+        self.await_hog_function_template_sync(templates)
         self.deep_health()
         return url
 
@@ -586,7 +599,9 @@ class PostHogPreviewStack:
         )
         timing.stage("migrate done")
 
-    def start_cdp_service(self) -> None:
+    def start_cdp_service(self) -> LongJob:
+        # Brings the service up and polls its readiness endpoint in the box.
+        # Only await_cdp_service() blocks on the result.
         timing.stage("start CDP service")
         ready_probe = self._compose("exec -T plugins curl -fsS http://localhost:6738/_ready")
         script = (
@@ -595,15 +610,22 @@ class PostHogPreviewStack:
             f"{ready_probe} >/dev/null 2>&1 && {{ ready=1; break; }}; sleep 4; done; "
             '[ "$ready" = 1 ] || { echo "CDP service never became ready" >&2; exit 1; }'
         )
-        self.backend.run_long(script, name="up-cdp", timeout=900)
+        return self.backend.launch_long(script, name="up-cdp")
 
-    def sync_hog_function_templates(self) -> None:
+    def await_cdp_service(self, job: LongJob) -> None:
+        self.backend.join_long(job, timeout=900)
+
+    def start_hog_function_template_sync(self) -> LongJob:
+        # Loads the destination templates into the DB. The node-side ones come
+        # over the CDP service's HTTP API, so the service must already be ready.
         timing.stage("sync HogFunction templates")
-        self.backend.run_long(
+        return self.backend.launch_long(
             self._compose("run --rm -T web python manage.py sync_hog_function_templates"),
             name="sync-templates",
-            timeout=900,
         )
+
+    def await_hog_function_template_sync(self, job: LongJob) -> None:
+        self.backend.join_long(job, timeout=900)
 
     def generate_demo_data(self) -> None:
         # Same command hobby-ci uses (bin/hobby-ci.py). Seeds a demo org + the

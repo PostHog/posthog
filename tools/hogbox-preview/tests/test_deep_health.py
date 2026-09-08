@@ -26,7 +26,7 @@ import unittest
 from unittest.mock import MagicMock, call, patch
 
 try:
-    from hogbox_preview.backend import ExecResult
+    from hogbox_preview.backend import ExecResult, LongJob
     from hogbox_preview.stack import PostHogPreviewStack
 
     HAVE_SDK = True
@@ -44,6 +44,8 @@ class _RecordingBackend:
         self.files: dict[str, str] = {}
         self.execs: list[str] = []
         self.long_runs: list[str] = []
+        self.launched: list[str] = []
+        self.joined: list[str] = []
         self._probe_result = probe_result
 
     def write_file(self, remote_path, content) -> None:
@@ -51,6 +53,15 @@ class _RecordingBackend:
 
     def run_long(self, script, *, name, timeout: int = 1800, interval: int = 3) -> ExecResult:
         self.long_runs.append(script)
+        return ExecResult(0, "", "")
+
+    def launch_long(self, script, *, name) -> LongJob:
+        self.long_runs.append(script)
+        self.launched.append(name)
+        return LongJob(name=name, log="", done="", fail="")
+
+    def join_long(self, job, *, timeout: int = 1800, interval: int = 3) -> ExecResult:
+        self.joined.append(job.name)
         return ExecResult(0, "", "")
 
     def exec(self, command, *, timeout: int = 120) -> ExecResult:
@@ -240,34 +251,67 @@ class ImagePullTest(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
 class TemplateSyncTest(unittest.TestCase):
-    def test_no_seed_bring_up_still_syncs_templates(self):
+    _BRING_UP_METHODS = (
+        "start_runtime",
+        "write_override",
+        "pull_image",
+        "up_deps",
+        "migrate",
+        "start_cdp_service",
+        "await_cdp_service",
+        "start_hog_function_template_sync",
+        "await_hog_function_template_sync",
+        "up_web",
+        "wait_for_health",
+        "deep_health",
+    )
+
+    def _bring_up_order(self, **kwargs) -> list[str]:
         backend = MagicMock()
         backend.web_url = "https://preview.example.com"
-        preview = PostHogPreviewStack(backend, seed_demo_data=False)
+        preview = PostHogPreviewStack(backend, seed_demo_data=False, **kwargs)
         events: list[str] = []
-        methods = (
-            "start_runtime",
-            "write_override",
-            "pull_image",
-            "up_deps",
-            "migrate",
-            "start_cdp_service",
-            "sync_hog_function_templates",
-            "up_web",
-            "wait_for_health",
-            "deep_health",
-        )
+
+        def record(name: str):
+            def call(*args):
+                events.append(name)
+                return LongJob(name=name, log="", done="", fail="")
+
+            return call
 
         with ExitStack() as patches:
-            for method in methods:
-                patches.enter_context(
-                    patch.object(preview, method, side_effect=lambda name=method: events.append(name))
-                )
+            for method in self._BRING_UP_METHODS:
+                patches.enter_context(patch.object(preview, method, side_effect=record(method)))
             preview.bring_up()
+        return events
+
+    def test_no_seed_bring_up_still_syncs_templates(self):
+        events = self._bring_up_order()
+
+        self.assertLess(events.index("start_hog_function_template_sync"), events.index("up_web"))
+        self.assertLess(events.index("await_hog_function_template_sync"), events.index("deep_health"))
+
+    def test_cdp_service_starts_before_the_migrate_it_can_overlap(self):
+        # The service boots on its own clock and migrate() never reads from it,
+        # so its whole startup belongs under the migrate, not after it.
+        events = self._bring_up_order()
+
+        self.assertLess(events.index("start_cdp_service"), events.index("migrate"))
+        self.assertLess(events.index("migrate"), events.index("await_cdp_service"))
+        self.assertEqual(events.count("start_cdp_service"), 1)
+
+    def test_reset_db_starts_the_cdp_service_after_the_migrate(self):
+        # --reset-db wipes the schema the service reads, so there it has to wait.
+        events = self._bring_up_order(reset_db=True)
 
         self.assertLess(events.index("migrate"), events.index("start_cdp_service"))
-        self.assertLess(events.index("start_cdp_service"), events.index("sync_hog_function_templates"))
-        self.assertLess(events.index("sync_hog_function_templates"), events.index("up_web"))
+        self.assertEqual(events.count("start_cdp_service"), 1)
+
+    def test_template_sync_only_starts_once_the_cdp_service_is_ready(self):
+        # It reads the node-side templates over the CDP service's HTTP API.
+        events = self._bring_up_order()
+
+        self.assertLess(events.index("await_cdp_service"), events.index("start_hog_function_template_sync"))
 
     def test_cdp_service_uses_the_published_image_configuration(self):
         backend = _RecordingBackend()
@@ -287,18 +331,29 @@ class TemplateSyncTest(unittest.TestCase):
     def test_starts_cdp_service_and_waits_until_ready(self):
         backend = _RecordingBackend()
         stack = PostHogPreviewStack(backend)
-        stack.start_cdp_service()
+        job = stack.start_cdp_service()
 
         script = backend.long_runs[-1]
         self.assertIn("up -d --no-build plugins", script)
         self.assertIn("http://localhost:6738/_ready", script)
+        # Launched, not awaited — the caller decides when to block on it.
+        self.assertEqual(backend.launched, ["up-cdp"])
+        self.assertEqual(backend.joined, [])
+
+        stack.await_cdp_service(job)
+        self.assertEqual(backend.joined, ["up-cdp"])
 
     def test_syncs_hog_function_templates(self):
         backend = _RecordingBackend()
         stack = PostHogPreviewStack(backend)
-        stack.sync_hog_function_templates()
+        job = stack.start_hog_function_template_sync()
 
         self.assertIn("python manage.py sync_hog_function_templates", backend.long_runs[-1])
+        self.assertEqual(backend.launched, ["sync-templates"])
+        self.assertEqual(backend.joined, [])
+
+        stack.await_hog_function_template_sync(job)
+        self.assertEqual(backend.joined, ["sync-templates"])
 
 
 @unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
