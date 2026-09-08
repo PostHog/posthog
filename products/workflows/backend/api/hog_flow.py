@@ -153,6 +153,7 @@ from products.workflows.backend.services.account_audience import (
 )
 from products.workflows.backend.services.audience_v2 import (
     bounded_memory_settings,
+    get_dedupe_audience_count_v2,
     get_person_audience_count_v2,
     use_audience_query_v2,
 )
@@ -4526,10 +4527,12 @@ class HogFlowViewSet(
         applied_dedupe_key = None
         audience_v2 = group_type_index is None and use_audience_query_v2(self.team)
         if dedupe_key is not None and group_type_index is None:
-            total = self.team.persons_seen_so_far
-            count_settings = bounded_memory_settings() if audience_v2 else None
-            affected = min(get_batch_audience_count(self.team, filters, dedupe_key, settings=count_settings), total)
-            blast_radius = BlastRadiusResult(affected=affected, total=total)
+            if audience_v2:
+                blast_radius = get_dedupe_audience_count_v2(self.team, filters, dedupe_key)
+            else:
+                total = self.team.persons_seen_so_far
+                affected = min(get_batch_audience_count(self.team, filters, dedupe_key), total)
+                blast_radius = BlastRadiusResult(affected=affected, total=total)
             applied_dedupe_key = dedupe_key
         elif audience_v2:
             blast_radius = get_person_audience_count_v2(self.team, filters)

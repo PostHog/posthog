@@ -3181,6 +3181,7 @@ class TestHogFlowAPI(APIBaseTest):
         with (
             patch("products.workflows.backend.api.hog_flow.use_audience_query_v2", return_value=True),
             patch("products.workflows.backend.api.hog_flow.get_person_audience_count_v2") as mock_v2,
+            patch("products.workflows.backend.api.hog_flow.get_dedupe_audience_count_v2") as mock_dedupe_v2,
             patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_v1,
         ):
             from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
@@ -3196,6 +3197,20 @@ class TestHogFlowAPI(APIBaseTest):
             body = response.json()
             assert body["affected"] == 6400
             assert body["total"] == 64000
+            mock_v1.assert_not_called()
+
+            # Dedupe-enabled workflows route to the sampled dedupe count.
+            mock_dedupe_v2.return_value = BlastRadiusResult(affected=3200, total=64000)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}, "dedupe_key": "email"},
+            )
+
+            assert response.status_code == 200, response.json()
+            body = response.json()
+            assert body["affected"] == 3200
+            assert body["dedupe_key"] == "email"
+            mock_dedupe_v2.assert_called_once_with(self.team, {"properties": []}, "email")
             mock_v1.assert_not_called()
 
             # Group audiences stay on the v1 query even with the flag on: the v2
@@ -3398,7 +3413,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.json()["dedupe_key"] == dedupe_key
         if dedupe_key is not None:
             # The person-count query is skipped — only the deduped count runs
-            mock_deduped_count.assert_called_once_with(self.team, {"properties": []}, "email", settings=None)
+            mock_deduped_count.assert_called_once_with(self.team, {"properties": []}, "email")
             mock_legacy_count.assert_not_called()
         else:
             mock_deduped_count.assert_not_called()

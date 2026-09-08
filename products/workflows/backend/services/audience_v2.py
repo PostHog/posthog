@@ -18,6 +18,11 @@ from products.feature_flags.backend.user_blast_radius import (
     replace_proxy_properties,
     unevaluable_filters_as_validation_errors,
 )
+from products.workflows.backend.services.batch_audience import (
+    EMAIL_DEDUPE_KEY,
+    SUPPORTED_DEDUPE_KEYS,
+    email_dedupe_group_expr,
+)
 
 AUDIENCE_QUERY_V2_FLAG = "workflows-audience-query-v2"
 
@@ -79,6 +84,81 @@ def get_person_audience_count_v2(team: Team, filters: dict) -> BlastRadiusResult
 
         affected = _count_matching_persons(team, cleaned_filter, database)
         return BlastRadiusResult(affected=min(affected, total), total=total)
+
+
+def get_dedupe_audience_count_v2(team: Team, filters: dict, dedupe_key: str) -> BlastRadiusResult:
+    """
+    Send count for a dedupe-enabled batch workflow, sized from a sample of the dedupe groups.
+
+    Sampling keys on the dedupe group (the normalized email, or the person id when there is
+    no email), not on the person: a group with several persons would otherwise be that many
+    times more likely to land in the sample, and the estimate would drift back toward a
+    person count. Hashing the group gives every group the same 1-in-SAMPLE_MODULUS chance.
+    """
+    # Defence-in-depth mirror of get_batch_audience_count: a new supported key must be
+    # taught to this function too, instead of silently getting the email grouping.
+    if dedupe_key != EMAIL_DEDUPE_KEY:
+        raise ValueError(f"Unsupported dedupe_key: {dedupe_key!r} (supported: {SUPPORTED_DEDUPE_KEYS})")
+
+    with unevaluable_filters_as_validation_errors():
+        cleaned_filter = replace_proxy_properties(team, filters)
+
+        tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
+        database = Database.create_for(team=team)
+
+        total = _count_matching_persons(team, None, database)
+        sampled = _run_dedupe_count(team, cleaned_filter, database, sample_modulus=SAMPLE_MODULUS)
+        if sampled >= MIN_SAMPLED_MATCHES:
+            affected = sampled * SAMPLE_MODULUS
+        else:
+            affected = _run_dedupe_count(team, cleaned_filter, database, sample_modulus=None)
+        return BlastRadiusResult(affected=min(affected, total), total=total)
+
+
+def _run_dedupe_count(team: Team, filter: Filter, database: Database, sample_modulus: Optional[int]) -> int:
+    query = build_dedupe_count_query(team, filter, sample_modulus=sample_modulus)
+    response = execute_hogql_query(
+        query=query,
+        team=team,
+        query_type="workflows_audience_count_v2",
+        context=HogQLContext(team_id=team.pk, database=database),
+        settings=bounded_memory_settings(),
+    )
+    return response.results[0][0] if response.results else 0
+
+
+def build_dedupe_count_query(team: Team, filter: Filter, sample_modulus: Optional[int]) -> ast.SelectQuery:
+    where_exprs: list[ast.Expr] = [
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["persons", "team_id"]),
+            right=ast.Constant(value=team.pk),
+        )
+    ]
+    if sample_modulus is not None:
+        # A fresh group expr per use: the resolver annotates AST nodes in place, so the
+        # WHERE and SELECT must not share one instance.
+        where_exprs.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Call(
+                    name="modulo",
+                    args=[
+                        ast.Call(name="cityHash64", args=[email_dedupe_group_expr()]),
+                        ast.Constant(value=sample_modulus),
+                    ],
+                ),
+                right=ast.Constant(value=0),
+            )
+        )
+    if len(filter.property_groups.flat) > 0:
+        where_exprs.append(property_to_expr(filter.property_groups, team, scope="person"))
+
+    return ast.SelectQuery(
+        select=[ast.Call(name="count", distinct=True, args=[email_dedupe_group_expr()])],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+        where=ast.And(exprs=where_exprs),
+    )
 
 
 def _count_matching_persons(team: Team, filter: Optional[Filter], database: Database) -> int:

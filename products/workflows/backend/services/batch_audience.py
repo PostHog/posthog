@@ -56,7 +56,6 @@ def get_batch_audience_count(
     team: Team,
     filters: dict,
     dedupe_key: str,
-    settings: Optional[HogQLGlobalSettings] = None,
 ) -> int:
     """
     Count how many sends a batch workflow would produce with dedup applied — i.e. the
@@ -67,7 +66,7 @@ def get_batch_audience_count(
     # if we ever add another supported key, this raise forces the caller to teach this
     # function about it too, rather than silently returning the email-deduped count.
     if dedupe_key == EMAIL_DEDUPE_KEY:
-        group_expr = _email_dedupe_group_expr()
+        group_expr = email_dedupe_group_expr()
     else:
         raise ValueError(f"Unsupported dedupe_key: {dedupe_key!r} (supported: {SUPPORTED_DEDUPE_KEYS})")
 
@@ -90,12 +89,12 @@ def get_batch_audience_count(
         )
 
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
-        response = execute_hogql_query(query=select_query, team=team, settings=settings)
+        response = execute_hogql_query(query=select_query, team=team)
 
     return response.results[0][0] if response.results else 0
 
 
-def _email_dedupe_group_expr() -> ast.Expr:
+def email_dedupe_group_expr() -> ast.Expr:
     # Fields stay fully qualified so nothing resolves to an enclosing query's alias.
     return parse_expr(
         """
@@ -157,7 +156,7 @@ def _wrap_with_email_dedupe(where_exprs: list[ast.Expr], cursor: Optional[str]) 
         select=[ast.Alias(alias="person_id", expr=ast.Call(name="min", args=[ast.Field(chain=["persons", "id"])]))],
         select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
         where=ast.And(exprs=where_exprs),
-        group_by=[_email_dedupe_group_expr()],
+        group_by=[email_dedupe_group_expr()],
     )
 
     outer_where: Optional[ast.Expr] = None
