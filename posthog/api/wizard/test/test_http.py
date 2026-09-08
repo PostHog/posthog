@@ -811,7 +811,54 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
             "user": str(self.user.distinct_id),
             "product": "wizard:integration",
             "cap_usd": None,
+            "program": "integration",
+            # The fixture organization is minutes old, unpaid, and has ingested nothing.
+            "posture": "new",
         }
+
+    @override_settings(DEBUG=False, WIZARD_GATEWAY_TIERS={"new": {"mints_per_day": 2}})
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_a_new_accounts_third_mint_in_a_day_is_throttled(
+        self, mock_authentication, mock_flag, mock_mint, mock_authorized
+    ):
+        self._mock_oauth(mock_authentication)
+
+        for _ in range(2):
+            ok = self.client.post(
+                self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+            )
+            assert ok.status_code == status.HTTP_201_CREATED, ok.content
+        refused = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+        )
+
+        assert refused.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert refused.json()["code"] == "throttled"
+        assert mock_mint.call_count == 2
+        kwargs = self.mock_denied.call_args.kwargs
+        assert (kwargs["outcome"], kwargs["posture"]) == ("throttled", "new")
+
+    @override_settings(DEBUG=False, WIZARD_GATEWAY_TIERS={"new": {"mints_per_day": 2}})
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_the_override_flag_outranks_the_tier_ceiling(
+        self, mock_authentication, mock_flag, mock_mint, mock_authorized
+    ):
+        self._mock_oauth(mock_authentication)
+        self.mock_limit_payload.return_value = {"mints_per_day": 3}
+
+        for _ in range(3):
+            ok = self.client.post(
+                self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+            )
+            assert ok.status_code == status.HTTP_201_CREATED, ok.content
+
+        assert mock_mint.call_count == 3
 
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=False)

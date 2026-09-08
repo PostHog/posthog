@@ -11,10 +11,12 @@ attempt fast instead of retrying into the CLI's timeout.
 """
 
 import json
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, Literal
 
 from django.conf import settings
+from django.utils import timezone
 
 import requests
 import structlog
@@ -22,6 +24,8 @@ import posthoganalytics
 from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
+from posthog.models.organization import Organization
+from posthog.models.team.team import Team
 
 logger = structlog.get_logger(__name__)
 
@@ -29,19 +33,23 @@ _MINT_TIMEOUT_SECONDS = 10
 
 # The gateway refuses a TTL outside these bounds with a 400, so clamp locally: a
 # misconfigured setting should not turn every mint into a 503.
-# Far above the gateway's own 60s floor: a run's holders capture the bearer once
+# Well above the gateway's own 60s floor: a run's holders capture the bearer once
 # and cannot re-resolve, so a token must outlive the whole run. Clamping to that
 # floor would turn a misconfigured knob into mid-run 401s.
-_MIN_TTL_SECONDS = 3600
+_MIN_TTL_SECONDS = 1800
 _MAX_TTL_SECONDS = 86400
 
 # A bad knob or payload falls back locally instead of 503ing every mint. The
 # cap ceiling is a wizard-run backstop, well under the gateway's own.
-_DEFAULT_CAP_USD = Decimal("20")
+_DEFAULT_CAP_USD = Decimal("7")
 _MAX_CAP_USD = Decimal("30")
 _CAP_QUANTUM = Decimal("0.000001")
 
 WIZARD_PRODUCT = "wizard"
+
+# An organization's standing at mint time, which picks its tier of limits.
+WizardPosture = Literal["new", "active", "paid"]
+_NEW_ORGANIZATION_AGE = timedelta(days=7)
 
 # Payload: {"cap_usd": "30", "mints_per_day": 100}. A person flag: email,
 # organization_id, and team_id ride as person properties so one flag can target
@@ -99,16 +107,85 @@ def parse_limit_override(raw: object) -> WizardLimitOverride:
             return NO_OVERRIDE
     if not isinstance(raw, dict):
         return NO_OVERRIDE
+    cap, mints = _parse_limit_fields(raw, source="limit override")
+    return WizardLimitOverride(cap_usd=cap, mints_per_day=mints)
+
+
+def _parse_limit_fields(raw: dict, *, source: str) -> tuple[Decimal | None, int | None]:
     cap = _parse_cap(raw["cap_usd"]) if "cap_usd" in raw else None
     if "cap_usd" in raw and cap is None:
-        logger.warning("wizard_gateway_token: limit override cap_usd out of contract, ignored", cap=str(raw["cap_usd"]))
+        logger.warning(f"wizard_gateway_token: {source} cap_usd out of contract, ignored", cap=str(raw["cap_usd"]))
     mints = _parse_mints_per_day(raw["mints_per_day"]) if "mints_per_day" in raw else None
     if "mints_per_day" in raw and mints is None:
         logger.warning(
-            "wizard_gateway_token: limit override mints_per_day out of contract, ignored",
+            f"wizard_gateway_token: {source} mints_per_day out of contract, ignored",
             mints_per_day=str(raw["mints_per_day"]),
         )
-    return WizardLimitOverride(cap_usd=cap, mints_per_day=mints)
+    return cap, mints
+
+
+@frozen
+class WizardTierLimits:
+    """One posture's limits from WIZARD_GATEWAY_TIERS; None keeps the flat setting."""
+
+    cap_usd: Decimal | None = None
+    mints_per_day: int | None = None
+    ttl_seconds: int | None = None
+
+
+NO_TIER_LIMITS = WizardTierLimits()
+
+
+def wizard_posture(organization: Organization, team: Team) -> WizardPosture:
+    """`paid` outranks the rest, then anything that has ingested is `active`, and
+    only a young organization with no event is `new`. Reads cached fields only:
+    the plan tier comes from `available_product_features`, never billing.
+    """
+    if organization.get_plan_tier() != "free":
+        return "paid"
+    if team.ingested_event:
+        return "active"
+    if organization.created_at is not None and organization.created_at > timezone.now() - _NEW_ORGANIZATION_AGE:
+        return "new"
+    return "active"
+
+
+def wizard_tier_limits(posture: WizardPosture) -> WizardTierLimits:
+    """The tier for a posture, each field validated on its own. A posture with no
+    usable entry keeps the flat settings, which are the `active` values."""
+    tiers = settings.WIZARD_GATEWAY_TIERS
+    raw = tiers.get(posture) if isinstance(tiers, dict) else None
+    if not isinstance(raw, dict):
+        return NO_TIER_LIMITS
+    cap, mints = _parse_limit_fields(raw, source=f"{posture} tier")
+    ttl = _parse_ttl(raw["ttl_seconds"]) if "ttl_seconds" in raw else None
+    if "ttl_seconds" in raw and ttl is None:
+        logger.warning(
+            f"wizard_gateway_token: {posture} tier ttl_seconds out of contract, ignored", ttl=str(raw["ttl_seconds"])
+        )
+    return WizardTierLimits(cap_usd=cap, mints_per_day=mints, ttl_seconds=ttl)
+
+
+def wizard_program_cap(program: object) -> Decimal | None:
+    """A per-program cap from WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM, keyed on the
+    program id the CLI sent; None when the program has no usable entry."""
+    caps = settings.WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM
+    if not isinstance(program, str) or not isinstance(caps, dict) or program not in caps:
+        return None
+    cap = _parse_cap(caps[program])
+    if cap is None:
+        logger.warning("wizard_gateway_token: program cap out of contract, ignored", program=program)
+    return cap
+
+
+def _parse_ttl(raw: object) -> int | None:
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, str) and raw.strip().isdigit():
+        raw = int(raw)
+    if not isinstance(raw, int) or raw < 1:
+        return None
+    return raw
 
 
 def _parse_mints_per_day(raw: object) -> int | None:
@@ -185,17 +262,24 @@ def wizard_gateway_base_url() -> str:
 
 
 def mint_wizard_gateway_token(
-    *, obo: str, user: str, product: str = WIZARD_PRODUCT, cap_usd: Decimal | None = None
+    *,
+    obo: str,
+    user: str,
+    product: str = WIZARD_PRODUCT,
+    cap_usd: Decimal | None = None,
+    program: object = None,
+    posture: WizardPosture | None = None,
 ) -> dict[str, Any]:
     """Mint one run's token; returns {token, expires_at, cap_usd}. Raises
     WizardGatewayMintError on any refusal or transport failure; the bearer never
-    appears in logs or exception text. `cap_usd`, when set, replaces the
-    configured cap and must already be validated.
+    appears in logs or exception text. `cap_usd`, when set, outranks every
+    configured cap and must already be validated; otherwise the program's cap,
+    then the posture's tier, then the flat setting.
     """
     base_url = wizard_gateway_base_url()
     body = {
-        "cap_usd": _cap_usd(cap_usd),
-        "ttl_seconds": _ttl_seconds(),
+        "cap_usd": _cap_usd(cap_usd, program=program, posture=posture),
+        "ttl_seconds": _ttl_seconds(posture),
         "product": product,
         "obo": obo,
         "user": user,
@@ -252,22 +336,29 @@ def mint_wizard_gateway_token(
     }
 
 
-def _ttl_seconds() -> int:
+def _ttl_seconds(posture: WizardPosture | None) -> int:
     """The requested token lifetime, clamped to the gateway's mint bounds."""
-    return max(_MIN_TTL_SECONDS, min(int(settings.WIZARD_GATEWAY_TOKEN_TTL_SECONDS), _MAX_TTL_SECONDS))
+    ttl = wizard_tier_limits(posture).ttl_seconds if posture is not None else None
+    if ttl is None:
+        ttl = int(settings.WIZARD_GATEWAY_TOKEN_TTL_SECONDS)
+    return max(_MIN_TTL_SECONDS, min(ttl, _MAX_TTL_SECONDS))
 
 
-def _cap_usd(override: Decimal | None) -> str:
-    """The cap as a fixed-point string: the override when set, else the setting,
-    which falls back to the default rather than 503ing every mint.
+def _cap_usd(override: Decimal | None, *, program: object, posture: WizardPosture | None) -> str:
+    """The cap as a fixed-point string: override, program cap, tier cap, then the
+    flat setting, which falls back to the default rather than 503ing every mint.
     """
     if override is not None:
         return f"{override.quantize(_CAP_QUANTUM):f}"
-    raw = str(settings.WIZARD_GATEWAY_TOKEN_CAP_USD)
-    cap = _parse_cap(raw)
+    cap = wizard_program_cap(program)
+    if cap is None and posture is not None:
+        cap = wizard_tier_limits(posture).cap_usd
     if cap is None:
-        logger.warning("wizard_gateway_token: cap_usd out of contract, using the default", cap=raw)
-        cap = _DEFAULT_CAP_USD.quantize(_CAP_QUANTUM)
+        raw = str(settings.WIZARD_GATEWAY_TOKEN_CAP_USD)
+        cap = _parse_cap(raw)
+        if cap is None:
+            logger.warning("wizard_gateway_token: cap_usd out of contract, using the default", cap=raw)
+            cap = _DEFAULT_CAP_USD.quantize(_CAP_QUANTUM)
     return f"{cap:f}"
 
 

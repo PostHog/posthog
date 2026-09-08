@@ -35,11 +35,14 @@ from posthog.exceptions_capture import capture_exception
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
 from posthog.llm.wizard_gateway_token import (
     WizardGatewayMintError,
+    WizardPosture,
     mint_wizard_gateway_token,
     wizard_gateway_base_url,
     wizard_gateway_configured,
     wizard_limit_override,
+    wizard_posture,
     wizard_product_node,
+    wizard_tier_limits,
 )
 from posthog.models import Team, User
 from posthog.models.project import Project
@@ -516,6 +519,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
             refuse(outcome, exc, user=user)
 
         team: Team | None = None
+        posture: WizardPosture | None = None
         if not wizard_gateway_configured():
             refuse_absent_gateway("unconfigured", "The PostHog AI gateway is not configured on this instance.")
 
@@ -556,6 +560,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
         if team is None:
             # 403: a vanished team is an authorization failure, not a missing route.
             refuse("team_missing", exceptions.PermissionDenied(ERROR_PROJECT_NOT_FOUND), user=user)
+        posture = wizard_posture(team.organization, team)
 
         # scoped_teams is frozen at consent, so re-check what it cannot see.
         if not oauth_credential_authorized(access_token, team):
@@ -605,21 +610,30 @@ class SetupWizardViewSet(viewsets.ViewSet):
             refuse_absent_gateway(
                 "program_unknown", "Unrecognized wizard program. Upgrade with: npx @posthog/wizard@latest", user=user
             )
+        # The override flag outranks the tier; the tier outranks the flat rate.
         override = wizard_limit_override(
             distinct_id=distinct_id,
             email=user.email,
             organization_id=str(team.organization_id),
             team_id=team.id,
         )
+        mints_per_day = override.mints_per_day
+        if mints_per_day is None:
+            mints_per_day = wizard_tier_limits(posture).mints_per_day
         try:
-            reserved = reserve_wizard_mint(request, self, limit=override.mints_per_day)
+            reserved = reserve_wizard_mint(request, self, limit=mints_per_day)
         except exceptions.Throttled as e:
             # The reservation raises after check_throttles ran, so the throttled()
             # hook never sees it.
             refuse("throttled", e, user=user)
         try:
             minted = mint_wizard_gateway_token(
-                obo=str(team.organization_id), user=distinct_id, product=product, cap_usd=override.cap_usd
+                obo=str(team.organization_id),
+                user=distinct_id,
+                product=product,
+                cap_usd=override.cap_usd,
+                program=program,
+                posture=posture,
             )
         except WizardGatewayMintError as e:
             # An ambiguous failure keeps the slot rather than risk the ceiling.
