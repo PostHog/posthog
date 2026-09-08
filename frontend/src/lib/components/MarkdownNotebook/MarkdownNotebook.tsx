@@ -639,6 +639,12 @@ function MarkdownNotebookEditor({
     const [activeRowIndex, setActiveRowIndex] = useState<number | null>(null)
     const [activeBoundaryIndex, setActiveBoundaryIndex] = useState<number | null>(null)
     const [focusedRowIndex, setFocusedRowIndex] = useState<number | null>(null)
+    // Mirror for updateActiveBoundaryFromRow: a memoized row keeps its cached hover handlers, so
+    // the handler must read the current suppress state through a ref, not its render's closure.
+    const suppressInsertBoundaryRef = useRef(false)
+    useEffect(() => {
+        suppressInsertBoundaryRef.current = focusedRowIndex !== null || !!insertMenu
+    }, [focusedRowIndex, insertMenu])
     const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null)
     const [dropBoundaryIndex, setDropBoundaryIndex] = useState<number | null>(null)
     const [isExternalDragOver, setIsExternalDragOver] = useState(false)
@@ -4956,7 +4962,7 @@ function MarkdownNotebookEditor({
     const updateActiveBoundaryFromRow = (event: ReactMouseEvent<HTMLElement>, rowIndex: number): void => {
         setActiveRowIndex(rowIndex)
 
-        if (focusedRowIndex !== null || insertMenu) {
+        if (suppressInsertBoundaryRef.current) {
             setActiveBoundaryIndex(null)
             return
         }

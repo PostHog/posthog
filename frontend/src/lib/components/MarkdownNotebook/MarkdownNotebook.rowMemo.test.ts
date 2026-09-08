@@ -80,6 +80,33 @@ describe('MarkdownNotebook row memoization', () => {
         expect(reRendered).not.toContain(4)
     })
 
+    it('shows the insert boundary again when hovering after a focused row blurs', () => {
+        // A reused row keeps its cached hover handlers, so the boundary suppression they apply
+        // while a row is focused must come from current state — a handler that closed over the
+        // focused-state of an earlier render would keep suppressing the boundary after blur.
+        const { container } = render(createElement(MarkdownNotebook, { value: '# Title\n\nalpha\n\nbravo\n\ncharlie' }))
+        const rows = Array.from(container.querySelectorAll('.MarkdownNotebook__row'))
+        rows.forEach((row, index) => stubRowRect(row, index * 100, 100))
+        const visibleBoundaries = (): number =>
+            container.querySelectorAll('.MarkdownNotebook__insert-boundary-button--visible').length
+
+        fireEvent.mouseEnter(rows[2], { clientY: 220 })
+        expect(visibleBoundaries()).toBeGreaterThan(0)
+
+        const alpha = container.querySelectorAll(
+            '.MarkdownNotebook__text-block[contenteditable="true"]'
+        )[1] as HTMLElement
+        act(() => alpha.focus())
+        fireEvent.mouseMove(rows[2], { clientY: 220 })
+        expect(visibleBoundaries()).toBe(0)
+
+        // Hover the same row after blur: it last re-rendered while the focus was active, so its
+        // cached handlers are the ones that would hold a stale focused state.
+        act(() => alpha.blur())
+        fireEvent.mouseMove(rows[2], { clientY: 220 })
+        expect(visibleBoundaries()).toBeGreaterThan(0)
+    })
+
     it('re-renders only the edited row, not the unchanged title or a distant row', () => {
         const { container } = render(createElement(MarkdownNotebook, { value: '# Title\n\nalpha\n\nbravo\n\ncharlie' }))
         const textBlocks = Array.from(
