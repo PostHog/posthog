@@ -11,7 +11,7 @@ async function _perform(
 ): Promise<QueryBasedInsightModel> {
     const legacyInsight =
         method === 'create' ? await api.insights[method](insight) : await api.insights[method](id!, insight)
-    return getQueryBasedInsightModel(legacyInsight)
+    return getQueryBasedInsightModel(legacyInsight, 'insight_write')
 }
 
 export const insightsApi = {
@@ -36,14 +36,14 @@ export const insightsApi = {
             return null
         }
         const legacyInsight = legacyInsights.results[0]
-        return getQueryBasedInsightModel(legacyInsight) as QueryBasedInsightModel
+        return getQueryBasedInsightModel(legacyInsight, 'insight_scene_load') as QueryBasedInsightModel
     },
     async getByNumericId(numericId: number): Promise<QueryBasedInsightModel | null> {
         const legacyInsight = await api.insights.get(numericId)
         if (legacyInsight === null) {
             return null
         }
-        return getQueryBasedInsightModel(legacyInsight)
+        return getQueryBasedInsightModel(legacyInsight, 'insight_load_by_numeric_id')
     },
     async create(insight: Partial<QueryBasedInsightModel>): Promise<QueryBasedInsightModel> {
         return this._perform('create', insight)
