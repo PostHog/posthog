@@ -10,6 +10,7 @@ import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { reconcileById } from 'lib/utils/objects'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -163,11 +164,21 @@ function clearScratchpadSearch(): void {
 
 // `open_method` reads `deeplink` only when this visit never saw an inbox list URL. Session storage
 // is the right scope: it survives a reload and is copied into a tab opened from a link.
-const INBOX_LIST_VISITED_STORAGE_KEY = 'posthog.inbox.listVisited'
+const INBOX_LIST_VISITED_STORAGE_KEY_PREFIX = 'posthog.inbox.listVisited'
+
+/**
+ * Per project, because switching project is a same-tab page load that keeps session storage, and a
+ * list seen in one project says nothing about a report link in another. The project comes from the
+ * server-rendered app context rather than `teamLogic`, because the marker is read from a route
+ * handler on a cold load, before the team request answers.
+ */
+function inboxListVisitedStorageKey(): string {
+    return `${INBOX_LIST_VISITED_STORAGE_KEY_PREFIX}.${getCurrentTeamIdOrNone() ?? 'none'}`
+}
 
 function markInboxListVisited(): void {
     try {
-        window.sessionStorage.setItem(INBOX_LIST_VISITED_STORAGE_KEY, '1')
+        window.sessionStorage.setItem(inboxListVisitedStorageKey(), '1')
     } catch {
         return
     }
@@ -175,7 +186,7 @@ function markInboxListVisited(): void {
 
 function hasVisitedInboxList(): boolean {
     try {
-        return window.sessionStorage.getItem(INBOX_LIST_VISITED_STORAGE_KEY) === '1'
+        return window.sessionStorage.getItem(inboxListVisitedStorageKey()) === '1'
     } catch {
         return false
     }

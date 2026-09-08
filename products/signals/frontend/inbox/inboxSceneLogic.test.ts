@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { combineUrl, router } from 'kea-router'
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { expectLogic } from 'kea-test-utils'
@@ -270,13 +272,21 @@ describe('inboxSceneLogic routing', () => {
         expect(openMethod).toBe(expectedMethod)
     })
 
-    // A reload, a new tab, and a bundle update each start a fresh logic.
-    it('a report URL loaded fresh after the list was visited this session is a click, not a deep-link', async () => {
+    // A reload, a new tab, and a bundle update each start a fresh logic. Switching project is a
+    // same-tab page load as well, and it keeps session storage, so the marker is per project.
+    it.each([
+        { where: 'the same project', team: MOCK_DEFAULT_TEAM, expected: 'click' },
+        {
+            where: 'another project',
+            team: { ...MOCK_DEFAULT_TEAM, id: MOCK_DEFAULT_TEAM.id + 1 },
+            expected: 'deeplink',
+        },
+    ])('a report URL loaded fresh in $where after the list was visited reads $expected', async ({ team, expected }) => {
         mountWithRedesign(true)
         router.actions.push(urls.inbox('reports'))
         logic.unmount()
 
-        initKeaTests()
+        initKeaTests(true, team)
         featureFlagLogic.mount()
         mountWithRedesign(true)
 
@@ -290,7 +300,7 @@ describe('inboxSceneLogic routing', () => {
                 return true
             },
         ])
-        expect(openMethod).toBe('click')
+        expect(openMethod).toBe(expected)
     })
 
     // A rank read at open time is null on a cold load, and joins to no impression row.
