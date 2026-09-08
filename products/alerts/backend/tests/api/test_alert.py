@@ -2033,54 +2033,84 @@ class TestAlertSimulateForecast(APIBaseTest):
 
 
 class TestFinishedTargetAlertIsEditable(APIBaseTest):
-    def test_a_finished_target_alert_can_still_be_patched(self) -> None:
+    def _finished_target_alert(self) -> str:
         insight = self.client.post(
             f"/api/projects/{self.team.id}/insights",
             data=_trends_insight_data(query_extra={"interval": "day"}),
         ).json()
         future = (datetime.now(UTC).date() + timedelta(days=30)).isoformat()
-        with mock.patch(
-            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
-        ):
-            created = self.client.post(
-                f"/api/projects/{self.team.id}/alerts",
-                data={
-                    "insight": insight["id"],
-                    "name": "target alert",
-                    "subscribed_users": [self.user.id],
-                    "calculation_interval": "daily",
-                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
-                    "condition": {"type": "absolute_value"},
-                    "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
-                    "forecast_config": {
-                        "type": "ForecastConfig",
-                        "engine": "prophet",
-                        "condition": "target_by_date",
-                        "target": 100,
-                        "target_direction": "at_least",
-                        "target_date": future,
-                    },
-                },
-            )
-            assert created.status_code == status.HTTP_201_CREATED, created.content
-            alert_id = created.json()["id"]
-
-            AlertConfiguration.objects.filter(pk=alert_id).update(
-                forecast_config={
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            data={
+                "insight": insight["id"],
+                "name": "target alert",
+                "subscribed_users": [self.user.id],
+                "calculation_interval": "daily",
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "condition": {"type": "absolute_value"},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                "forecast_config": {
                     "type": "ForecastConfig",
                     "engine": "prophet",
                     "condition": "target_by_date",
                     "target": 100,
                     "target_direction": "at_least",
-                    "target_date": "2020-01-01",
-                }
-            )
+                    "target_date": future,
+                },
+            },
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        alert_id = created.json()["id"]
+        AlertConfiguration.objects.filter(pk=alert_id).update(
+            enabled=False,
+            forecast_config={
+                "type": "ForecastConfig",
+                "engine": "prophet",
+                "condition": "target_by_date",
+                "target": 100,
+                "target_direction": "at_least",
+                "target_date": "2020-01-01",
+            },
+        )
+        return alert_id
+
+    def test_a_finished_target_alert_can_still_be_patched(self) -> None:
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            alert_id = self._finished_target_alert()
             renamed = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", data={"name": "renamed"})
             disabled = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", data={"enabled": False})
 
         assert renamed.status_code == status.HTTP_200_OK, renamed.content
         assert disabled.status_code == status.HTTP_200_OK, disabled.content
         assert disabled.json()["enabled"] is False
+
+    def test_re_enabling_a_finished_target_alert_needs_a_date_it_can_reach(self) -> None:
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            alert_id = self._finished_target_alert()
+            kept_date = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", data={"enabled": True})
+            new_date = self.client.patch(
+                f"/api/projects/{self.team.id}/alerts/{alert_id}",
+                data={
+                    "enabled": True,
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "target_by_date",
+                        "target": 100,
+                        "target_direction": "at_least",
+                        "target_date": (datetime.now(UTC).date() + timedelta(days=30)).isoformat(),
+                    },
+                },
+            )
+
+        assert kept_date.status_code == status.HTTP_400_BAD_REQUEST, kept_date.content
+        assert "target date must be in the future" in kept_date.content.decode()
+        assert new_date.status_code == status.HTTP_200_OK, new_date.content
+        assert new_date.json()["enabled"] is True
 
 
 class TestForecastTargetProjection(APIBaseTest):

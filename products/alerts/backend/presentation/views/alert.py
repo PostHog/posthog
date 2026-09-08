@@ -92,11 +92,21 @@ from products.product_analytics.backend.facade.models import (
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
 
 
-def _target_date_is_changing(forecast_config: dict | None, instance: AlertConfiguration | None) -> bool:
+def _requires_future_target_date(
+    forecast_config: dict | None, attrs: dict, instance: AlertConfiguration | None
+) -> bool:
+    """Whether this request has to carry a target date the alert can still reach.
+
+    A stored past date stays acceptable, so a finished alert can still be renamed or turned off.
+    Setting a new date has to land in the future, and so does turning a finished alert back on:
+    the scheduler expires it again on its next sweep, so the enable could never persist.
+    """
     if not forecast_config:
         return False
     stored = (instance.forecast_config or {}) if instance is not None else {}
-    return forecast_config.get("target_date") != stored.get("target_date")
+    if forecast_config.get("target_date") != stored.get("target_date"):
+        return True
+    return attrs.get("enabled") is True and instance is not None and not instance.enabled
 
 
 def _validate_interval_entitlement(
@@ -878,7 +888,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 detector_config=detector_config,
                 require_threshold_bounds=require_threshold_bounds,
                 forecast_config=forecast_config,
-                require_future_target_date=_target_date_is_changing(forecast_config, self.instance),
+                require_future_target_date=_requires_future_target_date(forecast_config, attrs, self.instance),
                 project_timezone=self.context["get_team"]().timezone,
             )
         except ValueError as e:
