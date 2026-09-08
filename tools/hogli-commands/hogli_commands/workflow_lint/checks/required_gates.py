@@ -66,19 +66,24 @@ GATE_NAME = re.compile(r"\bpass$", re.IGNORECASE)
 ALWAYS = re.compile(r"always\s*\(\s*\)")
 NOT_CANCELLED = re.compile(r"!\s*cancelled\s*\(\s*\)")
 READS_RESULT = re.compile(r"needs\.(?P<dep>[A-Za-z0-9_\-]+)\.result")
-STATUS_FUNCTION = re.compile(r"\b(?:always|cancelled|failure|success)\s*\(\s*\)")
+STATUS_CALL = re.compile(r"(?P<negated>!\s*)?\b(?P<name>always|cancelled|failure|success)\s*\(\s*\)")
 
+# Status calls that are true in the state this module reasons about: an upstream job
+# failed and the run itself was not cancelled. `success()` and `cancelled()` are false
+# there, so a job conditioned on either is skipped exactly like a job with no status
+# call at all.
+TRUE_AFTER_UPSTREAM_FAILURE = frozenset({("always", False), ("cancelled", True), ("failure", False), ("success", True)})
 
-def _demands_a_value_from(upstream: str) -> re.Pattern[str]:
-    """Match a condition term that is false when ``upstream`` produced nothing.
+# What a failed job's own references read as. Outputs are empty because the job never
+# set them; `result` carries the failure itself, which is why the two cannot share a rule.
+FAILED_RESULT = "failure"
+FAILED_OUTPUT = ""
 
-    An equality against a non-empty literal is the only common shape that turns
-    false on an empty output, whichever side the literal sits on. An inequality
-    (`!= 'none'`) is true on an empty value, so it lets the job run.
-    """
-    reference = rf"needs\.{re.escape(upstream)}\.(?:outputs\.[A-Za-z0-9_\-]+|result)"
-    literal = r"'[^']+'|\"[^\"]+\""
-    return re.compile(rf"(?:{reference}\s*==\s*(?:{literal})|(?:{literal})\s*==\s*{reference})")
+COMPARISON = re.compile(
+    r"""(?P<left>needs\.(?P<ldep>[A-Za-z0-9_\-]+)\.(?P<lkind>outputs\.[A-Za-z0-9_\-]+|result)|'[^']*'|"[^"]*")"""
+    r"""\s*(?P<op>==|!=)\s*"""
+    r"""(?P<right>needs\.(?P<rdep>[A-Za-z0-9_\-]+)\.(?P<rkind>outputs\.[A-Za-z0-9_\-]+|result)|'[^']*'|"[^"]*")"""
+)
 
 
 # `foo() {` / `function foo() {`, whose body ends at the first `}` sitting at or
@@ -407,14 +412,49 @@ def _dependencies(job: Job) -> set[str]:
     return _declared_needs(job) | referenced
 
 
+def _runs_past_an_upstream_failure(condition: str) -> bool:
+    """Does this ``if`` still dispatch its job after a job it needs failed?
+
+    GitHub runs a job only when every job in its ``needs:`` succeeded, unless the
+    job's own ``if`` calls a status function. Calling one is not enough on its own:
+    the call also has to be true in that state, which `success()` and `cancelled()`
+    are not.
+    """
+    return any(
+        (call.group("name"), call.group("negated") is not None) in TRUE_AFTER_UPSTREAM_FAILURE
+        for call in STATUS_CALL.finditer(condition)
+    )
+
+
+def _falsified_by(condition: str, upstream: str) -> bool:
+    """Does any comparison in this ``if`` turn false once ``upstream`` fails?
+
+    Each comparison against the failed job is evaluated with the value it really
+    reads back: an empty string for an output, and `failure` for `result`. So
+    `outputs.x == 'true'` and `result == 'success'` both go false and skip the job,
+    while `outputs.mode != 'none'` and a recovery path's `result == 'failure'` stay
+    true and let it run.
+
+    A false term is read as a skip without solving the whole boolean expression. That
+    over-reports a condition where a disjunct unrelated to the upstream can still
+    carry the job, which fails the gate closed rather than open.
+    """
+    for comparison in COMPARISON.finditer(condition):
+        for side, other in (("l", "right"), ("r", "left")):
+            if comparison.group(f"{side}dep") != upstream:
+                continue
+            literal = comparison.group(other)
+            if literal.startswith("needs."):
+                continue
+            actual = FAILED_RESULT if comparison.group(f"{side}kind") == "result" else FAILED_OUTPUT
+            equal = literal[1:-1] == actual
+            if equal is (comparison.group("op") == "!="):
+                return True
+    return False
+
+
 def _skips_when_upstream_fails(job: Job, upstream: str) -> bool:
     """Would ``job`` be skipped if ``upstream`` failed?
-
-    GitHub runs a job only when every job in its ``needs:`` succeeded, so a job
-    whose ``if`` calls no status function is skipped by any upstream failure. A job
-    that calls one runs anyway, and then reads that upstream's outputs as empty
-    strings. It is skipped only where its own condition demands a value from the
-    upstream, which an empty string cannot satisfy.
 
     This is what separates a detector from a selector. `ci-e2e-playwright` reads
     `needs.changes.outputs.shouldRun == 'true'`, so a failed `changes` skips the
@@ -424,9 +464,9 @@ def _skips_when_upstream_fails(job: Job, upstream: str) -> bool:
     condition = job.raw.get("if")
     if not isinstance(condition, str):
         return True
-    if not STATUS_FUNCTION.search(condition):
+    if not _runs_past_an_upstream_failure(condition):
         return True
-    return _demands_a_value_from(upstream).search(condition) is not None
+    return _falsified_by(condition, upstream)
 
 
 def _upstream_gaps(job: Job, jobs: dict[str, Job]) -> Iterator[str]:

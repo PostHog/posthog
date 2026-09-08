@@ -1426,17 +1426,18 @@ _CHAIN_GUARD = """
 """
 
 
-def _chained_gate(*dependencies: str, build_recovers: bool = False) -> str:
+def _chained_gate(*dependencies: str, build_if: str | None = None) -> str:
     """A gate over `build`, which itself needs `detect`.
 
     GitHub skips `build` when `detect` fails, and the gate reads that skip as a
-    pass, so `detect` has to be a dependency of the gate too. `build_recovers`
-    gives `build` a status function and no test on `detect`, which is how a job
-    runs past a failed selector, and then the gate must not demand it.
+    pass, so `detect` has to be a dependency of the gate too. `build_if` sets the
+    condition on `build`, which is what decides whether the skip travels: a job that
+    runs past a failed `detect` recovers, and the gate must not demand it.
     """
     body = "".join(_CHAIN_GUARD.replace("DEP", dep) for dep in dependencies)
-    build_if = "        if: ${{ !cancelled() }}\n" if build_recovers else ""
-    return f"""
+    build_condition = f"        if: {build_if}\n" if build_if else ""
+    return (
+        """
     name: ci-thing
     on: pull_request
     jobs:
@@ -1446,18 +1447,22 @@ def _chained_gate(*dependencies: str, build_recovers: bool = False) -> str:
           - run: echo detect
       build:
         needs: [detect]
-{build_if}        timeout-minutes: 5
+"""
+        + build_condition
+        + """        timeout-minutes: 5
         steps:
           - run: echo build
       thing_tests:
         name: Thing Tests Pass
-        needs: [{", ".join(dependencies)}]
+        needs: [DEPENDENCIES]
         timeout-minutes: 5
-        if: ${{{{ !cancelled() }}}}
+        if: ${{ !cancelled() }}
         steps:
           - run: |
-{textwrap.indent(textwrap.dedent(body).strip(), " " * 14)}
-"""
+""".replace("DEPENDENCIES", ", ".join(dependencies))
+        + textwrap.indent(textwrap.dedent(body).strip(), " " * 14)
+        + "\n"
+    )
 
 
 class TestRequiredGateCheck:
@@ -1564,19 +1569,33 @@ class TestRequiredGateCheck:
         assert [i.message.split("'")[1] for i in issues] == ["lint"]
         assert "never reaches" in issues[0].message
 
+    # Each row is a shape our workflows really use: a worker with no condition, a gate
+    # that names the whole chain, a suite that runs past a failed selector, a job held
+    # behind success(), a recovery job that reads the failure, and a consumer that
+    # demands a detector's output.
     @pytest.mark.parametrize(
-        "dependencies,build_recovers,expected_missing",
+        "dependencies,build_if,expected_missing",
         [
-            (("build",), False, ["detect"]),
-            (("detect", "build"), False, []),
-            (("build",), True, []),
+            (("build",), None, ["detect"]),
+            (("detect", "build"), None, []),
+            (("build",), "${{ !cancelled() }}", []),
+            (("build",), "${{ success() }}", ["detect"]),
+            (("build",), "${{ failure() && needs.detect.result == 'failure' }}", []),
+            (("build",), "${{ !cancelled() && needs.detect.outputs.mode == 'go' }}", ["detect"]),
         ],
-        ids=["upstream-of-a-dependency-unnamed", "whole-chain-named", "dependency-recovers-from-upstream"],
+        ids=[
+            "upstream-of-a-dependency-unnamed",
+            "whole-chain-named",
+            "dependency-recovers-from-upstream",
+            "dependency-held-behind-success",
+            "dependency-recovers-on-the-failure-itself",
+            "dependency-demands-an-upstream-output",
+        ],
     )
     def test_flags_upstream_of_a_dependency_that_the_gate_never_tests(
-        self, tmp_path: Path, dependencies: tuple[str, ...], build_recovers: bool, expected_missing: list[str]
+        self, tmp_path: Path, dependencies: tuple[str, ...], build_if: str | None, expected_missing: list[str]
     ) -> None:
-        _write(tmp_path, "ci-thing.yml", _chained_gate(*dependencies, build_recovers=build_recovers))
+        _write(tmp_path, "ci-thing.yml", _chained_gate(*dependencies, build_if=build_if))
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
         assert [i.message.split("'")[1] for i in issues] == expected_missing
         assert all("is not a dependency of this gate" in i.message for i in issues)

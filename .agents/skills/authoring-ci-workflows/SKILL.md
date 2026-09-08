@@ -154,7 +154,9 @@ Four rules for the gate body:
 
 `WF007` enforces 1, 2, 4, and the `!cancelled()` condition, and it takes the dependency list from `needs:` as well as the step body, so a job you wired into `needs:` and then forgot to test is reported rather than silently trusted.
 For rule 2 it walks the `needs:` graph above each dependency and reports any job the gate does not test, which is the half a linter can see.
-It follows an edge only when the upstream's failure would actually skip the job below it: no status function in that job's `if` means any failed upstream skips it, and a status function means it still runs unless its condition demands a value the failed upstream cannot supply.
+It follows an edge only when the upstream's failure would actually skip the job below it.
+A job whose `if` calls no status function is skipped by any failed upstream, and so is one held behind `success()` or `cancelled()`, since neither is true in that state.
+A job that reaches `always()`, `!cancelled()` or `failure()` keeps running, and is skipped only where its own condition compares against the failed job and goes false: an output reads back empty, while `result` reads back `failure`, so a recovery path testing `result == 'failure'` still runs.
 The half it cannot see is a coverage job with no `needs:` edge into the gate at all: "reporting job" and "coverage job" look identical from outside the graph, so that one is on you and the reviewer.
 
 ### What GitHub does with each conclusion
