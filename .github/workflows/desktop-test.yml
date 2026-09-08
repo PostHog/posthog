@@ -61,6 +61,7 @@ jobs:
                       code:
                         - "products/desktop/**"
                         - "!products/desktop/**/*.md"
+                        - "products/desktop/packages/harness/src/extensions/orchestration/bundled-agents/**"
                         - "!products/desktop/docs/**"
                         - "!products/desktop/.vscode/**"
                         - "!products/desktop/.claude/**"
