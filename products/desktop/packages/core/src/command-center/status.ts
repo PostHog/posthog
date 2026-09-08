@@ -2,8 +2,10 @@ import { getTaskRepository, parseRepository } from "@posthog/shared";
 import type { Task, TaskRunStatus } from "@posthog/shared/domain-types";
 import {
   deriveTaskRunState,
+  isTaskUnread,
   type SidebarTask,
   type TaskSession,
+  type TaskTimestamp,
 } from "../sidebar/buildSidebarData";
 
 export type CellStatus = "running" | "waiting" | "idle" | "error" | "completed";
@@ -59,6 +61,15 @@ export function deriveTaskCellStatus(
   if (runState.needsPermission) return "waiting";
   if (runState.isGenerating) return "running";
   return sessionRunsLatestRun ? deriveStatus(session) : "idle";
+}
+
+export function hasUnseenCompletion(
+  status: CellStatus,
+  activityAt: string,
+  timestamp: TaskTimestamp | undefined,
+): boolean {
+  if (status !== "idle" && status !== "completed") return false;
+  return isTaskUnread(activityAt, timestamp);
 }
 
 export function getRepoName(task: Task): string | null {
