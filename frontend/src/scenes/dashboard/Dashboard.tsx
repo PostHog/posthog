@@ -33,6 +33,7 @@ import {
 import { teamLogic } from '../teamLogic'
 import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsightToDashboardModal'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
+import { DashboardAiSync } from './DashboardAiSync'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
 import { DashboardPublicAccessBanner } from './DashboardPublicAccessBanner'
@@ -172,6 +173,12 @@ function DashboardScene({
             {placement == DashboardPlacement.Dashboard && (
                 <DashboardHeader loading={!dashboard && !dashboardFailedToLoad} />
             )}
+            {placement === DashboardPlacement.Dashboard &&
+                dashboard?.id &&
+                canEditDashboard &&
+                !dashboardFailedToLoad &&
+                !accessDeniedToDashboard &&
+                !error404 && <DashboardAiSync dashboardId={dashboard.id} />}
             {placement == DashboardPlacement.Dashboard && !!dashboard?.id && (
                 <DashboardSubscribeNudgeTrigger dashboardId={dashboard.id} />
             )}
