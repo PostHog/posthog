@@ -487,7 +487,25 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["supports_webhooks"] is True
 
-    def test_incremental_fields_returns_400_when_schema_name_absent(self):
+    @parameterized.expand(
+        [
+            (
+                "other_tables_discovered",
+                [
+                    SourceSchema(
+                        name="$channels", supports_incremental=False, supports_append=False, supports_webhooks=False
+                    )
+                ],
+                "not found",
+            ),
+            # Discovery reads `information_schema.columns` on Postgres and Redshift, which hides columns
+            # the connected role has no privilege on, so an empty result must not claim the table is gone.
+            ("nothing_discovered", [], "permission"),
+        ]
+    )
+    def test_incremental_fields_returns_400_when_schema_name_absent(
+        self, _name: str, discovered_schemas: list[SourceSchema], expected_message_fragment: str
+    ):
         source = ExternalDataSource.objects.create(
             team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
         )
@@ -500,19 +518,16 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type=ExternalDataSchema.SyncType.WEBHOOK,
         )
 
-        other_schemas = [
-            SourceSchema(name="$channels", supports_incremental=False, supports_append=False, supports_webhooks=False),
-        ]
-
         with (
             mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
-            mock.patch.object(StripeSource, "get_schemas", return_value=other_schemas),
+            mock.patch.object(StripeSource, "get_schemas", return_value=discovered_schemas),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_message_fragment in response.json()["message"]
 
     def test_update_schema_change_sync_type(self):
         source = ExternalDataSource.objects.create(

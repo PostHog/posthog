@@ -1933,6 +1933,22 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": str(e)},
             )
 
+        if not schemas:
+            # Discovery found nothing at all, which several unrelated conditions produce. Postgres and
+            # Redshift read `information_schema.columns`, which hides columns the connected role has no
+            # privilege on, so a revoked GRANT looks the same as a dropped table. Don't claim the
+            # relation is gone when we cannot tell.
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": (
+                        f'Couldn\'t read any columns for "{instance.name}". The table may have been dropped, '
+                        "the connected user may not have permission to read it, or PostHog may not support "
+                        "this type of table. Check that the table exists and that the connected user can read it."
+                    )
+                },
+            )
+
         # Not every source honors the `names` filter (e.g. Slack returns all schemas regardless), so
         # `schemas` may contain unrelated tables in any order. Pick the one that matches this schema
         # instead of trusting `schemas[0]`, whose metadata could belong to a different table.
