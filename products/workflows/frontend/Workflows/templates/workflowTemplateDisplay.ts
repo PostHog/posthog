@@ -77,12 +77,9 @@ export function getOrderedActions(actions: HogFlowAction[], edges: HogFlowEdge[]
     const actionsById = new Map(actions.map((action) => [action.id, action]))
     const edgesByFrom = new Map<string, HogFlowEdge[]>()
     for (const edge of edges ?? []) {
-        const fromEdges = edgesByFrom.get(edge.from)
-        if (fromEdges) {
-            fromEdges.push(edge)
-        } else {
-            edgesByFrom.set(edge.from, [edge])
-        }
+        const fromEdges = edgesByFrom.get(edge.from) ?? []
+        fromEdges.push(edge)
+        edgesByFrom.set(edge.from, fromEdges)
     }
     for (const fromEdges of edgesByFrom.values()) {
         fromEdges.sort(compareEdges)
