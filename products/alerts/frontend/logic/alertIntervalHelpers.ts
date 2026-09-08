@@ -26,7 +26,8 @@ export function getSimulationRangeOptions(interval: AlertCalculationInterval): {
     switch (interval) {
         case AlertCalculationInterval.REAL_TIME:
             return [
-                { label: 'Last 10 minutes', value: '-10m' },
+                // Minutes are uppercase `M`; lowercase `m` is months. See `get_delta_mapping_for`.
+                { label: 'Last 10 minutes', value: '-10M' },
                 { label: 'Last 1 hour', value: '-1h' },
                 { label: 'Last 3 hours', value: '-3h' },
             ]
