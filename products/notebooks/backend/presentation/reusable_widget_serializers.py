@@ -8,6 +8,7 @@ from products.notebooks.backend.presentation.widget_serializers import (
     WidgetInputContractItemSerializer,
     WidgetSecurityReviewSerializer,
 )
+from products.notebooks.backend.reusable_widgets import MAX_REUSABLE_WIDGET_DEMO_ROWS
 
 
 class ReusableWidgetPublishRequestSerializer(serializers.Serializer):
@@ -70,6 +71,18 @@ class ReusableWidgetReviewRequestSerializer(serializers.Serializer):
 class ReusableWidgetRestoreRequestSerializer(serializers.Serializer):
     version_id = serializers.UUIDField(help_text="Published version to copy into a new latest version.")
     expected_current_version_id = serializers.UUIDField(help_text="Latest version observed before restoring.")
+
+
+class ReusableWidgetDemoDataRequestSerializer(serializers.Serializer):
+    version_id = serializers.UUIDField(help_text="Current or draft version whose demo data should be edited.")
+    frame_name = serializers.CharField(
+        max_length=200, help_text="Logical input slot whose saved rows should be replaced."
+    )
+    rows = serializers.ListField(
+        child=serializers.ListField(child=serializers.JSONField(allow_null=True)),
+        max_length=MAX_REUSABLE_WIDGET_DEMO_ROWS,
+        help_text="Saved demo rows in input-contract column order. Replaces this slot's entire sample, up to 20 rows.",
+    )
 
 
 class ReusableWidgetCatalogQuerySerializer(serializers.Serializer):

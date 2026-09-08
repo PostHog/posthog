@@ -29,6 +29,7 @@ import type {
     PaginatedNotebookMinimalListApi,
     PatchedNotebookApi,
     ReusableWidgetAttachRequestApi,
+    ReusableWidgetDemoDataRequestApi,
     ReusableWidgetDetailApi,
     ReusableWidgetPageApi,
     ReusableWidgetPublishRequestApi,
@@ -105,6 +106,24 @@ export const reusableWidgetsRetrieve = async (
     return apiMutator<ReusableWidgetDetailApi>(getReusableWidgetsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getReusableWidgetsUpdateDemoDataUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/notebook_widgets/${id}/demo-data/`
+}
+
+export const reusableWidgetsUpdateDemoData = async (
+    projectId: string,
+    id: string,
+    reusableWidgetDemoDataRequestApi: ReusableWidgetDemoDataRequestApi,
+    options?: RequestInit
+): Promise<WidgetFrameApi> => {
+    return apiMutator<WidgetFrameApi>(getReusableWidgetsUpdateDemoDataUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reusableWidgetDemoDataRequestApi),
     })
 }
 

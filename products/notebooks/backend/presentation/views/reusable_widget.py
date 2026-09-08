@@ -29,6 +29,7 @@ from products.notebooks.backend.facade.widgets import (
 )
 from products.notebooks.backend.presentation.reusable_widget_serializers import (
     ReusableWidgetCatalogQuerySerializer,
+    ReusableWidgetDemoDataRequestSerializer,
     ReusableWidgetDetailSerializer,
     ReusableWidgetGenerateRequestSerializer,
     ReusableWidgetPageSerializer,
@@ -48,6 +49,7 @@ from products.notebooks.backend.reusable_widget_versions import (
     list_reusable_widget_versions,
     restore_reusable_widget_version,
 )
+from products.notebooks.backend.reusable_widgets import update_reusable_widget_demo_data
 
 
 class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -199,6 +201,31 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 widget_id=self._widget_id(),
                 frame_name=frame_name,
                 version_id=query.validated_data.get("version_id"),
+            )
+        except WidgetError as error:
+            return self._error_response(error)
+        return Response(WidgetFrameSerializer(result.frame).data)
+
+    @extend_schema(
+        operation_id="reusable_widgets_update_demo_data",
+        request=ReusableWidgetDemoDataRequestSerializer,
+        responses={
+            200: WidgetFrameSerializer,
+            400: WidgetErrorSerializer,
+            404: WidgetErrorSerializer,
+            409: WidgetErrorSerializer,
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="demo-data", required_scopes=["notebook:write"])
+    def update_demo_data(self, request: Request, **kwargs) -> Response:
+        self._require_feature()
+        serializer = ReusableWidgetDemoDataRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = update_reusable_widget_demo_data(
+                team_id=self.team_id,
+                widget_id=self._widget_id(),
+                **serializer.validated_data,
             )
         except WidgetError as error:
             return self._error_response(error)

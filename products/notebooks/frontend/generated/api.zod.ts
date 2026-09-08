@@ -9,6 +9,22 @@
  */
 import * as zod from 'zod'
 
+export const reusableWidgetsUpdateDemoDataBodyFrameNameMax = 200
+
+export const reusableWidgetsUpdateDemoDataBodyRowsMax = 20
+
+export const ReusableWidgetsUpdateDemoDataBody = /* @__PURE__ */ zod.object({
+    version_id: zod.uuid().describe('Current or draft version whose demo data should be edited.'),
+    frame_name: zod
+        .string()
+        .max(reusableWidgetsUpdateDemoDataBodyFrameNameMax)
+        .describe('Logical input slot whose saved rows should be replaced.'),
+    rows: zod
+        .array(zod.array(zod.unknown()))
+        .max(reusableWidgetsUpdateDemoDataBodyRowsMax)
+        .describe("Saved demo rows in input-contract column order. Replaces this slot's entire sample, up to 20 rows."),
+})
+
 export const ReusableWidgetsDiscardVersionBody = /* @__PURE__ */ zod.object({
     pending_version_id: zod.uuid().describe('Draft version being reviewed.'),
     expected_current_version_id: zod.uuid().describe('Published version observed when the review action started.'),

@@ -28,6 +28,7 @@ import {
 } from '../NotebookNodeGeneratedWidget/notebookWidgetTrustLogic'
 import { WidgetArtifactFrame } from '../NotebookNodeGeneratedWidget/WidgetArtifactFrame'
 import { WIDGET_MODEL_OPTIONS } from '../NotebookNodeGeneratedWidget/widgetModels'
+import { ReusableWidgetDemoDataModal } from './ReusableWidgetDemoDataModal'
 import { ReusableWidgetLogicProps, reusableWidgetLogic } from './reusableWidgetLogic'
 import { ReusableWidgetSourceModal } from './ReusableWidgetSourceModal'
 
@@ -43,6 +44,8 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
     const {
         artifactUnavailable,
         changePrompt,
+        demoDataModalOpen,
+        demoDataRevision,
         reusableWidget,
         reusableWidgetError,
         reusableWidgetLoading,
@@ -62,6 +65,9 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
         loadReusableWidget,
         markArtifactUnavailable,
         openSourceModal,
+        openDemoDataModal,
+        closeDemoDataModal,
+        demoDataSaved,
         discardVersion,
         saveVersion,
         restoreVersion,
@@ -121,7 +127,14 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
                 name={reusableWidget.name}
                 description={reusableWidget.description || 'Reusable notebook widget'}
                 resourceType={{ type: 'notebook' }}
-                actions={<LemonButton onClick={openSourceModal}>View source</LemonButton>}
+                actions={
+                    <div className="flex flex-wrap gap-2">
+                        <LemonButton onClick={openDemoDataModal} data-attr="reusable-widget-demo-data">
+                            Demo data
+                        </LemonButton>
+                        <LemonButton onClick={openSourceModal}>View source</LemonButton>
+                    </div>
+                }
             />
             <div className="grid grid-cols-1 items-start gap-4 @min-[56rem]/reusable-widget:grid-cols-3">
                 <div className="flex min-w-0 flex-col gap-4">
@@ -392,7 +405,7 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
                             {trustControls('toolbar')}
                             <div className="min-h-0 flex-1">
                                 <WidgetArtifactFrame
-                                    key={version.id}
+                                    key={`${version.id}:${demoDataRevision}`}
                                     artifactUrl={version.artifact_url}
                                     title={`${reusableWidget.name} demo`}
                                     allowedFrames={version.frame_names}
@@ -422,6 +435,16 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
                 </div>
             </div>
             <ReusableWidgetSourceModal widgetId={widgetId} />
+            {demoDataModalOpen && currentTeamId ? (
+                <ReusableWidgetDemoDataModal
+                    projectId={currentTeamId}
+                    widgetId={widgetId}
+                    version={version}
+                    canEdit={!isHistorical}
+                    onClose={closeDemoDataModal}
+                    onSaved={demoDataSaved}
+                />
+            ) : null}
         </SceneContent>
     )
 }

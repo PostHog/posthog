@@ -261,11 +261,19 @@ export interface WidgetErrorApi {
     detail: string
 }
 
-export interface ReusableWidgetReviewRequestApi {
-    /** Draft version being reviewed. */
-    pending_version_id: string
-    /** Published version observed when the review action started. */
-    expected_current_version_id: string
+export interface ReusableWidgetDemoDataRequestApi {
+    /** Current or draft version whose demo data should be edited. */
+    version_id: string
+    /**
+     * Logical input slot whose saved rows should be replaced.
+     * @maxLength 200
+     */
+    frame_name: string
+    /**
+     * Saved demo rows in input-contract column order. Replaces this slot's entire sample, up to 20 rows.
+     * @maxItems 20
+     */
+    rows: unknown[][]
 }
 
 export interface WidgetFrameColumnApi {
@@ -307,6 +315,13 @@ export interface WidgetFrameApi {
     nextOffset: number | null
     /** Whether more rows exist after this page. */
     truncated: boolean
+}
+
+export interface ReusableWidgetReviewRequestApi {
+    /** Draft version being reviewed. */
+    pending_version_id: string
+    /** Published version observed when the review action started. */
+    expected_current_version_id: string
 }
 
 /**

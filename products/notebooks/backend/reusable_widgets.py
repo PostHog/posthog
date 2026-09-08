@@ -604,6 +604,55 @@ def read_reusable_widget_demo_frame(
     return WidgetFrameRead(frame=frame)
 
 
+def update_reusable_widget_demo_data(
+    *, team_id: int, widget_id: UUID, version_id: UUID, frame_name: str, rows: list[list[object]]
+) -> WidgetFrameRead:
+    with transaction.atomic():
+        widget = _published_widgets(team_id).select_for_update().filter(id=widget_id).first()
+        if widget is None:
+            raise WidgetError("This reusable widget does not exist.", "widget_not_found")
+        if version_id not in {widget.current_version_id, widget.pending_version_id}:
+            raise WidgetConflictError(
+                "Demo data can only be edited for the latest version or its draft. Reload the widget to select one.",
+                "demo_version_conflict",
+            )
+        version = GeneratedWidgetVersion.objects.for_team(team_id).get(widget=widget, id=version_id)
+        contract = next(
+            (item for item in _input_contract(version.input_contract) if item.get("slot") == frame_name), None
+        )
+        if contract is None:
+            raise WidgetError("This input is not part of the widget's contract.", "frame_not_found")
+        columns = contract.get("columns", [])
+        if not isinstance(columns, list) or any(len(row) != len(columns) for row in rows):
+            raise WidgetError("Each demo row must include a value for every input column.", "demo_rows_invalid")
+        if len(rows) > MAX_REUSABLE_WIDGET_DEMO_ROWS:
+            raise WidgetError(
+                f"Save at most {MAX_REUSABLE_WIDGET_DEMO_ROWS} demo rows per input.", "demo_data_too_large"
+            )
+        previous = version.demo_data.get(frame_name, {})
+        frame: dict[str, object] = {
+            "name": frame_name,
+            "runId": previous.get("runId", str(version.id)),
+            "columns": columns,
+            "rows": rows,
+            "totalRowCount": len(rows),
+            "includedRowCount": len(rows),
+            "offset": 0,
+            "nextOffset": None,
+            "truncated": False,
+        }
+        demo_data = {**version.demo_data, frame_name: frame}
+        if len(json.dumps(demo_data, separators=(",", ":")).encode()) > MAX_REUSABLE_WIDGET_DEMO_BYTES:
+            raise WidgetError(
+                "The saved demo must fit within 512 KB. Remove rows or shorten values.", "demo_data_too_large"
+            )
+        version.demo_data = demo_data
+        version.save(update_fields=["demo_data"])
+        widget.updated_at = timezone.now()
+        widget.save(update_fields=["updated_at"])
+    return WidgetFrameRead(frame=frame)
+
+
 def save_reusable_widget_version(
     *,
     team_id: int,

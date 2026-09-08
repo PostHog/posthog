@@ -28,6 +28,8 @@ export type ReusableWidgetLogicProps = {
 }
 
 export interface reusableWidgetLogicValues {
+    demoDataModalOpen: boolean
+    demoDataRevision: number
     artifactUnavailable: boolean
     changePrompt: string
     currentTeamId: number | null
@@ -55,6 +57,9 @@ export interface reusableWidgetLogicValues {
 }
 
 export interface reusableWidgetLogicActions {
+    openDemoDataModal: () => { value: true }
+    closeDemoDataModal: () => { value: true }
+    demoDataSaved: () => { value: true }
     selectVersion: (versionId: string | null) => { versionId: string | null }
     loadVersionHistory: (offset?: number) => { offset: number }
     loadVersionHistorySuccess: (
@@ -119,6 +124,9 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
     path((key) => ['products', 'notebooks', 'ReusableWidget', 'reusableWidgetLogic', key]),
     connect(() => ({ values: [teamLogic, ['currentTeamId']] })),
     actions({
+        openDemoDataModal: true,
+        closeDemoDataModal: true,
+        demoDataSaved: true,
         loadVersionHistory: (offset: number = 0) => ({ offset }),
         selectVersion: (versionId: string | null) => ({ versionId }),
         closeSourceModal: true,
@@ -134,6 +142,11 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
         updateStarted: (operation: 'improve' | 'regenerate' = 'improve') => ({ operation }),
     }),
     reducers({
+        demoDataModalOpen: [
+            false,
+            { openDemoDataModal: () => true, closeDemoDataModal: () => false, selectVersion: () => false },
+        ],
+        demoDataRevision: [0, { demoDataSaved: (revision) => revision + 1 }],
         selectedVersionId: [
             null as string | null,
             {
@@ -175,6 +188,7 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
                 setRuntimeError: (_, { error }) => error,
                 loadReusableWidgetSuccess: () => null,
                 selectVersion: () => null,
+                demoDataSaved: () => null,
             },
         ],
         sourceError: [

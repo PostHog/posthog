@@ -235,6 +235,78 @@ class TestReusableWidgets(APIBaseTest):
         assert isinstance(rows, list)
         assert rows[0] == ["Plan 0", 0]
 
+    @parameterized.expand([("published", False), ("draft", True)])
+    def test_demo_edits_update_only_the_selected_preview(self, _name: str, edit_draft: bool) -> None:
+        self._publish()
+        self.version.refresh_from_db()
+        original_demo = self.version.demo_data
+        draft = GeneratedWidgetVersion.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            widget=self.widget,
+            canvas_source_version_id=uuid4(),
+            input_contract=self.version.input_contract,
+            demo_data=original_demo,
+            created_by=self.user,
+        )
+        self.widget.pending_version = draft
+        self.widget.save(update_fields=["pending_version"])
+        selected = draft if edit_draft else self.version
+        untouched = self.version if edit_draft else draft
+        original_source = selected.canvas_source_version_id
+        rows = [["Starter", 250], ["Growth", 900]]
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebook_widgets/{self.widget.id}/demo-data/",
+            data={"version_id": str(selected.id), "frame_name": self.input_name, "rows": rows},
+            format="json",
+        )
+        assert response.status_code == 200, response.json()
+        frame = response.json()
+        assert frame["rows"] == rows
+        assert frame["columns"] == self.version.input_contract[0]["columns"]
+        assert frame["includedRowCount"] == frame["totalRowCount"] == 2
+        assert frame["truncated"] is False
+        saved = self.client.get(
+            f"/api/projects/{self.team.id}/notebook_widgets/{self.widget.id}/frames/{self.input_name}/?version_id={selected.id}"
+        )
+        assert saved.json() == frame
+        selected.refresh_from_db()
+        untouched.refresh_from_db()
+        self.widget.refresh_from_db()
+        self.node_run.refresh_from_db()
+        assert selected.canvas_source_version_id == original_source
+        assert untouched.demo_data == original_demo
+        assert self.widget.current_version_id == self.version.id
+        assert self.widget.pending_version_id == draft.id
+        assert self.node_run.envelope["first_page"][0] == ["Plan 0", 0]
+
+    @parameterized.expand([("historical", 409), ("other_project", 404), ("invalid_row", 400), ("oversized", 400)])
+    def test_demo_edits_reject_invalid_targets_and_rows(self, scenario: str, expected_status: int) -> None:
+        self._publish()
+        self.version.refresh_from_db()
+        original_demo = self.version.demo_data
+        target_id = self.version.id
+        if scenario == "historical":
+            older = GeneratedWidgetVersion.objects.for_team(self.team.id).create(
+                team_id=self.team.id, widget=self.widget, canvas_source_version_id=uuid4()
+            )
+            target_id = older.id
+        elif scenario == "other_project":
+            other_team = Team.objects.create(organization=self.organization)
+            GeneratedWidget.objects.for_team(self.team.id).filter(id=self.widget.id).update(team_id=other_team.id)
+        rows: list[list[object]] = [["Starter", 250]]
+        if scenario == "invalid_row":
+            rows = [["Missing revenue"]]
+        elif scenario == "oversized":
+            rows = [["x" * (512 * 1_024), 250]]
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebook_widgets/{self.widget.id}/demo-data/",
+            data={"version_id": str(target_id), "frame_name": self.input_name, "rows": rows},
+            format="json",
+        )
+        assert response.status_code == expected_status, response.json()
+        self.version.refresh_from_db()
+        assert self.version.demo_data == original_demo
+
     def test_catalog_lists_only_published_widgets_for_the_team(self) -> None:
         assert list_reusable_widgets(team_id=self.team.id).count == 0
         assert reusable_widget_catalog_context(team_id=self.team.id, user=self.user) == ""
