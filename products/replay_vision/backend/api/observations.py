@@ -580,15 +580,16 @@ class ReplayObservationFilter(django_filters.FilterSet):
     date_from = django_filters.CharFilter(
         method="_filter_date_from",
         help_text=(
-            "Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; "
-            "values without an explicit offset are interpreted in the project's timezone."
+            "Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, "
+            "or `now`; values without an explicit offset are interpreted in the project's timezone."
         ),
     )
     date_to = django_filters.CharFilter(
         method="_filter_date_to",
         help_text=(
-            "Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; "
-            "date-only values include the whole day, interpreted in the project's timezone."
+            "Only observations created at or before this time. Accepts ISO 8601, a relative date like `-1d`, "
+            "or `now` for the current time; omit it to query through the current time. Date-only values "
+            "include the whole day, interpreted in the project's timezone."
         ),
     )
     labeled = django_filters.BooleanFilter(
@@ -1117,15 +1118,16 @@ class ObservationSearchQuerySerializer(serializers.Serializer):
     date_from = serializers.CharField(
         required=False,
         help_text=(
-            "Only observations analyzed at or after this time. Accepts ISO 8601 or a relative date like `-7d`; "
-            "values without an explicit offset are interpreted in the project's timezone."
+            "Only observations analyzed at or after this time. Accepts ISO 8601, a relative date like `-7d`, "
+            "or `now`; values without an explicit offset are interpreted in the project's timezone."
         ),
     )
     date_to = serializers.CharField(
         required=False,
         help_text=(
-            "Only observations analyzed at or before this time. Accepts ISO 8601 or a relative date like `-1d`; "
-            "date-only values include the whole day, interpreted in the project's timezone."
+            "Only observations analyzed at or before this time. Accepts ISO 8601, a relative date like `-1d`, "
+            "or `now` for the current time; omit it to query through the current time. Date-only values "
+            "include the whole day, interpreted in the project's timezone."
         ),
     )
     limit = serializers.IntegerField(
