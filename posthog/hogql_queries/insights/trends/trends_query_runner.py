@@ -822,6 +822,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 now=datetime.now(),
                 compare_to=self.query.compareFilter.compare_to,
                 exact_timerange=self.exact_timerange,
+                full_comparison_period=True,
             )
         return QueryPreviousPeriodDateRange(
             date_range=self.query.dateRange,
@@ -829,6 +830,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             interval=self.query.interval,
             now=datetime.now(),
             exact_timerange=self.exact_timerange,
+            full_comparison_period=True,
         )
 
     def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode]) -> str | None:

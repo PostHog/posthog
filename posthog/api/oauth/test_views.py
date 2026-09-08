@@ -272,15 +272,31 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.json()["error"], "invalid_request")
         self.assertEqual(response.json()["error_description"], f"Duplicate {param} parameter.")
 
-    def test_authorize_invalid_client_id(self):
+    @parameterized.expand(
+        [
+            ("self_hosted", None, None),
+            ("us_cloud", "US", "https://eu.posthog.com"),
+            ("eu_cloud", "EU", "https://us.posthog.com"),
+        ]
+    )
+    def test_authorize_invalid_client_id(self, _name, cloud_deployment, other_region_host):
         url = self.base_authorization_url
 
-        url_without_client_id = self.replace_param_in_url(url, "client_id", "invalid_id")
+        url_with_unknown_client_id = self.replace_param_in_url(url, "client_id", "invalid_id")
 
-        response = self.client.get(url_without_client_id)
+        with override_settings(CLOUD_DEPLOYMENT=cloud_deployment):
+            response = self.client.get(url_with_unknown_client_id)
+
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_request")
-        self.assertEqual(response.json()["error_description"], "Invalid client_id parameter value.")
+        description = response.json()["error_description"]
+        if other_region_host is None:
+            self.assertNotIn("region", description)
+        else:
+            # An app created in the other region is the case oauthlib's flat "Invalid client_id
+            # parameter value." hides, so the description has to name both regions.
+            self.assertIn(f"in the {cloud_deployment} region", description)
+            self.assertIn(other_region_host, description)
 
     def test_authorize_missing_redirect_uri(self):
         # According to the spec, if the client has a single redirect URI, the authorization server does not require an
