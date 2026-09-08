@@ -48,6 +48,8 @@ For supported string, array, and map arguments, `empty(x)` returns true when the
 
 For ordinary `GROUP BY`, an expression that matches a selected expression uses that output's ordinal. This keeps property paths, date conversions, and other bound expressions identical for Trino's grouping checks. An alias for an integer constant uses the selected expression's position; the constant's value does not become an ordinal. Explicit source ordinals remain unchanged. Alias references inside larger expressions expand to their expressions, not ordinals. Complex grouping modes retain their expressions. These rewrites apply to both pure and Django-expanded compilation.
 
+A top-level `ORDER BY` reference to a selected alias also uses that output's ordinal. This avoids repeating bound parameters from the selected expression and keeps grouped queries valid. Ordering direction and explicit source ordinals remain unchanged; aliases inside larger sort expressions still expand normally.
+
 ## Why some shared integration is necessary
 
 The backend owns its function mappings, structural rewrites, validation, and table rendering. These shared extension points let it reuse the existing compiler without duplicating its semantic pipeline:
