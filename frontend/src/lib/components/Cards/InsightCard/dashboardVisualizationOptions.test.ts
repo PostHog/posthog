@@ -29,9 +29,7 @@ function displayOptionsElement(items: LemonMenuItems): JSX.Element {
 }
 
 function chartTypeElement(items: LemonMenuItems): JSX.Element {
-    const section = items.find(
-        (item): item is LemonMenuSection => !!item && 'title' in item && item.title === 'Chart type'
-    )
+    const section = items.find((item): item is LemonMenuSection => !!item && 'items' in item && item.key !== 'display')
     expect(section).not.toBeUndefined()
 
     const item = section?.items[0]
@@ -82,8 +80,12 @@ describe('dashboardVisualizationOptions', () => {
         persistDisplayOptions: jest.fn(),
     } as const
 
-    function renderProductAnalyticsChartPicker(query: InsightVizNode): {
+    function renderProductAnalyticsChartPicker(
+        query: InsightVizNode,
+        savingDisplayOptions = false
+    ): {
         container: HTMLElement
+        items: LemonMenuItems
         vizDataLogic: ReturnType<typeof insightVizDataLogic.build>
     } {
         initKeaTests()
@@ -98,7 +100,9 @@ describe('dashboardVisualizationOptions', () => {
         vizDataLogic.mount()
         vizDataLogic.actions.updateQuerySource(query.source)
 
-        const { result } = renderHook(() => useDashboardVisualizationOptions({ query, insightData: {}, persistence }))
+        const { result } = renderHook(() =>
+            useDashboardVisualizationOptions({ query, insightData: {}, persistence, savingDisplayOptions })
+        )
         const { container } = render(
             createElement(
                 Provider,
@@ -111,7 +115,7 @@ describe('dashboardVisualizationOptions', () => {
             )
         )
 
-        return { container, vizDataLogic }
+        return { container, items: result.current, vizDataLogic }
     }
 
     afterEach(() => {
@@ -177,21 +181,16 @@ describe('dashboardVisualizationOptions', () => {
         })
 
         it('shows when product analytics display changes are being saved', () => {
-            const { result } = renderHook(() =>
-                useDashboardVisualizationOptions({
-                    query: trendsQuery,
-                    insightData: {},
-                    persistence,
-                    savingDisplayOptions: true,
-                })
-            )
-            const section = result.current.find(
+            const { container, items } = renderProductAnalyticsChartPicker(trendsQuery, true)
+            const section = items.find(
                 (item): item is LemonMenuSection => !!item && 'title' in item && item.title !== undefined
             )
 
             render(createElement('div', null, section?.title))
 
             expect(screen.getByRole('status')).toHaveTextContent('Saving')
+            expect(container.querySelector('[data-attr="chart-filter"]')).toHaveAttribute('aria-disabled', 'true')
+            expect(container.querySelector('[inert]')).toBeNull()
         })
 
         it.each([

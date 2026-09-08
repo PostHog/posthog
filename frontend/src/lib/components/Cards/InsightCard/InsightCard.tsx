@@ -462,7 +462,7 @@ function InsightCardInternal(
                         ribbonColor={ribbonColor}
                         dashboardId={dashboardId}
                         persistDisplayOptions={canPersistDisplayOptions ? persistDisplayOptions : undefined}
-                        refreshAfterDisplayOptionsChange={refreshAfterDisplayOptionsChange}
+                        refreshAfterDisplayOptionsChange={handleRefreshAfterDisplayOptionsChange}
                         updateColor={updateColor}
                         toggleShowDescription={toggleShowDescription}
                         removeFromDashboard={removeFromDashboard}

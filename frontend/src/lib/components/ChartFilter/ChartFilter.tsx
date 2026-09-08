@@ -22,7 +22,13 @@ function ChartFilterOptionLabel(props: { label: string; description?: string }):
     )
 }
 
-export function ChartFilter({ fullWidth = false }: { fullWidth?: boolean }): JSX.Element {
+export function ChartFilter({
+    fullWidth = false,
+    disabledReason,
+}: {
+    fullWidth?: boolean
+    disabledReason?: string
+}): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { display } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
@@ -248,7 +254,7 @@ export function ChartFilter({ fullWidth = false }: { fullWidth?: boolean }): JSX
             options={options}
             size="small"
             fullWidth={fullWidth}
-            disabledReason={editingDisabledReason}
+            disabledReason={editingDisabledReason ?? disabledReason}
         />
     )
 }

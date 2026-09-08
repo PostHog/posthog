@@ -49,9 +49,11 @@ const OPTIONS: LemonSelectOptions<ChartDisplayType> = [
 
 export function RetentionChartPicker({
     fullWidth = false,
+    disabledReason,
     onSelect,
 }: {
     fullWidth?: boolean
+    disabledReason?: string
     onSelect?: (display: ChartDisplayType) => void
 }): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
@@ -74,7 +76,7 @@ export function RetentionChartPicker({
             options={OPTIONS}
             size="small"
             fullWidth={fullWidth}
-            disabledReason={editingDisabledReason}
+            disabledReason={editingDisabledReason ?? disabledReason}
         />
     )
 }

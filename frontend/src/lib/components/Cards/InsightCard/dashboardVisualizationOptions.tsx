@@ -44,7 +44,7 @@ function productAnalyticsChartPicker(query: Node | null, canPersist: boolean): P
     return null
 }
 
-function DashboardRetentionChartPicker(): JSX.Element {
+function DashboardRetentionChartPicker({ disabledReason }: { disabledReason?: string }): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { retentionFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
@@ -62,7 +62,7 @@ function DashboardRetentionChartPicker(): JSX.Element {
         [retentionFilter?.dashboardDisplay, updateInsightFilter]
     )
 
-    return <RetentionChartPicker fullWidth onSelect={selectChart} />
+    return <RetentionChartPicker fullWidth disabledReason={disabledReason} onSelect={selectChart} />
 }
 
 export function sqlQueryForVisualizationPicker(query: Node | null, canPersist: boolean): DataVisualizationNode | null {
@@ -124,19 +124,13 @@ export function useDashboardVisualizationOptions({
     insightChartPickerPropsRef.current = { insightChartPicker, savingDisplayOptions }
     const renderInsightChartPicker = useCallback((): JSX.Element => {
         const props = insightChartPickerPropsRef.current
-        const inertProps = props.savingDisplayOptions ? { inert: '' } : {}
+        const disabledReason = props.savingDisplayOptions ? 'Saving…' : undefined
         return (
-            <div
-                {...inertProps}
-                className={
-                    props.savingDisplayOptions ? 'w-full px-2 pb-2 pointer-events-none opacity-50' : 'w-full px-2 pb-2'
-                }
-                aria-disabled={props.savingDisplayOptions}
-            >
+            <div className="w-full px-2 pb-2">
                 {props.insightChartPicker === 'retention' ? (
-                    <DashboardRetentionChartPicker />
+                    <DashboardRetentionChartPicker disabledReason={disabledReason} />
                 ) : (
-                    <ChartFilter fullWidth />
+                    <ChartFilter fullWidth disabledReason={disabledReason} />
                 )}
             </div>
         )

@@ -9,6 +9,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { delay } from 'lib/utils/async'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -745,6 +746,38 @@ describe('insightDataLogic', () => {
 
             releaseSecondPatch()
             await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('keeps the optimistic query when a save times out', async () => {
+            jest.useFakeTimers()
+            const warningToast = jest.spyOn(lemonToast, 'warning').mockReturnValue('toast-id')
+            const updateSpy = jest.spyOn(insightsApi, 'update').mockImplementationOnce(
+                async (_id: number, _update: Record<string, any>, options?: { signal?: AbortSignal }): Promise<never> =>
+                    await new Promise((_, reject) => {
+                        options?.signal?.addEventListener('abort', () => reject(new Error('Request aborted')))
+                    })
+            )
+
+            try {
+                logic.actions.setQuery(updatedQuery)
+                logic.actions.persistDisplayOptions(updatedQuery)
+                await jest.advanceTimersByTimeAsync(700)
+                expect(updateSpy).toHaveBeenCalledTimes(1)
+
+                await jest.advanceTimersByTimeAsync(15_000)
+                await jest.advanceTimersByTimeAsync(0)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.query).toEqual(updatedQuery)
+                expect(logic.values.savingDisplayOptions).toBe(false)
+                expect(warningToast).toHaveBeenCalledWith(
+                    "Couldn't confirm whether the insight was updated. Refresh the dashboard to check."
+                )
+            } finally {
+                warningToast.mockRestore()
+                updateSpy.mockRestore()
+                jest.useRealTimers()
+            }
         })
 
         it('lets the latest save proceed when the previous request hangs', async () => {

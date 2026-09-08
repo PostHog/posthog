@@ -19,7 +19,7 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { withTimeout } from 'lib/utils/async'
+import { PromiseTimeoutError, withTimeout } from 'lib/utils/async'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -847,6 +847,13 @@ export const insightDataLogic = kea<insightDataLogicType>([
             } catch (e) {
                 // A breakpoint means a newer save superseded this one, and that save owns the state.
                 if (!isBreakpoint(e as Error) && saveId === cache.displayOptionsSaveId) {
+                    if (e instanceof PromiseTimeoutError) {
+                        actions.persistDisplayOptionsSettled()
+                        lemonToast.warning(
+                            "Couldn't confirm whether the insight was updated. Refresh the dashboard to check."
+                        )
+                        return
+                    }
                     actions.syncQueryFromProps(values.savedInsight.query ?? null)
                     actions.persistDisplayOptionsSettled()
                     lemonToast.error('Failed to update insight')
