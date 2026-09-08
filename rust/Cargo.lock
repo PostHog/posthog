@@ -2921,6 +2921,7 @@ dependencies = [
 name = "common-kafka-consumer"
 version = "0.1.0"
 dependencies = [
+ "metrics",
  "rdkafka",
 ]
 
@@ -8987,11 +8988,14 @@ dependencies = [
  "reqwest 0.12.28",
  "rmcp",
  "rust_decimal",
+ "rustls 0.23.37",
+ "rustls-native-certs 0.8.3",
  "schemars 1.2.1",
  "serde",
  "serde_json",
  "tokio",
  "tokio-postgres",
+ "tokio-postgres-rustls",
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
@@ -9019,6 +9023,7 @@ dependencies = [
  "regex",
  "rust_decimal",
  "rustls 0.23.37",
+ "rustls-native-certs 0.8.3",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -9029,7 +9034,6 @@ dependencies = [
  "toml 0.8.23",
  "tracing",
  "tracing-subscriber",
- "webpki-roots 1.0.6",
 ]
 
 [[package]]
@@ -9297,7 +9301,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.4.7"
+version = "0.5.0"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
@@ -9553,6 +9557,7 @@ name = "property-defs-rs"
 version = "0.1.0"
 dependencies = [
  "ahash 0.8.12",
+ "aho-corasick",
  "anyhow",
  "axum 0.7.9",
  "chrono",
@@ -13882,12 +13887,15 @@ dependencies = [
  "common-kafka",
  "common-liveness",
  "envconfig",
+ "futures",
  "health",
  "metrics",
  "metrics-exporter-prometheus",
  "moka",
  "rdkafka",
+ "redis",
  "reqwest 0.12.28",
+ "rustls 0.23.37",
  "serde",
  "serde_json",
  "sqlx",

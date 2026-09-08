@@ -25,6 +25,7 @@ PostHog is the primary store for team-shared skills — always use the PostHog M
 | `posthog:skill-file-delete` | Remove one bundled file from a skill                       |
 | `posthog:skill-file-rename` | Rename one bundled file (move without rewriting content)   |
 | `posthog:skill-duplicate`   | Duplicate an existing skill under a new name               |
+| `posthog:skill-rename`      | Rename a skill, keeping its versions, files, and owners    |
 | `posthog:skill-archive`     | Archive all versions of a skill by name (cannot be undone) |
 
 Skills use progressive disclosure: discover by description, fetch the body only when relevant, and pull individual files on demand. Do not fetch every file eagerly.
@@ -232,7 +233,7 @@ description: >-
   Use when the user asks to list, run, or manage PostHog skills,
   or references /phs, "ph skills", or "posthog skills".
 user-invocable: true
-allowed-tools: mcp__posthog__skill-list, mcp__posthog__skill-get, mcp__posthog__skill-create, mcp__posthog__skill-update, mcp__posthog__skill-file-get, mcp__posthog__skill-file-create, mcp__posthog__skill-file-delete, mcp__posthog__skill-file-rename, mcp__posthog__skill-duplicate
+allowed-tools: mcp__posthog__skill-list, mcp__posthog__skill-get, mcp__posthog__skill-create, mcp__posthog__skill-update, mcp__posthog__skill-file-get, mcp__posthog__skill-file-create, mcp__posthog__skill-file-delete, mcp__posthog__skill-file-rename, mcp__posthog__skill-duplicate, mcp__posthog__skill-rename
 ---
 
 # PostHog Skills Store

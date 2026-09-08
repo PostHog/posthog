@@ -1875,7 +1875,24 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     return 0
                 }
                 const renderability = seekRenderability(firstWindowSegment.startTimestamp)
-                return renderability.kind === 'clampToFullSnapshot' ? Math.max(0, renderability.timestamp - start) : 0
+                if (renderability.kind !== 'clampToFullSnapshot') {
+                    return 0
+                }
+                // A backdated `sessionIdle` Custom event pulls `start` back over the idle span, and the SDK
+                // drops everything else while idle, so a Custom-only span is empty rather than lost.
+                // Anything else before the recovery point means the FullSnapshot was dropped.
+                const recoveryTimestamp = renderability.timestamp
+                for (const events of Object.values(sessionPlayerData.snapshotsByWindowId)) {
+                    for (const event of events) {
+                        if (event.timestamp >= recoveryTimestamp) {
+                            break
+                        }
+                        if (event.type !== EventType.Custom) {
+                            return recoveryTimestamp - start
+                        }
+                    }
+                }
+                return 0
             },
         ],
 

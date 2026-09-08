@@ -2262,7 +2262,7 @@ describe("CodexAppServerAgent", () => {
     stub.emit("error", { willRetry: false, error: { message: "boom" } });
 
     await expect(done).rejects.toThrow(
-      "The agent stopped before completing this request. Please try again.",
+      "The agent stopped before completing this request: boom",
     );
   });
 
@@ -2510,6 +2510,183 @@ describe("CodexAppServerAgent", () => {
     vi.useRealTimers();
   });
 
+  it("keeps the retried cause when the retries run out", async () => {
+    vi.useFakeTimers();
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/started", { turn: { id: "turn_1" } });
+    // A retried error carries the only text; turn/completed has none of its own.
+    stub.emit("error", {
+      turnId: "turn_1",
+      willRetry: true,
+      error: { message: "API Error: 503 Service Unavailable" },
+    });
+    stub.emit("turn/completed", {
+      turn: { id: "turn_1", status: "failed" },
+    });
+
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(done).resolves.toMatchObject({ stopReason: "refusal" });
+    expect(sessionUpdates).toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "The agent stopped before completing this request: API Error: 503 Service Unavailable",
+        },
+      },
+    });
+    vi.useRealTimers();
+  });
+
+  it("surfaces the completion's own fatal cause when it is the only one", async () => {
+    vi.useFakeTimers();
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/started", { turn: { id: "turn_1" } });
+    // codex reports the cause only on the completion — no error notification arrived.
+    stub.emit("turn/completed", {
+      turn: {
+        id: "turn_1",
+        status: "failed",
+        error: { message: "API Error: 502 Bad Gateway" },
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(done).resolves.toMatchObject({ stopReason: "refusal" });
+    expect(sessionUpdates).toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "The agent stopped before completing this request: API Error: 502 Bad Gateway",
+        },
+      },
+    });
+    vi.useRealTimers();
+  });
+
+  it("prefers the completion's terminal cause over a stale retry message", async () => {
+    vi.useFakeTimers();
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/started", { turn: { id: "turn_1" } });
+    // A retry reports one cause; the turn then dies for a different terminal reason.
+    stub.emit("error", {
+      turnId: "turn_1",
+      willRetry: true,
+      error: { message: "API Error: 503 Service Unavailable" },
+    });
+    stub.emit("turn/completed", {
+      turn: {
+        id: "turn_1",
+        status: "failed",
+        error: { message: "API Error: 500 Internal Server Error" },
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(done).resolves.toMatchObject({ stopReason: "refusal" });
+    expect(sessionUpdates).toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "The agent stopped before completing this request: API Error: 500 Internal Server Error",
+        },
+      },
+    });
+    vi.useRealTimers();
+  });
+
+  it("does not attribute a pre-steer retry cause to a steered turn", async () => {
+    vi.useFakeTimers();
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/started", { turn: { id: "turn_1" } });
+    // turn_1 hits a transient provider error that codex will retry.
+    stub.emit("error", {
+      turnId: "turn_1",
+      willRetry: true,
+      error: { message: "API Error: 503 Service Unavailable" },
+    });
+    // A steer rotates the active turn id to turn_2 (the continuation turn).
+    stub.emit("turn/started", { turn: { id: "turn_2" } });
+    // turn_2 then fails through a bare completion with no cause of its own.
+    stub.emit("turn/completed", {
+      turn: { id: "turn_2", status: "failed" },
+    });
+
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(done).resolves.toMatchObject({ stopReason: "refusal" });
+    // turn_1's transient cause must not be reported as turn_2's failure.
+    expect(sessionUpdates).toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "The agent stopped before completing this request. Please try again.",
+        },
+      },
+    });
+    expect(sessionUpdates).not.toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "The agent stopped before completing this request: API Error: 503 Service Unavailable",
+        },
+      },
+    });
+    vi.useRealTimers();
+  });
+
   it("does not let an ID-less failed completion refuse a later prompt", async () => {
     vi.useFakeTimers();
     const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
@@ -2529,7 +2706,7 @@ describe("CodexAppServerAgent", () => {
     });
     stub.emit("error", { willRetry: false, error: { message: "boom" } });
     await expect(first).rejects.toThrow(
-      "The agent stopped before completing this request. Please try again.",
+      "The agent stopped before completing this request: boom",
     );
 
     const second = agent.prompt({
@@ -2681,7 +2858,7 @@ describe("CodexAppServerAgent", () => {
     stub.emit("error", { willRetry: false, error: { message: "boom" } });
     stub.emit("turn/completed", { turn: { status: "failed" } });
     await expect(done).rejects.toThrow(
-      "The agent stopped before completing this request. Please try again.",
+      "The agent stopped before completing this request: boom",
     );
 
     // Structured output is gated on a clean end_turn: a failed turn records nothing.
@@ -3822,7 +3999,7 @@ describe("CodexAppServerAgent", () => {
     });
     stub.emit("error", { willRetry: false, error: { message: "boom" } });
     await expect(done).rejects.toThrow(
-      "The agent stopped before completing this request. Please try again.",
+      "The agent stopped before completing this request: boom",
     );
 
     expect(

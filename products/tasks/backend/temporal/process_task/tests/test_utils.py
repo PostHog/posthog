@@ -349,21 +349,27 @@ class TestGetSandboxMcpConfigs(TestCase):
 
     @parameterized.expand(
         [
-            (None, "posthog-code"),
-            ("", "posthog-code"),
-            ("posthog-code", "posthog-code"),
-            ("some-other-origin", "posthog-code"),
-            ("slack", "slack"),
-            ("posthog_ai", "posthog_ai"),
+            (None, False, "posthog-code"),
+            ("", False, "posthog-code"),
+            ("posthog-code", False, "posthog-code"),
+            ("some-other-origin", False, "posthog-code"),
+            ("slack", False, "slack"),
+            ("workflow", True, "slack"),
+            ("posthog_ai", False, "posthog_ai"),
         ]
     )
-    def test_consumer_header_reflects_interaction_origin(
-        self, interaction_origin: str | None, expected_consumer: str
+    def test_consumer_header_reflects_reply_context(
+        self, interaction_origin: str | None, slack_reply_context: bool, expected_consumer: str
     ) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
             mock_settings.SITE_URL = "https://app.posthog.com"
-            configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID, interaction_origin=interaction_origin)
+            configs = get_sandbox_ph_mcp_configs(
+                self.TOKEN,
+                self.PROJECT_ID,
+                interaction_origin=interaction_origin,
+                slack_reply_context=slack_reply_context,
+            )
             assert configs == [
                 McpServerConfig(
                     type="http",
@@ -510,22 +516,32 @@ class TestFetchUserMcpServerConfigs(TestCase):
 
     @parameterized.expand(
         [
-            ("slack", "slack"),
-            ("posthog_ai", "posthog_ai"),
-            ("posthog_code", "posthog-code"),
-            (None, "posthog-code"),
+            ("slack", False, "slack"),
+            ("workflow", True, "slack"),
+            ("posthog_ai", False, "posthog_ai"),
+            ("posthog_code", False, "posthog-code"),
+            (None, False, "posthog-code"),
         ]
     )
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)
-    def test_consumer_header_reflects_interaction_origin(
-        self, interaction_origin: str | None, expected_consumer: str, mock_facade, mock_api_url
+    def test_consumer_header_reflects_reply_context(
+        self,
+        interaction_origin: str | None,
+        slack_reply_context: bool,
+        expected_consumer: str,
+        mock_facade,
+        mock_api_url,
     ) -> None:
         mock_api_url.return_value = self.API_BASE
         mock_facade.return_value = [self._make_installation()]
 
         configs = get_user_mcp_server_configs(
-            self.TOKEN, self.TEAM_ID, self.USER_ID, interaction_origin=interaction_origin
+            self.TOKEN,
+            self.TEAM_ID,
+            self.USER_ID,
+            interaction_origin=interaction_origin,
+            slack_reply_context=slack_reply_context,
         )
 
         assert configs[0].headers == self._expected_user_headers(consumer=expected_consumer)

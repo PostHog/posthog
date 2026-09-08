@@ -2,7 +2,7 @@ import re
 from contextlib import nullcontext
 from datetime import UTC, datetime
 from itertools import product
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
 from freezegun import freeze_time
@@ -24,9 +24,10 @@ from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized, parameterized_class
+from rest_framework.exceptions import ValidationError
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from posthog.schema import PersonsOnEventsMode, RecordingsQuery
+from posthog.schema import ActionsNode, EventsNode, PersonsOnEventsMode, RecordingsQuery
 
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
@@ -834,6 +835,84 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             },
             [],
         )
+
+    @parameterized.expand(
+        [
+            ("events without a type", "events", None, EventsNode, "event_entities"),
+            ("actions without a type", "actions", None, ActionsNode, "action_entities"),
+            ("events with an unaccepted type", "events", "event", EventsNode, "event_entities"),
+            ("actions with an unaccepted type", "actions", "action", ActionsNode, "action_entities"),
+        ]
+    )
+    def test_entity_dicts_fall_back_to_their_source_list_type(
+        self,
+        _name: str,
+        source_list: str,
+        raw_type: str | None,
+        expected_node: type,
+        entities_property: str,
+    ) -> None:
+        # API callers can omit the entity type or send one Entity rejects; both used to 500.
+        entity_id = (
+            Action.objects.create(team=self.team, name="untyped action").id if source_list == "actions" else "$pageview"
+        )
+        raw_entity: dict[str, Any] = {"id": entity_id}
+        if raw_type is not None:
+            raw_entity["type"] = raw_type
+
+        positive = ReplayFiltersEventsSubQuery(team=self.team, query=RecordingsQuery(**{source_list: [raw_entity]}))
+        assert isinstance(getattr(positive, entities_property)[0], expected_node)
+
+        negated = ReplayFiltersEventsSubQuery(
+            team=self.team, query=RecordingsQuery(**{source_list: [{**raw_entity, "negation": True}]})
+        )
+        assert isinstance(negated.negated_entities[0], expected_node)
+
+    @parameterized.expand(
+        [
+            ("an action in another project", True),
+            ("an action id that does not exist", False),
+        ]
+    )
+    def test_action_filter_outside_the_project_is_rejected(self, _name: str, action_exists: bool) -> None:
+        # The lookup used to be unscoped, so a foreign action's steps compiled into the caller's
+        # filter and an unknown id escaped as an uncaught Action.DoesNotExist.
+        if action_exists:
+            other_team = Team.objects.create(organization=self.organization)
+            action_id = Action.objects.create(team=other_team, name="other project action").id
+        else:
+            action_id = 0
+
+        sub_query = ReplayFiltersEventsSubQuery(
+            team=self.team, query=RecordingsQuery(actions=[{"id": action_id, "type": "actions"}])
+        )
+        with self.assertRaises(ValidationError):
+            sub_query.get_query_for_event_id_matching()
+
+    @parameterized.expand(
+        [
+            ("an event name in the actions list", "actions", "$pageview"),
+            ("a number in the events list", "events", 7),
+            ("no id at all", "actions", None),
+        ]
+    )
+    def test_entity_dict_the_node_cannot_hold_is_rejected(self, _name: str, source_list: str, entity_id: Any) -> None:
+        # ActionsNode.id is an int and EventsNode.event is a str, so the wrong id type used to
+        # raise a pydantic ValidationError here and escape as a 500.
+        sub_query = ReplayFiltersEventsSubQuery(
+            team=self.team, query=RecordingsQuery(**{source_list: [{"id": entity_id}]})
+        )
+        with self.assertRaises(ValidationError):
+            sub_query.get_query_for_event_id_matching()
+
+    def test_action_filter_in_the_same_project_is_accepted(self) -> None:
+        sibling_environment = Team.objects.create(organization=self.organization, project=self.team.project)
+        action = Action.objects.create(team=sibling_environment, name="sibling environment action")
+
+        sub_query = ReplayFiltersEventsSubQuery(
+            team=self.team, query=RecordingsQuery(actions=[{"id": action.id, "type": "actions"}])
+        )
+        assert sub_query.get_query_for_event_id_matching() is not None
 
     @parameterized.expand([("AND",), ("OR",)])
     def test_negated_event_filter_excludes_sessions_containing_event(self, operand: str) -> None:

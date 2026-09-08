@@ -75,6 +75,15 @@ def run_stream_presence_gated(state: dict | None) -> bool:
     return bool((state or {}).get("stream_presence_gated", False))
 
 
+def is_task_run_stream_thin_tail(origin_product: str) -> bool:
+    return origin_product in settings.TASK_RUN_STREAM_THIN_TAIL_ORIGINS
+
+
+def run_stream_thin_tail(state: dict | None) -> bool:
+    """Pinned onto TaskRun.state at creation so writers and readers agree for the run's life; absent means full tail."""
+    return bool((state or {}).get("stream_thin_tail", False))
+
+
 def is_dev_stack_image_bake_enabled() -> bool:
     """Gates the nightly prebaked dev-stack image bake (a paid Modal VM run per tick).
 

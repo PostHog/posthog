@@ -3,10 +3,11 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.test import TestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.endpoints.backend.models import Endpoint
 from products.endpoints.backend.presentation.throttles import (
     EndpointBurstThrottle,
@@ -137,6 +138,56 @@ class TestCheckAndCacheMaterializationStatus(APIBaseTest):
         result = _check_and_cache_materialization_status(self.team.id, f"endpoint_{status}")
         self.assertEqual(result, expected_ready)
         self.assertEqual(is_endpoint_materialization_ready(self.team.id, f"endpoint_{status}"), expected_ready)
+
+    @parameterized.expand(
+        [
+            (DataModelingJob.Status.COMPLETED, DataModelingJob.Engine.CLICKHOUSE, True),
+            (DataModelingJob.Status.FAILED, DataModelingJob.Engine.CLICKHOUSE, False),
+            (DataModelingJob.Status.COMPLETED, DataModelingJob.Engine.DUCKGRES, False),
+        ]
+    )
+    def test_readiness_derives_from_newest_clickhouse_job(self, job_status, engine, expected_ready):
+        from products.endpoints.backend.models import EndpointVersion
+
+        name = f"job_{job_status}_{engine}".lower()
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name=f"query_{name}",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            is_materialized=True,
+            status=None,
+            origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+        )
+        saved_query.table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name=f"table_{name}",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern=f"s3://test-bucket/table_{name}",
+        )
+        saved_query.save()
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=job_status,
+            engine=engine,
+            last_run_at=timezone.now(),
+        )
+        endpoint = Endpoint.objects.create(
+            name=f"endpoint_{name}",
+            team=self.team,
+            created_by=self.user,
+            is_active=True,
+            current_version=1,
+        )
+        EndpointVersion.objects.create(
+            endpoint=endpoint,
+            version=1,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+            saved_query=saved_query,
+        )
+
+        self.assertEqual(_check_and_cache_materialization_status(self.team.id, f"endpoint_{name}"), expected_ready)
 
     def _create_endpoint_with_materialized_v1_and_inline_v2(self, name="versioned_endpoint"):
         from products.endpoints.backend.models import EndpointVersion

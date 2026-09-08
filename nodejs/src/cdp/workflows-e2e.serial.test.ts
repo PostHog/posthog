@@ -2497,7 +2497,7 @@ describe('Workflows E2E (postgres-v2)', () => {
             expect(runMetricNames()).not.toContain('failed')
         })
 
-        it('completes the run without a failure when the task limit replies 409', async () => {
+        it('fails the run when the task limit replies 409', async () => {
             mockFetch.mockResolvedValue({
                 status: 409,
                 headers: { 'Content-Type': 'application/json' },
@@ -2509,9 +2509,8 @@ describe('Workflows E2E (postgres-v2)', () => {
             await triggerWorkflow(globals)
 
             await waitForExpect(() => {
-                expect(runMetricNames()).toContain('succeeded')
+                expect(runMetricNames()).toContain('failed')
             }, 10000)
-            expect(runMetricNames()).not.toContain('failed')
             // 409 is terminal for the step: one request, no retry burning the engine's budget.
             expect(mockFetch).toHaveBeenCalledTimes(1)
         })

@@ -55,6 +55,21 @@ describe("ContextUsageIndicator", () => {
     expect(container.querySelector("button")).toBeNull();
   });
 
+  it("shows the cost on its own when usage is null", () => {
+    enableCost(true);
+    const { container } = render(
+      <Theme>
+        <ContextUsageIndicator
+          usage={null}
+          taskId="task-1"
+          originProduct="user_created"
+        />
+      </Theme>,
+    );
+    expect(screen.getByText("$0.42")).toBeInTheDocument();
+    expect(container.querySelector("button")).toBeNull();
+  });
+
   // The ring carries no text, so the accessible name is the only way the
   // numbers reach a reader — including the "/0 · 0%" an unknown window must
   // never claim, and the cost while it has no text of its own.

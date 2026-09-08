@@ -12,6 +12,9 @@ describe("getGatewayBaseUrl", () => {
     expect(getGatewayBaseUrl("us")).toBe("https://gateway.us.posthog.com");
     expect(getGatewayBaseUrl("eu")).toBe("https://gateway.eu.posthog.com");
     expect(getGatewayBaseUrl("dev")).toBe("http://localhost:3308");
+    expect(getGatewayBaseUrl("dev-cloud")).toBe(
+      "https://gateway.dev.posthog.dev",
+    );
   });
 });
 
@@ -25,6 +28,9 @@ describe("getLlmGatewayUrl", () => {
     );
     expect(getLlmGatewayUrl("dev")).toBe(
       `http://localhost:3308/${GATEWAY_PRODUCT}`,
+    );
+    expect(getLlmGatewayUrl("dev-cloud")).toBe(
+      `https://gateway.dev.posthog.dev/${GATEWAY_PRODUCT}`,
     );
   });
 });
@@ -54,7 +60,7 @@ describe("resolveRegion", () => {
     expect(resolveRegion()).toBe("eu");
   });
 
-  it.each(["us", "eu", "dev"] as const)(
+  it.each(["us", "eu", "dev", "dev-cloud"] as const)(
     "accepts %s from the environment",
     (region) => {
       process.env.POSTHOG_REGION = region;

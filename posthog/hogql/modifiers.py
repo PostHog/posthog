@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, overload
 
 import posthoganalytics
 
@@ -9,6 +9,7 @@ from posthog.schema_enums import (
     InlineCohortCalculation,
     MaterializationMode,
     PersonsArgMaxVersion,
+    PersonsOnEventsMode,
     PropertyGroupsMode,
     SessionsV2JoinMode,
     SessionTableVersion,
@@ -20,6 +21,18 @@ if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
 
     from posthog.models import Team, User
+
+
+@overload
+def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode) -> PersonsOnEventsMode: ...
+@overload
+def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode | None) -> PersonsOnEventsMode | None: ...
+def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode | None) -> PersonsOnEventsMode | None:
+    if persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
+        # PERSON_ID_OVERRIDE_PROPERTIES_JOINED is not implemented in legacy insights
+        # It's functionally the same as DISABLED, just slower - hence aliasing to DISABLED
+        return PersonsOnEventsMode.DISABLED
+    return persons_on_events_mode
 
 
 def create_default_modifiers_for_user(
@@ -50,7 +63,7 @@ def create_default_modifiers_for_team(
 ) -> "HogQLQueryModifiers":
     from pydantic import ValidationError  # noqa: PLC0415
 
-    from posthog.schema import CustomChannelRule, HogQLQueryModifiers  # noqa: PLC0415
+    from posthog.schema import CustomBotDefinition, CustomChannelRule, HogQLQueryModifiers  # noqa: PLC0415
 
     if modifiers is None:
         modifiers = HogQLQueryModifiers()
@@ -71,6 +84,21 @@ def create_default_modifiers_for_team(
                             setattr(modifiers, key, value)
                     except ValidationError:
                         pass
+                elif key == "customBotDefinitions":
+                    # drop the definitions that don't parse, keep the rest — one bad entry should
+                    # not take a project's whole bot list out of every query. A non-dict entry
+                    # (from a hand-edited modifiers JSON) is unparseable, so drop it too rather than
+                    # let it reach compile_definitions and crash every classification query.
+                    if isinstance(value, list):
+                        definitions = []
+                        for definition in value:
+                            if not isinstance(definition, dict):
+                                continue
+                            try:
+                                definitions.append(CustomBotDefinition(**definition))
+                            except ValidationError:
+                                pass
+                        setattr(modifiers, key, definitions)
                 else:
                     setattr(modifiers, key, value)
 

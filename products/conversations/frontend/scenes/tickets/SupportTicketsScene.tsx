@@ -17,6 +17,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { useBulkSelection } from 'lib/lemon-ui/LemonTable/useBulkSelection'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -68,7 +69,7 @@ interface SupportTicketsTableProps {
 function SupportTicketsBulkActions(): JSX.Element {
     const { selectedTicketIds, selectedTickets, editableSelectedTicketIds, bulkUpdating } =
         useValues(supportTicketsSceneLogic)
-    const { bulkUpdateStatus } = useActions(supportTicketsSceneLogic)
+    const { bulkUpdateStatus, clearSelectedTickets, loadTickets } = useActions(supportTicketsSceneLogic)
 
     const hasSelection = selectedTicketIds.length > 0
     const editableTicketIds = editableSelectedTicketIds
@@ -81,34 +82,44 @@ function SupportTicketsBulkActions(): JSX.Element {
         return acc === s ? acc : 'mixed'
     }, null)
 
+    const noEditableSelectionReason = !hasSelection
+        ? 'Select tickets first'
+        : editableTicketIds.length === 0
+          ? "You don't have edit access to any of the selected tickets"
+          : undefined
+    const restrictedSelectionTooltip =
+        hasRestrictedSelection && editableTicketIds.length > 0
+            ? `${selectedTicketIds.length - editableTicketIds.length} selected ticket(s) will be skipped because you don't have edit access to them`
+            : undefined
+
     return (
-        <LemonSelect
-            onChange={(value) => {
-                if (!value || value === currentStatus || editableTicketIds.length === 0) {
-                    return
-                }
-                bulkUpdateStatus(editableTicketIds, value as TicketStatus)
-            }}
-            value={null}
-            placeholder="Mark as"
-            loading={bulkUpdating}
-            disabledReason={
-                !hasSelection
-                    ? 'Select tickets first'
-                    : bulkUpdating
-                      ? 'Updating…'
-                      : editableTicketIds.length === 0
-                        ? "You don't have edit access to any of the selected tickets"
-                        : undefined
-            }
-            tooltip={
-                hasRestrictedSelection && editableTicketIds.length > 0
-                    ? `${selectedTicketIds.length - editableTicketIds.length} selected ticket(s) will be skipped because you don't have edit access to them`
-                    : undefined
-            }
-            options={statusOptionsWithoutAll.map((o) => ({ value: o.value, label: o.label }))}
-            size="small"
-        />
+        <>
+            <LemonSelect
+                onChange={(value) => {
+                    if (!value || value === currentStatus || editableTicketIds.length === 0) {
+                        return
+                    }
+                    bulkUpdateStatus(editableTicketIds, value as TicketStatus)
+                }}
+                value={null}
+                placeholder="Mark as"
+                loading={bulkUpdating}
+                disabledReason={bulkUpdating ? 'Updating…' : noEditableSelectionReason}
+                tooltip={restrictedSelectionTooltip}
+                options={statusOptionsWithoutAll.map((o) => ({ value: o.value, label: o.label }))}
+                size="small"
+            />
+            <BulkUpdateTagsButton
+                resource="conversations/tickets"
+                selectedIds={editableTicketIds}
+                disabledReason={noEditableSelectionReason}
+                tooltip={restrictedSelectionTooltip}
+                onSuccess={() => {
+                    clearSelectedTickets()
+                    loadTickets()
+                }}
+            />
+        </>
     )
 }
 

@@ -97,18 +97,21 @@ def _check_and_cache_materialization_status(team_id: int, endpoint_name: str, ve
     Returns True if the targeted endpoint version (current when version is None) is ready
     for materialized execution.
     """
+    from products.data_modeling.backend.facade.api import latest_saved_query_materialization_job
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.endpoints.backend.models import Endpoint, EndpointVersion
 
     try:
         endpoint = Endpoint.objects.get(team_id=team_id, name=endpoint_name, is_active=True, deleted=False)
         endpoint_version = endpoint.get_version(version)
+        saved_query = endpoint_version.saved_query
 
-        is_ready = (
-            endpoint_version.is_materialized
-            and endpoint_version.saved_query is not None
-            and endpoint_version.saved_query.status == DataWarehouseSavedQuery.Status.COMPLETED
-        )
+        is_ready = False
+        if endpoint_version.is_materialized and saved_query is not None:
+            # The v2 workflow records runs on DataModelingJob and never writes saved_query.status.
+            latest_job = latest_saved_query_materialization_job(saved_query)
+            status = latest_job.status if latest_job is not None else saved_query.status
+            is_ready = status == DataWarehouseSavedQuery.Status.COMPLETED
 
         set_endpoint_materialization_ready(team_id, endpoint_name, is_ready, version=version)
         return is_ready

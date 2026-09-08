@@ -50,10 +50,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             "kind": "HogQLQuery",
             "query": "SELECT event, distinct_id FROM events WHERE event = '$pageview' LIMIT 100",
         }
-        # Mock Temporal-related functions to avoid connection errors
-        self.delete_schedule_patcher = mock.patch(
-            "products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule"
-        )
         # The DAG node exists by scheduling time, so the v2 lookup would hit Temporal for real.
         self.v2_dag_ids_patcher = mock.patch(
             "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
@@ -63,12 +59,10 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
             return_value=True,
         )
-        self.mock_delete_schedule = self.delete_schedule_patcher.start()
         self.mock_v2_dag_ids = self.v2_dag_ids_patcher.start()
         self.tiered_schedules_patcher.start()
 
     def tearDown(self):
-        self.delete_schedule_patcher.stop()
         self.v2_dag_ids_patcher.stop()
         self.tiered_schedules_patcher.stop()
         super().tearDown()
