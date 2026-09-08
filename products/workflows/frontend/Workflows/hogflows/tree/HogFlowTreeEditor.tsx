@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
 
 import { ScrollArea, ScrollBar } from 'lib/ui/quill'
@@ -15,8 +15,21 @@ export function HogFlowTreeEditor(): JSX.Element {
     const draggedActionIdRef = useRef<string | null>(null)
     const [draggedActionId, setDraggedActionId] = useState<string | null>(null)
     const draggedStepRef = useRef<HTMLElement | null>(null)
+    const closestDropzoneRef = useRef<HTMLElement | null>(null)
+    const dragStartYRef = useRef<number | null>(null)
     const tree = useMemo(() => buildWorkflowTree(workflow), [workflow])
     const activeDropzones = !!nodeToBeAdded
+
+    const clearClosestDropzone = (): void => {
+        closestDropzoneRef.current?.removeAttribute('data-workflow-tree-dropzone-closest')
+        closestDropzoneRef.current = null
+    }
+
+    useEffect(() => {
+        if (!activeDropzones) {
+            clearClosestDropzone()
+        }
+    }, [activeDropzones])
 
     const onDragStart = (
         event: DragEvent<HTMLDivElement>,
@@ -25,6 +38,7 @@ export function HogFlowTreeEditor(): JSX.Element {
     ): void => {
         event.dataTransfer.effectAllowed = 'move'
         event.dataTransfer.setData('text/plain', actionId)
+        dragStartYRef.current = event.clientY
         const step = event.currentTarget.closest('[data-attr="workflow-tree-step"]')
         if (step instanceof HTMLElement && typeof event.dataTransfer.setDragImage === 'function') {
             if (dragPreviewElement) {
@@ -48,7 +62,66 @@ export function HogFlowTreeEditor(): JSX.Element {
         treeRef.current?.setAttribute('data-workflow-tree-dragging', 'true')
     }
 
+    const onTreeDragOver = (event: DragEvent<HTMLDivElement>): void => {
+        if (!draggedActionIdRef.current && !activeDropzones) {
+            return
+        }
+
+        event.preventDefault()
+        if (dragStartYRef.current !== null && Math.abs(event.clientY - dragStartYRef.current) < 16) {
+            clearClosestDropzone()
+            return
+        }
+
+        const candidates = Array.from(
+            treeRef.current?.querySelectorAll<HTMLElement>('[data-workflow-tree-dropzone-candidate]') ?? []
+        ).filter((candidate) => candidate.dataset.workflowTreeDropzoneDisabled !== 'true')
+        const closestDropzone = candidates.reduce<HTMLElement | null>((closest, candidate) => {
+            if (!closest) {
+                return candidate
+            }
+            const closestCenter = closest.getBoundingClientRect().top + closest.getBoundingClientRect().height / 2
+            const candidateCenter = candidate.getBoundingClientRect().top + candidate.getBoundingClientRect().height / 2
+            return Math.abs(event.clientY - candidateCenter) < Math.abs(event.clientY - closestCenter)
+                ? candidate
+                : closest
+        }, null)
+
+        if (closestDropzone !== closestDropzoneRef.current) {
+            clearClosestDropzone()
+            closestDropzone?.setAttribute('data-workflow-tree-dropzone-closest', 'true')
+            closestDropzoneRef.current = closestDropzone
+        }
+    }
+
+    const onTreeDropCapture = (event: DragEvent<HTMLDivElement>): void => {
+        const nativeEvent = event.nativeEvent as globalThis.DragEvent & { workflowTreeNearestDrop?: boolean }
+        if (nativeEvent.workflowTreeNearestDrop) {
+            return
+        }
+
+        event.preventDefault()
+        event.stopPropagation()
+        const closestDropzone = closestDropzoneRef.current
+        if (!closestDropzone) {
+            onDragEnd()
+            return
+        }
+
+        const dropEvent = new window.DragEvent('drop', {
+            bubbles: true,
+            cancelable: true,
+            clientX: event.clientX,
+            clientY: event.clientY,
+            dataTransfer: event.dataTransfer,
+        }) as globalThis.DragEvent & { workflowTreeNearestDrop?: boolean }
+        dropEvent.workflowTreeNearestDrop = true
+        closestDropzone.querySelector<HTMLElement>('[data-attr="workflow-tree-dropzone"]')?.dispatchEvent(dropEvent)
+    }
+
     const onDragEnd = (): void => {
+        clearClosestDropzone()
+        dragStartYRef.current = null
         treeRef.current?.removeAttribute('data-workflow-tree-dragging')
         draggedStepRef.current?.removeAttribute('data-workflow-tree-dragging')
         draggedStepRef.current = null
@@ -58,7 +131,12 @@ export function HogFlowTreeEditor(): JSX.Element {
 
     return (
         <ScrollArea className="min-h-0 min-w-0 flex-1 bg-background" data-quill data-attr="workflow-tree-editor">
-            <div ref={treeRef} className="group/tree mx-auto flex w-full max-w-3xl flex-col p-4">
+            <div
+                ref={treeRef}
+                className="group/tree mx-auto flex w-full max-w-3xl flex-col p-4"
+                onDragOver={onTreeDragOver}
+                onDropCapture={onTreeDropCapture}
+            >
                 {tree.nodes.map((node) => (
                     <HogFlowTreeNode
                         key={node.action.id}

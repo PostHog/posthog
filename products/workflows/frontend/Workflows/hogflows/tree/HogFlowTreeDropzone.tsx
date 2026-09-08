@@ -91,7 +91,11 @@ export function HogFlowTreeDropzone({
         }
     }
     return (
-        <div className={cn('group relative flex w-full items-center justify-center', compact ? 'h-2' : 'h-4')}>
+        <div
+            className={cn('group relative flex w-full items-center justify-center', compact ? 'h-2' : 'h-4')}
+            data-workflow-tree-dropzone-candidate
+            data-workflow-tree-dropzone-disabled={isAdjacentToDraggedAction || undefined}
+        >
             <div
                 className={cn(
                     'absolute inset-0 flex items-center justify-center',
@@ -140,9 +144,7 @@ export function HogFlowTreeDropzone({
                     'absolute -inset-y-3 inset-x-0 z-20 items-center',
                     isAdjacentToDraggedAction
                         ? 'hidden'
-                        : active
-                          ? 'flex'
-                          : 'hidden group-data-[workflow-tree-dragging=true]/tree:flex'
+                        : 'hidden group-data-[workflow-tree-dropzone-closest=true]:flex'
                 )}
                 onDragOver={handleDragOver}
                 onDragLeave={() => setHighlighted(false)}
@@ -152,17 +154,15 @@ export function HogFlowTreeDropzone({
                 <div
                     aria-hidden="true"
                     className={cn(
-                        'absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 bg-primary opacity-30 transition-opacity duration-150',
-                        highlighted ? 'opacity-100' : 'group-hover:opacity-100'
+                        'absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 bg-primary opacity-30 transition-opacity duration-150 group-data-[workflow-tree-dropzone-closest=true]:opacity-100',
+                        highlighted && 'opacity-100'
                     )}
                 />
                 <span
                     aria-hidden="true"
                     className={cn(
-                        'absolute -right-2 top-1/2 flex size-4 -translate-y-1/2 items-center justify-center rounded-full border border-primary bg-primary text-primary-foreground opacity-30 transition-[opacity,transform,box-shadow] duration-150',
-                        highlighted
-                            ? 'scale-110 opacity-100 shadow-sm'
-                            : 'group-hover:scale-110 group-hover:opacity-100 group-hover:shadow-sm'
+                        'absolute -right-2 top-1/2 flex size-4 -translate-y-1/2 items-center justify-center rounded-full border border-primary bg-primary text-primary-foreground opacity-30 transition-[opacity,transform,box-shadow] duration-150 group-data-[workflow-tree-dropzone-closest=true]:scale-110 group-data-[workflow-tree-dropzone-closest=true]:opacity-100 group-data-[workflow-tree-dropzone-closest=true]:shadow-sm',
+                        highlighted && 'scale-110 opacity-100 shadow-sm'
                     )}
                 >
                     <IconPlus className="size-3" />
