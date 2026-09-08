@@ -2287,6 +2287,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "capture-metrics"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.9",
+ "capture",
+ "capture-logs",
+ "common-alloc",
+ "common-metrics",
+ "health",
+ "limiters",
+ "tokio",
+ "tower-http 0.5.2",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "cargo-platform"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

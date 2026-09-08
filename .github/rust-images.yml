@@ -89,6 +89,11 @@
   dockerfile: ./rust/Dockerfile
   project: c1bwj4j4qg
 
+# Metrics half of capture-logs: same library, metrics routes only.
+- image: capture-metrics
+  dockerfile: ./rust/Dockerfile
+  project: DEPOT_PROJECT_ID_TODO
+
 - image: ingestion-consumer
   dockerfile: ./rust/Dockerfile
   project: mtvzx98zjn
