@@ -16,6 +16,8 @@ import type {
     DataQualityCheckScheduleApi,
     DataQualityCheckTypeApi,
     DataQualityChecksListParams,
+    DataQualityMetricSubjectApi,
+    DataQualityOutputSchemaApi,
     DataQualityRunRequestApi,
     DataQualityRunsListParams,
     DataQualitySubjectHealthApi,
@@ -346,6 +348,27 @@ export const dataCatalogMetricsChecksHealthRetrieve = async (
     })
 }
 
+export const getDataCatalogMetricsChecksOutputSchemaRetrieveUrl = (projectId: string, metricId: string) => {
+    return `/api/projects/${projectId}/data_catalog/metrics/${metricId}/checks/output_schema/`
+}
+
+/**
+ * CRUD for one subject's checks, plus the actions that run them and report on them.
+ */
+export const dataCatalogMetricsChecksOutputSchemaRetrieve = async (
+    projectId: string,
+    metricId: string,
+    options?: RequestInit
+): Promise<DataQualityOutputSchemaApi> => {
+    return apiMutator<DataQualityOutputSchemaApi>(
+        getDataCatalogMetricsChecksOutputSchemaRetrieveUrl(projectId, metricId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getDataCatalogMetricsChecksRunAllCreateUrl = (projectId: string, metricId: string) => {
     return `/api/projects/${projectId}/data_catalog/metrics/${metricId}/checks/run_all/`
 }
@@ -455,6 +478,27 @@ export const dataQualityChecksHealthList = async (
     options?: RequestInit
 ): Promise<DataQualitySubjectHealthApi[]> => {
     return apiMutator<DataQualitySubjectHealthApi[]>(getDataQualityChecksHealthListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataQualityChecksMetricSubjectsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_quality_checks/metric_subjects/`
+}
+
+/**
+ * Every check in the project, and the health of every subject that has one.
+ *
+ * The per-subject surfaces answer "what is wrong with this table". This answers "what is wrong
+ * across the project", which they cannot: each is nested under one parent. Read-only -- authoring
+ * still happens against the subject that owns the check.
+ */
+export const dataQualityChecksMetricSubjectsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DataQualityMetricSubjectApi[]> => {
+    return apiMutator<DataQualityMetricSubjectApi[]>(getDataQualityChecksMetricSubjectsListUrl(projectId), {
         ...options,
         method: 'GET',
     })

@@ -19,7 +19,7 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import mixins, status, viewsets
-from rest_framework.exceptions import APIException, NotFound, PermissionDenied
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -31,6 +31,7 @@ from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.permissions import APIScopePermission, TeamMemberAccessPermission, get_authenticator_scopes
+from posthog.rate_limit import HogQLQueryThrottle
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 
@@ -45,6 +46,8 @@ from .serializers import (
     DataQualityCheckScheduleUpdateSerializer,
     DataQualityCheckSerializer,
     DataQualityGateConfigSerializer,
+    DataQualityMetricSubjectSerializer,
+    DataQualityOutputSchemaSerializer,
     DataQualityOverviewCheckSerializer,
     DataQualityRunRequestSerializer,
     DataQualitySuiteRunSerializer,
@@ -584,7 +587,16 @@ class MetricCheckViewSet(_BaseCheckViewSet):
     scope_object = "data_catalog"
     subject_type = SubjectType.METRIC
     subject_field = "metric"
-    QUERY_GATED_ACTIONS = _BaseCheckViewSet.QUERY_GATED_ACTIONS | {"schedule"}
+    QUERY_GATED_ACTIONS = _BaseCheckViewSet.QUERY_GATED_ACTIONS | {"output_schema", "schedule"}
+
+    @extend_schema(request=None, responses={200: DataQualityOutputSchemaSerializer})
+    @action(methods=["GET"], detail=False, pagination_class=None, throttle_classes=[HogQLQueryThrottle])
+    def output_schema(self, request: Request, **kwargs) -> Response:
+        try:
+            columns = api.metric_output_schema(self.team, self.subject_uuid, cast(User, request.user))
+        except (api.CheckConfigError, api.SubjectUnresolvableError) as error:
+            raise ValidationError({"metric": str(error)})
+        return Response(DataQualityOutputSchemaSerializer({"columns": columns}).data)
 
     @extend_schema(methods=["GET"], request=None, responses={200: DataQualityCheckScheduleSerializer})
     @extend_schema(
@@ -736,9 +748,25 @@ class DataQualityCheckOverviewViewSet(
     still happens against the subject that owns the check.
     """
 
-    QUERY_GATED_ACTIONS = frozenset({"list", "health"})
+    QUERY_GATED_ACTIONS = frozenset({"list", "health", "metric_subjects"})
     serializer_class = DataQualityOverviewCheckSerializer
     queryset = DataQualityCheck.objects.unscoped()
+
+    def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
+        if getattr(view, "action", None) == "metric_subjects":
+            return ["data_catalog:read", "query:read"]
+        return super().dangerously_get_required_scopes(request, view)
+
+    @extend_schema(request=None, responses={200: DataQualityMetricSubjectSerializer(many=True)})
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def metric_subjects(self, request: Request, **kwargs) -> Response:
+        if not self.user_access_control.check_access_level_for_resource("data_catalog", "viewer"):
+            raise PermissionDenied("You need data catalog access to create checks on metrics.")
+        metrics = api.testable_metric_subjects(self.team_id)
+        if self._can_be_object_denied():
+            readable_ids = self._denial_context().readable.metric_ids
+            metrics = [metric for metric in metrics if metric.id in readable_ids]
+        return Response(DataQualityMetricSubjectSerializer(metrics, many=True).data)
 
     def safely_get_queryset(self, queryset: QuerySet[DataQualityCheck]) -> QuerySet[DataQualityCheck]:
         # Orphans are excluded: their subject is gone, so there is no page to link to, nothing to

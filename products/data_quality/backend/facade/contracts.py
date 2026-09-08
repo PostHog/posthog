@@ -6,6 +6,7 @@ Frozen, framework-free values other products need. No Django imports.
 
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeGuard
+from uuid import UUID
 
 from posthog.dataclasses import frozen
 
@@ -63,3 +64,16 @@ class RunCheckSuiteInputs:
     created_by_id: int | None = None
     # Audits the staged folder rather than the published table. Needs exactly one saved query.
     staged_queryable_folder: str | None = None
+
+
+@dataclass(frozen=True)
+class MetricSubject:
+    id: UUID
+    name: str
+    display_name: str
+
+
+@dataclass(frozen=True)
+class OutputColumn:
+    name: str
+    type: str | None
