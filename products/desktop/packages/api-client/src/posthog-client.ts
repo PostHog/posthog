@@ -1232,7 +1232,7 @@ function buildCloudRunRequestBody(
   if (options?.rtkEnabled === false) {
     body.rtk_enabled = false;
   }
-  if (options?.claudeModelAccess) {
+  if (!options?.piRuntime && options?.claudeModelAccess) {
     body.claude_model_access = options.claudeModelAccess;
   }
   if (options?.runSource) {

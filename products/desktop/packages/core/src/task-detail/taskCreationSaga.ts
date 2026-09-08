@@ -102,6 +102,9 @@ export class TaskCreationSaga extends Saga<
   ): Promise<TaskCreationOutput> {
     const taskId = input.taskId;
     const isPiRuntime = input.runtime === "pi";
+    const claudeCloudModelAccess = isPiRuntime
+      ? undefined
+      : input.claudeCloudModelAccess;
     const folderPromise =
       !taskId && input.repoPath
         ? this.resolveFolder(input.repoPath)
@@ -115,7 +118,7 @@ export class TaskCreationSaga extends Saga<
       !isPiRuntime &&
       !taskId &&
       input.workspaceMode === "cloud" &&
-      input.claudeCloudModelAccess !== "own-subscription"
+      claudeCloudModelAccess !== "own-subscription"
         ? await this.prepareWarmActivation(input)
         : null;
 
@@ -439,7 +442,7 @@ export class TaskCreationSaga extends Saga<
             branch,
             adapter: cloudAdapter,
             ...(isPiRuntime ? { piRuntime: true } : {}),
-            claudeModelAccess: input.claudeCloudModelAccess,
+            claudeModelAccess: claudeCloudModelAccess,
             model: input.model,
             reasoningLevel: input.reasoningLevel,
             contextWindow: isPiRuntime ? undefined : input.contextWindow,
@@ -462,7 +465,7 @@ export class TaskCreationSaga extends Saga<
             throw new Error("Failed to create cloud run");
           }
 
-          if (input.claudeCloudModelAccess === "own-subscription") {
+          if (claudeCloudModelAccess === "own-subscription") {
             await this.deps.sessionService.designateClaudeSubscription(
               task.id,
               taskRun.id,

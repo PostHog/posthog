@@ -3189,6 +3189,8 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
 
         pending_user_message = attrs.get("pending_user_message")
         pending_user_artifact_ids = attrs.get("pending_user_artifact_ids") or []
+        if attrs.get("claude_model_access") == "own-subscription" and _is_pi_task_run_request(self.context):
+            errors["claude_model_access"] = "Pi tasks cannot use a Claude subscription."
         if pending_user_message is not None:
             trimmed_message = pending_user_message.strip()
             attrs["pending_user_message"] = trimmed_message or None
@@ -3389,6 +3391,8 @@ class TaskRunBootstrapCreateRequestSerializer(
         runtime_adapter = attrs.get("runtime_adapter")
         is_pi_task = _is_pi_task_run_request(self.context)
         if is_pi_task:
+            if attrs.get("claude_model_access") == "own-subscription":
+                errors["claude_model_access"] = "Pi tasks cannot use a Claude subscription."
             pi_incompatible_fields = ("runtime_adapter", "context_window", "fast_mode", "initial_permission_mode")
             for field in pi_incompatible_fields:
                 if attrs.get(field) is not None:

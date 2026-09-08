@@ -458,6 +458,7 @@ def _is_rtk_enabled(
 
 def _resolve_claude_model_access(
     *,
+    task_runtime: str,
     distinct_id: str,
     organization_id: str,
     run_id: str,
@@ -465,7 +466,7 @@ def _resolve_claude_model_access(
 ) -> Literal["posthog-gateway", "own-subscription"]:
     if (state or {}).get("claude_model_access") != "own-subscription":
         return "posthog-gateway"
-    if (state or {}).get("runtime_adapter") not in (None, "claude"):
+    if task_runtime != Task.Runtime.ACP or (state or {}).get("runtime_adapter") not in (None, "claude"):
         raise ProcessTaskFatalError(
             "Your Claude plan requires the Claude runtime. Select Claude and try again.",
             {"run_id": run_id},
@@ -1252,6 +1253,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     except Exception as e:
         log_with_activity_context("run_state_stamp_failed", run_id=run_id, error=str(e))
     claude_model_access = _resolve_claude_model_access(
+        task_runtime=task.runtime,
         distinct_id=distinct_id,
         organization_id=organization_id,
         run_id=run_id,

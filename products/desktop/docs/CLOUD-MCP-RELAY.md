@@ -299,5 +299,7 @@ Desktop retries temporary delivery failures until the request expires, and dupli
 
 The run fails if the token does not arrive within 120 seconds, the backend flag is unavailable, or the sandbox lacks `--claudeSubscription` support.
 It never changes an explicit subscription choice to PostHog model billing.
+Pi hides subscription billing. Desktop omits the subscription choice from Pi requests and does not send a token.
+The API and worker reject direct Pi subscription requests before sandbox startup.
 Continuation inherits that choice; subscription runs skip prewarming because a warm Claude process has already selected its credentials.
 Sandbox compute still uses PostHog credits.

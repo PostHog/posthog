@@ -3004,6 +3004,7 @@ class TestTaskAPI(BaseTaskAPITest):
             ("fast_mode", {"fast_mode": True}),
             ("initial_permission_mode", {"initial_permission_mode": "plan"}),
             ("reasoning_effort", {"reasoning_effort": "ultracode"}),
+            ("claude_model_access", {"claude_model_access": "own-subscription"}),
         ]
     )
     def test_create_run_endpoint_rejects_invalid_configuration_for_pi(

@@ -11,6 +11,7 @@ from products.tasks.backend.presentation.serializers import (
     TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES,
     SandboxEnvironmentWriteSerializer,
     TaskRunArtifactUploadSerializer,
+    TaskRunBootstrapCreateRequestSerializer,
     TaskRunCommandRequestSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunLivingArtifactCreateRequestSerializer,
@@ -87,6 +88,25 @@ class TestTaskRunLivingArtifactCreateRequestSerializer(SimpleTestCase):
 
 
 class TestTaskRunCreateRequestSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (TaskRunCreateRequestSerializer, True),
+            (TaskRunCreateRequestSerializer, False),
+            (TaskRunBootstrapCreateRequestSerializer, True),
+            (TaskRunBootstrapCreateRequestSerializer, False),
+        ]
+    )
+    def test_subscription_requires_acp(
+        self,
+        serializer_class: type[TaskRunCreateRequestSerializer] | type[TaskRunBootstrapCreateRequestSerializer],
+        is_pi: bool,
+    ) -> None:
+        serializer = serializer_class(data={"claude_model_access": "own-subscription"})
+        with patch("products.tasks.backend.presentation.serializers._is_pi_task_run_request", return_value=is_pi):
+            assert serializer.is_valid() is not is_pi
+        if is_pi:
+            assert "claude_model_access" in serializer.errors
+
     @patch(
         "posthog.security.url_validation.resolve_host_ips",
         return_value={ipaddress.ip_address("93.184.216.34")},

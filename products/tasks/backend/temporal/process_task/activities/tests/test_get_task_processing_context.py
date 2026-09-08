@@ -925,6 +925,7 @@ class TestGetTaskProcessingContextActivity:
         ) as feature_enabled_mock:
             assert (
                 _resolve_claude_model_access(
+                    task_runtime=Task.Runtime.ACP,
                     distinct_id="distinct-id",
                     organization_id="organization-id",
                     run_id="run-id",
@@ -956,19 +957,22 @@ class TestGetTaskProcessingContextActivity:
             pytest.raises(ProcessTaskFatalError, match="Using your Claude plan for cloud tasks is unavailable"),
         ):
             _resolve_claude_model_access(
+                task_runtime=Task.Runtime.ACP,
                 distinct_id="distinct-id",
                 organization_id="organization-id",
                 run_id="run-id",
                 state={"claude_model_access": "own-subscription"},
             )
 
-    def test_claude_subscription_rejects_other_adapters(self) -> None:
+    @pytest.mark.parametrize("task_runtime,adapter", [(Task.Runtime.ACP, "codex"), (Task.Runtime.PI, None)])
+    def test_claude_subscription_rejects_other_adapters(self, task_runtime: str, adapter: str | None) -> None:
         with pytest.raises(ProcessTaskFatalError, match="requires the Claude runtime"):
             _resolve_claude_model_access(
+                task_runtime=task_runtime,
                 distinct_id="distinct-id",
                 organization_id="organization-id",
                 run_id="run-id",
-                state={"claude_model_access": "own-subscription", "runtime_adapter": "codex"},
+                state={"claude_model_access": "own-subscription", "runtime_adapter": adapter},
             )
 
     @pytest.mark.parametrize("launched_value", [True, False])

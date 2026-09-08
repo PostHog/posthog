@@ -567,6 +567,7 @@ describe("TaskCreationSaga", () => {
       repository: "posthog/posthog",
       workspaceMode: "cloud",
       runtime: "pi",
+      claudeCloudModelAccess: "own-subscription",
       branch: "main",
       adapter: "codex",
       model: "gpt-5.4",
@@ -582,6 +583,7 @@ describe("TaskCreationSaga", () => {
         branch: "main",
         adapter: undefined,
         piRuntime: true,
+        claudeModelAccess: undefined,
         model: "gpt-5.4",
         reasoningLevel: "high",
         initialPermissionMode: undefined,
@@ -592,6 +594,7 @@ describe("TaskCreationSaga", () => {
       pendingUserArtifactIds: undefined,
     });
     expect(piRunner.create).not.toHaveBeenCalled();
+    expect(sessionService.designateClaudeSubscription).not.toHaveBeenCalled();
   });
 
   it("uploads initial cloud attachments before starting the run", async () => {
