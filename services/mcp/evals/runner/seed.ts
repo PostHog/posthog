@@ -142,15 +142,41 @@ async function resolveProjectId(api: PostHogApi, override: number | null): Promi
     return id
 }
 
-function parseProjectFlag(argv: string[]): number | null {
-    const index = argv.indexOf('--project')
-    if (index === -1) {
+const PROJECT_FLAG = '--project'
+
+/** Reads `--project <id>` or `--project=<id>`, and rejects anything else.
+ *
+ * Strict because this command writes. An argument it did not understand would fall
+ * through to the token's current project, so a typo would seed a project nobody named.
+ */
+function parseProjectFlag(args: string[]): number | null {
+    const values: string[] = []
+    let expectValue = false
+    for (const arg of args) {
+        if (expectValue) {
+            values.push(arg)
+            expectValue = false
+        } else if (arg === PROJECT_FLAG) {
+            expectValue = true
+        } else if (arg.startsWith(`${PROJECT_FLAG}=`)) {
+            values.push(arg.slice(PROJECT_FLAG.length + 1))
+        } else {
+            throw new Error(`unknown argument "${arg}" — usage: seed.ts [${PROJECT_FLAG} <id>]`)
+        }
+    }
+    if (expectValue) {
+        values.push('')
+    }
+    if (values.length === 0) {
         return null
     }
-    const raw = argv[index + 1]
+    if (values.length > 1) {
+        throw new Error(`${PROJECT_FLAG} was given ${values.length} times`)
+    }
+    const raw = values[0]
     const id = Number(raw)
     if (!raw || !Number.isInteger(id) || id <= 0) {
-        throw new Error('--project requires a positive integer project id')
+        throw new Error(`${PROJECT_FLAG} requires a positive integer project id`)
     }
     return id
 }
@@ -166,7 +192,7 @@ async function main(): Promise<void> {
 
     let projectOverride: number | null
     try {
-        projectOverride = parseProjectFlag(process.argv)
+        projectOverride = parseProjectFlag(process.argv.slice(2))
     } catch (error) {
         console.error(error instanceof Error ? error.message : String(error))
         process.exit(2)
