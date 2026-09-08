@@ -89,8 +89,10 @@ def _parse_team_id(raw: bytes | str) -> int | None:
 def _redis() -> redis_lib.Redis:
     # Derived from the hypercache, so the consumer follows the same cluster as the
     # writer: dedicated when FLAGS_REDIS_URL registers the alias, shared otherwise.
-    # The Rust producer derives its client from the same condition
-    # (`State::flags_namespace_redis_client`), so producer and consumer move together.
+    # The Rust producer resolves the same setting (`State::flags_namespace_redis_client`),
+    # but falls back to the shared cluster when it cannot reach the dedicated one at
+    # startup. Such a process enqueues where nothing drains, and its teams wait for the
+    # hourly verifier.
     return get_client(flag_definitions_hypercache.redis_url)
 
 

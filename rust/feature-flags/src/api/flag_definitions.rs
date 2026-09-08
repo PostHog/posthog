@@ -474,8 +474,15 @@ async fn get_from_cache(
 /// Writes to a Redis sorted set on the flags-namespace client, because that is where the
 /// Django writer lives. The Celery drain derives its Redis from
 /// `flag_definitions_hypercache.redis_url` (`rebuild_queue.py`), which resolves from the same
-/// `FLAGS_REDIS_URL`, so producer and consumer stay on one cluster. A request written to any
-/// other cluster is never drained and the team never gets rebuilt.
+/// `FLAGS_REDIS_URL`. A request written to any other cluster is never drained and the team
+/// never gets rebuilt.
+///
+/// The two ends agree on configuration, not on connection state. A process that cannot reach
+/// the dedicated cluster at startup falls back to the shared one and enqueues there for its
+/// whole life, while Celery keeps draining the dedicated one. Those teams wait for the hourly
+/// verifier instead. The same startup failure already sends the flags.json, team-metadata, and
+/// remote-config readers to the shared cluster, where Django writes nothing, so it degrades
+/// more than this queue.
 ///
 /// This is deliberately not the client the payload and the ETag are read from. During the
 /// migration the flags-with-cohorts reader stays pinned to the shared cluster (`server.rs`),
