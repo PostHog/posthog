@@ -20,7 +20,7 @@ from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 
 
@@ -135,6 +135,33 @@ class TestBuildResourceDuplicationGraph(BaseTest):
         annotation = Annotation.objects.create(team=self.team, content="My annotation")
         with self.assertRaises(TypeError):
             list(build_resource_duplication_graph(annotation, set()))
+
+    def test_insight_with_dashboard_export_subscription_does_not_traverse_through_table(self) -> None:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        from products.exports.backend.models.subscription import Subscription
+
+        insight = Insight.objects.create(team=self.team, name="Exported insight")
+        dashboard = Dashboard.objects.create(team=self.team, name="Subscribed dashboard")
+        subscription = Subscription.objects.create(
+            team=self.team,
+            title="Weekly digest",
+            dashboard=dashboard,
+            target_type="email",
+            target_value="tests@posthog.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2022, 1, 1, 0, 0, 0, 0, tzinfo=ZoneInfo("UTC")),
+        )
+        subscription.dashboard_export_insights.add(insight)
+
+        graph = list(build_resource_duplication_graph(insight, set()))
+        model_names = {v.model.__name__ for v in graph}
+
+        assert "Insight" in model_names
+        assert "Subscription" not in model_names
+        assert "Subscription_dashboard_export_insights" not in model_names
 
 
 class TestDagSortDuplicationGraph(BaseTest):

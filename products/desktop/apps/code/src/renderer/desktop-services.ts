@@ -50,6 +50,7 @@ import {
 } from "@posthog/core/speech/identifiers";
 import { resolveService } from "@posthog/di/container";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
+import { DISK_CACHE_IMAGES } from "@posthog/platform/disk-cache";
 import {
   HOST_CAPABILITIES,
   type HostCapabilities,
@@ -70,6 +71,7 @@ import {
   type IAuthSideEffects,
 } from "@posthog/ui/features/auth/identifiers";
 import { authKeys } from "@posthog/ui/features/auth/useCurrentUser";
+import { useThreadPanelStore } from "@posthog/ui/features/canvas/stores/threadPanelStore";
 import {
   FEATURE_FLAGS,
   type FeatureFlags,
@@ -93,6 +95,7 @@ import {
   NOTIFICATION_SETTINGS_PROVIDER,
   SPEECH_NOTIFY_SETTINGS,
 } from "@posthog/ui/features/notifications/identifiers";
+import { resolveActiveNotificationTarget } from "@posthog/ui/features/notifications/routeNotification";
 import { OnboardingGithubConnectClient } from "@posthog/ui/features/onboarding/githubConnectClientImpl";
 import {
   AGENT_PROMPT_SENDER,
@@ -121,6 +124,7 @@ import {
 import { ELEVENLABS_API_KEY_STORE_KEY } from "@posthog/workspace-server/services/speech/identifiers";
 import { container } from "@renderer/di/container";
 import { RendererAuthSideEffects } from "@renderer/platform-adapters/auth-side-effects";
+import { desktopDiskCacheImages } from "@renderer/platform-adapters/desktop-disk-cache-images";
 import { gitCacheKeyProvider } from "@renderer/platform-adapters/git-cache-keys";
 import { RendererHedgehogModeHost } from "@renderer/platform-adapters/hedgehog-mode-host";
 import { setupStore } from "@renderer/platform-adapters/setup";
@@ -135,6 +139,10 @@ container.bind(GIT_CACHE_KEY_PROVIDER).toConstantValue(gitCacheKeyProvider);
 // archive
 container.load(archiveModule);
 container.bind(ARCHIVE_CLIENT).toConstantValue({
+  archive: (input) => hostTrpcClient.archive.archive.mutate(input),
+  refreshArchiveState: async () => {
+    await queryClient.invalidateQueries({ queryKey: [["archive"]] });
+  },
   unarchive: (input) => hostTrpcClient.archive.unarchive.mutate(input),
   delete: (input) => hostTrpcClient.archive.delete.mutate(input),
   showArchivedTaskContextMenu: (input) =>
@@ -322,30 +330,22 @@ container
 
 container.bind<IActiveView>(ACTIVE_VIEW_PROVIDER).toConstantValue({
   hasFocus: () => document.hasFocus(),
-  // Read the active leaf route directly: AppView collapses the channel routes
-  // and drops channelId/dashboardId, which we need to identify a canvas target.
   getActiveTarget: (): NotificationTarget | undefined => {
     const matches = getCurrentMatches();
     const last = matches[matches.length - 1];
-    if (!last) return undefined;
-    const params = last.params as Record<string, string | undefined>;
-    switch (last.routeId) {
-      case "/code/tasks/$taskId":
-      case "/website/$channelId/tasks/$taskId":
-        return params.taskId
-          ? { kind: "task", taskId: params.taskId }
-          : undefined;
-      case "/website/$channelId/dashboards/$dashboardId":
-        return params.channelId && params.dashboardId
-          ? {
-              kind: "canvas",
-              channelId: params.channelId,
-              dashboardId: params.dashboardId,
-            }
-          : undefined;
-      default:
-        return undefined;
-    }
+    const params = last?.params as
+      | Record<string, string | undefined>
+      | undefined;
+    const threadPanel = useThreadPanelStore.getState();
+    const openThreadTaskId = params?.channelId
+      ? threadPanel.openByChannel[params.channelId]
+      : undefined;
+
+    return resolveActiveNotificationTarget(
+      last ? { fullPath: last.fullPath, params: params ?? {} } : undefined,
+      openThreadTaskId,
+      threadPanel.collapsed,
+    );
   },
 });
 
@@ -449,3 +449,5 @@ container.bind(SETUP_STORE).toConstantValue(setupStore);
 container
   .bind(HOST_CAPABILITIES)
   .toConstantValue({ localWorkspaces: true } satisfies HostCapabilities);
+
+container.bind(DISK_CACHE_IMAGES).toConstantValue(desktopDiskCacheImages);

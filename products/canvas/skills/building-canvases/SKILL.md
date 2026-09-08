@@ -55,8 +55,9 @@ implementation contracts. Load every companion that applies before writing sourc
   `<canvas>`, or WebGL work where application components add no useful structure. It owns semantic
   markup, direct browser APIs, animation cleanup, and non-Quill theming.
 - **`querying-canvas-data`** whenever the canvas reads PostHog data, captures events, or navigates.
-  It owns the `ph` SDK, saved-insight preference, result shapes, variables, date ranges, and declared
-  data capabilities. Load it alongside either implementation skill when data is involved.
+  It owns the `ph` SDK, saved-insight preference, result shapes, variables, date ranges, progressive
+  per-query loading, and declared data capabilities. Load it alongside either implementation skill
+  when data is involved.
 - **`validating-and-publishing-canvases`** for every canvas. It owns project shape, capability
   declarations, validation diagnostics, guarded publishes, drafts, builds, and conflict recovery.
 
@@ -66,13 +67,35 @@ graphics code owns a canvas element, or a mostly static page can mount one inter
 This is a judgment call, not a persisted mode — ask the user only when the choice changes a
 user-visible requirement you cannot infer.
 
+## Images
+
+Use public media library URLs for images in a canvas. Call `posthog:media-images-list` with
+`purpose="canvas"` first and reuse a suitable image when one already exists.
+
+To add a local image:
+
+1. Call `posthog:media-image-upload-start` with the file name and `purpose="canvas"`.
+2. From a shell, POST the file to the returned `upload_url` as multipart form data. Include every
+   returned `form_fields` entry and put the file part last.
+3. Call `posthog:media-image-upload-complete` with the returned id and use its permanent `url` as
+   the image `src`.
+4. Add the URL's exact origin to `project.capabilities.network.origins`. Canvas validation checks
+   this declaration, and the published artifact uses it in its Content Security Policy.
+
+Canvas media URLs are public and do not require authentication. Never upload secrets, credentials,
+customer data, or sensitive screenshots. Images must be under 4 MB and decode as PNG, JPEG, GIF,
+WebP, AVIF, or BMP. Never base64-encode image bytes into a tool call.
+
 ## Common request patterns
 
 Use these as routing examples, not fixed templates:
 
 - **Product dashboard, web analytics board, or metric explorer:** React + Quill plus data querying.
 - **Checklist, form, or lightweight workflow:** React + Quill, plus data querying for PostHog reads,
-  event capture, or navigation. Do not imply persistence that the available APIs do not provide.
+  event capture, or navigation. For a checklist or runbook specifically, start from the worked
+  example in `building-react-quill-canvases` (`references/checklist-example.md`) — team-shared
+  progress via per-step `ph.state` keys. Do not imply persistence that the available APIs do not
+  provide.
 - **Document or narrative report:** HTML for a mostly static reading experience; React + Quill plus
   data querying when it needs live PostHog data, filters, or application-like interactions.
 - **Generative graphic or animation:** HTML and browser graphics APIs. Add React only when it
@@ -87,27 +110,31 @@ matching shape above. The pattern is a hint; the user's actual request remains a
    Remember `current_version_id` — your publish must be guarded on it.
 2. Edit the project files using the implementation companions selected above. For any PostHog data
    the canvas shows, follow `querying-canvas-data` (saved insights loaded via the `ph` SDK — never
-   fetch or your own PostHog client), and
+   fetch or your own PostHog client), make every figure verifiable — an insight-backed metric
+   links its saved insight in PostHog, an ad-hoc query shows the exact query that ran, per that
+   skill's "Verifiability" section — and
    **declare every `ph` call in `project.capabilities`** (insight short ids in
    `capabilities.posthog.insights`, captured events in `captureEvents`, `inlineQueries: true` for
    ad-hoc queries, and `agentRequests: true` for `ph.agent.request`) — the host enforces these at
    runtime and validation rejects undeclared calls.
 3. Follow `validating-and-publishing-canvases`: validate with `canvas-validate-create` as often as
    needed and fix every error-severity diagnostic.
-4. Save the project — which tool depends on whether the canvas is already live:
+4. Save the project by publishing it — publishing is the default and goes live at once:
    - **First version** (`current_version_id` is null): publish the complete project with
      `canvas-publish-create`, passing `expected_current_version_id: null`.
-   - **Already live** (`current_version_id` is set): stage the complete project as a draft with
-     `canvas-draft-create` — the user previews the draft and promotes it to live. Publish or
-     promote yourself only when the user explicitly asked to make the change live.
+   - **Already live** (`current_version_id` is set): publish per-file changes with
+     `canvas-edit-create`, or the complete project with `canvas-publish-create`, passing the
+     live `current_version_id` as `expected_current_version_id`.
+   - Stage a draft with `canvas-draft-create` only when the user asked for a draft, a preview, or
+     a review step before going live.
      Follow the `validating-and-publishing-canvases` skill for diagnostics and conflict recovery.
 5. **Wait for the build** — drafts and publishes alike queue one. Poll `canvas-builds-retrieve`
    (every few seconds, up to ~2 minutes) until your build is `ready` or `failed`. On `failed`,
    read the build's error diagnostics, fix the project, and save again — do not finish the
    task with a failed build.
 
-Save once per requested change, when the canvas is ready — not after every micro-edit. When you
-staged a draft, end your reply by saying a draft is ready to preview and promote; the
+Save once per requested change, when the canvas is ready — not after every micro-edit. When the
+user asked for a draft, end your reply by saying a draft is ready to preview and promote; the
 `validating-and-publishing-canvases` skill covers the draft → build → preview → promote flow.
 
 End your reply by naming the channel the canvas is in and linking it with the `url` field the
@@ -133,9 +160,9 @@ That field is the only valid link to a canvas — never construct one yourself; 
 - **`ph.agent.request(prompt)`** — ask the canvas's authoring agent for a change, with the viewer's
   approval. Declare `agentRequests: true` in `capabilities.posthog`. Call it only from a direct
   click or form submission — the host shows the exact prompt and asks the viewer to accept before
-  spending compute, and rejects calls made during render, mount, or polling. The agent stages the
-  change as a draft for the canvas creator to review; a non-creator's request is filed in the
-  authoring task's thread instead of starting a run.
+  spending compute, and rejects calls made during render, mount, or polling. The agent publishes
+  the change as a new version; a non-creator's request is filed in the authoring task's thread
+  instead of starting a run.
 
 ## Source-project shape
 
@@ -144,7 +171,8 @@ That field is the only valid link to a canvas — never construct one yourself; 
   relative TypeScript, TSX, JavaScript, JSON, SVG, CSS, and admitted asset files from the project.
 - Self-contained module workers may be imported with `./worker.ts?worker`. A worker must not import
   another local module.
-- Binary assets belong in the project's `assets` map as base64 content with an admitted content type.
-  PNG, JPEG, GIF, WebP, AVIF, WOFF/WOFF2, WebAssembly, and generic octet-stream assets are supported.
+- Use the public media library flow above for images. Other binary assets belong in the project's
+  `assets` map as base64 content with an admitted content type. WOFF/WOFF2, WebAssembly, and generic
+  octet-stream assets are supported.
 - Keep the platform dependency map exactly as returned. Do not add npm packages; local relative
   imports are project files, while bare imports remain limited to the platform-pinned set.

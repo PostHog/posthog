@@ -1,0 +1,6 @@
+{
+    "id": "RB6",
+    "real": false,
+    "source": "fresh",
+    "reasoning": "README says the toggle is re-checked 'through facade/inbox_hooks.py', and that is literally the call path: backend/tasks/tasks.py:25 imports get_inbox_acting_reviewer_resolver from that module, and _inbox_rereview_carve_out (tasks.py:203-209) fetches and invokes the resolver through it. The toggle read itself executes in review_hog's registered resolver (review_hog/backend/receivers.py:69), not in tasks.py, so the finding's own attribution is wrong. A reader following the reference lands on inbox_hooks.py, whose docstring states 'the webhook Celery task calls through the registered callable' and explains the fail-closed gate - correctly oriented, not misled. 'Through' (not 'in') is accurate wording; no genuine defect."
+}

@@ -1,0 +1,12 @@
+{
+    "id": "KA13",
+    "file": "products/review_hog/backend/receivers.py",
+    "lines": "210-236",
+    "priority": "should_fix",
+    "title": "A broker outage permanently loses the initial Stamphog review",
+    "problem": "The helper logs a queue failure and then returns. No retry or durable record exists. The initial review creates the Inbox provenance that permits later bot and draft reviews. A transient broker failure can therefore leave this PR without any Stamphog review.",
+    "suggestion": "Use a durable dispatch mechanism, such as a transactional outbox. At minimum, configure bounded broker publish retries and record a failure metric. Ensure a worker can retry the initial dispatch without another TaskRun save.",
+    "cluster": 58,
+    "cluster_issue": "Initial inbox review dispatch is fire-and-forget with no durable pending record or reconciliation, so a broker enqueue failure or exhaustion of the task's three retries silently drops the review",
+    "cluster_verified": "1/6"
+}

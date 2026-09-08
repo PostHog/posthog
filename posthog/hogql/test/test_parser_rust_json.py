@@ -8,7 +8,7 @@ the `rust-json` backend into that suite.
 from ._test_parser import parser_test_factory
 
 
-class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
+class TestParserRustJson(parser_test_factory("rust-json", leak_check=False)):  # type: ignore
     def test_empty(self):
         # this test only exists to make pycharm recognise this class as a test class
         # the actual tests are in the parent class

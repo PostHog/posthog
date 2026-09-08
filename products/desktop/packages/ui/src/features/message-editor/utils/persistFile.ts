@@ -2,7 +2,6 @@ import type { FileAttachment } from "@posthog/core/message-editor/content";
 import {
   type PersistedFile,
   persistBrowserFile as persistBrowserFileCore,
-  persistGenericFile as persistGenericFileCore,
   persistImageFile as persistImageFileCore,
   persistImageFilePath as persistImageFilePathCore,
   persistTextContent as persistTextContentCore,
@@ -27,10 +26,6 @@ export function persistTextContent(
   originalName?: string,
 ): Promise<PersistedFile> {
   return persistTextContentCore(host(), text, originalName);
-}
-
-export function persistGenericFile(file: File): Promise<PersistedFile> {
-  return persistGenericFileCore(host(), file);
 }
 
 export function persistImageFilePath(

@@ -2,6 +2,7 @@ import {
   getCellCount,
   getLayoutToFit,
   isBrainrotCell,
+  isCanvasCell,
   isTerminalCell,
   type LayoutPreset,
   reflowCells,
@@ -38,8 +39,8 @@ export interface PlacementInput {
  * first, in display order, growing the grid when the batch outgrows them.
  *
  * Occupied tiles are never overwritten, which also covers the brainrot and
- * terminal sentinels — they hold something the grid draws, so they read as
- * occupied like any cell holding a session.
+ * terminal and canvas sentinels — they hold something the grid draws, so they
+ * read as occupied like any cell holding a session.
  */
 export function planCommandCenterPlacement(
   input: PlacementInput,
@@ -53,6 +54,7 @@ export function planCommandCenterPlacement(
     cell != null &&
     (liveTaskIds == null ||
       isBrainrotCell(cell) ||
+      isCanvasCell(cell) ||
       isTerminalCell(cell) ||
       liveTaskIds.has(cell) ||
       batch.has(cell));

@@ -7,6 +7,7 @@ const makeIssue = (overrides: Partial<HealthIssue> = {}): HealthIssue => ({
     severity: 'warning',
     status: 'active',
     dismissed: false,
+    snoozed_until: null,
     payload: {},
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',

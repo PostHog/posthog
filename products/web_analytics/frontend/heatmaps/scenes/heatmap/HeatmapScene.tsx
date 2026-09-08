@@ -42,6 +42,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         name,
         loading,
         type,
+        source,
         displayUrl,
         widthOverride,
         heightOverride,
@@ -54,6 +55,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         scalePercent,
         isHeightCapped,
         userAccessLevel,
+        lockedWidth,
     } = useValues(logic)
     const {
         setName,
@@ -163,7 +165,11 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                     pages).
                 </LemonBanner>
                 <HeatmapHeader />
-                <FilterPanel captureMethod={type} onCaptureMethodChange={changeCaptureMethod} />
+                <FilterPanel
+                    captureMethod={type}
+                    onCaptureMethodChange={source === 'toolbar' ? undefined : changeCaptureMethod}
+                    lockedWidth={lockedWidth ?? undefined}
+                />
                 <SceneDivider />
                 {isHeightCapped && (
                     <LemonBanner type="info" className="mb-2">

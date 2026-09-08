@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import React, { useMemo } from 'react'
 
-import { LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { getSeriesColorPalette } from 'lib/colors'
 import { IconRobot } from 'lib/lemon-ui/icons'
@@ -13,6 +13,7 @@ interface LiveBotTrafficCardProps {
     totalBotEvents: number
     totalEvents: number
     isLoading?: boolean
+    errorMessage?: string
 }
 
 const LiveBotTrafficCardInner = ({
@@ -20,6 +21,7 @@ const LiveBotTrafficCardInner = ({
     totalBotEvents,
     totalEvents,
     isLoading,
+    errorMessage,
 }: LiveBotTrafficCardProps): JSX.Element => {
     const colors = useMemo(() => getSeriesColorPalette(), [])
 
@@ -58,6 +60,10 @@ const LiveBotTrafficCardInner = ({
             {isLoading ? (
                 <div className="flex-1 flex items-center justify-center">
                     <Spinner className="text-2xl" />
+                </div>
+            ) : errorMessage ? (
+                <div className="flex-1 flex items-center justify-center">
+                    <LemonBanner type="error">{errorMessage}</LemonBanner>
                 </div>
             ) : !hasData ? (
                 <div className="flex-1 flex items-center justify-center text-muted text-sm text-center px-4">

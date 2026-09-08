@@ -118,6 +118,24 @@ function UsedInBanner({ usedIn }: { usedIn: CohortUsedInResponseApi }): JSX.Elem
     )
 }
 
+function UnmatchedImportBanner({ cohort }: { cohort: CohortType }): JSX.Element | null {
+    const unmatched = cohort.last_import_unmatched_count
+    const total = cohort.last_import_total_count
+    if (!unmatched || !total) {
+        return null
+    }
+
+    return (
+        <LemonBanner type="warning">
+            <h4 className="font-semibold mb-1">Some IDs in the last import didn't match a person</h4>
+            <p className="mb-0">
+                {unmatched.toLocaleString()} of {total.toLocaleString()} IDs weren't added to this cohort because they
+                don't match a person in this project. Check that the IDs are correct and come from this project.
+            </p>
+        </LemonBanner>
+    )
+}
+
 export interface CohortEditProps {
     id?: CohortType['id']
     attachTo?: BuiltLogic<Logic> | LogicWrapper<Logic>
@@ -526,6 +544,11 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                     </div>
                                 </div>
                             </SceneSection>
+                            {!isNewCohort && (
+                                <div aria-live="polite">
+                                    <UnmatchedImportBanner cohort={cohort} />
+                                </div>
+                            )}
                             {!isNewCohort && usedIn && <UsedInBanner usedIn={usedIn} />}
                             {cohort.is_static && staticCohortMode === 'criteria' ? (
                                 <>

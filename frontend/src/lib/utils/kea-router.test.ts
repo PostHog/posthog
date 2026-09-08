@@ -29,9 +29,17 @@ describe('router-utils', () => {
         const altered = addProjectIdIfMissing('/feature_flags/123', 123)
         expect(altered).toEqual('/project/123/feature_flags/123')
     })
+    it('does not redirect the experiments staff tools URL to a project URL', () => {
+        const altered = addProjectIdIfMissing('/experiments/staff', 123)
+        expect(altered).toEqual('/experiments/staff')
+    })
     it('does not redirect the cohorts staff tools URL nested under feature flags staff', () => {
         const altered = addProjectIdIfMissing('/feature_flags/staff/cohorts', 123)
         expect(altered).toEqual('/feature_flags/staff/cohorts')
+    })
+    it('does not add a project id to billing URLs, which are organization-scoped', () => {
+        expect(addProjectIdIfMissing('/billing', 123)).toEqual('/billing')
+        expect(addProjectIdIfMissing('/billing/authorization_status', 123)).toEqual('/billing/authorization_status')
     })
 
     describe('relative path normalization', () => {

@@ -1,3 +1,5 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
 .MCPPreview {
     --mcp-preview-accent: var(--empty-state-accent, var(--color-primary-500));
 
@@ -153,9 +155,10 @@
 #mcp-preview-claude:checked ~ .MCPPreview__chips .MCPPreview__chip--claude,
 #mcp-preview-cursor:checked ~ .MCPPreview__chips .MCPPreview__chip--cursor,
 #mcp-preview-openai:checked ~ .MCPPreview__chips .MCPPreview__chip--openai {
-    color: var(--mcp-preview-accent);
     background: color-mix(in oklab, var(--mcp-preview-accent) 12%, transparent);
     border-color: color-mix(in oklab, var(--mcp-preview-accent) 45%, transparent);
+
+    @include preview-accent-text(var(--mcp-preview-accent));
 }
 
 // Picking a client dims the rows that don't belong to it.

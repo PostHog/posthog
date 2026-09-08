@@ -171,7 +171,11 @@ export const tasksLogic = kea<tasksLogicType>([
             {
                 // `breakpoint` cancels this invocation if a newer `loadTasks` action has been
                 // dispatched, so filter changes don't overwrite state with stale responses.
-                loadTasks: async (params: TaskListParams = {}, breakpoint) => {
+                // A caller that passes nothing wants a plain refresh, not an unfiltered list: refresh
+                // sites like `taskLogic`'s update/delete reload every mounted list without knowing what
+                // it is showing, and `{}` there would swap the active filter for the whole visible set.
+                // The default is evaluated per call, so it picks up the filter active at refresh time.
+                loadTasks: async (params: TaskListParams = values.taskListParams, breakpoint) => {
                     const response = await api.tasks.list(params)
                     breakpoint()
                     actions.setTasksNext(response.next ?? null)
@@ -277,9 +281,13 @@ export const tasksLogic = kea<tasksLogicType>([
     selectors({
         // The "all team" filter is staff-only; expose it so the menu can conditionally show it.
         isStaffUser: [(s) => [s.user], (user: null | import('~/types').UserType): boolean => !!user?.is_staff],
-        // Combined list filters: search term + the assignee toggle. "For you" scopes to the current
-        // user's own tasks; "team scouts" scopes to autonomous Signals Scout tasks; "all team" (staff
-        // only) lists every task on the team, letting the server bypass the per-user visibility filter.
+        // Combined list filters: search term + the assignee toggle. A scout run is created by the user
+        // the scout executes as, so "for you" and "my scouts" are the two halves of that user's
+        // `created_by` rows: those runs are what clutters their list, so they are what the split has to
+        // move. Keying "my scouts" on scout ownership (`LLMSkillOwner`) instead would hide the runs from
+        // the person actually seeing them, since the executing identity and the owner can differ.
+        // "Team scouts" is every scout task on the team; "all team" (staff only) lists every task,
+        // letting the server bypass the per-user visibility filter.
         taskListParams: [
             (s) => [s.searchQuery, s.assigneeFilter, s.user],
             (
@@ -296,7 +304,10 @@ export const tasksLogic = kea<tasksLogicType>([
                 if (assigneeFilter === 'team_scouts') {
                     return { ...base, origin_product: OriginProduct.SIGNALS_SCOUT }
                 }
-                return { ...base, created_by: user?.id }
+                if (assigneeFilter === 'my_scouts') {
+                    return { ...base, origin_product: OriginProduct.SIGNALS_SCOUT, created_by: user?.id }
+                }
+                return { ...base, created_by: user?.id, exclude_origin_product: OriginProduct.SIGNALS_SCOUT }
             },
         ],
     }),

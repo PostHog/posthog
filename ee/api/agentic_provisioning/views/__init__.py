@@ -3,6 +3,7 @@ from ee.api.agentic_provisioning.views.authorize import AuthorizeConfirmView, Au
 from ee.api.agentic_provisioning.views.client_registration import ClientRegistrationView
 from ee.api.agentic_provisioning.views.deep_links import DeepLinksView, agentic_login
 from ee.api.agentic_provisioning.views.github_grants import GitHubGrantRepositoriesView, GitHubGrantsCreateView
+from ee.api.agentic_provisioning.views.limits import LimitsView
 from ee.api.agentic_provisioning.views.oauth_token import OAuthTokenView
 from ee.api.agentic_provisioning.views.resources import (
     GitHubIntegrationView,
@@ -22,6 +23,7 @@ __all__ = [
     "GitHubGrantRepositoriesView",
     "GitHubGrantsCreateView",
     "GitHubIntegrationView",
+    "LimitsView",
     "OAuthTokenView",
     "ResourceDetailView",
     "ResourceRemoveView",

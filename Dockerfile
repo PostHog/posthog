@@ -150,7 +150,7 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
 
 COPY products/canvas/packages/canvas_builder/ products/canvas/packages/canvas_builder/
 RUN --mount=type=cache,id=npm,target=/root/.npm \
-    npm ci --ignore-scripts --omit=dev --prefix products/canvas/packages/canvas_builder
+    npm ci --ignore-scripts --omit=dev --no-audit --no-fund --prefix products/canvas/packages/canvas_builder
 
 # The transpiler bundle externalizes @babel/standalone (its only external runtime require — a
 # self-contained 24MB package with no deps). Materialize it as real files inside the transpiler's
@@ -330,6 +330,7 @@ RUN apt-get update && \
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
     "gettext-base" \
+    "git" \
     "libpq5" \
     "libxmlsec1=1.2.37-2" \
     "libxmlsec1-openssl=1.2.37-2" \
@@ -445,11 +446,11 @@ COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
 COPY --chown=posthog:posthog products products/
 # Stamphog ships the review engine + owners resolver from this checkout into its sandbox at
 # runtime (products/stamphog/backend/temporal/activities.py), so both must exist in the image as
-# source. This is separate from posthog-owners being installed into the venv as a library: the
-# sandbox gets files copied into a checkout, not an import.
-COPY --chown=posthog:posthog tools/pr-approval-agent tools/pr-approval-agent/
+# source. The engine arrives with products/ above, and only tools/owners needs its own COPY. This
+# differs from the installation of posthog-owners into the venv as a library: the sandbox receives
+# files copied into a checkout, and not an import.
 COPY --chown=posthog:posthog tools/owners tools/owners/
-RUN test -f tools/pr-approval-agent/review_local.py && test -d tools/owners/posthog_owners
+RUN test -f products/stamphog/packages/pr-approval-agent/review_local.py && test -d tools/owners/posthog_owners
 # Generated MCP tool catalog, read at runtime from BASE_DIR by the OAuth consent page
 # (posthog/api/oauth/mcp_resource_scopes.py) and the tasks permission broker. The rest of
 # services/ is a Node build (Dockerfile.node) and deliberately stays out of this image.

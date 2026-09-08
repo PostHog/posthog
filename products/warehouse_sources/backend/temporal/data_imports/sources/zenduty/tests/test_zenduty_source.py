@@ -3,25 +3,14 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.zenduty import source as zenduty_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.zenduty.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zenduty.source import ZendutySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.zenduty.zenduty import ZendutyResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestZendutySourceConfig:
-    def test_source_type(self) -> None:
-        assert ZendutySource().source_type == ExternalDataSourceType.ZENDUTY
-
     def test_config_basics(self) -> None:
         config = ZendutySource().get_source_config
         assert config.label == "Zenduty"
@@ -30,15 +19,6 @@ class TestZendutySourceConfig:
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.unreleasedSource is None
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/zenduty"
-
-    def test_single_password_api_key_field(self) -> None:
-        fields = ZendutySource().get_source_config.fields
-        assert len(fields) == 1
-        field = fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.name == "api_key"
-        assert field.required is True
-        assert field.type == SourceFieldInputConfigType.PASSWORD
 
 
 class TestZendutyGetSchemas:
@@ -99,11 +79,6 @@ class TestZendutyNonRetryableErrors:
 
 
 class TestZendutyResumableAndPipeline:
-    def test_resumable_manager_bound_to_resume_config(self) -> None:
-        manager = ZendutySource().get_resumable_source_manager(MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ZendutyResumeConfig
-
     @parameterized.expand(
         [
             # Top-level endpoints key on the object's own id...

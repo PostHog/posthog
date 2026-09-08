@@ -91,7 +91,8 @@ def _ai_property_expr(property_name: str, use_new_events_schema: bool) -> str:
     return expr if is_denormalized else f"ifNull({expr}, '')"
 
 
-@dataclass
+# Mutable by design: the split-query combiner accumulates into one instance per team.
+@dataclass(frozen=False)
 class TeamMetrics:
     """All metrics for a single team from the combined query."""
 
@@ -101,7 +102,7 @@ class TeamMetrics:
     ai_generation_count: int = 0
     ai_embedding_count: int = 0
     ai_span_count: int = 0
-    ai_trace_count: int = 0
+    ai_trace_event_count: int = 0
     ai_metric_count: int = 0
     ai_feedback_count: int = 0
     ai_evaluation_count: int = 0
@@ -322,7 +323,7 @@ def _combine_all_metrics_results(results_list: list) -> dict[int, TeamMetrics]:
             metrics.ai_generation_count += row[1] or 0
             metrics.ai_embedding_count += row[2] or 0
             metrics.ai_span_count += row[3] or 0
-            metrics.ai_trace_count += row[4] or 0
+            metrics.ai_trace_event_count += row[4] or 0
             metrics.ai_metric_count += row[5] or 0
             metrics.ai_feedback_count += row[6] or 0
             metrics.ai_evaluation_count += row[7] or 0
@@ -390,7 +391,7 @@ def get_all_ai_metrics(
             countIf(event = '$ai_generation') as ai_generation_count,
             countIf(event = '$ai_embedding') as ai_embedding_count,
             countIf(event = '$ai_span') as ai_span_count,
-            countIf(event = '$ai_trace') as ai_trace_count,
+            countIf(event = '$ai_trace') as ai_trace_event_count,
             countIf(event = '$ai_metric') as ai_metric_count,
             countIf(event = '$ai_feedback') as ai_feedback_count,
             countIf(event = '$ai_evaluation') as ai_evaluation_count,
@@ -439,6 +440,55 @@ def get_all_ai_metrics(
         team_ids=team_ids,
         query_name="Get all AI metrics",
     )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_ai_trace_counts(
+    begin: datetime,
+    end: datetime,
+    team_ids: list[int],
+) -> dict[int, int]:
+    """
+    Get the number of distinct traces per team.
+
+    Counts distinct `$ai_trace_id` across every AI event rather than `$ai_trace` events, because
+    emitting a root `$ai_trace` event is optional: several SDK integrations group generations under a
+    trace id without ever sending the root event. Counting the root event makes those teams look like
+    they stopped producing traces when only their instrumentation shape changed.
+
+    Returns:
+        dict mapping team_id to distinct trace count
+    """
+    use_new = use_new_events_schema(None)
+    trace_id = _ai_property_expr("$ai_trace_id", use_new)
+
+    query_template = f"""
+        SELECT
+            team_id,
+            uniqIf({trace_id}, {trace_id} != '') as ai_trace_count
+        FROM {events_read_table(use_new)}
+        WHERE team_id IN %(team_ids)s
+          AND event IN %(ai_events)s
+          AND timestamp >= %(begin)s
+          AND timestamp < %(end)s
+        GROUP BY team_id
+    """
+
+    # Deliberately unsplit: the split combiners sum per team, which would count a trace once per time
+    # split it spans. `uniq` holds a fixed-size sketch per team, so one query over the whole period
+    # stays within the memory budget the splits exist to protect.
+    results = _execute_split_query(
+        begin,
+        end,
+        query_template,
+        {"ai_events": AI_EVENTS},
+        num_splits=1,
+        team_ids=team_ids,
+        query_name="Get AI trace counts",
+    )
+
+    return dict(results)
 
 
 @timed_log()
@@ -887,7 +937,22 @@ def _get_all_ai_observability_reports(
         raise
     logger.info(f"Retrieved metrics for {len(all_metrics)} teams")
 
-    # Phase 3: Get LLM prompt fetched counts (best effort)
+    # Phase 3: Get distinct trace counts
+    logger.info("Querying AI trace counts")
+    try:
+        ai_trace_counts = get_ai_trace_counts(period.start, period.end, team_ids)
+    except Exception:
+        logger.warning(
+            "[AIO Usage Error] trace counts query failed",
+            phase="trace_counts",
+            event_source="ai_observability_usage_report",
+            exc_info=True,
+        )
+        # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
+        raise
+    logger.info(f"Retrieved trace counts for {len(ai_trace_counts)} teams")
+
+    # Phase 4: Get LLM prompt fetched counts (best effort)
     llm_prompt_fetched_counts: dict[int, int] = {}
     try:
         logger.info("Querying LLM prompt fetched counts")
@@ -899,7 +964,7 @@ def _get_all_ai_observability_reports(
         )
         capture_exception(err)
 
-    # Phase 4: Get all dimension breakdowns in a single combined query
+    # Phase 5: Get all dimension breakdowns in a single combined query
     logger.info("Querying all AI dimension breakdowns")
     try:
         all_breakdowns = get_all_ai_dimension_breakdowns(period.start, period.end, team_ids)
@@ -914,7 +979,7 @@ def _get_all_ai_observability_reports(
         raise
     logger.info(f"Retrieved breakdowns for {len(all_breakdowns)} teams")
 
-    # Phase 5: Get LLM feedback survey metrics
+    # Phase 6: Get LLM feedback survey metrics
     logger.info("Querying LLM feedback survey metrics")
     try:
         survey_metrics = get_llm_feedback_survey_metrics(period.start, period.end, team_ids)
@@ -948,6 +1013,7 @@ def _get_all_ai_observability_reports(
                 "ai_embedding_count": 0,
                 "ai_span_count": 0,
                 "ai_trace_count": 0,
+                "ai_trace_event_count": 0,
                 "ai_metric_count": 0,
                 "ai_feedback_count": 0,
                 "ai_evaluation_count": 0,
@@ -994,7 +1060,7 @@ def _get_all_ai_observability_reports(
             report["ai_generation_count"] += metrics.ai_generation_count
             report["ai_embedding_count"] += metrics.ai_embedding_count
             report["ai_span_count"] += metrics.ai_span_count
-            report["ai_trace_count"] += metrics.ai_trace_count
+            report["ai_trace_event_count"] += metrics.ai_trace_event_count
             report["ai_metric_count"] += metrics.ai_metric_count
             report["ai_feedback_count"] += metrics.ai_feedback_count
             report["ai_evaluation_count"] += metrics.ai_evaluation_count
@@ -1022,6 +1088,9 @@ def _get_all_ai_observability_reports(
             report["total_reasoning_tokens"] += metrics.reasoning_tokens
             report["total_cache_read_tokens"] += metrics.cache_read_tokens
             report["total_cache_creation_tokens"] += metrics.cache_creation_tokens
+
+        # Summing per-team distinct counts is exact at org level: a trace id belongs to one team.
+        report["ai_trace_count"] += ai_trace_counts.get(team_id, 0)
 
         report["llm_prompt_fetched_count"] += llm_prompt_fetched_counts.get(team_id, 0)
 

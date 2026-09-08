@@ -1,3 +1,4 @@
+import { TRANSCRIPT_TAIL_WINDOW } from "@posthog/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloudTaskEvent } from "./schemas";
 
@@ -111,6 +112,7 @@ describe("CloudTaskEngine", () => {
       analytics: analyticsMock as never,
       logger: loggerMock,
       streamFetch: fetchRouter,
+      transcriptTailWindow: TRANSCRIPT_TAIL_WINDOW,
     });
     mockNetFetch.mockReset();
     mockStreamFetch.mockReset();
@@ -352,6 +354,279 @@ describe("CloudTaskEngine", () => {
         }),
       }),
     );
+  });
+
+  it.each([
+    { name: "active", status: "in_progress" as const },
+    { name: "terminal", status: "completed" as const },
+  ])(
+    "bootstraps a long $name run from the tail window with the chain total",
+    async ({ status }) => {
+      const updates: unknown[] = [];
+      service.on(CloudTaskEvent.Update, (payload) => updates.push(payload));
+
+      const chain = Array.from({ length: 4500 }, (_, i) => ({
+        type: "notification",
+        timestamp: "2026-01-01T00:00:00Z",
+        notification: { jsonrpc: "2.0", method: `entry-${i}` },
+      }));
+      const tailStart = chain.length - TRANSCRIPT_TAIL_WINDOW;
+      const logRequests: Array<{ offset: number; limit: number }> = [];
+      mockNetFetch.mockImplementation((input: string | URL | Request) => {
+        const url = new URL(
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url,
+        );
+        if (!url.pathname.includes("/session_logs/")) {
+          return Promise.resolve(
+            createJsonResponse({
+              id: "run-1",
+              status,
+              stage: null,
+              output: null,
+              error_message: null,
+              branch: null,
+              updated_at: "2026-01-01T00:00:00Z",
+            }),
+          );
+        }
+        const offset = Number(url.searchParams.get("offset") ?? "0");
+        const limit = Number(url.searchParams.get("limit"));
+        logRequests.push({ offset, limit });
+        const page = chain.slice(offset, offset + limit);
+        return Promise.resolve(
+          createJsonResponse(page, 200, {
+            "X-Has-More": String(offset + page.length < chain.length),
+            "X-Matching-Count": String(chain.length),
+          }),
+        );
+      });
+      mockStreamFetch.mockResolvedValue(createOpenSseResponse(""));
+
+      service.watch({
+        taskId: "task-1",
+        runId: "run-1",
+        apiHost: "https://app.example.com",
+        teamId: 2,
+      });
+
+      await waitFor(() =>
+        updates.some((u) => (u as { kind?: string }).kind === "snapshot"),
+      );
+
+      const snapshot = updates.find(
+        (u) => (u as { kind?: string }).kind === "snapshot",
+      ) as {
+        newEntries: unknown[];
+        totalEntryCount: number;
+        windowStart?: number;
+      };
+      expect(snapshot.windowStart).toBe(tailStart);
+      expect(snapshot.totalEntryCount).toBe(chain.length);
+      expect(snapshot.newEntries).toHaveLength(TRANSCRIPT_TAIL_WINDOW);
+      expect(snapshot.newEntries[0]).toEqual(chain[tailStart]);
+      expect(logRequests).toEqual([
+        { offset: 0, limit: 1 },
+        { offset: tailStart, limit: TRANSCRIPT_TAIL_WINDOW },
+      ]);
+    },
+  );
+
+  it("sends a host without a tail window the whole chain", async () => {
+    const scopedLog = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    // A host that renders a snapshot as the complete transcript, with no way
+    // to page older history in, must not be handed a window.
+    const unwindowedService = createCloudTaskEngine({
+      auth: mockAuthService as never,
+      analytics: { track: vi.fn() } as never,
+      logger: { ...scopedLog, scope: vi.fn(() => scopedLog) },
+      streamFetch: fetchRouter,
+    });
+    const updates: unknown[] = [];
+    unwindowedService.on(CloudTaskEvent.Update, (payload) =>
+      updates.push(payload),
+    );
+
+    const chain = Array.from({ length: TRANSCRIPT_TAIL_WINDOW + 500 }, () => ({
+      type: "notification",
+      timestamp: "2026-01-01T00:00:00Z",
+      notification: { jsonrpc: "2.0", method: "_posthog/console" },
+    }));
+    mockNetFetch.mockImplementation((input: string | URL | Request) => {
+      const url = new URL(
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url,
+      );
+      if (!url.pathname.includes("/session_logs/")) {
+        return Promise.resolve(
+          createJsonResponse({
+            id: "run-1",
+            status: "in_progress",
+            stage: null,
+            output: null,
+            error_message: null,
+            branch: null,
+            updated_at: "2026-01-01T00:00:00Z",
+          }),
+        );
+      }
+      const offset = Number(url.searchParams.get("offset") ?? "0");
+      const limit = Number(url.searchParams.get("limit"));
+      const page = chain.slice(offset, offset + limit);
+      return Promise.resolve(
+        createJsonResponse(page, 200, {
+          "X-Has-More": String(offset + page.length < chain.length),
+          "X-Matching-Count": String(chain.length),
+        }),
+      );
+    });
+    mockStreamFetch.mockResolvedValue(createOpenSseResponse(""));
+
+    unwindowedService.watch({
+      taskId: "task-1",
+      runId: "run-1",
+      apiHost: "https://app.example.com",
+      teamId: 2,
+    });
+
+    await waitFor(() =>
+      updates.some((u) => (u as { kind?: string }).kind === "snapshot"),
+    );
+
+    const snapshot = updates.find(
+      (u) => (u as { kind?: string }).kind === "snapshot",
+    ) as { newEntries: unknown[]; windowStart?: number };
+    expect(snapshot.windowStart).toBeUndefined();
+    expect(snapshot.newEntries).toHaveLength(chain.length);
+    unwindowedService.unwatchAll();
+  });
+
+  it("replays a window that still covers entries the chain grew past", async () => {
+    const scopedLog = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    const smallWindowService = createCloudTaskEngine({
+      auth: mockAuthService as never,
+      analytics: { track: vi.fn() } as never,
+      logger: { ...scopedLog, scope: vi.fn(() => scopedLog) },
+      streamFetch: fetchRouter,
+      transcriptTailWindow: 3,
+    });
+    const updates: unknown[] = [];
+    smallWindowService.on(CloudTaskEvent.Update, (payload) =>
+      updates.push(payload),
+    );
+
+    const entry = (message: string): Record<string, unknown> => ({
+      type: "notification",
+      timestamp: "2026-01-01T00:00:00Z",
+      notification: {
+        jsonrpc: "2.0",
+        method: "_posthog/console",
+        params: { sessionId: "run-1", level: "info", message },
+      },
+    });
+    const streamed = ["live-1", "live-2", "live-3"].map(entry);
+    // Persisted without ever being emitted: a read-leg switch drops the
+    // stream cursor and leaves the next snapshot to cover the gap.
+    const unemitted = ["gap-1", "gap-2"].map(entry);
+    const chain = [entry("history-0")];
+
+    mockNetFetch.mockImplementation((input: string | URL | Request) => {
+      const url = new URL(
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url,
+      );
+      if (!url.pathname.includes("/session_logs/")) {
+        return Promise.resolve(
+          createJsonResponse({
+            id: "run-1",
+            status: "in_progress",
+            stage: null,
+            output: null,
+            error_message: null,
+            branch: null,
+            updated_at: "2026-01-01T00:00:00Z",
+          }),
+        );
+      }
+      const offset = Number(url.searchParams.get("offset") ?? "0");
+      const limit = Number(url.searchParams.get("limit"));
+      const page = chain.slice(offset, offset + limit);
+      return Promise.resolve(
+        createJsonResponse(page, 200, {
+          "X-Has-More": String(offset + page.length < chain.length),
+          "X-Matching-Count": String(chain.length),
+        }),
+      );
+    });
+    mockStreamFetch.mockResolvedValue(
+      createOpenSseResponse(
+        streamed
+          .map((e, i) => `id: ${i + 1}\ndata: ${JSON.stringify(e)}\n\n`)
+          .join(""),
+      ),
+    );
+
+    smallWindowService.watch({
+      taskId: "task-1",
+      runId: "run-1",
+      apiHost: "https://app.example.com",
+      teamId: 2,
+    });
+
+    await waitFor(() =>
+      updates.some(
+        (u) => (u as { totalEntryCount?: number }).totalEntryCount === 4,
+      ),
+    );
+
+    chain.push(...streamed, ...unemitted);
+    smallWindowService.watch({
+      taskId: "task-1",
+      runId: "run-1",
+      apiHost: "https://app.example.com",
+      teamId: 2,
+    });
+
+    await waitFor(() =>
+      updates.some(
+        (u) =>
+          (u as { kind?: string }).kind === "snapshot" &&
+          (u as { windowStart?: number }).windowStart !== undefined,
+      ),
+    );
+
+    const replayed = updates.find(
+      (u) =>
+        (u as { kind?: string }).kind === "snapshot" &&
+        (u as { windowStart?: number }).windowStart !== undefined,
+    ) as {
+      newEntries: unknown[];
+      totalEntryCount: number;
+      windowStart: number;
+    };
+    expect(replayed.windowStart).toBe(1);
+    expect(replayed.newEntries).toEqual(chain.slice(1));
+    expect(replayed.totalEntryCount).toBe(chain.length);
+    smallWindowService.unwatchAll();
   });
 
   it("replays a resumed run stream so hydration cannot miss its live tail", async () => {
@@ -803,6 +1078,72 @@ describe("CloudTaskEngine", () => {
     });
 
     await waitFor(() => getWatcherEmittedEntryCount() === 0);
+  });
+
+  it("does not replay a snapshot for a subscriber that joins while the watcher is still bootstrapping", async () => {
+    const updates: unknown[] = [];
+    service.on(CloudTaskEvent.Update, (payload) => updates.push(payload));
+
+    const historicalEntry = {
+      type: "notification",
+      timestamp: "2026-01-01T00:00:00Z",
+      notification: {
+        jsonrpc: "2.0",
+        method: "_posthog/console",
+        params: { sessionId: "run-1", level: "info", message: "history" },
+      },
+    };
+
+    mockNetFetch
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          id: "run-1",
+          status: "in_progress",
+          stage: "build",
+          output: null,
+          error_message: null,
+          branch: "main",
+          updated_at: "2026-01-01T00:00:00Z",
+        }),
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse([historicalEntry], 200, { "X-Has-More": "false" }),
+      );
+    mockStreamFetch.mockResolvedValueOnce(createOpenSseResponse(""));
+
+    const input = {
+      taskId: "task-1",
+      runId: "run-1",
+      apiHost: "https://app.example.com",
+      teamId: 2,
+    };
+    service.watch(input);
+    service.watch(input);
+
+    await waitFor(() =>
+      updates.some(
+        (update) => (update as { kind?: string }).kind === "snapshot",
+      ),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const snapshots = updates.filter(
+      (update) => (update as { kind?: string }).kind === "snapshot",
+    );
+    expect(snapshots).toHaveLength(1);
+    // One history page for the bootstrap: the second watch fetched nothing.
+    const historyFetches = mockNetFetch.mock.calls.filter(([input]) =>
+      String(input instanceof Request ? input.url : input).includes(
+        "/session_logs/",
+      ),
+    );
+    expect(historyFetches).toHaveLength(1);
+
+    // The second subscriber still counts, so one unwatch keeps the watcher up.
+    service.unwatch("task-1", "run-1");
+    const watchers = (service as unknown as { watchers: Map<string, unknown> })
+      .watchers;
+    expect(watchers.has("task-1:run-1")).toBe(true);
   });
 
   it("ignores keepalive SSE events while keeping the stream open", async () => {

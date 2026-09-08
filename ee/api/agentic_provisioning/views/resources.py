@@ -21,6 +21,7 @@ from posthog.models.user import User
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.credentials import maybe_create_provisioned_pat
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
+from ee.api.agentic_provisioning.ratelimits import Budget, rate_limited
 from ee.api.agentic_provisioning.regions import current_region_host
 from ee.api.agentic_provisioning.serializers import (
     GitHubIntegrationSerializer,
@@ -29,7 +30,6 @@ from ee.api.agentic_provisioning.serializers import (
     WizardRunSerializer,
 )
 from ee.api.agentic_provisioning.teams import ProjectIdCollisionError, resolve_or_create_project_team
-from ee.api.agentic_provisioning.throttling import ResourceCreatesThrottle
 from ee.api.agentic_provisioning.tokens import remove_team_from_token_scopes
 from ee.api.agentic_provisioning.views.base import BearerResourceAPIView
 from ee.api.agentic_provisioning.wizard import create_wizard_run, link_github_grant_to_team
@@ -67,8 +67,7 @@ def _access_configuration_response(
 
 
 class ResourcesCreateView(BearerResourceAPIView):
-    partner_throttle_classes = [ResourceCreatesThrottle]
-
+    @rate_limited("resource_creates", budget=Budget(burst=10, per_hour=30))
     def post(self, request: Request) -> Response:
         user = cast(User, request.user)
         access_token = cast(OAuthAccessToken, request.auth)
@@ -115,6 +114,9 @@ class ResourcesCreateView(BearerResourceAPIView):
                     "resource_created", "error", partner=app, error_code="team_not_found", team_id=team_id
                 )
                 raise ProvisioningError("team_not_found", "Team not found", resource_id=str(team_id), status=404)
+            # The project_id branch above re-checks access inside resolve_or_create_project_team;
+            # this branch takes the team straight off the token's scope, so it checks here.
+            self.assert_team_access(team, access_token, resource_id=str(team_id))
 
         capture_provisioning_event(
             "resource_created",
@@ -133,6 +135,7 @@ class ResourcesCreateView(BearerResourceAPIView):
 
 
 class ResourceDetailView(BearerResourceAPIView):
+    @rate_limited("resource_reads")
     def get(self, request: Request, resource_id: str) -> Response:
         user = cast(User, request.user)
         access_token = cast(OAuthAccessToken, request.auth)
@@ -150,6 +153,7 @@ class ResourceDetailView(BearerResourceAPIView):
 
 
 class RotateCredentialsView(BearerResourceAPIView):
+    @rate_limited("credential_rotations")
     def post(self, request: Request, resource_id: str) -> Response:
         user = cast(User, request.user)
         access_token = cast(OAuthAccessToken, request.auth)
@@ -188,6 +192,7 @@ class ResourceRemoveView(BearerResourceAPIView):
     scope and clears provisioning metadata. Preserves the underlying team and
     user data so the customer can still access PostHog directly."""
 
+    @rate_limited("resource_removals")
     def post(self, request: Request, resource_id: str) -> Response:
         access_token = cast(OAuthAccessToken, request.auth)
 
@@ -215,6 +220,7 @@ class ResourceRemoveView(BearerResourceAPIView):
 class GitHubIntegrationView(BearerResourceAPIView):
     """Link a GitHub installation to the team from a stored grant."""
 
+    @rate_limited("github_integrations")
     def post(self, request: Request, resource_id: str) -> Response:
         user = cast(User, request.user)
         access_token = cast(OAuthAccessToken, request.auth)
@@ -256,6 +262,10 @@ class WizardRunsView(BearerResourceAPIView):
     this endpoint and the account-request wizard block alike.
     """
 
+    # charge="manual": the charge lives inside create_wizard_run, which the bundled
+    # account-request wizard block also calls, so retries can't double-spend and the
+    # capability check runs before any quota is spent on either path.
+    @rate_limited("wizard_runs", charge="manual")
     def post(self, request: Request, resource_id: str) -> Response:
         user = cast(User, request.user)
         access_token = cast(OAuthAccessToken, request.auth)

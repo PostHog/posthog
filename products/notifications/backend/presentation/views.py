@@ -1,6 +1,9 @@
+from collections.abc import Sequence
 from datetime import datetime
 from typing import cast
+from uuid import UUID
 
+from django.db import transaction
 from django.db.models import Exists, OuterRef, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_datetime
@@ -18,8 +21,8 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models import User
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.notifications.backend.cache import get_unread_count, invalidate_unread_count, set_unread_count
 from products.notifications.backend.facade.enums import AC_RESOURCE_TYPES
 from products.notifications.backend.models import NotificationArchiveState, NotificationEvent, NotificationReadState
@@ -356,6 +359,23 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             invalidate_unread_count(user.id, self.team.organization_id)
         return Response({"updated": len(eligible_ids)})
 
+    # `Sequence`, not `list`: the viewset defines a `list` action, which shadows the builtin
+    # when this annotation is evaluated in the class body.
+    def _archive_events(self, user: User, event_ids: Sequence[UUID]) -> None:
+        # Archiving takes a notification out of the unread count, so the read state has to follow.
+        # Read and archive are independent tables, so without this an archived notification keeps
+        # `read: false` and the archived list shows it as unread.
+        with transaction.atomic():
+            NotificationArchiveState.objects.bulk_create(
+                [NotificationArchiveState(notification_event_id=eid, user=user) for eid in event_ids],
+                ignore_conflicts=True,
+            )
+            NotificationReadState.objects.bulk_create(
+                [NotificationReadState(notification_event_id=eid, user=user) for eid in event_ids],
+                ignore_conflicts=True,
+            )
+        invalidate_unread_count(user.id, self.team.organization_id)
+
     @extend_schema(request=None)
     @action(methods=["POST"], detail=True, url_path="archive")
     def archive(self, request: Request, **kwargs) -> Response:
@@ -364,8 +384,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         user = self._get_user()
         event = self._get_recipient_event_or_404()
-        NotificationArchiveState.objects.get_or_create(notification_event=event, user=user)
-        invalidate_unread_count(user.id, self.team.organization_id)
+        self._archive_events(user, [event.id])
         return Response({"status": "ok"})
 
     @validated_request(request_serializer=BulkNotificationIdsRequestSerializer)
@@ -387,9 +406,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             ).values_list("id", flat=True)
         )
         if eligible_ids:
-            archive_states = [NotificationArchiveState(notification_event_id=eid, user=user) for eid in eligible_ids]
-            NotificationArchiveState.objects.bulk_create(archive_states, ignore_conflicts=True)
-            invalidate_unread_count(user.id, self.team.organization_id)
+            self._archive_events(user, eligible_ids)
         return Response({"updated": len(eligible_ids)})
 
     @extend_schema(request=None)
@@ -402,7 +419,5 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         queryset = self._get_base_queryset().filter(archived=False)
         event_ids = list(queryset.values_list("id", flat=True))
         if event_ids:
-            archive_states = [NotificationArchiveState(notification_event_id=eid, user=user) for eid in event_ids]
-            NotificationArchiveState.objects.bulk_create(archive_states, ignore_conflicts=True)
-            invalidate_unread_count(user.id, self.team.organization_id)
+            self._archive_events(user, event_ids)
         return Response({"updated": len(event_ids)})

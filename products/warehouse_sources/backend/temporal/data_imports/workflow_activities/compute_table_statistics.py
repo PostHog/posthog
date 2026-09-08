@@ -210,7 +210,9 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
     capture_statistics_event(team, EVENT_STARTED, event_props)
 
     # Locate the committed Delta table. folder_path is schema-derived, so any job for this schema works;
-    # resource_name mirrors what the pipeline used to name the Delta folder.
+    # resource_name must resolve the folder leaf the same way the loader wrote it (see
+    # resolve_table_and_folder_names in pipelines/helpers.py), otherwise this reads a path that
+    # does not exist and reports no statistics.
     job = ExternalDataJob.objects.filter(team_id=team_id, schema_id=schema_id).order_by("-created_at").first()
     if job is None:
         emit_completed("skipped", reason="no_job")

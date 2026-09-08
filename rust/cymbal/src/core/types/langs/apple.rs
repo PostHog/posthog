@@ -10,7 +10,7 @@ use crate::{
     error::{AppleError, FrameError, ResolveError, UnhandledError},
     frames::{record_frame_resolution_failure, Frame},
     langs::native::{self, DebugImage},
-    langs::utils::{add_raw_to_junk, get_context_lines},
+    langs::utils::{add_raw_to_junk, get_context_lines, is_kotlin_compose_source},
     langs::CommonFrameMetadata,
     symbolication::symbol_store::{
         apple::AppleRef,
@@ -66,6 +66,16 @@ fn is_system_module(module: &Option<String>) -> bool {
             .iter()
             .any(|prefix| m.starts_with(prefix))
     })
+}
+
+fn resolved_in_app(
+    module: &Option<String>,
+    source_path: Option<&str>,
+    client_in_app: bool,
+) -> bool {
+    let generated_or_dependency = source_path
+        .is_some_and(|path| path == "<compiler-generated>" || is_kotlin_compose_source(path));
+    client_in_app && !is_system_module(module) && !generated_or_dependency
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -196,16 +206,13 @@ impl RawAppleFrame {
     }
 
     fn build_resolved_frame(&self, symbol_info: &SymbolInfo, _debug_image: &DebugImage) -> Frame {
-        // Override in_app to false for system frameworks or compiler-generated code
-        let is_compiler_generated = symbol_info
-            .filename
-            .as_ref()
-            .is_some_and(|f| f == "<compiler-generated>");
-        let in_app = if is_system_module(&self.module) || is_compiler_generated {
-            false
-        } else {
-            self.meta.in_app
-        };
+        // Kotlin/Native links Compose into the application binary.
+        // Only the resolved source path identifies those frames as dependency code.
+        let source_path = symbol_info
+            .full_path
+            .as_deref()
+            .or(symbol_info.filename.as_deref());
+        let in_app = resolved_in_app(&self.module, source_path, self.meta.in_app);
 
         let mut f = Frame {
             frame_id: FrameId::placeholder(),
@@ -250,16 +257,7 @@ impl RawAppleFrame {
             None
         };
 
-        // Override in_app to false for system frameworks or compiler-generated code
-        let is_compiler_generated = self
-            .filename
-            .as_ref()
-            .is_some_and(|f| f == "<compiler-generated>");
-        let in_app = if is_system_module(&self.module) || is_compiler_generated {
-            false
-        } else {
-            self.meta.in_app
-        };
+        let in_app = resolved_in_app(&self.module, self.filename.as_deref(), self.meta.in_app);
 
         // For unresolved frames without a filename, show "Module +image_addr" as source.
         // This is typically for Apple system frameworks (CoreFoundation, UIKitCore, etc.)
@@ -358,6 +356,7 @@ impl RawAppleFrame {
 fn lang_from_filename(filename: Option<&str>) -> &'static str {
     match filename.and_then(|f| f.rsplit('.').next()) {
         Some("swift") => "swift",
+        Some("kt" | "kts") => "kotlin",
         Some("m") => "objectivec",
         Some("mm") => "objectivecpp",
         Some("c") => "c",
@@ -399,6 +398,32 @@ impl From<&RawAppleFrame> for Frame {
 mod test {
     use super::*;
     use crate::core::symbolication::resolve::Resolve;
+
+    #[test]
+    fn resolved_kotlin_frame_classification() {
+        let module = Some("ExampleApp".to_string());
+        assert!(resolved_in_app(
+            &module,
+            Some("/project/src/commonMain/kotlin/com/example/App.kt"),
+            true
+        ));
+        assert!(!resolved_in_app(
+            &module,
+            Some("/dependencies/compose/ui/src/commonMain/kotlin/androidx/compose/ui/Button.kt"),
+            true
+        ));
+        assert!(!resolved_in_app(
+            &module,
+            Some("/project/src/commonMain/kotlin/com/example/App.kt"),
+            false
+        ));
+    }
+
+    #[test]
+    fn identifies_kotlin_source_language() {
+        assert_eq!(lang_from_filename(Some("App.kt")), "kotlin");
+        assert_eq!(lang_from_filename(Some("Build.kts")), "kotlin");
+    }
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
     async fn test_apple_symbolication(db: sqlx::PgPool) {

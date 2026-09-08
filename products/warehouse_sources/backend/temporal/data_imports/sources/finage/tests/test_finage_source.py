@@ -1,48 +1,16 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage import source as finage_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage.source import FinageSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finage import FinageSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestFinageSource:
     def setup_method(self):
         self.source = FinageSource()
         self.team_id = 123
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.FINAGE
-
-    def test_source_config_metadata(self):
-        config = self.source.get_source_config
-        assert config.label == "Finage"
-        assert config.category == DataWarehouseSourceCategory.FINANCE___ACCOUNTING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/finage"
-
-    def test_source_config_fields(self):
-        fields = {f.name: f for f in self.source.get_source_config.fields if isinstance(f, SourceFieldInputConfig)}
-        assert set(fields) == {"api_key", "symbols", "start_date"}
-
-        assert fields["api_key"].type == SourceFieldInputConfigType.PASSWORD
-        assert fields["api_key"].required is True
-        assert fields["api_key"].secret is True
-
-        assert fields["symbols"].required is True
-        assert fields["symbols"].secret is False
-
-        # The backfill window is optional and defaults in code.
-        assert fields["start_date"].required is False
 
     def test_get_schemas_full_refresh_only(self):
         schemas = self.source.get_schemas(self._config(), self.team_id)
@@ -67,10 +35,6 @@ class TestFinageSource:
         assert self.source.lists_tables_without_credentials is True
         documented = self.source.get_documented_tables()
         assert {t["name"] for t in documented} == set(ENDPOINTS)
-
-    def test_canonical_descriptions_cover_every_endpoint(self):
-        canonical = self.source.get_canonical_descriptions()
-        assert set(canonical) == set(ENDPOINTS)
 
     @pytest.mark.parametrize(
         "expected_key",

@@ -1,0 +1,38 @@
+rules:
+    - id: clickhouse-migrations-use-run-mode
+      message: |
+          ClickHouse migration compares `settings.CLOUD_DEPLOYMENT` directly.
+
+          Use `posthog.run_mode` so every migration spells the same environment the same way:
+
+              from posthog.run_mode import RunMode, run_mode
+
+              # skip off deployed cloud (US/EU/DEV), the usual gate
+              operations = [...] if run_mode().is_deployed_cloud else []
+
+              # customer-facing cloud only, excluding staging
+              if run_mode().is_prod_cloud: ...
+
+              # a single region
+              if run_mode() is RunMode.CLOUD_US: ...
+
+          Note `run_mode().is_deployed_cloud` excludes E2E, matching what the raw
+          `("US", "EU", "DEV")` tuple meant. `run_mode().is_cloud` includes it, which is
+          `posthog.cloud_utils.is_cloud`, which is not what a migration wants.
+
+          Resolve the mode inside the call, never into a module-level constant:
+          `posthog/clickhouse/test/test_migrations.py` re-imports each migration under a
+          patched `posthog.settings.CLOUD_DEPLOYMENT` to check every deployment's branch.
+
+          For a genuine exception, add
+          `# nosemgrep: clickhouse-migrations-use-run-mode -- <reason>` at the call site.
+      severity: ERROR
+      languages: [python]
+      paths:
+          include:
+              - 'posthog/clickhouse/migrations/**/*.py'
+      pattern: $S.CLOUD_DEPLOYMENT
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit

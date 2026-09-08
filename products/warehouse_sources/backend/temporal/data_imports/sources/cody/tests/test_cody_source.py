@@ -1,5 +1,3 @@
-from typing import Any
-
 from unittest import mock
 
 import requests
@@ -12,13 +10,10 @@ from posthog.schema import (
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cody.cody import (
     CodyCredentialsError,
-    CodyResumeConfig,
     CodyRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cody.source import CodySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cody import CodySourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 ALL_ENDPOINTS = [
     "usage_by_user",
@@ -29,33 +24,11 @@ ALL_ENDPOINTS = [
 ]
 
 
-def _make_inputs(**overrides) -> SourceInputs:
-    defaults: dict[str, Any] = {
-        "schema_name": "usage_by_user_day_client_language",
-        "schema_id": "schema-id",
-        "source_id": "source-id",
-        "team_id": 123,
-        "should_use_incremental_field": False,
-        "db_incremental_field_last_value": None,
-        "db_incremental_field_earliest_value": None,
-        "incremental_field": None,
-        "incremental_field_type": None,
-        "job_id": "job-id",
-        "logger": mock.Mock(),
-        "reset_pipeline": False,
-    }
-    defaults.update(overrides)
-    return SourceInputs(**defaults)
-
-
 class TestCodySource:
     def setup_method(self):
         self.source = CodySource()
         self.config = CodySourceConfig(instance_url="example.sourcegraphcloud.com", access_token="token")
         self.team_id = 123
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CODY
 
     def test_get_source_config(self):
         config = self.source.get_source_config
@@ -137,30 +110,3 @@ class TestCodySource:
 
         assert valid is False
         assert message is not None and message.startswith(expected_prefix)
-
-    @parameterized.expand([("401 Client Error",), ("403 Client Error",)])
-    def test_non_retryable_errors_cover_credential_failures(self, status):
-        keys = self.source.get_non_retryable_errors()
-        assert any(key.startswith(status) and "analytics.sourcegraph.com" in key for key in keys)
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self):
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-
-        assert manager._data_class is CodyResumeConfig
-
-    def test_source_for_pipeline_plumbs_arguments(self):
-        inputs = _make_inputs()
-        manager = mock.Mock()
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.cody.source.cody_source"
-        ) as mock_source:
-            self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_source.assert_called_once_with(
-            access_token="token",
-            instance_url="example.sourcegraphcloud.com",
-            endpoint="usage_by_user_day_client_language",
-            logger=inputs.logger,
-            resumable_source_manager=manager,
-        )

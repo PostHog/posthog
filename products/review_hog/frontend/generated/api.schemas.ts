@@ -497,7 +497,7 @@ export interface ReviewTriggerRequestApi {
 export interface ReviewTriggerResponseApi {
     /** Temporal workflow id for the started review run; empty when no run was started. */
     workflow_id: string
-    /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review (no new run starts). */
+    /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review (no new run starts), 'joined_running_review' when a review was already in flight (no new run starts; a report in a cheaper tier is lifted to human strength for the rest of that review and every later one). */
     status: string
 }
 
@@ -511,9 +511,10 @@ export interface ReviewTriggerErrorApi {
  * * `should_fix` - Should Fix
  * * `must_fix` - Must Fix
  */
-export type UrgencyThresholdEnumApi = (typeof UrgencyThresholdEnumApi)[keyof typeof UrgencyThresholdEnumApi]
+export type ReviewUserSettingsUrgencyThresholdEnumApi =
+    (typeof ReviewUserSettingsUrgencyThresholdEnumApi)[keyof typeof ReviewUserSettingsUrgencyThresholdEnumApi]
 
-export const UrgencyThresholdEnumApi = {
+export const ReviewUserSettingsUrgencyThresholdEnumApi = {
     Consider: 'consider',
     ShouldFix: 'should_fix',
     MustFix: 'must_fix',
@@ -533,7 +534,7 @@ export interface ReviewUserSettingsApi {
      * * `consider` - Consider
      * * `should_fix` - Should Fix
      * * `must_fix` - Must Fix */
-    urgency_threshold?: UrgencyThresholdEnumApi
+    urgency_threshold?: ReviewUserSettingsUrgencyThresholdEnumApi
     /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog teams while the product is in alpha). */
     readonly can_trigger_reviews: boolean
     /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
@@ -554,7 +555,7 @@ export interface PatchedReviewUserSettingsApi {
      * * `consider` - Consider
      * * `should_fix` - Should Fix
      * * `must_fix` - Must Fix */
-    urgency_threshold?: UrgencyThresholdEnumApi
+    urgency_threshold?: ReviewUserSettingsUrgencyThresholdEnumApi
     /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog teams while the product is in alpha). */
     readonly can_trigger_reviews?: boolean
     /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */

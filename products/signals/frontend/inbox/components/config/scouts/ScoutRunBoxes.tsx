@@ -7,6 +7,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { SignalScoutRunSummary } from '../../../types'
 import {
     deriveRunOutcome,
+    formatRunCost,
     formatRunDuration,
     runDurationSeconds,
     ScoutRunOutcome,
@@ -32,7 +33,7 @@ const OUTCOME_BOX_CLASS: Record<ScoutRunOutcome, string> = {
 const MAX_BOXES = 24
 const BOX_CLASS = 'block h-3 w-2 shrink-0 rounded-[2px] transition-transform duration-100 hover:scale-y-125'
 
-function runTooltip(run: SignalScoutRunSummary, now: Date): string {
+function runTooltip(run: SignalScoutRunSummary, now: Date, costUsd: number | undefined): string {
     const parts = [scoutRunOutcomeLabel(run, now)]
     const duration = formatRunDuration(runDurationSeconds(run, now))
     if (duration) {
@@ -40,6 +41,11 @@ function runTooltip(run: SignalScoutRunSummary, now: Date): string {
     }
     if (run.started_at) {
         parts.push(humanFriendlyDetailedTime(run.started_at))
+    }
+    // Only staff are given costs, and only for runs with model spend attributed to them, so the
+    // rest of the tooltip reads the same as before.
+    if (costUsd !== undefined) {
+        parts.push(formatRunCost(costUsd))
     }
     return parts.join(' · ')
 }
@@ -51,18 +57,28 @@ function runTooltip(run: SignalScoutRunSummary, now: Date): string {
  *
  * Laid out with `flex-row-reverse` (newest first in the DOM) so that when the
  * row is too narrow for every box the container clips the oldest runs off the
- * left edge, keeping the most recent activity — and the controls column to the
- * right — always visible.
+ * left edge, keeping the most recent activity always visible.
+ *
+ * The strip therefore hangs off the RIGHT of whatever contains it, and it should stay that way:
+ * scouts hold different numbers of runs, so right-anchoring puts every row's newest run on one
+ * vertical line. Left-aligning instead scatters the newest run across the column by run count,
+ * which is the one box a reader is scanning for.
  */
-export function ScoutRunBoxes({ runs }: { runs: SignalScoutRunSummary[] }): JSX.Element | null {
+export function ScoutRunBoxes({
+    runs,
+    costs,
+}: {
+    runs: SignalScoutRunSummary[]
+    costs?: Map<string, number>
+}): JSX.Element | null {
     const visible = useMemo(() => {
         const now = new Date()
         return runs.slice(-MAX_BOXES).map((run) => ({
             run,
             outcome: deriveRunOutcome(run, now),
-            tooltip: runTooltip(run, now),
+            tooltip: runTooltip(run, now, costs?.get(run.run_id)),
         }))
-    }, [runs])
+    }, [runs, costs])
 
     if (runs.length === 0) {
         return null

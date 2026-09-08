@@ -10,6 +10,39 @@ describe("PostHogAPIClient", () => {
     vi.clearAllMocks();
   });
 
+  it.each([
+    [
+      "keeps known and backend-only fields",
+      { reasoning_effort: "xhigh", backend_only: "kept" },
+      { reasoning_effort: "xhigh", backend_only: "kept" },
+    ],
+    [
+      "drops an unreadable reasoning effort",
+      { reasoning_effort: 123, initial_prompt_override: "run this" },
+      { initial_prompt_override: "run this" },
+    ],
+    [
+      "drops an unreadable permission mode",
+      { initial_permission_mode: "invented", prewarmed: true },
+      { prewarmed: true },
+    ],
+    ["falls back to an empty state", null, {}],
+  ])("reads task-run state and %s", async (_label, state, expected) => {
+    const client = new PostHogAPIClient({
+      apiUrl: "https://app.posthog.com",
+      getApiKey: vi.fn().mockResolvedValue("token"),
+      projectId: 1,
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: vi.fn().mockResolvedValue({ id: "run-1", state }),
+    });
+
+    const run = await client.getTaskRun("task-1", "run-1");
+
+    expect(run.state).toEqual(expected);
+  });
+
   it("refreshes once when fetching task run logs gets an auth failure", async () => {
     const getApiKey = vi.fn().mockResolvedValue("stale-token");
     const refreshApiKey = vi.fn().mockResolvedValue("fresh-token");
@@ -44,6 +77,49 @@ describe("PostHogAPIClient", () => {
     expect(getApiKey).toHaveBeenCalledTimes(1);
     expect(refreshApiKey).toHaveBeenCalledTimes(1);
     expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not refresh or retry when the API answers 403", async () => {
+    // A 403 is a permission denial a fresh token cannot fix. Forcing a
+    // refresh on each one rotates the refresh token and rebuilds the whole
+    // desktop session, which unmounts the app into its loading screen.
+    const getApiKey = vi.fn().mockResolvedValue("token");
+    const refreshApiKey = vi.fn().mockResolvedValue("fresh-token");
+    const client = new PostHogAPIClient({
+      apiUrl: "https://app.posthog.com",
+      getApiKey,
+      refreshApiKey,
+      projectId: 1,
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      statusText: "Forbidden",
+      json: vi.fn().mockResolvedValue({ detail: "forbidden" }),
+    });
+
+    await expect(client.getTaskRun("task-1", "run-1")).rejects.toThrow("[403]");
+
+    expect(refreshApiKey).not.toHaveBeenCalled();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  // The lookup gates session start, so a stalled socket must degrade to null
+  // rather than hang. The bound is what makes the best-effort catch reachable.
+  it("bounds the user-node lookup and returns null when it times out", async () => {
+    const client = new PostHogAPIClient({
+      apiUrl: "https://app.posthog.com",
+      getApiKey: vi.fn().mockResolvedValue("token"),
+      projectId: 1,
+    });
+    mockFetch.mockRejectedValue(
+      new DOMException("The operation was aborted.", "TimeoutError"),
+    );
+
+    await expect(client.getUserNode()).resolves.toBeNull();
+
+    const init = mockFetch.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
   });
 
   it("loads policies for managed MCP servers and keeps unmanaged servers", async () => {

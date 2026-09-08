@@ -2,8 +2,44 @@ import { Meta } from '@storybook/react'
 
 import type { Mocks } from '~/mocks/utils'
 
+import { actionsEmptyState } from 'products/actions/frontend/emptyState/actionsEmptyState'
 import { aiObservabilityEmptyState } from 'products/ai_observability/frontend/emptyState/aiObservabilityEmptyState'
+import { clustersEmptyState } from 'products/ai_observability/frontend/emptyState/clustersEmptyState'
+import { datasetsEmptyState } from 'products/ai_observability/frontend/emptyState/datasetsEmptyState'
+import { evaluationsEmptyState } from 'products/ai_observability/frontend/emptyState/evaluationsEmptyState'
+import { llmPromptsEmptyState } from 'products/ai_observability/frontend/emptyState/llmPromptsEmptyState'
+import { alertsEmptyState } from 'products/alerts/frontend/emptyState/alertsEmptyState'
+import { annotationsEmptyState } from 'products/annotations/frontend/emptyState/annotationsEmptyState'
+import { businessKnowledgeEmptyState } from 'products/business_knowledge/frontend/emptyState/businessKnowledgeEmptyState'
+import { webScriptsEmptyState } from 'products/cdp/frontend/emptyState/webScriptsEmptyState'
+import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsEmptyState'
+import { supportEmptyState } from 'products/conversations/frontend/emptyState/supportEmptyState'
+import { customerAnalyticsEmptyState } from 'products/customer_analytics/frontend/emptyState/customerAnalyticsEmptyState'
+import { dashboardsEmptyState } from 'products/dashboards/frontend/emptyState/dashboardsEmptyState'
+import { dataCatalogEmptyState } from 'products/data_catalog/frontend/emptyState/dataCatalogEmptyState'
+import { dataWarehouseEmptyState } from 'products/data_warehouse/frontend/emptyState/dataWarehouseEmptyState'
+import { earlyAccessFeaturesEmptyState } from 'products/early_access_features/frontend/emptyState/earlyAccessFeaturesEmptyState'
+import { endpointsEmptyState } from 'products/endpoints/frontend/emptyState/endpointsEmptyState'
+import { errorTrackingEmptyState } from 'products/error_tracking/frontend/emptyState/errorTrackingEmptyState'
+import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
+import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
+import { linksEmptyState } from 'products/links/frontend/emptyState/linksEmptyState'
+import { logsEmptyState } from 'products/logs/frontend/emptyState/logsEmptyState'
+import { marketingAnalyticsEmptyState } from 'products/marketing_analytics/frontend/emptyState/marketingAnalyticsEmptyState'
 import { mcpAnalyticsEmptyState } from 'products/mcp_analytics/frontend/emptyState/mcpAnalyticsEmptyState'
+import { metricsEmptyState } from 'products/metrics/frontend/emptyState/metricsEmptyState'
+import { notebooksEmptyState } from 'products/notebooks/frontend/emptyState/notebooksEmptyState'
+import { productAnalyticsEmptyState } from 'products/product_analytics/frontend/emptyState/productAnalyticsEmptyState'
+import { productToursEmptyState } from 'products/product_tours/frontend/emptyState/productToursEmptyState'
+import { sessionReplayEmptyState } from 'products/replay/frontend/emptyState/sessionReplayEmptyState'
+import { replayVisionEmptyState } from 'products/replay_vision/frontend/emptyState/replayVisionEmptyState'
+import { llmSkillsEmptyState } from 'products/skills/frontend/emptyState/llmSkillsEmptyState'
+import { subscriptionsEmptyState } from 'products/subscriptions/frontend/emptyState/subscriptionsEmptyState'
+import { surveysEmptyState } from 'products/surveys/frontend/emptyState/surveysEmptyState'
+import { tracingEmptyState } from 'products/tracing/frontend/emptyState/tracingEmptyState'
+import { userInterviewsEmptyState } from 'products/user_interviews/frontend/emptyState/userInterviewsEmptyState'
+import { webVitalsEmptyState } from 'products/web_analytics/frontend/emptyState/webVitalsEmptyState'
+import { workflowsEmptyState } from 'products/workflows/frontend/emptyState/workflowsEmptyState'
 
 import { ProductEmptyState } from './ProductEmptyState'
 import { ProductEmptyStateStory, productEmptyStateStory } from './storybookHelpers'
@@ -54,8 +90,330 @@ export const MCPAnalyticsWithoutWizard: ProductEmptyStateStory = productEmptySta
     { config: { wizard: undefined }, mocks: mcpSignalMocks(false) }
 )
 
+// The detection logics for flags and experiments count entities on mount - answer
+// with an empty list so the story renders the shipped needs-setup surface.
+const emptyEntityList = { count: 0, next: null, previous: null, results: [] }
+
+export const FeatureFlagsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    featureFlagsEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/feature_flags/': [200, emptyEntityList] } } }
+)
+
+export const ExperimentsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    experimentsEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/experiments/': [200, emptyEntityList] } } }
+)
+
+export const EarlyAccessFeaturesNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    earlyAccessFeaturesEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/early_access_feature/': [200, emptyEntityList] } } }
+)
+
+export const LLMPromptsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    llmPromptsEmptyState,
+    'needs-setup',
+    {
+        mocks: { get: { '/api/projects/:team_id/llm_prompts/': [200, emptyEntityList] } },
+    }
+)
+
+export const SkillsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(llmSkillsEmptyState, 'needs-setup', {
+    mocks: { get: { '/api/projects/:team_id/llm_skills/': [200, emptyEntityList] } },
+})
+
+export const DatasetsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(datasetsEmptyState, 'needs-setup', {
+    mocks: { get: { '/api/projects/:team_id/datasets/': [200, emptyEntityList] } },
+})
+
+export const EvaluationsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    evaluationsEmptyState,
+    'needs-setup',
+    {
+        mocks: {
+            get: {
+                '/api/projects/:team_id/evaluations/': [200, emptyEntityList],
+                '/api/projects/:team_id/evaluation_directories/': [200, []],
+            },
+        },
+    }
+)
+
+// Clusters detection is three-state: no AI events, AI events but no clustering run
+// yet, and runs. The default query mock answers the run query with no rows.
+export const ClustersNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(clustersEmptyState, 'needs-setup')
+
+export const ClustersWaitingForData: ProductEmptyStateStory = productEmptyStateStory(
+    clustersEmptyState,
+    'waiting-for-data'
+)
+
+export const BusinessKnowledgeNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    businessKnowledgeEmptyState,
+    'needs-setup',
+    {
+        mocks: { get: { '/api/projects/:team_id/business_knowledge/sources/': [200, emptyEntityList] } },
+    }
+)
+
+export const EndpointsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(endpointsEmptyState, 'needs-setup', {
+    mocks: { get: { '/api/projects/:team_id/endpoints/': [200, emptyEntityList] } },
+})
+
+export const UserInterviewsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    userInterviewsEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/user_interview_topics/': [200, emptyEntityList] } } }
+)
+
+export const LinksNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(linksEmptyState, 'needs-setup', {
+    mocks: { get: { '/api/projects/:team_id/links/': [200, emptyEntityList] } },
+})
+
+export const ProductToursNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    productToursEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/product_tours/': [200, emptyEntityList] } } }
+)
+
+export const SupportNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(supportEmptyState, 'needs-setup', {
+    mocks: { get: { '/api/projects/:team_id/conversations/tickets/': [200, emptyEntityList] } },
+})
+
+export const SupportWaitingForData: ProductEmptyStateStory = productEmptyStateStory(
+    supportEmptyState,
+    'waiting-for-data',
+    { mocks: { get: { '/api/projects/:team_id/conversations/tickets/': [200, emptyEntityList] } } }
+)
+
+export const WebScriptsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    webScriptsEmptyState,
+    'needs-setup',
+    {
+        mocks: { get: { '/api/projects/:team_id/hog_functions/': [200, emptyEntityList] } },
+    }
+)
+
 // AI observability detection is binary (no waiting-for-data middle state).
 export const AIObservabilityNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
     aiObservabilityEmptyState,
+    'needs-setup'
+)
+
+// Replay vision detection is binary too (a scanner is the unit of setup); its
+// detection logic polls the scanner stats endpoint, so answer it with zeros.
+export const ReplayVisionNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    replayVisionEmptyState,
+    'needs-setup',
+    {
+        mocks: {
+            get: {
+                '/api/projects/:team_id/vision/scanners/stats/': {
+                    total: 0,
+                    enabled: 0,
+                    by_type: {
+                        monitor: { enabled: 0, total: 0 },
+                        classifier: { enabled: 0, total: 0 },
+                        scorer: { enabled: 0, total: 0 },
+                        summarizer: { enabled: 0, total: 0 },
+                    },
+                },
+            },
+        },
+    }
+)
+
+// Actions detection lists actions on mount - answer "none yet".
+const actionsMocks = {
+    get: { '/api/projects/:team_id/actions/': [200, { count: 0, results: [] }] },
+} as const
+
+export const ActionsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(actionsEmptyState, 'needs-setup', {
+    mocks: actionsMocks,
+})
+
+// Annotations detection lists annotations on mount - answer "none yet".
+const annotationsMocks = {
+    get: { '/api/projects/:team_id/annotations/': [200, { count: 0, results: [] }] },
+} as const
+
+export const AnnotationsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    annotationsEmptyState,
+    'needs-setup',
+    { mocks: annotationsMocks }
+)
+
+// Cohorts detection lists cohorts on mount - answer "none yet".
+const cohortsMocks = {
+    get: { '/api/projects/:team_id/cohorts/': [200, { count: 0, results: [] }] },
+} as const
+
+export const CohortsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(cohortsEmptyState, 'needs-setup', {
+    mocks: cohortsMocks,
+})
+
+// Dashboards detection lists dashboards on mount - answer "none yet".
+const dashboardsMocks = {
+    get: { '/api/projects/:team_id/dashboards/': [200, { count: 0, results: [] }] },
+} as const
+
+export const DashboardsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    dashboardsEmptyState,
+    'needs-setup',
+    { mocks: dashboardsMocks }
+)
+
+// Product analytics detection lists insights on mount - answer "none yet".
+const productAnalyticsMocks = {
+    get: { '/api/projects/:team_id/insights/': [200, { count: 0, results: [] }] },
+} as const
+
+export const ProductAnalyticsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    productAnalyticsEmptyState,
+    'needs-setup',
+    { mocks: productAnalyticsMocks }
+)
+
+// Error tracking detection asks the issues-exists API on mount - answer "none yet".
+const errorTrackingMocks = {
+    get: { '/api/projects/:team_id/error_tracking/issues/exists/': [200, { exists: false }] },
+} as const
+
+export const ErrorTrackingNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    errorTrackingEmptyState,
+    'needs-setup',
+    { mocks: errorTrackingMocks }
+)
+
+export const ErrorTrackingWaitingForData: ProductEmptyStateStory = productEmptyStateStory(
+    errorTrackingEmptyState,
+    'waiting-for-data',
+    { mocks: errorTrackingMocks }
+)
+
+// Logs detection asks the has-logs API on mount - answer "none yet".
+export const LogsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(logsEmptyState, 'needs-setup', {
+    // nosemgrep: no-environments-api-urls-frontend -- api.logs is env-scoped, so the msw mock must match /api/environments to intercept it
+    mocks: { get: { '/api/environments/:team_id/logs/has_logs': [200, { hasLogs: false }] } },
+})
+
+// Tracing detection asks the has-spans API on mount - answer "none yet".
+export const TracingNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(tracingEmptyState, 'needs-setup', {
+    // nosemgrep: no-environments-api-urls-frontend -- api.tracing is env-scoped, so the msw mock must match /api/environments to intercept it
+    mocks: { get: { '/api/environments/:team_id/tracing/spans/has_spans': [200, { hasSpans: false }] } },
+})
+
+// Metrics detection asks the has-metrics API on mount - answer "none yet".
+export const MetricsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(metricsEmptyState, 'needs-setup', {
+    mocks: { get: { '/api/projects/:team_id/metrics/has_metrics/': [200, { hasMetrics: false }] } },
+})
+
+// Surveys detection counts surveys (live + archived) on mount - answer "none yet".
+export const SurveysNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(surveysEmptyState, 'needs-setup', {
+    mocks: { get: { '/api/projects/:team_id/surveys/': [200, { count: 0, results: [] }] } },
+})
+
+// Session replay detection lists recordings on mount - answer "none yet".
+const sessionReplayMocks = {
+    // nosemgrep: no-environments-api-urls-frontend -- api.recordings is env-scoped, so the msw mock must match /api/environments to intercept it
+    get: { '/api/environments/:team_id/session_recordings': [200, { results: [] }] },
+} as const
+
+export const SessionReplayNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    sessionReplayEmptyState,
+    'needs-setup',
+    { mocks: sessionReplayMocks }
+)
+
+export const SessionReplayWaitingForData: ProductEmptyStateStory = productEmptyStateStory(
+    sessionReplayEmptyState,
+    'waiting-for-data',
+    { mocks: sessionReplayMocks }
+)
+
+// Web vitals detection asks event definitions on mount - answer "none yet".
+const webVitalsMocks = {
+    get: { '/api/projects/:team_id/event_definitions/': [200, { results: [] }] },
+} as const
+
+export const WebVitalsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(webVitalsEmptyState, 'needs-setup', {
+    mocks: webVitalsMocks,
+})
+
+export const WebVitalsWaitingForData: ProductEmptyStateStory = productEmptyStateStory(
+    webVitalsEmptyState,
+    'waiting-for-data',
+    { mocks: webVitalsMocks }
+)
+
+// Alerts detection counts both alert kinds on mount - answer "none yet" to each.
+export const AlertsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(alertsEmptyState, 'needs-setup', {
+    mocks: {
+        get: {
+            '/api/projects/:team_id/alerts/': [200, emptyEntityList],
+            '/api/projects/:team_id/logs/alerts/': [200, emptyEntityList],
+        },
+    },
+})
+
+// Subscriptions detection counts subscriptions on mount - answer "none yet".
+export const SubscriptionsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    subscriptionsEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/subscriptions/': [200, emptyEntityList] } } }
+)
+
+// Data catalog detection counts metrics on mount - answer "none yet".
+export const DataCatalogNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    dataCatalogEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/data_catalog/metrics/': [200, emptyEntityList] } } }
+)
+
+// Notebooks detection counts notebooks on mount - answer "none yet".
+export const NotebooksNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(notebooksEmptyState, 'needs-setup', {
+    mocks: { get: { '/api/projects/:team_id/notebooks/': [200, { count: 0, results: [] }] } },
+})
+
+// Data warehouse detection lists sources and tables on mount - answer "none yet".
+export const DataWarehouseNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    dataWarehouseEmptyState,
+    'needs-setup',
+    {
+        mocks: {
+            get: {
+                // nosemgrep: no-environments-api-urls-frontend -- both APIs are env-scoped, so the msw mocks must match /api/environments to intercept them
+                '/api/environments/:team_id/external_data_sources/': [200, { results: [] }],
+                '/api/environments/:team_id/warehouse_tables/': [200, { results: [] }],
+            },
+        },
+    }
+)
+
+// Workflows detection counts workflows on mount - answer "none yet".
+export const WorkflowsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(workflowsEmptyState, 'needs-setup', {
+    mocks: { get: { '/api/projects/:team_id/hog_flows/': [200, { count: 0, results: [] }] } },
+})
+
+// Marketing analytics detection mirrors the scene logic's sources check; the
+// default query mocks answer its source queries with empty results.
+export const MarketingAnalyticsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    marketingAnalyticsEmptyState,
+    'needs-setup',
+    {
+        mocks: {
+            get: {
+                // nosemgrep: no-environments-api-urls-frontend -- the sources API is env-scoped, so the msw mock must match /api/environments to intercept it
+                '/api/environments/:team_id/external_data_sources/': [200, { results: [] }],
+            },
+        },
+    }
+)
+
+// Customer analytics detection is synchronous (groups access from the team), so no mocks needed.
+export const CustomerAnalyticsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    customerAnalyticsEmptyState,
     'needs-setup'
 )

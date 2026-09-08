@@ -28,10 +28,10 @@ use simd_json::prelude::Writable;
 
 use crate::allow_lists::AllowLists;
 use crate::collect::{CollectedImage, ImageCollection};
-use crate::context::Ctx;
+use crate::context::{Ctx, ImageSourceCount};
 use crate::event::{
-    route_data, route_event, SOURCE_ADOPTED_STYLESHEET, SOURCE_CANVAS_MUTATION, SOURCE_INPUT,
-    SOURCE_MUTATION, SOURCE_STYLESHEET_RULE, SOURCE_STYLE_DECLARATION, TYPE_CUSTOM,
+    route_data, route_event, JSON_LD_EVENT_TAG, SOURCE_ADOPTED_STYLESHEET, SOURCE_CANVAS_MUTATION,
+    SOURCE_INPUT, SOURCE_MUTATION, SOURCE_STYLESHEET_RULE, SOURCE_STYLE_DECLARATION, TYPE_CUSTOM,
     TYPE_FULL_SNAPSHOT, TYPE_INCREMENTAL, TYPE_META, TYPE_PLUGIN,
 };
 use crate::images::ImagePolicy;
@@ -165,6 +165,7 @@ pub struct SnapshotMeta {
     pub console_log_count: u32,
     pub console_warn_count: u32,
     pub console_error_count: u32,
+    pub json_ld_event_count: u32,
     pub events: Vec<EventMeta>,
     /// Collected original images (hash-sorted); non-empty only on the image-collection lane.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -172,6 +173,9 @@ pub struct SnapshotMeta {
     /// Collected remote image URLs (hash-sorted); non-empty only on the URL-collection lane.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub urls: Vec<UrlEntry>,
+    /// Collected ref occurrences by bounded replay location, property, and inline or URL lane.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub image_sources: Vec<ImageSourceCount>,
     /// Counts by reason for the URLs the collector refused. Every decline is otherwise invisible,
     /// and the phase that measures this lane would report a smaller URL set than the traffic holds
     /// with nothing to say why.
@@ -547,6 +551,7 @@ fn anonymize_snapshot_data_inner(
             domain: u.domain,
         })
         .collect();
+    msg.meta.image_sources = ctx.take_image_source_counts();
     let (entries, image_bytes) = pack_images(ctx.into_collected_images());
     msg.meta.images = entries;
     msg.image_bytes = image_bytes;
@@ -882,6 +887,7 @@ struct Sink {
     line_starts: Vec<usize>,
     events: Vec<EventMeta>,
     console: [u32; 3], // info, warn, error
+    json_ld_events: u32,
     /// simd-json scratch reused across the per-event parses.
     buffers: simd_json::Buffers,
     /// Whether an in-place parse has consumed a span yet — the tree fallback is only sound while
@@ -901,6 +907,7 @@ impl Sink {
             line_starts: Vec::new(),
             events: Vec::new(),
             console: [0; 3],
+            json_ld_events: 0,
             buffers: simd_json::Buffers::default(),
             mutated: false,
             scratch_budget: SCRATCH_BUDGET,
@@ -980,10 +987,12 @@ fn finish(
             console_log_count: sink.console[0],
             console_warn_count: sink.console[1],
             console_error_count: sink.console[2],
+            json_ld_event_count: sink.json_ld_events,
             events: sink.events,
             // The collector lives on the Ctx, not the Sink; the entry point packs it in.
             images: Vec::new(),
             urls: Vec::new(),
+            image_sources: Vec::new(),
             url_declines: Vec::new(),
         },
         image_bytes: Vec::new(),
@@ -1414,6 +1423,12 @@ fn push_meta_from_data(ty: Option<u8>, ts: f64, data: Option<&Value<'_>>, sink: 
         flags: flags_of(ty, source, interaction),
         href,
     });
+
+    if ty == Some(TYPE_CUSTOM)
+        && dobj.and_then(|data| data.get("tag")).and_then(as_str) == Some(JSON_LD_EVENT_TAG)
+    {
+        sink.json_ld_events += 1;
+    }
 
     // rrweb/console@1 counts by level (mirrors `session-console-log-recorder.ts` safeLevel).
     if ty == Some(TYPE_PLUGIN) {

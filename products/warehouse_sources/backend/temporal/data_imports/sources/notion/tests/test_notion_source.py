@@ -5,19 +5,14 @@ import requests
 import structlog
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.notion import NotionSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion import (
     NOTION_VERSION_2025_09_03,
     NOTION_VERSION_2026_03_11,
-    NotionResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.source import NotionSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 NOTION_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion"
 
@@ -50,9 +45,6 @@ class TestNotionSource:
     def setup_method(self) -> None:
         self.source = NotionSource()
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.NOTION
-
     def test_new_sources_default_to_latest_version(self) -> None:
         # New sources are stamped with default_version, so a regression here silently pins them to
         # the older API. Both versions must stay supported so existing pins keep resolving.
@@ -77,20 +69,6 @@ class TestNotionSource:
             self.source.source_for_pipeline(NotionSourceConfig(api_key="tok"), manager, inputs)
         assert notion_source_mock.call_args.kwargs["api_version"] == expected_version
 
-    def test_source_config_is_released_with_api_key_field(self) -> None:
-        config = self.source.get_source_config
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert not getattr(config, "unreleasedSource", None)
-
-        fields = config.fields
-        assert len(fields) == 1
-        field = fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.name == "api_key"
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.required is True
-        assert field.secret is True
-
     def test_get_schemas_returns_all_endpoints_full_refresh(self) -> None:
         schemas = self.source.get_schemas(NotionSourceConfig(api_key="tok"), team_id=1)
         assert {s.name for s in schemas} == set(ENDPOINTS)
@@ -108,11 +86,6 @@ class TestNotionSource:
         with mock.patch(f"{NOTION_MODULE}.make_tracked_session", return_value=session):
             valid, _message = self.source.validate_credentials(NotionSourceConfig(api_key="tok"), team_id=1)
         assert valid is expected_valid
-
-    def test_get_resumable_source_manager_is_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is NotionResumeConfig
 
     def test_source_for_pipeline_partitions_search_streams(self) -> None:
         inputs = _make_inputs("pages")

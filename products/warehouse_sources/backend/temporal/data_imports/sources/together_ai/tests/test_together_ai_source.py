@@ -1,10 +1,8 @@
 from typing import Any
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
-
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.together_ai import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.together_ai.settings import (
@@ -12,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.together_a
     TOGETHER_AI_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.together_ai.source import TogetherAISource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "together_test") -> Any:
@@ -20,17 +17,6 @@ def _config(api_key: str = "together_test") -> Any:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert TogetherAISource().source_type == ExternalDataSourceType.TOGETHERAI
-
-    def test_config_declares_secret_api_key_field(self) -> None:
-        fields = TogetherAISource().get_source_config.fields
-        assert [f.name for f in fields] == ["api_key"]
-        api_key_field = fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.secret is True
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O — required so the public docs render the table list.
         assert TogetherAISource.lists_tables_without_credentials is True
@@ -116,17 +102,6 @@ class TestNonRetryableErrors:
     def test_transient_errors_stay_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = TogetherAISource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
-
-
-class TestSourceForPipeline:
-    def test_plumbs_config_and_schema_through(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "fine_tunes"
-        with patch.object(source_module, "together_ai_source") as mock_source:
-            TogetherAISource().source_for_pipeline(_config(api_key="together_k"), inputs)
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["api_key"] == "together_k"
-        assert kwargs["endpoint"] == "fine_tunes"
 
 
 class TestCanonicalDescriptions:

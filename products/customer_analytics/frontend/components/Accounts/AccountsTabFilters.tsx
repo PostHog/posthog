@@ -16,37 +16,38 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { tagsModel } from '~/models/tagsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import type { AccountCustomPropertyFilter } from '~/types'
+import type { AnyPropertyFilter } from '~/types'
 
+import { AccountRelationshipOperatorValueSelect } from './AccountRelationshipOperatorValueSelect'
 import { accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { AccountsColumnConfigurator } from './AccountsColumnConfigurator'
-import { ACCOUNT_CUSTOM_PROPERTY_OPERATOR_ALLOWLIST } from './accountsCustomPropertyFilters'
-import { accountsLogic, RoleFilterValue } from './accountsLogic'
+import { accountsLogic, AssignmentStatus, RoleFilterValue } from './accountsLogic'
 import { AccountsOverviewTilesButton } from './AccountsOverviewTilesButton'
+import {
+    ACCOUNT_FIELD_TAXONOMIC_OPTIONS,
+    ACCOUNT_FILTER_OPERATOR_ALLOWLIST,
+    accountFilterStaticValueOptions,
+    isAccountRelationshipFilter,
+    type AccountFilter,
+} from './accountsPropertyFilters'
 import { AccountsViewSelector } from './AccountsViewSelector'
 
 export function AccountsTabFilters(): JSX.Element {
-    const {
-        searchInput,
-        tagsFilter,
-        allRolesUnassigned,
-        assignedToCurrentUser,
-        assignedToFilter,
-        customPropertyFilters,
-    } = useValues(accountsLogic)
+    const { searchInput, tagsFilter, assignmentStatus, assignedToCurrentUser, assignedToFilter, accountFilters } =
+        useValues(accountsLogic)
     const { responseLoading: accountsLoading } = useValues(dataNodeLogic)
     const {
         setSearchInput,
         setTagsFilter,
-        setAllRolesUnassigned,
+        setAssignmentStatus,
         setAssignedToCurrentUser,
         setAssignedToFilter,
-        setCustomPropertyFilters,
+        updateAccountFilters,
         refresh,
         reportFilterChange,
     } = useActions(accountsLogic)
     const { tags: tagsAvailable } = useValues(tagsModel)
-    const { customPropertyTaxonomicOptions } = useValues(accountsColumnConfigLogic)
+    const { customPropertyTaxonomicOptions, relationshipTaxonomicOptions } = useValues(accountsColumnConfigLogic)
 
     const tagsButtonLabel =
         tagsFilter.length === 0 ? 'All tags' : tagsFilter.length === 1 ? tagsFilter[0] : `${tagsFilter.length} tags`
@@ -57,7 +58,7 @@ export function AccountsTabFilters(): JSX.Element {
                 <div className="flex flex-wrap gap-2 items-center">
                     <LemonInput
                         type="search"
-                        placeholder="Search by name or ID..."
+                        placeholder="Search by name, ID, or email..."
                         value={searchInput}
                         onChange={setSearchInput}
                         size="small"
@@ -122,10 +123,10 @@ export function AccountsTabFilters(): JSX.Element {
                             setAssignedToFilter(value)
                             reportFilterChange('assigned_to')
                         }}
-                        unassignedOnly={allRolesUnassigned}
-                        onUnassignedOnlyChange={(value) => {
-                            setAllRolesUnassigned(value)
-                            reportFilterChange('unassigned_only')
+                        status={assignmentStatus}
+                        onStatusChange={(status) => {
+                            setAssignmentStatus(status)
+                            reportFilterChange('assignment_status')
                         }}
                     />
 
@@ -141,23 +142,30 @@ export function AccountsTabFilters(): JSX.Element {
                         data-attr="accounts-my-accounts-filter"
                     />
 
-                    {customPropertyTaxonomicOptions.length > 0 && (
-                        <PropertyFilters
-                            propertyFilters={customPropertyFilters}
-                            onChange={(filters) => {
-                                setCustomPropertyFilters(filters as AccountCustomPropertyFilter[])
-                                reportFilterChange('custom_property')
-                            }}
-                            pageKey="customer-analytics-accounts-custom-properties"
-                            taxonomicGroupTypes={[TaxonomicFilterGroupType.AccountCustomProperties]}
-                            taxonomicFilterOptionsFromProp={{
-                                [TaxonomicFilterGroupType.AccountCustomProperties]: customPropertyTaxonomicOptions,
-                            }}
-                            operatorAllowlist={ACCOUNT_CUSTOM_PROPERTY_OPERATOR_ALLOWLIST}
-                            buttonSize="small"
-                            hasRowOperator={false}
-                        />
-                    )}
+                    <PropertyFilters
+                        propertyFilters={accountFilters as unknown as AnyPropertyFilter[]}
+                        onChange={(filters) => updateAccountFilters(filters as unknown as AccountFilter[])}
+                        pageKey="customer-analytics-accounts-custom-properties"
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.AccountFields,
+                            TaxonomicFilterGroupType.AccountRelationships,
+                            TaxonomicFilterGroupType.AccountCustomProperties,
+                        ]}
+                        taxonomicFilterOptionsFromProp={{
+                            [TaxonomicFilterGroupType.AccountFields]: ACCOUNT_FIELD_TAXONOMIC_OPTIONS,
+                            [TaxonomicFilterGroupType.AccountRelationships]: relationshipTaxonomicOptions,
+                            [TaxonomicFilterGroupType.AccountCustomProperties]: customPropertyTaxonomicOptions,
+                        }}
+                        operatorAllowlist={ACCOUNT_FILTER_OPERATOR_ALLOWLIST}
+                        staticValueOptions={accountFilterStaticValueOptions}
+                        renderOperatorValueSelect={(filter, onChange) =>
+                            isAccountRelationshipFilter(filter) ? (
+                                <AccountRelationshipOperatorValueSelect filter={filter} onChange={onChange} />
+                            ) : null
+                        }
+                        buttonSize="small"
+                        hasRowOperator={false}
+                    />
                 </div>
                 <div className="flex flex-wrap gap-2 items-center">
                     <AccountsOverviewTilesButton />
@@ -171,22 +179,26 @@ export function AccountsTabFilters(): JSX.Element {
 function AssignedToPicker({
     value,
     onChange,
-    unassignedOnly,
-    onUnassignedOnlyChange,
+    status,
+    onStatusChange,
 }: {
     value: RoleFilterValue
     onChange: (value: RoleFilterValue) => void
-    unassignedOnly: boolean
-    onUnassignedOnlyChange: (value: boolean) => void
+    status: AssignmentStatus
+    onStatusChange: (status: AssignmentStatus) => void
 }): JSX.Element {
-    const buttonLabel = unassignedOnly
-        ? 'Unassigned'
-        : value.length === 0
-          ? 'Assigned to anyone'
-          : value.length === 1
-            ? 'Assigned to 1 person'
-            : `Assigned to ${value.length} people`
-    const hasFilter = unassignedOnly || value.length > 0
+    const buttonLabel =
+        status === 'unassigned'
+            ? 'Unassigned only'
+            : status === 'all'
+              ? 'All accounts'
+              : value.length === 0
+                ? 'Assigned to anyone'
+                : value.length === 1
+                  ? 'Assigned to 1 person'
+                  : `Assigned to ${value.length} people`
+    // `all` is the default, so anything else is an active choice worth a clear button.
+    const hasFilter = status !== 'all'
     return (
         <div className="flex gap-1 items-center" data-attr="accounts-assigned-to-filter">
             <LemonDropdown
@@ -194,10 +206,22 @@ function AssignedToPicker({
                 overlay={
                     <div className="p-2 min-w-64 flex flex-col gap-2">
                         <LemonCheckbox
-                            checked={unassignedOnly}
-                            onChange={onUnassignedOnlyChange}
+                            checked={status === 'unassigned'}
+                            onChange={(checked) => checked && onStatusChange('unassigned')}
                             label="Unassigned only"
                             data-attr="accounts-unassigned-filter"
+                        />
+                        <LemonCheckbox
+                            checked={status === 'assigned'}
+                            onChange={(checked) => checked && onStatusChange('assigned')}
+                            label="Assigned to anyone"
+                            data-attr="accounts-assigned-filter"
+                        />
+                        <LemonCheckbox
+                            checked={status === 'all'}
+                            onChange={(checked) => checked && onStatusChange('all')}
+                            label="All assignment statuses"
+                            data-attr="accounts-all-assignment-filter"
                         />
                         <LemonDivider className="my-0" />
                         <MemberSelectMultiple
@@ -217,15 +241,8 @@ function AssignedToPicker({
                     type="secondary"
                     size="small"
                     icon={<IconX />}
-                    onClick={() => {
-                        if (unassignedOnly) {
-                            onUnassignedOnlyChange(false)
-                        }
-                        if (value.length > 0) {
-                            onChange([])
-                        }
-                    }}
-                    tooltip="Clear assigned-to filter"
+                    onClick={() => onStatusChange('all')}
+                    tooltip="Clear assignment filter"
                 />
             )}
         </div>

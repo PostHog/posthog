@@ -20,7 +20,7 @@ export interface ReleaseGroup {
 
 // Recent releases stay broken out by day; anything older is bucketed by week so
 // the timeline stays scannable when we ship a lot.
-export const RECENT_DAYS = 3;
+const RECENT_DAYS = 3;
 const DAY_MS = 86_400_000;
 
 // Release notes are GitHub auto-generated: a "What's Changed" bullet list of PR

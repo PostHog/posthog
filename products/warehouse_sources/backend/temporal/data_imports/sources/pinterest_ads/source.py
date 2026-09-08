@@ -193,6 +193,11 @@ class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsR
             self.get_oauth_integration(config.pinterest_ads_integration_id, team_id)
             return True, None
         except Exception as e:
+            if isinstance(e, ValueError) and "Integration not found" in str(e):
+                # The integration was deleted/disconnected while the source still references it —
+                # an expected user state, not an error worth reporting (get_oauth_integration raises
+                # ValueError("Integration not found: <id>")).
+                return False, "Pinterest Ads integration not found. Please reconnect your Pinterest Ads integration."
             capture_exception(e)
             return False, f"Failed to validate Pinterest Ads credentials: {str(e)}"
 

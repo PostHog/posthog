@@ -65,11 +65,17 @@ export function AccountsViewSelector(): JSX.Element {
 
     return (
         <div className="flex items-center gap-2">
-            {currentView ? (
+            {views.length > 0 ? (
                 <LemonMenu items={menuItems} closeOnClickInside>
                     <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                        <ViewVisibilityIcon view={currentView} />
-                        <span className="ml-2">{currentView.name}</span>
+                        {currentView ? (
+                            <>
+                                <ViewVisibilityIcon view={currentView} />
+                                <span className="ml-2">{currentView.name}</span>
+                            </>
+                        ) : (
+                            'Select view'
+                        )}
                     </LemonButton>
                 </LemonMenu>
             ) : (

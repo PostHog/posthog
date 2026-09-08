@@ -61,6 +61,13 @@ class BuildBetterSource(ResumableSource[BuildBetterSourceConfig, BuildBetterResu
             "webhook authentication request failed": "BuildBetter authentication failed. Please check your API key.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `execute`'s own tenacity retry already retries a 5xx or 429 (raised as
+        # BuildBetterRetryableError) up to 5 attempts; once that budget exhausts, Temporal retries
+        # the whole activity from the saved pagination checkpoint, so the failure is transient and
+        # self-recovering rather than tracked-exception-worthy.
+        return {"BuildBetter: server error", "BuildBetter: rate limited"}
+
     def get_schemas(
         self,
         config: BuildBetterSourceConfig,

@@ -38,6 +38,7 @@ export const CyclotronV2RescheduleOptionsSchema = z.object({
     personId: z.string().nullish(),
     actionId: z.string().nullish(),
     queueName: z.string().optional(),
+    priority: z.number().int().optional(),
 })
 
 export type CyclotronV2RescheduleOptions = z.infer<typeof CyclotronV2RescheduleOptionsSchema>

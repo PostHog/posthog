@@ -393,18 +393,26 @@ function resolvePartialIndex(idx: number | undefined, length: number): number | 
 const hatchPatternCache = new Map<string, CanvasPattern>()
 
 function getHatchPattern(ctx: CanvasRenderingContext2D, color: string): CanvasPattern | string {
-    const cached = hatchPatternCache.get(color)
+    // The draw context is transform-scaled to device pixels, so a tile authored in CSS pixels would
+    // be upscaled and blur. Read the ratio off the backing store rather than `window.devicePixelRatio`
+    // for the reason in `clearAndPrepare`: a redraw can run at a different ratio than sized the canvas.
+    const backing = ctx.canvas
+    const dpr = backing && backing.width > 0 ? backing.width / (backing.clientWidth || backing.width) : 1
+    const scale = dpr > 0 && Number.isFinite(dpr) ? dpr : 1
+    const size = 14
+    const key = `${color}@${scale}`
+    const cached = hatchPatternCache.get(key)
     if (cached) {
         return cached
     }
-    const size = 14
     const patCanvas = document.createElement('canvas')
-    patCanvas.width = size
-    patCanvas.height = size
+    patCanvas.width = Math.max(1, Math.round(size * scale))
+    patCanvas.height = Math.max(1, Math.round(size * scale))
     const patCtx = patCanvas.getContext('2d')
     if (!patCtx) {
         return color
     }
+    patCtx.scale(scale, scale)
     patCtx.strokeStyle = color
     patCtx.lineWidth = 4
     patCtx.beginPath()
@@ -421,7 +429,11 @@ function getHatchPattern(ctx: CanvasRenderingContext2D, color: string): CanvasPa
     patCtx.stroke()
     const pattern = ctx.createPattern(patCanvas, 'repeat')
     if (pattern) {
-        hatchPatternCache.set(color, pattern)
+        // Undo the backing scale so one bitmap pixel lands on one device pixel.
+        if (scale !== 1 && typeof pattern.setTransform === 'function' && typeof DOMMatrix === 'function') {
+            pattern.setTransform(new DOMMatrix([1 / scale, 0, 0, 1 / scale, 0, 0]))
+        }
+        hatchPatternCache.set(key, pattern)
         return pattern
     }
     return color
@@ -1156,11 +1168,33 @@ export function drawBars(
         // The hatch keeps the bar's own resolved color (per-bar override included) so a
         // flagged bar still reads as belonging to its series. Pattern lookups are cached.
         const barColor = barColorAt(series, bar.dataIndex)
-        ctx.fillStyle = useHatch ? getHatchPattern(ctx, barColor) : makeBarFill(ctx, barColor, bar, fillStyle)
         ctx.beginPath()
         traceRoundedBarPath(ctx, bar.x, bar.y, bar.width, bar.height, cornerRadius, bar.corners)
+        if (useHatch) {
+            drawHatchedBarFill(ctx, barColor)
+            continue
+        }
+        ctx.fillStyle = makeBarFill(ctx, barColor, bar, fillStyle)
         ctx.fill()
     }
+}
+
+// Deliberately higher than the `BAR_TRACK_*` pair above, which the same construction uses. A track
+// is a backdrop meant to recede, whereas a flagged bar carries the bucket's actual count, so at
+// track alpha it would read as an empty bucket rather than one that is still filling.
+const HATCHED_BAR_BASE_ALPHA = 0.25
+const HATCHED_BAR_HATCH_ALPHA = 0.65
+
+/** Fills the already-traced path as a hatched bar. Owns save/restore. */
+function drawHatchedBarFill(ctx: CanvasRenderingContext2D, color: string): void {
+    ctx.save()
+    ctx.globalAlpha = HATCHED_BAR_BASE_ALPHA
+    ctx.fillStyle = color
+    ctx.fill()
+    ctx.globalAlpha = HATCHED_BAR_HATCH_ALPHA
+    ctx.fillStyle = getHatchPattern(ctx, color)
+    ctx.fill()
+    ctx.restore()
 }
 
 // Tracks render as a tinted base under hatched stripes — same construction as the legacy

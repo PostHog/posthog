@@ -101,8 +101,17 @@ function EventCountActorsView({ data, openLink }: InsightActorsViewProps): React
             <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">
-                        {rows.length} actor{rows.length === 1 ? '' : 's'}
-                        {data.hasMore ? '+' : ''}
+                        {data.offset > 0 && rows.length > 0 ? (
+                            <>
+                                Actors {data.offset + 1} to {data.offset + rows.length}
+                                {data.hasMore ? ', more available' : ''}
+                            </>
+                        ) : (
+                            <>
+                                {rows.length} actor{rows.length === 1 ? '' : 's'}
+                                {data.hasMore ? '+' : ''}
+                            </>
+                        )}
                     </span>
                 </div>
                 <DataTable<ActorRow>
