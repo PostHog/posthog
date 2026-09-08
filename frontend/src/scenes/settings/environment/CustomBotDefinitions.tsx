@@ -108,8 +108,10 @@ export function CustomBotDefinitions(): JSX.Element {
             <p className="mb-0">
                 These rules only mark events as bot traffic in queries. They do not stop bot events being ingested or
                 billed. To drop bot events as they arrive, add the{' '}
-                <Link to={urls.hogFunctionNew('template-bot-detection')}>Filter Bot Events</Link> transformation, which
-                keeps its own patterns and does not read the rules here.
+                <Link to={urls.hogFunctionNew('template-bot-detection')} target="_blank">
+                    Filter Bot Events
+                </Link>{' '}
+                transformation, which keeps its own patterns and does not read the rules here.
             </p>
             <p className="mb-0">
                 Match the user agent to catch a crawler that names itself, or the IP address to catch one that sends a
