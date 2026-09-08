@@ -4,7 +4,13 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/replay_vision/api'
 import { withUiApp } from '@/resources/ui-apps'
-import { withPostHogUrl, withAgentNote, type WithPostHogUrl, type WithAgentNote } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    withAgentNote,
+    pickResponseFields,
+    type WithPostHogUrl,
+    type WithAgentNote,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const VisionObservationsLabelCreateSchema = () => {
@@ -466,7 +472,34 @@ const visionScannersList = (): ToolBase<
                 tags: params.tags,
             },
         })
-        return await withPostHogUrl(context, result, '/replay-vision')
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'name',
+                    'description',
+                    'scanner_type',
+                    'tags',
+                    'enabled',
+                    'emits_signals',
+                    'model',
+                    'sampling_mode',
+                    'sampling_rate',
+                    'credit_limit',
+                    'credits_per_observation',
+                    'estimated_monthly_credits',
+                    'estimated_at',
+                    'credits_this_month',
+                    'limit_reached',
+                    'last_swept_at',
+                    'created_at',
+                    'created_by.id',
+                    'created_by.email',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/replay-vision')
     },
 })
 

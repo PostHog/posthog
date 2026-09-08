@@ -12358,7 +12358,7 @@
         "requires_ai_consent": true
     },
     "vision-scanners-list": {
-        "description": "List all replay vision scanners in the current project. A scanner watches a slice of session recordings (defined by its `query`, `sampling_mode` and `sampling_rate`) and runs one of four LLM analyses against each matching session: `monitor` (open-ended observations), `classifier` (tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary, embedded for downstream search). Each scanner returns its current configuration, enabled state, sampling settings, `last_swept_at` timestamp, and its credit figures (`credits_per_observation`, `estimated_monthly_credits`, `credits_this_month`).",
+        "description": "List all replay vision scanners in the current project. A scanner watches a slice of session recordings (defined by its `query`, `sampling_mode` and `sampling_rate`) and runs one of four LLM analyses against each matching session: `monitor` (open-ended observations), `classifier` (tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary, embedded for downstream search). Each row carries identity and operating state only: name, description, type, tags, sampling settings, `last_swept_at`, and the credit figures. `estimated_at` is when `estimated_monthly_credits` was last computed. A null value means the figure has not caught up with the current configuration, so treat it as out of date. The prompt in `scanner_config`, the `RecordingsQuery` in `query`, and the rest of the configuration come from `vision-scanners-get` for the one scanner you want.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "List replay vision scanners",
