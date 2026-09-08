@@ -10,7 +10,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { GROUPS_LIST_DEFAULT_QUERY } from 'scenes/groups/groupsListLogic'
 import { PERSON_EVENTS_CONTEXT_KEY } from 'scenes/persons/personsLogic'
-import { PEOPLE_LIST_CONTEXT_KEY, PEOPLE_LIST_DEFAULT_QUERY } from 'scenes/persons/personsSceneLogic'
+import { PEOPLE_LIST_CONTEXT_KEY, isPeopleListDefaultQuery } from 'scenes/persons/personsSceneLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
@@ -89,6 +89,27 @@ function isInitialPersonEventsQuery(query: TableViewSupportedQueryType): boolean
     }
     const defaultColumns = defaultDataTableColumns(NodeKind.EventsQuery)
     return equal(query.select, defaultColumns) && !query.properties?.length && !query.event && !query.events?.length
+}
+
+// Applying a remembered view is only safe while the table still shows its default query.
+// Anywhere else it would overwrite columns the user picked, or a query that arrived in the URL.
+function isUntouchedDefaultQuery(contextKey: string, query: TableViewSupportedQueryType): boolean {
+    switch (contextKey) {
+        case PEOPLE_LIST_CONTEXT_KEY:
+            return isPeopleListDefaultQuery(query)
+        case 'group-0-list':
+        case 'group-1-list':
+        case 'group-2-list':
+        case 'group-3-list':
+        case 'group-4-list': {
+            const groupTypeIndex = parseInt(contextKey.split('-')[1])
+            return equal(query, GROUPS_LIST_DEFAULT_QUERY(groupTypeIndex).source)
+        }
+        case PERSON_EVENTS_CONTEXT_KEY:
+            return isInitialPersonEventsQuery(query)
+        default:
+            return false
+    }
 }
 
 function getQueryFromView(
@@ -496,6 +517,25 @@ export const tableViewLogic = kea<tableViewLogicType>([
             props.setQuery(getQueryFromView(props.query, view))
         },
 
+        loadViewsSuccess: ({ views }) => {
+            // The `currentView` reducer selects `views[0]` when this user has nothing persisted,
+            // which labels the button with a view whose columns never reach the table. Apply the
+            // view so the label and the table agree. This is what a user hits when someone else
+            // created the view, because the persisted selection lives in the creator's browser.
+            // The list loads after mount, so check the query again before overwriting it.
+            const view = values.currentView
+            if (!views.length || !view) {
+                return
+            }
+            if (!isUntouchedDefaultQuery(props.contextKey, props.query)) {
+                return
+            }
+            if (equal(getQueryFromView(props.query, view), props.query)) {
+                return
+            }
+            actions.applyView(view)
+        },
+
         saveCurrentAsViewSuccess: () => {
             actions.setIsCreating(false)
         },
@@ -551,27 +591,8 @@ export const tableViewLogic = kea<tableViewLogicType>([
             return
         }
 
-        switch (props.contextKey) {
-            case PEOPLE_LIST_CONTEXT_KEY:
-                if (equal(props.query, PEOPLE_LIST_DEFAULT_QUERY.source)) {
-                    actions.applyView(values.currentView)
-                }
-                break
-            case 'group-0-list':
-            case 'group-1-list':
-            case 'group-2-list':
-            case 'group-3-list':
-            case 'group-4-list':
-                const groupTypeIndex = parseInt(props.contextKey.split('-')[1])
-                if (equal(props.query, GROUPS_LIST_DEFAULT_QUERY(groupTypeIndex).source)) {
-                    actions.applyView(values.currentView)
-                }
-                break
-            case PERSON_EVENTS_CONTEXT_KEY:
-                if (isInitialPersonEventsQuery(props.query)) {
-                    actions.applyView(values.currentView)
-                }
-                break
+        if (isUntouchedDefaultQuery(props.contextKey, props.query)) {
+            actions.applyView(values.currentView)
         }
     }),
 ])
