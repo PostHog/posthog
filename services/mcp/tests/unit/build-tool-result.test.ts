@@ -284,7 +284,11 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
             distinctId: 'd',
         })
 
-        expect(estimateResponseTokens(payload)).toBeGreaterThan(estimateTokens(STRUCTURED_CONTENT_ONLY_TEXT))
+        // The pointer text stays out of the estimate; the structured payload
+        // and the render-note footer must both stay in it.
+        expect(estimateResponseTokens(payload)).toBe(
+            estimateTokens(payload.structuredContent) + estimateTokens(`\n\n${UI_APP_RENDER_NOTE}`)
+        )
     })
 
     it('keeps the mirrored text when the caller asked for JSON output', () => {
