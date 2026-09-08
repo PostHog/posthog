@@ -23,6 +23,7 @@ import { UUIDT } from '~/common/utils/utils'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { MergeFoldPlan } from '~/ingestion/common/persons/person-merge-fold'
+import { mergeMoveLimitPrecheckCounter } from '~/ingestion/common/persons/person-merge-postgres'
 import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
 import { BatchBoundPersonsStore } from '~/ingestion/common/persons/persons-store-for-batch'
 import { EventPipelineRunnerOptions } from '~/ingestion/common/steps/event-processing/event-pipeline-options'
@@ -277,58 +278,151 @@ describe('createProcessPersonsStep', () => {
         }
     })
 
-    it.each([
-        { mode: 'LIMIT', precheck: false, expectedType: PipelineResultType.DLQ, moveCalls: 1 },
-        { mode: 'LIMIT', precheck: true, expectedType: PipelineResultType.DLQ, moveCalls: 0 },
-        { mode: 'ASYNC', precheck: false, expectedType: PipelineResultType.REDIRECT, moveCalls: 1 },
-        { mode: 'ASYNC', precheck: true, expectedType: PipelineResultType.REDIRECT, moveCalls: 0 },
-    ])(
-        'refuses an over-limit merge in $mode mode with precheck=$precheck after $moveCalls move attempts',
-        async ({ mode, precheck, expectedType, moveCalls }) => {
-            await createPersonWithDistinctIds('person-1')
-            await createPersonWithDistinctIds('person-2', 'person-2-extra-1', 'person-2-extra-2')
-            const moveSpy = jest.spyOn(personRepository, 'moveDistinctIds')
+    describe('move limit precheck', () => {
+        const identifyPerson2IntoPerson1 = (): PluginEvent => ({
+            ...pluginEvent,
+            event: '$identify',
+            distinct_id: 'person-1',
+            properties: {
+                $anon_distinct_id: 'person-2',
+            },
+        })
 
-            const identifyEvent: PluginEvent = {
-                ...pluginEvent,
-                event: '$identify',
-                distinct_id: 'person-1',
-                properties: {
-                    $anon_distinct_id: 'person-2',
-                },
-            }
+        async function precheckCount(result: 'over_limit' | 'within_limit'): Promise<number> {
+            return (
+                (await mergeMoveLimitPrecheckCounter.get()).values.find((v) => v.labels.result === result)?.value ?? 0
+            )
+        }
 
-            const limitOptions: EventPipelineRunnerOptions = {
-                ...options,
-                PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 2,
-                PERSON_MERGE_ASYNC_ENABLED: mode === 'ASYNC',
-            }
-            const store = new BatchWritingPersonsStore(personRepository, personOutputs, {
-                mergeMoveLimitPrecheck: precheck,
-            })
-
-            const step = createProcessPersonsStep(limitOptions, personOutputs)
-            const result = await step(
+        async function runIdentify(
+            stepOptions: EventPipelineRunnerOptions,
+            storeOptions: { mergeMoveLimitPrecheck: boolean; mergeTombstoneTeamAllowlist?: string }
+        ) {
+            const store = new BatchWritingPersonsStore(personRepository, personOutputs, storeOptions)
+            const step = createProcessPersonsStep(stepOptions, personOutputs)
+            const event = identifyPerson2IntoPerson1()
+            return await step(
                 createInput({
-                    normalizedEvent: identifyEvent,
-                    timestamp: DateTime.fromISO(identifyEvent.timestamp!),
+                    normalizedEvent: event,
+                    timestamp: DateTime.fromISO(event.timestamp!),
                     personsStoreForBatch: new BatchBoundPersonsStore(store, 0),
                 })
             )
+        }
 
-            expect(result.type).toBe(expectedType)
-            if (isDlqResult(result)) {
-                expect(result.reason).toBe('Merge limit exceeded')
+        it.each([
+            { mode: 'LIMIT', precheck: false, tombstone: false, expectedType: PipelineResultType.DLQ, moveCalls: 1 },
+            { mode: 'LIMIT', precheck: true, tombstone: false, expectedType: PipelineResultType.DLQ, moveCalls: 0 },
+            { mode: 'LIMIT', precheck: true, tombstone: true, expectedType: PipelineResultType.DLQ, moveCalls: 0 },
+            {
+                mode: 'ASYNC',
+                precheck: false,
+                tombstone: false,
+                expectedType: PipelineResultType.REDIRECT,
+                moveCalls: 1,
+            },
+            {
+                mode: 'ASYNC',
+                precheck: true,
+                tombstone: false,
+                expectedType: PipelineResultType.REDIRECT,
+                moveCalls: 0,
+            },
+            { mode: 'ASYNC', precheck: true, tombstone: true, expectedType: PipelineResultType.REDIRECT, moveCalls: 0 },
+        ])(
+            'refuses an over-limit merge in $mode mode with precheck=$precheck tombstone=$tombstone after $moveCalls move attempts',
+            async ({ mode, precheck, tombstone, expectedType, moveCalls }) => {
+                await createPersonWithDistinctIds('person-1')
+                await createPersonWithDistinctIds('person-2', 'person-2-extra-1', 'person-2-extra-2')
+                const moveSpy = jest.spyOn(personRepository, 'moveDistinctIds')
+                const probeSpy = jest.spyOn(personRepository, 'hasMoreDistinctIdsThan')
+                const overLimitBefore = await precheckCount('over_limit')
+
+                const result = await runIdentify(
+                    {
+                        ...options,
+                        PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 2,
+                        PERSON_MERGE_ASYNC_ENABLED: mode === 'ASYNC',
+                    },
+                    { mergeMoveLimitPrecheck: precheck, mergeTombstoneTeamAllowlist: tombstone ? '*' : '' }
+                )
+
+                expect(result.type).toBe(expectedType)
+                if (isDlqResult(result)) {
+                    expect(result.reason).toBe('Merge limit exceeded')
+                }
+                if (isRedirectResult(result)) {
+                    expect(result.reason).toBe('Event redirected to async merge topic')
+                    expect(result.output).toBe(ASYNC_OUTPUT)
+                }
+                expect(probeSpy).toHaveBeenCalledTimes(precheck ? 1 : 0)
+                expect(moveSpy).toHaveBeenCalledTimes(moveCalls)
+                expect((await precheckCount('over_limit')) - overLimitBefore).toBe(precheck ? 1 : 0)
+                const persons = await fetchPostgresPersons(infra.postgres, teamId)
+                expect(persons).toHaveLength(2)
             }
-            if (isRedirectResult(result)) {
-                expect(result.reason).toBe('Event redirected to async merge topic')
-                expect(result.output).toBe(ASYNC_OUTPUT)
+        )
+
+        it.each([{ tombstone: false }, { tombstone: true }])(
+            'moves a source that owns exactly the limit of distinct ids (tombstone=$tombstone)',
+            async ({ tombstone }) => {
+                await createPersonWithDistinctIds('person-1')
+                await createPersonWithDistinctIds('person-2', 'person-2-extra-1')
+                const moveSpy = jest.spyOn(personRepository, 'moveDistinctIds')
+                const probeSpy = jest.spyOn(personRepository, 'hasMoreDistinctIdsThan')
+                const withinBefore = await precheckCount('within_limit')
+
+                const result = await runIdentify(
+                    { ...options, PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 2 },
+                    { mergeMoveLimitPrecheck: true, mergeTombstoneTeamAllowlist: tombstone ? '*' : '' }
+                )
+
+                expect(result.type).toBe(PipelineResultType.OK)
+                expect(probeSpy).toHaveBeenCalledTimes(1)
+                expect(moveSpy).toHaveBeenCalledTimes(1)
+                expect((await precheckCount('within_limit')) - withinBefore).toBe(1)
+                const persons = await fetchPostgresPersons(infra.postgres, teamId)
+                expect(persons).toHaveLength(1)
+                const distinctIds = await fetchDistinctIdValues(infra.postgres, persons[0])
+                expect(distinctIds.sort()).toEqual(['person-1', 'person-2', 'person-2-extra-1'])
             }
-            expect(moveSpy).toHaveBeenCalledTimes(moveCalls)
+        )
+
+        it('skips the probe in SYNC mode, where the move is unbounded', async () => {
+            await createPersonWithDistinctIds('person-1')
+            await createPersonWithDistinctIds('person-2', 'person-2-extra-1', 'person-2-extra-2')
+            const probeSpy = jest.spyOn(personRepository, 'hasMoreDistinctIdsThan')
+
+            const result = await runIdentify(
+                { ...options, PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 0, PERSON_MERGE_SYNC_BATCH_SIZE: 1 },
+                { mergeMoveLimitPrecheck: true }
+            )
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            expect(probeSpy).not.toHaveBeenCalled()
+            const persons = await fetchPostgresPersons(infra.postgres, teamId)
+            expect(persons).toHaveLength(1)
+            const distinctIds = await fetchDistinctIdValues(infra.postgres, persons[0])
+            expect(distinctIds.sort()).toEqual(['person-1', 'person-2', 'person-2-extra-1', 'person-2-extra-2'])
+        })
+
+        it('still refuses after the move when the probe missed ids added concurrently', async () => {
+            await createPersonWithDistinctIds('person-1')
+            await createPersonWithDistinctIds('person-2', 'person-2-extra-1', 'person-2-extra-2')
+            const moveSpy = jest.spyOn(personRepository, 'moveDistinctIds')
+            jest.spyOn(personRepository, 'hasMoreDistinctIdsThan').mockResolvedValue(false)
+
+            const result = await runIdentify(
+                { ...options, PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 2 },
+                { mergeMoveLimitPrecheck: true }
+            )
+
+            expect(result.type).toBe(PipelineResultType.DLQ)
+            expect(moveSpy).toHaveBeenCalledTimes(1)
             const persons = await fetchPostgresPersons(infra.postgres, teamId)
             expect(persons).toHaveLength(2)
-        }
-    )
+        })
+    })
 
     it('returns a refused merge before its warning is acked and defers the ack to the side effects', async () => {
         for (const distinctId of ['identified-source', 'target']) {
@@ -577,7 +671,9 @@ describe('createProcessPersonsStep', () => {
         async function runIdentifies(
             events: PluginEvent[],
             plan: MergeFoldPlan | undefined,
-            stepOptions: EventPipelineRunnerOptions
+            stepOptions: EventPipelineRunnerOptions,
+            store: BatchWritingPersonsStore = personsStore,
+            expectOk: boolean = true
         ) {
             const step = createProcessPersonsStep(stepOptions, personOutputs)
             const results = []
@@ -586,10 +682,13 @@ describe('createProcessPersonsStep', () => {
                     createInput({
                         normalizedEvent: event,
                         timestamp: DateTime.fromISO(event.timestamp!),
+                        personsStoreForBatch: new BatchBoundPersonsStore(store, 0),
                         mergeFold: plan ? { type: 'planned', plan } : { type: 'immediate' },
                     })
                 )
-                expect(isOkResult(result)).toBe(true)
+                if (expectOk) {
+                    expect(isOkResult(result)).toBe(true)
+                }
                 results.push(result)
             }
             return results
@@ -746,31 +845,50 @@ describe('createProcessPersonsStep', () => {
             expect(distinctIds.sort()).toEqual(['anon-1', 'anon-2', 'user-1'])
         })
 
-        it('abandons the fold when a source exceeds the move limit and merges sequentially', async () => {
-            const bigSource = await createPersonWithProps('anon-1', { a: 1 })
-            await personRepository.addDistinctId(bigSource, 'anon-1-extra-1', 0)
-            await personRepository.addDistinctId(bigSource, 'anon-1-extra-2', 0)
-            await createPersonWithProps('anon-2', { b: 2 })
-            await createPersonWithProps('user-1', {})
-            const plan = planFor('user-1', 'anon-1', 'anon-2')
+        it.each([
+            { precheck: false, moveCalls: 2 },
+            { precheck: true, moveCalls: 1 },
+        ])(
+            'abandons the fold when a source exceeds the move limit and merges sequentially (precheck=$precheck)',
+            async ({ precheck, moveCalls }) => {
+                const bigSource = await createPersonWithProps('anon-1', { a: 1 })
+                await personRepository.addDistinctId(bigSource, 'anon-1-extra-1', 0)
+                await personRepository.addDistinctId(bigSource, 'anon-1-extra-2', 0)
+                await createPersonWithProps('anon-2', { b: 2 })
+                await createPersonWithProps('user-1', {})
+                const plan = planFor('user-1', 'anon-1', 'anon-2')
+                const moveSpy = jest.spyOn(personRepository, 'moveDistinctIds')
+                const store = new BatchWritingPersonsStore(personRepository, personOutputs, {
+                    mergeMoveLimitPrecheck: precheck,
+                })
 
-            // LIMIT mode with a limit of 2: anon-1 owns 3 distinct ids, so the
-            // fold must roll back; the sequential path then DLQs anon-1's merge
-            // per-event while anon-2 still merges normally.
-            await runIdentifies([identifyEvent('anon-2', 'user-1')], plan, {
-                ...options,
-                PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 2,
-                PERSON_MERGE_FOLD_ENABLED: true,
-            })
+                // LIMIT mode with a limit of 2: anon-1 owns 3 distinct ids, so the
+                // fold must roll back; the sequential path then DLQs anon-1's merge
+                // per-event while anon-2 still merges normally. With the precheck
+                // on, anon-1's sequential attempt is refused before it moves rows.
+                const results = await runIdentifies(
+                    [identifyEvent('anon-1', 'user-1'), identifyEvent('anon-2', 'user-1')],
+                    plan,
+                    {
+                        ...options,
+                        PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 2,
+                        PERSON_MERGE_FOLD_ENABLED: true,
+                    },
+                    store,
+                    false
+                )
 
-            expect(plan.status).toBe('abandoned')
-            const persons = await fetchPostgresPersons(infra.postgres, teamId)
-            // anon-1's person survives untouched; anon-2 merged into user-1
-            expect(persons).toHaveLength(2)
-            const target = persons.find((p) => p.id !== bigSource.id)!
-            const distinctIds = await fetchDistinctIdValues(infra.postgres, target)
-            expect(distinctIds.sort()).toEqual(['anon-2', 'user-1'])
-        })
+                expect(plan.status).toBe('abandoned')
+                expect(results.map((r) => r.type)).toEqual([PipelineResultType.DLQ, PipelineResultType.OK])
+                expect(moveSpy).toHaveBeenCalledTimes(moveCalls)
+                const persons = await fetchPostgresPersons(infra.postgres, teamId)
+                // anon-1's person survives untouched; anon-2 merged into user-1
+                expect(persons).toHaveLength(2)
+                const target = persons.find((p) => p.id !== bigSource.id)!
+                const distinctIds = await fetchDistinctIdValues(infra.postgres, target)
+                expect(distinctIds.sort()).toEqual(['anon-2', 'user-1'])
+            }
+        )
 
         it('merges sequentially after a mid-transaction fold failure poisons the batch caches', async () => {
             await createPersonWithProps('anon-1', { a: 1 })

@@ -1622,6 +1622,20 @@ describe('BatchWritingPersonStore', () => {
         })
     })
 
+    describe('hasMoreDistinctIdsThan', () => {
+        it.each([true, false])('passes the person and limit to the transaction and returns %s', async (verdict) => {
+            const mockRepo = createMockRepository()
+            const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
+            const mockTransaction = createMockTransaction()
+            mockTransaction.hasMoreDistinctIdsThan.mockResolvedValue(verdict)
+
+            const result = await personStore.hasMoreDistinctIdsThan(person, 'test-distinct', 10, mockTransaction)
+
+            expect(result).toBe(verdict)
+            expect(mockTransaction.hasMoreDistinctIdsThan).toHaveBeenCalledWith(person, 10)
+        })
+    })
+
     describe('updateCohortsAndFeatureFlagsForMerge', () => {
         it('should call repository method with correct arguments', async () => {
             const mockRepo = createMockRepository()
