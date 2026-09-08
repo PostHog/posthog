@@ -84,7 +84,7 @@ Depot CI checks out the pull request merge ref (`refs/pull/<n>/merge`) and posts
 
 From Depot's [compatibility page](https://depot.dev/docs/ci/compatibility), not measured here:
 
-- Fork pull requests get no run; Depot lists support as planned. The policy that makes this fine: the queue's in-repo `trunk-merge/**` branch carries the required check, and a maintainer re-pushes a fork branch in-repo when a PR needs a full run before that. See [Pull requests from forks](../../../../docs/published/handbook/engineering/fork-pull-requests.md).
+- Fork pull requests get no run; Depot lists support as planned. The merge queue's in-repo branch carries the required check instead, see [Pull requests from forks](../../../../docs/published/handbook/engineering/fork-pull-requests.md).
 - `environment:` is unsupported, and `uses:` cannot reference a workflow in another repository.
 - `secrets.GITHUB_TOKEN` is a GitHub App installation token, not the Actions token. GitHub Packages rejects it. The rate limit it draws on is the app installation's pool, which is shared across repos and is not the per-repo Actions bucket that `monitor-github-rate-limit.yml` watches.
 - Non-Depot `runs-on` labels are treated as `depot-ubuntu-latest`.
