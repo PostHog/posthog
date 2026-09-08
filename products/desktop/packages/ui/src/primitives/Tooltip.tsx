@@ -13,6 +13,13 @@ interface TooltipProps {
   open?: boolean;
   defaultOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /**
+   * Close as soon as the pointer leaves the trigger, instead of staying open while the
+   * pointer travels toward the content. Set it where the triggers are the rows of a list:
+   * the grace area covers the neighboring rows, so a tooltip left open there reads as
+   * belonging to the row now under the pointer.
+   */
+  disableHoverableContent?: boolean;
 }
 
 export function Tooltip({
@@ -26,12 +33,16 @@ export function Tooltip({
   open,
   defaultOpen,
   onOpenChange,
+  disableHoverableContent,
 }: TooltipProps) {
   const isSimpleContent =
     typeof content === "string" || typeof content === "number";
 
   return (
-    <TooltipPrimitive.Provider delayDuration={delayDuration}>
+    <TooltipPrimitive.Provider
+      delayDuration={delayDuration}
+      disableHoverableContent={disableHoverableContent}
+    >
       <TooltipPrimitive.Root
         open={open}
         defaultOpen={defaultOpen}
