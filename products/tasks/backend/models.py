@@ -3519,7 +3519,9 @@ class SandboxEnvironment(UUIDModel):
         FULL = "full", "Full"
         CUSTOM = "custom", "Custom"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    # The (team, created_by) index below leads with team_id, so it already serves every
+    # team-scoped read of this table.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_index=False)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
 
     name = models.CharField(max_length=255)
@@ -3556,12 +3558,15 @@ class SandboxEnvironment(UUIDModel):
         help_text="Encrypted environment variables for sandbox execution",
     )
 
+    # No index: every read joins on the image primary key through select_related, and the
+    # only filter on this column is the SET_NULL cascade, which a small table can seq scan.
     custom_image = models.ForeignKey(
         "SandboxCustomImage",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="+",
+        db_index=False,
         help_text="Custom base image for this environment's sandboxes (Modal VM runtime only)",
     )
 

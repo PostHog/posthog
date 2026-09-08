@@ -1,1 +1,1 @@
-0121_squash_2026_09_07_finalize_fks
+0122_drop_sandbox_environment_fk_indexes
