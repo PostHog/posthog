@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -328,4 +328,8 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
             lemonToast.error('Failed to load saved views')
         },
     })),
+    // Favorites render as the view picker itself, so they must be known before anyone opens a menu.
+    afterMount(({ actions }) => {
+        actions.loadViews()
+    }),
 ])

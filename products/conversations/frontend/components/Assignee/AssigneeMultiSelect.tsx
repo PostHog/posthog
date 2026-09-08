@@ -23,15 +23,20 @@ export function AssigneeMultiSelect({
     value,
     onChange,
     emptyLabel = 'All assignees',
+    defaultOpen = false,
+    onRemove,
 }: {
     value: AssigneeFilterEntry[]
     onChange: (value: AssigneeFilterEntry[]) => void
     emptyLabel?: string
+    defaultOpen?: boolean
+    /** When set, the X on an empty trigger calls this instead of showing a chevron, so a filter chip can dismiss itself. */
+    onRemove?: () => void
 }): JSX.Element {
     const { search, filteredRoles, filteredMembers, currentUserMember, rolesLoading, membersLoading } =
         useValues(assigneeSelectLogic)
     const { setSearch, ensureAssigneeTypesLoaded } = useActions(assigneeSelectLogic)
-    const [showPopover, setShowPopover] = useState(false)
+    const [showPopover, setShowPopover] = useState(defaultOpen)
 
     useEffect(() => {
         ensureAssigneeTypesLoaded()
@@ -150,7 +155,15 @@ export function AssigneeMultiSelect({
                 size="small"
                 type="secondary"
                 active={showPopover}
-                {...clearFilterButtonProps(value.length > 0 ? () => onChange([]) : null, 'Clear assignee filter')}
+                {...clearFilterButtonProps(
+                    value.length > 0
+                        ? () => {
+                              onChange([])
+                              onRemove?.()
+                          }
+                        : (onRemove ?? null),
+                    value.length > 0 ? 'Clear assignee filter' : 'Remove filter'
+                )}
             >
                 <TriggerLabel value={value} emptyLabel={emptyLabel} />
             </LemonButton>

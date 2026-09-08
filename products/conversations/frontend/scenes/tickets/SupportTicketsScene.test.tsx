@@ -183,6 +183,7 @@ describe('SupportTicketsTableFilters count', () => {
                 '/api/projects/:team_id/conversations/tickets/': () => [200, { results: [TICKET], count: mockCount }],
                 '/api/organizations/:organization_id/members/': () => [200, { results: [] }],
                 '/api/projects/:team_id/tags': () => [200, []],
+                '/api/projects/:team_id/conversations/views/': () => [200, { results: [], count: 0 }],
             },
         })
         initKeaTests()
