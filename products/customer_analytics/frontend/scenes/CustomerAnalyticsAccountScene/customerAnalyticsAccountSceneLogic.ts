@@ -88,7 +88,7 @@ export interface customerAnalyticsAccountSceneLogicActions {
 export interface customerAnalyticsAccountSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        activeTab: (requestedTab: string, featureFlags: FeatureFlagsSet) => AccountExpansionTab
+        activeTab: (requestedTab: string, featureFlags: FeatureFlagsSet, user: UserType | null) => AccountExpansionTab
         isAccountMissing: (account: AccountApi | null, accountLoading: boolean, accountLoadError: unknown) => boolean
         breadcrumbs: (account: AccountApi | null) => Breadcrumb[]
     }
