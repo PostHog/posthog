@@ -27,6 +27,9 @@ Clearing every holder requires confirmation. Failed saves keep the editor open; 
 partial relationship failure, the sidebar reloads current assignments so a retry uses
 the latest state.
 
+Saved values report the same product events as the account list.
+Their source is the account sidebar.
+
 Pin preferences belong to `accountSidebarConfigLogic`, keyed by project. Live values and
 editing state belong to `accountSidebarPropertiesLogic`, keyed by project and account.
 The Relationships tab and account list refresh after assignment changes.

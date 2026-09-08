@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 
@@ -10,6 +11,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { accountRelationshipsLogic } from '../../components/Accounts/accountRelationshipsLogic'
+import { AccountsEvents } from '../../components/Accounts/constants'
 import type {
     AccountRelationshipApi,
     AccountRelationshipDefinitionApi,
@@ -232,6 +234,27 @@ describe('accountSidebarPropertiesLogic', () => {
             .toMatchValues({ editingPropertyKey: null, savingPropertyKey: null })
         expect(storedValue).toBe(value)
         expect(logic.values.sidebarProperties[1]).toMatchObject({ value })
+    })
+
+    it('reports saved values and assignments as account product events', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        await mount()
+        await expectLogic(logic, () =>
+            logic.actions.saveCustomProperty('custom:property-1', 'Growth')
+        ).toFinishAllListeners()
+        expect(capture).toHaveBeenCalledWith(AccountsEvents.CustomPropertyUpdated, {
+            display_type: 'text',
+            workflow_reference: false,
+        })
+        await expectLogic(logic, () =>
+            logic.actions.saveRelationship('relationship:relationship-1', [2])
+        ).toFinishAllListeners()
+        expect(capture).toHaveBeenCalledWith(AccountsEvents.RoleAssigned, {
+            role: relationshipDefinition.name,
+            is_assigned: true,
+            assigned_user_id: 2,
+            source: 'account_sidebar',
+        })
     })
 
     it('keeps the editor and existing value after a failed save', async () => {
