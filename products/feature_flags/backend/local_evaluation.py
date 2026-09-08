@@ -954,7 +954,7 @@ def cohort_changed(sender, instance: "Cohort", **kwargs):
     if is_cohort_recalculation_only_save(kwargs):
         return
 
-    if defer_flags_cache_rebuild(instance.team_id):
+    if defer_flags_cache_rebuild(instance.team_id, "definitions"):
         return
 
     from products.feature_flags.backend.tasks import update_team_flags_cache

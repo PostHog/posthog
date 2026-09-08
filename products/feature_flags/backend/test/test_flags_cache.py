@@ -4277,7 +4277,7 @@ class TestCoalescedFlagsCacheRebuilds(BaseTest):
         mock_service.reset_mock()
         mock_definitions.reset_mock()
 
-        with coalesced_cohort_flags_cache_rebuilds():
+        with coalesced_cohort_flags_cache_rebuilds() as stale_cache_teams:
             self._save_definition(cohort_one)
             self._save_definition(cohort_two)
             mock_service.delay.assert_not_called()
@@ -4285,6 +4285,7 @@ class TestCoalescedFlagsCacheRebuilds(BaseTest):
 
         mock_service.delay.assert_called_once_with(self.team.id)
         mock_definitions.delay.assert_called_once_with(self.team.id)
+        assert stale_cache_teams == set()
 
     def test_dispatches_once_per_team(self, mock_service, mock_definitions):
         other_team = Team.objects.create(organization=self.organization)
@@ -4351,6 +4352,8 @@ class TestCoalescedFlagsCacheRebuilds(BaseTest):
         mock_definitions.reset_mock()
 
         def save_another_cohort(_team_id):
+            # Clear the side effect first: the nested save dispatches inline, which would
+            # otherwise call back into here forever.
             mock_definitions.delay.side_effect = None
             self._save_definition(saved_during_dispatch)
 

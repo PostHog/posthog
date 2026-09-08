@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import signal
+import threading
 from io import StringIO
 from typing import Any
 
@@ -14,7 +15,7 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.management.commands.resave_cohorts import sigterm_unwinds
+from posthog.management.commands.resave_cohorts import StaleFlagsCacheError, sigterm_unwinds
 from posthog.models.team.team import Team
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -524,6 +525,13 @@ class TestResaveCohortsCommandTwoTeams(BaseTest):
 @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
 @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
 class TestResaveCohortsCommandFlagsCacheRebuilds(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # The command coalesces only when SIGTERM is unclaimed, which is the CLI case. Pin the
+        # disposition so the test runner's own does not decide which path runs.
+        previous = signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        self.addCleanup(signal.signal, signal.SIGTERM, previous if previous is not None else signal.SIG_DFL)
+
     def _seed_two_teams(self) -> tuple[Team, Team]:
         team_a: Team = self.team
         team_b: Team = Team.objects.create(organization=self.organization)
@@ -544,29 +552,74 @@ class TestResaveCohortsCommandFlagsCacheRebuilds(BaseTest):
             assert dispatched.count(team_a.id) == 1
             assert dispatched.count(team_b.id) == 1
 
-    def test_reports_the_teams_left_with_a_stale_cache(self, mock_service, mock_definitions) -> None:
+    def test_a_run_that_cannot_unwind_keeps_the_per_save_rebuilds(self, mock_service, mock_definitions) -> None:
+        team_a, _ = self._seed_two_teams()
+        # Stands in for the admin path, where a web worker owns SIGTERM and nothing would flush
+        # the coalescing block on shutdown.
+        signal.signal(signal.SIGTERM, lambda signum, frame: None)
+        mock_service.reset_mock()
+        mock_definitions.reset_mock()
+
+        call_command("resave_cohorts", team_id=[team_a.id])
+
+        for mock_task in (mock_service, mock_definitions):
+            dispatched = [call.args[0] for call in mock_task.delay.call_args_list]
+            assert dispatched.count(team_a.id) > 1
+
+    def test_the_teams_left_with_a_stale_cache_fail_the_run(self, mock_service, mock_definitions) -> None:
         team_a, team_b = self._seed_two_teams()
         mock_service.reset_mock()
         mock_definitions.reset_mock()
         mock_service.delay.side_effect = RuntimeError("broker unreachable")
 
         out = StringIO()
-        call_command("resave_cohorts", team_id=[team_a.id, team_b.id], stdout=out)
+        with pytest.raises(StaleFlagsCacheError) as error:
+            call_command("resave_cohorts", team_id=[team_a.id, team_b.id], stdout=out)
 
         assert "2 teams with a stale flags cache" in out.getvalue()
+        assert str(team_a.id) in str(error.value)
 
 
 class TestSigtermUnwinds(SimpleTestCase):
-    def test_sigterm_raises_inside_the_block_and_is_restored_after(self) -> None:
-        previous = signal.getsignal(signal.SIGTERM)
+    def setUp(self) -> None:
+        super().setUp()
+        previous = signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        self.addCleanup(signal.signal, signal.SIGTERM, previous if previous is not None else signal.SIG_DFL)
 
-        with sigterm_unwinds():
+    def test_sigterm_raises_inside_the_block_and_is_restored_after(self) -> None:
+        with sigterm_unwinds() as unwinds:
+            assert unwinds
             handler = signal.getsignal(signal.SIGTERM)
             assert callable(handler)
             with pytest.raises(KeyboardInterrupt):
                 handler(signal.SIGTERM, None)
 
-        assert signal.getsignal(signal.SIGTERM) is previous
+        assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
+
+    def test_off_the_main_thread_it_reports_no_unwind(self) -> None:
+        unwinds: list[bool] = []
+
+        def run() -> None:
+            with sigterm_unwinds() as unwind:
+                unwinds.append(unwind)
+
+        thread = threading.Thread(target=run)
+        thread.start()
+        thread.join()
+
+        assert unwinds == [False]
+        assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
+
+    def test_a_handler_someone_else_installed_is_left_in_place(self) -> None:
+        def other_handler(signum: int, frame: object) -> None: ...
+
+        signal.signal(signal.SIGTERM, other_handler)
+
+        with sigterm_unwinds() as unwinds:
+            assert not unwinds
+            assert signal.getsignal(signal.SIGTERM) is other_handler
+
+        assert signal.getsignal(signal.SIGTERM) is other_handler
 
 
 class TestResaveCohortsCommandTeamSelection(BaseTest):

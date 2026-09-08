@@ -3,7 +3,7 @@ from __future__ import annotations
 import signal
 import threading
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from types import FrameType
 from typing import Any
 
@@ -22,8 +22,8 @@ from products.feature_flags.backend.flags_cache import coalesced_cohort_flags_ca
 
 logger = structlog.get_logger(__name__)
 
-# How many unclassified cohort ids to name in the failure output before summarizing the rest.
-UNCLASSIFIED_REPORT_LIMIT = 20
+# How many ids to name in a failure message before summarizing the rest.
+ID_REPORT_LIMIT = 20
 
 # The cohort types the realtime membership gate routes, so a null condition_type changes how they
 # evaluate. See `uses_realtime_membership` in rust/feature-flags/src/cohorts/cohort_models.rs.
@@ -31,37 +31,63 @@ REALTIME_GATED_COHORT_TYPES = (CohortType.REALTIME, CohortType.BEHAVIORAL)
 
 
 @contextmanager
-def sigterm_unwinds() -> Iterator[None]:
-    """Raise on SIGTERM instead of dying in place.
+def sigterm_unwinds() -> Iterator[bool]:
+    """Raise on SIGTERM instead of dying in place, when SIGTERM is this command's to take.
 
     A pod roll otherwise kills the process between a team's cohort saves committing and its
     coalesced cache rebuild being enqueued, and nothing sweeps that back: the service-cache
     verifier does not compare cohorts, and a rerun finds nothing left to change. Unwinding lets
     the coalescing block dispatch the teams it has already recorded. `KeyboardInterrupt` because
     the per-cohort `except Exception` must not swallow it.
+
+    Yields whether the unwind is in place. The admin view runs the command inside a web worker,
+    which owns its own shutdown, so the caller must not coalesce rebuilds it cannot flush there.
     """
     if threading.current_thread() is not threading.main_thread():
-        # Only the main thread may install a handler, and the admin view calls the command from
-        # a request thread.
-        yield
+        # Only the main thread may install a handler, and a server that hands sync views to a
+        # threadpool runs the admin view off it.
+        yield False
+        return
+
+    if signal.getsignal(signal.SIGTERM) is not signal.SIG_DFL:
+        # Something else owns SIGTERM, a web worker serving the admin view for one. Taking it
+        # over would replace that shutdown path, and a handler installed outside Python reads
+        # back as `None`, which cannot be restored afterwards.
+        yield False
         return
 
     def raise_interrupt(signum: int, frame: FrameType | None) -> None:
         raise KeyboardInterrupt("received SIGTERM")
 
-    previous = signal.signal(signal.SIGTERM, raise_interrupt)
+    signal.signal(signal.SIGTERM, raise_interrupt)
     try:
-        yield
+        yield True
     finally:
-        signal.signal(signal.SIGTERM, previous)
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
 
 
-class UnclassifiedCohortsError(CommandError):
-    """The run finished and persisted its saves, but left cohorts the realtime gate misreads.
+def _summarize_ids(ids: list[int]) -> str:
+    shown = ", ".join(str(value) for value in ids[:ID_REPORT_LIMIT])
+    remainder = len(ids) - ID_REPORT_LIMIT
+    if remainder > 0:
+        shown += f", and {remainder} more"
+    return shown
+
+
+class IncompleteResaveError(CommandError):
+    """The run finished and persisted its saves, but left state a rerun does not repair.
 
     Distinct from the other `CommandError`s the command raises, which all reject the invocation
     before any work happens, so a caller can tell a run that never started from one that did.
     """
+
+
+class UnclassifiedCohortsError(IncompleteResaveError):
+    """The run left cohorts the realtime gate misreads."""
+
+
+class StaleFlagsCacheError(IncompleteResaveError):
+    """The run left teams whose flags cache rebuild never reached the broker."""
 
 
 @frozen
@@ -140,12 +166,12 @@ class Command(BaseCommand):
         global_errors = 0
         global_validation_errors = 0
         global_prospective_realtime = 0
-        global_stale_cache_teams = 0
+        stale_cache_team_ids: list[int] = []
         teams_processed = 0
         total_teams = teams_qs.count()
 
         # Process each team separately
-        with sigterm_unwinds():
+        with sigterm_unwinds() as coalesce_rebuilds:
             for team in teams_qs:
                 teams_processed += 1
                 logger.info(
@@ -155,7 +181,7 @@ class Command(BaseCommand):
                 )
                 self.stdout.write(f"Processing team {team.id} ({teams_processed}/{total_teams})")
 
-                stats = self._process_team_cohorts(team, batch_size, dry_run)
+                stats = self._process_team_cohorts(team, batch_size, dry_run, coalesce_rebuilds)
 
                 # Accumulate stats
                 global_total += stats.total
@@ -163,7 +189,8 @@ class Command(BaseCommand):
                 global_errors += stats.errors
                 global_validation_errors += stats.validation_errors
                 global_prospective_realtime += stats.prospective_realtime
-                global_stale_cache_teams += 1 if stats.rebuild_dispatch_failed else 0
+                if stats.rebuild_dispatch_failed:
+                    stale_cache_team_ids.append(team.id)
 
                 # Log team completion
                 if stats.total > 0:
@@ -204,15 +231,13 @@ class Command(BaseCommand):
             realtime_cohorts=global_prospective_realtime,
             error_count=global_errors,
             validation_error_count=global_validation_errors,
-            stale_cache_team_count=global_stale_cache_teams,
+            stale_cache_team_count=len(stale_cache_team_ids),
             change_percentage=change_pct,
             realtime_percentage=realtime_pct,
             unclassified_count=None if unclassified is None else len(unclassified),
         )
         self.stdout.write("")
-        healthy = (
-            global_errors == 0 and global_validation_errors == 0 and global_stale_cache_teams == 0 and not unclassified
-        )
+        healthy = global_errors == 0 and global_validation_errors == 0 and not stale_cache_team_ids and not unclassified
         final_style = self.style.SUCCESS if healthy else self.style.WARNING
         unclassified_label = "unclassified not checked" if unclassified is None else f"{len(unclassified)} unclassified"
         self.stdout.write(
@@ -222,13 +247,16 @@ class Command(BaseCommand):
                 f"{global_changed} changed ({change_pct}%), "
                 f"{global_prospective_realtime} realtime ({realtime_pct}%), "
                 f"{global_errors} errors, {global_validation_errors} validation errors, "
-                f"{global_stale_cache_teams} teams with a stale flags cache, "
+                f"{len(stale_cache_team_ids)} teams with a stale flags cache, "
                 f"{unclassified_label}"
             )
         )
 
         if unclassified and selection.explicit:
             self._fail_on_unclassified(unclassified)
+
+        if stale_cache_team_ids:
+            self._fail_on_stale_cache(stale_cache_team_ids)
 
     def _unclassified_cohort_ids(self, selection: TeamSelection) -> list[int]:
         """Cohorts the realtime gate routes that still have a null `condition_type`, read back from
@@ -250,14 +278,22 @@ class Command(BaseCommand):
         The realtime membership gate reads a null `condition_type` as "no behavioral condition", so
         an unclassified cohort silently evaluates as if it had none.
         """
-        shown = ", ".join(str(cohort_id) for cohort_id in cohort_ids[:UNCLASSIFIED_REPORT_LIMIT])
-        remainder = len(cohort_ids) - UNCLASSIFIED_REPORT_LIMIT
-        if remainder > 0:
-            shown += f", and {remainder} more"
         raise UnclassifiedCohortsError(
-            f"{len(cohort_ids)} cohorts still have a null condition_type: {shown}. "
+            f"{len(cohort_ids)} cohorts still have a null condition_type: {_summarize_ids(cohort_ids)}. "
             "Fix their filters and rerun before treating the team as classified. "
             "Deleted cohorts count too, because restoring one returns it to the realtime gate unclassified."
+        )
+
+    def _fail_on_stale_cache(self, team_ids: list[int]) -> None:
+        """Refuse to report success while a team still serves the cohort rules the run replaced.
+
+        The rebuild never reached the broker, and nothing sweeps that back: the service-cache
+        verifier does not compare cohorts, and a rerun finds nothing left to change.
+        """
+        raise StaleFlagsCacheError(
+            f"{len(team_ids)} teams kept a stale flags cache: {_summarize_ids(team_ids)}. "
+            "A rerun changes nothing, so enqueue update_team_flags_cache and "
+            "update_team_service_flags_cache for them."
         )
 
     def _existing_team_ids(self, requested: list[int]) -> tuple[int, ...]:
@@ -309,7 +345,9 @@ class Command(BaseCommand):
 
         return TeamSelection(team_ids=None, label="all teams", explicit=False)
 
-    def _process_team_cohorts(self, team: Team, batch_size: int, dry_run: bool) -> CohortResaveStats:
+    def _process_team_cohorts(
+        self, team: Team, batch_size: int, dry_run: bool, coalesce_rebuilds: bool
+    ) -> CohortResaveStats:
         """Process all cohorts for a single team."""
         # Initialize stats for this team
         total = 0
@@ -319,7 +357,9 @@ class Command(BaseCommand):
         prospective_realtime = 0
 
         # Get all cohorts for this team using pagination
-        base_qs = Cohort.objects.filter(team=team).order_by("id")
+        # Both the validation call below and `RootTeamMixin.save()` read `cohort.team`, so
+        # without `select_related` every cohort in the loop costs a team query.
+        base_qs = Cohort.objects.filter(team=team).select_related("team").order_by("id")
         all_cohorts = []
         last_id = 0
 
@@ -347,9 +387,13 @@ class Command(BaseCommand):
 
         # Process cohorts in dependency order. Each save fires two whole-team flags-cache
         # rebuilds, so the block coalesces them into one dispatch per team. Scoping it to one
-        # team keeps the window in which that team reads a stale cache as narrow as the pattern
-        # allows.
-        with coalesced_cohort_flags_cache_rebuilds() as stale_cache_teams:
+        # team means that team reads a stale cache only while its own cohorts are being resaved,
+        # rather than until the whole run finishes. Without the SIGTERM unwind nothing flushes
+        # the block on shutdown, so an unprotected run keeps the per-save enqueues instead.
+        rebuilds: AbstractContextManager[set[int]] = (
+            coalesced_cohort_flags_cache_rebuilds() if coalesce_rebuilds else nullcontext(set())
+        )
+        with rebuilds as stale_cache_teams:
             for cohort_id in sorted_cohort_ids:
                 cohort = seen_cohorts_cache.get(cohort_id)
                 if not cohort:
