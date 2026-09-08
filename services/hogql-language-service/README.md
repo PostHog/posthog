@@ -7,7 +7,7 @@ authority for deciding which schema and properties belong in each catalog.
 For local development, start the service on its loopback listener:
 
 ```bash
-.codex/with-flox go -C services/hogql-language-service run ./cmd/server
+HOGQL_LANGUAGE_SERVICE_ALLOW_INSECURE=1 .codex/with-flox go -C services/hogql-language-service run ./cmd/server
 ```
 
 Publish a permission-filtered catalog through the multitenant endpoint below before making language requests. The Go
@@ -75,12 +75,14 @@ returns `404`; the service never falls back to another team or user.
 `DELETE /teams/{teamId}/users/{userId}/catalog` removes that entry.
 
 Catalogs expire `CATALOG_TTL` (default `30m`) after publication so active projects periodically refresh their schema.
-When `MAX_CATALOGS` (default `1024`) is reached, the least recently used catalog is evicted. Publishing a new revision
-replaces the old immutable catalog atomically.
+When `MAX_CATALOGS` (default `1024`) or `CATALOG_CACHE_MAX_BYTES` (default `1 GiB`) is reached, the least recently used
+catalog is evicted. A catalog request is limited to `64 MiB`. Publishing a new revision replaces the old immutable
+catalog atomically.
 
-Loopback listeners allow unauthenticated requests for local development. A non-loopback listener refuses to start
-unless `HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS` contains one or more comma-separated HMAC keys. Django must send a
-short-lived HS256 JWT as `Authorization: Bearer …` with these claims:
+Authentication is required unless `HOGQL_LANGUAGE_SERVICE_ALLOW_INSECURE=1` explicitly disables it on a loopback
+listener for local development. Insecure mode logs a startup warning and is rejected on non-loopback listeners.
+`HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS` contains one or more comma-separated HMAC keys. Django sends a short-lived
+HS256 JWT as `Authorization: Bearer …` with these claims:
 
 ```json
 {

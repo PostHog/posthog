@@ -63,10 +63,20 @@ func main() {
 	if err != nil {
 		fatalConfiguration(err)
 	}
+	maxCatalogBytes, err := positiveIntEnv("CATALOG_CACHE_MAX_BYTES", 1<<30)
+	if err != nil {
+		fatalConfiguration(err)
+	}
 	keys := splitNonEmpty(os.Getenv("HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS"))
-	allowInsecure := len(keys) == 0 && isLoopbackAddress(listenAddress)
+	allowInsecure, err := allowInsecureAuthentication(listenAddress, os.Getenv("HOGQL_LANGUAGE_SERVICE_ALLOW_INSECURE"))
+	if err != nil {
+		fatalConfiguration(err)
+	}
 	if len(keys) == 0 && !allowInsecure {
-		fatalConfiguration(errors.New("HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS is required when LISTEN_ADDR is not loopback"))
+		fatalConfiguration(errors.New("HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS is required"))
+	}
+	if allowInsecure {
+		slog.Warn("authentication disabled for local development", "address", listenAddress)
 	}
 	maxRateLimitKeys, err := positiveIntEnv("RATE_LIMIT_MAX_KEYS", 10000)
 	if err != nil {
@@ -78,12 +88,19 @@ func main() {
 	}
 
 	s := &server{
-		catalogs:         catalog.NewRegistry(maxCatalogs, catalogTTL),
+		catalogs:         catalog.NewRegistry(maxCatalogs, int64(maxCatalogBytes), catalogTTL),
 		auth:             serviceauth.New(keys, allowInsecure),
 		preAuthLimiter:   configuredLimiter("PRE_AUTH_RATE_LIMIT", 300, 100, maxRateLimitKeys, rateLimitIdleTTL),
 		principalLimiter: configuredLimiter("PRINCIPAL_RATE_LIMIT", 120, 60, maxRateLimitKeys, rateLimitIdleTTL),
 	}
-	httpServer := &http.Server{Addr: listenAddress, Handler: s.handler(), ReadHeaderTimeout: 5 * time.Second}
+	httpServer := &http.Server{
+		Addr:              listenAddress,
+		Handler:           s.handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 	stats := s.catalogs.Stats()
 	slog.Info("HogQL language service listening", "address", listenAddress, "catalogs", stats.Catalogs, "tables", stats.Tables, "properties", stats.Properties)
 	if err := httpServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
@@ -113,16 +130,22 @@ type authorizedHandler func(http.ResponseWriter, *http.Request, serviceauth.Auth
 
 func (s *server) authorized(operation serviceauth.Operation, next authorizedHandler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if allowed, retryAfter := s.preAuthLimiter.Allow(remoteAddress(r)); !allowed {
-			writeRateLimitResponse(w, retryAfter)
-			return
-		}
-		authorization, ok := authorizationFromPath(w, r)
-		if !ok {
+		preAuthAllowed, retryAfter := s.preAuthLimiter.Allow(remoteAddress(r))
+		authorization, err := authorizationFromPath(r)
+		if err != nil {
+			if !preAuthAllowed {
+				writeRateLimitResponse(w, retryAfter)
+			} else {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+			}
 			return
 		}
 		if err := s.auth.Verify(r.Header.Get("Authorization"), authorization, operation); err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			if !preAuthAllowed {
+				writeRateLimitResponse(w, retryAfter)
+			} else {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+			}
 			return
 		}
 		if allowed, retryAfter := s.principalLimiter.Allow(authorizationKey(authorization)); !allowed {
@@ -135,7 +158,7 @@ func (s *server) authorized(operation serviceauth.Operation, next authorizedHand
 
 func (s *server) putCatalog(w http.ResponseWriter, r *http.Request, authorization serviceauth.Authorization) {
 	var input catalogUpdate
-	if !decodeJSON(w, r, 256<<20, &input) {
+	if !decodeJSON(w, r, 64<<20, &input) {
 		return
 	}
 	if err := s.catalogs.Put(authorization, input.Revision, &input.Catalog); err != nil {
@@ -155,7 +178,7 @@ func (s *server) deleteCatalog(w http.ResponseWriter, _ *http.Request, authoriza
 
 func (s *server) autocomplete(w http.ResponseWriter, r *http.Request, authorization serviceauth.Authorization) {
 	var input completionRequest
-	if !decodeJSON(w, r, 1<<20, &input) {
+	if !decodeJSON(w, r, 128<<10, &input) {
 		return
 	}
 	current, revision, ok := s.catalogs.Get(authorization)
@@ -178,7 +201,7 @@ func (s *server) autocomplete(w http.ResponseWriter, r *http.Request, authorizat
 
 func (s *server) validate(w http.ResponseWriter, r *http.Request, authorization serviceauth.Authorization) {
 	var input validationRequest
-	if !decodeJSON(w, r, 1<<20, &input) {
+	if !decodeJSON(w, r, 128<<10, &input) {
 		return
 	}
 	current, revision, ok := s.catalogs.Get(authorization)
@@ -203,18 +226,16 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, maxBytes int64, target a
 	return true
 }
 
-func authorizationFromPath(w http.ResponseWriter, r *http.Request) (serviceauth.Authorization, bool) {
+func authorizationFromPath(r *http.Request) (serviceauth.Authorization, error) {
 	teamID, err := strconv.ParseInt(r.PathValue("teamID"), 10, 64)
 	if err != nil {
-		http.Error(w, "teamID and userID must be positive integers", http.StatusBadRequest)
-		return serviceauth.Authorization{}, false
+		return serviceauth.Authorization{}, errors.New("teamID and userID must be positive integers")
 	}
 	userID, err := strconv.ParseInt(r.PathValue("userID"), 10, 64)
 	if err != nil || teamID <= 0 || userID <= 0 {
-		http.Error(w, "teamID and userID must be positive integers", http.StatusBadRequest)
-		return serviceauth.Authorization{}, false
+		return serviceauth.Authorization{}, errors.New("teamID and userID must be positive integers")
 	}
-	return serviceauth.Authorization{TeamID: teamID, UserID: userID}, true
+	return serviceauth.Authorization{TeamID: teamID, UserID: userID}, nil
 }
 
 func remoteAddress(r *http.Request) string {
@@ -312,11 +333,22 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(status)
 	// nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter -- json.Marshal escapes strings and this response has an application/json content type.
 	if _, err := w.Write(body); err != nil {
 		slog.Warn("write response", "error", err)
 	}
+}
+
+func allowInsecureAuthentication(listenAddress, configured string) (bool, error) {
+	if configured != "1" {
+		return false, nil
+	}
+	if !isLoopbackAddress(listenAddress) {
+		return false, errors.New("HOGQL_LANGUAGE_SERVICE_ALLOW_INSECURE requires a loopback LISTEN_ADDR")
+	}
+	return true, nil
 }
 
 func fatalConfiguration(err error) {

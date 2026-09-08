@@ -11,6 +11,7 @@ import (
 
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/propertyresolver"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/querylimits"
 )
 
 type Suggestion struct {
@@ -38,10 +39,19 @@ type tableBinding struct {
 	table catalog.Table
 }
 
+type queryScope struct {
+	query    *clickhouse.SelectQuery
+	parent   *queryScope
+	bindings map[string]tableBinding
+}
+
 var tableReferencePattern = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_.$]*)`)
 
 func Validate(schema *catalog.Catalog, query string) Result {
 	started := time.Now()
+	if err := querylimits.Validate(query); err != nil {
+		return result([]Diagnostic{{Code: "query_limit", Message: err.Error(), Start: 0, End: len(query)}}, nil, started)
+	}
 	parserQuery, originalTableNames := normalizeHogQLTableReferences(query)
 	statements, err := clickhouse.NewParser(parserQuery).ParseStmts()
 	if err != nil {
@@ -58,9 +68,9 @@ func Validate(schema *catalog.Catalog, query string) Result {
 	var diagnostics []Diagnostic
 	var referencedTableNames []string
 	seenTableNames := map[string]bool{}
-	bindings := map[string]tableBinding{}
-	ignoredIdents := map[*clickhouse.Ident]bool{}
 	for _, statement := range statements {
+		scopes := queryScopes(statement)
+		ignoredIdents := map[*clickhouse.Ident]bool{}
 		clickhouse.Walk(statement, func(node clickhouse.Expr) bool {
 			switch typed := node.(type) {
 			case *clickhouse.TableExpr:
@@ -78,18 +88,23 @@ func Validate(schema *catalog.Catalog, query string) Result {
 				}
 				table, exists := tablesByName[strings.ToLower(name)]
 				if !exists {
-					diagnostics = append(diagnostics, Diagnostic{
-						Code: "unknown_table", Message: fmt.Sprintf("Unknown table %q", name), Start: start, End: end,
-						Suggestions: closest(name, tableNames(schema), 5),
-					})
-					return false
+					if len(diagnostics) < querylimits.MaxDiagnostics {
+						diagnostics = append(diagnostics, Diagnostic{
+							Code: "unknown_table", Message: fmt.Sprintf("Unknown table %q", name), Start: start, End: end,
+							Suggestions: closest(name, tableNames(schema), 5),
+						})
+					}
+					return true
 				}
 				binding := tableBinding{name: name, table: table}
-				bindings[strings.ToLower(name)] = binding
-				if alias != "" {
-					bindings[strings.ToLower(alias)] = binding
+				scope := innermostScope(scopes, start, end)
+				if scope == nil {
+					return true
 				}
-				return false
+				scope.bindings[strings.ToLower(name)] = binding
+				if alias != "" {
+					scope.bindings[strings.ToLower(alias)] = binding
+				}
 			case *clickhouse.TableIdentifier:
 				ignoredIdents[typed.Database] = true
 				ignoredIdents[typed.Table] = true
@@ -104,49 +119,105 @@ func Validate(schema *catalog.Catalog, query string) Result {
 			}
 			return true
 		})
-	}
-
-	if len(bindings) > 0 {
 		seen := map[string]bool{}
-		bindingNames := make(map[string]string, len(bindings))
-		for name, binding := range bindings {
-			bindingNames[name] = binding.name
-		}
-		for _, statement := range statements {
-			clickhouse.Walk(statement, func(node clickhouse.Expr) bool {
-				switch typed := node.(type) {
-				case *clickhouse.TableExpr:
-					return false
-				case *clickhouse.Path:
-					if len(typed.Fields) < 2 {
-						return false
-					}
-					parts := make([]string, len(typed.Fields))
-					for index, field := range typed.Fields {
-						parts[index] = field.Name
-					}
-					if namespace, ok := propertyresolver.Resolve(parts, bindingNames); ok {
-						validateProperty(&diagnostics, seen, schema.Properties[namespace], typed.Fields[len(typed.Fields)-1])
-						return false
-					}
-					binding, ok := bindings[strings.ToLower(typed.Fields[0].Name)]
-					if ok {
-						validateField(&diagnostics, seen, binding.table, typed.Fields[1])
-					}
-					return false
-				case *clickhouse.Ident:
-					if !ignoredIdents[typed] {
-						validateUnqualifiedField(&diagnostics, seen, bindings, typed)
-					}
+		clickhouse.Walk(statement, func(node clickhouse.Expr) bool {
+			switch typed := node.(type) {
+			case *clickhouse.Path:
+				for _, field := range typed.Fields {
+					ignoredIdents[field] = true
 				}
-				return true
-			})
-		}
+				if len(typed.Fields) < 2 {
+					return true
+				}
+				bindings := visibleBindings(innermostScope(scopes, int(node.Pos()), int(node.End())))
+				if len(bindings) == 0 {
+					return true
+				}
+				parts := make([]string, len(typed.Fields))
+				for index, field := range typed.Fields {
+					parts[index] = field.Name
+				}
+				bindingNames := make(map[string]string, len(bindings))
+				for name, binding := range bindings {
+					bindingNames[name] = binding.name
+				}
+				if namespace, ok := propertyresolver.Resolve(parts, bindingNames); ok {
+					validateProperty(&diagnostics, seen, schema.Properties[namespace], typed.Fields[len(typed.Fields)-1])
+					return true
+				}
+				if binding, ok := bindings[strings.ToLower(typed.Fields[0].Name)]; ok {
+					validateField(&diagnostics, seen, binding.table, typed.Fields[1])
+				}
+			case *clickhouse.Ident:
+				if ignoredIdents[typed] {
+					return true
+				}
+				bindings := visibleBindings(innermostScope(scopes, int(node.Pos()), int(node.End())))
+				if len(bindings) > 0 {
+					validateUnqualifiedField(&diagnostics, seen, bindings, typed)
+				}
+			}
+			return true
+		})
 	}
 	return result(diagnostics, referencedTableNames, started)
 }
 
+func queryScopes(statement clickhouse.Expr) []*queryScope {
+	var scopes []*queryScope
+	clickhouse.Walk(statement, func(node clickhouse.Expr) bool {
+		if query, ok := node.(*clickhouse.SelectQuery); ok {
+			scopes = append(scopes, &queryScope{query: query, bindings: map[string]tableBinding{}})
+		}
+		return true
+	})
+	for _, scope := range scopes {
+		for _, candidate := range scopes {
+			if scope == candidate || span(candidate.query) <= span(scope.query) || !contains(candidate.query, int(scope.query.Pos()), int(scope.query.End())) {
+				continue
+			}
+			if scope.parent == nil || span(candidate.query) < span(scope.parent.query) {
+				scope.parent = candidate
+			}
+		}
+	}
+	return scopes
+}
+
+func innermostScope(scopes []*queryScope, start, end int) *queryScope {
+	var found *queryScope
+	for _, scope := range scopes {
+		if contains(scope.query, start, end) && (found == nil || span(scope.query) < span(found.query)) {
+			found = scope
+		}
+	}
+	return found
+}
+
+func contains(query *clickhouse.SelectQuery, start, end int) bool {
+	return int(query.Pos()) <= start && end <= int(query.End())
+}
+
+func span(query *clickhouse.SelectQuery) int {
+	return int(query.End() - query.Pos())
+}
+
+func visibleBindings(scope *queryScope) map[string]tableBinding {
+	bindings := map[string]tableBinding{}
+	for current := scope; current != nil; current = current.parent {
+		for name, binding := range current.bindings {
+			if _, exists := bindings[name]; !exists {
+				bindings[name] = binding
+			}
+		}
+	}
+	return bindings
+}
+
 func validateProperty(diagnostics *[]Diagnostic, seen map[string]bool, properties []catalog.Property, ident *clickhouse.Ident) {
+	if len(*diagnostics) >= querylimits.MaxDiagnostics {
+		return
+	}
 	for _, property := range properties {
 		if strings.EqualFold(property.Name, ident.Name) {
 			return
@@ -207,6 +278,9 @@ func tableReference(expr *clickhouse.TableExpr) (name, alias string, start, end 
 }
 
 func validateField(diagnostics *[]Diagnostic, seen map[string]bool, table catalog.Table, ident *clickhouse.Ident) {
+	if len(*diagnostics) >= querylimits.MaxDiagnostics {
+		return
+	}
 	if hasField(table, ident.Name) {
 		return
 	}
@@ -222,6 +296,9 @@ func validateField(diagnostics *[]Diagnostic, seen map[string]bool, table catalo
 }
 
 func validateUnqualifiedField(diagnostics *[]Diagnostic, seen map[string]bool, bindings map[string]tableBinding, ident *clickhouse.Ident) {
+	if len(*diagnostics) >= querylimits.MaxDiagnostics {
+		return
+	}
 	uniqueTables := map[string]catalog.Table{}
 	for _, binding := range bindings {
 		uniqueTables[binding.name] = binding.table
@@ -270,15 +347,32 @@ func fieldNames(table catalog.Table) []string {
 }
 
 func closest(input string, candidates []string, limit int) []Suggestion {
+	if len(input) > querylimits.MaxSuggestionInputBytes {
+		return nil
+	}
 	lowerInput := strings.ToLower(input)
+	leftRunes := []rune(lowerInput)
+	threshold := min(4, max(2, len(leftRunes)/3))
 	unique := map[string]Suggestion{}
 	for _, candidate := range candidates {
-		distance := levenshtein(lowerInput, strings.ToLower(candidate))
-		threshold := max(2, len(lowerInput)/3)
-		if distance > threshold && !strings.HasPrefix(strings.ToLower(candidate), lowerInput) {
+		if len(candidate) > querylimits.MaxSuggestionInputBytes {
 			continue
 		}
-		key := strings.ToLower(candidate)
+		lowerCandidate := strings.ToLower(candidate)
+		rightRunes := []rune(lowerCandidate)
+		lengthDifference := max(len(leftRunes), len(rightRunes)) - min(len(leftRunes), len(rightRunes))
+		prefix := strings.HasPrefix(lowerCandidate, lowerInput)
+		if lengthDifference > threshold && !prefix {
+			continue
+		}
+		distance := lengthDifference
+		if !prefix {
+			distance = levenshtein(leftRunes, rightRunes)
+		}
+		if distance > threshold {
+			continue
+		}
+		key := lowerCandidate
 		if existing, ok := unique[key]; !ok || distance < existing.Distance {
 			unique[key] = Suggestion{Label: candidate, Distance: distance}
 		}
@@ -296,9 +390,7 @@ func closest(input string, candidates []string, limit int) []Suggestion {
 	return result[:min(limit, len(result))]
 }
 
-func levenshtein(left, right string) int {
-	leftRunes := []rune(left)
-	rightRunes := []rune(right)
+func levenshtein(leftRunes, rightRunes []rune) int {
 	previous := make([]int, len(rightRunes)+1)
 	current := make([]int, len(rightRunes)+1)
 	for index := range previous {

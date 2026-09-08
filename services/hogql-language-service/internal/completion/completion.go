@@ -13,6 +13,7 @@ import (
 
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/propertyresolver"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/querylimits"
 )
 
 type Suggestion struct {
@@ -34,6 +35,9 @@ var keywords = []string{"SELECT", "FROM", "WHERE", "GROUP BY", "ORDER BY", "LIMI
 var tableReference = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_.$]*)(?:\s+(?:AS\s+)?([A-Za-z_][A-Za-z0-9_]*))?`)
 
 func Complete(schema *catalog.Catalog, query string, position int, cursor string) (Result, error) {
+	if err := querylimits.Validate(query); err != nil {
+		return Result{}, err
+	}
 	offset, err := decodeCursor(cursor)
 	if err != nil {
 		return Result{}, err
@@ -42,26 +46,37 @@ func Complete(schema *catalog.Catalog, query string, position int, cursor string
 		position = len(query)
 	}
 	prefix, qualifier, start := cursorWord(query[:position])
+	if len(prefix) > querylimits.MaxSuggestionInputBytes {
+		return Result{Suggestions: []Suggestion{}}, nil
+	}
+	lowerPrefix := strings.ToLower(prefix)
 	repaired := query[:start] + "__posthog_cursor__" + query[position:]
 	bindings, parseErr := tableBindings(repaired)
-	for binding, tableName := range fallbackBindings(repaired, schema) {
+	tablesByLowerName := tableNamesByLowerName(schema)
+	for binding, tableName := range bindings {
+		if canonicalName, ok := tablesByLowerName[strings.ToLower(tableName)]; ok {
+			bindings[binding] = canonicalName
+		}
+	}
+	for binding, tableName := range fallbackBindings(repaired, tablesByLowerName) {
 		bindings[binding] = tableName
 	}
 
 	var suggestions []Suggestion
 	if namespace, propertyPrefix, ok := propertyContext(query[:position], bindings); ok {
+		lowerPropertyPrefix := strings.ToLower(propertyPrefix)
 		for _, property := range schema.Properties[namespace] {
-			if hasPrefixFold(property.Name, propertyPrefix) {
+			if hasLowerPrefix(property.Name, lowerPropertyPrefix) {
 				suggestions = append(suggestions, Suggestion{Label: property.Name, Kind: "property", Detail: property.ValueType})
 			}
 		}
 	} else if qualifier != "" {
 		if tableName, ok := bindings[strings.ToLower(qualifier)]; ok {
-			suggestions = appendFields(suggestions, schema.Tables[tableName], prefix)
+			suggestions = appendFields(suggestions, schema.Tables[tableName], lowerPrefix)
 		}
 	} else if expectsTable(query[:start]) {
 		for name, table := range schema.Tables {
-			if hasPrefixFold(name, prefix) {
+			if hasLowerPrefix(name, lowerPrefix) {
 				suggestions = append(suggestions, Suggestion{Label: name, Kind: "table", Detail: table.Type})
 			}
 		}
@@ -72,10 +87,10 @@ func Complete(schema *catalog.Catalog, query string, position int, cursor string
 				continue
 			}
 			seen[tableName] = true
-			suggestions = appendFields(suggestions, schema.Tables[tableName], prefix)
+			suggestions = appendFields(suggestions, schema.Tables[tableName], lowerPrefix)
 		}
 		for _, keyword := range keywords {
-			if hasPrefixFold(keyword, prefix) {
+			if hasLowerPrefix(keyword, lowerPrefix) {
 				suggestions = append(suggestions, Suggestion{Label: keyword, Kind: "keyword"})
 			}
 		}
@@ -139,11 +154,11 @@ func encodeCursor(offset int) string {
 
 // The ClickHouse grammar accepts database.table while HogQL warehouse names may have more segments.
 // Keep parser-derived bindings as the primary path and fill that syntax gap until the grammar supports it.
-func fallbackBindings(query string, schema *catalog.Catalog) map[string]string {
+func fallbackBindings(query string, tablesByLowerName map[string]string) map[string]string {
 	bindings := map[string]string{}
 	for _, match := range tableReference.FindAllStringSubmatch(query, -1) {
-		tableName := match[1]
-		if _, ok := schema.Tables[tableName]; !ok {
+		tableName, ok := tablesByLowerName[strings.ToLower(match[1])]
+		if !ok {
 			continue
 		}
 		bindings[strings.ToLower(tableName)] = tableName
@@ -154,9 +169,17 @@ func fallbackBindings(query string, schema *catalog.Catalog) map[string]string {
 	return bindings
 }
 
-func appendFields(out []Suggestion, table catalog.Table, prefix string) []Suggestion {
+func tableNamesByLowerName(schema *catalog.Catalog) map[string]string {
+	tables := make(map[string]string, len(schema.Tables))
+	for name := range schema.Tables {
+		tables[strings.ToLower(name)] = name
+	}
+	return tables
+}
+
+func appendFields(out []Suggestion, table catalog.Table, lowerPrefix string) []Suggestion {
 	for name, field := range table.Fields {
-		if hasPrefixFold(name, prefix) {
+		if hasLowerPrefix(name, lowerPrefix) {
 			out = append(out, Suggestion{Label: name, Kind: "field", Detail: field.Type})
 		}
 	}
@@ -193,8 +216,8 @@ func expectsTable(input string) bool {
 	return last == "FROM" || last == "JOIN" || strings.HasSuffix(strings.TrimSpace(input), ",")
 }
 
-func hasPrefixFold(value, prefix string) bool {
-	return strings.HasPrefix(strings.ToLower(value), strings.ToLower(prefix))
+func hasLowerPrefix(value, lowerPrefix string) bool {
+	return strings.HasPrefix(strings.ToLower(value), lowerPrefix)
 }
 
 func tableBindings(query string) (map[string]string, error) {

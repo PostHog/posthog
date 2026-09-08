@@ -47,6 +47,9 @@ func TestAutocompleteUsesOnlyRequestedTeamAndUserCatalog(t *testing.T) {
 		if response.Header().Get("X-Content-Type-Options") != "nosniff" {
 			t.Fatal("response is missing X-Content-Type-Options: nosniff")
 		}
+		if contentLength := response.Header().Get("Content-Length"); contentLength != strconv.Itoa(response.Body.Len()) {
+			t.Fatalf("Content-Length = %q, response size = %d", contentLength, response.Body.Len())
+		}
 		var result completionResponse
 		if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
 			t.Fatal(err)
@@ -58,6 +61,24 @@ func TestAutocompleteUsesOnlyRequestedTeamAndUserCatalog(t *testing.T) {
 			if otherTable != test.table && hasSuggestion(result.Suggestions, otherTable) {
 				t.Fatalf("%s leaked into team %d user %d", otherTable, test.teamID, test.userID)
 			}
+		}
+	}
+}
+
+func TestInsecureAuthenticationRequiresExplicitLoopbackOptIn(t *testing.T) {
+	for _, test := range []struct {
+		address    string
+		configured string
+		allowed    bool
+		wantError  bool
+	}{
+		{address: "127.0.0.1:8091", configured: "", allowed: false},
+		{address: "127.0.0.1:8091", configured: "1", allowed: true},
+		{address: "0.0.0.0:8091", configured: "1", allowed: false, wantError: true},
+	} {
+		allowed, err := allowInsecureAuthentication(test.address, test.configured)
+		if allowed != test.allowed || (err != nil) != test.wantError {
+			t.Fatalf("address %q configured %q returned allowed=%t error=%v", test.address, test.configured, allowed, err)
 		}
 	}
 }
@@ -86,7 +107,7 @@ func TestAutocompleteRequiresKnownTeamAndUser(t *testing.T) {
 }
 
 func TestPrincipalRateLimitRunsBeforeBodyDecodeAndDoesNotCrossScopes(t *testing.T) {
-	preAuthLimiter, err := ratelimit.New(ratelimit.Config{Capacity: 100, RefillPerSec: 100, MaxEntries: 10, IdleTTL: time.Hour})
+	preAuthLimiter, err := ratelimit.New(ratelimit.Config{Capacity: 1, RefillPerSec: 0.001, MaxEntries: 10, IdleTTL: time.Hour})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +116,7 @@ func TestPrincipalRateLimitRunsBeforeBodyDecodeAndDoesNotCrossScopes(t *testing.
 		t.Fatal(err)
 	}
 	s := &server{
-		catalogs:         catalog.NewRegistry(10, time.Hour),
+		catalogs:         catalog.NewRegistry(10, 1<<20, time.Hour),
 		auth:             serviceauth.New(nil, true),
 		preAuthLimiter:   preAuthLimiter,
 		principalLimiter: principalLimiter,
@@ -153,7 +174,7 @@ func newTestServer(t *testing.T) *server {
 		t.Fatal(err)
 	}
 	return &server{
-		catalogs:         catalog.NewRegistry(10, time.Hour),
+		catalogs:         catalog.NewRegistry(10, 1<<20, time.Hour),
 		auth:             serviceauth.New(nil, true),
 		preAuthLimiter:   preAuthLimiter,
 		principalLimiter: principalLimiter,

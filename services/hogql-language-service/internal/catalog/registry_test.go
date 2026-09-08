@@ -9,7 +9,7 @@ import (
 
 func TestRegistryIsolatesCatalogsAndReplacesRevisionAtomically(t *testing.T) {
 	now := time.Unix(100, 0)
-	registry := newRegistry(2, time.Hour, func() time.Time { return now })
+	registry := newRegistry(2, 1<<20, time.Hour, func() time.Time { return now })
 	first := &Catalog{Tables: map[string]Table{"events": {Name: "events"}}, Properties: map[string][]Property{}}
 	second := &Catalog{Tables: map[string]Table{"persons": {Name: "persons"}}, Properties: map[string][]Property{}}
 	if err := registry.Put(serviceauth.Authorization{TeamID: 1, UserID: 10}, "1", first); err != nil {
@@ -36,7 +36,7 @@ func TestRegistryIsolatesCatalogsAndReplacesRevisionAtomically(t *testing.T) {
 
 func TestRegistryExpiresAndEvictsLeastRecentlyUsedCatalogs(t *testing.T) {
 	now := time.Unix(100, 0)
-	registry := newRegistry(2, time.Minute, func() time.Time { return now })
+	registry := newRegistry(2, 1<<20, time.Minute, func() time.Time { return now })
 	value := &Catalog{Tables: map[string]Table{}, Properties: map[string][]Property{}}
 	for _, scope := range []serviceauth.Authorization{{TeamID: 1, UserID: 10}, {TeamID: 2, UserID: 20}} {
 		if err := registry.Put(scope, "1", value); err != nil {
@@ -62,7 +62,7 @@ func TestRegistryExpiresAndEvictsLeastRecentlyUsedCatalogs(t *testing.T) {
 
 func TestRegistryExpiresActiveCatalogFromPublicationTime(t *testing.T) {
 	now := time.Unix(100, 0)
-	registry := newRegistry(1, time.Minute, func() time.Time { return now })
+	registry := newRegistry(1, 1<<20, time.Minute, func() time.Time { return now })
 	scope := serviceauth.Authorization{TeamID: 1, UserID: 10}
 	value := &Catalog{Tables: map[string]Table{}, Properties: map[string][]Property{}}
 	if err := registry.Put(scope, "1", value); err != nil {
@@ -75,5 +75,26 @@ func TestRegistryExpiresActiveCatalogFromPublicationTime(t *testing.T) {
 	now = now.Add(16 * time.Second)
 	if _, _, ok := registry.Get(scope); ok {
 		t.Fatal("catalog access extended its publication TTL")
+	}
+}
+
+func TestRegistryEvictsCatalogsToStayWithinMemoryBudget(t *testing.T) {
+	now := time.Unix(100, 0)
+	value := &Catalog{Tables: map[string]Table{"events": {Name: "events", Fields: map[string]Field{"long_field_name": {Name: "long_field_name", Type: "String"}}}}, Properties: map[string][]Property{}}
+	size := estimatedSize(value)
+	registry := newRegistry(10, size, time.Hour, func() time.Time { return now })
+	first := serviceauth.Authorization{TeamID: 1, UserID: 10}
+	second := serviceauth.Authorization{TeamID: 2, UserID: 20}
+	if err := registry.Put(first, "1", value); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Put(second, "1", value); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := registry.Get(first); ok {
+		t.Fatal("oldest catalog was not evicted to meet the memory budget")
+	}
+	if _, _, ok := registry.Get(second); !ok {
+		t.Fatal("new catalog was not retained")
 	}
 }

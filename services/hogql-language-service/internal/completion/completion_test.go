@@ -2,6 +2,7 @@ package completion
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
@@ -23,6 +24,13 @@ func testCatalog() *catalog.Catalog {
 		"session": {{Name: "$entry_current_url", ValueType: "String"}},
 		"group:0": {{Name: "industry", ValueType: "String"}},
 	}}
+}
+
+func TestCompletionRejectsQueriesOutsideResourceLimits(t *testing.T) {
+	_, err := Complete(testCatalog(), strings.Repeat("x", 64<<10+1), 0, "")
+	if err == nil {
+		t.Fatal("oversized query was accepted")
+	}
 }
 
 func TestCompletesPropertiesForGenericNamespaces(t *testing.T) {
@@ -80,6 +88,17 @@ func TestCompletesFieldsForAlias(t *testing.T) {
 	}
 }
 
+func TestCompletesFieldsForMixedCaseTableReference(t *testing.T) {
+	query := "SELECT Orders. FROM Orders"
+	result, err := Complete(testCatalog(), query, len("SELECT Orders."), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasSuggestion(result.Suggestions, "order_id") {
+		t.Fatalf("suggestions = %#v; parse error = %q", result.Suggestions, result.ParseError)
+	}
+}
+
 func TestCompletionPagesWithoutSkippingOrRepeatingTables(t *testing.T) {
 	schema := &catalog.Catalog{Tables: map[string]catalog.Table{}}
 	for index := 0; index < 30; index++ {
@@ -110,4 +129,13 @@ func TestCompletionPagesWithoutSkippingOrRepeatingTables(t *testing.T) {
 	if _, err := Complete(schema, query, len(query), "not-a-cursor"); err == nil {
 		t.Fatal("invalid cursor was accepted")
 	}
+}
+
+func hasSuggestion(suggestions []Suggestion, label string) bool {
+	for _, suggestion := range suggestions {
+		if suggestion.Label == label {
+			return true
+		}
+	}
+	return false
 }
