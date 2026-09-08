@@ -590,7 +590,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
         except Exception as e:
             logger.warning("wizard_gateway_token: rollout flag unavailable, minting", error=str(e))
             rolled_out = None
-        if rolled_out is False:
+        if rolled_out is not True:
             refuse_absent_gateway(
                 "not_rolled_out", "Wizard gateway tokens are switched off for this organization.", user=user
             )
