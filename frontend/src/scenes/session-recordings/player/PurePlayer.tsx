@@ -35,7 +35,9 @@ import {
     ONE_SECOND_MS,
     PLAYBACK_SPEEDS,
     SessionRecordingPlayerMode,
+    playbackSpeedHotkey,
     sessionRecordingPlayerLogic,
+    stepPlaybackSpeed,
 } from './sessionRecordingPlayerLogic'
 import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
 
@@ -47,10 +49,10 @@ export interface PurePlayerProps {
 }
 
 export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysInterface => {
-    return PLAYBACK_SPEEDS.map((x, i) => ({ key: `${i}`, value: x })).reduce(
-        (acc, x) => Object.assign(acc, { [x.key]: { action: () => action(x.value) } }),
-        {}
-    )
+    return PLAYBACK_SPEEDS.reduce((acc: HotkeysInterface, speed) => {
+        const key = playbackSpeedHotkey(speed)
+        return key ? Object.assign(acc, { [key]: { action: () => action(speed) } }) : acc
+    }, {})
 }
 
 export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps): JSX.Element {
@@ -96,6 +98,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         hasLateFullSnapshot,
         leadingUnplayableMs,
         hasOversizedMutations,
+        speed,
     } = useValues(sessionRecordingPlayerLogic)
 
     const {
@@ -179,6 +182,14 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
 
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
 
+    // Stepping cannot move at the ends of the speed list. A no-op setSpeed still records a speed change.
+    const stepSpeed = (direction: 1 | -1): void => {
+        const next = stepPlaybackSpeed(speed, direction)
+        if (next !== speed) {
+            setSpeed(next)
+        }
+    }
+
     useKeyboardHotkeys(
         {
             f: {
@@ -230,9 +241,15 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                 allowRepeat: true,
             },
             ...speedHotkeys,
+            '<': {
+                action: () => stepSpeed(-1),
+            },
+            '>': {
+                action: () => stepSpeed(1),
+            },
             ...(isFullScreen ? { escape: { action: () => setIsFullScreen(false) } } : {}),
         },
-        [isFullScreen]
+        [isFullScreen, speed]
     )
 
     usePageVisibilityCb((pageIsVisible) => {

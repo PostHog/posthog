@@ -5,6 +5,7 @@ import { useEffect } from 'react'
 import { IconBottomPanel, IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
 import { LemonButton, LemonDialog, Link } from '@posthog/lemon-ui'
 
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { SettingsBar, SettingsButton, SettingsMenu, SettingsToggle } from 'lib/components/PanelSettings/PanelSettings'
 import { SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS } from 'lib/constants'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
@@ -15,6 +16,7 @@ import { PlayerInspectorButton } from 'scenes/session-recordings/player/player-m
 import {
     ModesWithInteractions,
     PLAYBACK_SPEEDS,
+    playbackSpeedHotkey,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
@@ -52,17 +54,39 @@ function SetPlaybackSpeed(): JSX.Element {
                 )
             }
             data-attr="session-recording-speed-select"
-            items={PLAYBACK_SPEEDS.map((speedToggle) => ({
-                label: (
-                    <div className="flex w-full deprecated-space-x-2 justify-between">
-                        <span>{speedToggle}x</span>
-                        <span>({humanFriendlyDuration(sessionPlayerData.durationMs / speedToggle / 1000)})</span>
-                    </div>
-                ),
-                onClick: () => setSpeed(speedToggle),
-                active: speed === speedToggle && speedToggle !== 1,
-                status: speed === speedToggle ? 'danger' : 'default',
-            }))}
+            items={[
+                ...PLAYBACK_SPEEDS.map((speedToggle) => {
+                    const shortcut = playbackSpeedHotkey(speedToggle)
+                    return {
+                        label: (
+                            <div className="flex w-full gap-2 justify-between items-center">
+                                <span>{speedToggle}x</span>
+                                <span className="flex gap-1 items-center">
+                                    <span>
+                                        ({humanFriendlyDuration(sessionPlayerData.durationMs / speedToggle / 1000)})
+                                    </span>
+                                    {shortcut ? <KeyboardShortcut {...{ [shortcut]: true }} /> : null}
+                                </span>
+                            </div>
+                        ),
+                        onClick: () => setSpeed(speedToggle),
+                        active: speed === speedToggle && speedToggle !== 1,
+                        status: speed === speedToggle ? ('danger' as const) : ('default' as const),
+                    }
+                }),
+                {
+                    label: () => (
+                        <div className="flex gap-2 justify-between items-center px-2 py-1 text-secondary">
+                            <span>Step through speeds</span>
+                            <span className="flex gap-1 items-center">
+                                <KeyboardShortcut {...{ '<': true }} />
+                                <KeyboardShortcut {...{ '>': true }} />
+                            </span>
+                        </div>
+                    ),
+                    custom: true,
+                },
+            ]}
             label={`Speed ${speed}x`}
         />
     )
