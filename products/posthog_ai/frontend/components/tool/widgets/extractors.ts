@@ -194,13 +194,12 @@ const DASHBOARD_TILE_CREATE_KEYS = new Set(['dashboard-create-tile', 'dashboard-
 const DASHBOARD_TILE_UPDATE_KEYS = new Set(['dashboard-update-text-tile'])
 const DASHBOARD_BATCH_ADD_KEYS = new Set(['dashboard-widgets-batch-add', 'dashboards-widgets-batch-create'])
 const DASHBOARD_BATCH_UPDATE_KEYS = new Set(['dashboard-widgets-batch-update'])
+const DASHBOARD_MOVE_TILE_KEYS = new Set(['dashboards-move-tile-create', 'dashboards-move-tile-partial-update'])
 const DASHBOARD_RESPONSE_KEYS = new Set([
     'dashboard-update',
     'dashboard-reorder-tiles',
     'dashboard-tile-copy',
     'dashboards-copy-tile-create',
-    'dashboards-move-tile-create',
-    'dashboards-move-tile-partial-update',
 ])
 
 function extractDashboardBatchRevealTarget(
@@ -278,6 +277,21 @@ export function extractDashboardMutationRevealTarget(message: ToolCallMessage): 
 
     if (DASHBOARD_BATCH_UPDATE_KEYS.has(message.resolvedKey)) {
         return extractDashboardBatchRevealTarget(input, output, dashboardId, true)
+    }
+
+    if (DASHBOARD_MOVE_TILE_KEYS.has(message.resolvedKey)) {
+        // A move answers with the source dashboard the tile left, so the response corroborates the
+        // request while the tile keeps its ID on the destination it was asked to move to.
+        const toDashboardId = getAgreedPositiveSafeInteger(input, ['to_dashboard'])
+        const requestedTile = asRecord(input.tile)
+        const requestedTileId = requestedTile ? getAgreedPositiveSafeInteger(requestedTile, ['id']) : null
+        return responseDashboardAgreesWithRequest(output, dashboardId) &&
+            toDashboardId !== null &&
+            toDashboardId !== undefined &&
+            requestedTileId !== null &&
+            requestedTileId !== undefined
+            ? { dashboardId: toDashboardId, tileId: requestedTileId }
+            : null
     }
 
     if (message.resolvedKey === 'dashboard-delete-tile') {

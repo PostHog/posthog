@@ -337,18 +337,18 @@ describe('mcp tool adapter extractors', () => {
                 { dashboardId: 7, tileId: 41 },
             ],
             [
-                'moves a tile while retaining the authoritative source dashboard response',
+                'moves a tile onto the destination dashboard it now lives on',
                 'dashboards-move-tile-create',
                 { id: 7, to_dashboard: 8, tile: { id: 41 } },
                 { id: 7 },
-                { dashboardId: 7 },
+                { dashboardId: 8, tileId: 41 },
             ],
             [
                 'moves a tile through the live partial-update key',
                 'dashboards-move-tile-partial-update',
                 { id: 7, to_dashboard: 8, tile: { id: 41 } },
                 { id: 7 },
-                { dashboardId: 7 },
+                { dashboardId: 8, tileId: 41 },
             ],
         ])('strictly extracts a target when it %s', (_case, resolvedKey, innerInput, rawOutput, expected) => {
             expect(extractDashboardMutationRevealTarget(toolMessage(rawOutput, innerInput, resolvedKey))).toEqual(
@@ -456,6 +456,36 @@ describe('mcp tool adapter extractors', () => {
                 'dashboard-widgets-batch-update',
                 'not a structured response',
                 { id: 7, widgets: [{ tile_id: 41 }] },
+            ],
+            [
+                'a move whose response describes a different source dashboard',
+                'dashboards-move-tile-partial-update',
+                { id: 8 },
+                { id: 7, to_dashboard: 8, tile: { id: 41 } },
+            ],
+            [
+                'a move without a destination dashboard',
+                'dashboards-move-tile-partial-update',
+                { id: 7 },
+                { id: 7, tile: { id: 41 } },
+            ],
+            [
+                'a move with an invalid destination dashboard',
+                'dashboards-move-tile-partial-update',
+                { id: 7 },
+                { id: 7, to_dashboard: 0, tile: { id: 41 } },
+            ],
+            [
+                'a move without an identified tile',
+                'dashboards-move-tile-partial-update',
+                { id: 7 },
+                { id: 7, to_dashboard: 8 },
+            ],
+            [
+                'a move with an invalid tile ID',
+                'dashboards-move-tile-partial-update',
+                { id: 7 },
+                { id: 7, to_dashboard: 8, tile: { id: -1 } },
             ],
         ])('rejects %s', (_case, resolvedKey, rawOutput, innerInput) => {
             expect(extractDashboardMutationRevealTarget(toolMessage(rawOutput, innerInput, resolvedKey))).toBeNull()
