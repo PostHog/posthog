@@ -30,6 +30,7 @@ class TestLogsSqlPanel(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("equals", "SELECT count() FROM logs WHERE body = 'Error'", True),
+            ("equals_reversed", "SELECT count() FROM logs WHERE 'Error' = body", True),
             ("equals_message_alias", "SELECT count() FROM logs WHERE message = 'Error'", True),
             ("equals_tostring", "SELECT count() FROM logs WHERE toString(body) = 'Error'", True),
             ("like", "SELECT count() FROM logs WHERE body LIKE '%Error%'", True),

@@ -1158,17 +1158,22 @@ class ClickHousePropertyResolver(CloningVisitor):
         ):
             return None
         column = self._logs_body_column(node.left)
+        other = node.right
+        if column is None and node.op == ast.CompareOperationOp.Eq:
+            # Equality is commutative, so `'x' = body` gets the same hint as `body = 'x'`.
+            column = self._logs_body_column(node.right)
+            other = node.left
         if column is None:
             return None
 
         if node.op == ast.CompareOperationOp.In:
-            values = self._extract_string_constants(node.right)
+            values = self._extract_string_constants(other)
             if not values or len(values) > LOGS_BODY_IN_HINT_MAX_VALUES:
                 return None
             lowered_values = ast.Tuple(exprs=[_lower(_const(value)) for value in values])
             hint = ast.CompareOperation(op=node.op, left=_lower(column), right=lowered_values)
         else:
-            constant = _string_pattern_constant(node.right)
+            constant = _string_pattern_constant(other)
             if constant is None:
                 return None
             hint = ast.CompareOperation(op=node.op, left=_lower(column), right=_lower(_const(constant.value)))
