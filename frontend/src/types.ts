@@ -7841,6 +7841,12 @@ export interface FeaturePreviewGateConfig {
     description: string
     docsURL?: string
     /**
+     * Scene whose name and icon the gated state renders as its header. Without it the gate
+     * falls back to the router's active scene, which can resolve to Error404 ("Not found")
+     * and mislabel the page.
+     */
+    sceneId?: string
+    /**
      * Offer a "Request access" support CTA. Set this for betas that aren't self-serve early-access
      * features, so the gated state offers a way to request access instead of dead-ending on the
      * feature previews page.
