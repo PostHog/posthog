@@ -70,11 +70,11 @@ export function ConnectGitHubStep({ onNext, onBack }: ConnectGitHubStepProps) {
                   : "Connect GitHub to give PostHog Desktop access to your code."
               }
             >
-              <GitHubConnectPanel connectButtonVariant="outline" />
+              <GitHubConnectPanel />
             </GithubConnectionEmpty>
             <StepActions
               primaryAction={
-                <Button size="lg" variant="primary" onClick={handleContinue}>
+                <Button size="lg" variant="outline" onClick={handleContinue}>
                   {isConnected ? "Continue" : "Skip for now"}
                   <ArrowRight size={16} weight="bold" />
                 </Button>
