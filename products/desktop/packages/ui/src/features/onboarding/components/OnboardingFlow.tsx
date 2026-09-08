@@ -1,4 +1,5 @@
 import {
+  ArrowLeft,
   ArrowRight,
   CheckCircle,
   Lifebuoy,
@@ -22,11 +23,13 @@ import {
 } from "@posthog/core/onboarding/spaceRepoAssignment";
 import {
   Button,
+  ButtonGroup,
   Item,
   ItemActions,
   ItemContent,
   ItemMedia,
   ItemTitle,
+  Text,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { TaskChannel } from "@posthog/shared/domain-types";
@@ -97,7 +100,11 @@ function OnboardingAccount({
 
   return (
     <aside className="absolute right-8 bottom-6 z-[2] w-[380px] max-w-[calc(100%-4rem)]">
-      <Item variant="muted" size="sm" className="w-full py-1">
+      <Item
+        variant="muted"
+        size="sm"
+        className="w-full border border-border py-1"
+      >
         <ItemMedia variant="icon">
           <CheckCircle size={14} weight="fill" className="text-(--green-11)" />
         </ItemMedia>
@@ -119,6 +126,48 @@ function OnboardingAccount({
           </Button>
         </ItemActions>
       </Item>
+    </aside>
+  );
+}
+
+function OnboardingDebugNavigation({
+  currentIndex,
+  totalSteps,
+  onBack,
+  onNext,
+}: {
+  currentIndex: number;
+  totalSteps: number;
+  onBack: () => void;
+  onNext: () => void;
+}) {
+  if (!IS_DEV) return null;
+
+  return (
+    <aside className="absolute top-8 left-8 z-[2] flex items-center gap-2">
+      <ButtonGroup aria-label="Onboarding step navigation">
+        <Button
+          size="icon-sm"
+          variant="outline"
+          aria-label="Previous onboarding step"
+          disabled={currentIndex <= 0}
+          onClick={onBack}
+        >
+          <ArrowLeft size={12} />
+        </Button>
+        <Button
+          size="icon-sm"
+          variant="outline"
+          aria-label="Next onboarding step"
+          disabled={currentIndex < 0 || currentIndex >= totalSteps - 1}
+          onClick={onNext}
+        >
+          <ArrowRight size={12} />
+        </Button>
+      </ButtonGroup>
+      <Text size="xs" variant="muted">
+        {currentIndex + 1} / {totalSteps}
+      </Text>
     </aside>
   );
 }
@@ -370,6 +419,12 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
         isAuthenticated={isAuthenticated}
         isLoggingOut={logoutMutation.isPending}
         onLogout={handleLogout}
+      />
+      <OnboardingDebugNavigation
+        currentIndex={currentIndex}
+        totalSteps={activeSteps.length}
+        onBack={back}
+        onNext={next}
       />
       <div className="h-full overflow-y-auto px-8 pt-16">
         <div className="mx-auto flex min-h-full w-full max-w-[720px] flex-col items-center">
