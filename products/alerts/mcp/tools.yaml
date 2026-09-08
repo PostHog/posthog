@@ -49,6 +49,9 @@ tools:
             add-on. The field is optional and defaults to daily. If the user does not specify a cadence, ask before
             creating the alert.
 
+            To set the check time, pass schedule_anchor with a local HH:MM time. Updates take effect after the current
+            next_check_at, so they cannot increase the alert check frequency.
+
             Note: subscribed_users only controls email recipients. For Slack, HTTPS webhook, or Discord delivery, see
             the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe
             (cdp-functions-list filtered by alert id, limit=1000), and the exact filters/inputs shape to pass.

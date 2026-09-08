@@ -12,6 +12,7 @@ from products.alerts.backend.scheduling import (
     next_calendar_check_time,
     parse_blocked_windows_tuples,
     scan_next_unblocked_utc,
+    validate_and_normalize_schedule_anchor,
     validate_and_normalize_schedule_restriction,
 )
 
@@ -121,6 +122,29 @@ class TestValidateAndNormalizeScheduleRestriction:
     def test_rejects_unknown_schedule_restriction_keys(self, _name: str, raw: dict[str, Any]) -> None:
         with pytest.raises(ValueError):
             validate_and_normalize_schedule_restriction(raw)
+
+
+class TestScheduleAnchor:
+    def test_accepts_any_valid_minute(self) -> None:
+        assert validate_and_normalize_schedule_anchor({"time": "08:02"}) == {"time": "08:02"}
+
+    @parameterized.expand(
+        [
+            (CalendarInterval.HOURLY, datetime(2026, 3, 18, 10, 35, tzinfo=UTC)),
+            (CalendarInterval.EVERY_15_MINUTES, datetime(2026, 3, 18, 9, 50, tzinfo=UTC)),
+        ]
+    )
+    def test_next_check_respects_the_cadence_after_an_anchor_edit(
+        self, interval: CalendarInterval, expected: datetime
+    ) -> None:
+        result = next_calendar_check_time(
+            interval,
+            now=datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+            tz_name="UTC",
+            next_check_at=datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+            schedule_anchor={"time": "09:35"},
+        )
+        assert result == expected
 
 
 class TestNextCalendarCheckTime:

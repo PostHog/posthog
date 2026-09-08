@@ -336,6 +336,9 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
 }
 
 field_name_overrides: dict[AuditableScope, dict[str, str]] = {
+    "AlertConfiguration": {
+        "schedule_anchor": "schedule anchor",
+    },
     "HogFunction": {
         "execution_order": "priority",
     },

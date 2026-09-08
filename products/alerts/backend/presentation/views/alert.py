@@ -75,7 +75,9 @@ from products.alerts.backend.insight_alert_state_machine import (
     apply_unsnooze,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
+from products.alerts.backend.presentation.views.alert_schedule_anchor import AlertScheduleAnchor
 from products.alerts.backend.presentation.views.alert_schedule_restriction import AlertScheduleRestriction
+from products.alerts.backend.scheduling import validate_and_normalize_schedule_anchor
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
@@ -205,6 +207,11 @@ class TeamScopedInsightReferenceField(TeamScopedPrimaryKeyRelatedField):
 
 @extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
 class ScheduleRestrictionField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(AlertScheduleAnchor)  # type: ignore[arg-type]
+class ScheduleAnchorField(serializers.JSONField):
     pass
 
 
@@ -447,6 +454,11 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         required=False,
         help_text="How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.",
     )
+    schedule_anchor = ScheduleAnchorField(
+        required=False,
+        allow_null=True,
+        help_text="Local time for alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to use the default schedule.",
+    )
     snoozed_until = RelativeDateTimeField(
         allow_null=True,
         required=False,
@@ -509,12 +521,13 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "enabled",
             "last_notified_at",
             "last_checked_at",
-            "next_check_at",
+            "schedule_anchor",
             "checks",
             "checks_total",
             "config",
             "detector_config",
             "calculation_interval",
+            "next_check_at",
             "snoozed_until",
             "skip_weekend",
             "schedule_restriction",
@@ -574,7 +587,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             validated_data["threshold"] = threshold_instance
 
         instance: AlertConfiguration = super().create(validated_data)
-
+        if instance.schedule_anchor is not None:
+            instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
+            instance.save(update_fields=["next_check_at"])
         for user in subscribed_users:
             AlertSubscription.objects.create(
                 user=user, alert_configuration=instance, created_by=self.context["request"].user
@@ -669,12 +684,17 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         if schedule_restriction_changed:
             instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
             instance.save(update_fields=["next_check_at"])
-
         instance.report_updated(
             self.context["request"].user,
             analytics_props=get_request_analytics_properties(self.context["request"]),
         )
         return instance
+
+    def validate_schedule_anchor(self, value: dict[str, Any] | None) -> dict[str, str] | None:
+        try:
+            return validate_and_normalize_schedule_anchor(value)
+        except ValueError:
+            raise serializers.ValidationError("Invalid schedule anchor.")
 
     def validate_detector_config(self, value):
         if value is None:

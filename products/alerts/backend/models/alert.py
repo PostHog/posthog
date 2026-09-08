@@ -162,6 +162,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     skip_weekend = models.BooleanField(null=True, blank=True, default=False)
 
     schedule_restriction = models.JSONField(null=True, blank=True, default=None)
+    schedule_anchor = models.JSONField(null=True, blank=True, default=None)
 
     # When enabled, an investigation agent runs on each firing check, up to three per
     # firing episode, and writes its findings to a linked Notebook. Only effective for

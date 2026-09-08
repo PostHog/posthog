@@ -152,6 +152,7 @@ def next_calendar_check_time(
     now: datetime,
     tz_name: str,
     next_check_at: datetime | None,
+    schedule_anchor: dict[str, str] | None = None,
 ) -> datetime:
     """Nominal next check instant, before quiet-hours snapping.
 
@@ -162,6 +163,43 @@ def next_calendar_check_time(
     """
     team_timezone = pytz.timezone(tz_name)
     local_now = now.astimezone(team_timezone)
+    anchor_minutes = _parse_hhmm(schedule_anchor["time"]) if schedule_anchor else None
+
+    if anchor_minutes is not None:
+        anchor_hour, anchor_minute = divmod(anchor_minutes, 60)
+        anchor_local = local_now.replace(hour=anchor_hour, minute=anchor_minute, second=0, microsecond=0)
+        anchor_utc = _localize_wall_time(team_timezone, anchor_local.replace(tzinfo=None)).astimezone(UTC)
+
+        match interval:
+            case CalendarInterval.REAL_TIME | CalendarInterval.EVERY_15_MINUTES | CalendarInterval.HOURLY:
+                cadence_minutes = {
+                    CalendarInterval.REAL_TIME: REAL_TIME_CADENCE_MINUTES,
+                    CalendarInterval.EVERY_15_MINUTES: EVERY_15_MINUTES_CADENCE_MINUTES,
+                    CalendarInterval.HOURLY: 60,
+                }[interval]
+                earliest_allowed = now + timedelta(minutes=cadence_minutes) if next_check_at is not None else now
+                if anchor_utc < earliest_allowed:
+                    elapsed_seconds = (earliest_allowed - anchor_utc).total_seconds()
+                    intervals_to_advance = int((elapsed_seconds - 1) // (cadence_minutes * 60)) + 1
+                    anchor_utc += timedelta(minutes=intervals_to_advance * cadence_minutes)
+                return anchor_utc
+            case CalendarInterval.DAILY:
+                if anchor_utc <= now:
+                    anchor_utc = _localize_wall_time(
+                        team_timezone, (anchor_local + timedelta(days=1)).replace(tzinfo=None)
+                    ).astimezone(UTC)
+                return anchor_utc
+            case CalendarInterval.WEEKLY:
+                days_until_monday = (7 - anchor_local.weekday()) % 7
+                candidate_local = anchor_local + timedelta(days=days_until_monday)
+                if candidate_local <= local_now:
+                    candidate_local += timedelta(days=7)
+                return _localize_wall_time(team_timezone, candidate_local.replace(tzinfo=None)).astimezone(UTC)
+            case CalendarInterval.MONTHLY:
+                candidate_local = anchor_local.replace(day=1)
+                if candidate_local <= local_now:
+                    candidate_local = (candidate_local + relativedelta(months=1)).replace(day=1)
+                return _localize_wall_time(team_timezone, candidate_local.replace(tzinfo=None)).astimezone(UTC)
 
     match interval:
         case CalendarInterval.REAL_TIME:
@@ -248,6 +286,15 @@ def _parse_hhmm(value: str) -> int:
     if h < 0 or h > 23 or m < 0 or m > 59:
         raise ValueError("Invalid HH:MM")
     return h * 60 + m
+
+
+def validate_and_normalize_schedule_anchor(raw: Any) -> dict[str, str] | None:
+    if raw is None or raw == {}:
+        return None
+    if not isinstance(raw, dict) or set(raw) != {"time"}:
+        raise ValueError("schedule_anchor must contain only time")
+    minutes = _parse_hhmm(raw["time"])
+    return {"time": _hhmm(minutes)}
 
 
 def _parse_window_pair(start_s: str, end_s: str) -> BlockedWindow:

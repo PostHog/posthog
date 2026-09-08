@@ -1180,6 +1180,58 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         persisted_alert = AlertConfiguration.objects.get(id=alert["id"])
         assert persisted_alert.next_check_at == (None if clears_next_check else scheduled_check)
 
+    @freeze_time("2026-03-18T08:00:00Z")
+    def test_create_alert_with_schedule_anchor(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": self.insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "name": "scheduled alert",
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "calculation_interval": "hourly",
+                "schedule_anchor": {"time": "08:02"},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert response.json()["schedule_anchor"] == {"time": "08:02"}
+        assert datetime.fromisoformat(response.json()["next_check_at"].replace("Z", "+00:00")) == datetime(
+            2026, 3, 18, 8, 2, tzinfo=UTC
+        )
+
+    @freeze_time("2026-03-18T08:00:00Z")
+    def test_patch_schedule_anchor_keeps_the_current_next_check(self) -> None:
+        alert = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": self.insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "name": "scheduled alert",
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "calculation_interval": "hourly",
+                "schedule_anchor": {"time": "08:30"},
+            },
+            format="json",
+        ).json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}",
+            {"schedule_anchor": {"time": "08:35"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["schedule_anchor"] == {"time": "08:35"}
+        assert datetime.fromisoformat(response.json()["next_check_at"].replace("Z", "+00:00")) == datetime(
+            2026, 3, 18, 8, 30, tzinfo=UTC
+        )
+
     def test_create_alert_with_schedule_restriction(self) -> None:
         creation_request = {
             "insight": self.insight["id"],
