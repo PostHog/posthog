@@ -142,6 +142,23 @@ export const SingleFilter: Story = {
     },
 }
 
+// Below the 400px editor-panel breakpoint a series row (with a start section) drops its
+// action buttons to their own line, so the wrapped row shows no wide dead gap.
+export const NarrowEditorPanelSeriesRow: Story = {
+    render: (args) => <div className="@container/editor-panel w-[360px]">{renderActionFilter(args)}</div>,
+    args: {},
+}
+
+// A start-less row (retention, nested groups) keeps its lone action inline at the same width,
+// so a single button never floats on an empty line.
+export const NarrowEditorPanelStartlessRow: Story = {
+    render: (args) => <div className="@container/editor-panel w-[360px]">{renderActionFilter(args)}</div>,
+    args: {
+        entitiesLimit: 1,
+        showSeriesIndicator: false,
+    },
+}
+
 const renderAutocaptureFilter = ({ ...props }: Partial<ActionFilterProps>): JSX.Element => {
     useMountedLogic(cohortsModel)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
