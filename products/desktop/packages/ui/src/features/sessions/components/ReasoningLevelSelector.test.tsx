@@ -77,6 +77,8 @@ function subscriptionState(
     flagEnabled: boolean;
     subscriptionOn: boolean;
     loggedIn: boolean;
+    cloudFlagEnabled: boolean;
+    cloudSubscriptionOn: boolean;
   }>,
 ) {
   const state = {
@@ -964,11 +966,11 @@ describe("ReasoningLevelSelector", () => {
   }, 20000);
 
   it.each([
-    ["claude", "Anthropic", "Anthropic"],
-    ["codex", "OpenAI", "OpenAI"],
+    ["claude", "Anthropic", /^Claude plan billing is unavailable/],
+    ["codex", "OpenAI", /^OpenAI billing only works/],
   ] as const)(
     "disables the %s billing option for cloud tasks and names the reason",
-    async (adapter, planLabel, reasonPrefix) => {
+    async (adapter, planLabel, reason) => {
       useAdapterSubscription.mockReturnValue(subscriptionState());
       const user = userEvent.setup({ pointerEventsCheck: 0 });
       render(
@@ -989,35 +991,46 @@ describe("ReasoningLevelSelector", () => {
       });
       expect(planItem).toHaveAttribute("aria-disabled", "true");
 
-      await expect(
-        screen.findByText(new RegExp(`^${reasonPrefix} billing only works`)),
-      ).resolves.toBeInTheDocument();
+      await expect(screen.findByText(reason)).resolves.toBeInTheDocument();
     },
     20000,
   );
 
-  it("keeps the billing option selectable for local tasks", async () => {
-    useAdapterSubscription.mockReturnValue(subscriptionState());
-    const user = userEvent.setup({ pointerEventsCheck: 0 });
-    render(
-      <Theme>
-        <ReasoningLevelSelector
-          thoughtOption={thoughtOption()}
-          adapter="claude"
-          showBillingMenu
-          workspaceMode="local"
-        />
-      </Theme>,
-    );
+  it.each(["local", "cloud"] as const)(
+    "keeps enabled subscription billing selectable for %s tasks",
+    async (workspaceMode) => {
+      useAdapterSubscription.mockReturnValue(
+        subscriptionState({
+          cloudFlagEnabled: true,
+          cloudSubscriptionOn: true,
+        }),
+      );
+      const user = userEvent.setup({ pointerEventsCheck: 0 });
+      render(
+        <Theme>
+          <ReasoningLevelSelector
+            thoughtOption={thoughtOption()}
+            adapter="claude"
+            showBillingMenu
+            workspaceMode={workspaceMode}
+          />
+        </Theme>,
+      );
 
-    await openAdvanced(user);
-    await openSub(user, /^Billing/);
-    expect(
-      screen.getByRole("menuitemradio", { name: "Anthropic" }),
-    ).not.toHaveAttribute("aria-disabled", "true");
-    // Logged in, so the login note stays hidden.
-    expect(screen.queryByText(/Log in to Claude Code/)).not.toBeInTheDocument();
-  }, 20000);
+      await openAdvanced(user);
+      await openSub(user, /^Billing/);
+      expect(
+        screen.getByRole("menuitemradio", { name: "Anthropic" }),
+      ).not.toHaveAttribute("aria-disabled", "true");
+      expect(
+        screen.getByRole("menuitemradio", { name: "Anthropic" }),
+      ).toHaveAttribute("aria-checked", "true");
+      expect(
+        screen.queryByText(/Log in to Claude Code/),
+      ).not.toBeInTheDocument();
+    },
+    20000,
+  );
 
   it("shows the login note only when the logged-out billing pick needs it", async () => {
     // Persisted billing is PostHog, account is logged out: no login prompt.

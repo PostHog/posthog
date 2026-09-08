@@ -24,6 +24,7 @@ from posthog.security.url_validation import is_url_allowed, resolve_url_hosts_ip
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES
+from products.tasks.backend.facade.client_provenance import is_sandbox_oauth_request
 from products.tasks.backend.facade.contracts import (
     ChannelDTO,
     ChannelFeedMessageDTO,
@@ -90,6 +91,28 @@ def _is_pi_task_run_request(context: dict[str, Any]) -> bool:
         for_control=True,
     )
     return task_runtime == tasks_facade.TaskRuntime.PI
+
+
+def _validate_subscription_caller(attrs: dict[str, Any], context: dict[str, Any]) -> None:
+    request = context.get("request")
+    if request is None:
+        return
+    access = attrs.get("claude_model_access")
+    if access is None and (run_id := attrs.get("resume_from_run_id")):
+        view = context.get("view")
+        kwargs = getattr(view, "kwargs", {})
+        task_id = kwargs.get("parent_lookup_task_id") or kwargs.get("pk")
+        team = context.get("team")
+        if team is not None and task_id is not None:
+            run = tasks_facade.get_task_run_detail(run_id, task_id, team.id)
+            if run is not None:
+                access = run.state.get("claude_model_access")
+                if access == "own-subscription" and not is_sandbox_oauth_request(request):
+                    raise serializers.ValidationError(
+                        {"claude_model_access": "Open PostHog Desktop to resume this run with your Claude plan."}
+                    )
+    if access == "own-subscription" and is_sandbox_oauth_request(request):
+        raise serializers.ValidationError({"claude_model_access": "Only a user can select a Claude subscription."})
 
 
 def request_distinct_id(context: dict[str, Any]) -> str | None:
@@ -3165,8 +3188,21 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
             "for this run."
         ),
     )
+    claude_model_access = serializers.ChoiceField(
+        choices=["posthog-gateway", "own-subscription"],
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox "
+            "request a Claude token from the creating PostHog Desktop at run start; the token is "
+            "sent in flight and never stored on PostHog servers. If omitted or null, resumed runs "
+            "keep their billing choice and new runs use the PostHog gateway."
+        ),
+    )
 
     def validate(self, attrs):
+        _validate_subscription_caller(attrs, self.context)
         errors: dict[str, str] = {}
         if collision_error := get_relayed_imported_mcp_name_collision_error(attrs):
             errors["relayed_mcp_servers"] = collision_error
@@ -3177,6 +3213,8 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
 
         pending_user_message = attrs.get("pending_user_message")
         pending_user_artifact_ids = attrs.get("pending_user_artifact_ids") or []
+        if attrs.get("claude_model_access") == "own-subscription" and _is_pi_task_run_request(self.context):
+            errors["claude_model_access"] = "Pi tasks cannot use a Claude subscription."
         if pending_user_message is not None:
             trimmed_message = pending_user_message.strip()
             attrs["pending_user_message"] = trimmed_message or None
@@ -3356,8 +3394,21 @@ class TaskRunBootstrapCreateRequestSerializer(
             "for this run."
         ),
     )
+    claude_model_access = serializers.ChoiceField(
+        choices=["posthog-gateway", "own-subscription"],
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox "
+            "request a Claude token from the creating PostHog Desktop at run start; the token is "
+            "sent in flight and never stored on PostHog servers. If omitted or null, resumed runs "
+            "keep their billing choice and new runs use the PostHog gateway."
+        ),
+    )
 
     def validate(self, attrs):
+        _validate_subscription_caller(attrs, self.context)
         errors: dict[str, str] = {}
         if collision_error := get_relayed_imported_mcp_name_collision_error(attrs):
             errors["relayed_mcp_servers"] = collision_error
@@ -3365,6 +3416,8 @@ class TaskRunBootstrapCreateRequestSerializer(
         runtime_adapter = attrs.get("runtime_adapter")
         is_pi_task = _is_pi_task_run_request(self.context)
         if is_pi_task:
+            if attrs.get("claude_model_access") == "own-subscription":
+                errors["claude_model_access"] = "Pi tasks cannot use a Claude subscription."
             pi_incompatible_fields = ("runtime_adapter", "context_window", "fast_mode", "initial_permission_mode")
             for field in pi_incompatible_fields:
                 if attrs.get(field) is not None:
@@ -3821,6 +3874,7 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         "permission_response",
         "set_config_option",
         "mcp_response",
+        "credential_response",
         "pi/rpc",
         "queue_get",
         "queue_clear",
@@ -3947,6 +4001,22 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
                 )
             if len(json.dumps(params)) > self.MAX_MCP_RESPONSE_PARAMS_BYTES:
                 raise serializers.ValidationError({"params": "mcp_response params exceed the 300 KB limit"})
+        elif method == "credential_response":
+            self._require_nonempty_string(params, "requestId")
+            if len(params["requestId"]) > 128:
+                raise serializers.ValidationError({"params": "requestId exceeds the 128 character limit"})
+            if params.get("credential") != "claude_subscription_token":
+                raise serializers.ValidationError({"params": "Unsupported credential"})
+            token = params.get("token")
+            error = params.get("error")
+            if (token is None) == (error is None):
+                raise serializers.ValidationError(
+                    {"params": "credential_response requires exactly one of token or error"}
+                )
+            if token is not None and (not isinstance(token, str) or not token.strip() or len(token) > 4096):
+                raise serializers.ValidationError({"params": "token must contain between 1 and 4096 characters"})
+            if error is not None and error not in ("no_token", "store_unavailable"):
+                raise serializers.ValidationError({"params": "Unsupported credential error"})
         return attrs
 
 
