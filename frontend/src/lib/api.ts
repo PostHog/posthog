@@ -5797,18 +5797,6 @@ const api = {
         async list(): Promise<PaginatedResponse<DataModelingDAG>> {
             return await new ApiRequest().dataModelingDags().get()
         },
-        async create(data: { name: string; description?: string; sync_frequency?: string }): Promise<DataModelingDAG> {
-            return await new ApiRequest().dataModelingDags().create({ data })
-        },
-        async update(
-            dagId: DataModelingDAG['id'],
-            data: Partial<Pick<DataModelingDAG, 'name' | 'description' | 'sync_frequency'>>
-        ): Promise<DataModelingDAG> {
-            return await new ApiRequest().dataModelingDag(dagId).update({ data })
-        },
-        async delete(dagId: DataModelingDAG['id']): Promise<void> {
-            await new ApiRequest().dataModelingDag(dagId).delete()
-        },
     },
 
     dataModelingNodes: {

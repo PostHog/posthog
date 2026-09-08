@@ -21150,12 +21150,10 @@ export namespace Schemas {
       /** Optional description of the DAG's purpose */
       description?: string;
       /**
-         * Sync frequency string (e.g. '24hour', '7day')
+         * Legacy DAG-level cadence string (e.g. '24hour', '7day'). Scheduling is driven by each model's own sync frequency, so a PATCH that changes this value is rejected.
          * @nullable
          */
       sync_frequency?: string | null;
-      /** True when this team's DAG schedules are driven by per-model freshness targets, so `sync_frequency` no longer controls scheduling and writes to it are rejected. False when the DAG-level frequency still applies. */
-      readonly frequency_managed_by_nodes: boolean;
       readonly node_count: number;
       readonly created_at: string;
       /** @nullable */
@@ -22720,7 +22718,6 @@ export namespace Schemas {
 
     /**
      * * `tiered` - tiered
-     * * `dag_schedule` - dag_schedule
      * * `managed_viewset` - managed_viewset
      * * `legacy` - legacy
      * * `no_node` - no_node
@@ -22730,7 +22727,6 @@ export namespace Schemas {
 
     export const FrequencyModeEnum = {
       Tiered: 'tiered',
-      DagSchedule: 'dag_schedule',
       ManagedViewset: 'managed_viewset',
       Legacy: 'legacy',
       NoNode: 'no_node',
@@ -22813,10 +22809,9 @@ export namespace Schemas {
     }
 
     export interface SyncFrequencyBounds {
-      /** What governs this view's cadence. 'tiered' is the only mode where `options` is meaningful and `sync_frequency` is writable per view. 'dag_schedule' means the team's single DAG schedule owns it, 'managed_viewset' means PostHog owns the view, 'legacy' means the v1 backend, where any cadence is accepted and no bounds apply, and 'no_node' means the view has no data modeling node to store a cadence on.
+      /** What governs this view's cadence. 'tiered' is the only mode where `options` is meaningful and `sync_frequency` is writable per view. 'managed_viewset' means PostHog owns the view, 'legacy' means the v1 backend, where any cadence is accepted and no bounds apply, and 'no_node' means the view has no data modeling node to store a cadence on.
        *
        * * `tiered` - tiered
-       * * `dag_schedule` - dag_schedule
        * * `managed_viewset` - managed_viewset
        * * `legacy` - legacy
        * * `no_node` - no_node */
@@ -22894,7 +22889,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.
+      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the cadence stored on the view's DAG node.
        *
        * * `never` - never
        * * `15min` - 15min
@@ -22906,8 +22901,6 @@ export namespace Schemas {
        * * `7day` - 7day
        * * `30day` - 30day */
       sync_frequency?: SavedQuerySyncFrequencyEnum | null;
-      /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
-      readonly sync_frequency_managed_by_dag: boolean;
       /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
       readonly sync_frequency_bounds: SyncFrequencyBounds;
       readonly columns: readonly DataWarehouseSavedQueryColumnsItem[];
@@ -23069,8 +23062,6 @@ export namespace Schemas {
       readonly description: string;
       /** @nullable */
       readonly sync_frequency: string | null;
-      /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
-      readonly sync_frequency_managed_by_dag: boolean;
       readonly columns: readonly DataWarehouseSavedQueryMinimalColumnsItem[];
       readonly status: DataWarehouseSavedQueryStatusEnum | null;
       /** @nullable */
@@ -62238,12 +62229,10 @@ export namespace Schemas {
       /** Optional description of the DAG's purpose */
       description?: string;
       /**
-         * Sync frequency string (e.g. '24hour', '7day')
+         * Legacy DAG-level cadence string (e.g. '24hour', '7day'). Scheduling is driven by each model's own sync frequency, so a PATCH that changes this value is rejected.
          * @nullable
          */
       sync_frequency?: string | null;
-      /** True when this team's DAG schedules are driven by per-model freshness targets, so `sync_frequency` no longer controls scheduling and writes to it are rejected. False when the DAG-level frequency still applies. */
-      readonly frequency_managed_by_nodes?: boolean;
       readonly node_count?: number;
       readonly created_at?: string;
       /** @nullable */
@@ -62612,7 +62601,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.
+      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the cadence stored on the view's DAG node.
        *
        * * `never` - never
        * * `15min` - 15min
@@ -62624,8 +62613,6 @@ export namespace Schemas {
        * * `7day` - 7day
        * * `30day` - 30day */
       sync_frequency?: SavedQuerySyncFrequencyEnum | null;
-      /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
-      readonly sync_frequency_managed_by_dag?: boolean;
       /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
       readonly sync_frequency_bounds?: SyncFrequencyBounds;
       readonly columns?: readonly PatchedDataWarehouseSavedQueryColumnsItem[];
