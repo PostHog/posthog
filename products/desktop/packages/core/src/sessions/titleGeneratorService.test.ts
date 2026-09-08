@@ -419,4 +419,30 @@ describe("generateTitleAndSummary", () => {
     const result = await makeService().generateTitleAndSummary("some content");
     expect(result).toBeNull();
   });
+
+  it("generates a short turn status with the helper model", async () => {
+    prompt.mockResolvedValue({
+      content: 'STATUS: "Adding saved activity filters..."\nIgnored',
+    });
+
+    const result = await makeService().generateTurnStatus(
+      "Add saved filters to the activity page",
+    );
+
+    expect(result).toBe("Adding saved activity filters");
+    expect(prompt).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          content: expect.stringContaining(
+            "Add saved filters to the activity page",
+          ),
+        }),
+      ],
+      expect.objectContaining({
+        model: "claude-haiku-4-5",
+        maxTokens: 32,
+        posthogProperties: { $ai_span_name: "turn_status" },
+      }),
+    );
+  });
 });

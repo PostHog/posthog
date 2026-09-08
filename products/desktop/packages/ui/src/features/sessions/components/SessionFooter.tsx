@@ -1,10 +1,11 @@
 import { Brain, Pause } from "@phosphor-icons/react";
+import { Text } from "@posthog/quill";
 import type { Task } from "@posthog/shared/domain-types";
 import {
   formatDuration,
   GeneratingIndicator,
 } from "@posthog/ui/features/sessions/components/GeneratingIndicator";
-import { Box, Flex, Text } from "@radix-ui/themes";
+import type { ReactElement } from "react";
 import { DiffStatsChip } from "./DiffStatsChip";
 import { ImageBuilderBuildButton } from "./ImageBuilderBuildButton";
 import { SlotMachineLever } from "./SlotMachineLever";
@@ -24,9 +25,7 @@ interface SessionFooterProps {
   /** A turn the agent started on its own, with no prompt RPC behind it, so
    *  `isPromptPending` stays false while it generates. */
   isBackgroundTurnActive?: boolean;
-  /** Number of tool calls finished so far; the generating indicator advances
-   *  its status word each time this changes. */
-  completedToolCallCount?: number;
+  turnStatus?: string | null;
   /** Timestamp (ms) of the newest event in the thread; the generating indicator
    *  says how long it has been since one arrived. */
   lastActivityAt?: number | null;
@@ -44,16 +43,16 @@ export function SessionFooter({
   isCompacting = false,
   isClearing = false,
   isBackgroundTurnActive = false,
-  completedToolCallCount,
+  turnStatus,
   lastActivityAt,
-}: SessionFooterProps) {
+}: SessionFooterProps): ReactElement {
   const rightSide = (
-    <Flex align="center" gap="3" className="ml-auto shrink-0">
+    <div className="ml-auto flex shrink-0 items-center gap-3">
       {task?.origin_product === "image_builder" && (
         <ImageBuilderBuildButton taskId={task.id} />
       )}
       {task && <DiffStatsChip task={task} />}
-    </Flex>
+    </div>
   );
   if (
     (isPromptPending || isBackgroundTurnActive) &&
@@ -62,33 +61,31 @@ export function SessionFooter({
   ) {
     if (hasPendingPermission) {
       return (
-        <Box className="pt-3 pb-1 opacity-50 transition-opacity group-hover/thread:opacity-100">
-          <Flex align="center" justify="between" gap="2">
-            <Flex
-              align="center"
-              gap="2"
-              className="min-w-0 select-none text-muted-foreground"
+        <div className="pt-3 pb-1 opacity-50 transition-opacity group-hover/thread:opacity-100">
+          <div className="flex items-center justify-between gap-2">
+            <div
+              className="flex min-w-0 select-none items-center gap-2 text-muted-foreground"
               style={{ WebkitUserSelect: "none" }}
             >
               <Pause size={14} weight="fill" className="shrink-0" />
               <Text className="truncate text-[13px] text-muted-foreground">
                 Awaiting permission...
               </Text>
-            </Flex>
+            </div>
             {rightSide}
-          </Flex>
-        </Box>
+          </div>
+        </div>
       );
     }
 
     return (
-      <Box className="pt-3 pb-1 opacity-50 transition-opacity group-hover/thread:opacity-100">
-        <Flex align="center" justify="between" gap="2">
-          <Flex align="center" gap="2" className="min-w-0">
+      <div className="pt-3 pb-1 opacity-50 transition-opacity group-hover/thread:opacity-100">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <GeneratingIndicator
               startedAt={promptStartedAt}
               pausedDurationMs={pausedDurationMs}
-              activityKey={completedToolCallCount}
+              status={turnStatus}
               lastActivityAt={lastActivityAt}
             />
             {queuedCount > 0 && (
@@ -99,10 +96,10 @@ export function SessionFooter({
             <SlotMachineLever
               spinning={Boolean(isPromptPending || isBackgroundTurnActive)}
             />
-          </Flex>
+          </div>
           {rightSide}
-        </Flex>
-      </Box>
+        </div>
+      </div>
     );
   }
 
@@ -115,14 +112,10 @@ export function SessionFooter({
     !wasCancelled;
 
   return (
-    <Box className="pb-1 opacity-50 transition-opacity group-hover/thread:opacity-100">
-      <Flex align="center" justify="between" gap="2">
+    <div className="pb-1 opacity-50 transition-opacity group-hover/thread:opacity-100">
+      <div className="flex items-center justify-between gap-2">
         {showDuration && (
-          <Flex
-            align="center"
-            gap="2"
-            className="min-w-0 select-none text-muted-foreground"
-          >
+          <div className="flex min-w-0 select-none items-center gap-2 text-muted-foreground">
             <Brain size={12} className="shrink-0" />
             <Text
               style={{ fontVariantNumeric: "tabular-nums" }}
@@ -130,10 +123,10 @@ export function SessionFooter({
             >
               Generated in {formatDuration(lastGenerationDuration)}
             </Text>
-          </Flex>
+          </div>
         )}
         {rightSide}
-      </Flex>
-    </Box>
+      </div>
+    </div>
   );
 }
