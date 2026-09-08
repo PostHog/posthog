@@ -86,6 +86,7 @@ Generate an API key from your [ClickHouse Cloud console](https://console.clickho
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            "400 Client Error: Bad Request for url: https://api.clickhouse.cloud": "ClickHouse Cloud rejected the request. Run this table as a full refresh instead of incrementally, and contact support if it keeps happening.",
             "401 Client Error: Unauthorized for url: https://api.clickhouse.cloud": "Your ClickHouse Cloud API key is invalid or has been revoked. Generate a new API key in the ClickHouse Cloud console, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.clickhouse.cloud": "Your ClickHouse Cloud API key does not have permission to read this data. Use a key with the Admin role, then reconnect.",
         }

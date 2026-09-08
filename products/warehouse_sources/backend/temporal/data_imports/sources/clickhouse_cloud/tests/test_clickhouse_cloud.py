@@ -297,6 +297,10 @@ class TestFetch:
 class TestNonRetryableErrors:
     @parameterized.expand(
         [
+            (
+                "bad_request",
+                "400 Client Error: Bad Request for url: https://api.clickhouse.cloud/v1/organizations/org-1/activities?from_date=2026-09-08T10%3A53%3A17Z",
+            ),
             ("unauthorized", "401 Client Error: Unauthorized for url: https://api.clickhouse.cloud/v1/organizations"),
             (
                 "forbidden",
@@ -304,7 +308,7 @@ class TestNonRetryableErrors:
             ),
         ]
     )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
+    def test_client_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
         non_retryable = ClickhouseCloudSource().get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 

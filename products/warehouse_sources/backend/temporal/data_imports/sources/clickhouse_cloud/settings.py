@@ -44,9 +44,9 @@ class ClickhouseCloudEndpointConfig:
     # from_date/to_date window and activities' optional from_date. Every other endpoint returns a
     # complete unfiltered array, so those are full-refresh only.
     supports_incremental: bool = False
-    # usage_cost records get restated until locked and activities' server-side filter is documented
-    # but not verifiable without live credentials, so both incremental endpoints are merge-only —
-    # append would materialize re-pulled rows as duplicates.
+    # usage_cost records get restated until locked, and activities' from_date is inclusive, so
+    # both incremental endpoints re-read rows they already have — append would materialize those
+    # as duplicates, so both are merge-only.
     supports_append: bool = False
     # backups has no org-wide list endpoint; it fans out one request per service.
     fan_out_over_services: bool = False
