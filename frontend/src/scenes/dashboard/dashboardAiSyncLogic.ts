@@ -914,7 +914,11 @@ function resolveAlertMutation(
         }
     }
 
-    const priorInsight = learnedInsightId ? resolveTargetInsight(target, [learnedInsightId]) : null
+    // With no learned owner, the committed tiles still say which insight holds this alert, so a move
+    // away can refresh the insight losing it. The delete branch reads the same evidence.
+    const priorInsight = learnedInsightId
+        ? resolveTargetInsight(target, [learnedInsightId])
+        : targetInsightForAlertId(target, alertId)
     const postInsight = responseIdentity
         ? resolveTargetInsight(target, responseIdentity.identifiers)
         : requestInsightId === undefined

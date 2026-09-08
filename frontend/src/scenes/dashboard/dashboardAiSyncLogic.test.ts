@@ -932,6 +932,35 @@ describe('resolveDashboardAiMutation candidate classification', () => {
         expect(result.ownership.alertInsightById).toEqual({ 'alert-new': '999' })
     })
 
+    it.each([
+        [
+            'a new insight on this dashboard',
+            { id: 'alert-1', insight: 202 },
+            { id: 'alert-1', insight: 202, insight_short_id: 'beta' },
+            { tileIds: [41, 42], insightIds: [101, 202, 'alpha', 'beta'], ownerKey: '202' },
+        ],
+        [
+            'an insight outside this dashboard',
+            { id: 'alert-1', insight: 999 },
+            { id: 'alert-1', insight: 999 },
+            { tileIds: [41], insightIds: [101, 'alpha'], ownerKey: '999' },
+        ],
+    ])(
+        'refreshes the committed alert owner when an alert with no learned ownership moves to %s',
+        (_case, input, output, expected) => {
+            const result = resolveFor('alert-update', input, output)
+
+            expect(result.candidate).toEqual({
+                family: 'alert',
+                dashboardId,
+                tileIds: expected.tileIds,
+                insightIds: expected.insightIds,
+                deletesDashboard: false,
+            })
+            expect(result.ownership.alertInsightById).toEqual({ 'alert-1': expected.ownerKey })
+        }
+    )
+
     it('rejects an alert move when request and response owners disagree', () => {
         const ownership: DashboardAiKnownOwnership = {
             ...emptyOwnership(),
