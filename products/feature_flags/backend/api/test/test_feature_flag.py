@@ -7689,6 +7689,113 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {"org-uuid-1": "Acme Corp", "org-uuid-2": "Widget Inc"},
         )
 
+    def test_feature_flag_includes_group_key_names_for_group_id_properties(self):
+        for group_type, group_type_index in (("organization", 0), ("project", 1)):
+            create_group_type_mapping(
+                team=self.team,
+                project_id=self.team.project_id,
+                group_type=group_type,
+                group_type_index=group_type_index,
+            )
+        create_test_group(
+            team=self.team,
+            group_key="org-uuid-1",
+            group_type_index=0,
+            group_properties={"name": "Acme Corp"},
+            version=0,
+        )
+        create_test_group(
+            team=self.team,
+            group_key="org-nameless",
+            group_type_index=0,
+            group_properties={},
+            version=0,
+        )
+        # The same key under a second group type, with a different name. A map keyed by group key
+        # alone would label the `project_id` filter with the organization's name.
+        create_test_group(
+            team=self.team,
+            group_key="org-uuid-1",
+            group_type_index=1,
+            group_properties={"name": "Acme Project"},
+            version=0,
+        )
+
+        partial_match_properties = [
+            {"key": "organization_id", "type": "person", "value": "org-uuid", "operator": operator}
+            for operator in ("icontains", "not_icontains", "starts_with", "ends_with", "regex")
+        ]
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Org id flag",
+                "key": "org-id-flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "organization_id",
+                                    "type": "person",
+                                    "value": ["org-uuid-1", "org-uuid-missing", "org-nameless"],
+                                    "operator": "exact",
+                                },
+                                {
+                                    "key": "organization_id",
+                                    "type": "person",
+                                    "value": "org-uuid-1",
+                                    "operator": "exact",
+                                },
+                                {
+                                    "key": "project_id",
+                                    "type": "person",
+                                    "value": ["org-uuid-1"],
+                                    "operator": "exact",
+                                },
+                                {
+                                    "key": "team_id",
+                                    "type": "person",
+                                    "value": ["org-uuid-1"],
+                                    "operator": "exact",
+                                },
+                                *partial_match_properties,
+                            ]
+                        }
+                    ],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{response.json()['id']}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        props = response.json()["filters"]["groups"][0]["properties"]
+        list_prop, scalar_prop, project_prop, team_prop = props[:4]
+        # A value that names no group, and a group with no name, both map to the key itself. That is
+        # what tells the UI it has an answer, so it never looks the value up over HTTP.
+        self.assertEqual(
+            list_prop["group_key_names"],
+            {
+                "org-uuid-1": "Acme Corp",
+                "org-uuid-missing": "org-uuid-missing",
+                "org-nameless": "org-nameless",
+            },
+        )
+        self.assertEqual(scalar_prop["group_key_names"], {"org-uuid-1": "Acme Corp"})
+        self.assertEqual(project_prop["group_key_names"], {"org-uuid-1": "Acme Project"})
+        self.assertNotIn("group_key_names", team_prop)
+        for prop in props[4:]:
+            self.assertNotIn("group_key_names", prop, prop["operator"])
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        listed = next(flag for flag in list_response.json()["results"] if flag["key"] == "org-id-flag")
+        # Nothing on the flag list shows a group name, and resolving would cost a group lookup per
+        # listed flag.
+        self.assertNotIn("group_key_names", listed["filters"]["groups"][0]["properties"][0])
+
     def test_create_feature_flag_in_specific_folder(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",

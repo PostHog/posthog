@@ -66,11 +66,14 @@ from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
+from posthog.models.group.util import get_groups_by_type_indices
+from posthog.models.group_type_mapping import cached_group_types_for_team
 from posthog.models.person.point_in_time_properties import (
     build_person_properties_at_time,
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
+from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
 from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import (
@@ -155,6 +158,24 @@ filters_enforcement_logger = structlog.get_logger("posthog.feature_flag_filters_
 # log line is one PATCH away. The bake depends on these logs staying countable.
 MAX_LOGGED_ENFORCEMENT_ERRORS = 20
 MAX_LOGGED_ENFORCEMENT_ERROR_CHARS = 300
+
+# `holdsWholeValues` in `featureFlagReleaseConditionsLogic.ts` is the frontend twin of this set,
+# so a change here needs the same change there.
+OPERATORS_WITHOUT_WHOLE_VALUES = frozenset(
+    {
+        "is_set",
+        "is_not_set",
+        "in",
+        "not_in",
+        "regex",
+        "not_regex",
+        "icontains",
+        "not_icontains",
+        "icontains_multi",
+        "not_icontains_multi",
+        *STRING_PREFIX_SUFFIX_OPERATORS,
+    }
+)
 
 # Rollout observability for #50084 enforcement. Writes counted once per flag write that
 # carries `filters`; `bypassed` is the series to watch during the log-only window (would
@@ -1204,6 +1225,18 @@ class FeatureFlagExperimentSetMetadataSerializer(serializers.Serializer):
     )
 
 
+def _group_keys_in_properties(properties: Iterable[dict]) -> set[str]:
+    """Every value across these properties, flattened into a set of candidate group keys."""
+    group_keys: set[str] = set()
+    for prop in properties:
+        value = prop.get("value")
+        if isinstance(value, list):
+            group_keys.update(str(v) for v in value)
+        elif value is not None:
+            group_keys.add(str(value))
+    return group_keys
+
+
 class FeatureFlagSerializer(
     TaggedItemSerializerMixin,
     EvaluationContextSerializerMixin,
@@ -1944,6 +1977,121 @@ class FeatureFlagSerializer(
             if prop.get("key") == "$group_key"
         ]
 
+    def _aggregation_group_type_indices(self, filters: dict) -> set[int]:
+        """Group type indices a `$group_key` property in these filters can refer to."""
+        indices: set[int] = set()
+        for candidate in [filters.get("aggregation_group_type_index")] + [
+            condition_group.get("aggregation_group_type_index") for condition_group in filters.get("groups", [])
+        ]:
+            if candidate is not None:
+                indices.add(candidate)
+        return indices
+
+    def _group_type_indices_by_name(self, team: Team) -> dict[str, int]:
+        """Group type index by lowercased group type name."""
+        return {
+            str(mapping["group_type"]).lower(): mapping["group_type_index"]
+            for mapping in cached_group_types_for_team(team)
+        }
+
+    def _renders_group_id_names(self) -> bool:
+        """Whether this render should resolve `<group_type>_id` names.
+
+        Only a flag-API response for a single flag shows them, and resolving costs one group
+        lookup per flag. A `many=True` render is the flags list, which DRF gives a
+        `ListSerializer` parent. A serializer built without a viewset is an internal consumer such
+        as the cross-project copy, which renders once per target project inside an open
+        transaction.
+        """
+        if isinstance(self.parent, serializers.ListSerializer):
+            return False
+        return getattr(self.context.get("view"), "action", None) not in (None, "list")
+
+    def _get_group_id_properties_from_filters(self, filters: dict, instance: FeatureFlag) -> list[tuple[dict, int]]:
+        """Pair every `<group_type>_id` property with the group type its values name.
+
+        A property called `organization_id`, whatever its type, conventionally holds the key of an
+        organization group. Nothing in the schema guarantees that, so a key naming no group type of
+        this project resolves to nothing and its values keep showing as raw ids.
+        """
+        candidates = [
+            prop
+            for prop in self._get_properties_from_filters(filters)
+            if isinstance(prop.get("key"), str)
+            and prop["key"].lower().endswith("_id")
+            and prop.get("operator") not in OPERATORS_WITHOUT_WHOLE_VALUES
+        ]
+        if not candidates:
+            return []
+
+        # Read `instance.team` only once a candidate exists, so a flag with no `_id` property does
+        # not pay for the group-type lookup.
+        indices_by_group_type = self._group_type_indices_by_name(instance.team)
+        paired: list[tuple[dict, int]] = []
+        for prop in candidates:
+            group_type_index = indices_by_group_type.get(prop["key"].lower().removesuffix("_id"))
+            if group_type_index is not None:
+                paired.append((prop, group_type_index))
+        return paired
+
+    def _inject_group_key_names(self, filters: dict, instance: FeatureFlag) -> None:
+        """Attach `group_key_names` to every property filter whose values are group keys.
+
+        Two kinds of property hold one: `$group_key`, whose group type comes from the condition's
+        aggregation, and `<group_type>_id`, whose group type is named by the key itself. Both
+        resolve in one lookup, so a flag targeting a hundred groups costs one call, and the client
+        never resolves a saved value itself.
+        """
+        group_key_props = self._get_group_key_properties_from_filters(filters)
+        aggregation_indices: set[int] = self._aggregation_group_type_indices(filters) if group_key_props else set()
+        # With no aggregation there is no group type to resolve a `$group_key` value against.
+        if not aggregation_indices:
+            group_key_props = []
+        id_props = (
+            self._get_group_id_properties_from_filters(filters, instance) if self._renders_group_id_names() else []
+        )
+
+        group_type_indices = aggregation_indices | {index for _, index in id_props}
+        group_key_values = _group_keys_in_properties(group_key_props)
+        group_keys = group_key_values | _group_keys_in_properties(prop for prop, _ in id_props)
+        if not group_type_indices or not group_keys:
+            return
+
+        try:
+            groups = get_groups_by_type_indices(instance.team_id, group_type_indices, group_keys)
+        except Exception:
+            # A name is display only, so a group-store failure must not fail the flag read, nor a
+            # write whose row is already committed by the time this renders the response.
+            logger.exception("Could not resolve feature flag group key names")
+            return
+
+        names_by_index: dict[int, dict[str, str]] = {}
+        for group in groups:
+            name = group.group_properties.get("name")
+            # A group with no name maps to its own key, which the UI reads as unresolved.
+            names_by_index.setdefault(group.group_type_index, {})[group.group_key] = (
+                str(name) if name else group.group_key
+            )
+
+        # Every `$group_key` property shares one map. Restricting it to `$group_key` values keeps a
+        # `<group_type>_id` value out of it.
+        aggregated_names = {
+            group_key: name
+            for index in aggregation_indices
+            for group_key, name in names_by_index.get(index, {}).items()
+            if group_key in group_key_values
+        }
+        for prop in group_key_props:
+            prop["group_key_names"] = aggregated_names
+
+        for prop, group_type_index in id_props:
+            names = names_by_index.get(group_type_index, {})
+            # Give every value an entry, so the client can tell a value it has an answer for from
+            # one it has not asked about yet, and never repeats the lookup over HTTP.
+            prop["group_key_names"] = {
+                group_key: names.get(group_key, group_key) for group_key in _group_keys_in_properties([prop])
+            }
+
     def _extract_flag_dependencies(self, filters):
         """Extract flag dependencies from filters."""
         dependencies = set()
@@ -2470,39 +2618,7 @@ class FeatureFlagSerializer(
         for cohort_prop in self._get_cohort_properties_from_filters(filters):
             cohort_prop["cohort_name"] = cohorts.get(str(cohort_prop.get("value")))
 
-        # Resolve group key display names for $group_key filters. Check both
-        # the flag-level and per-condition-set aggregation_group_type_index to
-        # find the relevant group type indices.
-        group_key_props = self._get_group_key_properties_from_filters(filters)
-        if group_key_props:
-            group_type_indices: set[int] = set()
-            flag_level_index = filters.get("aggregation_group_type_index")
-            if flag_level_index is not None:
-                group_type_indices.add(flag_level_index)
-            for condition_group in filters.get("groups", []):
-                condition_index = condition_group.get("aggregation_group_type_index")
-                if condition_index is not None:
-                    group_type_indices.add(condition_index)
-
-            if group_type_indices:
-                group_keys: set[str] = set()
-                for prop in group_key_props:
-                    prop_value = prop.get("value")
-                    if isinstance(prop_value, list):
-                        group_keys.update(str(v) for v in prop_value)
-                    elif prop_value is not None:
-                        group_keys.add(str(prop_value))
-
-                if group_keys:
-                    from posthog.models.group.util import get_groups_by_type_indices
-
-                    group_names: dict[str, str] = {}
-                    for group in get_groups_by_type_indices(instance.team_id, group_type_indices, group_keys):
-                        name = group.group_properties.get("name")
-                        group_names[group.group_key] = str(name) if name else group.group_key
-
-                    for prop in group_key_props:
-                        prop["group_key_names"] = group_names
+        self._inject_group_key_names(filters, instance)
 
         representation["filters"] = filters
         return representation
