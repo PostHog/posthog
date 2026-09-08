@@ -613,6 +613,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         request=TaskCreateSerializer,
+        parameters=[
+            OpenApiParameter(
+                "X-PostHog-Warm-Retry",
+                str,
+                OpenApiParameter.HEADER,
+                description="Retry token from a warm_run_activation_unavailable response; prevents creating a replacement run.",
+            )
+        ],
         responses={
             201: TaskSerializer,
             403: OpenApiResponse(
@@ -628,7 +636,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
             503: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
-                description="PostHog Desktop access could not be verified",
+                description=(
+                    "PostHog Desktop access could not be verified, or warm run activation is unavailable "
+                    "(code `warm_run_activation_unavailable`). After confirmed nondelivery, a retry_token permits "
+                    "retrying the same run and message with X-PostHog-Warm-Retry. Web retries for up to 20 seconds."
+                ),
             ),
         },
     )
@@ -681,13 +693,32 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 validated_data=validated_data,
                 client_provenance=get_task_client_provenance(request),
                 code_access_allowed=code_access_allowed,
+                **(
+                    {"warm_retry_token": request.headers["X-PostHog-Warm-Retry"]}
+                    if "X-PostHog-Warm-Retry" in request.headers
+                    else {}
+                ),
             )
         except ComputeBillingLimitExceeded as error:
             return compute_quota_limit_response(error.reason)
         except ReportTaskCapExceeded as error:
             return self._report_task_cap_response(error.detail)
+        except tasks_facade.WarmRunActivationUnavailable as error:
+            return self._warm_activation_unavailable_response(error)
         self._forward_signals_discussion_note(request, task, relationship, discussion_question)
         return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
+
+    def _warm_activation_unavailable_response(self, error: tasks_facade.WarmRunActivationUnavailable) -> Response:
+        return Response(
+            TaskRunErrorResponseSerializer(
+                {
+                    "code": error.code,
+                    "error": str(error),
+                    **({"retry_token": error.retry_token} if error.retry_token else {}),
+                }
+            ).data,
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
     def _one_shot_analysis_response(self, task_id: str) -> Response | None:
         """Refuse to add runs to a server-created analysis task; see the facade reader."""
@@ -1089,7 +1120,17 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer = TaskStagedArtifactsFinalizeUploadResponseSerializer({"artifacts": result.artifacts})
         return Response(serializer.data)
 
-    @extend_schema(request=TaskRunCreateRequestSchemaSerializer)
+    @extend_schema(
+        request=TaskRunCreateRequestSchemaSerializer,
+        parameters=[
+            OpenApiParameter(
+                "X-PostHog-Warm-Retry",
+                str,
+                OpenApiParameter.HEADER,
+                description="Retry token from a warm_run_activation_unavailable response; prevents creating a replacement run.",
+            )
+        ],
+    )
     @validated_request(
         request_serializer=TaskRunCreateRequestSerializer,
         responses={
@@ -1102,7 +1143,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             404: OpenApiResponse(description="Task not found"),
             503: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
-                description="PostHog Desktop access could not be verified",
+                description=(
+                    "PostHog Desktop access could not be verified, or warm run activation is unavailable "
+                    "(code `warm_run_activation_unavailable`). After confirmed nondelivery, a retry_token permits "
+                    "retrying the same run and message with X-PostHog-Warm-Retry. Web retries for up to 20 seconds."
+                ),
             ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
@@ -1144,8 +1189,18 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         try:
             result = tasks_facade.run_task(
-                pk, self.team_id, self._user_id(), validated_data=dict(request.validated_data)
+                pk,
+                self.team_id,
+                self._user_id(),
+                validated_data=dict(request.validated_data),
+                **(
+                    {"warm_retry_token": request.headers["X-PostHog-Warm-Retry"]}
+                    if "X-PostHog-Warm-Retry" in request.headers
+                    else {}
+                ),
             )
+        except tasks_facade.WarmRunActivationUnavailable as error:
+            return self._warm_activation_unavailable_response(error)
         except ReportTaskCapExceeded as error:
             return self._report_task_cap_response(error.detail)
         if result is None:
