@@ -21,7 +21,7 @@ export function TicketViewsBar({ embedded = false }: TicketViewsBarProps): JSX.E
 
     return (
         <div className="flex flex-wrap items-center justify-between gap-2">
-            <SavedViewsPicker id="SupportTicketsScene" />
+            <SavedViewsPicker />
             <div className="flex items-center gap-1">
                 <Tooltip
                     title={

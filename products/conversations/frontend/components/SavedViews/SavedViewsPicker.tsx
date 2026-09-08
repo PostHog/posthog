@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconBookmark, IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSegmentedButton } from '@posthog/lemon-ui'
@@ -6,15 +6,17 @@ import { LemonButton, LemonMenu, LemonSegmentedButton } from '@posthog/lemon-ui'
 import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
 import type { SavedTicketView } from '../../types'
 import { SavedViewsModal } from './SavedViewsModal'
-import { type TicketViewsLogicProps, ticketViewsLogic } from './ticketViewsLogic'
+import { ticketViewsLogic } from './ticketViewsLogic'
 
 const ALL_TICKETS = '__all__'
 
-export function SavedViewsPicker({ id }: TicketViewsLogicProps): JSX.Element {
-    const { favoriteViews } = useValues(ticketViewsLogic({ id }))
-    const { openModal, loadView } = useActions(ticketViewsLogic({ id }))
-    const { activeView } = useValues(supportTicketsSceneLogic)
-    const { resetFilters } = useActions(supportTicketsSceneLogic)
+export function SavedViewsPicker(): JSX.Element {
+    // Follow the ticket list this picker sits above, so an embedded list gets its own views.
+    const logic = useMountedLogic(supportTicketsSceneLogic)
+    const { favoriteViews } = useValues(ticketViewsLogic(logic.props))
+    const { openModal, loadView } = useActions(ticketViewsLogic(logic.props))
+    const { activeView } = useValues(logic)
+    const { resetFilters } = useActions(logic)
 
     // A view loaded from the modal or a URL may not be a favorite, but it still needs a
     // selected segment so the picker never shows "All tickets" while a view is applied.
@@ -47,7 +49,7 @@ export function SavedViewsPicker({ id }: TicketViewsLogicProps): JSX.Element {
                 >
                     Saved views
                 </LemonButton>
-                <SavedViewsModal id={id} />
+                <SavedViewsModal />
             </>
         )
     }
@@ -100,7 +102,7 @@ export function SavedViewsPicker({ id }: TicketViewsLogicProps): JSX.Element {
                 onClick={openModal}
                 data-attr="support-saved-views"
             />
-            <SavedViewsModal id={id} />
+            <SavedViewsModal />
         </div>
     )
 }

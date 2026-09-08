@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
 import { IconHeart, IconHeartFilled } from '@posthog/icons'
@@ -12,10 +12,11 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
 import { type SavedTicketView, type TicketViewFilters, normalizeAssigneeFilter } from '../../types'
 import { AssigneeLabelDisplay, AssigneeResolver } from '../Assignee'
 import { toTicketAssignee } from '../Assignee/types'
-import { type TicketViewsLogicProps, ticketViewsLogic } from './ticketViewsLogic'
+import { ticketViewsLogic } from './ticketViewsLogic'
 
 function FiltersSummary({ filters }: { filters: TicketViewFilters }): JSX.Element {
     const lines: { label: string; value: ReactNode }[] = []
@@ -81,9 +82,10 @@ function FiltersSummary({ filters }: { filters: TicketViewFilters }): JSX.Elemen
     )
 }
 
-function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
-    const { isSaveModalOpen, viewName, currentFilters } = useValues(ticketViewsLogic({ id }))
-    const { closeSaveModal, setViewName, saveView } = useActions(ticketViewsLogic({ id }))
+function SaveViewModal(): JSX.Element {
+    const sceneProps = useMountedLogic(supportTicketsSceneLogic).props
+    const { isSaveModalOpen, viewName, currentFilters } = useValues(ticketViewsLogic(sceneProps))
+    const { closeSaveModal, setViewName, saveView } = useActions(ticketViewsLogic(sceneProps))
     const editDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? undefined
 
@@ -122,12 +124,13 @@ function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
     )
 }
 
-export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
+export function SavedViewsModal(): JSX.Element {
+    const sceneProps = useMountedLogic(supportTicketsSceneLogic).props
     const { isModalOpen, filteredViews, viewsLoading, currentFilters, favoritingShortIds, searchTerm } = useValues(
-        ticketViewsLogic({ id })
+        ticketViewsLogic(sceneProps)
     )
     const { closeModal, openSaveModal, deleteView, loadView, updateView, toggleFavorite, setSearchTerm } = useActions(
-        ticketViewsLogic({ id })
+        ticketViewsLogic(sceneProps)
     )
     const editDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? undefined
@@ -306,7 +309,7 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
                     />
                 </div>
             </LemonModal>
-            <SaveViewModal id={id} />
+            <SaveViewModal />
         </>
     )
 }

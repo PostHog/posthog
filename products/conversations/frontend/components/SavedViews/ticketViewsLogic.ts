@@ -13,12 +13,16 @@ import {
     conversationsViewsPartialUpdate,
 } from '../../generated/api'
 import type { PatchedTicketViewApi, TicketViewFiltersApi } from '../../generated/api.schemas'
-import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
+import {
+    type SupportTicketsSceneLogicProps,
+    supportTicketsSceneLogic,
+} from '../../scenes/tickets/supportTicketsSceneLogic'
 import type { SavedTicketView, TicketViewFilters } from '../../types'
 
-export interface TicketViewsLogicProps {
-    id: string
-}
+// The views logic belongs to one ticket list, so it takes that list's props. An embedded list
+// (a notebook node) keys its own instance and applies a view to its own filters, instead of
+// loading the view into the main scene and writing the view onto the host page URL.
+export type TicketViewsLogicProps = SupportTicketsSceneLogicProps
 
 export interface TicketViewChanges {
     name?: string
@@ -153,12 +157,12 @@ export type ticketViewsLogicType = MakeLogicType<
 
 export const ticketViewsLogic = kea<ticketViewsLogicType>([
     props({} as TicketViewsLogicProps),
-    key((props) => props.id),
+    key((props: TicketViewsLogicProps) => props?.key || 'SupportTicketsScene'),
     path((key) => ['products', 'conversations', 'frontend', 'components', 'SavedViews', 'ticketViewsLogic', key]),
 
-    connect(() => ({
-        values: [teamLogic, ['currentTeamId'], supportTicketsSceneLogic, ['currentFilters', 'activeView']],
-        actions: [supportTicketsSceneLogic, ['applyView', 'setActiveView']],
+    connect((props: TicketViewsLogicProps) => ({
+        values: [teamLogic, ['currentTeamId'], supportTicketsSceneLogic(props), ['currentFilters', 'activeView']],
+        actions: [supportTicketsSceneLogic(props), ['applyView', 'setActiveView']],
     })),
 
     actions({

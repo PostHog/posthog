@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { Provider } from 'kea'
+import { BindLogic, Provider } from 'kea'
 import { router } from 'kea-router'
 
 import { urls } from 'scenes/urls'
@@ -242,5 +242,58 @@ describe('SupportTicketsTableFilters', () => {
         })
 
         expect(screen.getByText('Status')).toBeInTheDocument()
+    })
+})
+
+describe('SupportTicketsTableFilters embedded in a notebook', () => {
+    const EMBEDDED_PROPS = { key: 'notebook-node-1', distinctIds: ['distinct-1'] }
+    const FAVORITE_VIEW = {
+        id: 'view-uuid-1',
+        short_id: 'view-1',
+        name: 'Waiting on us',
+        filters: { status: ['open'] },
+        created_at: '2026-06-12T00:00:00Z',
+        created_by: null,
+        is_favorited: true,
+    }
+
+    let embeddedLogic: ReturnType<typeof supportTicketsSceneLogic.build>
+
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/conversations/tickets/': () => [200, { results: [TICKET], count: 1 }],
+                '/api/organizations/:organization_id/members/': () => [200, { results: [] }],
+                '/api/projects/:team_id/tags': () => [200, []],
+                '/api/projects/:team_id/conversations/views/': () => [200, { results: [FAVORITE_VIEW], count: 1 }],
+            },
+        })
+        initKeaTests()
+        embeddedLogic = supportTicketsSceneLogic(EMBEDDED_PROPS)
+        embeddedLogic.mount()
+    })
+
+    afterEach(() => {
+        embeddedLogic.unmount()
+        cleanup()
+    })
+
+    // Regression: the picker took a hardcoded key, so a favorite click loaded the view into the
+    // main scene instead of the embedded list. The embedded table stayed unfiltered and the host
+    // page URL gained a stray ?view= param.
+    it('applies a favorite view to the embedded list and leaves the page URL alone', async () => {
+        render(
+            <Provider>
+                <BindLogic logic={supportTicketsSceneLogic} props={EMBEDDED_PROPS}>
+                    <SupportTicketsTableFilters embedded />
+                </BindLogic>
+            </Provider>
+        )
+
+        await userEvent.click(await screen.findByText(FAVORITE_VIEW.name))
+
+        await waitFor(() => expect(embeddedLogic.values.activeView?.short_id).toBe(FAVORITE_VIEW.short_id))
+        expect(embeddedLogic.values.statusFilter).toEqual(['open'])
+        expect(router.values.searchParams.view).toBeUndefined()
     })
 })
