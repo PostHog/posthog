@@ -347,6 +347,9 @@ export class LogsIngestionConsumer {
     // Billing identity for quota enforcement and usage metering; overridden by subclasses (e.g. traces).
     protected quotaResource: QuotaResource = 'logs_mb_ingested'
     protected appSource = 'logs'
+    /** Whether records carry a `body`. The body stages (JSON parse, pattern masking) are skipped when
+     * they do not; a subclass whose records have no body overrides this to false. */
+    protected recordsHaveBody = true
     protected kafkaConsumer: KafkaConsumerInterface
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
@@ -445,24 +448,11 @@ export class LogsIngestionConsumer {
     }
 
     /**
-     * Logs only. `TracesIngestionConsumer` subclasses this one and reads the same config key, but a
-     * trace record has no `body` field, so masking one measures nothing and would mix trace shapes
-     * into the log-body split these metrics exist to produce.
+     * A body-less record masks to nothing and would mix its shapes into the log-body split these
+     * metrics exist to produce, so the gate is off for a subclass whose records carry no body.
      */
     private isPatternMaskingEnabledForTeam(teamId: number): boolean {
-        return this.appSource === 'logs' && teamIdMatchesCsv(this.patternMaskingEnabledTeamsRaw, teamId)
-    }
-
-    /**
-     * Logs only. `TracesIngestionConsumer` reads the same team settings, but a trace record has no
-     * `body`, so `json_parse_logs` would decode and re-encode every span batch to parse nothing.
-     * Returns a derived object; the team cache entry is left untouched.
-     */
-    private logsSettingsForSource(logsSettings: LogsSettings): LogsSettings {
-        if (this.appSource === 'logs') {
-            return logsSettings
-        }
-        return { ...logsSettings, json_parse_logs: false }
+        return this.recordsHaveBody && teamIdMatchesCsv(this.patternMaskingEnabledTeamsRaw, teamId)
     }
 
     /**
@@ -906,7 +896,12 @@ export class LogsIngestionConsumer {
                         const team = await this.retryOnDependencyUnavailable(() =>
                             this.deps.teamManager.getTeam(message.teamId)
                         )
-                        const logsSettings = this.logsSettingsForSource(team?.logs_settings || {})
+                        const teamLogsSettings = team?.logs_settings || {}
+                        // With no body, `json_parse_logs` would decode and re-encode every batch to parse
+                        // nothing. The copy leaves the team cache entry untouched.
+                        const logsSettings = this.recordsHaveBody
+                            ? teamLogsSettings
+                            : { ...teamLogsSettings, json_parse_logs: false }
 
                         // Extract settings with defaults
                         const jsonParse = logsSettings.json_parse_logs ?? false

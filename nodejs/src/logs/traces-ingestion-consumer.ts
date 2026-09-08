@@ -6,6 +6,8 @@ export class TracesIngestionConsumer extends LogsIngestionConsumer {
     // Meter and quota-limit traces against their own billing identity, not logs'.
     protected override quotaResource = 'traces_mb_ingested' as const
     protected override appSource = 'traces'
+    // A span has no `body`, so the JSON parse and pattern masking stages have nothing to read.
+    protected override recordsHaveBody = false
 
     constructor(config: LogsIngestionConsumerConfig & TracesIngestionConsumerConfig, deps: LogsIngestionConsumerDeps) {
         // Topics are wired into `deps.outputs` by the server, so the only consumer-level
