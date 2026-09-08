@@ -7,6 +7,7 @@ from django.core.exceptions import ValidationError
 from django.db import DatabaseError, models
 from django.db.models import Func, IntegerField, Q, QuerySet
 from django.db.models.fields.json import KeyTransform
+from django.db.models.functions import Now
 from django.http import HttpRequest
 from django.utils import timezone
 
@@ -530,6 +531,27 @@ class FeatureFlagHashKeyOverride(models.Model):
             )
         ]
         db_table = "posthog_featureflaghashkeyoverride"
+
+
+class FeatureFlagHashKeyOverrideV2(models.Model):
+    # Successor to FeatureFlagHashKeyOverride, keyed by the stable feature_flag_id rather
+    # than the flag's string key so that a single flag's overrides can be found and deleted.
+    # Nothing reads or writes this table yet.
+    #
+    # Plain integer columns rather than ForeignKeys: the referenced rows live in the default
+    # database while this table lives in the persons database, so no relation could ever be
+    # traversed, and the v1 model's FKs already carry db_constraint=False for that reason.
+    pk = models.CompositePrimaryKey("team_id", "person_id", "feature_flag_id")
+    team_id = models.IntegerField()
+    person_id = models.BigIntegerField()
+    feature_flag_id = models.IntegerField()
+    hash_key = models.CharField(max_length=400)
+    created_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        # migrations managed via rust/persons_migrations
+        managed = False
+        db_table = "posthog_featureflaghashkeyoverride_v2"
 
 
 # DEPRECATED: This model is no longer used, but it's not deleted to avoid downtime

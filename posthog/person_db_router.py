@@ -72,6 +72,7 @@ PERSONS_DB_MODELS = {
     "pendingpersonoverride",
     "flatpersonoverride",
     "featureflaghashkeyoverride",
+    "featureflaghashkeyoverridev2",
     "cohortpeople",
     "group",
     "grouptypemapping",
