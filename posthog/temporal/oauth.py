@@ -1,4 +1,4 @@
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from datetime import timedelta
 from typing import Any, Literal, TypedDict, cast
 from uuid import UUID
@@ -193,30 +193,53 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #
 # These scopes are object-level rather than tool-level, so each one carries update and delete of
 # every matching object the token can reach, not only the objects the scout created. The reach
-# is not the same for all four, and any surface that offers a grant has to say so plainly:
+# is not the same for all of them, and any surface that offers a grant has to say so plainly:
 #
-#   dashboard:write   Every dashboard in the scout's project. Delete is a recoverable
-#                     soft-delete.
-#   insight:write     Every saved insight in the scout's project. Delete is a recoverable
-#                     soft-delete.
-#   annotation:write  Every annotation in the scout's project, AND every organization-scoped
-#                     annotation in the organization, including ones a sibling project owns
-#                     (see `_filter_queryset_by_parents_lookups` in the annotations viewset).
-#                     An update can also move an organization annotation to the scout's team.
-#   alert:write       Every insight alert in the scout's project. Delete is PERMANENT: the
-#                     viewset has no soft-delete, so it removes the alert and its check
-#                     history for good.
+#   dashboard:write        Every dashboard in the scout's project. Delete is a recoverable
+#                          soft-delete.
+#   insight:write          Every saved insight in the scout's project. Delete is a recoverable
+#                          soft-delete.
+#   annotation:write       Every annotation in the scout's project, AND every organization-scoped
+#                          annotation in the organization, including ones a sibling project owns
+#                          (see `_filter_queryset_by_parents_lookups` in the annotations viewset).
+#                          An update can also move an organization annotation to the scout's team.
+#   alert:write            Every insight alert in the scout's project. Delete is PERMANENT: the
+#                          viewset has no soft-delete, so it removes the alert and its check
+#                          history for good.
+#   llm_skill:write        Every shared skill on the scout's project: body, description, and
+#                          bundled files. Custom scouts are skills in that same store, so this
+#                          reaches a sibling scout's prompt and the scout's own. Archive marks
+#                          every version deleted and they stay readable. It also gates the
+#                          review-hog perspective, validator, and blind-spot config endpoints,
+#                          which are scoped `llm_skill` because they carry skill bodies. It
+#                          reaches no scout config on its own: the scout create and note
+#                          endpoints require `signal_scout:write` as well.
+#   warehouse_view:write   Every saved query (view) in the scout's project, plus the joins,
+#                          managed viewsets, column annotations, and data quality checks that
+#                          hang off them. Delete is a recoverable soft-delete that refuses a
+#                          view other views depend on. Run and materialize cost warehouse
+#                          compute, bounded by the existing run and materialization throttles.
+#   warehouse_table:write  Every warehouse table in the scout's project, its schema refresh, its
+#                          column annotations, and its data quality checks. Delete is a
+#                          recoverable soft-delete that refuses a table a source owns. Deleting
+#                          a data quality check is the one PERMANENT delete in this set, and a
+#                          check is cheap to recreate.
 #
-# The last two exceed the "recoverable, project-scoped" bar the other two meet. They stay in
-# the v1 set that #94263 puts to the team, because narrowing the set is that decision to make,
-# not a default to assume. Whoever confirms the set has to accept those two reaches, or drop
-# the scopes.
+# `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
+# scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
+# that decision to make, not a default to assume. Whoever confirms the set has to accept those two
+# reaches, or drop the scopes. `llm_skill:write` carries the same kind of open question: a scout
+# holding it can rewrite the skill body it runs from. That is accepted while the grant is a
+# deliberate per-scout choice a person makes, and the surfaces that offer it say so.
 SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
     {
         "dashboard:write",
         "insight:write",
         "annotation:write",
         "alert:write",
+        "llm_skill:write",
+        "warehouse_view:write",
+        "warehouse_table:write",
     }
 )
 
@@ -263,7 +286,10 @@ class ScoutScopePosture(TypedDict):
     extra_write_scopes: list[str]
 
 
-PosthogMcpScopes = McpScopePreset | list[str] | ScoutScopePosture
+# `ScoutScopePosture` must come before `list[str]`: Temporal's payload converter tries union
+# members in order and `list[str]` accepts a dict, so a posture placed after it decodes as its
+# keys and the run's token holds the scopes `preset` and `extra_write_scopes` instead.
+PosthogMcpScopes = McpScopePreset | ScoutScopePosture | list[str]
 
 MCP_SCOPE_PRESETS = (
     "read_only",
@@ -285,19 +311,35 @@ RESEARCH_WITHHELD_SCOPES: frozenset[str] = frozenset({"task:write"})
 
 def scout_scope_posture(
     preset: ScoutScopePreset,
-    extra_write_scopes: Iterable[str] = (),
+    extra_write_scopes: object = (),
 ) -> ScoutScopePosture:
     """Build the scope posture one scout run is dispatched with.
 
-    Callers pass whatever the scout's stored grant holds. Anything outside
-    `SCOUT_GRANTABLE_WRITE_SCOPES` is dropped here rather than rejected, because a person is
-    told their input was invalid where they entered it, not at dispatch. A scope removed from
-    the allowlist after it was granted therefore stops reaching new runs with no data migration.
+    Callers pass whatever the scout's stored grant holds, in whatever shape the JSON column holds
+    it. Anything outside `SCOUT_GRANTABLE_WRITE_SCOPES` is dropped here rather than rejected,
+    because a person is told their input was invalid where they entered it, not at dispatch. A
+    scope removed from the allowlist after it was granted therefore stops reaching new runs with no
+    data migration. The value is handed to `_grantable_write_scopes` unshaped: `list()` on a stray
+    JSON object would yield its keys, and `{"dashboard:write": false}` would become a grant.
     """
     return {
         "preset": preset,
-        "extra_write_scopes": _grantable_write_scopes(list(extra_write_scopes)),
+        "extra_write_scopes": _grantable_write_scopes(extra_write_scopes),
     }
+
+
+def scout_mcp_scopes(posture: ScoutScopePosture) -> PosthogMcpScopes:
+    """The value to dispatch a scout run with: the plain preset unless the posture adds a grant.
+
+    The preset string and a posture with no extras resolve to the same token, so the string loses
+    nothing. It is also the shape every worker version reads the same way. The dict is newer, and
+    a worker that predates it decodes the dict as `list[str]` and mints a token from its keys, so
+    the run loses every scout tool. Sending the dict only when a grant needs it keeps a worker
+    that lags one deploy behind from taking the whole fleet down with it.
+    """
+    if not posture["extra_write_scopes"]:
+        return posture["preset"]
+    return posture
 
 
 def _grantable_write_scopes(raw: object) -> list[str]:
@@ -308,7 +350,7 @@ def _grantable_write_scopes(raw: object) -> list[str]:
     built, because an unhashable entry makes `set(raw)` raise and aborts the run that a
     malformed grant is supposed to degrade safely.
     """
-    if not isinstance(raw, list):
+    if not isinstance(raw, list | tuple):
         return []
     return sorted({scope for scope in raw if isinstance(scope, str)} & SCOUT_GRANTABLE_WRITE_SCOPES)
 

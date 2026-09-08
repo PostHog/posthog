@@ -231,7 +231,7 @@ The fleet's reviewer map should compound over time.
 
 ## `edit_report` — update an existing report
 
-Rewrite `title`/`summary`, append a note, set `suggested_reviewers`, and/or replace `charts` / `suggested_prompts` on a report that already exists.
+Rewrite `title`/`summary`, append evidence or a note, set `suggested_reviewers`, and/or replace `charts` / `suggested_prompts` on a report that already exists.
 Pass `run_id` (the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`, `append_evidence`, `suggested_reviewers`, `charts`, `suggested_prompts`.
 An edit that supplies content (`title`, `summary`, `charts`, `suggested_prompts`, `append_note`, `append_evidence`, or a reviewer `reason`) passes the same safety judge as `emit_report`; an unsafe edit is rejected whole and the report keeps what it had.
 
@@ -240,7 +240,11 @@ That makes it the right tool when a later run learns something about a report th
 Rules of good behavior:
 
 - Use **`append_evidence`** for a new observation that a reader can check.
-- Use **`append_note`** for commentary.
+  It takes the same `{description, source_id}` items as `emit_report`, and each one lands in the report's evidence rail as a bound signal, so the report's `signal_count` and `total_weight` grow with it.
+- Use **`append_note`** for commentary — a reading of the report that adds nothing to check, such as the owning team already knowing, or a deploy having fixed it.
+  Send both in one call when an observation needs a reading alongside it.
+- **A recovery is a note, not evidence.** `signal_count` and `total_weight` only grow, and both feed the inbox ranking, so evidence that an issue is over would rank the report as stronger.
+- **At the cap, the note is the channel that still lands.** Emit plus every append share the report's **50** evidence rows, and the grouping pipeline can raise the count too, so a long-lived report can fill up. An append past the cap is rejected and the report keeps what it had.
 - Prefer these additive fields over rewriting `title`/`summary` on a report you didn't author.
   A note is additive and audit-friendly (it carries your scout as the author); a rewrite silently overwrites a human- or pipeline-authored headline.
 - **Don't fight an in-flight pipeline.** A report the summary/research workflow is mid-run on can have its fields overwritten under you.

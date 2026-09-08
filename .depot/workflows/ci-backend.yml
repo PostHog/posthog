@@ -19,7 +19,9 @@
 #   the shadow strips them entirely, so that gating has nothing to mirror), snapshot
 #   auto-commit (handle-snapshots), posthog-github-action telemetry (including the
 #   capture-test-selection job — turbo-discover still emits its telemetry outputs to
-#   stay apples-to-apples, they just have no consumer here),
+#   stay apples-to-apples, they just have no consumer here; canonical mints the
+#   telemetry token from the GH_APP_TELEMETRY_APP_ID org variable rather than the
+#   secret, which the shadow has no token step to mirror),
 #   --store-durations write, test-selection verdict (so the guard skipping it when both
 #   test matrices were skipped has nothing to mirror), Trunk flaky-test quarantine
 #   gate (canonical runs per-shard analytics-uploader steps that post to the
@@ -65,6 +67,11 @@
 #   strips artifact uploads (above), so those changes are depot-exempt.
 # - OpenAPI types: validation remains a separate job like canonical, but its
 #   auto-commit side effect is dropped
+# - sqlmigrate SQL preview: canonical's check-migrations resolves changed migration files
+#   to full names, skips generated squash files by content, and degrades a sqlmigrate
+#   failure to a placeholder before posting the SQL preview comment. The shadow strips
+#   comment side effects (above) and runs no sqlmigrate loop, so those changes need no
+#   depot bump.
 # - Deterministic-failure self-cancel: canonical cancels its own run when repo-checks or
 #   check-openapi-types fails deterministically, and ORs those jobs' deterministic_failure
 #   outputs onto the gate condition so a real failure still reports failure rather than
@@ -344,7 +351,6 @@ jobs:
                         - bin/build-taxonomy-json.py
                         - bin/check_uv_python_compatibility.py
                         - bin/find_python_dependencies.py
-                        - bin/unit_metrics.py
                         - pyproject.toml
                         - uv.lock
                         - requirements.txt
@@ -424,7 +430,6 @@ jobs:
                         - bin/build-taxonomy-json.py
                         - bin/check_uv_python_compatibility.py
                         - bin/find_python_dependencies.py
-                        - bin/unit_metrics.py
                         - pyproject.toml
                         - uv.lock
                         - requirements.txt
