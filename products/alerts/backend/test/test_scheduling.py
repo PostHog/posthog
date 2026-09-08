@@ -128,6 +128,15 @@ class TestScheduleStartTime:
     def test_accepts_any_valid_minute(self) -> None:
         assert validate_and_normalize_schedule_start_time({"time": "08:02"}) == {"time": "08:02"}
 
+    def test_hourly_check_returns_to_the_custom_minute_after_a_quiet_hours_delay(self) -> None:
+        assert next_calendar_check_time(
+            CalendarInterval.HOURLY,
+            now=datetime(2026, 4, 7, 7, 0, tzinfo=UTC),
+            tz_name="UTC",
+            next_check_at=datetime(2026, 4, 7, 7, 0, tzinfo=UTC),
+            schedule_start_time={"time": "22:30"},
+        ) == datetime(2026, 4, 7, 8, 30, tzinfo=UTC)
+
     @parameterized.expand(
         [
             (CalendarInterval.REAL_TIME, datetime(2026, 3, 18, 9, 35, tzinfo=UTC)),
@@ -157,7 +166,7 @@ class TestScheduleStartTime:
             (
                 CalendarInterval.REAL_TIME,
                 datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
-                datetime(2026, 3, 18, 9, 35, tzinfo=UTC),
+                datetime(2026, 3, 18, 9, 33, tzinfo=UTC),
             ),
             (
                 CalendarInterval.HOURLY,

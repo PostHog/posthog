@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
+from math import ceil
 from typing import Any, cast
 from uuid import UUID
 
@@ -169,9 +170,9 @@ def _next_check_at_for_schedule_start_time(
             }[interval]
             earliest_allowed = next_check_at + timedelta(minutes=cadence_minutes) if next_check_at else now
             earliest_allowed = max(earliest_allowed, now)
-            if start_utc < earliest_allowed:
+            if next_check_at is not None:
                 elapsed_seconds = (earliest_allowed - start_utc).total_seconds()
-                intervals_to_advance = int((elapsed_seconds - 1) // (cadence_minutes * 60)) + 1
+                intervals_to_advance = ceil(elapsed_seconds / (cadence_minutes * 60))
                 start_utc += timedelta(minutes=intervals_to_advance * cadence_minutes)
             if start_utc <= now:
                 start_utc += timedelta(minutes=cadence_minutes)
