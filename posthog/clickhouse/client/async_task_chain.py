@@ -8,6 +8,7 @@ from django.db import transaction
 
 from celery import chain
 from celery.canvas import Signature
+from celery.result import EagerResult
 
 from posthog.schema import QueryStatus
 
@@ -26,7 +27,16 @@ def kick_off_task(
     task_id = str(uuid.uuid4())
     query_status.task_id = task_id
     manager.store_query_status(query_status)
-    task_signature.apply_async(task_id=task_id)
+    task = task_signature.apply_async(task_id=task_id)
+
+    # During end-to-end tests, the task is executed synchronously, so we have to refresh the status.
+    if isinstance(task, EagerResult):
+        internal_query_status = manager.get_internal_query_status()
+        manager.store_query_status(
+            internal_query_status.query_status,
+            error_category=internal_query_status.error_category,
+            error_retryable=internal_query_status.error_retryable,
+        )
 
 
 def get_task_chain() -> list[tuple[Signature, "QueryStatusManager", QueryStatus]]:
