@@ -1,6 +1,10 @@
 import type { Adapter } from "./adapter";
 import { CODEX_MODE_PRESETS } from "./execution-modes";
-import { modelHarnessMeta, restrictedModelMeta } from "./models";
+import {
+  customModelMeta,
+  modelHarnessMeta,
+  restrictedModelMeta,
+} from "./models";
 import { getReasoningEffortOptions } from "./reasoning-effort";
 
 export interface GatewayModel {
@@ -440,7 +444,10 @@ export function buildProviderModelGroups(
       value: currentValue,
       name: currentValue,
       description: "Custom model",
-      _meta: modelHarnessMeta(adapter),
+      _meta: {
+        ...modelHarnessMeta(adapter),
+        ...customModelMeta(),
+      },
     });
   }
 
@@ -492,6 +499,7 @@ export function buildCloudTaskConfigOptions(
       value: resolvedModelId,
       name: resolvedModelId,
       description: "Custom model",
+      _meta: customModelMeta(),
     });
   }
 

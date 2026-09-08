@@ -227,7 +227,11 @@ class SubjectAccessControl(UserAccessControl):
     def _is_creator(self, obj: Model) -> bool:
         """The subject created the object, not the requesting user. A role and the default subject
         are not people, so they never created anything."""
-        return self._subject_member is not None and getattr(obj, "created_by", None) == self._subject_member.user
+        if self._subject_member is None:
+            return False
+        # Compare ids so callers do not need created_by (or the member's user) hydrated.
+        creator_id = getattr(obj, "created_by_id", None)
+        return creator_id is not None and creator_id == self._subject_member.user_id
 
     def _is_subject_row(self, access_control: _AccessControl) -> bool:
         """Whether this row is the subject's own — the kind of rule "No override" would remove."""

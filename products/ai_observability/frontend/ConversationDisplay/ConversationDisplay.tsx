@@ -106,7 +106,7 @@ export function ConversationDisplay({
                     stopReason={eventProperties.$ai_stop_reason}
                     bordered
                     traceId={eventProperties.$ai_trace_id}
-                    generationEventId={eventId}
+                    eventId={eventId}
                 />
             )}
         </>

@@ -483,6 +483,16 @@ body:has(.rt-DialogOverlay[data-state="open"]) {
   animation: ph-dots-frame 800ms step-end infinite;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .ph-dots-frame {
+    animation: none;
+  }
+
+  .ph-dots-frame:first-child {
+    opacity: 1;
+  }
+}
+
 /* Dot-ring spinner: eight dots on a 3x3 grid, one keyframe per dot with a
    staggered delay so a highlight travels the ring. Only `opacity` animates, so
    this composites without repainting — and unlike the braille spinner it isn't
@@ -529,6 +539,12 @@ body:has(.rt-DialogOverlay[data-state="open"]) {
 
 .ph-pulse {
   animation: ph-pulse 1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ph-pulse {
+    animation: none;
+  }
 }
 
 /* Shimmer for an item whose run is still in flight. A highlight band sweeps

@@ -79,6 +79,7 @@ layer = "modules"
 [[modules]]
 path = "posthog"
 depends_on = [
+    "products.autoresearch",
     "products.cohorts",
     "ee",
     "products.access_control",
@@ -134,9 +135,11 @@ depends_on = [
     "products.tasks",
     "products.tracing",
     "products.user_interviews",
+    "products.visual_review",
     "products.mcp_analytics",
     "products.mcp_registry",
     "products.web_analytics",
+    "products.wizard",
     "products.workflows",
     "products.actions",
     "products.alerts", "products.warehouse_sources", "products.data_tools", "products.exports", "products.annotations",
@@ -189,7 +192,11 @@ layer = "modules"
 
 [[modules]]
 path = "products.autoresearch"
-depends_on = []
+depends_on = [
+    "posthog",
+    "products.actions",
+    "products.feature_flags",
+]
 layer = "modules"
 
 [[modules]]
@@ -457,6 +464,7 @@ path = "products.growth"
 depends_on = [
     "ee",
     "posthog", "products.access_control",
+    "products.signals", "products.tasks",
 ]
 layer = "modules"
 
@@ -1310,7 +1318,7 @@ from = [
 
 [[modules]]
 path = "products.wizard"
-depends_on = ["posthog", "products.event_definitions"]
+depends_on = ["posthog", "products.event_definitions", "products.tasks"]
 layer = "modules"
 
 [[interfaces]]
