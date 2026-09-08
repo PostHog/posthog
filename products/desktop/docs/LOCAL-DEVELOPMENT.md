@@ -91,43 +91,18 @@ pnpm dev
 
 ## Test local code and skill changes together
 
-Use the normal stack commands from the repository root:
+- `hogli start` with the Desktop intent uses local checkout skills and rebuilds them when you edit them. Select the intent once with `hogli dev:setup`.
+- `hogli desktop:dev` (or `pnpm dev` from `products/desktop`) uses production skills by default.
+
+To change the source, run from the repository root:
 
 ```bash
-hogli dev:setup
-hogli start
+POSTHOG_DESKTOP_SKILLS=production hogli start
+POSTHOG_DESKTOP_SKILLS=local hogli desktop:dev
 ```
 
-Select the **Desktop** intent in the setup wizard. This choice persists for later starts.
-The stack waits for the PostgreSQL tables, builds all `products/*/skills/`, then starts Desktop.
-Use `uv sync` for the initial Python setup. At least one local project must exist because some templates read project metadata.
-The Desktop process log shows the active skill source and build results.
-
-Skill source edits trigger a rebuild automatically. This includes added, renamed, and deleted skills, reference files, scripts, and renderer helpers.
-Start a new agent session after the log reports that local skills are ready. Existing sessions can retain loaded instructions.
-Restart Desktop after changing Python schemas imported by templates.
-
-An initial build failure prevents Desktop from starting. A later build failure keeps the last successful local skills and reports an error.
-Fix the error and save a skill to retry. The watcher never substitutes production skills for a failed local build.
-
-Generated skills live in `plugins/posthog/checkout-skills/`, separate from manual `local-skills/` overrides.
-Local checkout skills take priority over same-named manual and production skills. Other production skills remain available.
-Deleted checkout skills revert to their manual or production version, if one exists.
-
-Select **Local development** when signing in to test local backend changes. Skill source selection does not change the selected backend.
-This workflow affects local Desktop agent sessions, not remote cloud task sandboxes.
-
-### Desktop without the local backend
-
-Run `hogli desktop:dev` from the repository root, or `pnpm dev` from `products/desktop`.
-Both use production skills by default and do not require the Python skill renderer or PostgreSQL.
-Manual `local-skills/` overrides remain available in development builds.
-
-To use an already-running backend with local skills, run `POSTHOG_DESKTOP_SKILLS=local hogli desktop:dev`.
-To test the full stack with production skills, run `POSTHOG_DESKTOP_SKILLS=production hogli start`.
-Production builds never load either local skill directory.
-
-If you previously used `pnpm skills:local`, its copies remain in `local-skills/`. Remove those copies if you no longer want those manual overrides.
+Local skills require `uv sync` and a running local backend with at least one project.
+Start a new agent session after skills rebuild.
 
 ## Connect
 
