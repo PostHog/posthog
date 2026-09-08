@@ -207,4 +207,6 @@ Sampled estimate error vs exact at 87M persons: 0.037%.
 - `WhereClauseExtractor` fails safe to "no prefilter" on `ArithmeticOperation` nodes, so a sampling predicate must be built as `modulo(cityHash64(id), N)` calls, not the `%` operator, or the pushdown into the raw person scan silently disappears.
 - `count(DISTINCT persons.id)` on the persons lazy table is redundant: rows are already one per person after the dedup, and the uniqExact state costs GBs at 10^8 ids. Use `count()`.
 
-**Applied in `products/workflows/backend/services/audience_v2.py`** (flag `workflows-audience-query-v2`): sampled adaptive preview counts (exact rerun below 1,000 sampled matches), exact enumeration/dedupe queries under `optimize_aggregation_in_order=1` + 4 GiB spill.
+**Sampling accuracy scales with matched-person count, not team size.** Evaluating all 64 residues (every possible sample draw) against the exact count on sipHash-carved subsets of team 2, worst-draw deviation was 0.23% at 87M matched, 1.7% at 1.4M, 4.9% at 171k, 17% at 21.7k, 32% at 5.4k — matching the binomial relative error sqrt(63/matched). Pick the exact-fallback threshold from the worst case you tolerate: 10,000 sampled matches (~640k matched persons) keeps the worst draw near 3%.
+
+**Applied in `products/workflows/backend/services/audience_v2.py`** (flag `workflows-audience-query-v2`): sampled adaptive preview counts (exact rerun below 10,000 sampled matches), exact enumeration/dedupe queries under `optimize_aggregation_in_order=1` + 4 GiB spill.

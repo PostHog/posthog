@@ -25,10 +25,11 @@ AUDIENCE_QUERY_V2_FLAG = "workflows-audience-query-v2"
 # version row of a sampled person lands in the sample and the argMax dedup stays exact within it.
 SAMPLE_MODULUS = 64
 
-# Below this many sampled matches the extrapolation is too noisy, so rerun exact. The exact
-# query is cheap in that regime: few matching persons means the id prefilter keeps the
-# dedup aggregation small.
-MIN_SAMPLED_MATCHES = 1_000
+# Below this many sampled matches the extrapolation is too noisy, so rerun exact. The relative
+# error of the estimate is about sqrt(63 / matched_persons), so 10,000 sampled matches
+# (~640k matched persons) keeps the worst case near 3%. The exact query is cheap in that
+# regime: few matching persons means the id prefilter keeps the dedup aggregation small.
+MIN_SAMPLED_MATCHES = 10_000
 
 
 def use_audience_query_v2(team: Team) -> bool:
