@@ -92,6 +92,23 @@ def increment_errors(error_type: str, *, provider: str | None = None) -> None:
     counter.add(1)
 
 
+def increment_tagger_errors(error_type: str, *, provider: str | None = None) -> None:
+    """Track tagger error categorization, kept out of `llma_eval_errors` so eval dashboards and
+    alerts stay about evals.
+
+    This is where a skipped tagger run shows up: a skip returns a result rather than raising, so
+    nothing else records it.
+    """
+    if not activity.in_activity() and not workflow.in_workflow():
+        return
+    attrs: dict[str, str | int | float | bool] = {"error_type": error_type}
+    if provider is not None:
+        attrs["provider"] = provider
+    meter = get_metric_meter(attrs)
+    counter = meter.create_counter("llma_tagger_errors", "Tagger error counts by type")
+    counter.add(1)
+
+
 def increment_user_errors(error_type: str, *, provider: str | None = None) -> None:
     """Track user-actionable eval errors separately from system failures.
 

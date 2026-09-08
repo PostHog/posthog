@@ -11,10 +11,12 @@ from temporalio.exceptions import ApplicationError
 from posthog.api.capture import CaptureInternalError
 from posthog.models import Organization, Team
 
+from products.ai_observability.backend.llm.errors import OutputLengthExceededError
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
 
 from .run_tagger import (
+    TAGGER_MAX_OUTPUT_TOKENS,
     EmitTaggerEventInputs,
     ExecuteTaggerInputs,
     RunTaggerInputs,
@@ -197,6 +199,39 @@ class TestRunTaggerWorkflow:
                 assert result["input_tokens"] == 100
                 assert result["output_tokens"] == 20
                 mock_client.complete.assert_called_once()
+                assert mock_client.complete.call_args.args[0].max_tokens == TAGGER_MAX_OUTPUT_TOKENS
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_execute_tagger_skips_when_the_response_is_truncated(self, setup_data):
+        # A truncated response repeats on the same prompt, so the activity returns a skip instead
+        # of raising, which would retry the run and fail the workflow.
+        tagger_obj = setup_data["tagger"]
+        team = setup_data["team"]
+
+        tagger = {
+            "id": str(tagger_obj.id),
+            "name": "Feature Tagger",
+            "tagger_config": make_tagger_config(),
+            "team_id": team.id,
+        }
+
+        with patch("posthog.temporal.ai_observability.run_tagger.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_client.complete.side_effect = OutputLengthExceededError("Model output hit the token limit")
+
+            with patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config:
+                mock_config = _mock_config_with_active_key()
+                mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
+
+                result = await execute_tagger_activity(
+                    ExecuteTaggerInputs(tagger=tagger, event_data=create_mock_event_data(team.id))
+                )
+
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "output_length_exceeded"
+        assert result["tags"] == []
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)

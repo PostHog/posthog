@@ -5,6 +5,7 @@ from typing import Any
 
 import structlog
 import temporalio
+import posthoganalytics
 from pydantic import BaseModel, Field
 from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy
@@ -15,6 +16,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
 from posthog.temporal.ai_observability.evaluation_workflow_activities import update_key_state_activity
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
+from posthog.temporal.ai_observability.metrics import increment_tagger_errors
 from posthog.temporal.ai_observability.model_resolution import model_spec
 from posthog.temporal.ai_observability.team_capture import capture_internal_for_team
 from posthog.temporal.common.base import PostHogWorkflow
@@ -25,6 +27,7 @@ from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     ModelNotFoundError,
     ModelPermissionError,
+    OutputLengthExceededError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
@@ -37,6 +40,11 @@ logger = structlog.get_logger(__name__)
 # Attribution fallback for $ai_tag events if a result omits its model. The model actually
 # used is resolved per-run by model_spec() (see posthog.temporal.ai_observability.model_resolution).
 DEFAULT_TAGGER_MODEL = DEFAULT_MODEL_BY_PROVIDER["openai"]
+
+# A tagger answers with a short tag list and one reasoning string, so a healthy run needs a small
+# fraction of this. The cap keeps that room and stops a model that starts rambling in about a
+# second, instead of letting it spend the model's whole output window on a truncated response.
+TAGGER_MAX_OUTPUT_TOKENS = 2048
 
 LLM_TAGGER_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
@@ -227,6 +235,14 @@ async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]
     input_data = extract_text_from_messages(io.input_raw)
     output_data = extract_text_from_messages(io.output_raw)
 
+    bind_contextvars(team_id=team_id, tagger_id=tagger["id"], provider=provider, model=model)
+    # Tags ride along on anything error tracking captures in this activity's context, so a failure
+    # says which team and tagger hit it rather than only which provider module raised.
+    posthoganalytics.tag("team_id", team_id)
+    posthoganalytics.tag("tagger_id", tagger["id"])
+    posthoganalytics.tag("provider", provider)
+    posthoganalytics.tag("model", model)
+
     system_prompt = build_tagger_system_prompt(prompt, tags, min_tags, max_tags)
     tag_names = [tag["name"] for tag in tags]
     response_format = build_tag_result_schema(tag_names, min_tags, max_tags)
@@ -251,6 +267,7 @@ Output: {output_data}"""
                 messages=[{"role": "user", "content": user_prompt}],
                 provider=provider,
                 response_format=response_format,
+                max_tokens=TAGGER_MAX_OUTPUT_TOKENS,
             )
         )
     except AuthenticationError:
@@ -290,7 +307,29 @@ Output: {output_data}"""
             f"Model '{model}' not found.",
             non_retryable=True,
         )
+    except OutputLengthExceededError as e:
+        # Truncation repeats on the same prompt, so retrying only spends tokens, and raising would
+        # mint an error tracking issue for a run nobody can act on. Skip the run and let the
+        # counter carry the signal.
+        increment_tagger_errors("output_length_exceeded", provider=provider)
+        logger.warning(
+            "Tagger response hit the output token limit; skipping run",
+            tagger_id=tagger["id"],
+            provider=provider,
+            model=model,
+            max_output_tokens=TAGGER_MAX_OUTPUT_TOKENS,
+            error=str(e),
+        )
+        return {
+            "tags": [],
+            "reasoning": "",
+            "skipped": True,
+            "skip_reason": "output_length_exceeded",
+            "message": str(e),
+            "tagger_id": tagger["id"],
+        }
     except StructuredOutputParseError as e:
+        increment_tagger_errors("parse_error", provider=provider)
         raise ApplicationError(
             str(e),
             {"error_type": "parse_error"},
@@ -323,8 +362,6 @@ Output: {output_data}"""
         )
 
     usage = response.usage
-
-    bind_contextvars(provider=provider, model=model)
 
     return {
         "tags": validated_tags,
@@ -647,6 +684,11 @@ class RunTaggerWorkflow(PostHogWorkflow):
                             retry_policy=RetryPolicy(maximum_attempts=2),
                         )
                 raise
+
+            if result.get("skipped"):
+                # A skipped run has no tags to report, so it emits no $ai_tag event, the same as
+                # the skips the handler above returns.
+                return result
 
         # Activity 3: Emit tagger event
         await temporalio.workflow.execute_activity(

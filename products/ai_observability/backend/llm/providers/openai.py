@@ -24,6 +24,7 @@ from products.ai_observability.backend.llm.errors import (
     LLMError,
     ModelNotFoundError,
     ModelPermissionError,
+    OutputLengthExceededError,
     ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
@@ -159,6 +160,7 @@ class OpenAIAdapter:
                         model=request.model,
                         messages=messages,
                         response_format=request.response_format,
+                        max_completion_tokens=request.max_tokens,
                         **(self._build_analytics_kwargs(analytics, client)),
                     )
                     parsed = response.choices[0].message.parsed
@@ -177,9 +179,13 @@ class OpenAIAdapter:
                     if "response_format" in str(e).lower() or "json_schema" in str(e).lower():
                         return self._complete_with_json_fallback(client, request, messages, analytics)
                     raise
-                except (ValidationError, openai.LengthFinishReasonError) as e:
-                    # json_schema does not enforce cross-field validators, while the SDK raises a separate
-                    # exception for length-limited output. Normalize both so callers skip invalid output.
+                except openai.LengthFinishReasonError as e:
+                    # The SDK raises this when the model stopped at the output limit, which leaves the
+                    # JSON truncated. Kept apart from a parse error so callers can skip it quietly.
+                    raise OutputLengthExceededError(f"Model output hit the token limit: {e}") from e
+                except ValidationError as e:
+                    # json_schema does not enforce cross-field validators. Normalize the violation so
+                    # callers skip invalid output.
                     raise StructuredOutputParseError(f"Failed to parse structured output: {e}") from e
             else:
                 create_response = client.chat.completions.create(

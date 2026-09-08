@@ -10,6 +10,7 @@ from products.ai_observability.backend.llm.errors import (
     LLMError,
     ModelNotFoundError,
     ModelPermissionError,
+    OutputLengthExceededError,
     ProviderConnectionError,
     ProviderMismatchError,
     QuotaExceededError,
@@ -134,6 +135,7 @@ class TestUserFacingErrorMessage(SimpleTestCase):
             (QuotaExceededError("insufficient_quota"),),
             (RateLimitError("429"),),
             (ContextWindowExceededError("too long"),),
+            (OutputLengthExceededError("cut off"),),
             (ProviderConnectionError("reset by peer"),),
             (StructuredOutputParseError("bad json"),),
         ]

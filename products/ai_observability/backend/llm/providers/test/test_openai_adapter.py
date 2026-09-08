@@ -14,6 +14,7 @@ from pydantic import BaseModel, ValidationError, model_validator
 
 from products.ai_observability.backend.llm.errors import (
     ContextWindowExceededError,
+    OutputLengthExceededError,
     QuotaExceededError,
     StructuredOutputParseError,
 )
@@ -205,13 +206,15 @@ class TestOpenAIAdapterErrorMapping:
 
     @parameterized.expand(
         [
-            ("length_finish_reason", _length_finish_reason_error),
-            ("cross_field_validator", _cross_field_error),
+            ("length_finish_reason", _length_finish_reason_error, OutputLengthExceededError),
+            ("cross_field_validator", _cross_field_error, StructuredOutputParseError),
         ]
     )
-    def test_structured_output_parse_errors_map_to_parse_error(
-        self, _name: str, make_error: Callable[[], Exception]
+    def test_structured_output_failures_map_to_their_own_error(
+        self, _name: str, make_error: Callable[[], Exception], expected: type[Exception]
     ) -> None:
+        # A truncated response and unreadable output are handled differently by callers: one is a
+        # quiet skip, the other a parse failure. They cannot share an error class.
         adapter = OpenAIAdapter()
         mock_client = MagicMock()
         mock_client.beta.chat.completions.parse.side_effect = make_error()
@@ -224,8 +227,30 @@ class TestOpenAIAdapterErrorMapping:
         )
 
         with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
-            with pytest.raises(StructuredOutputParseError):
+            with pytest.raises(expected):
                 adapter.complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
+
+    def test_structured_output_request_forwards_the_output_token_cap(self) -> None:
+        # Without this the structured-output path ignores max_tokens and a runaway response bills
+        # the model's whole output window before it fails.
+        adapter = OpenAIAdapter()
+        mock_client = MagicMock()
+        mock_client.beta.chat.completions.parse.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(parsed=_Verdict(verdict=True)))], usage=None
+        )
+        request = CompletionRequest(
+            model="gpt-5-mini",
+            system="s",
+            messages=[{"role": "user", "content": "x"}],
+            provider="openai",
+            response_format=_Verdict,
+            max_tokens=2048,
+        )
+
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            adapter.complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
+
+        assert mock_client.beta.chat.completions.parse.call_args.kwargs["max_completion_tokens"] == 2048
 
 
 class TestOpenAIStreamErrorSurfacing:

@@ -21,6 +21,7 @@ from products.ai_observability.backend.llm.errors import (
     LLMError,
     ModelNotFoundError,
     ModelPermissionError,
+    OutputLengthExceededError,
     ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
@@ -37,6 +38,18 @@ from products.ai_observability.backend.llm.types import (
 from products.ai_observability.backend.providers.formatters.gemini_formatter import convert_anthropic_messages_to_gemini
 
 logger = logging.getLogger(__name__)
+
+
+def _hit_output_token_limit(response: Any) -> bool:
+    """Whether Gemini stopped the response at the output token limit, which truncates the JSON.
+
+    Read defensively: the field is an enum in some SDK versions and a plain string in others.
+    """
+    for candidate in getattr(response, "candidates", None) or []:
+        reason = getattr(candidate, "finish_reason", None)
+        if getattr(reason, "name", None) == "MAX_TOKENS" or reason == "MAX_TOKENS":
+            return True
+    return False
 
 
 class GeminiConfig:
@@ -130,6 +143,8 @@ class GeminiAdapter:
                 try:
                     parsed = request.response_format.model_validate_json(content)
                 except Exception as e:
+                    if _hit_output_token_limit(response):
+                        raise OutputLengthExceededError(f"Model output hit the token limit: {e}") from e
                     logger.warning(f"Failed to parse structured output from Gemini: {e}")
                     raise StructuredOutputParseError(f"Failed to parse structured output: {e}") from e
 

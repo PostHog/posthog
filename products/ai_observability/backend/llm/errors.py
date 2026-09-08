@@ -66,6 +66,13 @@ class ContextWindowExceededError(LLMError):
     """Raised when the prompt exceeds the model's context window."""
 
 
+class OutputLengthExceededError(LLMError):
+    """Raised when the model stopped at its output token limit, so the response is truncated.
+
+    Not retryable: the same prompt truncates the same way. Callers skip the run instead.
+    """
+
+
 _CONTEXT_WINDOW_ERROR_MARKERS = (
     "context_length_exceeded",
     "maximum context length",
@@ -141,6 +148,8 @@ def user_facing_error_message(error: Exception | None) -> str:
         return "The provider is rate limiting this key. Wait a moment, then try again."
     if isinstance(error, ContextWindowExceededError):
         return "This conversation is too long for the model's context window. Shorten it, then try again."
+    if isinstance(error, OutputLengthExceededError):
+        return "The model's response was cut off. Try again."
     if isinstance(error, ProviderConnectionError):
         return "Could not reach the model provider. Try again."
     if isinstance(error, StructuredOutputParseError):

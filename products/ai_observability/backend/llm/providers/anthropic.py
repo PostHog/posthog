@@ -20,6 +20,7 @@ from products.ai_observability.backend.llm.errors import (
     LLMError,
     ModelNotFoundError,
     ModelPermissionError,
+    OutputLengthExceededError,
     ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
@@ -181,6 +182,8 @@ class AnthropicAdapter:
                 try:
                     parsed = request.response_format.model_validate_json(content)
                 except Exception as e:
+                    if response.stop_reason == "max_tokens":
+                        raise OutputLengthExceededError(f"Model output hit the token limit: {e}") from e
                     raise StructuredOutputParseError(f"Failed to parse structured output: {e}") from e
 
             return CompletionResponse(

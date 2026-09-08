@@ -35,6 +35,7 @@ from products.ai_observability.backend.llm.errors import (
     ContextWindowExceededError,
     ModelNotFoundError,
     ModelPermissionError,
+    OutputLengthExceededError,
     ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
@@ -177,14 +178,14 @@ def _build_errored_trace_result(allows_na: bool) -> EvaluationActivityResult:
     return result
 
 
-def _build_context_window_skip_result(
-    allows_na: bool, *, is_byok: bool, key_id: str | None
+def _build_skip_result(
+    allows_na: bool, *, is_byok: bool, key_id: str | None, skip_reason: str, reasoning: str
 ) -> EvaluationActivityResult:
     """Per-item skip, not a terminal user error that disables the eval."""
     result: EvaluationActivityResult = {
         "result_type": "boolean",
         "verdict": None if allows_na else False,
-        "reasoning": "Evaluation input exceeded the model's context window; evaluation skipped.",
+        "reasoning": reasoning,
         "input_tokens": 0,
         "output_tokens": 0,
         "total_tokens": 0,
@@ -192,7 +193,7 @@ def _build_context_window_skip_result(
         "key_id": key_id,
         "allows_na": allows_na,
         "skipped": True,
-        "skip_reason": "context_window_exceeded",
+        "skip_reason": skip_reason,
     }
     if allows_na:
         result["applicable"] = False
@@ -301,6 +302,13 @@ def call_llm_judge(
     is_byok = resolved.is_byok
     key_id = str(provider_key.id) if provider_key else None
 
+    # Tags ride along on anything error tracking captures in this activity's context, so a failure
+    # says which team and evaluation hit it rather than only which provider module raised.
+    posthoganalytics.tag("team_id", team_id)
+    posthoganalytics.tag("evaluation_id", evaluation["id"])
+    posthoganalytics.tag("provider", provider)
+    posthoganalytics.tag("model", model)
+
     type_config = get_output_type_config(allows_na)
     response_format = type_config.response_format
 
@@ -407,7 +415,25 @@ def call_llm_judge(
     except ContextWindowExceededError:
         # Skip rather than raise: retrying can't fix an over-window prompt and just spams error tracking.
         increment_errors("context_window_exceeded", provider=provider)
-        return _build_context_window_skip_result(allows_na, is_byok=is_byok, key_id=key_id)
+        return _build_skip_result(
+            allows_na,
+            is_byok=is_byok,
+            key_id=key_id,
+            skip_reason="context_window_exceeded",
+            reasoning="Evaluation input exceeded the model's context window; evaluation skipped.",
+        )
+
+    except OutputLengthExceededError:
+        # Truncation repeats on the same prompt, so skip the item rather than retrying it or
+        # raising into error tracking. The counter is what a rambling model shows up in.
+        increment_errors("output_length_exceeded", provider=provider)
+        return _build_skip_result(
+            allows_na,
+            is_byok=is_byok,
+            key_id=key_id,
+            skip_reason="output_length_exceeded",
+            reasoning="Judge response hit the model's output token limit; evaluation skipped.",
+        )
 
     except ProviderConnectionError:
         # Transient transport failure (connection reset, read timeout). Retrying usually succeeds,
