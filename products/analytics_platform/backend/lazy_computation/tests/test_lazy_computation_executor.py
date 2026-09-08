@@ -653,6 +653,70 @@ class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
         assert ch_results[1][4] == 1  # Jan 2: user2
         assert ch_results[2][4] == 1  # Jan 3: user3
 
+    def test_takes_over_expired_pending_job(self):
+        self._create_pageview_events()
+
+        query = self._make_computation_query()
+        query_info = LazyComputationQuery(
+            query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
+
+        # A PENDING row whose executor died: past expires_at, so it is invisible
+        # to find_existing_jobs but still holds the unique-index slot.
+        blocker = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=compute_query_hash(query_info),
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 4, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() - timedelta(hours=1),
+        )
+
+        result = LazyComputationExecutor().execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 4, tzinfo=UTC),
+        )
+
+        assert result.ready is True
+        assert len(result.job_ids) == 1
+        assert result.job_ids[0] != blocker.id
+
+        blocker.refresh_from_db()
+        assert blocker.status == PreaggregationJob.Status.FAILED
+        assert blocker.error == "Expired while pending (owning executor never finished)"
+
+        ch_results = self._query_computation_results(result.job_ids)
+        assert len(ch_results) == 3
+
+    def test_does_not_fail_live_pending_job(self):
+        query = self._make_computation_query()
+        query_info = LazyComputationQuery(
+            query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
+
+        # A healthy in-flight build: PENDING with a future expires_at.
+        live_job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=compute_query_hash(query_info),
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 4, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+
+        result = LazyComputationExecutor(wait_timeout_seconds=0.3).execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 4, tzinfo=UTC),
+        )
+
+        assert result.ready is False
+        live_job.refresh_from_db()
+        assert live_job.status == PreaggregationJob.Status.PENDING
+
 
 class TestHogQLQueryWithPrecomputation(ClickhouseTestMixin, BaseTest):
     """Test execute_hogql_query with usePreaggregatedIntermediateResults modifier (lazy computation)."""
