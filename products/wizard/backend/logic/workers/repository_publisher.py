@@ -2,6 +2,7 @@ import shlex
 import base64
 from typing import Any
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import GitHubIntegration, Integration
 
 from products.tasks.backend.facade.sandbox import SandboxBase, sandbox_repo_path
@@ -32,6 +33,18 @@ class RepositoryPublishingError(Exception):
     pass
 
 
+@frozen
+class _RepositoryName:
+    owner: str
+    name: str
+
+
+@frozen
+class _StagedChanges:
+    additions: list[tuple[str, str]]
+    deletions: list[str]
+
+
 def create_signed_commit(
     sandbox: SandboxBase,
     *,
@@ -44,13 +57,15 @@ def create_signed_commit(
 ) -> SignedRepositoryCommit:
     """Create a signed commit through GitHub without requiring a local signing key."""
     repository_path = sandbox_repo_path(repository)
-    owner, repository_name = _repository_parts(repository)
+    repository_name = _repository_parts(repository)
     github = _github_integration(team_id, integration_id, source)
 
     _stage_all(sandbox, repository_path)
     head_sha = _head_sha(sandbox, repository_path)
 
-    repository_id, existing_tip = _repository_and_branch_tip(github, owner, repository_name, branch)
+    repository_id, existing_tip = _repository_and_branch_tip(
+        github, repository_name.owner, repository_name.name, branch
+    )
     if existing_tip is None:
         branch_existed = False
         _create_branch(github, repository_id, branch, head_sha)
@@ -60,14 +75,14 @@ def create_signed_commit(
         _fetch_branch(sandbox, repository_path, branch)
         branch_tip = existing_tip
 
-    additions, deletions = _staged_changes(sandbox, repository_path, branch_tip)
-    if not additions and not deletions:
+    changes = _staged_changes(sandbox, repository_path, branch_tip)
+    if not changes.additions and not changes.deletions:
         if branch_existed:
             return SignedRepositoryCommit(repository=repository, branch=branch, commit_shas=(branch_tip,))
         raise RepositoryPublishingError("No staged changes to commit.")
 
-    _assert_payload_size(additions, deletions)
-    commit_sha = _commit_staged_changes(github, repository, branch, branch_tip, message, additions, deletions)
+    _assert_payload_size(changes)
+    commit_sha = _commit_staged_changes(github, repository, branch, branch_tip, message, changes)
     return SignedRepositoryCommit(repository=repository, branch=branch, commit_shas=(commit_sha,))
 
 
@@ -86,9 +101,7 @@ def _fetch_branch(sandbox: SandboxBase, repository_path: str, branch: str) -> No
     _run_git(sandbox, repository_path, f"fetch --no-tags origin {shlex.quote(branch)}", "branch fetch")
 
 
-def _staged_changes(
-    sandbox: SandboxBase, repository_path: str, branch_tip: str
-) -> tuple[list[tuple[str, str]], list[str]]:
+def _staged_changes(sandbox: SandboxBase, repository_path: str, branch_tip: str) -> _StagedChanges:
     output = _run_git(
         sandbox,
         repository_path,
@@ -116,7 +129,7 @@ def _staged_changes(
             additions.append((path, contents))
         if remaining_bytes < 0:
             raise RepositoryPublishingError("Staged changes exceed the GitHub commit payload limit.")
-    return additions, deletions
+    return _StagedChanges(additions=additions, deletions=deletions)
 
 
 def _staged_file_contents(sandbox: SandboxBase, repository_path: str, path: str, remaining_bytes: int) -> str:
@@ -134,9 +147,9 @@ def _staged_file_contents(sandbox: SandboxBase, repository_path: str, path: str,
     return contents
 
 
-def _assert_payload_size(additions: list[tuple[str, str]], deletions: list[str]) -> None:
-    payload_bytes = sum(len(path) + len(contents) + 32 for path, contents in additions)
-    payload_bytes += sum(len(path) + 16 for path in deletions)
+def _assert_payload_size(changes: _StagedChanges) -> None:
+    payload_bytes = sum(len(path) + len(contents) + 32 for path, contents in changes.additions)
+    payload_bytes += sum(len(path) + 16 for path in changes.deletions)
     if payload_bytes > MAX_COMMIT_PAYLOAD_BYTES:
         raise RepositoryPublishingError("Staged changes exceed the GitHub commit payload limit.")
 
@@ -147,8 +160,7 @@ def _commit_staged_changes(
     branch: str,
     branch_tip: str,
     message: str,
-    additions: list[tuple[str, str]],
-    deletions: list[str],
+    changes: _StagedChanges,
 ) -> str:
     headline, _, body = message.partition("\n")
     payload = _graphql_request(
@@ -160,8 +172,8 @@ def _commit_staged_changes(
                 "expectedHeadOid": branch_tip,
                 "message": {"headline": headline.strip(), "body": body.strip()},
                 "fileChanges": {
-                    "additions": [{"path": path, "contents": contents} for path, contents in additions],
-                    "deletions": [{"path": path} for path in deletions],
+                    "additions": [{"path": path, "contents": contents} for path, contents in changes.additions],
+                    "deletions": [{"path": path} for path in changes.deletions],
                 },
             }
         },
@@ -259,18 +271,18 @@ def create_pull_request(
     body: str,
     source: str,
 ) -> RepositoryPullRequest:
-    owner, repository_name = _repository_parts(repository)
+    repository_name = _repository_parts(repository)
     integration = Integration.objects.filter(team_id=team_id, id=integration_id, kind="github").first()
     if integration is None:
         raise RepositoryPublishingError("GitHub integration is unavailable.")
 
     github = GitHubIntegration(integration, source=source)
-    if github.organization().casefold() != owner.casefold():
+    if github.organization().casefold() != repository_name.owner.casefold():
         raise RepositoryPublishingError("GitHub integration does not own the repository.")
 
-    base_branch = github.get_default_branch(repository_name)
+    base_branch = github.get_default_branch(repository_name.name)
     existing = _matching_pull_request(
-        github.list_pull_requests(repository_name),
+        github.list_pull_requests(repository_name.name),
         repository,
         head_branch,
         base_branch,
@@ -278,7 +290,7 @@ def create_pull_request(
     if existing is not None:
         return existing
 
-    created = github.create_pull_request(repository_name, title, body, head_branch, base_branch)
+    created = github.create_pull_request(repository_name.name, title, body, head_branch, base_branch)
     return _created_pull_request(created, repository, head_branch, base_branch)
 
 
@@ -331,11 +343,11 @@ def _created_pull_request(
     )
 
 
-def _repository_parts(repository: str) -> tuple[str, str]:
+def _repository_parts(repository: str) -> _RepositoryName:
     parts = repository.split("/")
     if len(parts) != 2 or not all(parts):
         raise RepositoryPublishingError("Repository must use owner/name format.")
-    return parts[0], parts[1]
+    return _RepositoryName(owner=parts[0], name=parts[1])
 
 
 def _run_git(

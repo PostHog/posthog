@@ -58,4 +58,6 @@ def test_staged_changes_enforce_cumulative_encoded_budget(budget: int) -> None:
             with pytest.raises(RepositoryPublishingError, match="payload limit"):
                 _staged_changes(sandbox, ".", "HEAD")
         else:
-            assert _staged_changes(sandbox, ".", "HEAD") == ([("a", "YQ=="), ("b", "Yg==")], [])
+            changes = _staged_changes(sandbox, ".", "HEAD")
+            assert changes.additions == [("a", "YQ=="), ("b", "Yg==")]
+            assert changes.deletions == []
