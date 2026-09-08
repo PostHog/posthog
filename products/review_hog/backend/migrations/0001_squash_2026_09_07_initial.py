@@ -43,7 +43,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("posthog", "1340_drop_userproductlist_reason_columns"),
-        ("tasks", "0115_teamtasksconfig_usertasksconfig"),
+        ("tasks", "0117_task_set_null_cascade_indexes"),
     ]
 
     operations = [

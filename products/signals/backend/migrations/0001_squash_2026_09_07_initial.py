@@ -137,7 +137,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1340_drop_userproductlist_reason_columns"),
         ("posthog_ai", "0004_conversation_agent_runtime_conversation_task_and_more"),
-        ("tasks", "0115_teamtasksconfig_usertasksconfig"),
+        ("tasks", "0117_task_set_null_cascade_indexes"),
     ]
 
     operations = [

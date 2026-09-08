@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ("signals", "0001_squash_2026_09_07_initial"),
         ("tasks", "0001_squash_2026_09_07_initial"),
-        ("tasks", "0118_alter_channel_channel_type_channelmembership"),
+        ("tasks", "0120_backfill_canvas_search_documents"),
     ]
 
     operations = [

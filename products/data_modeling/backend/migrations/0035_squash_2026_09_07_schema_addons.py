@@ -70,7 +70,7 @@ class Migration(migrations.Migration):
         ("stamphog", "0001_squash_2026_09_07_initial"),
         ("streamlit_apps", "0004_squash_2026_09_07_finalize_fks"),
         ("surveys", "0001_squash_2026_09_07_initial"),
-        ("tasks", "0119_squash_2026_09_07_finalize_fks"),
+        ("tasks", "0121_squash_2026_09_07_finalize_fks"),
         ("tracing", "0001_squash_2026_09_07_initial"),
         ("user_interviews", "0001_squash_2026_09_07_initial"),
         ("visual_review", "0001_squash_2026_09_07_initial"),

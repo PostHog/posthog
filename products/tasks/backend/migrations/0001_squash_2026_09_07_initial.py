@@ -133,6 +133,8 @@ class Migration(migrations.Migration):
         ("tasks", "0113_task_team_live_list_indexes"),
         ("tasks", "0114_taskrun_autovacuum_scale_factor"),
         ("tasks", "0115_teamtasksconfig_usertasksconfig"),
+        ("tasks", "0116_drop_task_session_storage_key_like_index"),
+        ("tasks", "0117_task_set_null_cascade_indexes"),
     ]
 
     initial = True
@@ -804,6 +806,8 @@ class Migration(migrations.Migration):
                         fields=["team", "internal", "archived", "-last_activity_at", "-id"],
                         name="posthog_task_team_live_act_idx",
                     ),
+                    models.Index(fields=["created_by"], name="posthog_task_creator_idx"),
+                    models.Index(fields=["github_user_integration"], name="posthog_task_gh_user_int_idx"),
                 ],
                 "constraints": [
                     models.UniqueConstraint(
