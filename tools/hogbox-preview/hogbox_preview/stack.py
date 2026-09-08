@@ -333,6 +333,15 @@ class PostHogPreviewStack:
             # companion settings change that reads this from the env; it's an
             # inert no-op on an image that predates it.
             "      - USE_LOCAL_SETUP=1",
+            # ee/urls.py registers /admin/* only when ADMIN_PORTAL_ENABLED is true,
+            # and ee/settings.py defaults it to DEMO or DEBUG — both false here. So
+            # without this, Django has no /admin route at all: the request falls
+            # through to the SPA, which prefixes any path it doesn't know with the
+            # project id, and /admin lands on /project/1/admin. A box reaches admin
+            # only over the tailnet (hogland's box-front is an internal NLB behind
+            # split-DNS), and the seeded demo user is staff, so /admin is as exposed
+            # as the rest of the preview and no more.
+            "      - ADMIN_PORTAL_ENABLED=1",
         ]
         lines += [
             "  plugins:",
