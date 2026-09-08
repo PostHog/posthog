@@ -540,18 +540,23 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("enabled", "disabled", 1),
-            ("enabled", "enabled,disabled", 2),
-            ("enabled", "true", 1),
-            ("enabled", "false", 1),
-            ("enabled", "1", 1),
-            ("enabled", "0", 1),
-            ("scanner_type", ScannerType.CLASSIFIER, 1),
-            ("scanner_type", f"{ScannerType.CLASSIFIER},{ScannerType.MONITOR}", 2),
-            ("emits_signals", "true", 1),
+            ("enabled", "enabled", ["enabled-scanner"]),
+            ("enabled", "disabled", ["disabled-scanner"]),
+            ("enabled", "enabled,disabled", ["disabled-scanner", "enabled-scanner"]),
+            ("enabled", "true", ["enabled-scanner"]),
+            ("enabled", "false", ["disabled-scanner"]),
+            ("enabled", "1", ["enabled-scanner"]),
+            ("enabled", "0", ["disabled-scanner"]),
+            ("scanner_type", ScannerType.CLASSIFIER, ["classifier-scanner"]),
+            (
+                "scanner_type",
+                f"{ScannerType.CLASSIFIER},{ScannerType.MONITOR}",
+                ["classifier-scanner", "monitor-scanner"],
+            ),
+            ("emits_signals", "true", ["loud"]),
         ]
     )
-    def test_filterset(self, field: str, value: str, expected_count: int) -> None:
+    def test_filterset(self, field: str, value: str, expected_names: list[str]) -> None:
         if field == "enabled":
             self._create_scanner(name="enabled-scanner")
             self._create_scanner(name="disabled-scanner", enabled=False)
@@ -563,7 +568,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             self._create_scanner(name="loud", emits_signals=True)
         resp = self.client.get(f"{self.scanners_url}?{field}={value}")
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(len(resp.json()["results"]), expected_count)
+        self.assertEqual(sorted(r["name"] for r in resp.json()["results"]), expected_names)
 
     @parameterized.expand(
         [
@@ -1444,6 +1449,11 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?date_to=-1h")
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["old"])
+
+        # `now` is an accepted upper bound, so a caller can bound a query at the current time.
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?date_from=-7d&date_to=now")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["recent"])
 
     def test_list_date_range_bounds_use_project_timezone(self) -> None:
         self.team.timezone = "US/Pacific"
@@ -2505,6 +2515,16 @@ class TestBulkObserveAction(_VisionAPITestCase):
         events = [call.args[1] for call in report.call_args_list]
         self.assertEqual(events, ["replay_vision_bulk_scan_started", "replay_vision_quota_exhausted"])
         self.assertEqual(report.call_args.args[2]["trigger"], "bulk")
+        # `requested` minus `started` says two sessions produced nothing but never that quota was why.
+        bulk_properties = report.call_args_list[0].args[2]
+        self.assertEqual(bulk_properties["outcome_skipped_quota"], 1)
+        self.assertEqual(bulk_properties["outcome_started"], 1)
+        # Every outcome is reported, so an untaken path is a measured zero rather than a missing key.
+        self.assertEqual(bulk_properties["outcome_already_scanned"], 0)
+        self.assertEqual(
+            sum(value for key, value in bulk_properties.items() if key.startswith("outcome_")),
+            bulk_properties["requested"],
+        )
 
     def test_bulk_observe_reports_the_scanner_limit_as_the_skip_reason(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
@@ -3234,6 +3254,12 @@ class TestObservationSearchAction(_VisionAPITestCase):
         # A date-only upper bound covers its whole day, like the observation list filter.
         self.assertEqual((filters.date_to.hour, filters.date_to.minute, filters.date_to.second), (23, 59, 59))
 
+        # `now` is an accepted upper bound here too, and reaches the filters as the current time.
+        before = timezone.now()
+        resp = self.client.get(f"{self.search_url}?q=anything&date_from=-7d&date_to=now")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertGreaterEqual(mock_rank.call_args[0][5].date_to, before)
+
     @patch("products.replay_vision.backend.search.rank_observations", return_value=[])
     @patch("products.replay_vision.backend.search.generate_embedding")
     def test_search_reuses_the_query_vector_for_a_repeated_query(self, mock_embed: MagicMock, _rank: MagicMock) -> None:
@@ -3759,6 +3785,28 @@ class TestInlineScanAction(_VisionAPITestCase):
             status=ObservationStatus.SUCCEEDED,
             completed_at=timezone.now(),
         )
+
+    def test_a_fully_refused_scan_still_reports_the_request(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # A batch where nothing starts mints no scanner, but the request still happened. The endpoint must
+        # report it, or the refused batches drop out of the request count and bias every rate built on it.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 0):
+            with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+                resp = self._scan()
+
+        self.assertEqual(resp.status_code, 202, resp.json())
+        self.assertIsNone(resp.json()["scan_id"])
+        events = [call.args[1] for call in report.call_args_list]
+        self.assertIn("replay_vision_inline_scan_requested", events)
+        properties = report.call_args_list[events.index("replay_vision_inline_scan_requested")].args[2]
+        self.assertIsNone(properties["scan_id"])
+        self.assertEqual(properties["started"], 0)
+        self.assertEqual(properties["requested"], 1)
+        self.assertEqual(properties["outcome_skipped_quota"], 1)
 
     def test_same_prompt_reuses_one_scan_and_a_different_prompt_gets_its_own(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
