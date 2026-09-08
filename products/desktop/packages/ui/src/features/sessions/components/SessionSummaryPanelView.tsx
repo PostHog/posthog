@@ -36,7 +36,7 @@ export function SessionSummaryPanelView({
   onDismiss,
 }: SessionSummaryPanelViewProps) {
   return (
-    <div className="mb-2 overflow-hidden rounded-(--radius-lg) border border-(--gray-4) bg-(--gray-2)">
+    <div className="overflow-hidden rounded-(--radius-lg) border border-(--gray-4) bg-(--gray-2)">
       <div className="flex items-center gap-2 px-3 pt-2 pb-1">
         <TextAlignLeft size={14} className="shrink-0 text-muted-foreground" />
         <Text className="min-w-0 truncate font-medium text-[13px] text-foreground">
