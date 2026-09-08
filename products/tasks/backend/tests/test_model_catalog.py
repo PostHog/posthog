@@ -9,6 +9,7 @@ from unittest.mock import patch
 from syrupy.extensions.json import JSONSnapshotExtension
 
 from products.tasks.backend import model_catalog
+from products.tasks.backend.constants import get_required_model_flag
 from products.tasks.backend.facade.model_catalogue import GatewayModel, available_model_choices
 from products.tasks.backend.temporal.process_task.utils import ReasoningEffort, RuntimeAdapter
 
@@ -170,3 +171,18 @@ class TestAvailableModelChoices:
         assert [c.model for c in choices] == [m.id for m in gateway]
         assert {c.runtime_adapter for c in choices} == {"claude"}
         assert [c.label for c in choices] == ["DeepSeek V4 Flash", "GLM-5.3 Flash", "Kimi K3"]
+
+
+def test_every_gated_model_resolves_to_its_catalog_flag() -> None:
+    # The gate and the pickers read one field now, so this fails if a row gains an
+    # access_flag the entitlement check cannot see, whichever spelling the caller sends.
+    gated = [model for model in model_catalog.MODELS if model.access_flag]
+    assert gated, "the catalog gates no model, so this guard proves nothing"
+
+    for model in gated:
+        assert get_required_model_flag(model.id) == model.access_flag
+        assert get_required_model_flag(f"anthropic/{model.id}") == model.access_flag
+
+    for model in model_catalog.MODELS:
+        if model.access_flag is None:
+            assert get_required_model_flag(model.id) is None

@@ -3670,9 +3670,15 @@ class TestTaskAPI(BaseTaskAPITest):
             ("glm_5_2_max", "claude", "@cf/zai-org/glm-5.2", "max", "anthropic"),
         ]
     )
+    # GLM 5.2 is gated, and this case is about the metadata a run persists rather than about
+    # entitlement, so the flag is granted here and gating is covered in `test_feature_flags`.
+    @patch(
+        "products.tasks.backend.feature_flags.posthoganalytics.feature_enabled",
+        side_effect=lambda flag, *args, **kwargs: flag == "posthog-code-glm-model",
+    )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_persists_runtime_metadata(
-        self, _case_name, runtime_adapter, model, reasoning_effort, provider, mock_workflow
+        self, _case_name, runtime_adapter, model, reasoning_effort, provider, mock_workflow, _mock_flag
     ):
         task = self.create_task()
 

@@ -52,7 +52,7 @@ class TestIsDevStackImageBakeEnabled:
 class TestGetModelAccessError:
     @pytest.mark.parametrize(
         "model",
-        ["claude-sonnet-5", "gpt-5.6-luna", "@cf/zai-org/glm-5.2", "", None],
+        ["claude-sonnet-5", "gpt-5.6-luna", "", None],
     )
     def test_ungated_model_is_allowed_without_consulting_the_flag(self, model):
         with (
@@ -72,6 +72,9 @@ class TestGetModelAccessError:
             ("moonshotai/kimi-k3", "tasks-kimi-k3"),
             ("  MoonshotAI/Kimi-K3  ", "tasks-kimi-k3"),
             ("deepseek-ai/deepseek-v4-flash-0731", "posthog-code-deepseek-model"),
+            # Gated on the desktop app before this was one definition, and ungated on the
+            # server, so the same model was reachable through the web composer and the API.
+            ("@cf/zai-org/glm-5.2", "posthog-code-glm-model"),
             ("zai-org/glm-5.3", "posthog-code-glm-53-model"),
             ("zai-org/glm-5.3-flash", "posthog-code-glm-53-flash-model"),
         ],

@@ -65,23 +65,38 @@ class CatalogModel:
     ``label`` is set only where deriving the name from the id gets it wrong. Each surface
     formats an id it has no label for, and those formatters disagree on vendor-qualified
     ids, so a model whose name matters is named here once instead of in each picker.
+
+    ``access_flag`` names the feature flag a person needs before a picker offers the model,
+    and ``None`` means generally available. It decides what a picker *shows*: this file is
+    checked in and the desktop app auto-updates into it, so it is readable by anyone and can
+    be stale. Whether a run may actually use the model stays a server question, answered by
+    ``get_model_access_error`` on every write path.
     """
 
     id: str
     runtime_adapter: str
     reasoning_efforts: tuple[str, ...]
     label: str | None = None
+    access_flag: str | None = None
 
 
 MODELS: tuple[CatalogModel, ...] = (
     # GLM 5.2 is Cloudflare-served and driven through the `claude` adapter: the LLM gateway
     # exposes it over its Anthropic-Messages surface and translates the `@cf/` id upstream,
     # so the `anthropic` provider is the intended routing rather than a direct Anthropic call.
-    CatalogModel("@cf/zai-org/glm-5.2", CLAUDE, _GLM, label="GLM-5.2"),
-    CatalogModel("zai-org/glm-5.3", CLAUDE, _GLM, label="GLM-5.3"),
-    CatalogModel("zai-org/glm-5.3-flash", CLAUDE, _GLM, label="GLM-5.3 Flash"),
-    CatalogModel("moonshotai/kimi-k3", CLAUDE, _NO_EFFORT, label="Kimi K3"),
-    CatalogModel("deepseek-ai/deepseek-v4-flash-0731", CLAUDE, _NO_EFFORT, label="DeepSeek V4 Flash"),
+    CatalogModel("@cf/zai-org/glm-5.2", CLAUDE, _GLM, label="GLM-5.2", access_flag="posthog-code-glm-model"),
+    CatalogModel("zai-org/glm-5.3", CLAUDE, _GLM, label="GLM-5.3", access_flag="posthog-code-glm-53-model"),
+    CatalogModel(
+        "zai-org/glm-5.3-flash", CLAUDE, _GLM, label="GLM-5.3 Flash", access_flag="posthog-code-glm-53-flash-model"
+    ),
+    CatalogModel("moonshotai/kimi-k3", CLAUDE, _NO_EFFORT, label="Kimi K3", access_flag="tasks-kimi-k3"),
+    CatalogModel(
+        "deepseek-ai/deepseek-v4-flash-0731",
+        CLAUDE,
+        _NO_EFFORT,
+        label="DeepSeek V4 Flash",
+        access_flag="posthog-code-deepseek-model",
+    ),
     CatalogModel("claude-opus-4-5", CLAUDE, _STANDARD),
     CatalogModel("claude-opus-4-6", CLAUDE, _THROUGH_MAX),
     CatalogModel("claude-opus-4-7", CLAUDE, _EXTENDED),
@@ -180,6 +195,12 @@ def normalize_model_id(model_id: str) -> str:
     return normalized
 
 
+def access_flag_for_model(model_id: str) -> str | None:
+    """The feature flag a person needs before a picker offers this model, or ``None``."""
+    model = _MODEL_BY_ID.get(normalize_model_id(model_id))
+    return model.access_flag if model else None
+
+
 def label_for_model(model_id: str) -> str | None:
     """The name this catalog pins for a model id, or ``None`` to let the caller derive one."""
     model = _MODEL_BY_ID.get(normalize_model_id(model_id))
@@ -259,6 +280,7 @@ __all__ = [
     "OPENAI",
     "PROVIDER_BY_RUNTIME_ADAPTER",
     "REASONING_EFFORTS",
+    "access_flag_for_model",
     "RUNTIME_ADAPTERS",
     "CatalogModel",
     "label_for_model",
