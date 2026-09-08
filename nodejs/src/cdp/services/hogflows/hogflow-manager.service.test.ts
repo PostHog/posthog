@@ -75,13 +75,17 @@ describe('HogFlowManager', () => {
         expect(items.map((item) => item.team_id)).toEqual([teamId1, teamId1])
 
         expect(
-            forSnapshot(items, {
-                overrides: {
-                    team_id: 'TEAM_ID',
-                    created_at: 'CREATED_AT',
-                    updated_at: 'UPDATED_AT',
-                },
-            })
+            // The manager's queries are unordered, so sort before snapshotting.
+            forSnapshot(
+                [...items].sort((a, b) => a.name.localeCompare(b.name)),
+                {
+                    overrides: {
+                        team_id: 'TEAM_ID',
+                        created_at: 'CREATED_AT',
+                        updated_at: 'UPDATED_AT',
+                    },
+                }
+            )
         ).toMatchSnapshot()
 
         await hub.postgres.query(

@@ -61,6 +61,7 @@ from products.tasks.backend.logic.services.sandbox import (
     sandbox_repo_path,
     workload_for_origin_product,
 )
+from products.tasks.backend.logic.services.sandbox_config import DEV_STACK_PREVIEW_MEMORY_GB
 from products.tasks.backend.logic.services.sandbox_usage import (
     measure_sandbox_billed_cpu_usage,
     measure_sandbox_cpu_usage,
@@ -155,6 +156,7 @@ class CreateSandboxForRepositoryOutput:
     create_ms: int | None = None
     jwt_kid: str | None = None
     ttl_expires_at: str | None = None
+    dev_stack_preview_sized: bool = False
 
 
 @dataclass
@@ -345,12 +347,18 @@ def _resolve_sandbox_github_token(
 ) -> str:
     """Decide which GitHub credential (if any) a fresh sandbox gets.
 
-    A repo-less run that requested read-only access is resolved FIRST: _build_task attaches the
-    team's GitHub integration to every task, so has_github_credentials is true whenever the team
-    has GitHub connected at all — resolved the other way around, the write-capable installation
-    token would reach a run that asked for read-only. The read-only mint is best-effort (empty
-    string on failure, never the full token); the full credential path keeps its raise-on-failure
-    contract for repo-backed runs that can't work without credentials.
+    A repo-less run that requested read-only access is resolved FIRST: a task whose team has GitHub
+    connected can carry the team integration, so has_github_credentials is true for it. Resolved the
+    other way around, the write-capable installation token would reach a run that asked for
+    read-only. The read-only mint is best-effort (empty string on failure, never the full token);
+    the full credential path keeps its raise-on-failure contract for repo-backed runs that can't
+    work without credentials.
+
+    Everything else follows the attached integration, including a repo-less signals run: a scout or
+    scout-chat task never gets one (`github_resolution_allowed` in `Task._build_task` refuses to
+    resolve one, and `update_task` keeps it unattachable afterwards), while a report discussion gets
+    one only after the create-time Desktop gate passed. So a repo-less run with no integration
+    stays credential-less, and an entitled discussion can clone a private repository and push.
     """
     if ctx.github_read_access and not has_repo:
         github_token = get_readonly_github_token(ctx.team_id) or ""
@@ -362,9 +370,6 @@ def _resolve_sandbox_github_token(
             else "Read-only GitHub token unavailable, continuing without GitHub access",
         )
         return github_token
-
-    if not has_repo and task.origin_product in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
-        return ""
 
     should_inject_github_token = ctx.has_github_credentials and (
         has_repo or ctx.github_user_integration_id is not None or ctx.github_integration_id is not None
@@ -533,9 +538,9 @@ def _build_environment_variables(
     run_state = parse_run_state(ctx.state)
     if run_state.resume_from_run_id:
         environment_variables["POSTHOG_RESUME_RUN_ID"] = run_state.resume_from_run_id
-    elif run_state.handoff_resumed:
+    elif run_state.same_run_resume:
         environment_variables["POSTHOG_RESUME_RUN_ID"] = str(ctx.run_id)
-        if run_state.handoff_resume_idle:
+        if run_state.same_run_resume_idle:
             environment_variables["POSTHOG_RESUME_IDLE"] = "1"
 
     # Cloud wizard runs get a SEPARATE token, minted under the wizard's own OAuth app with the
@@ -572,9 +577,10 @@ def _build_sandbox_tags(
     prepared: PrepareSandboxForRepositoryOutput,
     use_vm_sandbox: bool,
 ) -> dict[str, str]:
-    """Tags forwarded to the Modal sandbox so it can be traced back when debugging.
+    """Tags forwarded to the sandbox so it can be traced back when debugging.
 
-    Modal tag values must be strings; None values are dropped so we don't emit empty tags.
+    Tag values must be strings; None values are dropped so we don't emit empty tags.
+    Hogland also caps each tag at 64 characters and truncates on its side.
     """
     tags: dict[str, str | int | None] = {
         "task_id": ctx.task_id,
@@ -668,9 +674,9 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 snapshot_kind = run_state.resume_snapshot_kind()
                 snapshot_mount_path = run_state.resume_snapshot_mount_path()
 
-        is_resume = bool(run_state.handoff_resumed or run_state.resume_from_run_id)
+        is_resume = bool(run_state.same_run_resume or run_state.resume_from_run_id)
         resume_mode = resume_mode_label(
-            handoff_resumed=run_state.handoff_resumed,
+            same_run_resume=run_state.same_run_resume,
             using_modal_snapshot=resume_snapshot_external_id is not None,
         )
         resume_decision_log = (
@@ -686,8 +692,8 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 "effective_snapshot_external_id": resume_snapshot_external_id,
                 "effective_snapshot_kind": snapshot_kind,
                 "effective_snapshot_mount_path": snapshot_mount_path,
-                "handoff_resumed": run_state.handoff_resumed,
-                "handoff_resume_idle": run_state.handoff_resume_idle,
+                "same_run_resume": run_state.same_run_resume,
+                "same_run_resume_idle": run_state.same_run_resume_idle,
                 "resume_from_run_id": run_state.resume_from_run_id,
                 "posthog_resume_run_id_set": "POSTHOG_RESUME_RUN_ID" in environment_variables,
                 "used_snapshot": used_snapshot,
@@ -697,8 +703,8 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             emit_agent_log(
                 ctx.run_id,
                 "debug",
-                f"Resume mode: handoff_resumed={run_state.handoff_resumed}, "
-                f"resume_idle={run_state.handoff_resume_idle}, "
+                f"Resume mode: same_run_resume={run_state.same_run_resume}, "
+                f"resume_idle={run_state.same_run_resume_idle}, "
                 f"resume_from_run_id={run_state.resume_from_run_id}, "
                 f"using_modal_snapshot={resume_snapshot_external_id is not None}",
             )
@@ -735,6 +741,13 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         )
 
 
+def _dev_stack_preview_resources(ctx: TaskProcessingContext) -> dict[str, float | int]:
+    overrides = ctx.sandbox_resource_overrides()
+    if ctx.dev_stack_preview_enabled:
+        overrides.setdefault("memory_gb", DEV_STACK_PREVIEW_MEMORY_GB)
+    return overrides
+
+
 @asyncify
 def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> CreateSandboxForRepositoryOutput:
     ctx = input.context
@@ -761,6 +774,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
         # The VM template bakes in Docker (and forces the VM runtime), so the agent
         # can run nested containers; the default template has neither.
         use_vm_sandbox = ctx.use_modal_vm_sandbox
+        resource_overrides = _dev_stack_preview_resources(ctx)
         config = SandboxConfig(
             name=prepared.sandbox_name,
             template=SandboxTemplate.VM_BASE if use_vm_sandbox else SandboxTemplate.DEFAULT_BASE,
@@ -774,7 +788,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             snapshot_source=prepared.snapshot_source,
             metadata=_build_sandbox_tags(ctx, prepared, use_vm_sandbox),
             vm_runtime=use_vm_sandbox,
-            **ctx.sandbox_resource_overrides(),
+            **resource_overrides,
         )
 
         # Request a small slice and let the box burst up to the configured size. Burstable by
@@ -929,6 +943,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             create_ms=create_ms,
             ttl_expires_at=(sandbox_created_at + timedelta(seconds=sandbox.config.ttl_seconds)).isoformat(),
             jwt_kid=jwt_kid,
+            dev_stack_preview_sized=ctx.dev_stack_preview_enabled,
         )
 
 
@@ -1006,8 +1021,8 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
         emit_agent_log(ctx.run_id, "debug", f"Cloning {input.repository} into sandbox")
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
 
-        state = ctx.state or {}
-        is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
+        state = parse_run_state(ctx.state)
+        is_resume = bool(state.resume_from_run_id or state.same_run_resume)
 
         with StepTimer(
             "repository_clone",
@@ -1027,7 +1042,7 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                 emit_agent_log(
                     ctx.run_id,
                     "debug",
-                    f"Resume branch {ctx.branch} is unavailable; cloning the repository default branch so the agent can restore its git checkpoint",
+                    f"Resume branch {ctx.branch} is unavailable; cloning the repository default branch so the agent can continue from its preserved conversation",
                 )
                 clone_result = sandbox.clone_repository(
                     input.repository,

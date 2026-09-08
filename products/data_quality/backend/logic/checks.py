@@ -6,6 +6,7 @@ here waits on a warehouse query.
 """
 
 import asyncio
+from collections.abc import Iterable
 from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Any
@@ -24,7 +25,7 @@ from posthog.temporal.common.client import sync_connect
 
 from ..facade.contracts import CHECK_SUITE_WORKFLOW_NAME
 from ..facade.enums import SubjectHealth, SubjectStatus, SubjectType, SuiteRunStatus, SuiteRunTrigger
-from ..models import DataQualityCheck, DataQualitySuiteRun
+from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from .compiler import related_subject_ref
 from .errors import DuplicateDefinitionError, NameConflictError, SubjectUnresolvableError
 from .exceptions import CheckNameConflict
@@ -297,6 +298,25 @@ def checks_for_subject(
     # A soft-deleted check's past runs still sit in the aggregate counts of suites it ran in, so
     # authorization over a *historical* suite has to see it too, even though it no longer runs.
     return queryset if include_deleted else queryset.filter(deleted=False)
+
+
+def latest_run_ids(team_id: int, check_ids: Iterable[UUID]) -> list[UUID]:
+    """The id of each of these checks' most recent run. One query; a check never run contributes none.
+
+    A check row is not purely a definition: its ``last_status`` and ``last_run_at`` come from this
+    run, so they report on whatever it read. Authorizing the row on the definition alone would serve
+    that verdict about a subject the caller was denied, once the definition stops naming it.
+    """
+    ids = list(check_ids)
+    if not ids:
+        return []
+    return list(
+        DataQualityCheckRun.objects.for_team(team_id)
+        .filter(quality_check_id__in=ids)
+        .order_by("quality_check_id", "-created_at")
+        .distinct("quality_check_id")
+        .values_list("id", flat=True)
+    )
 
 
 def subject_health(team_id: int, subject_type: str, subject_uuid: str | UUID) -> SubjectHealth:

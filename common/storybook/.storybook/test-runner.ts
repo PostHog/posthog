@@ -173,6 +173,22 @@ export default {
                 get: () => patchedUserAgent,
                 configurable: true,
             })
+
+            // Monaco cancels its own in-flight work with a rejection named "Canceled" and treats
+            // it as expected (VS Code's unexpected-error handler ignores cancellation errors).
+            // One such rejection escapes as unhandled here: under Playwright WebKit, Monaco's
+            // clipboard workaround hands a DeferredPromise to `navigator.clipboard.write`, which
+            // the sandbox denies without ever consuming the promise, so the next click's
+            // `cancel()` has no consumer and Storybook fails the story via
+            // `unhandledErrorsWhilePlaying`. This listener registers before any page script, so
+            // it sees the event first and can stop Storybook's listener from recording it.
+            window.addEventListener('unhandledrejection', (event) => {
+                const reason = event.reason as { name?: string; message?: string } | undefined
+                if (reason?.name === 'Canceled' && reason?.message === 'Canceled') {
+                    event.stopImmediatePropagation()
+                    event.preventDefault()
+                }
+            })
         })
 
         // The rest replicates @storybook/test-runner's defaultPrepare (not exported).

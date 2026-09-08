@@ -1,9 +1,11 @@
 name: Master run traces
 
-# Emits one OTLP trace per completed master-push workflow run: root span = the run,
+# Emits one OTLP trace per completed master workflow run: root span = the run,
 # a span per job beneath it, a span per step beneath those. Covers every workflow,
 # including the ones with no telemetry of their own (Container Images CD, the
-# container CD lane, the Rust image builds).
+# container CD lane, the Rust image builds). Master pushes are scanned repo-wide;
+# workflows that cover master from a cron are scanned on their scheduled runs too
+# (see SCHEDULED_MASTER_WORKFLOWS in the script).
 #
 # Complements .github/scripts/report_test_timings.py, which emits per-test traces
 # from JUnit XML under its own trace IDs. Those stay separate traces.
@@ -66,7 +68,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_TELEMETRY_APP_ID }}
+                  client-id: ${{ vars.GH_APP_TELEMETRY_APP_ID }}
                   private-key: ${{ secrets.GH_APP_TELEMETRY_PRIVATE_KEY }}
                   skip-token-revoke: true
 

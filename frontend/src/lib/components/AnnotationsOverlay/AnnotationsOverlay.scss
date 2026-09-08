@@ -26,14 +26,18 @@
         transform-origin: center;
     }
 
-    // An emoji is illegible at the small count-badge size on the saturated data fill,
-    // so give it a larger disc and a plain surface background to read against.
+    // Hug the emoji with a soft blurred halo of the chart background instead of a
+    // solid disc. The drop-shadow follows the glyph alpha, so it crops to the icon
+    // shape and fades out rather than hiding the axis line behind it.
     > .LemonBadge.AnnotationsBadge__emoji {
         --lemon-badge-size: 1.5rem;
         --lemon-badge-font-size: 1rem;
 
         color: inherit;
-        background: var(--color-bg-surface-primary);
+        background: none;
+        filter: drop-shadow(0 0 1px var(--color-bg-surface-primary))
+            drop-shadow(0 0 2px var(--color-bg-surface-primary)) drop-shadow(0 0 3px var(--color-bg-surface-primary));
+        border-color: transparent;
     }
 }
 

@@ -1,9 +1,11 @@
 from collections.abc import Callable
+from typing import Optional
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import InterfaceError, OperationalError
 from django.test import override_settings
 from django.utils import timezone
 
@@ -13,16 +15,19 @@ from parameterized import parameterized
 
 from posthog.hogql.errors import QueryError
 
+from posthog.errors import CHQueryErrorQueryWasCancelled
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.tasks.calculate_cohort import (
     COHORT_BACKFILL_REFUSAL_OUTCOMES,
     COHORT_BACKFILL_TRIGGER_TASK_COUNTER,
+    COHORT_RECALCULATION_MAX_RETRIES,
     COHORT_STUCK_COUNT_GAUGE,
     COHORTS_STALE_COUNT_GAUGE,
     COHORTS_TOTAL_GAUGE,
     MAX_AGE_MINUTES,
     MAX_ERRORS_CALCULATING,
     MAX_STUCK_COHORTS_TO_RESET,
+    calculate_cohort_ch,
     calculate_cohort_from_list,
     enqueue_cohorts_to_calculate,
     increment_version_and_enqueue_calculate_cohort,
@@ -1291,6 +1296,123 @@ class TestCohortCalculationTasks(APIBaseTest):
         mock_dep_cache.assert_not_called()
         mock_flags_cache.delay.assert_not_called()
         mock_hog_refresh.delay.assert_not_called()
+
+    def _run_calculate_cohort_ch(
+        self, cohort_id: int, pending_version: int = 1, *, retries: int = 0, called_directly: bool = False
+    ) -> None:
+        task = calculate_cohort_ch
+        task.push_request(retries=retries, called_directly=called_directly, is_eager=True)
+        try:
+            task.run(cohort_id, pending_version)
+        finally:
+            task.pop_request()
+
+    @parameterized.expand(
+        [
+            ("operational_error", OperationalError("connection reset")),
+            ("interface_error", InterfaceError("connection already closed")),
+        ]
+    )
+    def test_calculate_cohort_ch_schedules_a_retry_and_keeps_is_calculating(self, _name: str, error: Exception) -> None:
+        # A connection-pooler blip on the task's first ORM read used to strand the cohort "in
+        # flight" for an hour, until reset_stuck_cohorts caught it.
+        # Celery raising Retry rather than the original error is what proves one was scheduled, and
+        # is_calculating must not be cleared while the recalculation still has attempts left.
+        cohort = Cohort.objects.create(team=self.team, name="test_cohort", is_calculating=True, pending_version=1)
+
+        with (
+            patch.object(Cohort.objects, "get", side_effect=error),
+            self.assertRaises(Retry),
+        ):
+            self._run_calculate_cohort_ch(cohort.id)
+
+        cohort.refresh_from_db()
+        self.assertTrue(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 0)
+
+    @parameterized.expand(
+        [
+            # pending_version 1 is the shape every real cohort reaches this task with:
+            # _prepare_cohort_for_calculation stamps it in the same save that sets is_calculating.
+            ("non_retryable_error", ValueError("boom"), 0, False, 1),
+            ("retries_exhausted", OperationalError("connection reset"), COHORT_RECALCULATION_MAX_RETRIES, False, 1),
+            ("called_directly", OperationalError("connection reset"), 0, True, 1),
+            # Documented fallback: a cohort that never got a pending_version still has to clear.
+            ("null_pending_version", ValueError("boom"), 0, False, None),
+        ]
+    )
+    def test_calculate_cohort_ch_clears_is_calculating_when_recalculation_will_not_be_retried(
+        self, _name: str, error: Exception, retries: int, called_directly: bool, pending_version: Optional[int]
+    ) -> None:
+        # Whether the error can never be retried, retries are exhausted, or the task was called
+        # synchronously (the management command) so no retry machinery is behind it, the
+        # recalculation is never going to run again - the cohort must not stay "in flight" until
+        # the hourly reset_stuck_cohorts job. errors_calculating and last_error_at have to be
+        # stamped with it, because they are the only brakes on re-enqueueing the cohort against a
+        # database that is still failing.
+        cohort = Cohort.objects.create(
+            team=self.team, name="test_cohort", is_calculating=True, pending_version=pending_version
+        )
+
+        with patch.object(Cohort.objects, "get", side_effect=error):
+            with self.assertRaises(type(error)):
+                self._run_calculate_cohort_ch(cohort.id, retries=retries, called_directly=called_directly)
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 1)
+        self.assertIsNotNone(cohort.last_error_at)
+
+    def test_calculate_cohort_ch_retries_when_a_deploy_cancels_the_recalculation_query(self) -> None:
+        # The reason 394 got an importable class: a deploy cancelling the in-flight recalculation
+        # query has to be retried rather than killing the task outright, and a pending retry has to
+        # leave the cohort looking exactly like a running one. errors_calculating must stay at 0 -
+        # charged per attempt instead of per failed run, a single bad deploy would push the cohort
+        # most of the way to the MAX_ERRORS_CALCULATING cutoff that drops it from recalculation for
+        # good. is_calculating must stay set, because with the counter deliberately unstamped it is
+        # the only thing keeping the cohort out of the scheduler's candidate queryset during the
+        # backoff - a superseding calculation would bump pending_version and no-op the retry.
+        cohort = Cohort.objects.create(team=self.team, name="test_cohort", is_calculating=True, pending_version=1)
+
+        with (
+            patch(
+                "products.cohorts.backend.models.util.recalculate_cohortpeople",
+                side_effect=CHQueryErrorQueryWasCancelled(
+                    "Query was cancelled.", code=394, code_name="query_was_cancelled"
+                ),
+            ),
+            self.assertRaises(Retry),
+        ):
+            self._run_calculate_cohort_ch(cohort.id)
+
+        cohort.refresh_from_db()
+        self.assertTrue(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 0)
+        self.assertIsNone(cohort.last_error_at)
+
+    def test_calculate_cohort_ch_skips_an_obsolete_pending_version(self) -> None:
+        # A newer save superseded this task's version. Without the guard both tasks would run a
+        # full ClickHouse recalculation of the same cohort side by side.
+        cohort = Cohort.objects.create(team=self.team, name="test_cohort", is_calculating=True)
+        Cohort.objects.filter(pk=cohort.pk).update(pending_version=4)
+
+        with patch.object(Cohort, "calculate_people_ch") as mock_calculate:
+            self._run_calculate_cohort_ch(cohort.id, 2)
+
+        mock_calculate.assert_not_called()
+
+    def test_calculate_cohort_ch_leaves_is_calculating_for_a_newer_pending_version(self) -> None:
+        # A newer save bumped pending_version and enqueued its own task. This older task failing
+        # must not clear the flag out from under the calculation that superseded it.
+        cohort = Cohort.objects.create(team=self.team, name="test_cohort", is_calculating=True)
+        Cohort.objects.filter(pk=cohort.pk).update(pending_version=4)
+
+        with patch.object(Cohort.objects, "get", side_effect=ValueError("boom")):
+            with self.assertRaises(ValueError):
+                self._run_calculate_cohort_ch(cohort.id, 2)
+
+        cohort.refresh_from_db()
+        self.assertTrue(cohort.is_calculating)
 
     def test_insert_cohort_from_query_count_updated_on_exception(self) -> None:
         from posthog.tasks.calculate_cohort import insert_cohort_from_query

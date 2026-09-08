@@ -9,7 +9,6 @@ import structlog
 import dns.resolver
 
 from posthog.constants import AvailableFeature
-from posthog.dataclasses import frozen
 from posthog.dns_utils import dnssec_resolver
 from posthog.models import Organization
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
@@ -28,23 +27,6 @@ def generate_verification_challenge() -> str:
     return secrets.token_urlsafe(32)
 
 
-@frozen
-class IDJagIdentityProviderResolution:
-    organization_domain: Optional["OrganizationDomain"]
-    identity_provider_config: Optional[IdentityProviderConfig]
-    error: Optional[str]
-
-
-def resolves_to_identity_provider_config_q(
-    configs: models.QuerySet[IdentityProviderConfig],
-) -> models.Q:
-    explicitly_linked = LinkedIdentityProviderConfig.objects.filter(
-        organization_domain=models.OuterRef("pk"), identity_provider_config__in=configs
-    )
-    organization_wide = configs.filter(domain_scope=DomainScope.ALL, organization_id=models.OuterRef("organization_id"))
-    return models.Q(models.Exists(explicitly_linked)) | models.Q(models.Exists(organization_wide))
-
-
 class OrganizationDomainManager(models.Manager):
     def verified_domains(self):
         # TODO: Verification becomes stale on Cloud if not reverified after a certain period.
@@ -61,87 +43,6 @@ class OrganizationDomainManager(models.Manager):
         """
         domain = email[email.index("@") + 1 :]
         return self.verified_domains().filter(domain__iexact=domain).first()
-
-    def get_verified_for_email_address_and_issuer(self, email: str, issuer: str) -> IDJagIdentityProviderResolution:
-        if "@" not in email:
-            return IDJagIdentityProviderResolution(
-                organization_domain=None,
-                identity_provider_config=None,
-                error="ID-JAG sub email domain is not a verified domain for any PostHog organization",
-            )
-        domain = email[email.index("@") + 1 :].lower()
-        normalized_issuer = (issuer or "").rstrip("/")
-
-        verified_for_domain = list(self.verified_domains().filter(domain__iexact=domain))
-        if not verified_for_domain:
-            return IDJagIdentityProviderResolution(
-                organization_domain=None,
-                identity_provider_config=None,
-                error="ID-JAG sub email domain is not a verified domain for any PostHog organization",
-            )
-
-        configured = [
-            (organization_domain, config)
-            for organization_domain in verified_for_domain
-            for config in organization_domain.identity_provider_configs_for_scope(ConfigScope.ID_JAG)
-            if (config.id_jag_issuer_url or "").rstrip("/")
-        ]
-        if not configured:
-            return IDJagIdentityProviderResolution(
-                organization_domain=None,
-                identity_provider_config=None,
-                error="ID-JAG is not configured for this domain (id_jag_issuer_url is unset)",
-            )
-
-        matching = [
-            (organization_domain, config)
-            for organization_domain, config in configured
-            if (config.id_jag_issuer_url or "").rstrip("/") == normalized_issuer
-        ]
-        if not matching:
-            return IDJagIdentityProviderResolution(
-                organization_domain=None,
-                identity_provider_config=None,
-                error="ID-JAG iss does not match the IdP configured for this email's domain",
-            )
-
-        if len(matching) > 1:
-            return IDJagIdentityProviderResolution(
-                organization_domain=None,
-                identity_provider_config=None,
-                error="ID-JAG configuration is ambiguous: multiple OrganizationDomains share this (domain, issuer)",
-            )
-
-        organization_domain, config = matching[0]
-        return IDJagIdentityProviderResolution(
-            organization_domain=organization_domain,
-            identity_provider_config=config,
-            error=None,
-        )
-
-    def get_is_saml_available_for_email(self, email: str) -> bool:
-        """
-        Returns whether SAML is available for a specific email address.
-        """
-        domain = email[email.index("@") + 1 :]
-        saml_configs = IdentityProviderConfig.objects.filter(
-            models.Q(config_scope=ConfigScope.SAML) | models.Q(config_scope__isnull=True)
-        ).filter(saml_configured_q())
-        query = (
-            self.verified_domains()
-            .filter(domain__iexact=domain)
-            .filter(resolves_to_identity_provider_config_q(saml_configs))
-            .values_list("organization__available_product_features", flat=True)
-            .first()
-        )
-
-        if query is None:
-            return False
-
-        for feature in query:
-            if feature.get("key") == AvailableFeature.SAML:
-                return True
-        return False
 
     def get_sso_enforcement_for_email_address(
         self, email: str, organization: Organization | None = None

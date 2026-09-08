@@ -5,11 +5,15 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { Breadcrumb } from '~/types'
+
 import { visionObservationsRetrieve } from '../generated/api'
 import type { ReplayObservationApi, VisionObservationsRetrieveParams } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
-import { OBSERVATION_LIST_FILTER_KEYS } from '../replay_scanners/types'
+import { OBSERVATION_LIST_FILTER_KEYS, OBSERVATION_LIST_URL_PARAM_KEYS } from '../replay_scanners/types'
+import { scannerBreadcrumb } from '../utils/breadcrumbs'
+import { hasScannerPage, scannerLabel } from '../utils/observation'
 import { parseNumericParam } from '../utils/urlParams'
 import { observationProgressLogic } from './observationProgressLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
@@ -36,6 +40,57 @@ export function neighborFilterParams(searchParams: Record<string, unknown>): Vis
         }
     }
     return params as VisionObservationsRetrieveParams
+}
+
+/**
+ * Where an observation belongs, and so where both ways off its page lead: going back, and retrying.
+ *
+ * A saved scanner owns its observations and lists them. A one-off scan is owned by the recording it
+ * ran from, which is also the safe side of [hasScannerPage] because it always resolves.
+ */
+export function observationParentUrl(
+    observation: ReplayObservationApi,
+    returnParams: Record<string, string | number> = {}
+): string {
+    if (!hasScannerPage(observation)) {
+        return urls.replaySingle(observation.session_id)
+    }
+    // combineUrl with no params returns the path unchanged, so the empty case needs no guard.
+    return combineUrl(urls.replayVision(observation.scanner_id), returnParams).url
+}
+
+/**
+ * The list view an observation was opened from, read back off its own URL, so going back returns to
+ * the tab, filters, sort, and page the reader left rather than the scanner's overview.
+ */
+export function scannerReturnParams(searchParams: Record<string, unknown>): Record<string, string> {
+    const params: Record<string, string> = {}
+    // `tab` and `q` (the Search tab's query) sit alongside the observations table's own params.
+    for (const key of ['tab', 'q', ...OBSERVATION_LIST_URL_PARAM_KEYS]) {
+        const value = searchParams[key]
+        // The router coerces a param by shape: `page=2` to a number, `q=true` to a boolean. Keep every
+        // scalar and stringify it; dropping the coerced ones would lose that filter on the way back.
+        if (typeof value === 'string' ? value !== '' : typeof value === 'number' || typeof value === 'boolean') {
+            params[key] = String(value)
+        }
+    }
+    return params
+}
+
+/** The crumb the observation page's back button returns to. */
+export function observationParentBreadcrumb(
+    observation: ReplayObservationApi,
+    returnParams: Record<string, string | number> = {}
+): Breadcrumb {
+    if (hasScannerPage(observation)) {
+        return scannerBreadcrumb(observation.scanner_id, scannerLabel(observation), returnParams)
+    }
+    return {
+        key: `recording-${observation.session_id}`,
+        name: 'Recording',
+        path: observationParentUrl(observation),
+        iconType: 'session_replay',
+    }
 }
 
 /** Canonical link to an observation's detail page, carrying list filters so prev/next honors them. */
@@ -151,10 +206,10 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                         neighborFilterParams(router.values.searchParams)
                     )
                     actions.loadObservationSuccess(response)
-                    // Link the breadcrumb to the parent scanner so "back" returns to the scanner, not the vision home.
-                    replayObservationSceneLogic().actions.setScannerContext(
-                        response.scanner_id,
-                        response.scanner_snapshot?.name ?? null
+                    // Point the breadcrumb at whatever owns this observation, so "back" returns there
+                    // instead of the vision home.
+                    replayObservationSceneLogic().actions.setParentBreadcrumb(
+                        observationParentBreadcrumb(response, scannerReturnParams(router.values.searchParams))
                     )
                 } catch (error: any) {
                     // Only toast the initial load — background poll retries would otherwise spam one toast per tick.
@@ -169,20 +224,26 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             loadObservationFailure: reschedulePoll,
 
             retryObservation: async () => {
+                // The retried row is deleted, so this page's id dangles afterwards. Hand off to whatever
+                // owns the observation, which is where the replacement appears.
+                const observation = values.observation
+                const lands = observation && hasScannerPage(observation) ? 'scanner page' : 'recording'
                 const retried = await requestObservationRetry(
                     props.id,
-                    'Retrying scan — the new observation will appear on the scanner page shortly.'
+                    `Retrying scan. The new observation will appear on the ${lands} shortly.`
                 )
                 if (!retried) {
                     actions.retryObservationFailure()
                     return
                 }
                 actions.retryObservationSuccess()
-                // The retried row is deleted, so this page's id now dangles — hand off to the scanner.
-                const scannerId = values.observation?.scanner_id
-                if (scannerId) {
-                    router.actions.push(urls.replayVision(scannerId))
+                if (!observation) {
+                    return
                 }
+                // Land on the unfiltered parent, not the reader's saved list view: the replacement is
+                // pending with no verdict yet, so a filtered or paged list would hide the row we just
+                // promised appears "shortly".
+                router.actions.push(observationParentUrl(observation))
             },
 
             // When the stream reports the observation has settled, reload once to render the final result.

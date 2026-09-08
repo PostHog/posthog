@@ -7,15 +7,20 @@ from freezegun.api import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
+from django.db import connection
+from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import dateutil.parser
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.event_definition import create_event_definitions_sql
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.constants import EventDefinitionType
 from posthog.models import ActivityLog, EventDefinition, Organization, Tag, Team
 
 from products.actions.backend.models.action import Action
@@ -100,6 +105,31 @@ class TestEventDefinitionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("boolean", "true"),
+            ("number", "5"),
+            ("object", '{"a": 1}'),
+        ]
+    )
+    def test_list_event_definitions_ignores_non_list_tags_filter(self, _name, tags_value):
+        response = self.client.get("/api/projects/@current/event_definitions/", data={"tags": tags_value})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == len(self.EXPECTED_EVENT_DEFINITIONS)
+
+    @parameterized.expand(
+        [
+            ("limit", "limit=9223372036854775808"),
+            ("offset", "offset=9223372036854775808"),
+        ]
+    )
+    def test_list_event_definitions_accepts_out_of_range_bigint_pagination(self, _name, query_string):
+        response = self.client.get(f"/api/projects/@current/event_definitions/?{query_string}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == len(self.EXPECTED_EVENT_DEFINITIONS)
+
+    @parameterized.expand(
+        [
             ("repeated", "names=installed_app&names=purchase&names=missing_event"),
             ("comma_separated", "names=installed_app,purchase,missing_event"),
         ]
@@ -151,6 +181,17 @@ class TestEventDefinitionAPI(APIBaseTest):
                     ("installed_app", "2020-01-01T00:00:00Z"),
                     ("entered_free_trial", "2020-01-01T23:00:00Z"),
                     ("$pageview", "2020-01-01T22:56:00Z"),
+                    ("purchase", "2019-12-30T00:00:00Z"),
+                    ("rated_app", "2019-12-21T00:00:00Z"),
+                    ("watched_movie", None),
+                ],
+            ),
+            (
+                "ordering=-last_seen_at::date",
+                [
+                    ("$pageview", "2020-01-01T22:56:00Z"),
+                    ("entered_free_trial", "2020-01-01T23:00:00Z"),
+                    ("installed_app", "2020-01-01T00:00:00Z"),
                     ("purchase", "2019-12-30T00:00:00Z"),
                     ("rated_app", "2019-12-21T00:00:00Z"),
                     ("watched_movie", None),
@@ -231,6 +272,39 @@ class TestEventDefinitionAPI(APIBaseTest):
             assert response.json()["count"] == 306
             assert len(response.json()["results"]) == (100 if i < 2 else 6)  # Each page has 100 except the last one
             assert response.json()["results"][0]["name"] == f"z_event_{event_checkpoints[i]}"
+
+    def test_list_reads_only_the_requested_page_from_postgres(self):
+        EventDefinition.objects.bulk_create(
+            [EventDefinition(team=self.demo_team, name=f"z_event_{i}") for i in range(1, 301)]
+        )
+
+        with CaptureQueriesContext(connection) as captured:
+            response = self.client.get("/api/projects/@current/event_definitions/?limit=10")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 306
+        page_fetches = [
+            query["sql"]
+            for query in captured.captured_queries
+            if "FROM posthog_eventdefinition" in query["sql"] and "ORDER BY" in query["sql"]
+        ]
+        assert page_fetches
+        assert all("LIMIT 10" in sql for sql in page_fetches)
+
+        expected_names = sorted(f"z_event_{i}" for i in range(1, 301))
+        for offset in (0, 11, 300, 301):
+            with self.subTest(offset=offset):
+                response = self.client.get(
+                    "/api/projects/@current/event_definitions/",
+                    data={"search": "z_event", "ordering": "-last_seen_at", "limit": 10, "offset": offset},
+                )
+                assert response.status_code == status.HTTP_200_OK
+                assert response.json()["count"] == 300
+                assert [row["name"] for row in response.json()["results"]] == expected_names[offset : offset + 10]
+
+        response = self.client.get("/api/projects/@current/event_definitions/?search=missing_event&limit=10")
+        assert response.json()["count"] == 0
+        assert response.json()["results"] == []
 
     def test_cant_see_event_definitions_for_another_team(self):
         org = Organization.objects.create(name="Separate Org")
@@ -376,6 +450,27 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert activity_log.detail is not None
         detail = cast(dict[str, Any], activity_log.detail)
         assert detail["name"] == "my_custom_event"
+
+    @patch("posthog.api.event_definition.EE_AVAILABLE", False)
+    def test_create_event_definition_rejects_enterprise_metadata_without_ee(self):
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {
+                "name": "event_with_unsupported_metadata",
+                "description": "This cannot be stored without EE.",
+                "verified": True,
+                "hidden": False,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "This field is not supported by this deployment.",
+            "attr": "description",
+        }
+        assert not EventDefinition.objects.filter(name="event_with_unsupported_metadata", team=self.demo_team).exists()
 
     def test_create_event_definition_duplicate_name(self):
         """Test that creating an event with a duplicate name fails"""
@@ -626,6 +721,20 @@ class TestEventDefinitionAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert not ActivityLog.objects.filter(scope="EventDefinition", item_id=str(ed.id)).exists()
+
+
+class TestCreateEventDefinitionsSql(SimpleTestCase):
+    @parameterized.expand([("enterprise", True), ("open source", False)])
+    def test_selects_columns_in_a_stable_order(self, _name: str, is_enterprise: bool):
+        sql = create_event_definitions_sql(EventDefinitionType.EVENT, is_enterprise=is_enterprise)
+        select_clause = sql.split("SELECT ", 1)[1].split("FROM", 1)[0]
+        columns = [column.strip() for column in select_clause.split(",")]
+        assert columns == sorted(columns)
+
+    def test_joins_the_enterprise_table_with_a_left_join(self):
+        sql = create_event_definitions_sql(EventDefinitionType.EVENT, is_enterprise=True)
+        assert "LEFT JOIN ee_enterpriseeventdefinition" in sql
+        assert "FULL OUTER JOIN" not in sql
 
 
 class TestEventDefinitionExcludeStale(APIBaseTest):

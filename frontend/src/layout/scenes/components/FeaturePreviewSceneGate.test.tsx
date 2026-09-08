@@ -4,13 +4,13 @@ import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useActions, useMountedLogic, useValues } from 'kea'
 
+import { featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { FeaturePreviewGateConfig } from '~/types'
 
-import { featurePreviewsLogic } from '../../FeaturePreviews/featurePreviewsLogic'
 import { FeaturePreviewSceneGate } from './FeaturePreviewSceneGate'
 
 jest.mock('posthog-js')

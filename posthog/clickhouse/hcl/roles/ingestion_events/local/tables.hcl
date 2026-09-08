@@ -116,14 +116,13 @@ database "posthog" {
       type = "Nullable(String)"
     }
     engine "kafka" {
-      broker_list          = "msk_cluster"
-      topic_list           = "kafka_topic_list = 'clickhouse_events_json'"
-      group_name           = "kafka_group_name = 'clickhouse_events_json_native_json'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "msk_cluster"
+      topic_list           = "clickhouse_events_json"
+      group_name           = "clickhouse_events_json_native_json"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
-
 
   materialized_view "events_json_table_mv" {
     to_table = "posthog.writable_events_json"
@@ -249,4 +248,5 @@ SQL
       type = "Array(String)"
     }
   }
+
 }

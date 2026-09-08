@@ -27,10 +27,8 @@ from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.schedule import describe_schedule
 
 from products.data_modeling.backend.facade.models import Edge, Node
-from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
-from products.data_warehouse.backend.direct_snowflake import DIRECT_SNOWFLAKE_URL_PATTERN
-from products.data_warehouse.backend.logic.external_data_source.webhooks import WebhookHogFunctionCreateResult
-from products.data_warehouse.backend.tests.api.utils import create_external_data_source_ok
+from products.data_warehouse.backend.facade.api import DIRECT_POSTGRES_URL_PATTERN, DIRECT_SNOWFLAKE_URL_PATTERN
+from products.data_warehouse.backend.facade.contracts import WebhookHogFunctionCreateResult
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataSchema,
@@ -46,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
+from products.warehouse_sources.backend.tests.api.utils import create_external_data_source_ok
 
 pytestmark = [
     pytest.mark.django_db,
@@ -1502,7 +1501,7 @@ class TestExternalDataSchema(APIBaseTest):
         )
 
         mock_hog_fn_result = WebhookHogFunctionCreateResult(
-            hog_function=mock.MagicMock(),
+            hog_function_id=str(uuid.uuid4()),
             webhook_url="https://test.com/webhook",
             hog_function_created=False,
         )
@@ -1758,11 +1757,8 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         )
 
-        mock_hog_function = mock.MagicMock()
-        mock_hog_function.id = uuid.uuid4()
-        mock_hog_function.inputs = {"schema_mapping": {"value": {}}, "source_id": {"value": "test-source-id"}}
         mock_hog_fn_result = WebhookHogFunctionCreateResult(
-            hog_function=mock_hog_function,
+            hog_function_id=str(uuid.uuid4()),
             webhook_url="https://test.com/webhook",
             hog_function_created=True,
         )
@@ -1806,12 +1802,9 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         )
 
-        mock_hog_function = mock.MagicMock()
-        mock_hog_function.id = uuid.uuid4()
-        mock_hog_function.inputs = {"schema_mapping": {"value": {}}, "source_id": {"value": "test-source-id"}}
         # hog_function_created=False → existing webhook, so the reconcile path (not create) runs.
         mock_hog_fn_result = WebhookHogFunctionCreateResult(
-            hog_function=mock_hog_function,
+            hog_function_id=str(uuid.uuid4()),
             webhook_url="https://test.com/webhook",
             hog_function_created=False,
         )
@@ -1859,11 +1852,8 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         )
 
-        mock_hog_function = mock.MagicMock()
-        mock_hog_function.id = uuid.uuid4()
-        mock_hog_function.inputs = {"schema_mapping": {"value": {}}, "source_id": {"value": "test-source-id"}}
         mock_hog_fn_result = WebhookHogFunctionCreateResult(
-            hog_function=mock_hog_function,
+            hog_function_id=str(uuid.uuid4()),
             webhook_url="https://test.com/webhook",
             hog_function_created=False,
         )
@@ -1912,11 +1902,8 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         )
 
-        mock_hog_function = mock.MagicMock()
-        mock_hog_function.id = uuid.uuid4()
-        mock_hog_function.inputs = {"schema_mapping": {"value": {}}, "source_id": {"value": "test-source-id"}}
         mock_hog_fn_result = WebhookHogFunctionCreateResult(
-            hog_function=mock_hog_function,
+            hog_function_id=str(uuid.uuid4()),
             webhook_url="https://test.com/webhook",
             hog_function_created=False,
         )

@@ -70,14 +70,16 @@ export function WorktreeRow({
                 key={task.id}
                 type="button"
                 onClick={() => handleTaskClick(task)}
-                className="cursor-pointer truncate border-0 bg-transparent p-0 text-left text-[12px] text-gray-10 hover:text-accent-11 hover:underline"
+                className="cursor-pointer truncate border-0 bg-transparent p-0 text-left text-[12px] text-muted-foreground hover:text-accent-11 hover:underline"
               >
                 {getTaskTitle(task)}
               </button>
             ))}
           </Flex>
         ) : (
-          <span className="text-[12px] text-gray-10">No linked tasks</span>
+          <span className="text-[12px] text-muted-foreground">
+            No linked tasks
+          </span>
         )}
       </Flex>
       <Button

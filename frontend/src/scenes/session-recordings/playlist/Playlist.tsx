@@ -1,8 +1,9 @@
 import './Playlist.scss'
 
+import { useVirtualizer } from '@tanstack/react-virtual'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { ReactNode, useRef, useState } from 'react'
+import { ReactNode, useLayoutEffect, useRef, useState } from 'react'
 
 import { IconSidebarClose } from '@posthog/icons'
 import {
@@ -35,6 +36,8 @@ import { urls } from 'scenes/urls'
 import { ReplayTabs, SessionRecordingType } from '~/types'
 
 const SCROLL_TRIGGER_OFFSET = 100
+// Starting row height for the virtualizer; dynamic measurement corrects each row after it renders.
+const ESTIMATED_ROW_HEIGHT = 56
 
 type PlaylistSectionBase = {
     key: string
@@ -81,7 +84,8 @@ export function Playlist({
     })
 
     const lastScrollPositionRef = useRef(0)
-    const contentRef = useRef<HTMLDivElement | null>(null)
+    // state, not a ref: the virtualizer must re-initialize when the scroll container mounts
+    const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
 
     const notebookNode = useNotebookNode()
     const embedded = !!notebookNode
@@ -325,7 +329,7 @@ export function Playlist({
                                 until you close it.
                             </LemonBanner>
                         )}
-                        <div className="overflow-y-auto flex-1 min-h-0" onScroll={handleScroll} ref={contentRef}>
+                        <div className="overflow-y-auto flex-1 min-h-0" onScroll={handleScroll} ref={setScrollEl}>
                             {sectionCount > 1 ? (
                                 <LemonCollapse
                                     defaultActiveKeys={openSections}
@@ -340,6 +344,7 @@ export function Playlist({
                                                     setActiveItemId={onChangeActiveItem}
                                                     activeItemId={activeItemId}
                                                     emptyState={listEmptyState}
+                                                    scrollEl={scrollEl}
                                                 />
                                             ),
                                             className: 'p-0',
@@ -357,6 +362,7 @@ export function Playlist({
                                     setActiveItemId={onChangeActiveItem}
                                     activeItemId={activeItemId}
                                     emptyState={listEmptyState}
+                                    scrollEl={scrollEl}
                                 />
                             ) : sessionRecordingsResponseLoading ? (
                                 <LoadingState />
@@ -456,17 +462,19 @@ function SectionContent({
     activeItemId,
     setActiveItemId,
     emptyState,
+    scrollEl,
 }: {
     section: PlaylistSection
     loading: boolean
     activeItemId: SessionRecordingType['id'] | null
     setActiveItemId: (item: SessionRecordingType) => void
     emptyState: JSX.Element
+    scrollEl: HTMLDivElement | null
 }): JSX.Element {
     return 'content' in section ? (
         <>{section.content}</>
     ) : 'items' in section && !!section.items.length ? (
-        <ListSection {...section} onClick={setActiveItemId} activeItemId={activeItemId} />
+        <ListSection {...section} onClick={setActiveItemId} activeItemId={activeItemId} scrollEl={scrollEl} />
     ) : loading ? (
         <LoadingState />
     ) : (
@@ -480,19 +488,68 @@ export function ListSection({
     footer,
     onClick,
     activeItemId,
+    scrollEl,
 }: PlaylistRecordingPreviewBlock & {
     onClick: (item: SessionRecordingType) => void
     activeItemId: SessionRecordingType['id'] | null
+    scrollEl: HTMLDivElement | null
 }): JSX.Element {
+    const listRef = useRef<HTMLDivElement>(null)
+    const [scrollMargin, setScrollMargin] = useState(0)
+
+    const virtualizer = useVirtualizer({
+        count: items.length,
+        getScrollElement: () => scrollEl,
+        estimateSize: () => ESTIMATED_ROW_HEIGHT,
+        overscan: 10,
+        getItemKey: (index) => items[index].id,
+        scrollMargin,
+    })
+
+    // The list can sit below a banner or a pinned section inside the shared scroll container, and that
+    // offset changes when those appear or collapse. Realign the virtualizer's origin on layout shifts.
+    // The formula is scroll-invariant, so it only updates state on real shifts, not on every scroll frame.
+    useLayoutEffect(() => {
+        const listEl = listRef.current
+        if (!listEl || !scrollEl || virtualizer.isScrolling) {
+            return
+        }
+        const nextMargin =
+            listEl.getBoundingClientRect().top - scrollEl.getBoundingClientRect().top + scrollEl.scrollTop
+        setScrollMargin((current) => (Math.abs(current - nextMargin) > 1 ? nextMargin : current))
+    })
+
+    // Transformed absolute rows opt out of browser scroll anchoring, so compensate for
+    // prepended items ("newer" loads) to keep the visible rows in place.
+    const prevFirstIdRef = useRef(items[0]?.id)
+    useLayoutEffect(() => {
+        const prevFirstId = prevFirstIdRef.current
+        prevFirstIdRef.current = items[0]?.id
+        const insertedCount = items.findIndex((item) => item.id === prevFirstId)
+        if (insertedCount > 0 && scrollEl && scrollEl.scrollTop > 0) {
+            scrollEl.scrollTop += insertedCount * ESTIMATED_ROW_HEIGHT
+        }
+    }, [items, scrollEl])
+
     return (
         <>
-            {items.length > 0
-                ? items.map((item) => (
-                      <div key={item.id} className="border-b" onClick={() => onClick(item)}>
-                          {render({ item, isActive: item.id === activeItemId })}
-                      </div>
-                  ))
-                : null}
+            <div ref={listRef} className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+                {virtualizer.getVirtualItems().map((virtualItem) => {
+                    const item = items[virtualItem.index]
+                    return (
+                        <div
+                            key={virtualItem.key}
+                            data-index={virtualItem.index}
+                            ref={virtualizer.measureElement}
+                            className="border-b absolute top-0 left-0 w-full"
+                            style={{ transform: `translateY(${virtualItem.start - scrollMargin}px)` }}
+                            onClick={() => onClick(item)}
+                        >
+                            {render({ item, isActive: item.id === activeItemId })}
+                        </div>
+                    )
+                })}
+            </div>
             {footer}
         </>
     )

@@ -110,13 +110,7 @@ export interface PeerMessageSendResult {
 export type TaskRunUpdate = Partial<
   Pick<
     TaskRun,
-    | "status"
-    | "branch"
-    | "stage"
-    | "error_message"
-    | "output"
-    | "state"
-    | "environment"
+    "status" | "branch" | "stage" | "error_message" | "output" | "state"
   >
 > & {
   state_remove_keys?: string[];
@@ -138,8 +132,12 @@ export class PostHogAPIClient {
     return host;
   }
 
-  private isAuthFailure(status: number): boolean {
-    return status === 401 || status === 403;
+  private isTokenRejection(status: number): boolean {
+    // 401 means the token is invalid or expired, which a forced refresh
+    // fixes. 403 means the credential lacks permission; a refresh from the
+    // same grant cannot gain any, and forcing one on every 403 rotates the
+    // refresh token and rebuilds the whole desktop session.
+    return status === 401;
   }
 
   private async resolveApiKey(forceRefresh = false): Promise<string> {
@@ -185,7 +183,7 @@ export class PostHogAPIClient {
   ): Promise<Response> {
     let response = await this.performRequest(endpoint, options);
 
-    if (!response.ok && this.isAuthFailure(response.status)) {
+    if (!response.ok && this.isTokenRejection(response.status)) {
       response = await this.performRequest(endpoint, options, true);
     }
 
@@ -348,31 +346,23 @@ export class PostHogAPIClient {
   }
 
   /**
-   * File one task-analysis finding. The server owns the findings list, validates the
+   * Record one task-analysis activity. The server owns the activities list, validates the
    * shape and enforces the per-run cap, so this is the only way to add one.
    */
-  async reportAnalysisInsight(
+  async reportAnalysisActivity(
     taskId: string,
     runId: string,
-    insight: Record<string, unknown>,
+    activity: Record<string, unknown>,
     signal?: AbortSignal,
-  ): Promise<{ insight_index: number }> {
+  ): Promise<{ activity_index: number }> {
     const teamId = this.getTeamId();
-    return this.apiRequest<{ insight_index: number }>(
-      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/analysis-insight/`,
+    return this.apiRequest<{ activity_index: number }>(
+      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/analysis-activity/`,
       {
         method: "POST",
-        body: JSON.stringify(insight),
+        body: JSON.stringify(activity),
         signal,
       },
-    );
-  }
-
-  async resumeRunInCloud(taskId: string, runId: string): Promise<TaskRun> {
-    const teamId = this.getTeamId();
-    return this.apiRequest<TaskRun>(
-      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/resume_in_cloud/`,
-      { method: "POST" },
     );
   }
 

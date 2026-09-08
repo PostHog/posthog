@@ -45,6 +45,7 @@ import {
   shouldLoadMoreArchivedTasks,
 } from "./archiveListPagination";
 import { useArchivedTaskSummaries } from "./useArchivedTaskSummaries";
+import { useServerArchiveScope } from "./useServerArchiveScope";
 import { useUnarchiveTask } from "./useUnarchiveTask";
 
 const ICON_SIZE = 12;
@@ -520,8 +521,9 @@ export function ArchivedTasksViewPresentation({
 export function ArchivedTasksView() {
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
+  const serverArchiveScope = useServerArchiveScope();
   const { data: archivedTasks = [], isLoading: isLoadingArchived } = useQuery({
-    ...trpc.archive.list.queryOptions(),
+    ...trpc.archive.list.queryOptions({ serverArchiveScope }),
     refetchInterval: (query) =>
       query.state.data?.some((task) => task.recoveryPending) ? 1_000 : false,
   });

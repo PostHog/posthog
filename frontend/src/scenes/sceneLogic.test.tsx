@@ -81,6 +81,18 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.featureFlag('123'))
     })
 
+    it('redirects a bare /billing to /organization/billing instead of a 404', async () => {
+        router.actions.push('/billing')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.organizationBilling())
+    })
+
+    it('keeps /billing/authorization_status on its own scene route, not the billing redirect', async () => {
+        router.actions.push(urls.billingAuthorizationStatus())
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.billingAuthorizationStatus())
+    })
+
     it('redirects /project/new to the create-project flow instead of a 404', async () => {
         router.actions.push('/project/new')
         await expectLogic(logic).delay(1)

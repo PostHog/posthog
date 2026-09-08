@@ -138,6 +138,12 @@ class DataWarehouseTable:
 
 
 @dataclass(frozen=True)
+class DuckLakeImportedTable:
+    logical_table_names: tuple[str, ...]
+    physical_table_name: str
+
+
+@dataclass(frozen=True)
 class TableSourceLocation:
     """Where a synced table is administered: the source and schema its detail page hangs off."""
 

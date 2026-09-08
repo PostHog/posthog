@@ -1,7 +1,26 @@
 import { dayjs } from 'lib/dayjs'
 
-import type { ReplayObservationApi } from '../generated/api.schemas'
+import { type ReplayObservationApi, ScannerOriginEnumApi, ScannerTypeEnumApi } from '../generated/api.schemas'
 import { citedTextToPlainText, parseCitedSegments } from './citations'
+
+/** The dock's built-in prompt and the observations it produces have to answer to one name. */
+export const BUILT_IN_SUMMARY_LABEL = 'Quick summary'
+
+/** Only a confirmed saved scanner has a page, so an origin a later release adds fails safe to no link. */
+export function hasScannerPage(obs: Pick<ReplayObservationApi, 'scanner_origin'>): boolean {
+    return obs.scanner_origin === ScannerOriginEnumApi.Configured
+}
+
+/** What to call the scan behind an observation, anywhere one is named next to its result. */
+export function scannerLabel(obs: Pick<ReplayObservationApi, 'scanner_origin' | 'scanner_snapshot'>): string {
+    if (obs.scanner_origin !== ScannerOriginEnumApi.Inline) {
+        return obs.scanner_snapshot?.name || 'Scanner'
+    }
+    // A one-off scan has no name to borrow, so its result answers to whatever the dock called the prompt.
+    return obs.scanner_snapshot?.scanner_type === ScannerTypeEnumApi.Summarizer
+        ? BUILT_IN_SUMMARY_LABEL
+        : 'One-off scan'
+}
 
 export function readModelOutput(obs: ReplayObservationApi): Record<string, unknown> | null {
     const out = obs.scanner_result?.model_output
@@ -99,7 +118,7 @@ export function readTags(obs: ReplayObservationApi): string[] {
 }
 
 export interface ObservationSeekbarMarkEntry {
-    scannerName: string | null
+    scannerName: string
     headline: string | null
     snippet: string | null
 }
@@ -180,7 +199,7 @@ function observationHeadline(obs: ReplayObservationApi): string | null {
 export function observationSeekbarMarks(observations: ReplayObservationApi[]): ObservationSeekbarMark[] {
     const entriesByTimestamp = new Map<number, Map<string, ObservationSeekbarMarkEntry>>()
     for (const obs of observations) {
-        const scannerName = obs.scanner_snapshot?.name ?? null
+        const scannerName = scannerLabel(obs)
         const headline = observationHeadline(obs)
         for (const { timestampMs, snippet } of readCitations(obs)) {
             const entries = entriesByTimestamp.get(timestampMs) ?? new Map<string, ObservationSeekbarMarkEntry>()

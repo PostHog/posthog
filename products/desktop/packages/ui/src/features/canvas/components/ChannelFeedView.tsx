@@ -161,7 +161,12 @@ function useTaskStatusDisplay(task: Task): TaskStatusDisplay {
   });
   const status = data?.taskRunStatus ?? task.latest_run?.status;
   const environment = data?.taskRunEnvironment ?? task.latest_run?.environment;
-  const displayStatus = taskFeedRunStatus({ status, environment });
+  const displayStatus = taskFeedRunStatus({
+    status,
+    environment,
+    runMode: data?.runMode,
+    isGenerating: data?.isGenerating,
+  });
   // `prState` is resolved async from git/`gh` and is routinely null for cloud
   // tasks (the details fetch hasn't landed, or there's no cached row). But the
   // PR URL itself is a hard signal a PR exists — the card's "PR" link keys off
@@ -181,10 +186,14 @@ function useTaskStatusDisplay(task: Task): TaskStatusDisplay {
     // waiting on the user right now, which matters more than a PR existing.
     base = <Badge variant="warning">Needs input</Badge>;
   } else if (data?.isGenerating) {
+    const label =
+      status === "not_started" || status === "queued"
+        ? "Starting"
+        : "In progress";
     base = (
       <Badge variant="info">
         <Spinner className="size-2.5" />
-        In progress
+        {label}
       </Badge>
     );
   } else if (showPrState) {
@@ -1480,7 +1489,7 @@ export function ChannelFeedView({
             <TabsTrigger
               key={value}
               value={value}
-              className="rounded-sm px-1 py-0.5 text-[13px]"
+              className="rounded-sm px-2 py-0.5 text-[13px]"
             >
               {label}
               {value === "reports" &&

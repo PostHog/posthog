@@ -5,6 +5,8 @@ description: Use when editing, reviewing, or auditing DRF viewsets and serialize
 
 # Improving DRF Endpoints
 
+Before you propose a contract test against the generated OpenAPI schema, check [things already tried](../../../docs/internal/ci-things-already-tried.md). Six PRs took that idea, and none merged.
+
 ## Overview
 
 Serializer fields are the source of truth for PostHog's entire type pipeline:
@@ -51,7 +53,7 @@ Work through this list for every serializer and viewset you touch.
 3. **No bare `JSONField()`** — create a custom field class with `@extend_schema_field(TypedSchema)`
 4. **`SerializerMethodField` has `@extend_schema_field`** on its `get_*` method
 5. **`ChoiceField` has explicit `choices=`** with all valid values listed
-6. **Avoid collision-prone enum field names** — `format`, `type`, `status`, `kind`, `level`, `mode`, `state`, `platform`, `provider` clash with existing choices and fail CI under `--fail-on-warn`; pick a specific name or add an `ENUM_NAME_OVERRIDES` entry up front (see [serializer-fields.md](references/serializer-fields.md#choicefield--explicit-choices))
+6. **Define choices as a `models.TextChoices` class** — the OpenAPI component is named after the class (`EarlyAccessFeature.Stage` -> `EarlyAccessFeatureStageEnum`, via `ChoicesEnumNameOverrides` in `posthog/openapi/enum_names.py`), so a class-backed enum never collides on field names like `format`, `type`, `status`, `kind`. Inline `choices=[...]` lists have no class to read, collide with existing choices, and fail CI under `--fail-on-warn`; an explicit `ENUM_NAME_OVERRIDES` entry in `posthog/settings/web.py` is the fallback for choice sets no class can carry, and a product enum's entry must point at a re-export in the product's `backend/facade/enums.py`, never at an internal module (see [serializer-fields.md](references/serializer-fields.md#choicefield--explicit-choices))
 7. **Read vs write serializers are separate** when input shape differs from output
 8. **Every success response is backed by a serializer** — returning raw dicts or untyped lists means no generated types downstream
 

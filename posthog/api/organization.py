@@ -57,6 +57,7 @@ from posthog.user_permissions import UserPermissions, UserPermissionsSerializerM
 from posthog.utils import get_safe_cache, safe_cache_set
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
+from products.access_control.backend.models.role import Role
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 
 
@@ -99,6 +100,10 @@ tracer = trace.get_tracer(__name__)
 
 CacheField = Literal["teams", "projects"]
 OrgCacheField = Literal["member_count"]
+
+
+class OrganizationRoleScopedPrimaryKeyRelatedField(OrgScopedPrimaryKeyRelatedField):
+    scope_field = "organization"
 
 
 def _cached_org_serializer_field(cache_key: str, fetcher: Callable[[], Any]) -> Any:
@@ -155,7 +160,9 @@ class OrganizationSerializer(
     logo_media_id = OrgScopedPrimaryKeyRelatedField(
         queryset=UploadedMedia.objects.all(), required=False, allow_null=True
     )
-    default_role_id = serializers.CharField(
+    default_role_id = OrganizationRoleScopedPrimaryKeyRelatedField(
+        queryset=Role.objects.all(),
+        source="default_role",
         required=False,
         allow_null=True,
         help_text="ID of the role to automatically assign to new members joining the organization",
@@ -189,6 +196,7 @@ class OrganizationSerializer(
             "members_can_use_personal_api_keys",
             "members_can_see_org_members",
             "allow_publicly_shared_resources",
+            "read_only_mcp_access",
             "member_count",
             "is_ai_data_processing_approved",
             "is_ai_training_opted_in",
@@ -215,7 +223,6 @@ class OrganizationSerializer(
             "metadata",
             "customer_id",
             "member_count",
-            "default_role_id",
             "is_active",
             "is_not_active_reason",
             "is_pending_deletion",
@@ -396,6 +403,15 @@ class OrganizationSerializer(
     @tracer.start_as_current_span("organization_serializer.member_count")
     def get_member_count(self, organization: Organization) -> int:
         return _cached_per_org("member_count", str(organization.id), lambda: _fetch_member_count(organization))
+
+    def validate_read_only_mcp_access(self, value: bool) -> bool:
+        if self.instance and self.instance.read_only_mcp_access != value:
+            if not self.instance.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
+                raise serializers.ValidationError(
+                    "You must upgrade your plan to configure MCP access.",
+                    code="payment_required",
+                )
+        return value
 
     @tracer.start_as_current_span("organization_serializer.to_representation")
     def to_representation(self, instance):

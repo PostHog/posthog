@@ -29,6 +29,41 @@ describe('calculating tile layouts', () => {
         })
     })
 
+    it('sets a 1 by 2 minimum for image tiles', () => {
+        const tiles: DashboardTile<QueryBasedInsightModel>[] = [
+            {
+                id: 1,
+                text: { body: '![image](https://example.com/image.png)' },
+                layouts: {},
+            } as unknown as DashboardTile<QueryBasedInsightModel>,
+        ]
+
+        const layouts = calculateLayouts(tiles)
+
+        expect(layouts.sm?.[0]).toMatchObject({ w: 2, h: 2, minW: 1, minH: 2 })
+        expect(layouts.xs?.[0]).toMatchObject({ w: 1, h: 2, minW: 1, minH: 2 })
+    })
+
+    it('raises a stored image tile height to its minimum', () => {
+        const tiles: DashboardTile<QueryBasedInsightModel>[] = [
+            {
+                id: 1,
+                text: { body: '![image](https://example.com/image.png)' },
+                layouts: { sm: { i: '1', x: 0, y: 0, w: 1, h: 1 } },
+            } as unknown as DashboardTile<QueryBasedInsightModel>,
+        ]
+
+        expect(calculateLayouts(tiles).sm?.[0]).toMatchObject({ w: 1, h: 2, minW: 1, minH: 2 })
+    })
+
+    it('defaults button tiles to two columns', () => {
+        const tiles: DashboardTile<QueryBasedInsightModel>[] = [
+            { id: 1, button_tile: { id: '1' }, layouts: {} } as unknown as DashboardTile<QueryBasedInsightModel>,
+        ]
+
+        expect(calculateLayouts(tiles).sm?.[0]).toMatchObject({ w: 2, h: 1 })
+    })
+
     it('when the tiles have only 2-col layouts, 1 col layout is calculated', () => {
         // sm layouts have been re-ordered
         // they are not in creation order when read left to right.

@@ -1,0 +1,12 @@
+{
+    "id": "KB5",
+    "file": "products/stamphog/AGENTS.md",
+    "lines": "97-101",
+    "priority": "should_fix",
+    "title": "Documented linkage check does not exist on the initial review path",
+    "problem": "The text says both trigger paths verify task linkage before they stamp `ReviewRun.output[\"inbox_review\"]`. The webhook path calls `find_signal_implementation_run`, but `process_inbox_pr_review` trusts the IDs supplied through `queue_inbox_pr_review`. It does not load the TaskRun or confirm that the PR belongs to that run. A new internal caller can therefore enable the bot and draft exceptions without the documented check.",
+    "suggestion": "Verify `task_run_id`, `signal_report_id`, team, repository, and PR linkage inside `process_inbox_pr_review` before it stamps the provenance. If the receiver is the intended trust boundary, update this section to state that fact and do not describe the initial path as linkage-verified.",
+    "cluster": 2,
+    "cluster_issue": "Receiver leg (process_inbox_pr_review) stamps inbox_review/self_driving with no positive PR-to-run linkage or bot-author verification, unlike the webhook leg",
+    "cluster_verified": "6/10"
+}

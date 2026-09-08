@@ -2,7 +2,6 @@ import { useSettingsPageStore } from "@posthog/ui/features/settings/stores/setti
 import type { SettingsCategory } from "@posthog/ui/features/settings/types";
 import * as nav from "@posthog/ui/router/navigationBridge";
 import { useRouterState } from "@tanstack/react-router";
-import { useCallback } from "react";
 
 interface SettingsContext {
   repoPath?: string;
@@ -19,7 +18,10 @@ export function openSettings(
   contextOrAction?: SettingsContext | string,
 ): void {
   prepareSettingsPage(contextOrAction);
-  nav.navigateToSettings(category);
+  // A caller already inside settings is switching category, so replace rather
+  // than stack: one closeSettings() back-step must exit to the app instead of
+  // walking back through the categories visited.
+  nav.navigateToSettings(category, { replace: nav.isOnSettingsRoute() });
 }
 
 /**
@@ -64,15 +66,11 @@ export function closeSettings(): void {
   }
 }
 
-export function useCloseSettings(): typeof closeSettings {
-  return useCallback(closeSettings, []);
-}
-
 /**
  * True when the current route is anywhere under `/settings/*`.
  */
 export function useIsSettingsOpen(): boolean {
   return useRouterState({
-    select: (s) => s.matches.some((m) => m.routeId.startsWith("/settings")),
+    select: (s) => s.matches.some((m) => nav.isSettingsRouteId(m.routeId)),
   });
 }

@@ -4,7 +4,10 @@ on:
         # PRs outside the merge queue run a narrowed visual-regression matrix when the
         # Storybook module graph can safely identify affected stories. Merge-queue runs
         # use the full matrix. To force the full matrix earlier, add the `run-ci-frontend`
-        # label. The `no-ci` label does the opposite: it silences
+        # label. Force it also to give a story back a baseline entry it lost: the narrowed
+        # matrix renders only the stories the diff affects, so a story the diff does not
+        # touch is never captured, and a reviewer has nothing to approve into
+        # `frontend/snapshots.yml`. The `no-ci` label does the opposite: it silences
         # this workflow on a draft entirely (prototypes).
         # No labeled/unlabeled triggers: GitHub cannot filter a label trigger by name,
         # so every unrelated label re-ran the full chromium matrix against a commit CI
@@ -21,6 +24,12 @@ concurrency:
 
 permissions:
     contents: read
+
+env:
+    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+    # npm's audit blocks the pnpm bootstrap. See .github/actions/pnpm-install for why.
+    NPM_CONFIG_AUDIT: 'false'
+    NPM_CONFIG_FUND: 'false'
 
 jobs:
     # Job to decide if we should run storybook ci
@@ -86,7 +95,7 @@ jobs:
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
@@ -166,12 +175,21 @@ jobs:
                   filters: ${{ runner.temp }}/frontend-exclude.yml
 
             # Build the visual-regression matrix.
-            # On PRs, only run chromium shards — no story opts into webkit snapshots
-            # (see common/storybook/.storybook/test-runner.ts), so webkit shards consume CI
-            # minutes without producing snapshot diffs. WebKit render-error coverage is
-            # preserved on master pushes.
+            # WebKit runs wherever a break can still be stopped: on master pushes, and on the
+            # merge-queue run that gates the merge. No story opts into webkit snapshots (see
+            # common/storybook/.storybook/test-runner.ts), so webkit adds render-error coverage
+            # only. That coverage is worth a batched queue run, because a webkit-only break then
+            # fails the queue instead of master. It is not worth every push of every frontend PR,
+            # so author PRs stay chromium-only.
             - name: Build matrix
               id: matrix
+              env:
+                  MERGE_QUEUE: >-
+                      ${{
+                          github.event_name == 'pull_request'
+                          && github.event.pull_request.head.repo.full_name == github.repository
+                          && startsWith(github.head_ref, 'trunk-merge/')
+                      }}
               run: |
                   # Shard counts — change here to resize the matrix.
                   CHROMIUM_SHARDS=16
@@ -183,7 +201,7 @@ jobs:
                   }
 
                   CHROMIUM=$(shards chromium "$CHROMIUM_SHARDS")
-                  if [ "${{ github.event_name }}" = "pull_request" ]; then
+                  if [ "${{ github.event_name }}" = "pull_request" ] && [ "$MERGE_QUEUE" != "true" ]; then
                     MATRIX=$(jq -cn --argjson c "$CHROMIUM" '{include: $c}')
                   else
                     WEBKIT=$(shards webkit "$WEBKIT_SHARDS")
@@ -219,14 +237,14 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
             # This job checks out the PR head (not the merge ref), so it can't use
             # the ./.github/actions/pnpm-install local action — an un-rebased head
-            # may not contain it. Cache the store inline instead, sharing the same
-            # pnpm-<os>-<lockhash> key as the action and gating the save to master.
+            # may not contain it. Restore the store inline instead, sharing the same
+            # pnpm-<os>-<lockhash> key as the action.
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
@@ -246,13 +264,6 @@ jobs:
 
             - name: Install dependencies
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
-
-            - name: Save pnpm cache
-              if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: ${{ steps.pnpm-store.outputs.path }}
-                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             # Vite's dependency optimization cache (node_modules/.vite) is the most
             # expensive part of the build — without it, Vite re-bundles every module
@@ -302,7 +313,10 @@ jobs:
     vr-setup:
         name: Create Visual Review run
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        # The VR CLI build dominates this job whenever the cache misses, and it then
+        # downloads the whole dependency tree. vr-complete allows the same budget for the
+        # same build.
+        timeout-minutes: 15
         needs: [changes, build-storybook, select-stories]
         # A status function is required because select-stories is skipped on forced-full
         # PRs and master pushes, and GitHub would otherwise cascade that skip to this job.
@@ -349,7 +363,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -359,8 +373,51 @@ jobs:
                   node-version-file: .nvmrc
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
-            - name: Install VR CLI
-              run: cd vr-cli/products/visual_review/cli && npm ci && npm run build
+            # The CLI is a standalone npm package outside the pnpm workspace, so no other
+            # job warms it. Cache the built output, not the tarballs: a hit runs no npm
+            # command, and the install is the part that fails on a registry blip.
+            # The key covers the CLI source, the generated types it compiles, the Node
+            # version, and the architecture, because sharp ships one binary per architecture.
+            # No restore-keys: a prefix match would hand the job a build of other source.
+            - name: Restore VR CLI build
+              id: restore-vr-cli
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      vr-cli/products/visual_review/cli/dist
+                      vr-cli/products/visual_review/cli/node_modules
+                  key: vr-cli-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.nvmrc', 'vr-cli/products/visual_review/cli/**', 'vr-cli/products/visual_review/frontend/generated/api.schemas.ts') }}
+
+            # Runs only on a miss. A reset during a tarball read is a plain stream error
+            # that npm does not retry, so retry the install once. The random wait spreads
+            # the jobs that all miss on the same CLI change. fetch_retries=0 stops npm from
+            # stacking its own attempts under ours, and the fetch timeout bounds a stalled
+            # registry. The prune drops the build toolchain from the cached tree.
+            - name: Build VR CLI
+              if: steps.restore-vr-cli.outputs.cache-hit != 'true'
+              timeout-minutes: 8
+              shell: bash
+              working-directory: vr-cli/products/visual_review/cli
+              env:
+                  npm_config_fetch_retries: 0
+                  npm_config_fetch_timeout: 60000
+              run: |
+                  npm ci --no-audit --no-fund || { echo "::warning::VR CLI install failed, retrying once"; sleep $((5 + RANDOM % 26)); npm ci --no-audit --no-fund; }
+                  npm run build
+                  npm prune --omit=dev
+
+            - name: Save VR CLI build
+              # Master only: the key is immutable once written, so a PR must never take it.
+              # The cache-hit check skips packing a tree that already has an entry, because
+              # actions/cache builds the archive before it reserves the key. The shards save
+              # their own version of this entry, see there.
+              if: github.ref == 'refs/heads/master' && steps.restore-vr-cli.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      vr-cli/products/visual_review/cli/dist
+                      vr-cli/products/visual_review/cli/node_modules
+                  key: ${{ steps.restore-vr-cli.outputs.cache-primary-key }}
 
             - name: Create VR run
               id: create
@@ -416,7 +473,7 @@ jobs:
             # are tuned for runner CPU — consult #team-devex before changing.
             # PRs may use chromium shards running only affected story files.
             # Forced-full PRs fall back to changes.outputs.matrix (full chromium),
-            # while master pushes run chromium + webkit.
+            # while master pushes and merge-queue runs add webkit.
             matrix: ${{ fromJson(needs.select-stories.outputs.matrix || needs.changes.outputs.matrix) }}
         env:
             NODE_OPTIONS: --max-old-space-size=16384
@@ -440,7 +497,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -455,6 +512,7 @@ jobs:
               run: echo "path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
 
             - name: Restore pnpm cache
+              id: pnpm-restore
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
@@ -464,10 +522,11 @@ jobs:
             - name: Install package.json dependencies with pnpm
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
+            # Inside the playwright container pnpm keeps its store on the workspace mount.
+            # actions/cache keys an entry on key plus path, so this is a separate entry
+            # from the one pnpm-store-cache.yml writes, and one shard saves it.
             - name: Save pnpm cache
-              # The cache key is identical across all visual-regression shards, so only one
-              # shard needs to write it — gating to a single shard avoids redundant concurrent saves.
-              if: github.ref == 'refs/heads/master' && matrix.shard == 1 && matrix.browser == 'chromium'
+              if: github.ref == 'refs/heads/master' && matrix.shard == 1 && matrix.browser == 'chromium' && steps.pnpm-restore.outputs.cache-hit != 'true'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
@@ -533,6 +592,9 @@ jobs:
             # Capture-only: VR is the gate for visual changes, jest just captures screenshots
             - name: Run @storybook/test-runner
               id: test-runner
+              # continue-on-error so the quarantine gate below is the verdict — it passes when
+              # every failure is an already-quarantined flake, fails otherwise.
+              continue-on-error: true
               shell: bash
               env:
                   HOME: /root
@@ -568,12 +630,38 @@ jobs:
                       products/visual_review/frontend/generated/api.schemas.ts
                   sparse-checkout-cone-mode: false
 
-            - name: Install VR CLI
+            # Same key as vr-setup. The entry vr-setup writes is invisible here: this
+            # container has no zstd, and actions/cache folds the compression method into
+            # the cache version. The save below writes the container version.
+            - name: Restore VR CLI build
+              id: restore-vr-cli
               if: always() && needs.vr-setup.outputs.run_id != ''
-              run: cd vr-cli/products/visual_review/cli && npm ci && npm run build
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      vr-cli/products/visual_review/cli/dist
+                      vr-cli/products/visual_review/cli/node_modules
+                  key: vr-cli-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.nvmrc', 'vr-cli/products/visual_review/cli/**', 'vr-cli/products/visual_review/frontend/generated/api.schemas.ts') }}
 
+            # Runs only on a miss, and retries the install for the reason given at vr-setup.
+            - name: Build VR CLI
+              id: build-vr-cli
+              if: always() && needs.vr-setup.outputs.run_id != '' && steps.restore-vr-cli.outputs.cache-hit != 'true'
+              timeout-minutes: 8
+              shell: bash
+              working-directory: vr-cli/products/visual_review/cli
+              env:
+                  npm_config_fetch_retries: 0
+                  npm_config_fetch_timeout: 60000
+              run: |
+                  npm ci --no-audit --no-fund || { echo "::warning::VR CLI install failed, retrying once"; sleep $((5 + RANDOM % 26)); npm ci --no-audit --no-fund; }
+                  npm run build
+                  npm prune --omit=dev
+
+            # always() keeps the upload after a test-runner failure. A failed build drops
+            # it. A skipped build (cache hit) is not a failure.
             - name: Upload snapshots to Visual Review
-              if: always() && needs.vr-setup.outputs.run_id != ''
+              if: always() && needs.vr-setup.outputs.run_id != '' && steps.build-vr-cli.outcome != 'failure'
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
               run: |
@@ -583,6 +671,24 @@ jobs:
                     --baseline frontend/snapshots.yml \
                     --token "$VR_TOKEN"
 
+            # Saves the container version of the entry from one shard, master only. Runs
+            # after the upload so packing never delays a snapshot. !cancelled() because the
+            # tests run before the build, and a red test still warms a correct cache. The
+            # outcome check keeps a partial tree from taking the immutable key.
+            - name: Save VR CLI build
+              if: >-
+                  !cancelled()
+                  && github.ref == 'refs/heads/master'
+                  && matrix.shard == 1
+                  && matrix.browser == 'chromium'
+                  && steps.build-vr-cli.outcome == 'success'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      vr-cli/products/visual_review/cli/dist
+                      vr-cli/products/visual_review/cli/node_modules
+                  key: ${{ steps.restore-vr-cli.outputs.cache-primary-key }}
+
             - name: Upload test results
               if: always()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -591,6 +697,34 @@ jobs:
                   path: common/storybook/junit.xml
                   if-no-files-found: ignore
                   retention-days: 1
+
+            # Best-effort Trunk upload (continue-on-error); the "Fail on test-runner failure" step
+            # below is the verdict, so a Trunk outage can't red a passing shard. Internal PRs only
+            # (needs the secret).
+            # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
+            # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
+            # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
+            # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
+            # chromium and webkit run the same stories, so each browser uploads under its own Trunk
+            # variant — one test id for both browsers would make a browser-specific failure look
+            # like a flake.
+            - name: Quarantine gate
+              id: quarantine_gate
+              continue-on-error: true
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
+              uses: ./.github/actions/trunk-quarantine-gate
+              with:
+                  junit-paths: common/storybook/junit.xml
+                  variant: ${{ matrix.browser }}
+                  previous-step-outcome: ${{ steps.test-runner.outcome }}
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+
+            # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
+            # also covers the skipped gate on fork/Dependabot.
+            - name: Fail on test-runner failure
+              if: ${{ !cancelled() && steps.test-runner.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
+              shell: bash
+              run: exit 1
 
     # Verify changed story files are stable by re-running them multiple times.
     # Catches flaky snapshots before they land on master.
@@ -628,7 +762,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -692,7 +826,7 @@ jobs:
         name: Visual regression tests pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
             - name: Check matrix outcome
               run: |
@@ -781,7 +915,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -791,8 +925,30 @@ jobs:
                   node-version-file: .nvmrc
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
-            - name: Install VR CLI
-              run: cd vr-cli/products/visual_review/cli && npm ci && npm run build
+            # Keys the cached build the same way vr-setup does, and reads the host entry
+            # vr-setup writes. This job never saves it.
+            - name: Restore VR CLI build
+              id: restore-vr-cli
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      vr-cli/products/visual_review/cli/dist
+                      vr-cli/products/visual_review/cli/node_modules
+                  key: vr-cli-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.nvmrc', 'vr-cli/products/visual_review/cli/**', 'vr-cli/products/visual_review/frontend/generated/api.schemas.ts') }}
+
+            # Runs only on a miss, and retries the install for the reason given at vr-setup.
+            - name: Build VR CLI
+              if: steps.restore-vr-cli.outputs.cache-hit != 'true'
+              timeout-minutes: 8
+              shell: bash
+              working-directory: vr-cli/products/visual_review/cli
+              env:
+                  npm_config_fetch_retries: 0
+                  npm_config_fetch_timeout: 60000
+              run: |
+                  npm ci --no-audit --no-fund || { echo "::warning::VR CLI install failed, retrying once"; sleep $((5 + RANDOM % 26)); npm ci --no-audit --no-fund; }
+                  npm run build
+                  npm prune --omit=dev
 
             - name: Complete Visual Review run
               # Pass the same --purpose vr-setup created the run with. The backend reports zero
@@ -837,7 +993,7 @@ jobs:
               if: github.run_attempt == '1'
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_TELEMETRY_APP_ID }}
+                  client-id: ${{ vars.GH_APP_TELEMETRY_APP_ID }}
                   private-key: ${{ secrets.GH_APP_TELEMETRY_PRIVATE_KEY }}
             - name: Capture running time to PostHog
               if: github.run_attempt == '1'
@@ -949,7 +1105,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -1110,47 +1266,3 @@ jobs:
                   EOF
                       echo "SELECTION_METRICS: $(echo "$RESULT" | jq -c '{mode, reason, total: .total_story_count}')"
                   fi
-
-    trunk-upload:
-        name: Upload test results to Trunk
-        # visual-regression shards already emit and upload junit-results-storybook-* artifacts;
-        # this feeds them to Trunk (flaky-test detection) once. Trusted non-pull_request events
-        # only (master push), so the secret token never runs in a PR-controlled context; the
-        # uploader is a pinned external action, not a local one.
-        needs: [visual-regression]
-        runs-on: ubuntu-latest
-        continue-on-error: true
-        timeout-minutes: 10
-        # Avoid spinning a runner when visual-regression was skipped, while still
-        # uploading failed-test results (the flake signal Trunk needs) on master push.
-        # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
-        # this job skips, so no results upload.
-        if: always() && github.repository == 'PostHog/posthog' && github.event_name != 'pull_request' && needs.visual-regression.result != 'skipped' && vars.TRUNK_UPLOAD_ENABLED == 'true'
-        steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 1
-                  persist-credentials: false
-            - name: Download JUnit artifacts
-              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
-              continue-on-error: true
-              with:
-                  path: ./junit-artifacts
-                  pattern: junit-results-storybook-*
-            # chromium and webkit run the same stories, so a single upload would give one test id
-            # both browsers' outcomes and a browser-specific failure would look like a flake.
-            # Upload each browser under its own Trunk variant to keep their histories distinct.
-            - name: Upload chromium results to Trunk
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
-              with:
-                  junit-paths: junit-artifacts/junit-results-storybook-chromium-*/*.xml
-                  org-slug: posthog-inc
-                  variant: chromium
-                  token: ${{ secrets.TRUNK_API_TOKEN }}
-            - name: Upload webkit results to Trunk
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
-              with:
-                  junit-paths: junit-artifacts/junit-results-storybook-webkit-*/*.xml
-                  org-slug: posthog-inc
-                  variant: webkit
-                  token: ${{ secrets.TRUNK_API_TOKEN }}
