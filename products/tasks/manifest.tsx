@@ -19,12 +19,16 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
-        '/task-analysis': ['TaskAnalysis', 'taskAnalysis'],
+        '/task-analysis/runs': ['TaskAnalysis', 'taskAnalysisRuns'],
+        '/task-analysis/settings': ['TaskAnalysis', 'taskAnalysisSettings'],
     },
-    redirects: {},
+    redirects: {
+        '/task-analysis': '/task-analysis/runs',
+    },
     urls: {
         slackTaskContext: (): string => '/slack-task-context',
-        taskAnalysis: (): string => '/task-analysis',
+        taskAnalysisRuns: (): string => '/task-analysis/runs',
+        taskAnalysisSettings: (): string => '/task-analysis/settings',
     },
     fileSystemTypes: {},
     treeItemsNew: [],

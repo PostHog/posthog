@@ -134,7 +134,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-09-08',
-        pageUrl: urls.taskAnalysis(),
+        pageUrl: urls.taskAnalysisRuns(),
         featureFlags: { [FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS]: true },
         testOptions: { waitForLoadersToDisappear: true },
     },
@@ -144,6 +144,12 @@ export default meta
 type Story = StoryObj<{}>
 
 export const WithRuns: Story = {}
+
+export const SettingsTab: Story = {
+    parameters: {
+        pageUrl: urls.taskAnalysisSettings(),
+    },
+}
 
 export const NoRuns: Story = {
     parameters: {

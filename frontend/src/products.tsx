@@ -246,7 +246,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/subscriptions/:subscriptionId/edit': ['Subscriptions', 'subscriptionEdit'],
     '/subscriptions/:subscriptionId': ['Subscription', 'subscription'],
     '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
-    '/task-analysis': ['TaskAnalysis', 'taskAnalysis'],
+    '/task-analysis/runs': ['TaskAnalysis', 'taskAnalysisRuns'],
+    '/task-analysis/settings': ['TaskAnalysis', 'taskAnalysisSettings'],
     '/tracing': ['Tracing', 'tracing'],
     '/tracing/operation': ['TracingOperation', 'tracingOperation'],
     '/user_research': ['UserInterviews', 'userInterviews'],
@@ -437,6 +438,7 @@ export const productRedirects: Record<
         combineUrl(urls.skills(), searchParams, hashParams).url,
     '/llm-analytics/skills/:name': (params, searchParams, hashParams) =>
         combineUrl(urls.skill(params.name), searchParams, hashParams).url,
+    '/task-analysis': '/task-analysis/runs',
     '/user_interviews': '/user_research',
 }
 
@@ -1519,7 +1521,8 @@ export const productUrls = {
     surveyWizard: (id: string = 'new', template?: string): string =>
         `/surveys/guided/${id}${template ? `?template=${encodeURIComponent(template)}` : ''}`,
     slackTaskContext: (): string => '/slack-task-context',
-    taskAnalysis: (): string => '/task-analysis',
+    taskAnalysisRuns: (): string => '/task-analysis/runs',
+    taskAnalysisSettings: (): string => '/task-analysis/settings',
     toolbarLaunch: (): string => '/toolbar',
     tracing: (): string => '/tracing',
     tracingOperation: (

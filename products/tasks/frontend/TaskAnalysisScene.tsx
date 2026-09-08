@@ -1,143 +1,71 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
-import { LemonBanner, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { IconStethoscope } from '@posthog/icons'
+import { LemonBanner, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
-import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { AIRunPreferenceEditor } from './components/AIRunPreferenceEditor'
-import { TaskAnalysisActivitiesTable } from './components/TaskAnalysisActivitiesTable'
-import type { TaskAnalysisRunApi, TaskRunStatusEnumApi } from './generated/api.schemas'
-import { taskAnalysisSceneLogic } from './logics/taskAnalysisSceneLogic'
+import { TaskAnalysisRunsTable } from './components/TaskAnalysisRunsTable'
+import { TaskAnalysisSettings } from './components/TaskAnalysisSettings'
+import { type TaskAnalysisTab, taskAnalysisSceneLogic } from './logics/taskAnalysisSceneLogic'
 
 export const scene: SceneExport = {
     component: TaskAnalysisScene,
     logic: taskAnalysisSceneLogic,
 }
 
-const STATUS_TAG_TYPE: Record<TaskRunStatusEnumApi, LemonTagType> = {
-    not_started: 'muted',
-    queued: 'muted',
-    in_progress: 'primary',
-    completed: 'success',
-    failed: 'danger',
-    cancelled: 'default',
+const TAB_DESCRIPTIONS: Record<TaskAnalysisTab, string> = {
+    runs: 'The analysis runs of this project, newest first. Open a row for the activities the run reported.',
+    settings: 'The model that analysis runs use in this project.',
 }
 
 export function TaskAnalysisScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { draft, draftDirty, preferencesLoading, runs, runsLoading } = useValues(taskAnalysisSceneLogic)
-    const { setDraft, submitDraft } = useActions(taskAnalysisSceneLogic)
-    const restrictionReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
-    })
+    const { activeTab } = useValues(taskAnalysisSceneLogic)
 
     if (!featureFlags[FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS]) {
         return (
             <SceneContent>
-                <SceneTitleSection name="Task analysis" resourceType={{ type: 'task' }} />
+                <SceneTitleSection
+                    name="Task analysis"
+                    resourceType={{ type: 'task', forceIcon: <IconStethoscope /> }}
+                />
                 <LemonBanner type="info">Task analysis is not enabled for this project.</LemonBanner>
             </SceneContent>
         )
     }
 
+    const tabs: LemonTab<TaskAnalysisTab>[] = [
+        {
+            key: 'runs',
+            label: 'Runs',
+            content: <TaskAnalysisRunsTable />,
+            link: urls.taskAnalysisRuns(),
+            'data-attr': 'task-analysis-runs-tab',
+        },
+        {
+            key: 'settings',
+            label: 'Settings',
+            content: <TaskAnalysisSettings />,
+            link: urls.taskAnalysisSettings(),
+            'data-attr': 'task-analysis-settings-tab',
+        },
+    ]
+
     return (
         <SceneContent>
             <SceneTitleSection
                 name="Task analysis"
-                description="Choose the model that reviews finished task runs, and see the analysis runs for this project."
-                resourceType={{ type: 'task' }}
+                description={TAB_DESCRIPTIONS[activeTab]}
+                resourceType={{ type: 'task', forceIcon: <IconStethoscope /> }}
             />
-
-            <section className="flex flex-col gap-2">
-                <h2 className="mb-0">Analysis model</h2>
-                <AIRunPreferenceEditor
-                    draft={draft}
-                    dirty={draftDirty}
-                    saving={preferencesLoading}
-                    inheritLabel="Built-in analysis model"
-                    onChange={setDraft}
-                    onSave={submitDraft}
-                    restrictionReason={restrictionReason}
-                    dataAttrPrefix="task-analysis-model"
-                />
-                {restrictionReason ? <p className="text-secondary mb-0">Only project admins can change this.</p> : null}
-            </section>
-
-            <section className="flex flex-col gap-2">
-                <h2 className="mb-0">Analysis runs</h2>
-                <LemonTable
-                    dataSource={runs ?? []}
-                    loading={runsLoading}
-                    rowKey="id"
-                    emptyState="No analysis runs yet. A run appears here after a task run is analyzed."
-                    columns={[
-                        {
-                            title: 'Created',
-                            dataIndex: 'created_at',
-                            render: (_, run: TaskAnalysisRunApi) => <TZLabel time={run.created_at} />,
-                        },
-                        {
-                            title: 'Status',
-                            dataIndex: 'status',
-                            render: (_, run: TaskAnalysisRunApi) => (
-                                <LemonTag type={STATUS_TAG_TYPE[run.status]}>{run.status.replace('_', ' ')}</LemonTag>
-                            ),
-                        },
-                        {
-                            title: 'Model',
-                            dataIndex: 'model',
-                            render: (_, run: TaskAnalysisRunApi) => (
-                                <div className="flex flex-col">
-                                    <span className="whitespace-nowrap">{run.model ?? 'Built-in'}</span>
-                                    {run.reasoning_effort ? (
-                                        <span className="text-secondary text-xs">{run.reasoning_effort}</span>
-                                    ) : null}
-                                </div>
-                            ),
-                        },
-                        {
-                            title: 'Analyzed run',
-                            dataIndex: 'target_run_id',
-                            render: (_, run: TaskAnalysisRunApi) => (
-                                <div className="flex flex-col">
-                                    <span className="font-mono text-xs break-all">{run.target_run_id ?? '–'}</span>
-                                    {run.target_repository ? (
-                                        <span className="text-secondary text-xs">{run.target_repository}</span>
-                                    ) : null}
-                                </div>
-                            ),
-                        },
-                        {
-                            title: 'Activities',
-                            dataIndex: 'activities',
-                            align: 'right',
-                            render: (_, run: TaskAnalysisRunApi) => run.activities.length,
-                        },
-                        {
-                            title: 'Error',
-                            dataIndex: 'error_message',
-                            render: (_, run: TaskAnalysisRunApi) =>
-                                run.error_message ? (
-                                    <span className="text-danger break-words">{run.error_message}</span>
-                                ) : null,
-                        },
-                    ]}
-                    expandable={{
-                        rowExpandable: (run: TaskAnalysisRunApi) => run.activities.length > 0,
-                        expandedRowRender: (run: TaskAnalysisRunApi) => (
-                            <TaskAnalysisActivitiesTable activities={run.activities} />
-                        ),
-                    }}
-                />
-            </section>
+            <LemonTabs activeKey={activeTab} data-attr="task-analysis-tabs" tabs={tabs} sceneInset />
         </SceneContent>
     )
 }
