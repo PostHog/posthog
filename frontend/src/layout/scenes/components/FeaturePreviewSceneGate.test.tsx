@@ -9,8 +9,8 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
-import { FeaturePreviewGateConfig } from '~/types'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { FeaturePreviewGateConfig } from '~/types'
 
 import { FeaturePreviewSceneGate } from './FeaturePreviewSceneGate'
 
@@ -369,9 +369,7 @@ describe('FeaturePreviewSceneGate', () => {
             setupMocks({ earlyAccessFeatures: [CONCEPT_FEATURE], waitlistSurveysEnabled: true })
 
             render(
-                <FeaturePreviewSceneGate
-                    config={{ ...BASE_CONFIG, productIntent: 'metrics' as ProductKey }}
-                >
+                <FeaturePreviewSceneGate config={{ ...BASE_CONFIG, productIntent: 'metrics' as ProductKey }}>
                     {CHILDREN}
                 </FeaturePreviewSceneGate>
             )
