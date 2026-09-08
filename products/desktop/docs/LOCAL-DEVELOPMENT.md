@@ -104,6 +104,9 @@ POSTHOG_DESKTOP_SKILLS=local hogli desktop:dev
 Local skills require `uv sync` and a running local backend with at least one project.
 Start a new agent session after skills rebuild.
 
+Local cloud tasks use the stack's setting with `SANDBOX_PROVIDER=docker`; `production` keeps the image's built-in skills.
+Each new sandbox gets its own skill copy. Skill edits do not change running tasks; build failures stop new tasks.
+
 ## Connect
 
 1. Select **Local development** for `localhost:8010`, or select **Dev Cloud** for `app.dev.posthog.dev`.
