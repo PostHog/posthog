@@ -81,8 +81,13 @@ class RowShift(BaseModel):
 
     @property
     def shifted_rows(self) -> int:
-        """Rows that moved, whichever direction they went. What the absorb cap judges."""
-        return self.inserted_rows + self.deleted_rows
+        """How far the rows moved. What the absorb cap judges.
+
+        A page that grew has only inserts and one that shrank has only deletes.
+        A same-height translation shows up as both, so the larger side is the
+        movement, not the sum.
+        """
+        return max(self.inserted_rows, self.deleted_rows)
 
 
 class DiffMetadata(BaseModel):

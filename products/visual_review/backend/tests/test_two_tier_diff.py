@@ -238,6 +238,28 @@ class TestRowShiftClassification:
 
         assert classify_compare_result(result) == expected_kind
 
+    @pytest.mark.parametrize(
+        "moved_rows, expected_kind",
+        [
+            pytest.param(SHIFT_ABSORB_MAX_ROWS, None, id="cap_still_absorbed"),
+            pytest.param(SHIFT_ABSORB_MAX_ROWS + 1, ChangeKind.LAYOUT, id="past_cap_is_layout"),
+        ],
+    )
+    def test_same_height_translation_counts_the_movement_once(self, moved_rows: int, expected_kind: ChangeKind | None):
+        # A page that keeps its height while its content moves down shows up
+        # as the same number of inserted and deleted rows. Summing both sides
+        # would double the movement and push a cap-sized shift into layout.
+        baseline = _make_tall_settings_page()
+        grown = open_png(_insert_rows(baseline, y=200, rows=moved_rows))
+        current = to_png(grown.crop((0, 0, grown.width, grown.height - moved_rows)))
+
+        result = compare_images(baseline, current, with_thumbnail=False)
+        assert result.row_shift is not None
+        assert (result.row_shift.inserted_rows, result.row_shift.deleted_rows) == (moved_rows, moved_rows)
+        assert result.row_shift.shifted_rows == moved_rows
+
+        assert classify_compare_result(result) == expected_kind
+
     def test_shift_plus_real_change_is_not_absorbed(self):
         baseline = _make_tall_settings_page()
         shifted = open_png(_insert_rows(baseline, y=200, rows=1))

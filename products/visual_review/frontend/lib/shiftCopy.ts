@@ -2,9 +2,9 @@ import { pluralize } from 'lib/utils/strings'
 
 import type { RowShiftApi, ShiftBandApi } from '../generated/api.schemas'
 
-/** Rows the aligner moved, whichever direction they went. Zero when the pair aligned with no shift. */
+/** How far the rows moved, the larger side when inserts and deletes cancel out. Zero when the pair aligned with no shift. */
 export function shiftedRows(rowShift: RowShiftApi | null | undefined): number {
-    return rowShift ? rowShift.inserted_rows + rowShift.deleted_rows : 0
+    return rowShift ? Math.max(rowShift.inserted_rows, rowShift.deleted_rows) : 0
 }
 
 /**
