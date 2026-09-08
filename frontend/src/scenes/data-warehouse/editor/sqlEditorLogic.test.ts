@@ -426,7 +426,9 @@ describe('sqlEditorLogic', () => {
             const query = 'select 1 from events where properties.$browser_version = 120'
             const suggestion = 'select 42 from events where properties.other = 1'
             const editor = mountWithReport(query, query, 0)
-            logic.actions.setSuggestedQueryInput(suggestion, 'max_ai')
+            // Diff mode points `props.editor` at the modified sub-editor, whose model holds the
+            // suggestion. Setting the model is what makes this the diff case; the suggestion action
+            // itself also touches tab and router state, which would leak into later tests.
             editor.setValue(suggestion)
 
             logic.actions.applyIndexQuickfix({ ...characterOffsetsOf(query, '120'), text: "'120'" })
