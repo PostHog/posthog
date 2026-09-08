@@ -36,6 +36,17 @@ def bounded_training_points(requested: int, interval: IntervalType | None) -> in
     return max(min_forecast_points(interval), min(requested, MAX_FORECAST_TRAINING_POINTS, by_duration))
 
 
+def bounded_lookback_days(interval: IntervalType | None) -> int:
+    """Days of history a forecast can use, so a query does not scan what the fit then discards.
+
+    Mirrors bounded_training_points, which caps by duration and by training points. The two caps
+    agree for day, week, and month intervals. Only an hourly interval is bound by the point cap,
+    at about six weeks. Rounds up, so the range still covers every point the fit keeps.
+    """
+    per_interval = _INTERVAL_DAYS.get(interval or IntervalType.DAY, 1)
+    return min(MAX_FORECAST_LOOKBACK_DAYS, ceil(MAX_FORECAST_TRAINING_POINTS * per_interval))
+
+
 def forecast_reach_days(horizon: int, interval: IntervalType | None) -> float:
     return horizon * _INTERVAL_DAYS.get(interval or IntervalType.DAY, 1)
 

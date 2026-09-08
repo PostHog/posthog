@@ -351,14 +351,17 @@ class TestHistoryRequirements:
 class TestForecastSimulationLookback:
     @parameterized.expand(
         [
-            ("absolute_too_old", "1900-01-01", "2024-09-07"),
-            ("relative_too_old", "-100y", "2024-09-07"),
-            ("within_limit", "-30d", "-30d"),
-            ("exact_limit", "2024-09-07", "2024-09-07"),
+            ("absolute_too_old", "day", "1900-01-01", "2024-09-07"),
+            ("relative_too_old", "day", "-100y", "2024-09-07"),
+            ("within_limit", "day", "-30d", "-30d"),
+            ("exact_limit", "day", "2024-09-07", "2024-09-07"),
+            ("weekly_still_caps_on_duration", "week", "1900-01-01", "2024-09-07"),
+            ("hourly_caps_on_fit_cost", "hour", "-730d", "2026-07-27"),
+            ("hourly_within_limit", "hour", "-7d", "-7d"),
         ]
     )
     def test_query_date_from_is_capped_before_extraction(
-        self, _name: str, date_from: str, expected_date_from: str
+        self, _name: str, interval: str, date_from: str, expected_date_from: str
     ) -> None:
         team = cast(Team, SimpleNamespace(timezone="UTC", base_currency="USD"))
         context = SimulationContext(
@@ -373,7 +376,7 @@ class TestForecastSimulationLookback:
         )
         query = {
             "kind": "TrendsQuery",
-            "interval": "day",
+            "interval": interval,
             "series": [{"kind": "EventsNode", "event": "$pageview"}],
         }
 

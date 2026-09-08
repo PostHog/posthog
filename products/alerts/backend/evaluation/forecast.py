@@ -32,11 +32,11 @@ from products.alerts.backend.evaluation.detector import extract_trends_series
 from products.alerts.backend.evaluation.formatting import make_trends_value_formatter
 from products.alerts.backend.forecasting.engine import (
     DEFAULT_INTERVAL_WIDTH,
-    MAX_FORECAST_LOOKBACK_DAYS,
     MAX_FORECAST_OUTPUT_POINTS,
     MAX_FORECAST_REACH_DAYS,
     ForecastConfigurationError,
     ForecastResult,
+    bounded_lookback_days,
     bounded_training_points,
     default_horizon,
     get_forecast_engine,
@@ -109,15 +109,19 @@ def _forecast_min_samples(
     return bounded_training_points(_required_history_points(horizon, interval), interval)
 
 
-def _bounded_simulation_date_from(date_from: str | None, timezone: ZoneInfo, today: date) -> str | None:
+def _bounded_simulation_date_from(
+    date_from: str | None, timezone: ZoneInfo, today: date, interval: IntervalType | None
+) -> str | None:
     """Cap an optional preview range before it reaches the insight query.
 
     ``bounded_training_points`` limits what Prophet receives, but applying that limit after the
-    insight query would still let a caller request an arbitrarily expensive history scan.
+    insight query would still let a caller request an arbitrarily expensive history scan. The cap
+    follows the interval, because an hourly fit keeps far less history than the duration limit
+    allows and the extra rows reach neither the fit nor the response.
     """
     if date_from is None:
         return None
-    earliest_date = today - timedelta(days=MAX_FORECAST_LOOKBACK_DAYS)
+    earliest_date = today - timedelta(days=bounded_lookback_days(interval))
     try:
         requested_date = relative_date_parse(date_from, timezone).date()
     except (OverflowError, ValueError) as error:
@@ -353,7 +357,7 @@ class TrendsForecastExtractor:
             _forecast_min_samples(ctx.extractor_config, trends_query.interval, today),
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             series_index=ctx.series_index,
-            date_from=_bounded_simulation_date_from(ctx.date_from, team_timezone, today),
+            date_from=_bounded_simulation_date_from(ctx.date_from, team_timezone, today, trends_query.interval),
             user=ctx.user,
         )
         result.value_formatter = make_trends_value_formatter(trends_query.trendsFilter, ctx.team.base_currency)
