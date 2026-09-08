@@ -746,6 +746,31 @@ describe('DashboardItems', () => {
         expect(target).not.toHaveAttribute('data-dashboard-tile-highlighted')
     })
 
+    it.each([
+        ['insight', { id: 41, insight: { id: 101, short_id: 'target', query: { kind: 'InsightVizNode' } } }],
+        ['text', { id: 41, text: { id: 102, body: 'Text' } }],
+        ['image', { id: 41, text: { id: 102, body: '![Image](https://example.test/image.png)' } }],
+        ['button', { id: 41, button_tile: { id: 103, text: 'Open', url: '/', style: 'primary' } }],
+        ['widget', { id: 41, widget: { id: 104, widget_type: 'error_tracking_list', config: {} } }],
+        ['error', { id: 41, error: { type: 'ValidationError', message: 'Invalid filters' } }],
+    ] as const)('renders a transient highlight without scrolling for a %s tile', (_kind, tile) => {
+        installDashboardValues(() => [tile])
+        const scrollIntoView = jest.fn()
+        const scrollTo = jest.fn()
+        Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView })
+        Object.defineProperty(window, 'scrollTo', { configurable: true, value: scrollTo })
+
+        const { container } = render(<DashboardItems transientHighlightedTileIds={[41]} />)
+        const target = container.querySelector('[data-dashboard-tile-id="41"]') as HTMLElement
+        act(flushAllAnimationFrames)
+
+        expect(target).toHaveAttribute('data-dashboard-tile-highlighted', 'true')
+        expect(target).toHaveAttribute('tabindex', '-1')
+        expect(scrollIntoView).not.toHaveBeenCalled()
+        expect(scrollTo).not.toHaveBeenCalled()
+        expect(requestAnimationFrameCallbacks.size).toBe(0)
+    })
+
     it('keeps the visual highlight for 3000ms when reduced motion is requested', () => {
         jest.useFakeTimers()
         installAnimationFrameMocks()

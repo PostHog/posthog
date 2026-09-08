@@ -1,7 +1,7 @@
 import './Dashboard.scss'
 
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { dashboardTileScreenshotKey } from 'lib/components/Cards/InsightCard/insightCardImageCapture'
@@ -16,6 +16,7 @@ import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { DashboardLoadAction, DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
+import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -33,6 +34,7 @@ import {
 import { teamLogic } from '../teamLogic'
 import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsightToDashboardModal'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
+import { DashboardAiSync } from './DashboardAiSync'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
 import { DashboardPublicAccessBanner } from './DashboardPublicAccessBanner'
@@ -120,6 +122,26 @@ function DashboardScene({
     const { currentTeamId } = useValues(teamLogic)
     const { reportDashboardViewed, abortAnyRunningQuery, loadDashboard, setLayoutZoom } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
+    const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
+    const [transientHighlightedTileIds, setTransientHighlightedTileIds] = useState<number[]>([])
+    const updateTransientHighlightedTileIds = useCallback((tileIds: number[]) => {
+        setTransientHighlightedTileIds((currentTileIds) =>
+            currentTileIds.length === tileIds.length &&
+            currentTileIds.every((currentTileId, index) => currentTileId === tileIds[index])
+                ? currentTileIds
+                : tileIds
+        )
+    }, [])
+
+    const dashboardAiSyncEnabled = Boolean(
+        placement === DashboardPlacement.Dashboard &&
+        dashboard?.id &&
+        canEditDashboard &&
+        sceneIntegrationEnabled &&
+        !dashboardFailedToLoad &&
+        !accessDeniedToDashboard &&
+        !error404
+    )
 
     const agentContextItems = useMemo(
         () => dashboardAgentContextForPlacement(dashboard ?? null, placement),
@@ -172,6 +194,12 @@ function DashboardScene({
             {placement == DashboardPlacement.Dashboard && (
                 <DashboardHeader loading={!dashboard && !dashboardFailedToLoad} />
             )}
+            {dashboardAiSyncEnabled && dashboard?.id && (
+                <DashboardAiSync
+                    dashboardId={dashboard.id}
+                    onTransientHighlightedTileIdsChange={updateTransientHighlightedTileIds}
+                />
+            )}
             {placement == DashboardPlacement.Dashboard && !!dashboard?.id && (
                 <DashboardSubscribeNudgeTrigger dashboardId={dashboard.id} />
             )}
@@ -217,7 +245,10 @@ function DashboardScene({
                             )}
                     </SceneStickyBar>
 
-                    <DashboardItems showCreateAnomalyAlertButton={showCreateAnomalyAlertButton} />
+                    <DashboardItems
+                        showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}
+                        transientHighlightedTileIds={transientHighlightedTileIds}
+                    />
                 </div>
             )}
         </SceneContent>

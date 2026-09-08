@@ -54,6 +54,7 @@ const TILE_HIGHLIGHT_DURATION_MS = 3000
 
 interface DashboardItemsProps {
     showCreateAnomalyAlertButton?: boolean
+    transientHighlightedTileIds?: number[]
 }
 
 /**
@@ -80,7 +81,10 @@ const MemoizedDashboardButtonTileItem = memo(
 const MemoizedDashboardErrorTileItem = memo(DashboardErrorTileItem, gridTilePropsEqual) as typeof DashboardErrorTileItem
 const MemoizedDashboardWidgetItem = memo(DashboardWidgetItem, gridTilePropsEqual) as typeof DashboardWidgetItem
 
-export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsProps = {}): JSX.Element {
+export function DashboardItems({
+    showCreateAnomalyAlertButton,
+    transientHighlightedTileIds = [],
+}: DashboardItemsProps = {}): JSX.Element {
     const {
         dashboard,
         tiles,
@@ -616,6 +620,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     >
                         {tiles?.map((tile) => {
                             const { insight, text, button_tile, widget } = tile
+                            const isTileHighlighted =
+                                visuallyHighlightedTileId === tile.id || transientHighlightedTileIds.includes(tile.id)
                             const smLayout = layouts['sm']?.find((l) => {
                                 return l.i == tile.id.toString()
                             })
@@ -637,8 +643,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                             }
                             const revealProps = {
                                 'data-dashboard-tile-id': String(tile.id),
-                                'data-dashboard-tile-highlighted':
-                                    visuallyHighlightedTileId === tile.id ? 'true' : undefined,
+                                'data-dashboard-tile-highlighted': isTileHighlighted ? 'true' : undefined,
                                 tabIndex: -1,
                             }
 
@@ -687,7 +692,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         apiErrored={apiErrored}
                                         apiError={apiError}
                                         queryId={insight.query_status?.id}
-                                        highlighted={visuallyHighlightedTileId === tile.id}
+                                        highlighted={isTileHighlighted}
                                         updateColor={(color) => updateTileColor(tile.id, color)}
                                         toggleShowDescription={() => toggleTileDescription(tile.id)}
                                         ribbonColor={tile.color}

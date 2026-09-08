@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -138,6 +139,97 @@ describe('insightAlertsLogic', () => {
         }).toFinishAllListeners()
 
         expect(listSpy).toHaveBeenCalledWith(42)
+    })
+
+    it('keeps the newest alert list when an older request resolves last', async () => {
+        let resolveOlder!: (response: { results: AlertType[]; count: number }) => void
+        let resolveNewer!: (response: { results: AlertType[]; count: number }) => void
+        const olderResponse = new Promise<{ results: AlertType[]; count: number }>((resolve) => {
+            resolveOlder = resolve
+        })
+        const newerResponse = new Promise<{ results: AlertType[]; count: number }>((resolve) => {
+            resolveNewer = resolve
+        })
+        listSpy.mockReset().mockReturnValueOnce(olderResponse).mockReturnValueOnce(newerResponse)
+        const insightLogicProps: InsightLogicProps = {
+            dashboardItemId: Insight42,
+            dashboardId: 1,
+            cachedInsight: {
+                ...createEmptyInsight(Insight42),
+                id: 42,
+                query: API_QUERY,
+                alerts: [],
+            },
+        }
+        mountInsightStack(insightLogicProps)
+        const alertsLogic = insightAlertsLogic({
+            insightId: 42,
+            insightLogicProps,
+            deferInitialAlertsLoad: true,
+        })
+        alertsLogic.mount()
+
+        alertsLogic.actions.loadAlerts()
+        alertsLogic.actions.loadAlerts()
+        expect(listSpy).toHaveBeenCalledTimes(2)
+
+        const newer = [{ id: 'alert-a', name: 'Newer' }] as AlertType[]
+        resolveNewer({ results: newer, count: 1 })
+        await waitFor(() => expect(alertsLogic.values.alerts).toEqual(newer))
+
+        resolveOlder({ results: [{ id: 'alert-a', name: 'Older' }] as AlertType[], count: 1 })
+        await olderResponse
+        await Promise.resolve()
+        await Promise.resolve()
+
+        expect(alertsLogic.values.alerts).toEqual(newer)
+        alertsLogic.unmount()
+    })
+
+    it('ignores an older alert request that fails after a newer one succeeded', async () => {
+        let rejectOlder!: (error: Error) => void
+        let resolveNewer!: (response: { results: AlertType[]; count: number }) => void
+        const olderResponse = new Promise<{ results: AlertType[]; count: number }>((_resolve, reject) => {
+            rejectOlder = reject
+        })
+        const newerResponse = new Promise<{ results: AlertType[]; count: number }>((resolve) => {
+            resolveNewer = resolve
+        })
+        listSpy.mockReset().mockReturnValueOnce(olderResponse).mockReturnValueOnce(newerResponse)
+        const insightLogicProps: InsightLogicProps = {
+            dashboardItemId: Insight42,
+            dashboardId: 1,
+            cachedInsight: {
+                ...createEmptyInsight(Insight42),
+                id: 42,
+                query: API_QUERY,
+                alerts: [],
+            },
+        }
+        mountInsightStack(insightLogicProps)
+        const alertsLogic = insightAlertsLogic({
+            insightId: 42,
+            insightLogicProps,
+            deferInitialAlertsLoad: true,
+        })
+        alertsLogic.mount()
+
+        alertsLogic.actions.loadAlerts()
+        alertsLogic.actions.loadAlerts()
+        expect(listSpy).toHaveBeenCalledTimes(2)
+
+        const newer = [{ id: 'alert-a', name: 'Newer' }] as AlertType[]
+        resolveNewer({ results: newer, count: 1 })
+        await waitFor(() => expect(alertsLogic.values.alerts).toEqual(newer))
+
+        rejectOlder(new Error('Alerts request failed'))
+        await olderResponse.catch(() => {})
+        await Promise.resolve()
+        await Promise.resolve()
+
+        await expectLogic(alertsLogic).toNotHaveDispatchedActions(['loadAlertsFailure'])
+        expect(alertsLogic.values.alerts).toEqual(newer)
+        alertsLogic.unmount()
     })
 
     it('dispatches loadAlerts on mount when not deferred and cached insight has no alerts field', async () => {
