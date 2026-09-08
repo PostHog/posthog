@@ -12,6 +12,7 @@ Sandbox compute continues to use PostHog credits.
 
 To renew a token, select **Replace token**. The saved token remains available until the new token is saved.
 **Cancel** keeps the saved token.
+The token field removes spaces and line breaks when you paste.
 
 An unavailable flag, missing credential, or incompatible sandbox fails the requested subscription run without switching to PostHog model billing.
 Continuations inherit the billing choice unless explicitly changed.

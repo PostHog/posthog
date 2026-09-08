@@ -84,9 +84,20 @@ describe("ClaudeCloudTokenSection", () => {
     expect(input).not.toHaveAttribute("aria-invalid");
   });
 
-  it.each([false, true])(
-    "saves a token without clearing the previous one (replacing: %s)",
-    async (replacing) => {
+  it.each([
+    { replacing: false, pasted: VALID_TOKEN },
+    { replacing: true, pasted: VALID_TOKEN },
+    {
+      replacing: false,
+      pasted: "  sk-ant-oat01-fake-test-\n  token-00000000000000\n",
+    },
+    {
+      replacing: true,
+      pasted: "\tsk-ant-oat01-fake-\r\n  test-token-\r\n  00000000000000 ",
+    },
+  ])(
+    "saves a pasted token without clearing the previous one (case %#)",
+    async ({ replacing, pasted }) => {
       const user = userEvent.setup();
       tokenStore.save.mockResolvedValue(undefined);
       tokenStore.has.mockResolvedValue(replacing);
@@ -100,7 +111,8 @@ describe("ClaudeCloudTokenSection", () => {
       const input = await screen.findByLabelText("Claude setup token");
       await user.click(screen.getByRole("button", { name: "Create token" }));
       expect(createToken).toHaveBeenCalledTimes(1);
-      await user.type(input, VALID_TOKEN);
+      await user.click(input);
+      await user.paste(pasted);
       await user.click(screen.getByRole("button", { name: "Save token" }));
 
       expect(tokenStore.save).toHaveBeenCalledTimes(1);

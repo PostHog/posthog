@@ -199,7 +199,7 @@ export function ClaudeCloudTokenSection({
               Create token
             </Button>
             <span className="text-muted-foreground text-xs">
-              Copy the token from the terminal, then paste it here.
+              Copy the token, then paste it here.
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -214,7 +214,7 @@ export function ClaudeCloudTokenSection({
               className="h-7 w-48 max-w-full text-xs"
               value={tokenDraft}
               onChange={(event) => {
-                setTokenDraft(event.currentTarget.value);
+                setTokenDraft(event.currentTarget.value.replace(/\s/g, ""));
                 setValidationError(null);
               }}
               disabled={!!pendingAction}

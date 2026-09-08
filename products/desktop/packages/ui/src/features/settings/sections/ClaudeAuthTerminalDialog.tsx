@@ -31,9 +31,9 @@ const SURFACE = {
 const COPY = {
   "setup-token": {
     title: "Create a Claude token",
-    lead: "Follow the steps in this terminal. Copy the token, close this window, then paste it into Cloud tasks.",
+    lead: "Follow the steps in this terminal. Copy the token. Close this window, then paste the token into Cloud tasks.",
     command: "claude setup-token",
-    ok: "Copy the token before you close this window. Then paste it into Cloud tasks.",
+    ok: "Copy the token. Close this window, then paste the token into Cloud tasks.",
     failed:
       "Token setup did not finish. Read the terminal output, then try again.",
   },
