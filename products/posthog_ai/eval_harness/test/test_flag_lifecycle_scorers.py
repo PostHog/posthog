@@ -90,6 +90,9 @@ FLAG_SEED = {"feature_flag_id": SEEDED_FLAG_ID, "feature_flag_key": SEEDED_FLAG_
 RENAMED_KEY = "file-preview-tiles"
 NEW_DESCRIPTION = "Show grid thumbnails in the file browser"
 
+# What `seed_rollout_flag` really returns: the rollout percentages plus the flag's identity.
+ROLLOUT_SEED_WITH_IDENTITY = {**ROLLOUT_SEED, **FLAG_SEED}
+
 
 def _merged_filters() -> dict[str, Any]:
     merged = json.loads(json.dumps(SEEDED_FILTERS))
@@ -103,6 +106,11 @@ def _reordered_filters() -> dict[str, Any]:
     for group in filters["groups"]:
         group["properties"] = [dict(reversed(list(prop.items()))) for prop in group["properties"]]
     return filters
+
+
+def _flattened_filters() -> dict[str, Any]:
+    """The modal bad write: the new percentage, and nothing else the flag carried."""
+    return {"groups": [{"properties": [], "rollout_percentage": ROLLOUT_TO_PERCENTAGE}]}
 
 
 def _without(key: str) -> dict[str, Any]:
@@ -439,6 +447,59 @@ def test_preserved_unrelated_config(_name: str, written: dict[str, Any], expecte
         {
             "raw_log": _tool_log([(UPDATE_TOOL, {"id": "7", "filters": written}, "completed")]),
             "seed": ROLLOUT_SEED,
+        },
+        {"preserved_unrelated_config": {"required": True}},
+    )
+
+    assert score.score == expected_score
+
+
+# `filters` replaces the whole object, so a write that flattened it lost whatever a
+# teammate added since the agent's read, and the flag serves the wrong people until the
+# next write lands. Grading the last write only would call that run clean.
+@parameterized.expand(
+    [
+        ("merged_on_the_first_attempt", [_merged_filters()], 1.0),
+        ("flattened_then_repaired", [_flattened_filters(), _merged_filters()], 0.0),
+        ("repeated_the_correct_write", [_merged_filters(), _merged_filters()], 1.0),
+    ]
+)
+def test_preserved_unrelated_config_grades_every_write(
+    _name: str, written: list[dict[str, Any]], expected_score: float
+) -> None:
+    scorer = PreservedUnrelatedConfig()
+    score = scorer._run_eval_sync(
+        {
+            "raw_log": _tool_log(
+                [(UPDATE_TOOL, {"id": SEEDED_FLAG_ID, "filters": filters}, "completed") for filters in written]
+            ),
+            "seed": ROLLOUT_SEED_WITH_IDENTITY,
+        },
+        {"preserved_unrelated_config": {"required": True}},
+    )
+
+    assert score.score == expected_score
+
+
+# Another flag's filters compared against this seed would fail nearly every check, so the
+# write has to be attributed before it is graded — and a run that only ever wrote to
+# another flag has not made the edit at all.
+@parameterized.expand(
+    [
+        ("another_flags_write_is_not_graded", [(4242, _flattened_filters()), (SEEDED_FLAG_ID, _merged_filters())], 1.0),
+        ("only_ever_wrote_to_another_flag", [(4242, _merged_filters())], 0.0),
+    ]
+)
+def test_preserved_unrelated_config_grades_the_seeded_flag(
+    _name: str, written: list[tuple[int, dict[str, Any]]], expected_score: float
+) -> None:
+    scorer = PreservedUnrelatedConfig()
+    score = scorer._run_eval_sync(
+        {
+            "raw_log": _tool_log(
+                [(UPDATE_TOOL, {"id": flag_id, "filters": filters}, "completed") for flag_id, filters in written]
+            ),
+            "seed": ROLLOUT_SEED_WITH_IDENTITY,
         },
         {"preserved_unrelated_config": {"required": True}},
     )

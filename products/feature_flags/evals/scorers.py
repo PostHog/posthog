@@ -319,6 +319,34 @@ def _canonical_group(group: dict) -> str:
     return json.dumps(canonical, sort_keys=True)
 
 
+def _rollout_checks(after: Any, seed: dict) -> tuple[dict[str, bool], list[str]]:
+    """Grade one written `filters` object against the definition the seed declared."""
+    before = seed["initial_filters"]
+    source = seed.get("rollout_from_percentage")
+    target = seed.get("rollout_to_percentage")
+
+    before_groups = _groups(before)
+    after_groups = _groups(after)
+    moved = [
+        {**group, "rollout_percentage": target} for group in before_groups if group.get("rollout_percentage") == source
+    ]
+    pinned = [group for group in before_groups if group.get("rollout_percentage") != source]
+    # Counted over every condition at once, so two of them that traded percentages
+    # cannot cover for each other.
+    missing = Counter(_canonical_group(group) for group in [*moved, *pinned]) - Counter(
+        _canonical_group(group) for group in after_groups
+    )
+
+    checks = {
+        "moved_the_target_group": not any(_canonical_group(group) in missing for group in moved),
+        "kept_the_other_conditions": not any(_canonical_group(group) in missing for group in pinned),
+        "kept_every_condition": len(after_groups) == len(before_groups),
+        "kept_the_variants": _variants(after) == _variants(before),
+        "kept_the_payloads": (after.get("payloads") if isinstance(after, dict) else None) == before.get("payloads"),
+    }
+    return checks, sorted(missing.elements())
+
+
 class PreservedUnrelatedConfig(Scorer):
     """Binary: did the rollout edit move one number and keep everything else?
 
@@ -327,6 +355,11 @@ class PreservedUnrelatedConfig(Scorer):
     condition, the variants and the payloads. Compares whole release conditions against
     the ones the seed declared, so a write that moves the number onto the wrong
     condition fails, while a rewrite that only reorders what it read still passes.
+
+    Every write to the seeded flag is graded, not the final one. A write that flattened
+    the definition already lost whatever a teammate added since the agent's read, and
+    the flag serves the wrong people until the next write lands, so an agent that
+    repaired its own damage did not make a safe edit.
     """
 
     def _name(self) -> str:
@@ -336,51 +369,40 @@ class PreservedUnrelatedConfig(Scorer):
         spec = _spec(expected, self._name())
         if not spec:
             return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} spec on case"})
-        seed = (output or {}).get("seed")
-        if not isinstance(seed, dict) or not isinstance(seed.get("initial_filters"), dict):
+        seed = _seed(output)
+        if seed is None or not isinstance(seed.get("initial_filters"), dict):
             return Score(name=self._name(), score=0.0, metadata={"reason": "Case seed carries no initial_filters"})
         parser = _parser(output)
         if not parser:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
 
-        writes = [call for call in _successful(parser, GENERIC_UPDATE_TOOL) if "filters" in call.input]
+        writes = [
+            call for call in _on_seeded_flag(_successful(parser, GENERIC_UPDATE_TOOL), seed) if "filters" in call.input
+        ]
         if not writes:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No successful update sent filters"})
 
-        before = seed["initial_filters"]
-        after = writes[-1].input["filters"]
-        source = seed.get("rollout_from_percentage")
-        target = seed.get("rollout_to_percentage")
+        failures = []
+        for position, call in enumerate(writes, start=1):
+            checks, not_written = _rollout_checks(call.input["filters"], seed)
+            failed = sorted(name for name, ok in checks.items() if not ok)
+            if failed:
+                failures.append(
+                    {
+                        "write": position,
+                        "failed_checks": failed,
+                        "conditions_not_written": not_written,
+                        "written_filters": call.input["filters"],
+                    }
+                )
 
-        before_groups = _groups(before)
-        after_groups = _groups(after)
-        moved = [
-            {**group, "rollout_percentage": target}
-            for group in before_groups
-            if group.get("rollout_percentage") == source
-        ]
-        pinned = [group for group in before_groups if group.get("rollout_percentage") != source]
-        # Counted over every condition at once, so two of them that traded percentages
-        # cannot cover for each other.
-        missing = Counter(_canonical_group(group) for group in [*moved, *pinned]) - Counter(
-            _canonical_group(group) for group in after_groups
-        )
-
-        checks = {
-            "moved_the_target_group": not any(_canonical_group(group) in missing for group in moved),
-            "kept_the_other_conditions": not any(_canonical_group(group) in missing for group in pinned),
-            "kept_every_condition": len(after_groups) == len(before_groups),
-            "kept_the_variants": _variants(after) == _variants(before),
-            "kept_the_payloads": (after.get("payloads") if isinstance(after, dict) else None) == before.get("payloads"),
-        }
-        failed = sorted(name for name, ok in checks.items() if not ok)
         return Score(
             name=self._name(),
-            score=0.0 if failed else 1.0,
+            score=0.0 if failures else 1.0,
             metadata={
-                "failed_checks": failed,
-                "conditions_not_written": sorted(missing.elements()),
-                "written_filters": after,
+                "failed_checks": sorted({name for failure in failures for name in failure["failed_checks"]}),
+                "failed_writes": failures,
+                "writes": len(writes),
             },
         )
 
