@@ -72,7 +72,7 @@ interface OnboardingFlowProps {
 
 function OnboardingHeader() {
   return (
-    <header className="flex w-full justify-center">
+    <header className="mx-auto flex w-full max-w-[480px] justify-start">
       <ProductWordmark />
     </header>
   );
@@ -367,7 +367,7 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
         isLoggingOut={logoutMutation.isPending}
         onLogout={handleLogout}
       />
-      <div className="h-full overflow-y-auto px-8 py-10">
+      <div className="h-full overflow-y-auto px-8 pt-16">
         <div className="mx-auto flex min-h-full w-full max-w-[720px] flex-col items-center">
           <OnboardingHeader />
 
