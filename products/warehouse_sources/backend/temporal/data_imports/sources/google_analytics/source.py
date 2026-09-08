@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 import requests
 from google.auth.exceptions import RefreshError
@@ -41,6 +41,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ana
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+_SCOPE_INSUFFICIENT_MESSAGE = (
+    "Insufficient permissions. Please reconnect your Google Analytics account with the required scopes."
+)
+
+
+def _google_error_body(error: requests.HTTPError) -> dict[str, Any] | None:
+    """Return the `error` object of a Google API error body, or None if the body does not hold one."""
+    try:
+        body = error.response.json() if error.response is not None else None
+    except ValueError:
+        return None
+    if not isinstance(body, dict) or not isinstance(body.get("error"), dict):
+        return None
+    return body["error"]
+
 
 def _with_google_reason(message: str, error: requests.HTTPError) -> str:
     """Append the reason Google put in the error body.
@@ -49,16 +64,31 @@ def _with_google_reason(message: str, error: requests.HTTPError) -> str:
     part that says which permission is missing. `HTTPError` itself keeps just the status line, so
     the reason is lost unless the body is read.
     """
-    try:
-        body = error.response.json() if error.response is not None else None
-    except ValueError:
+    google_error = _google_error_body(error)
+    if google_error is None:
         return message
-    if not isinstance(body, dict) or not isinstance(body.get("error"), dict):
-        return message
-    reason = body["error"].get("message")
+    reason = google_error.get("message")
     if not isinstance(reason, str) or not reason.strip():
         return message
     return f"{message} Google reported: {reason.strip()}"
+
+
+def _is_scope_insufficient(error: requests.HTTPError) -> bool:
+    """Whether a 403 is about a missing OAuth scope instead of about the property.
+
+    Google reports both as `PERMISSION_DENIED`, and only the machine-readable `reason` in
+    `error.details[]` separates them. The two need opposite recovery steps: a new OAuth grant for a
+    missing scope, and a property grant in Google Analytics for a property denial.
+    """
+    google_error = _google_error_body(error)
+    if google_error is None:
+        return False
+    details = google_error.get("details")
+    if not isinstance(details, list):
+        return False
+    return any(
+        isinstance(detail, dict) and detail.get("reason") == "ACCESS_TOKEN_SCOPE_INSUFFICIENT" for detail in details
+    )
 
 
 @SourceRegistry.register
@@ -84,7 +114,7 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
         return {
             "401 Client Error": "Your Google Analytics connection is invalid or expired. Please reconnect your account.",
             "403 Client Error": "PostHog is not authorized to read this Google Analytics property. Please make sure the connected Google account has access to the property.",
-            "ACCESS_TOKEN_SCOPE_INSUFFICIENT": "Insufficient permissions. Please reconnect your Google Analytics account with the required scopes.",
+            "ACCESS_TOKEN_SCOPE_INSUFFICIENT": _SCOPE_INSUFFICIENT_MESSAGE,
             # Raised as a bare `RefreshError` from `AuthorizedSession` when the stored refresh token
             # has been revoked or expired. `validate_credentials` already maps this to a reconnect
             # prompt, but only runs before a sync starts. Mid-sync it reaches `_run_report` via
@@ -215,8 +245,13 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                     ),
                 )
             if status == 403:
-                # A 403 is about the property, not the token, so a reconnect prompt sends the user
-                # to a screen that cannot fix it. The 403 in `get_non_retryable_errors` must agree.
+                if _is_scope_insufficient(e):
+                    # The token itself lacks the Analytics scope, which only a new OAuth grant can
+                    # add. Reuse the sync path's wording so both paths ask for the same thing.
+                    return False, _with_google_reason(_SCOPE_INSUFFICIENT_MESSAGE, e)
+                # Any other 403 is about the property, not the token, so a reconnect prompt sends
+                # the user to a screen that cannot fix it. The 403 in `get_non_retryable_errors`
+                # must agree.
                 return (
                     False,
                     _with_google_reason(

@@ -217,12 +217,42 @@ def test_validate_credentials_maps_http_errors(status_code, expected_substring):
     assert expected_substring in (message or "")
 
 
-def test_validate_credentials_reports_a_property_403_without_a_reconnect_prompt():
-    # A reconnect prompt cannot fix a property-scoped 403, so name the property and Google's reason.
-    error = _http_error(
-        403,
-        {"error": {"code": 403, "status": "PERMISSION_DENIED", "message": "User does not have access."}},
-    )
+@pytest.mark.parametrize(
+    "body,expected_substrings,forbidden_substring",
+    [
+        pytest.param(
+            {"error": {"code": 403, "status": "PERMISSION_DENIED", "message": "User does not have access."}},
+            ["123456789", "User does not have access."],
+            "reconnect",
+            id="property_denied_names_the_property_and_never_says_reconnect",
+        ),
+        pytest.param(
+            {
+                "error": {
+                    "code": 403,
+                    "status": "PERMISSION_DENIED",
+                    "message": "Request had insufficient authentication scopes.",
+                    "details": [
+                        {
+                            "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                            "reason": "ACCESS_TOKEN_SCOPE_INSUFFICIENT",
+                            "domain": "googleapis.com",
+                        }
+                    ],
+                }
+            },
+            ["reconnect your Google Analytics account", "Request had insufficient authentication scopes."],
+            "123456789",
+            id="scope_insufficient_asks_for_a_new_grant_and_never_names_the_property",
+        ),
+    ],
+)
+def test_validate_credentials_picks_the_403_recovery_from_the_error_body(
+    body, expected_substrings, forbidden_substring
+):
+    # Google returns PERMISSION_DENIED for a property denial and for a missing OAuth scope, and the
+    # two need opposite recovery steps. Only `error.details[].reason` separates them.
+    error = _http_error(403, body)
     with (
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session"
@@ -235,9 +265,9 @@ def test_validate_credentials_reports_a_property_403_without_a_reconnect_prompt(
         ok, message = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)
 
     assert ok is False
-    assert "123456789" in (message or "")
-    assert "User does not have access." in (message or "")
-    assert "reconnect" not in (message or "").lower()
+    for expected in expected_substrings:
+        assert expected in (message or "")
+    assert forbidden_substring not in (message or "").lower()
 
 
 def test_validate_credentials_maps_token_refresh_error():
