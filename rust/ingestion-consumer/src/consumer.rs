@@ -123,6 +123,16 @@ impl PartitionDeliveries {
     }
 }
 
+/// Why the consumer loop stops. The two are reported on separate channels
+/// so a dashboard can tell a pipeline failure from a client that can no
+/// longer commit.
+enum Failure {
+    /// A poll could not be collected, dispatched, or completed.
+    Batch(anyhow::Error),
+    /// An offset commit could not be submitted to the Kafka client.
+    Commit(anyhow::Error),
+}
+
 /// Output of `collect_batch`.
 struct CollectedBatch {
     /// The poll's messages, demuxed per partition and routing key.
@@ -423,7 +433,7 @@ impl IngestionConsumer {
             // collection returns within the batch timeout, so a due commit
             // waits at most that long.
             if let Err(err) = self.maybe_commit_offsets() {
-                self.fail_batch_processing(err);
+                self.fail_commit(err);
                 return;
             }
 
@@ -462,7 +472,7 @@ impl IngestionConsumer {
                 }
             }
 
-            if let Err(err) = self
+            if let Err(failure) = self
                 .complete_oldest_poll(
                     &mut in_flight_polls,
                     &mut completions,
@@ -471,7 +481,10 @@ impl IngestionConsumer {
                 )
                 .await
             {
-                self.fail_batch_processing(err);
+                match failure {
+                    Failure::Batch(err) => self.fail_batch_processing(err),
+                    Failure::Commit(err) => self.fail_commit(err),
+                }
                 return;
             }
         }
@@ -559,7 +572,7 @@ impl IngestionConsumer {
         completions: &mut mpsc::UnboundedReceiver<GroupCompletion>,
         errors: &mut mpsc::UnboundedReceiver<String>,
         tick: &mut Interval,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), Failure> {
         if in_flight_polls.front().is_none() {
             return Ok(());
         }
@@ -572,23 +585,27 @@ impl IngestionConsumer {
             tokio::select! {
                 completion = completions.recv() => match completion {
                     Some(completion) => apply_completion(in_flight_polls, completion),
-                    None => anyhow::bail!("batcher completion channel closed"),
+                    None => return Err(Failure::Batch(anyhow::anyhow!(
+                        "batcher completion channel closed"
+                    ))),
                 },
                 failure = errors.recv() => match failure {
-                    Some(message) => anyhow::bail!(message),
-                    None => anyhow::bail!("batcher error channel closed"),
+                    Some(message) => return Err(Failure::Batch(anyhow::anyhow!(message))),
+                    None => return Err(Failure::Batch(anyhow::anyhow!(
+                        "batcher error channel closed"
+                    ))),
                 },
-                _ = tick.tick() => self.maybe_commit_offsets()?,
+                _ = tick.tick() => self.maybe_commit_offsets().map_err(Failure::Commit)?,
             }
         }
 
         let poll = in_flight_polls.pop_front().expect("front is present");
         if poll.accepted < poll.message_count {
-            anyhow::bail!(
+            return Err(Failure::Batch(anyhow::anyhow!(
                 "accepted {}/{} messages — not committing offsets",
                 poll.accepted,
                 poll.message_count
-            );
+            )));
         }
 
         self.settle_poll(&poll.partitions);
@@ -616,6 +633,20 @@ impl IngestionConsumer {
         });
         self.handle
             .signal_failure(format!("Batch processing failed: {err:#}"));
+    }
+
+    /// The Kafka client refused a commit. The commit is asynchronous, so this
+    /// is a client that cannot commit at all, not a broker verdict. Consuming
+    /// on would freeze the committed position while reporting healthy, so the
+    /// process exits and restarts.
+    fn fail_commit(&self, err: anyhow::Error) {
+        error!(error = %err, "Offset commit failed");
+        counter!("ingestion_consumer_commit_errors_total").increment(1);
+        record_if(&self.debug_recorder, || DebugEventKind::CommitFailed {
+            error: format!("{err:#}"),
+        });
+        self.handle
+            .signal_failure(format!("Offset commit failed: {err:#}"));
     }
 
     /// Collect messages from Kafka until the first of `batch_size` messages,
