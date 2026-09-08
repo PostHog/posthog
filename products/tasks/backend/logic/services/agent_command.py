@@ -12,6 +12,8 @@ from django.conf import settings
 import requests
 import structlog
 
+from posthog.security.outbound_proxy import internal_requests_session
+
 logger = structlog.get_logger(__name__)
 
 COMMAND_TIMEOUT_SECONDS = 15
@@ -88,6 +90,10 @@ def validate_sandbox_url(url: str) -> str | None:
     if not hostname:
         return "No hostname in URL"
 
+    # In-cluster DNS answers for the hogland host with a private address.
+    if is_hogland_sandbox_url(url):
+        return None
+
     try:
         resolved = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
     except socket.gaierror:
@@ -120,7 +126,7 @@ def _is_loopback_host(hostname: str | None) -> bool:
         return False
 
 
-def _is_hogland_sandbox_url(sandbox_url: str | None) -> bool:
+def is_hogland_sandbox_url(sandbox_url: str | None) -> bool:
     """Whether ``sandbox_url`` points at the configured hogland control plane.
 
     The hogland bearer is an account-wide credential, so it must only ever be
@@ -128,6 +134,13 @@ def _is_hogland_sandbox_url(sandbox_url: str | None) -> bool:
     (not the mutable ``sandbox_backend`` state flag) means a forged run state
     cannot redirect the credential to an attacker-controlled server, even on the
     ``send_agent_command`` path whose SSRF check permits arbitrary public hosts.
+
+    Two other decisions read this same gate, because in-cluster DNS answers for the
+    hogland host with a private address that reaches it over PrivateLink.
+    ``validate_sandbox_url`` exempts the origin from its private-address check, which
+    would otherwise reject every hogland sandbox. Callers also send to it with the
+    ``HTTP_PROXY``/``HTTPS_PROXY`` vars ignored, because the egress proxy answers 407
+    for that host. The exact-origin match is what keeps both safe.
     """
     hogland_api_url = getattr(settings, "HOGLAND_API_URL", None)
     if not sandbox_url or not hogland_api_url:
@@ -165,7 +178,7 @@ def sandbox_transport_token(state: dict[str, Any] | None, sandbox_url: str | Non
     authorizes attaching an account-wide credential — ``sandbox_backend`` /
     ``sandbox_url`` are also protected run-state keys, so this is defense in depth.
     """
-    if (state or {}).get("sandbox_backend") == "hogland" and _is_hogland_sandbox_url(sandbox_url):
+    if (state or {}).get("sandbox_backend") == "hogland" and is_hogland_sandbox_url(sandbox_url):
         # Deferred: hogland_sandbox pulls in the hogland SDK + httpx, which every
         # non-hogland caller of this module would otherwise pay for.
         from products.tasks.backend.logic.services.hogland_sandbox import get_hogland_api_token  # noqa: PLC0415
@@ -258,14 +271,20 @@ def send_agent_command(
     if params:
         payload["params"] = params
 
+    request_kwargs: dict[str, Any] = {
+        "json": payload,
+        "headers": headers,
+        "timeout": timeout,
+        "params": query_params or None,
+    }
+
     try:
-        resp = requests.post(
-            command_url,
-            json=payload,
-            headers=headers,
-            timeout=timeout,
-            params=query_params or None,
-        )
+        if is_hogland_sandbox_url(sandbox_url):
+            # The egress proxy answers 407 for the in-cluster hogland host.
+            with internal_requests_session() as session:
+                resp = session.post(command_url, **request_kwargs)
+        else:
+            resp = requests.post(command_url, **request_kwargs)
     except requests.ReadTimeout:
         # The request body was already sent — the sandbox has the command and
         # is still processing it. Callers rely on turn_in_flight meaning

@@ -45,6 +45,8 @@ export interface TaskRunErrorResponseApi {
     type?: string
     /** Machine-readable error code */
     code?: string
+    /** After confirmed warm startup nondelivery, echo this token in X-PostHog-Warm-Retry to retry the same run and message within 60 seconds. */
+    retry_token?: string
     /** Why PostHog Desktop access was denied, when applicable.
      *
      * * `startup_plan` - startup_plan
@@ -1330,6 +1332,12 @@ export interface OnboardingSessionApi {
 }
 
 export interface OnboardingSessionTestApi {
+    /**
+     * Optional LLM model identifier for the test session. Omit to use the plan default.
+     * @maxLength 255
+     * @nullable
+     */
+    model?: string | null
     /**
      * Company domain to research. Blank simulates a personal email address.
      * @maxLength 253
