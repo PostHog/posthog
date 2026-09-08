@@ -1,3 +1,4 @@
+import os
 import logging
 import datetime
 from dataclasses import fields
@@ -153,6 +154,19 @@ class TestProphetEngine:
             pytest.raises(ForecastExecutionError, match="timed out"),
         ):
             engine.forecast(_daily_dates(14), [1.0] * 14, 1, 0.95, IntervalType.DAY)
+
+    def test_forecast_leaves_no_cmdstan_output_files_behind(self):
+        import cmdstanpy
+
+        def entries() -> set[str]:
+            return {
+                os.path.join(root, name) for root, dirs, files in os.walk(cmdstanpy._TMPDIR) for name in (*dirs, *files)
+            }
+
+        engine = get_forecast_engine({"engine": "prophet"})
+        before = entries()
+        engine.forecast(_daily_dates(30), [float(100 + i) for i in range(30)], 7, 0.95, IntervalType.DAY)
+        assert entries() == before
 
     def test_forecast_is_deterministic_without_changing_numpy_random_state(self):
         import numpy as np

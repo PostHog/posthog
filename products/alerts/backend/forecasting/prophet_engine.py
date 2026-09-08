@@ -1,5 +1,6 @@
 import math
 import time
+import tempfile
 import statistics
 from statistics import NormalDist
 
@@ -90,10 +91,15 @@ class ProphetEngine:
 
         start = time.monotonic()
         try:
-            model.fit(df, timeout=FORECAST_FIT_TIMEOUT_SECONDS)
-            freq = _FREQ.get(interval or IntervalType.DAY, "D")
-            future = model.make_future_dataframe(periods=horizon, freq=freq, include_history=True)
-            prediction = model.predict(future)
+            # CmdStanPy writes each fit's CSV and stdout into a per-run directory and removes it
+            # only when the process exits. Scheduled evaluations and previews both run in
+            # long-lived workers, so an unset output_dir makes those files collect for the life of
+            # the process. The directory must stay until predict returns.
+            with tempfile.TemporaryDirectory(prefix="prophet_fit_") as fit_output_dir:
+                model.fit(df, timeout=FORECAST_FIT_TIMEOUT_SECONDS, output_dir=fit_output_dir)
+                freq = _FREQ.get(interval or IntervalType.DAY, "D")
+                future = model.make_future_dataframe(periods=horizon, freq=freq, include_history=True)
+                prediction = model.predict(future)
         except TimeoutError as error:
             self._log_outcome("timeout", start, interval, len(values), horizon)
             raise ForecastExecutionError("Forecast model execution timed out.") from error
