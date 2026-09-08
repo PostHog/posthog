@@ -112,6 +112,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
         scannerEstimate,
         scannerEstimateLoading,
         isScannerSubmitting,
+        experimentContext,
     } = useValues(logic)
     const { submitScanner, loadScannerEstimate } = useActions(logic)
 
@@ -124,14 +125,25 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
-    const firstProperty = scanner.query?.properties?.[0]
+    // Found by key, not by position: the drafted query can carry a cohort property too, and reading
+    // whichever came first would render a cohort id as a page.
+    const pageProperty = scanner.query?.properties?.find(
+        (property) => 'key' in property && property.key === 'visited_page'
+    )
     const pageValues =
-        firstProperty &&
-        'value' in firstProperty &&
-        Array.isArray(firstProperty.value) &&
-        firstProperty.value.length > 0
-            ? firstProperty.value
+        pageProperty && 'value' in pageProperty && Array.isArray(pageProperty.value) && pageProperty.value.length > 0
+            ? pageProperty.value
             : null
+
+    // Targeting narrows who is watched rather than where, and it lives outside the query, so it
+    // needs a snack of its own or the drafted filter reads as every visitor of those pages.
+    const targeting = scanner.experiment_targeting
+    // The experiment loads separately, so name the variant either way rather than waiting for it.
+    const experimentLabel = targeting?.experiment_id
+        ? `${experimentContext?.experiment.name ?? 'Experiment participants'} (${
+              targeting.variant ? `${targeting.variant} variant` : 'all variants'
+          })`
+        : null
 
     const eventValues =
         scanner.query && 'events' in scanner.query && Array.isArray(scanner.query.events)
@@ -196,8 +208,9 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
             </OverviewSection>
 
             <OverviewSection label="Eligible recordings" editStep="triggers" scannerId={scannerId}>
-                {pageValues || eventValues.length > 0 ? (
+                {experimentLabel || pageValues || eventValues.length > 0 ? (
                     <div className="flex flex-wrap gap-1">
+                        {experimentLabel ? <LemonSnack>{experimentLabel}</LemonSnack> : null}
                         {(pageValues ?? []).map((page) => (
                             <LemonSnack key={`page-${String(page)}`}>{String(page)}</LemonSnack>
                         ))}

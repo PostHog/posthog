@@ -857,6 +857,7 @@ const goalDraft: DraftScannerResponseApi = {
     sampling_rate: 0.25,
     model: 'gemini-3-flash-preview',
     credit_limit: 5000,
+    experiment_targeting: null,
     estimated_monthly_observations: 1000,
 }
 
