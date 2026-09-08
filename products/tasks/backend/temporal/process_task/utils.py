@@ -4,7 +4,7 @@ import logging
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -218,13 +218,20 @@ CODEX_MAX_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
     ReasoningEffort.MAX,
 )
 CODEX_XHIGH_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.5"})
-CODEX_MAX_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"})
+CODEX_MAX_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra"})
 
 # Canonical list of Codex models. The runtime technically accepts any
 # `gpt-*` identifier passed through, but only models on this list are
 # considered tested and surfaced in pickers. Extend when a new Codex model
 # ships.
-CODEX_MODELS: tuple[str, ...] = ("gpt-5", "gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
+CODEX_MODELS: tuple[str, ...] = (
+    "gpt-5",
+    "gpt-5.5",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+    "gpt-6-astra",
+)
 
 
 def get_models_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None) -> tuple[str, ...]:
@@ -451,6 +458,7 @@ class RunState(BaseModel, extra="allow"):
     reasoning_effort: ReasoningEffort | None = None
     context_window: str | None = None
     fast_mode: bool | None = None
+    claude_model_access: Literal["posthog-gateway", "own-subscription"] | None = None
     resume_from_run_id: str | None = None
     same_run_resume: bool = False
     same_run_resume_idle: bool = False
@@ -1408,6 +1416,8 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
     context that scoped-token minting depends on. `ctx` is the run's
     TaskProcessingContext (duck-typed to avoid an import cycle); `task` the Task row.
     """
+    if ctx.claude_model_access == "own-subscription":
+        return {}
     return ai_gateway_env_vars(
         team_id=ctx.team_id,
         origin_product=ctx.origin_product,

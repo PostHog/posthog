@@ -7,6 +7,7 @@ import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import {
     getAdvertisedOAuthScopes,
+    getFlagGatedTools,
     getToolDefinitions,
     getRequiredFeatureFlags,
     getToolsForFeatures,
@@ -347,6 +348,36 @@ describe('Tool Filtering - API Scopes', () => {
             expect(flagDisabledToolNames).not.toContain(toolName)
         }
     })
+
+    it.each([
+        ['notebooks-widget-generate', ['notebook:write', 'query:read']],
+        ['notebooks-widget-status', ['notebook:read']],
+        ['notebooks-widget-cancel', ['notebook:write']],
+    ] satisfies [string, string[]][])(
+        'exposes %s only with notebook widgets enabled and the required scopes',
+        async (toolName, scopes) => {
+            const context = createMockContext(scopes)
+            const enabledOptions = { featureFlags: { 'notebook-generated-widgets': true }, aiConsentGiven: true }
+            const enabled = await getToolsFromContext(context, enabledOptions)
+            expect(enabled.map((tool) => tool.name)).toContain(toolName)
+
+            for (const flagValue of [false, undefined]) {
+                const disabled = await getToolsFromContext(context, {
+                    ...enabledOptions,
+                    featureFlags: { 'notebook-generated-widgets': flagValue },
+                })
+                expect(disabled.map((tool) => tool.name)).not.toContain(toolName)
+            }
+
+            for (const missingScope of scopes) {
+                const denied = await getToolsFromContext(
+                    createMockContext(scopes.filter((scope) => scope !== missingScope)),
+                    enabledOptions
+                )
+                expect(denied.map((tool) => tool.name)).not.toContain(toolName)
+            }
+        }
+    )
 
     it('should return only tools with no required scopes when user has no matching scopes', async () => {
         const context = createMockContext(['some:unknown'])
@@ -920,6 +951,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'customer-analytics-feature-requests',
                 'notebooks-collaboration',
                 'revamped-py-notebooks',
+                'notebook-generated-widgets',
                 'tasks',
                 'dashboard-widgets',
                 'marketing-analytics-mcp',
@@ -946,7 +978,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'warehouse-multi-destination',
             ])
         )
-        expect(flags).toHaveLength(33)
+        expect(flags).toHaveLength(34)
     })
 
     it('every loops tool is gated on the loops flag', () => {
@@ -1068,6 +1100,41 @@ describe('Tool Filtering - Feature Flags', () => {
             expect(toolsOff).toContain('old-tool-v1')
             expect(toolsOff).toContain('unrelated-tool')
         })
+    })
+})
+
+describe('getFlagGatedTools', () => {
+    it('reports a retired tool with the successor its definition declares', () => {
+        const gated = getFlagGatedTools({ featureFlags: { 'revamped-py-notebooks': true } })
+
+        expect(gated.find((tool) => tool.name === 'notebooks-create')?.supersededBy).toEqual([
+            'notebooks-create-markdown',
+        ])
+    })
+
+    it('leaves out a tool the flags keep in the catalog', () => {
+        const gated = getFlagGatedTools({ featureFlags: { 'revamped-py-notebooks': false } })
+
+        expect(gated.map((tool) => tool.name)).not.toContain('notebooks-create')
+    })
+
+    it('reports a tool an unset flag never enabled, so a caller learns it exists', () => {
+        const gated = getFlagGatedTools({ featureFlags: {} })
+
+        const entry = gated.find((tool) => tool.name === 'notebooks-add-cell')
+        expect(entry).not.toBeUndefined()
+        expect(entry?.supersededBy).toEqual([])
+    })
+
+    // The successor lives on the definition next to the gate that retires the tool.
+    // Without it, a call to the retired name reads to an agent as a removed capability.
+    it('every retired tool declares a successor or says why it has none', () => {
+        const undeclared = Object.entries(getToolDefinitions())
+            .filter(([_, def]) => def.feature_flag_behavior === 'disable' || def.hidden_when_flag_on)
+            .filter(([_, def]) => !def.superseded_by?.length && !def.redirect_hint)
+            .map(([name]) => name)
+
+        expect(undeclared).toEqual([])
     })
 })
 

@@ -135,13 +135,31 @@ class TestResolveScopes(SimpleTestCase):
         for scope in INTERNAL_SCOPES:
             assert scope not in result
 
-    def test_scout_posture_adds_only_the_granted_write_scopes(self) -> None:
+    @parameterized.expand(
+        [
+            ("dashboard_grant", "signals_scout", "dashboard:write", "insight:write"),
+            # The skills grant is the one whose object the scout machinery itself runs on: a custom
+            # scout is a skill, and the report preset carries the scout's own internal and emit
+            # scopes. This case is what proves a grant on it composes with that preset rather than
+            # replacing part of it.
+            (
+                "skill_grant_on_the_report_preset",
+                "signals_scout_reports",
+                "llm_skill:write",
+                "warehouse_view:write",
+            ),
+        ]
+    )
+    def test_scout_posture_adds_only_the_granted_write_scopes(
+        self, _name: str, preset: ScoutScopePreset, granted: str, withheld: str
+    ) -> None:
         # The feature itself: a grant reaches the token, and only the granted scope does.
         # A posture that resolved to the whole allowlist would hand every scout that holds one
-        # grant the other three.
-        result = resolve_scopes(scout_scope_posture("signals_scout", ["dashboard:write"]))
-        assert set(result) == set(resolve_scopes("signals_scout")) | {"dashboard:write"}
-        assert "insight:write" not in result
+        # grant the rest of the set.
+        assert granted not in resolve_scopes(preset), "the preset already carries it, so this case proves nothing"
+        result = resolve_scopes(scout_scope_posture(preset, [granted]))
+        assert set(result) == set(resolve_scopes(preset)) | {granted}
+        assert withheld not in result
 
     @parameterized.expand(
         [
@@ -171,6 +189,10 @@ class TestResolveScopes(SimpleTestCase):
     @parameterized.expand(
         [
             ("write_scope_outside_the_allowlist", "feature_flag:write"),
+            # A scout run acts as its skill's author, so a scout holding this could widen its own
+            # `write_scopes` through the scout config endpoint. It is kept out of the allowlist
+            # until that self-widening has its own gate.
+            ("scout_config_scope", "signal_scout:write"),
             # The report channel is granted by the preset a scout's skill opted into, never by
             # the per-scout field. A baseline scout must not reach emit_report through a grant.
             ("internal_scope", "signal_scout_report:write"),
