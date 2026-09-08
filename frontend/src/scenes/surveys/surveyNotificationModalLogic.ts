@@ -26,7 +26,6 @@ import {
     buildSurveyExampleInvocationGlobals,
     getSurveyNotificationFilters,
     getSurveyIdBasedResponseKey,
-    surveyEmitsPartialSentEvents,
 } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
@@ -451,7 +450,6 @@ async function buildSurveyNotificationPayload({
             template,
             destination: form.destination,
             surveyId: survey.id,
-            emitsPartialSentEvents: surveyEmitsPartialSentEvents(survey),
             form,
         })
     }
@@ -471,7 +469,6 @@ async function buildSurveyNotificationPayload({
         destination: form.destination,
         surveyName: survey.name,
         surveyId: survey.id,
-        emitsPartialSentEvents: surveyEmitsPartialSentEvents(survey),
         form,
     })
 }
@@ -705,14 +702,12 @@ function createSurveyNotificationPayload({
     destination,
     surveyName,
     surveyId,
-    emitsPartialSentEvents,
     form,
 }: {
     template: HogFunctionTemplateType
     destination: DestinationKey
     surveyName?: string | null
     surveyId: string
-    emitsPartialSentEvents: boolean
     form: SurveyNotificationForm
 }): Partial<HogFunctionType> {
     const destinationOption = DESTINATION_OPTIONS.find((option) => option.value === destination)
@@ -770,11 +765,7 @@ function createSurveyNotificationPayload({
         description: subTemplate?.description ?? `Survey notification for ${destinationOption.label}`,
         inputs,
         inputs_schema: template.inputs_schema,
-        filters: getSurveyNotificationFilters(
-            surveyId,
-            emitsPartialSentEvents,
-            buildResponseFilterProperties(form.responseFilters)
-        ),
+        filters: getSurveyNotificationFilters(surveyId, buildResponseFilterProperties(form.responseFilters)),
         hog: template.code,
         icon_url: template.icon_url,
         enabled: true,
@@ -848,14 +839,12 @@ function updateSurveyNotificationPayload({
     template,
     destination,
     surveyId,
-    emitsPartialSentEvents,
     form,
 }: {
     notification: HogFunctionType
     template: HogFunctionTemplateType
     destination: DestinationKey
     surveyId: string
-    emitsPartialSentEvents: boolean
     form: SurveyNotificationForm
 }): Partial<HogFunctionType> {
     const payload = createSurveyNotificationPayload({
@@ -863,7 +852,6 @@ function updateSurveyNotificationPayload({
         destination,
         surveyName: null,
         surveyId,
-        emitsPartialSentEvents,
         form,
     })
 
@@ -909,7 +897,6 @@ function createCopiedSurveyNotificationPayload({
         destination,
         surveyName: survey.name,
         surveyId: survey.id,
-        emitsPartialSentEvents: surveyEmitsPartialSentEvents(survey),
         form,
     })
 
@@ -930,11 +917,7 @@ function createCopiedSurveyNotificationPayload({
         },
         mappings: remapSurveyResponseProperties(notification.mappings, survey),
         masking: notification.masking,
-        filters: getSurveyNotificationFilters(
-            survey.id,
-            surveyEmitsPartialSentEvents(survey),
-            buildResponseFilterProperties(form.responseFilters)
-        ),
+        filters: getSurveyNotificationFilters(survey.id, buildResponseFilterProperties(form.responseFilters)),
         hog: remapSurveyResponseProperties(notification.hog, survey) ?? template.code,
         icon_url: notification.icon_url ?? template.icon_url,
         enabled: true,
