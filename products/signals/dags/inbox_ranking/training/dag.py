@@ -519,8 +519,7 @@ def inbox_ranking_unseen_scores(context: dagster.AssetExecutionContext) -> None:
     day = datetime.date.fromisoformat(partition_key)
 
     snapshot = load_snapshots(client, bucket, prefix, [day], required=day)[day]
-    # Only the ids: the examples table is one row per (report, snapshot, head) over the whole
-    # lookback, and the guard below reads nothing else from it.
+    # Only the ids: the examples table is one row per (report, snapshot, head) over the lookback.
     example_ids = read_parquet(
         client, bucket, partition_object_key(prefix, EXAMPLES_TABLE, partition_key), columns=["report_id"]
     )

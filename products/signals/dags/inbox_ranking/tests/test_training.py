@@ -479,8 +479,7 @@ def _scores(report_ids: list[str], **overrides) -> pd.DataFrame:
 
 
 def test_unseen_pool_is_the_reports_born_on_the_partition_day():
-    # The pool is what makes the read leakage-free, and scoring every newborn is what makes it big
-    # enough to grade: a report born before D can already be a training example on D.
+    # A report born before D can already be a training example on D, so the pool must exclude it.
     born_on_d0 = pd.Timestamp("2026-08-10T09:00:00Z")
     pool = unseen_pool(
         _state(
@@ -491,14 +490,12 @@ def test_unseen_pool_is_the_reports_born_on_the_partition_day():
         ),
         D0,
     )
-    # b was born the day before, c carries no signal_count, and d was read long after the snapshot
-    # window, so it holds current Postgres state - build_examples would drop the last two too.
+    # b was born the day before; c has no signal_count and d is a backfill, which build_examples drops too.
     assert pool.index.tolist() == ["a"]
 
 
 def test_build_examples_never_covers_a_report_born_on_the_partition_day():
-    # What the newborn pool rests on: the dt=D examples stop at D minus the head's horizon, so a
-    # report created on D is unreachable. A builder change that broke this would leak into the read.
+    # What the newborn pool rests on: a builder change that reached the partition day would leak.
     head = HEADS_BY_NAME["open"]
     scoring_day = D0 - datetime.timedelta(days=head.horizon_days)
     old, newborn = pd.Timestamp("2026-07-01T00:00:00Z"), pd.Timestamp("2026-08-10T09:00:00Z")
@@ -512,13 +509,11 @@ def test_build_examples_never_covers_a_report_born_on_the_partition_day():
             _labels(["old", "newborn"], open_count=[1, 1]),
         ),
     }
-    # "old" is a scoring moment on D - horizon_days labeled from D; the newborn has no such pair.
     assert set(build_examples(snapshots, head)["report_id"]) == {"old"}
 
 
 def test_leaked_report_ids_flags_a_pool_report_an_example_already_covers():
-    # The runtime guard behind the structural argument: if the builder ever reaches the partition
-    # day, the asset must fail rather than publish an AUC measured on its own training data.
+    # The guard must fail the asset rather than publish an AUC measured on training data.
     pool = _state(["a", "b"])
     assert leaked_report_ids(pool, ["c"]) == []
     assert leaked_report_ids(pool, ["b", "c"]) == ["b"]

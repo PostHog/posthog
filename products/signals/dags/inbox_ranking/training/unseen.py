@@ -28,8 +28,7 @@ from products.signals.dags.inbox_ranking.common import snapshot_bounds
 from products.signals.dags.inbox_ranking.training.examples import STATE_COLUMNS, point_in_time_mask
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head
 
-# Which reports the day's read scores. Stamped on every event, so a chart can tell this pool
-# definition apart from the one a later change puts in its place.
+# Stamped on every scored event, so a chart can tell this pool definition from a later one.
 POOL_NAME = "newborn"
 
 CANDIDATE_ROLE = "candidate"
@@ -155,8 +154,7 @@ def unseen_pool(state: pd.DataFrame, snapshot_date: datetime.date) -> pd.DataFra
     """
     start, end = snapshot_bounds(snapshot_date.isoformat())
     created = pd.to_datetime(state["report_created_at"], utc=True)
-    # Newborns first: the day's state holds every live report, so the remaining filters then run
-    # over the small slice instead of the whole population.
+    # Newborns first: the remaining filters then run over the slice, not every live report.
     newborn = state.loc[((created >= start) & (created < end)).to_numpy()]
     keep = newborn["signal_count"].notna().to_numpy()
     keep &= point_in_time_mask(newborn, snapshot_date).to_numpy()
