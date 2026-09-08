@@ -192,6 +192,10 @@ const rows: Row[] = [
         posthog: phRow('bg-fill-button-tertiary-hover'),
     },
     {
+        label: 'Active fill',
+        quill: quillRow('fill-active'),
+    },
+    {
         label: 'Selected fill',
         quill: quillRow('fill-selected'),
         posthog: phRow('bg-fill-button-tertiary-active'),

@@ -174,6 +174,17 @@
     }
 
     /* =========================================================================
+       Variant: secondary
+       ========================================================================= */
+    .quill-button--variant-secondary {
+        background-color: var(--fill-hover);
+    }
+
+    .quill-button--variant-secondary:not(:disabled, [aria-disabled='true']):hover {
+        background-color: var(--fill-active);
+    }
+
+    /* =========================================================================
        Variant: outline
        ========================================================================= */
     .quill-button--variant-outline {
@@ -222,6 +233,23 @@
 
     .quill-button--variant-destructive[data-popup-open] {
         background-color: color-mix(in oklab, var(--destructive) 20%, transparent);
+    }
+
+    /* =========================================================================
+       Variant: destructive outline
+       ========================================================================= */
+    .quill-button--variant-destructive-outline {
+        color: var(--destructive-foreground);
+        border-color: currentColor;
+    }
+
+    .quill-button--variant-destructive-outline:not(:disabled, [aria-disabled='true']):hover {
+        background-color: var(--destructive);
+    }
+
+    .quill-button--variant-destructive-outline:focus-visible {
+        border-color: currentColor;
+        box-shadow: 0 0 0 2px color-mix(in oklab, var(--destructive-foreground) 60%, transparent);
     }
 
     /* =========================================================================
@@ -412,6 +440,10 @@
         transition: opacity 150ms ease;
     }
 
+    .quill-button--variant-destructive-outline[data-loading] {
+        border-color: var(--destructive-foreground);
+    }
+
     .quill-button[data-loading] > .quill-spinner {
         position: absolute;
         inset: 0;
@@ -426,7 +458,7 @@
         color: var(--primary-foreground);
     }
 
-    .quill-button--variant-destructive[data-loading] > .quill-spinner {
+    :is(.quill-button--variant-destructive, .quill-button--variant-destructive-outline)[data-loading] > .quill-spinner {
         color: var(--destructive-foreground);
     }
 

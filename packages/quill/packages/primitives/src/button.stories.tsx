@@ -12,7 +12,16 @@ const meta = {
     argTypes: {
         variant: {
             control: 'select',
-            options: ['default', 'primary', 'outline', 'destructive', 'link', 'link-muted'],
+            options: [
+                'default',
+                'primary',
+                'secondary',
+                'outline',
+                'destructive',
+                'destructive-outline',
+                'link',
+                'link-muted',
+            ],
         },
         size: {
             control: 'select',
@@ -31,8 +40,10 @@ export const Default = {
         <div className="flex flex-wrap gap-2">
             <Button>Default</Button>
             <Button variant="primary">Primary</Button>
+            <Button variant="secondary">Secondary</Button>
             <Button variant="outline">Outline</Button>
             <Button variant="destructive">Destructive</Button>
+            <Button variant="destructive-outline">Destructive outline</Button>
             <Button variant="link">Link</Button>
         </div>
     ),
@@ -64,11 +75,17 @@ export const WithIcons = {
             <Button variant="primary">
                 <TrashIcon /> Primary
             </Button>
+            <Button variant="secondary">
+                <TrashIcon /> Secondary
+            </Button>
             <Button variant="outline">
                 <TrashIcon /> Outline
             </Button>
             <Button variant="destructive">
                 <TrashIcon /> Destructive
+            </Button>
+            <Button variant="destructive-outline">
+                <TrashIcon /> Destructive outline
             </Button>
             <Button variant="link">
                 <TrashIcon /> Link
@@ -88,17 +105,25 @@ export const WithKBD = {
                 Primary
                 <Kbd>⌘B</Kbd>
             </Button>
+            <Button variant="secondary">
+                Secondary
+                <Kbd>⌘C</Kbd>
+            </Button>
             <Button variant="outline">
                 Outline
-                <Kbd>⌘C</Kbd>
+                <Kbd>⌘D</Kbd>
             </Button>
             <Button variant="destructive">
                 Destructive
-                <Kbd>⌘D</Kbd>
+                <Kbd>⌘E</Kbd>
+            </Button>
+            <Button variant="destructive-outline">
+                Destructive outline
+                <Kbd>⌘F</Kbd>
             </Button>
             <Button variant="link">
                 Link
-                <Kbd>⌘E</Kbd>
+                <Kbd>⌘G</Kbd>
             </Button>
         </div>
     ),
@@ -113,14 +138,44 @@ export const IconOnly = {
             <Button variant="primary" size="icon">
                 <TrashIcon />
             </Button>
+            <Button variant="secondary" size="icon">
+                <TrashIcon />
+            </Button>
             <Button variant="outline" size="icon">
                 <TrashIcon />
             </Button>
             <Button variant="destructive" size="icon">
                 <TrashIcon />
             </Button>
+            <Button variant="destructive-outline" size="icon">
+                <TrashIcon />
+            </Button>
             <Button variant="link" size="icon">
                 <TrashIcon />
+            </Button>
+        </div>
+    ),
+} satisfies Story
+
+export const InteractionStates = {
+    parameters: {
+        pseudo: {
+            hover: ['#secondary-hover', '#destructive-outline-hover'],
+            focusVisible: '#destructive-outline-focus',
+        },
+    },
+    render: () => (
+        <div className="flex flex-wrap gap-2">
+            <Button variant="secondary">Secondary resting</Button>
+            <Button id="secondary-hover" variant="secondary">
+                Secondary hover
+            </Button>
+            <Button variant="destructive-outline">Destructive outline resting</Button>
+            <Button id="destructive-outline-hover" variant="destructive-outline">
+                Destructive outline hover
+            </Button>
+            <Button id="destructive-outline-focus" variant="destructive-outline">
+                Destructive outline focus
             </Button>
         </div>
     ),
@@ -170,16 +225,22 @@ export const Sizes = {
 
 export const Disabled = {
     render: () => (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
             <Button disabled>Default</Button>
             <Button variant="primary" disabled>
                 Primary
+            </Button>
+            <Button variant="secondary" disabled>
+                Secondary
             </Button>
             <Button variant="outline" disabled>
                 Outline
             </Button>
             <Button variant="destructive" disabled>
                 Destructive
+            </Button>
+            <Button variant="destructive-outline" disabled>
+                Destructive outline
             </Button>
             <Button variant="link" disabled>
                 Link
@@ -202,11 +263,17 @@ export const Loading = {
                     <Button variant="primary" loading>
                         Primary
                     </Button>
+                    <Button variant="secondary" loading>
+                        Secondary
+                    </Button>
                     <Button variant="outline" loading>
                         Outline
                     </Button>
                     <Button variant="destructive" loading>
                         Destructive
+                    </Button>
+                    <Button variant="destructive-outline" loading>
+                        Destructive outline
                     </Button>
                     <Button size="icon" loading aria-label="Delete">
                         <TrashIcon />
