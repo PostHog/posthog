@@ -624,51 +624,37 @@ describe('the activity log logic', () => {
             expect(container.textContent?.match(/Email address = b@example\.com/g)).toHaveLength(1)
         })
 
-        it('does not mention variant rollout when only release conditions changed', async () => {
+        it('names the variant a condition set moved to without mentioning variant rollout', async () => {
+            const multivariate = {
+                variants: [
+                    { key: 'control', rollout_percentage: 100 },
+                    { key: 'variant', rollout_percentage: 0 },
+                ],
+            }
             const logic = await featureFlagsTestSetup('test flag', 'updated', [
                 {
                     type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'filters',
                     before: {
-                        groups: [{ variant: null, properties: [], rollout_percentage: 0 }],
+                        groups: [{ variant: null, properties: [], rollout_percentage: 20 }],
                         payloads: {},
-                        multivariate: {
-                            variants: [
-                                { key: 'control', rollout_percentage: 100 },
-                                { key: 'variant', rollout_percentage: 0 },
-                            ],
-                        },
+                        multivariate,
                     },
                     after: {
-                        groups: [
-                            {
-                                variant: 'variant',
-                                properties: [
-                                    {
-                                        key: 'created_at_timestamp',
-                                        type: 'person',
-                                        value: '1771344031000',
-                                        operator: 'gt',
-                                    },
-                                ],
-                                rollout_percentage: 20,
-                            },
-                        ],
+                        groups: [{ variant: 'variant', properties: [], rollout_percentage: 20 }],
                         payloads: {},
-                        multivariate: {
-                            variants: [
-                                { key: 'control', rollout_percentage: 100 },
-                                { key: 'variant', rollout_percentage: 0 },
-                            ],
-                        },
+                        multivariate,
                     },
                 },
             ])
 
             const actual = logic.values.humanizedActivity
-            const text = render(<>{actual[0].description}</>).container.textContent
-            expect(text).not.toContain('changed the rollout percentage for the variants')
+            const container = render(<>{actual[0].description}</>).container
+            expect(container).toHaveTextContent(
+                'peter changed the variant for all users from none to variant on test flag'
+            )
+            expect(container.textContent).not.toContain('changed the rollout percentage for the variants')
         })
 
         it('only lists variants whose rollout percentage actually changed', async () => {

@@ -96,8 +96,8 @@ const conditionSetsNoun = (count: number): string => pluralize(count, 'condition
 
 const MAX_DETAILED_SET_CHANGES = 3
 
-// The aspects a sentence talks about, in the order it mentions them.
-const DESCRIBED_ASPECTS: ConditionSetAspect[] = ['criteria', 'rollout', 'variant']
+// Description comes last because it only ever reads as a tail: "... and its description".
+const DESCRIBED_ASPECTS: ConditionSetAspect[] = ['criteria', 'rollout', 'variant', 'description']
 
 const describedAspects = (set: ConditionSetChange): ConditionSetAspect[] => {
     const aspects = changedAspects(set)
@@ -112,39 +112,69 @@ const rolloutChangeFragment = (set: ConditionSetChange): JSX.Element => (
 
 const variantChangeFragment = (set: ConditionSetChange): JSX.Element => (
     <>
-        to <strong>{set.group.variant ?? 'none'}</strong>
+        from <strong>{set.previous?.variant ?? 'none'}</strong> to <strong>{set.group.variant ?? 'none'}</strong>
     </>
 )
 
-const aspectHeadClause = (set: ConditionSetChange, aspect: ConditionSetAspect): JSX.Element => {
-    const label = conditionSetLabel(set.group)
-    switch (aspect) {
-        case 'rollout':
-            return (
-                <>
-                    changed the rollout for {label} {rolloutChangeFragment(set)}
-                </>
-            )
-        case 'variant':
-            return (
-                <>
-                    changed the variant for {label} {variantChangeFragment(set)}
-                </>
-            )
-        default:
-            return <>changed the criteria for {label}</>
-    }
+interface AspectWording {
+    verb: string
+    noun: string
+    subject: (set: ConditionSetChange) => JSX.Element
+    fragment?: (set: ConditionSetChange) => JSX.Element
 }
 
+// A description change names its set by position, because the label of a set is its description.
+const ASPECT_WORDING: Record<ConditionSetAspect, AspectWording> = {
+    criteria: {
+        verb: 'changed the criteria for',
+        noun: 'criteria',
+        subject: (set) => conditionSetLabel(set.group),
+    },
+    rollout: {
+        verb: 'changed the rollout for',
+        noun: 'rollout',
+        subject: (set) => conditionSetLabel(set.group),
+        fragment: rolloutChangeFragment,
+    },
+    variant: {
+        verb: 'changed the variant for',
+        noun: 'variant',
+        subject: (set) => conditionSetLabel(set.group),
+        fragment: variantChangeFragment,
+    },
+    description: {
+        verb: 'changed the description of',
+        noun: 'description',
+        subject: (set) => <>condition set {set.index + 1}</>,
+    },
+}
+
+const aspectDetail = (set: ConditionSetChange, aspect: ConditionSetAspect): JSX.Element => {
+    const { subject, fragment } = ASPECT_WORDING[aspect]
+    return fragment ? (
+        <>
+            {subject(set)} {fragment(set)}
+        </>
+    ) : (
+        subject(set)
+    )
+}
+
+const aspectHeadClause = (set: ConditionSetChange, aspect: ConditionSetAspect): JSX.Element => (
+    <>
+        {ASPECT_WORDING[aspect].verb} {aspectDetail(set, aspect)}
+    </>
+)
+
 const aspectTailClause = (set: ConditionSetChange, aspect: ConditionSetAspect): JSX.Element => {
-    switch (aspect) {
-        case 'rollout':
-            return <>its rollout {rolloutChangeFragment(set)}</>
-        case 'variant':
-            return <>its variant {variantChangeFragment(set)}</>
-        default:
-            return <>its criteria</>
-    }
+    const { noun, fragment } = ASPECT_WORDING[aspect]
+    return fragment ? (
+        <>
+            its {noun} {fragment(set)}
+        </>
+    ) : (
+        <>its {noun}</>
+    )
 }
 
 const conditionSetClause = (set: ConditionSetChange): JSX.Element => {
@@ -165,13 +195,12 @@ const describeConditionSetChanges = (
     const multiAspect: ConditionSetChange[] = summarize ? [] : changed.filter((set) => describedAspects(set).length > 1)
     const withAspect = (aspect: ConditionSetAspect): ConditionSetChange[] =>
         changed.filter((set) => !multiAspect.includes(set) && changedAspects(set).includes(aspect))
-    const descriptionOnly = changed.filter((set) => changedAspects(set).join() === 'description')
 
     // Past the detail limit every part collapses to "<verb> N condition sets"; the expanded view has the rest.
-    const listOrCount = <T,>(
-        sets: T[],
+    const listOrCount = (
+        sets: ConditionSetChange[],
         verbs: { detail: string; count?: string },
-        detail: (set: T) => JSX.Element
+        detail: (set: ConditionSetChange) => JSX.Element
     ): JSX.Element =>
         summarize ? (
             <>
@@ -185,38 +214,13 @@ const describeConditionSetChanges = (
     const labelOf = (set: ConditionSetChange): JSX.Element => conditionSetLabel(set.group)
 
     const parts: Description[] = []
-    const rolloutChanges = withAspect('rollout')
-    const criteriaChanges = withAspect('criteria')
-    const variantChanges = withAspect('variant')
-    if (rolloutChanges.length) {
-        parts.push(
-            listOrCount(rolloutChanges, { detail: 'changed the rollout for' }, (set) => (
-                <>
-                    {labelOf(set)} {rolloutChangeFragment(set)}
-                </>
-            ))
-        )
-    }
-    if (criteriaChanges.length) {
-        parts.push(listOrCount(criteriaChanges, { detail: 'changed the criteria for' }, labelOf))
-    }
-    if (variantChanges.length) {
-        parts.push(
-            listOrCount(variantChanges, { detail: 'changed the variant for' }, (set) => (
-                <>
-                    {labelOf(set)} {variantChangeFragment(set)}
-                </>
-            ))
-        )
-    }
+    DESCRIBED_ASPECTS.forEach((aspect) => {
+        const sets = withAspect(aspect)
+        if (sets.length) {
+            parts.push(listOrCount(sets, { detail: ASPECT_WORDING[aspect].verb }, (set) => aspectDetail(set, aspect)))
+        }
+    })
     parts.push(...multiAspect.map(conditionSetClause))
-    if (descriptionOnly.length) {
-        parts.push(
-            listOrCount(descriptionOnly, { detail: 'changed the description of' }, (set) => (
-                <>condition set {set.index + 1}</>
-            ))
-        )
-    }
     if (added.length) {
         const verbs = {
             detail: added.length === 1 ? 'added a condition set for' : 'added condition sets for',

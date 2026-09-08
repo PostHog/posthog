@@ -78,6 +78,15 @@ describe('diffReleaseConditionSets', () => {
             reordered: false,
         },
         {
+            name: 'a variant-only edit keeps the set matched',
+            before: [email('a@example.com', 50, { variant: 'control' })],
+            after: [email('a@example.com', 50, { variant: 'test' })],
+            statuses: ['changed'],
+            aspects: [['variant']],
+            removed: [],
+            reordered: false,
+        },
+        {
             name: 'a description-only edit is reported as a description change',
             before: [email('a@example.com', 0)],
             after: [email('a@example.com', 0, { description: 'Disabled for Example' })],
