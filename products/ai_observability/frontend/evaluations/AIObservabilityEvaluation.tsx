@@ -63,6 +63,7 @@ import {
     DEFAULT_TRACE_QUIET_PERIOD_SECONDS,
     DEFAULT_TRACE_WINDOW_SECONDS,
     LLMEvaluationLogicProps,
+    hasUnsetConditionRollout,
     llmEvaluationLogic,
 } from './llmEvaluationLogic'
 import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
@@ -200,7 +201,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const hasSelectedJudgeModel = !modelSelectionRequired || Boolean(evaluation.model_configuration?.model.trim())
     const hasName = evaluation.name.length > 0
     const basicFieldsValid = hasName && configValid
-    const percentageUnset = evaluation.conditions.some((c) => (c.rollout_percentage ?? 0) === 0)
+    const percentageUnset = hasUnsetConditionRollout(evaluation.conditions)
     const percentageOutOfRange = evaluation.conditions.some(
         (c) => (c.rollout_percentage ?? 0) > 100 || (c.rollout_percentage ?? 0) < 0
     )

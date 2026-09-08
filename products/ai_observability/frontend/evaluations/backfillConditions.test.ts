@@ -12,6 +12,8 @@ describe('backfillConditions', () => {
         [0.5, '0.5% sampled'],
         [0.04, '0.04% sampled'],
         [63.75, '63.8% sampled'],
+        [99.95, '99.9% sampled'],
+        [99.999, '99.9% sampled'],
     ])('renders rollout %s as %s', (rolloutPercentage: number | undefined, expected: string) => {
         expect(backfillSamplingLabel({ rollout_percentage: rolloutPercentage })).toBe(expected)
     })

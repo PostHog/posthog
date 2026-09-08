@@ -16,57 +16,34 @@ from rest_framework.exceptions import APIException, NotFound, ValidationError
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.service import RPCError, RPCStatusCode
 
+from posthog.hogql.errors import BaseHogQLError
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.permissions import (
-    AccessControlPermission,
-    APIScopePermission,
-    TeamMemberAccessPermission,
-    get_authenticator_scopes,
-)
-from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
+from posthog.models.user import User
+from posthog.permissions import AccessControlPermission, APIScopePermission, TeamMemberAccessPermission
+from posthog.rate_limit import AIObservabilityBackfillCreateThrottle, AIObservabilityBackfillEstimateThrottle
 from posthog.temporal.ai_observability.evaluation_backfill import (
     BACKFILL_WORKFLOW_NAME,
     EvaluationBackfillInputs,
     backfill_workflow_id,
+    cancel_backfill,
 )
 from posthog.temporal.ai_observability.run_session_evaluation import AI_EVENTS_RETENTION_DAYS
 from posthog.temporal.common.client import sync_connect
 
 from products.ai_observability.backend.api.evaluations import EvaluationConditionSerializer
 from products.ai_observability.backend.backfill_candidates import count_backfill_candidates
-from products.ai_observability.backend.models.evaluation_backfill import (
-    ACTIVE_BACKFILL_STATUSES,
-    EvaluationBackfill,
-    EvaluationBackfillStatus,
-)
+from products.ai_observability.backend.models.evaluation_backfill import ACTIVE_BACKFILL_STATUSES, EvaluationBackfill
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationTarget
 
 logger = structlog.get_logger(__name__)
-
-
-class BackfillEstimateThrottle(PersonalApiKeyOrUserRateThrottle):
-    """Covers session-authenticated callers, which the global burst/sustained throttles skip.
-
-    `estimate` runs a synchronous ClickHouse count, so an ordinary UI session could otherwise
-    saturate the query pool by resubmitting wide windows. Its own bucket keeps the call the UI
-    makes on every window change from using up a user's budget for starting a backfill.
-    """
-
-    scope = "llma_eval_backfill_estimate"
-    rate = "20/minute"
-
-
-class BackfillCreateThrottle(PersonalApiKeyOrUserRateThrottle):
-    """`create` runs the same ClickHouse count as `estimate`, and also starts a workflow."""
-
-    scope = "llma_eval_backfill_create"
-    rate = "10/minute"
 
 
 WRITE_ACTIONS = ["create", "cancel"]
@@ -76,13 +53,10 @@ WRITE_ACTIONS = ["create", "cancel"]
 # the backfill is still running, and ingestion throws them away.
 BACKFILL_RETENTION_MARGIN = timedelta(days=1)
 
-
-def _mark_cancelled(team_id: int, backfill_id: Any, finished_at: datetime) -> int:
-    return (
-        EvaluationBackfill.objects.for_team(team_id)
-        .filter(pk=backfill_id, status=EvaluationBackfillStatus.RUNNING)
-        .update(status=EvaluationBackfillStatus.CANCELLED, finished_at=finished_at)
-    )
+# A row this young may belong to a create that has not reached `start_workflow` yet, so Temporal
+# answers NOT_FOUND for a backfill that is about to be valid. Probing it would let a concurrent
+# create cancel a live run and start a second walk over the same units.
+BACKFILL_START_GRACE = timedelta(minutes=2)
 
 
 def _drop_threshold_label(duration: timedelta) -> str:
@@ -99,7 +73,7 @@ def _drop_threshold_label(duration: timedelta) -> str:
 class _BackfillPermissionView(Protocol):
     action: str
     team_id: int
-    kwargs: dict[str, Any]
+    kwargs: dict[str, str]
 
 
 class EvaluationBackfillAccessControlPermission(AccessControlPermission):
@@ -115,11 +89,10 @@ class EvaluationBackfillAccessControlPermission(AccessControlPermission):
         if backfill_view.action not in WRITE_ACTIONS:
             return super().has_permission(request, view)
 
-        # Scoped tokens must pass the standard scope and resource checks. Session users can be
-        # authorized against the parent in the URL before the generic write check rejects them.
-        if get_authenticator_scopes(request.successful_authenticator) is not None:
-            return super().has_permission(request, view)
-
+        # The parent check runs for every credential, scoped tokens included. `APIScopePermission`
+        # already enforced the token's scopes and `TeamMemberAccessPermission` its project
+        # membership, so gating this on session auth only refused a personal API key held by a
+        # user whom the resource check rejects but the object-level grant allows.
         try:
             evaluation_id = uuid.UUID(str(backfill_view.kwargs.get("parent_lookup_evaluation_id")))
         except (TypeError, ValueError):
@@ -242,6 +215,7 @@ class EvaluationBackfillViewSet(
     serializer_class = EvaluationBackfillSerializer
     # `objects` is fail-closed; `safely_get_queryset` re-scopes to the request team and evaluation.
     queryset = EvaluationBackfill.objects.unscoped()
+    _evaluation_for_url_cache: Evaluation | None = None
 
     def dangerously_get_permissions(self) -> list[BasePermission]:
         return [
@@ -251,19 +225,18 @@ class EvaluationBackfillViewSet(
             TeamMemberAccessPermission(),
         ]
 
-    def get_throttles(self) -> list[Any]:
+    def get_throttles(self) -> list[BaseThrottle]:
         # Append, never replace: returning only this throttle would drop the global burst and
         # sustained limits from the two actions that run a ClickHouse count.
         if self.action == "estimate":
-            return [*super().get_throttles(), BackfillEstimateThrottle()]
+            return [*super().get_throttles(), AIObservabilityBackfillEstimateThrottle()]
         if self.action == "create":
-            return [*super().get_throttles(), BackfillCreateThrottle()]
+            return [*super().get_throttles(), AIObservabilityBackfillCreateThrottle()]
         return super().get_throttles()
 
     def _evaluation_for_url(self) -> Evaluation:
-        cached = getattr(self, "_evaluation_for_url_cache", None)
-        if cached is not None:
-            return cached
+        if self._evaluation_for_url_cache is not None:
+            return self._evaluation_for_url_cache
         try:
             evaluation_id = uuid.UUID(self.kwargs["parent_lookup_evaluation_id"])
         except (KeyError, ValueError):
@@ -301,11 +274,19 @@ class EvaluationBackfillViewSet(
         # the evaluations, pay for them, and have every verdict dropped before it lands.
         drop_events_older_than: timedelta | None = self.team.drop_events_older_than
         if drop_events_older_than:
-            window_start = max(window_start, now - drop_events_older_than + BACKFILL_RETENTION_MARGIN)
+            # The label rounds to the nearest hour, so anything shorter would render as "0 hours".
+            # A reach that short is not worth backfilling either way.
+            reach = drop_events_older_than - BACKFILL_RETENTION_MARGIN
+            if reach < timedelta(hours=1):
+                raise ValidationError(
+                    "Backfills are not available for this project because it drops events older than "
+                    f"{_drop_threshold_label(drop_events_older_than)}."
+                )
+            window_start = max(window_start, now - reach)
             if window_start >= window_end:
                 raise ValidationError(
-                    f"Your project drops events older than {_drop_threshold_label(drop_events_older_than)}, "
-                    "so backfills can only reach back that far."
+                    f"Backfills on this project can only reach back {_drop_threshold_label(reach)}, "
+                    "because older events are dropped. Try a more recent range."
                 )
         return window_start, window_end
 
@@ -342,15 +323,25 @@ class EvaluationBackfillViewSet(
         window_end: datetime,
         rerun_existing: bool,
     ) -> int:
-        return count_backfill_candidates(
-            team=self.team,
-            evaluation_id=str(evaluation.id),
-            target=evaluation.target,
-            conditions=conditions,
-            window_start=window_start,
-            window_end=window_end,
-            rerun_existing=rerun_existing,
-        )
+        try:
+            return count_backfill_candidates(
+                team=self.team,
+                evaluation_id=str(evaluation.id),
+                target=evaluation.target,
+                conditions=conditions,
+                window_start=window_start,
+                window_end=window_end,
+                rerun_existing=rerun_existing,
+            )
+        except BaseHogQLError as error:
+            # A property filter HogQL cannot compile is a bad request, not a server fault. The
+            # message is logged rather than returned, because it names query internals.
+            logger.warning(
+                "llma.evaluation_backfill_condition_rejected",
+                evaluation_id=str(evaluation.id),
+                error=str(error),
+            )
+            raise ValidationError("A condition could not be applied. Check the filters and try again.")
 
     @extend_schema(
         request=EvaluationBackfillRequestSerializer,
@@ -382,6 +373,8 @@ class EvaluationBackfillViewSet(
         row at RUNNING, and the one-active-per-evaluation constraint then refuses every later
         backfill for that evaluation. Temporal is the authority on whether the run is really live.
         """
+        if timezone.now() - backfill.created_at < BACKFILL_START_GRACE:
+            return True
         workflow_id = backfill_workflow_id(str(backfill.pk))
         try:
             client = sync_connect()
@@ -398,8 +391,17 @@ class EvaluationBackfillViewSet(
             logger.exception("llma.evaluation_backfill_describe_failed", backfill_id=str(backfill.pk))
             return True
 
-        _mark_cancelled(self.team_id, backfill.pk, timezone.now())
+        cancel_backfill(self.team_id, backfill.pk)
         return False
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # The UI blocks Start while a row reads as running, so a dead workflow would hold the
+        # evaluation shut until someone created another backfill. At most one row per evaluation
+        # is active, so this costs one Temporal probe.
+        active = self.get_queryset().filter(status__in=ACTIVE_BACKFILL_STATUSES).first()
+        if active is not None:
+            self._workflow_is_alive(active)
+        return super().list(request, *args, **kwargs)
 
     @extend_schema(
         request=EvaluationBackfillRequestSerializer,
@@ -435,7 +437,7 @@ class EvaluationBackfillViewSet(
                 conditions=conditions,
                 rerun_existing=rerun_existing,
                 total_count=total,
-                created_by=cast(Any, request.user),
+                created_by=cast(User, request.user),
             )
         except IntegrityError:
             # Concurrent create lost the one-active-per-evaluation race.
@@ -466,14 +468,14 @@ class EvaluationBackfillViewSet(
     def cancel(self, request: Request, **kwargs: Any) -> Response:
         """Stop a running backfill. Evaluations already dispatched still finish."""
         backfill = self.get_object()
-        finished_at = timezone.now()
-        if _mark_cancelled(self.team_id, backfill.pk, finished_at):
+        if cancel_backfill(self.team_id, backfill.pk):
             try:
                 client = sync_connect()
                 asyncio.run(client.get_workflow_handle(backfill_workflow_id(str(backfill.pk))).cancel())
-            except Exception:
-                # The workflow reads the row's status at every tick and stops on a terminal one.
-                logger.exception("llma.evaluation_backfill_cancel_failed", backfill_id=str(backfill.pk))
-            backfill.status = EvaluationBackfillStatus.CANCELLED
-            backfill.finished_at = finished_at
+            except Exception as error:
+                # The workflow reads the row's status at every tick and stops on a terminal one, so
+                # a failed handle costs nothing and does not need a stack trace.
+                logger.warning("llma.evaluation_backfill_cancel_failed", backfill_id=str(backfill.pk), error=str(error))
+            # The status and finished_at were written by the update, not on this instance.
+            backfill.refresh_from_db()
         return Response(self.get_serializer(backfill).data)

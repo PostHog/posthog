@@ -951,6 +951,22 @@ class AIObservabilitySummarizationDailyThrottle(PersonalApiKeyOrUserRateThrottle
     rate = "500/day"
 
 
+class AIObservabilityBackfillEstimateThrottle(_UserBucketRateThrottle):
+    """`estimate` runs a synchronous ClickHouse count, so a caller could otherwise saturate the
+    query pool by resubmitting wide windows. Its own bucket keeps the call the UI makes on every
+    window change from using up the caller's budget for starting a backfill."""
+
+    scope = "llma_eval_backfill_estimate"
+    rate = "20/minute"
+
+
+class AIObservabilityBackfillCreateThrottle(_UserBucketRateThrottle):
+    """`create` runs the same ClickHouse count as `estimate`, and also starts a workflow."""
+
+    scope = "llma_eval_backfill_create"
+    rate = "10/minute"
+
+
 class _CustomSourceAIBuilderThrottle(PersonalApiKeyOrUserRateThrottle):
     """Per-team throttle for the (paid, Opus-backed) custom-source AI manifest builder.
 

@@ -77,6 +77,7 @@ export function EvaluationBackfillsTab({ evaluationId, userAccessLevel }: Evalua
         backfills,
         backfillsError,
         backfillsLoading,
+        clampedWindow,
         conditions,
         creatingBackfill,
         estimate,
@@ -199,7 +200,9 @@ export function EvaluationBackfillsTab({ evaluationId, userAccessLevel }: Evalua
             key: 'progress',
             render: (_, backfill) => {
                 // A unit counts as handled once dispatched, or skipped because the live path covered it.
-                const handled = backfill.dispatched_count + backfill.skipped_count
+                // A rerun over a window that keeps growing can hand back more than the total it
+                // started from, so the progress it shows stops at that total.
+                const handled = Math.min(backfill.dispatched_count + backfill.skipped_count, backfill.total_count)
                 return (
                     <Tooltip
                         title={`${backfill.dispatched_count.toLocaleString('en-US')} dispatched, ${backfill.skipped_count.toLocaleString(
@@ -312,7 +315,9 @@ export function EvaluationBackfillsTab({ evaluationId, userAccessLevel }: Evalua
                             : estimateError
                               ? estimateError
                               : estimate
-                                ? `${pluralize(estimate.total_units, estimate.unit)} would be evaluated`
+                                ? `${pluralize(estimate.total_units, estimate.unit)} would be evaluated${
+                                      clampedWindow ? ` between ${clampedWindow.start} and ${clampedWindow.end}` : ''
+                                  }`
                                 : null}
                     </span>
                     <AccessControlAction

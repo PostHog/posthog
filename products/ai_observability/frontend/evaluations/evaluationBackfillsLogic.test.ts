@@ -33,6 +33,9 @@ const estimateMock = jest.mocked(evaluationsBackfillsEstimateCreate)
 const cancelMock = jest.mocked(evaluationsBackfillsCancelCreate)
 
 const EVALUATION_ID = 'eval-123'
+// Mirrors ESTIMATE_DEBOUNCE_MS in the logic.
+const ESTIMATE_DEBOUNCE_MS = 500
+const WINDOW_LABEL = { start: 'Feb 1, 2024', end: 'Feb 8, 2024' }
 
 const mockEvaluation = {
     id: EVALUATION_ID,
@@ -91,10 +94,6 @@ function estimate(overrides: Partial<EvaluationBackfillEstimateApi> = {}): Evalu
         window_end: '2024-01-08T00:00:00Z',
         ...overrides,
     }
-}
-
-function wait(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 describe('evaluationBackfillsLogic', () => {
@@ -166,32 +165,113 @@ describe('evaluationBackfillsLogic', () => {
     })
 
     it('debounces estimate requests and drops a stale response', async () => {
+        jest.useFakeTimers()
+        try {
+            mountLogic()
+            await jest.advanceTimersByTimeAsync(ESTIMATE_DEBOUNCE_MS)
+            await expectLogic(logic).toDispatchActions(['loadBackfillsSuccess', 'requestEstimateSuccess'])
+            estimateMock.mockClear()
+
+            // Two changes inside the debounce window make one request, for the range picked last.
+            logic.actions.setWindowRange('-30d', null)
+            await jest.advanceTimersByTimeAsync(ESTIMATE_DEBOUNCE_MS - 100)
+            logic.actions.setWindowRange('-7d', null)
+            await jest.advanceTimersByTimeAsync(ESTIMATE_DEBOUNCE_MS)
+            await expectLogic(logic).toDispatchActions(['requestEstimateSuccess'])
+            expect(estimateMock).toHaveBeenCalledTimes(1)
+
+            // A response that arrives after a newer request started must not land.
+            let resolveStale: (value: EvaluationBackfillEstimateApi) => void = () => {}
+            estimateMock.mockReturnValueOnce(
+                new Promise<EvaluationBackfillEstimateApi>((resolve) => {
+                    resolveStale = resolve
+                })
+            )
+            estimateMock.mockResolvedValueOnce(estimate({ total_units: 7 }))
+
+            logic.actions.setWindowRange('-14d', null)
+            await jest.advanceTimersByTimeAsync(ESTIMATE_DEBOUNCE_MS)
+            logic.actions.setWindowRange('-24h', null)
+            await jest.advanceTimersByTimeAsync(ESTIMATE_DEBOUNCE_MS)
+            await expectLogic(logic).toDispatchActions(['requestEstimateSuccess'])
+
+            resolveStale(estimate({ total_units: 999 }))
+            await jest.advanceTimersByTimeAsync(0)
+
+            await expectLogic(logic).toMatchValues({ estimate: expect.objectContaining({ total_units: 7 }) })
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('reuses the count it has when an edit leaves the request unchanged', async () => {
+        jest.useFakeTimers()
+        try {
+            mountLogic()
+            await jest.advanceTimersByTimeAsync(ESTIMATE_DEBOUNCE_MS)
+            await expectLogic(logic).toDispatchActions(['requestEstimateSuccess'])
+
+            // A fixed range keeps the request body identical from one trigger to the next.
+            logic.actions.setWindowRange('2024-01-01', '2024-01-08')
+            await jest.advanceTimersByTimeAsync(ESTIMATE_DEBOUNCE_MS)
+            await expectLogic(logic).toDispatchActions(['requestEstimateSuccess'])
+            estimateMock.mockClear()
+
+            logic.actions.setWindowRange('2024-01-01', '2024-01-08')
+            await jest.advanceTimersByTimeAsync(ESTIMATE_DEBOUNCE_MS)
+            await expectLogic(logic).toDispatchActions(['requestEstimateSuccess'])
+            expect(estimateMock).not.toHaveBeenCalled()
+
+            // An edited condition is a different request, so it is counted again.
+            logic.actions.setConditions([{ id: 'cond-1', rollout_percentage: 25, properties: [] }])
+            await jest.advanceTimersByTimeAsync(ESTIMATE_DEBOUNCE_MS)
+            await expectLogic(logic).toDispatchActions(['requestEstimateSuccess'])
+            expect(estimateMock).toHaveBeenCalledTimes(1)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('rounds a sampling percentage to two decimals before counting and before starting', async () => {
         await mountAndSettle()
 
-        // Two changes inside the debounce window make one request, for the range picked last.
-        logic.actions.setWindowRange('-30d', null)
-        logic.actions.setWindowRange('-7d', null)
+        logic.actions.setConditions([{ id: 'cond-1', rollout_percentage: 33.333333, properties: [] }])
         await expectLogic(logic).toDispatchActions(['requestEstimateSuccess'])
-        expect(estimateMock).toHaveBeenCalledTimes(1)
 
-        // A response that arrives after a newer request started must not land.
-        let resolveStale: (value: EvaluationBackfillEstimateApi) => void = () => {}
-        estimateMock.mockReturnValueOnce(
-            new Promise<EvaluationBackfillEstimateApi>((resolve) => {
-                resolveStale = resolve
-            })
+        const rounded = [{ id: 'cond-1', rollout_percentage: 33.33, properties: [] }]
+        expect(estimateMock.mock.calls[0][2].conditions).toEqual(rounded)
+
+        logic.actions.createBackfill()
+        await expectLogic(logic).toDispatchActions(['createBackfillDone'])
+        expect(createMock).toHaveBeenCalledWith(
+            expect.any(String),
+            EVALUATION_ID,
+            expect.objectContaining({ conditions: rounded })
         )
-        estimateMock.mockResolvedValueOnce(estimate({ total_units: 7 }))
+    })
 
-        logic.actions.setWindowRange('-14d', null)
-        await wait(400)
-        logic.actions.setWindowRange('-24h', null)
-        await expectLogic(logic).toDispatchActions(['requestEstimateSuccess'])
+    it('blocks the start button while a condition set samples nothing', async () => {
+        await mountAndSettle()
 
-        resolveStale(estimate({ total_units: 999 }))
-        await wait(50)
+        logic.actions.setConditions([{ id: 'cond-1', rollout_percentage: 0, properties: [] }])
 
-        await expectLogic(logic).toMatchValues({ estimate: expect.objectContaining({ total_units: 7 }) })
+        await expectLogic(logic).toMatchValues({
+            startDisabledReason: 'Set a sampling percentage above 0% for every condition set',
+        })
+    })
+
+    it.each([
+        ['the range the server counted when it clamped the one asked for', '2024-01-01T00:00:00Z', WINDOW_LABEL],
+        ['nothing when the server counted the range asked for', '2024-02-01T00:00:00Z', null],
+    ])('reports %s', async (_name, requestedStart: string, expected: { start: string; end: string } | null) => {
+        await mountAndSettle()
+
+        logic.actions.requestEstimateSuccess(
+            estimate({ window_start: '2024-02-01T00:00:00Z', window_end: '2024-02-08T00:00:00Z' }),
+            { window_start: requestedStart, window_end: '2024-02-08T00:00:00Z' }
+        )
+
+        await expectLogic(logic).toMatchValues({ clampedWindow: expected })
     })
 
     it.each([

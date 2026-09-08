@@ -123,6 +123,21 @@ const DEFAULT_SENTIMENT_SOURCE = 'user_messages' as const
 const DEFAULT_SENTIMENT_RUNS_FILTER = 'negative' as const
 const DEFAULT_CONDITION_ROLLOUT_PERCENTAGE = 100
 
+/** The rollout is a percentage the backend stores as typed, so the editor holds it to two decimals
+ * before anything is sent. Conditions that never carried the key keep it absent. */
+export function normalizeConditionRollouts<T extends { rollout_percentage?: number }>(conditions: T[]): T[] {
+    return conditions.map((condition) =>
+        condition.rollout_percentage != null
+            ? { ...condition, rollout_percentage: Math.round(condition.rollout_percentage * 100) / 100 }
+            : condition
+    )
+}
+
+/** A condition set at 0% matches nothing, so both editors refuse to send one. */
+export function hasUnsetConditionRollout(conditions: { rollout_percentage?: number }[]): boolean {
+    return conditions.some((condition) => (condition.rollout_percentage ?? 0) === 0)
+}
+
 function toLLMJudgeEvaluation(evaluation: EvaluationConfig): LLMJudgeEvaluation {
     return {
         ...evaluation,
@@ -654,16 +669,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         ? { ...state, output_config: { ...state.output_config, true_is_failure: trueIsFailure } }
                         : state,
                 setTriggerConditions: (state, { conditions }) =>
-                    state
-                        ? {
-                              ...state,
-                              conditions: conditions.map((c) =>
-                                  c.rollout_percentage != null
-                                      ? { ...c, rollout_percentage: Math.round(c.rollout_percentage * 100) / 100 }
-                                      : c
-                              ),
-                          }
-                        : null,
+                    state ? { ...state, conditions: normalizeConditionRollouts(conditions) } : null,
                 setModelConfiguration: (state, { modelConfiguration }) =>
                     state && isLLMJudgeEvaluation(state)
                         ? { ...state, model_configuration: modelConfiguration }

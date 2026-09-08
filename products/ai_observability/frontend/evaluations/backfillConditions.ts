@@ -18,7 +18,10 @@ export function backfillSamplingLabel(condition: EvaluationBackfillConditionApi)
     const percent = backfillSamplingPercent(condition)
     // A rollout under 1% is still a real sample, so one decimal is not enough to tell 0.04 from 0.
     const decimals = percent < 1 ? 2 : percent < 100 ? 1 : 0
-    return `${parseFloat(percent.toFixed(decimals))}% sampled`
+    const factor = 10 ** decimals
+    // A partial sample that rounds up to 100 would read as "every unit", so hold it below.
+    const shown = percent < 100 ? Math.min(Math.round(percent * factor), 100 * factor - 1) / factor : percent
+    return `${parseFloat(shown.toFixed(decimals))}% sampled`
 }
 
 /** The year is noise while a range sits inside the current year, and load-bearing as soon as
