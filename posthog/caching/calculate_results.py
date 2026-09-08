@@ -14,11 +14,11 @@ from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.apply_dashboard_filters import resolve_effective_dashboard_filters
 from posthog.hogql_queries.query_runner import get_query_runner_or_none, response_results_contain_models
 from posthog.models import Team, User
-from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.schema_migrations.upgrade_manager import upgrade_insight
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.facade.models import Insight, generate_insight_filters_hash
+from products.product_analytics.backend.facade.models import Insight
 
 if TYPE_CHECKING:
     from posthog.caching.insight_result import InsightResult
@@ -61,7 +61,7 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
     dashboard: Optional[Dashboard] = target.dashboard if isinstance(target, DashboardTile) else None
 
     if insight is not None:
-        with upgrade_query(insight):
+        with upgrade_insight(insight):
             if insight.query:
                 query_runner = get_query_runner_or_none(insight.query, insight.team)
                 if query_runner is None:
@@ -69,9 +69,6 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
                 if dashboard is not None and dashboard.filters:
                     query_runner.apply_dashboard_filters(DashboardFilter(**dashboard.filters))
                 return query_runner.get_cache_key()
-
-            if insight.filters:
-                return generate_insight_filters_hash(insight, dashboard)
 
     return None
 
