@@ -1118,7 +1118,8 @@ describe('dashboardLogic', () => {
                 logic.actions.cancelLayoutEdit()
             }).toFinishAllListeners()
 
-            expect(logic.values.dashboardSettingsDraft?.filters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+            expect(logic.values.currentDashboardSettings.filters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+            expect(logic.values.dashboardSettingsState).toBe('unsavedChanges')
 
             await expectLogic(logic, () => {
                 logic.actions.setDashboardEditing(
