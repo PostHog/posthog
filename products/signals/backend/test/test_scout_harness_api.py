@@ -42,6 +42,7 @@ from products.signals.backend.models import (
     SignalScratchpad,
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
+from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY, stamp_derived_metadata
 from products.signals.backend.scout_harness.lazy_seed import (
     HARNESS_SEEDED_BY,
@@ -1398,7 +1399,16 @@ class TestWriteScopesValidation(SimpleTestCase):
             # Sorted and deduped, so resending the same set in another order is not a change and
             # never shows up in the activity log as one.
             ("deduped_and_sorted", ["alert:write", "alert:write"], True, ["alert:write"]),
+            (
+                "skills_and_warehouse_scopes",
+                ["warehouse_view:write", "llm_skill:write"],
+                True,
+                ["llm_skill:write", "warehouse_view:write"],
+            ),
             ("ungrantable_scope", ["feature_flag:write"], False, None),
+            # A scout run acts as its skill's author, so this scope would let a scout widen its own
+            # grant through the scout config endpoint. It stays ungrantable until that has a gate.
+            ("scout_config_scope", ["signal_scout:write"], False, None),
             # A read scope grants nothing but would read as a grant in the settings UI.
             ("read_scope", ["dashboard:read"], False, None),
             ("internal_scope", ["signal_scout_report:write"], False, None),
@@ -1781,7 +1791,9 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         return f"/api/projects/{self.team.id}/signals/scout/notes/{note_id}/"
 
     def _make_scout_skill(self, name: str = "signals-scout-web-analytics") -> None:
+        # A scout is a skill that holds a config, so a note target needs both rows.
         LLMSkill.objects.create(team=self.team, name=name, description="scout", body="watch")
+        SignalScoutConfig.objects.create(team=self.team, skill_name=name)
 
     def test_create_and_list_roundtrip_with_attribution(self) -> None:
         self._make_scout_skill()
@@ -1871,6 +1883,28 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         response = self.client.post(self._list_url(), data=body, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not SignalScoutNote.objects.filter(team=self.team).exists()
+
+    def test_create_rejects_a_note_for_a_skill_that_is_not_a_scout(self) -> None:
+        # The name now says nothing about whether a skill runs, so the config row is what makes
+        # it addressable. A note left for an ordinary skill would sit unread.
+        LLMSkill.objects.create(team=self.team, name="my-ordinary-skill", description="s", body="b")
+
+        response = self.client.post(
+            self._list_url(), data={"content": "note", "skill_name": "my-ordinary-skill"}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalScoutNote.objects.filter(team=self.team).exists()
+
+    def test_create_accepts_a_note_for_a_scout_without_the_prefix(self) -> None:
+        self._make_scout_skill("my-churn-watch")
+
+        response = self.client.post(
+            self._list_url(), data={"content": "watch weekend churn", "skill_name": "my-churn-watch"}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert SignalScoutNote.objects.get(team=self.team).skill_name == "my-churn-watch"
 
     @parameterized.expand(
         [
@@ -3357,16 +3391,80 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unknown_skill", "signals-scout-nonexistent"),
-            ("non_scout_prefix", "my-ordinary-skill"),
+            ("unknown_skill", "signals-scout-nonexistent", False),
+            # The inbox reads these as sub-pages of `/inbox/scouts/`, so a scout under one could
+            # never be opened. They stay valid as ordinary skill names.
+            ("reserved_scratchpad", "scratchpad", True),
+            ("reserved_findings", "findings", True),
+            ("reserved_runs", "runs", True),
+            # `create_skill` and the `skill-create` MCP tool never check the name pattern, so a
+            # colon-bearing row can exist. Registering one as a scout would put its notes under a
+            # `pipeline:` audience the report-research stage reads, crossing the two families
+            # `note_targets` keeps apart.
+            ("pipeline_audience", "pipeline:report-research", True),
+            # `review-hog-` is another product's registered prefix, and both products re-stamp the
+            # server-owned category on sync, so registering one as a scout would thrash its tab.
+            ("foreign_product_prefix", "review-hog-security", True),
         ]
     )
-    def test_create_rejects_invalid_skill_name(self, _name: str, skill_name: str) -> None:
-        if not skill_name.startswith("signals-scout-"):
+    def test_create_rejects_invalid_skill_name(self, _name: str, skill_name: str, make_skill: bool) -> None:
+        if make_skill:
             self._make_skill(skill_name)
         response = self.client.post(self._list_url(), data={"skill_name": skill_name}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not SignalScoutConfig.objects.filter(team=self.team, skill_name=skill_name).exists()
+
+    def test_create_registers_a_skill_without_the_scout_prefix(self) -> None:
+        # Explicit registration is the only way a bare-named skill becomes a scout, since
+        # auto-registration still scans for the prefix.
+        self._make_skill("my-ordinary-skill")
+
+        response = self.client.post(self._list_url(), data={"skill_name": "my-ordinary-skill"}, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert SignalScoutConfig.objects.filter(team=self.team, skill_name="my-ordinary-skill").exists()
+
+    @parameterized.expand(
+        [
+            # Registering puts the skill body on the schedule as the run's prompt, and the run acts
+            # as the skill's author. A config-only key must not reach that, whatever the name.
+            ("config_scope_only_prefixed", "signals-scout-fresh", ["signal_scout:write"], status.HTTP_403_FORBIDDEN),
+            ("config_scope_only_bare", "my-ordinary-skill", ["signal_scout:write"], status.HTTP_403_FORBIDDEN),
+            ("both_scopes", "my-ordinary-skill", ["signal_scout:write", "llm_skill:write"], status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_requires_skill_authoring_scope(
+        self, _name: str, skill_name: str, scopes: list[str], expected: int
+    ) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        self._make_skill(skill_name)
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            self._list_url(), data={"skill_name": skill_name}, format="json", HTTP_AUTHORIZATION=f"Bearer {raw}"
+        )
+
+        assert response.status_code == expected, response.content
+        assert SignalScoutConfig.objects.filter(team=self.team, skill_name=skill_name).exists() == (
+            expected == status.HTTP_201_CREATED
+        )
+
+    def test_create_requires_skill_editor_access(self) -> None:
+        # Same RBAC bar as creating a scout from scratch: a member who may tune scouts but may
+        # not author skills cannot put someone else's skill on the schedule.
+        self._make_skill("my-ordinary-skill")
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource"
+        ) as check_resource:
+            check_resource.side_effect = lambda resource, *args, **kwargs: resource != "llm_skill"
+            response = self.client.post(self._list_url(), data={"skill_name": "my-ordinary-skill"}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert not SignalScoutConfig.objects.filter(team=self.team, skill_name="my-ordinary-skill").exists()
 
     def test_create_rejects_skill_belonging_to_another_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
@@ -3495,7 +3593,9 @@ class TestScoutHarnessMetadataAPI(APIBaseTest):
 
 # The gates themselves live in `run_gates`, shared with the workflow-triggered run path, so
 # that's where they're patched; the view only maps their outcome onto DRF exceptions.
-_QUOTA = "products.signals.backend.scout_harness.run_gates.is_team_signals_quota_limited"
+_QUOTA = "products.signals.backend.scout_harness.run_gates.self_driving_quota_gate"
+_QUOTA_CAPTURE = "products.signals.backend.scout_harness.run_gates.capture_signal_report_quota_paused"
+_UNDER_QUOTA = SelfDrivingQuotaGate(limited=False, enforced=False)
 _DAILY_GATE = "products.signals.backend.scout_harness.run_gates.daily_report_limit_gate"
 _FLAG = "products.signals.backend.scout_harness.run_gates._read_flag_payload"
 _START = "products.signals.backend.temporal.agentic.scout_scheduler.start_manual_signals_scout_run"
@@ -3524,7 +3624,7 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
         # guard for the "allow disabled" decision; a stray `enabled` gate would fail the disabled case.
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=enabled)
         with (
-            patch(_QUOTA, return_value=False),
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
             patch(_CONNECT) as connect,
             patch(_START, return_value="wf-123") as start,
         ):
@@ -3534,18 +3634,37 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
         assert response.json() == {"skill_name": "signals-scout-foo", "workflow_id": "wf-123", "started": True}
         start.assert_called_once_with(connect.return_value, team_id=self.team.id, skill_name="signals-scout-foo")
 
-    def test_run_over_quota_returns_429_without_dispatching(self) -> None:
+    @parameterized.expand(
+        [
+            ("enforced", True, status.HTTP_429_TOO_MANY_REQUESTS, False),
+            # Dark launch: the pause is reported, but the run still dispatches.
+            ("dark_launch", False, status.HTTP_202_ACCEPTED, True),
+        ]
+    )
+    def test_run_over_quota_reports_the_pause_and_blocks_only_when_enforced(
+        self, _name: str, enforced: bool, expected_status: int, dispatches: bool
+    ) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
-        with patch(_QUOTA, return_value=True), patch(_START) as start:
+        gate = SelfDrivingQuotaGate(limited=True, enforced=enforced)
+        with (
+            patch(_QUOTA, return_value=gate),
+            patch(_QUOTA_CAPTURE) as capture,
+            patch(_CONNECT),
+            patch(_START, return_value="wf-123") as start,
+        ):
             response = self.client.post(self._run_url(str(config.id)))
 
-        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
-        start.assert_not_called()
+        assert response.status_code == expected_status
+        assert start.called is dispatches
+        # Without this the pause leaves no event trail: a rejected trigger never reaches the
+        # activity that would otherwise report it.
+        assert capture.call_args.kwargs["stage"] == "scout_run"
+        assert capture.call_args.kwargs["enforced"] is enforced
 
     def test_run_over_daily_report_limit_returns_429_without_dispatching(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         with (
-            patch(_QUOTA, return_value=False),
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
             patch(_DAILY_GATE, return_value=DailyReportLimitGate(limited=True, limit=2, reports_today=2)),
             patch(_START) as start,
         ):
@@ -3557,7 +3676,7 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
     def test_run_with_in_flight_run_returns_409_without_dispatching(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         _make_run(self.team, skill_name="signals-scout-foo")  # TaskRun IN_PROGRESS by default
-        with patch(_QUOTA, return_value=False), patch(_START) as start:
+        with patch(_QUOTA, return_value=_UNDER_QUOTA), patch(_START) as start:
             response = self.client.post(self._run_url(str(config.id)))
 
         assert response.status_code == status.HTTP_409_CONFLICT
@@ -3566,13 +3685,13 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
     def test_run_maps_workflow_already_started_race_to_409(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         race = WorkflowAlreadyStartedError("wf", "RunSignalsScoutWorkflow")
-        with patch(_QUOTA, return_value=False), patch(_CONNECT), patch(_START, side_effect=race):
+        with patch(_QUOTA, return_value=_UNDER_QUOTA), patch(_CONNECT), patch(_START, side_effect=race):
             response = self.client.post(self._run_url(str(config.id)))
 
         assert response.status_code == status.HTTP_409_CONFLICT
 
     def test_run_unknown_config_returns_404_without_dispatching(self) -> None:
-        with patch(_QUOTA, return_value=False), patch(_START) as start:
+        with patch(_QUOTA, return_value=_UNDER_QUOTA), patch(_START) as start:
             response = self.client.post(self._run_url("00000000-0000-0000-0000-000000000000"))
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -3582,7 +3701,7 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         with (
             patch(_WITHHELD, return_value={"signals-scout-foo"}),
-            patch(_QUOTA, return_value=False),
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
             patch(_START) as start,
         ):
             response = self.client.post(self._run_url(str(config.id)))
@@ -3594,7 +3713,7 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
         # A config can outlive its skill; dispatching would 202 then fail in the runner with no run
         # row to poll. Reject up front — guards the latest-non-deleted-skill check in `run`.
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-orphan")
-        with patch(_QUOTA, return_value=False), patch(_START) as start:
+        with patch(_QUOTA, return_value=_UNDER_QUOTA), patch(_START) as start:
             response = self.client.post(self._run_url(str(config.id)))
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -3610,7 +3729,7 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
         TaskRun = apps.get_model("tasks", "TaskRun")
         TaskRun.objects.filter(id=stale.task_run_id).update(created_at=old)
         with (
-            patch(_QUOTA, return_value=False),
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
             patch(_CONNECT),
             patch(_START, return_value="wf-123") as start,
         ):
@@ -3626,7 +3745,7 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         with (
             patch(_FLAG, return_value={"guaranteed_team_ids": [self.team.id], "skip_team_ids": [self.team.id]}),
-            patch(_QUOTA, return_value=False),
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
             patch(_START) as start,
         ):
             response = self.client.post(self._run_url(str(config.id)))
@@ -3646,7 +3765,7 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
                 _FLAG,
                 return_value={"guaranteed_team_ids": [self.team.id], "default_team_config": {"max_runs_per_day": 1}},
             ),
-            patch(_QUOTA, return_value=False),
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
             patch(_START) as start,
         ):
             response = self.client.post(self._run_url(str(config.id)))

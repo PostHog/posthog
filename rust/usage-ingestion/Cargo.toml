@@ -20,6 +20,8 @@ metrics-exporter-prometheus = { workspace = true }
 moka = { workspace = true }
 rdkafka = { workspace = true }
 redis = { workspace = true }
+# redis leaves the rustls provider to the binary, so `rediss://` needs one installed here.
+rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }

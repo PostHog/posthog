@@ -25,6 +25,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
 from posthog.temporal.common.utils import APP_DB_ERROR_PREFIX, READ_ONLY_TRANSACTION_PHRASE
 from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkflowInputs
+from posthog.usage_ingestion.client import UsageRecord, areport_usage
 from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.facade.api import (
@@ -39,6 +40,7 @@ from products.managed_warehouse.backend.facade.temporal import (
     DuckLakeRegisterDataImportsWorkflow,
     build_register_data_imports_workflow_id,
 )
+from products.warehouse_sources.backend.billing import billed_usage_for_job
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     AUTO_DISABLED_JOB_ERROR,
@@ -195,6 +197,10 @@ TRANSIENT_EGRESS_MESSAGE = (
     "clears on its own; the next sync runs on schedule."
 )
 
+TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE = (
+    "Your source's API was temporarily unavailable, so this sync couldn't finish. The next sync runs on schedule."
+)
+
 # A retryable failure that outlives its retries keeps whatever the driver said, so `latest_error`
 # ends up holding raw connection text — a psycopg "connection to server at <host>, port <port>
 # failed: ..." line, a pymysql `(2013, ...)` tuple, a urllib3 connection-pool dump. None of it
@@ -225,6 +231,14 @@ Transient_Error_Messages: dict[str, str] = {
     "Tunnel connection failed: 502": TRANSIENT_EGRESS_MESSAGE,
     "Tunnel connection failed: 503": TRANSIENT_EGRESS_MESSAGE,
     "Tunnel connection failed: 504": TRANSIENT_EGRESS_MESSAGE,
+    # A vendor API that was down or overloaded, in the wording `requests.raise_for_status()` builds:
+    # "<status> Server Error: <reason> for url: <url>". REST sources retry these in their transport
+    # and again through Temporal, so reaching here means the outage outlasted both and the stored
+    # text is a bare status plus the vendor URL. Only the gateway statuses are mapped: a 500 can be
+    # one request the vendor mishandles every time, which is not an outage that clears on its own.
+    "502 Server Error": TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
+    "503 Server Error": TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
+    "504 Server Error": TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
 }
 
 
@@ -480,6 +494,35 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 "classified": has_non_retryable_error,
             },
         )
+
+    if inputs.status == ExternalDataJob.Status.COMPLETED:
+        # The status write above already committed, so nothing here may fail the finalization —
+        # not the read back, not the classification. A job we cannot bill for is worth less than
+        # a sync that has to run again.
+        try:
+            # Read the job back rather than trusting `inputs`: the status write is absorbing, so
+            # it can leave a job that stayed FAILED, and the row counter is written elsewhere.
+            completed_job = await database_sync_to_async_pool(
+                ExternalDataJob.objects.select_related("pipeline").filter(team_id=inputs.team_id, id=job_id).first
+            )()
+            billed = billed_usage_for_job(completed_job) if completed_job else None
+            if completed_job and billed:
+                usage_key, rows = billed
+                await areport_usage(
+                    [
+                        UsageRecord(
+                            record_id=str(completed_job.id),
+                            producer_id="warehouse-sources",
+                            team_id=completed_job.team_id,
+                            usage_key=usage_key,
+                            unit="rows",
+                            quantity=rows,
+                        )
+                    ],
+                    site="warehouse_rows",
+                )
+        except Exception:
+            logger.exception(f"Could not collect usage for external data job {job_id}")
 
     logger.info(
         f"Updated external data job with for external data source {job_id} to status {inputs.status}",

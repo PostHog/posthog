@@ -27,6 +27,12 @@ const channelCreate = (): ToolBase<ReturnType<typeof ChannelCreateSchema>, Schem
         if (params.name !== undefined) {
             body['name'] = params.name
         }
+        if (params.channel_type !== undefined) {
+            body['channel_type'] = params.channel_type
+        }
+        if (params.member_ids !== undefined) {
+            body['member_ids'] = params.member_ids
+        }
         if (params.star !== undefined) {
             body['star'] = params.star
         }

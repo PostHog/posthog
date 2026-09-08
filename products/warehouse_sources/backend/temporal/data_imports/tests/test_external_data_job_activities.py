@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     TRANSIENT_EGRESS_MESSAGE,
     TRANSIENT_POOLER_MESSAGE,
     TRANSIENT_SOURCE_CONNECTION_MESSAGE,
+    TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
     UNEXPECTED_ERROR_MESSAGE,
     UpdateExternalDataJobStatusInputs,
     _customer_facing_error,
@@ -297,6 +298,13 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
             ExternalDataSourceType.SALESFORCE,
             "ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: 502 Bad gateway'))",
             TRANSIENT_EGRESS_MESSAGE,
+        ),
+        # A REST source whose vendor stayed unavailable for longer than both retry layers.
+        (
+            "vendor_service_unavailable",
+            ExternalDataSourceType.APPLESEARCHADS,
+            "503 Server Error: Service Temporarily Unavailable for url: https://api.example.com/v1/things",
+            TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
         ),
     ]
 )

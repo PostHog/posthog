@@ -80,7 +80,10 @@ from products.replay_vision.backend.temporal.activities.observation_state import
     mark_observation_running_activity,
     mark_observation_succeeded_activity,
 )
-from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import upload_video_to_gemini_activity
+from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import (
+    _write_and_upload,
+    upload_video_to_gemini_activity,
+)
 from products.replay_vision.backend.temporal.errors import (
     INELIGIBLE_SESSION_ERROR_TYPE,
     SCANNER_ADMISSION_BUSY_ERROR_TYPE,
@@ -1205,6 +1208,113 @@ class TestObservationStateActivities:
         )
 
         assert ReplayObservationUsage.objects.filter(observation_id=observation.id).count() == 0
+
+    @pytest.mark.parametrize(
+        "activity_fn,inputs_cls,error_reason,expected_event,expected_kind",
+        [
+            (
+                mark_observation_failed_activity,
+                MarkObservationFailedInputs,
+                "provider_rejected:nope",
+                "replay_vision_scan_failed",
+                "provider_rejected",
+            ),
+            (
+                mark_observation_ineligible_activity,
+                MarkObservationIneligibleInputs,
+                "too_short:only 5s long",
+                "replay_vision_scan_ineligible",
+                "too_short",
+            ),
+        ],
+    )
+    def test_terminal_scan_telemetry_carries_kind_and_fires_once(
+        self, activity_fn, inputs_cls, error_reason: str, expected_event: str, expected_kind: str
+    ) -> None:
+        # Without these events `replay_vision_scan_completed` is a numerator with no denominator, so no
+        # failure rate exists. A retry must not inflate the denominator either.
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        inputs = inputs_cls(observation_id=observation.id, error_reason=error_reason, scanner_type=ScannerType.MONITOR)
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.observation_state.posthoganalytics.capture"
+        ) as capture:
+            activity_fn(inputs)
+            activity_fn(inputs)  # retry: the transition is sticky, so no second event
+
+        capture.assert_called_once()
+        kwargs = capture.call_args.kwargs
+        assert kwargs["event"] == expected_event
+        assert kwargs["distinct_id"] == f"replay-vision:{observation.team_id}"
+        # Shared with the success event, so one scan can never count as both.
+        assert kwargs["uuid"] == str(observation.id)
+        properties = kwargs["properties"]
+        assert properties["kind"] == expected_kind
+        assert properties["scanner_type"] == "monitor"
+        assert properties["scanner_id"] == str(scanner.id)
+        assert properties["scanner_version"] == observation.scanner_snapshot["scanner_version"]
+        assert properties["organization_id"] == str(observation.team.organization_id)
+        # The message half of `error_reason` can quote session content, so it must not ride along.
+        assert error_reason.split(":", 1)[1] not in str(properties)
+        assert kwargs["groups"]["project"] == str(observation.team.uuid)
+
+    @pytest.mark.parametrize("status", [ObservationStatus.SUCCEEDED, ObservationStatus.FAILED])
+    def test_scan_telemetry_reports_the_version_that_produced_it(self, status: str) -> None:
+        # Reading the live scanner instead of the snapshot would retro-attribute every past scan to
+        # whatever config replaced it, which inverts the before/after comparison a prompt edit is
+        # judged on. The scanner here sits at version 1 while the snapshot says 7.
+        scanner = _make_scanner()
+        snapshot = {**_snapshot_for(scanner), "scanner_version": 7}
+        observation = _make_observation(
+            scanner, status=ObservationStatus.RUNNING, started_at=timezone.now(), scanner_snapshot=snapshot
+        )
+        assert scanner.scanner_version != 7
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.observation_state.posthoganalytics.capture"
+        ) as capture:
+            if status == ObservationStatus.SUCCEEDED:
+                mark_observation_succeeded_activity(
+                    MarkObservationSucceededInputs(
+                        observation_id=observation.id,
+                        scanner_result=ScannerResult(
+                            model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9)
+                        ),
+                        scanner_type=ScannerType.MONITOR,
+                    )
+                )
+            else:
+                mark_observation_failed_activity(
+                    MarkObservationFailedInputs(
+                        observation_id=observation.id,
+                        error_reason="internal_error:boom",
+                        scanner_type=ScannerType.MONITOR,
+                    )
+                )
+
+        assert capture.call_args.kwargs["properties"]["scanner_version"] == 7
+
+    def test_terminal_scan_settles_even_when_telemetry_raises(self) -> None:
+        # The row is already settled when the capture runs, and the transition is sticky, so a telemetry
+        # outage must not fail the activity into a retry that can no longer do anything.
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.observation_state.posthoganalytics.capture",
+            side_effect=RuntimeError("analytics down"),
+        ):
+            mark_observation_failed_activity(
+                MarkObservationFailedInputs(
+                    observation_id=observation.id,
+                    error_reason="internal_error:boom",
+                    scanner_type=ScannerType.MONITOR,
+                )
+            )
+
+        observation.refresh_from_db()
+        assert observation.status == ObservationStatus.FAILED
 
 
 @pytest.mark.django_db(transaction=True)
@@ -2967,6 +3077,28 @@ class TestClassifyGeminiError:
         # Claiming a kind here would be worse than the status quo: a PostHog bug would be blamed on the provider,
         # and for the transient kinds it would burn the retry budget before failing anyway.
         assert classify_gemini_error(ValueError("bad arg")) is None
+
+
+class TestUploadFinalizeFailures:
+    @parameterized.expand(
+        [
+            ("missing_file_key", KeyError("file")),
+            ("empty_body", TypeError("string indices must be integers, not 'str'")),
+            ("status_not_final", ValueError("Failed to upload file: Upload status is not finalized.")),
+            ("chunks_not_final", ValueError("All content has been uploaded, but the upload status is not finalized.")),
+            (
+                "no_upload_url",
+                KeyError("Failed to create file. Upload URL did not returned from the create file request."),
+            ),
+        ]
+    )
+    def test_maps_sdk_upload_failures_to_provider_transient(self, _label: str, error: Exception) -> None:
+        raw_client = MagicMock()
+        raw_client.files.upload.side_effect = error
+        with pytest.raises(ScannerFailureError) as exc_info:
+            _write_and_upload(raw_client, b"mp4", "video/mp4", "wf-1")
+        assert exc_info.value.kind is FailureKind.PROVIDER_TRANSIENT
+        assert exc_info.value.message == "The AI provider did not finish the video upload"
 
 
 class TestGeminiErrorRedaction:
