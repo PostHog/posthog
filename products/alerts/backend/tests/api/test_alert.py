@@ -1935,10 +1935,17 @@ class TestAlertSimulateForecast(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Not enough history to forecast." in str(response.json())
 
+    @parameterized.expand(
+        [
+            ("engine failure", ForecastExecutionError("internal details")),
+            ("query returned no result", RuntimeError("No results found for insight with id = 1")),
+        ]
+    )
     @mock.patch("products.alerts.backend.presentation.views.alert.capture_exception")
     @mock.patch("products.alerts.backend.presentation.views.alert.simulate_forecast_on_insight")
-    def test_simulate_forecast_engine_error_returns_503(self, mock_simulate_forecast, mock_capture) -> None:
-        error = ForecastExecutionError("internal details")
+    def test_simulate_forecast_engine_error_returns_503(
+        self, _name: str, error: Exception, mock_simulate_forecast, mock_capture
+    ) -> None:
         mock_simulate_forecast.side_effect = error
         with mock.patch(
             "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True

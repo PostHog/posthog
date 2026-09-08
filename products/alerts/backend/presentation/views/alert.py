@@ -69,7 +69,6 @@ from products.alerts.backend.evaluation.validation import (
     validate_alert_config,
 )
 from products.alerts.backend.facade.api import (
-    ForecastExecutionError,
     ForecastSimulationCapacityExceeded,
     simulate_forecast_on_insight,
     validate_forecast_horizon,
@@ -1576,9 +1575,11 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError(str(e))
         except ForecastSimulationCapacityExceeded:
             raise Throttled(detail="Too many forecasts are already running. Try again shortly.")
-        except ForecastExecutionError as error:
-            # The 503 body carries no cause and the engine logs the outcome without the exception,
-            # so report it here. Otherwise a backend launch failure is invisible past the failure rate.
+        except RuntimeError as error:
+            # Covers the engine's ForecastExecutionError and the extractor's failure when the query
+            # layer returns no result, because the first subclasses RuntimeError. Both are
+            # server-side, so the caller should retry instead of changing the request. The response
+            # carries no cause, so report the exception to keep the failure diagnosable.
             capture_exception(
                 error,
                 additional_properties={
