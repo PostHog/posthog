@@ -5,6 +5,7 @@ import pickle
 import threading
 import dataclasses
 from collections.abc import Collection
+from contextlib import suppress
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -4430,6 +4431,36 @@ class TestSourcesCacheConcurrency(TestCase):
 
         assert fetch_count == 1
         assert results == [stub, stub]
+
+    def test_waiters_wake_and_retry_when_the_owner_fetch_raises(self):
+        key = SourcesCacheKey(
+            team_id=1, connection_id=None, modifiers_fingerprint="fp", bypass_warehouse_access_control=False
+        )
+        stub = self._stub_sources()
+        owner_entered = threading.Event()
+        owner_release = threading.Event()
+
+        def failing_fetch() -> Any:
+            owner_entered.set()
+            assert owner_release.wait(timeout=5)
+            raise RuntimeError("fetch failed")
+
+        def owner() -> None:
+            with suppress(RuntimeError):
+                get_or_fetch_sources(key, failing_fetch)
+
+        results: list[Any] = []
+        owner_thread = threading.Thread(target=owner)
+        waiter_thread = threading.Thread(target=lambda: results.append(get_or_fetch_sources(key, lambda: stub)))
+        owner_thread.start()
+        assert owner_entered.wait(timeout=5)
+        waiter_thread.start()
+        owner_release.set()
+        owner_thread.join(timeout=5)
+        waiter_thread.join(timeout=5)
+
+        assert not waiter_thread.is_alive()
+        assert results == [stub]
 
     def test_oversized_sources_are_returned_but_not_cached(self):
         key = SourcesCacheKey(

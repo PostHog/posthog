@@ -120,23 +120,24 @@ def get_or_fetch_sources(key: SourcesCacheKey, fetch: Callable[[], "HogQLDatabas
             continue
 
         SOURCES_CACHE_EVENTS.labels(result="miss").inc()
+        oversized = False
         try:
             # The fetch runs outside the global cache lock so one slow team cannot stall every
-            # other team's lookups.
+            # other team's lookups. Cache admission happens before the flight is retired in the
+            # finally block, so a new caller always observes either a cached value or an
+            # in-flight fetch, never neither.
             sources = fetch()
-        except BaseException:
+            oversized = sources_weight(sources) > SOURCES_CACHE_MAX_ENTRY_WEIGHT
+            flight.result = sources
+            if not oversized:
+                with _sources_cache_lock:
+                    _sources_cache[key] = sources
+        finally:
+            # Waiters must always wake and the flight must always leave the registry, whatever
+            # raised above — a flight that stays registered would hang this key's callers forever.
             with _sources_cache_lock:
                 _inflight_fetches.pop(key, None)
             flight.done.set()
-            raise
-
-        oversized = sources_weight(sources) > SOURCES_CACHE_MAX_ENTRY_WEIGHT
-        flight.result = sources
-        with _sources_cache_lock:
-            if not oversized:
-                _sources_cache[key] = sources
-            _inflight_fetches.pop(key, None)
-        flight.done.set()
         if oversized:
             SOURCES_CACHE_EVENTS.labels(result="oversized").inc()
         return sources
