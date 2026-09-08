@@ -19,7 +19,7 @@ Base64 image data does not identify screenshot mode because wireframe-mode image
 A recording uses one mode throughout its lifetime.
 The recorder stops inspecting wireframes once it identifies the mode for its in-memory storage block.
 Each new block can identify the mode independently, without a shared cache or a ClickHouse lookup.
-ClickHouse stores `AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))` and retains the first non-null mode across blocks.
+ClickHouse stores `AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))` and retains the first non-null mode across blocks.
 Blocks without visual evidence cannot overwrite a known mode.
 
 ## Querying daily recording counts
