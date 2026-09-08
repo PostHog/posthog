@@ -282,6 +282,19 @@ class TestRowShiftClassification:
 
         assert classify_compare_result(result) == expected_kind
 
+    def test_over_cap_shift_is_layout_even_when_its_band_covers_the_page(self):
+        # The band's area counts as changed pixels, and a big move on a short
+        # page covers more of it than the pixel threshold. The move is still
+        # the change, so it has to read as layout, not as a pixel diff.
+        baseline = _make_tall_settings_page(height=200)
+        current = _insert_rows(baseline, y=80, rows=40)
+
+        result = compare_images(baseline, current, with_thumbnail=False)
+        assert result.row_shift is not None
+        assert result.aligned_diff_percentage > PIXEL_DIFF_THRESHOLD_PERCENT
+
+        assert classify_compare_result(result) == ChangeKind.LAYOUT
+
     def test_shift_plus_real_change_is_not_absorbed(self):
         baseline = _make_tall_settings_page()
         shifted = open_png(_insert_rows(baseline, y=200, rows=1))

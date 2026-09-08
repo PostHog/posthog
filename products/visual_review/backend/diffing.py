@@ -33,10 +33,11 @@ def classify_compare_result(result: CompareResult) -> ChangeKind | None:
     drives `_diff_snapshot` below; keeping it here means the production
     branch and the tests can't drift.
 
-    When the pair aligned, the pixel tier reads the residual plus the area of
-    the rows the shift added or removed, and `ssim_score` is already measured
-    over the matched rows, so a page that only moved down is judged on what
-    changed rather than on everything the shift dragged along. A shift taller than the absorb cap is its own kind, because moving
+    When the pair aligned, the pixel tier reads the residual first and the
+    area of the rows the shift added or removed after the cap, and
+    `ssim_score` is already measured over the matched rows, so a page that
+    only moved down is judged on what changed rather than on everything the
+    shift dragged along. A shift taller than the absorb cap is its own kind, because moving
     a block is a change a reviewer can act on even when the content in it is
     identical.
 
@@ -45,13 +46,20 @@ def classify_compare_result(result: CompareResult) -> ChangeKind | None:
     that sizes differed is recorded separately on `DiffMetadata`.
     """
     shift = result.row_shift
-    pixel_percentage = result.aligned_diff_percentage
+    residual_percentage = shift.residual_percentage if shift else result.diff_percentage
     shifted_rows = shift.shifted_rows if shift else 0
 
-    if pixel_percentage >= PIXEL_DIFF_THRESHOLD_PERCENT:
+    # Content that changed inside the matched rows is a pixel change no matter
+    # what moved. A move past the cap is a layout change even when its band
+    # alone covers a lot of the page, which is why the band's area is judged
+    # only after that: it decides whether a small move on a small component
+    # is a bar across it or noise.
+    if residual_percentage >= PIXEL_DIFF_THRESHOLD_PERCENT:
         return ChangeKind.PIXEL
     if shifted_rows > SHIFT_ABSORB_MAX_ROWS:
         return ChangeKind.LAYOUT
+    if result.aligned_diff_percentage >= PIXEL_DIFF_THRESHOLD_PERCENT:
+        return ChangeKind.PIXEL
     if (1.0 - result.ssim_score) >= SSIM_DISSIMILARITY_THRESHOLD:
         return ChangeKind.STRUCTURAL
     return None
