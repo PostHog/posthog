@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -6,17 +8,25 @@ from django.test import TestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+from rest_framework.parsers import JSONParser
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
-from products.endpoints.backend.models import Endpoint
+from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.presentation.throttles import (
     EndpointBurstThrottle,
     EndpointSustainedThrottle,
     _is_materialized_endpoint_request,
 )
 from products.endpoints.backend.rate_limit import (
+    MATERIALIZED_ENDPOINT_CACHE_TTL,
+    STALE_STATE_RECHECK_TTL,
     _check_and_cache_materialization_status,
+    check_materialized_request,
     clear_endpoint_materialization_cache,
+    get_endpoint_materialization_cache_key,
+    get_endpoint_materialization_state,
     is_endpoint_materialization_ready,
     set_endpoint_materialization_ready,
 )
@@ -37,6 +47,21 @@ class TestMaterializationCache(TestCase):
     def test_set_and_get_materialization_status(self, is_ready):
         set_endpoint_materialization_ready(123, "test_endpoint", is_ready)
         self.assertEqual(is_endpoint_materialization_ready(123, "test_endpoint"), is_ready)
+
+    @parameterized.expand(
+        [
+            ("unparsable_timestamp", {"ready": True, "materialized_at": "not-a-timestamp"}),
+            ("foreign_shape", {"ready": True, "materialized_at": 1234, "freshness_seconds": "3600"}),
+            ("ready_as_string", {"ready": "false", "materialized_at": None, "servable_variables": []}),
+            ("freshness_as_bool", {"ready": True, "materialized_at": None, "freshness_seconds": True}),
+            ("variable_not_a_name", {"ready": True, "materialized_at": None, "servable_variables": ["a", 1]}),
+        ]
+    )
+    def test_payload_in_another_shape_reads_as_a_miss(self, _name, payload):
+        cache.set(get_endpoint_materialization_cache_key(123, "test_endpoint"), payload)
+
+        self.assertIsNone(get_endpoint_materialization_state(123, "test_endpoint"))
+        self.assertIsNone(is_endpoint_materialization_ready(123, "test_endpoint"))
 
     def test_clear_cache(self):
         set_endpoint_materialization_ready(123, "test_endpoint", True)
@@ -109,6 +134,7 @@ class TestCheckAndCacheMaterializationStatus(APIBaseTest):
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
             is_materialized=True,
             status=status,
+            last_run_at=timezone.now() if status == DataWarehouseSavedQuery.Status.COMPLETED else None,
             origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
         )
         endpoint = Endpoint.objects.create(
@@ -189,6 +215,21 @@ class TestCheckAndCacheMaterializationStatus(APIBaseTest):
 
         self.assertEqual(_check_and_cache_materialization_status(self.team.id, f"endpoint_{name}"), expected_ready)
 
+    def test_failed_run_after_a_good_one_keeps_the_table_servable(self):
+        _create_ready_materialized_endpoint(self.team, self.user, "failed_after_good", timezone.now())
+        saved_query = DataWarehouseSavedQuery.objects.get(name="failed_after_good_query")
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.FAILED,
+            engine=DataModelingJob.Engine.CLICKHOUSE,
+            last_run_at=timezone.now() + timedelta(minutes=1),
+        )
+
+        # The execution service still serves the last good table, so the throttle must agree.
+        self.assertTrue(_check_and_cache_materialization_status(self.team.id, "failed_after_good"))
+        self.assertTrue(check_materialized_request(self.team.id, "failed_after_good", None, {}))
+
     def _create_endpoint_with_materialized_v1_and_inline_v2(self, name="versioned_endpoint"):
         from products.endpoints.backend.models import EndpointVersion
 
@@ -198,6 +239,7 @@ class TestCheckAndCacheMaterializationStatus(APIBaseTest):
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
             is_materialized=True,
             status=DataWarehouseSavedQuery.Status.COMPLETED,
+            last_run_at=timezone.now(),
             origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
         )
         table = DataWarehouseTable.objects.create(
@@ -266,6 +308,40 @@ class TestCheckAndCacheMaterializationStatus(APIBaseTest):
         self.assertFalse(is_endpoint_materialization_ready(self.team.id, "versioned_endpoint3"))
 
 
+def _create_ready_materialized_endpoint(team, user, name: str, materialized_at) -> None:
+    saved_query = DataWarehouseSavedQuery.objects.create(
+        name=f"{name}_query",
+        team=team,
+        query={"kind": "HogQLQuery", "query": "SELECT 1"},
+        is_materialized=True,
+        status=None,
+        origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+    )
+    saved_query.table = DataWarehouseTable.objects.create(
+        team=team,
+        name=f"{name}_table",
+        format=DataWarehouseTable.TableFormat.Parquet,
+        url_pattern=f"s3://test-bucket/{name}",
+    )
+    saved_query.save()
+    DataModelingJob.objects.create(
+        team=team,
+        saved_query=saved_query,
+        status=DataModelingJob.Status.COMPLETED,
+        engine=DataModelingJob.Engine.CLICKHOUSE,
+        last_run_at=materialized_at,
+    )
+    endpoint = Endpoint.objects.create(name=name, team=team, created_by=user, is_active=True, current_version=1)
+    EndpointVersion.objects.create(
+        endpoint=endpoint,
+        version=1,
+        query={"kind": "HogQLQuery", "query": "SELECT 1"},
+        created_by=user,
+        saved_query=saved_query,
+        data_freshness_seconds=3600,
+    )
+
+
 class TestIsMaterializedEndpointRequest(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -289,8 +365,8 @@ class TestIsMaterializedEndpointRequest(APIBaseTest):
 
         self.assertFalse(_is_materialized_endpoint_request(request, view))
 
-    def test_uses_cached_value(self):
-        set_endpoint_materialization_ready(123, "test", True)
+    def test_cached_not_ready_skips_the_db(self):
+        set_endpoint_materialization_ready(123, "test", False)
 
         request = MagicMock()
         request.data = {}
@@ -299,42 +375,11 @@ class TestIsMaterializedEndpointRequest(APIBaseTest):
         view.team_id = 123
         view.kwargs = {"name": "test"}
 
-        self.assertTrue(_is_materialized_endpoint_request(request, view))
+        with self.assertNumQueries(0):
+            self.assertFalse(_is_materialized_endpoint_request(request, view))
 
     def test_lazy_loads_on_cache_miss(self):
-        from products.endpoints.backend.models import EndpointVersion
-
-        saved_query = DataWarehouseSavedQuery.objects.create(
-            name="lazy_query",
-            team=self.team,
-            query={"kind": "HogQLQuery", "query": "SELECT 1"},
-            is_materialized=True,
-            status=DataWarehouseSavedQuery.Status.COMPLETED,
-            origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
-        )
-        endpoint = Endpoint.objects.create(
-            name="lazy_endpoint",
-            team=self.team,
-            created_by=self.user,
-            is_active=True,
-            current_version=1,
-        )
-        table = DataWarehouseTable.objects.create(
-            team=self.team,
-            name="lazy_table",
-            format=DataWarehouseTable.TableFormat.Parquet,
-            url_pattern="s3://test-bucket/lazy_table",
-        )
-        saved_query.table = table
-        saved_query.save()
-
-        EndpointVersion.objects.create(
-            endpoint=endpoint,
-            version=1,
-            query={"kind": "HogQLQuery", "query": "SELECT 1"},
-            created_by=self.user,
-            saved_query=saved_query,
-        )
+        _create_ready_materialized_endpoint(self.team, self.user, "lazy_endpoint", timezone.now())
 
         self.assertIsNone(is_endpoint_materialization_ready(self.team.id, "lazy_endpoint"))
 
@@ -367,14 +412,30 @@ class TestIsMaterializedEndpointRequest(APIBaseTest):
 
         self.assertFalse(_is_materialized_endpoint_request(request, view))
 
+    @parameterized.expand(
+        [
+            ("malformed_json", "{not json", "application/json"),
+            ("unsupported_media_type", "<xml/>", "application/xml"),
+        ]
+    )
+    def test_unreadable_body_takes_the_inline_rate(self, name, body, content_type):
+        _create_ready_materialized_endpoint(self.team, self.user, name, timezone.now())
+
+        request = Request(APIRequestFactory().post("/", data=body, content_type=content_type), parsers=[JSONParser()])
+        view = MagicMock()
+        view.team_id = self.team.id
+        view.kwargs = {"name": name}
+
+        self.assertFalse(_is_materialized_endpoint_request(request, view))
+
     def test_invalid_version_param_falls_back_to_current(self):
-        set_endpoint_materialization_ready(123, "test", True)
+        _create_ready_materialized_endpoint(self.team, self.user, "test", timezone.now())
 
         request = MagicMock()
         request.data = {}
         request.query_params = {"version": "not-a-number"}
         view = MagicMock()
-        view.team_id = 123
+        view.team_id = self.team.id
         view.kwargs = {"name": "test"}
 
         self.assertTrue(_is_materialized_endpoint_request(request, view))
@@ -403,7 +464,7 @@ class TestEndpointThrottles(APIBaseTest):
         self.assertEqual(throttle.scope, "api_queries_burst")
 
     def test_uses_materialized_scope_when_materialized(self):
-        set_endpoint_materialization_ready(self.team.id, "mat_endpoint", True)
+        _create_ready_materialized_endpoint(self.team, self.user, "mat_endpoint", timezone.now())
 
         for throttle_class, expected_scope in [
             (EndpointBurstThrottle, "materialized_endpoint_burst"),
@@ -420,3 +481,98 @@ class TestEndpointThrottles(APIBaseTest):
             throttle.allow_request(request, view)
 
             self.assertEqual(throttle.scope, expected_scope)
+
+    @parameterized.expand(
+        [
+            ("clean_request", {}, timedelta(minutes=5), "materialized_endpoint_burst"),
+            ("refresh_direct_runs_inline", {"refresh": "direct"}, timedelta(minutes=5), "api_queries_burst"),
+            ("unsupported_variable_runs_inline", {"variables": {"nope": 1}}, timedelta(minutes=5), "api_queries_burst"),
+            ("stale_materialization_runs_inline", {}, timedelta(hours=2), "api_queries_burst"),
+            (
+                "malformed_variables_fall_back_to_inline",
+                {"variables": "nope"},
+                timedelta(minutes=5),
+                "api_queries_burst",
+            ),
+        ]
+    )
+    def test_inline_fallbacks_do_not_draw_the_materialized_budget(self, name, body, materialized_age, expected_scope):
+        _create_ready_materialized_endpoint(self.team, self.user, name, timezone.now() - materialized_age)
+
+        throttle = EndpointBurstThrottle()
+        request = MagicMock()
+        request.data = body
+        request.query_params = {}
+        view = MagicMock()
+        view.team_id = self.team.id
+        view.kwargs = {"name": name}
+
+        throttle.allow_request(request, view)
+        self.assertEqual(throttle.scope, expected_scope)
+
+        # The first classification cached the version's snapshot; a repeat runs off the cache alone.
+        throttle = EndpointBurstThrottle()
+        with self.assertNumQueries(0):
+            throttle.allow_request(request, view)
+        self.assertEqual(throttle.scope, expected_scope)
+
+
+class TestMaterializationStateCacheTimeout(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+        super().tearDown()
+
+    @parameterized.expand(
+        [
+            ("expires_with_the_freshness_window", timedelta(minutes=55), 300),
+            ("stale_snapshot_rechecks_soon", timedelta(hours=2), STALE_STATE_RECHECK_TTL),
+        ]
+    )
+    def test_cache_timeout_tracks_freshness(self, _name, materialized_age, expected_timeout):
+        _create_ready_materialized_endpoint(self.team, self.user, "timed_endpoint", timezone.now() - materialized_age)
+
+        with patch("products.endpoints.backend.rate_limit.cache.set", wraps=cache.set) as cache_set:
+            check_materialized_request(self.team.id, "timed_endpoint", None, {})
+
+        timeout = cache_set.call_args.kwargs["timeout"]
+        self.assertAlmostEqual(timeout, expected_timeout, delta=5)
+
+    @parameterized.expand(
+        [
+            ("pending_first_run_rechecks_soon", True, STALE_STATE_RECHECK_TTL),
+            ("no_materialization_holds_the_window", False, MATERIALIZED_ENDPOINT_CACHE_TTL),
+        ]
+    )
+    def test_not_ready_timeout_tracks_whether_a_run_is_pending(self, name, materialization_enabled, expected_timeout):
+        saved_query = (
+            DataWarehouseSavedQuery.objects.create(
+                name=f"{name}_query",
+                team=self.team,
+                query={"kind": "HogQLQuery", "query": "SELECT 1"},
+                is_materialized=True,
+                status=DataWarehouseSavedQuery.Status.RUNNING,
+                origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+            )
+            if materialization_enabled
+            else None
+        )
+        endpoint = Endpoint.objects.create(
+            name=name, team=self.team, created_by=self.user, is_active=True, current_version=1
+        )
+        EndpointVersion.objects.create(
+            endpoint=endpoint,
+            version=1,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+            saved_query=saved_query,
+            data_freshness_seconds=3600,
+        )
+
+        with patch("products.endpoints.backend.rate_limit.cache.set", wraps=cache.set) as cache_set:
+            self.assertFalse(check_materialized_request(self.team.id, name, None, {}))
+
+        self.assertEqual(cache_set.call_args.kwargs["timeout"], expected_timeout)
