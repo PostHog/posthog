@@ -36,7 +36,7 @@ class HarmonicCompanyLookup:
 _ENRICHMENT_STATUS_BATCH_SIZE = 50
 
 # Caps how many slow lookups can overlap. Admission pacing controls the request rate.
-_ENRICH_MAX_IN_FLIGHT = 10
+_ENRICH_MAX_CONCURRENT_LOOKUPS = 10
 _ENRICH_MAX_ATTEMPTS = 3
 
 
@@ -303,7 +303,7 @@ class AsyncHarmonicClient:
     async def enrich_companies_batch(self, domains: list[str]) -> list[dict[str, Any] | None]:
         """Enrich multiple domains concurrently, one task per domain.
 
-        An asyncio.Semaphore bounds how many lookups run at once (_ENRICH_MAX_IN_FLIGHT); admission
+        An asyncio.Semaphore bounds how many lookups run at once (_ENRICH_MAX_CONCURRENT_LOOKUPS); admission
         for each request is paced individually against the shared egress budget, serialized through
         a lock so only the wait blocks, not the request itself. A domain shed by the egress limiter
         waits one budget window and retries, up to _ENRICH_MAX_ATTEMPTS. A domain still shed after
@@ -321,11 +321,11 @@ class AsyncHarmonicClient:
             return []
 
         results: list[dict[str, Any] | None] = [None] * len(domains)
-        semaphore = asyncio.Semaphore(_ENRICH_MAX_IN_FLIGHT)
+        semaphore = asyncio.Semaphore(_ENRICH_MAX_CONCURRENT_LOOKUPS)
         pacing_lock = asyncio.Lock()
 
         async def enrich_one(index: int, domain: str) -> None:
-            for _attempt in range(_ENRICH_MAX_ATTEMPTS):
+            for attempt in range(1, _ENRICH_MAX_ATTEMPTS + 1):
                 async with semaphore:
                     if self.priority is not Priority.CRITICAL:
                         async with pacing_lock:
@@ -342,7 +342,8 @@ class AsyncHarmonicClient:
                         capture_exception(e, {"domain": domain})
                         return
 
-                await asyncio.sleep(HARMONIC_WINDOW_SECONDS)
+                if attempt < _ENRICH_MAX_ATTEMPTS:
+                    await asyncio.sleep(HARMONIC_WINDOW_SECONDS)
 
             capture_exception(
                 HarmonicEgressBudgetExhausted(

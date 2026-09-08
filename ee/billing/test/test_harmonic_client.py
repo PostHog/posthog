@@ -10,7 +10,11 @@ from posthog.egress.harmonic.limiter import HARMONIC_WINDOW_SECONDS
 from posthog.egress.harmonic.transport import HarmonicEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 
-from ee.billing.salesforce_enrichment.harmonic_client import _ENRICH_MAX_IN_FLIGHT, AsyncHarmonicClient
+from ee.billing.salesforce_enrichment.harmonic_client import (
+    _ENRICH_MAX_ATTEMPTS,
+    _ENRICH_MAX_CONCURRENT_LOOKUPS,
+    AsyncHarmonicClient,
+)
 
 HARMONIC_REQUEST = "ee.billing.salesforce_enrichment.harmonic_client.harmonic_request"
 PACE_SECONDS_HARMONIC = "ee.billing.salesforce_enrichment.harmonic_client.pace_seconds_harmonic"
@@ -350,12 +354,12 @@ async def test_enrich_companies_batch_backs_off_a_full_window_after_a_shed_befor
 @patch(ASYNCIO_TO_THREAD, new=_fake_to_thread)
 async def test_enrich_companies_batch_starts_the_next_lookup_as_soon_as_any_slot_frees(mock_pace):
     # With one more domain than the in-flight cap, the extra lookup must start once any slot
-    # frees, without waiting on the slowest of the first _ENRICH_MAX_IN_FLIGHT.
+    # frees, without waiting on the slowest of the first _ENRICH_MAX_CONCURRENT_LOOKUPS.
     first_started = asyncio.Event()
     release_first = asyncio.Event()
     started_domains: list[str] = []
 
-    domains = [f"d{i}.com" for i in range(_ENRICH_MAX_IN_FLIGHT + 1)]
+    domains = [f"d{i}.com" for i in range(_ENRICH_MAX_CONCURRENT_LOOKUPS + 1)]
 
     async def request(session, method, url, *, source, priority, endpoint, headers, json, **kwargs):
         website_url = json["variables"]["identifiers"]["websiteUrl"]
@@ -370,7 +374,9 @@ async def test_enrich_companies_batch_starts_the_next_lookup_as_soon_as_any_slot
     with patch(HARMONIC_REQUEST, new=request):
         task = asyncio.create_task(client.enrich_companies_batch(domains))
         await first_started.wait()
-        for _ in range(10):
+        for _ in range(100):
+            if "d10.com" in started_domains:
+                break
             await _REAL_SLEEP(0)
 
         assert "d10.com" in started_domains
@@ -434,6 +440,8 @@ async def test_enrich_companies_batch_reports_denied_forever_distinctly_from_a_n
     captured_domains = [call.args[1]["domain"] for call in mock_capture.call_args_list]
     assert captured_domains == ["denied.com"]
     assert isinstance(mock_capture.call_args_list[0].args[0], HarmonicEgressBudgetExhausted)
+    # Only the gaps between attempts wait a window; a domain that is out of attempts is reported at once.
+    assert mock_sleep.await_count == _ENRICH_MAX_ATTEMPTS - 1
 
 
 @pytest.mark.asyncio
