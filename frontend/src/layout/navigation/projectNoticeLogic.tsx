@@ -240,21 +240,12 @@ export interface projectNoticeLogicActions {
     reportProjectNoticeShown: (variant: string) => {
         variant: string
     } // eventUsageLogic
-    requestVerificationCode: (uuid: string) => {
-        uuid: string
-    } // verifyEmailLogic
-    requestVerificationCodeSuccess: (
-        newlyRequestedVerificationCode: boolean,
-        payload?:
-            | {
-                  uuid: string
-              }
-            | undefined
+    requestVerificationCode: (
+        uuid: string,
+        returnTo?: string | undefined
     ) => {
-        newlyRequestedVerificationCode: boolean
-        payload?: {
-            uuid: string
-        }
+        returnTo: string | undefined
+        uuid: string
     } // verifyEmailLogic
     dismissProjectNotice: (dismissKey: string | null) => {
         dismissKey: string | null
@@ -278,9 +269,6 @@ export interface projectNoticeLogicActions {
         value: true
     }
     showEventIngestionRestrictionDetails: () => {
-        value: true
-    }
-    verifyEmailFromBanner: () => {
         value: true
     }
 }
@@ -326,6 +314,7 @@ export interface projectNoticeLogicMeta {
             effectiveBillingAlert: BillingAlertConfig | null,
             projectNoticeDismissKey: string | null,
             currentOrganization: null | import('~/types').OrganizationType,
+            user: UserType | null,
             canAccessBilling: boolean,
             currentLocation: {
                 hash: string
@@ -375,14 +364,13 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
             // Mount verifyEmailLogic so the "Verify email" banner CTA's loader fires.
             // The banner renders on every scene, but verifyEmailLogic is otherwise only mounted on the verify-email scene.
             verifyEmailLogic,
-            ['requestVerificationCode', 'requestVerificationCodeSuccess'],
+            ['requestVerificationCode'],
         ],
     })),
     actions({
         dismissProjectNotice: (dismissKey: string | null) => ({ dismissKey }),
         reportNoticeShown: true,
         showEventIngestionRestrictionDetails: true,
-        verifyEmailFromBanner: true,
     }),
     loaders(({ values }) => ({
         proxyRecords: {
@@ -555,6 +543,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 s.effectiveBillingAlert,
                 s.projectNoticeDismissKey,
                 organizationLogic.selectors.currentOrganization,
+                userLogic.selectors.user,
                 billingLogic.selectors.canAccessBilling,
                 router.selectors.currentLocation,
                 sceneLogic.selectors.activeSceneProductKey,
@@ -565,6 +554,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 effectiveBillingAlert: BillingAlertConfig | null,
                 dismissKey: string | null,
                 currentOrganization: null | import('~/types').OrganizationType,
+                user: UserType | null,
                 canAccessBilling: boolean,
                 currentLocation: {
                     hash: string
@@ -685,7 +675,18 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                             message: 'Please verify your email address.',
                             action: {
                                 'data-attr': 'unverified-email-cta',
-                                onClick: () => projectNoticeLogic.actions.verifyEmailFromBanner(),
+                                onClick: () => {
+                                    if (!user) {
+                                        return
+                                    }
+                                    // The email carries a 6-digit code, and only the verify-email scene has the
+                                    // entry form. `returnTo` brings the user back here once the code is accepted.
+                                    const { pathname, search, hash } = router.values.location
+                                    verifyEmailLogic.actions.requestVerificationCode(
+                                        user.uuid,
+                                        pathname + search + hash
+                                    )
+                                },
                                 loading: requestingVerificationCode,
                                 children: 'Verify email',
                             },
@@ -732,29 +733,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, cache }) => ({
-        verifyEmailFromBanner: () => {
-            if (!values.user) {
-                return
-            }
-            // A cache flag, not a reducer: the UI never reads it, and a reducer keyed on the success
-            // action would clear before the success listener below could read it.
-            cache.verifyEmailFromBanner = true
-            actions.requestVerificationCode(values.user.uuid)
-        },
-        requestVerificationCodeSuccess: ({ newlyRequestedVerificationCode }) => {
-            const fromBanner = cache.verifyEmailFromBanner
-            cache.verifyEmailFromBanner = false
-            // A throttled or failed request resolves false. The user stays on this page with the
-            // error toast, because the verify-email scene would claim a code was sent.
-            if (!fromBanner || !newlyRequestedVerificationCode || !values.user) {
-                return
-            }
-            // The email carries a 6-digit code, and only the verify-email scene has the entry form.
-            // `next` returns the user to this page once the code is accepted.
-            const { pathname, search, hash } = router.values.location
-            router.actions.push(urls.verifyEmail(values.user.uuid), { next: pathname + search + hash })
-        },
+    listeners(({ actions, values }) => ({
         showEventIngestionRestrictionDetails: () => {
             LemonDialog.open({
                 title: 'Event ingestion restrictions',

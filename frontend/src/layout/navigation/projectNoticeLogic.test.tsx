@@ -318,7 +318,7 @@ describe('projectNoticeLogic', () => {
             await expectLogic(logic, () => {
                 logic.values.projectNotice?.action?.onClick?.({} as any)
             })
-                .toDispatchActions(['verifyEmailFromBanner', 'requestVerificationCode'])
+                .toDispatchActions(['requestVerificationCode'])
                 .toMatchValues({ newlyRequestedVerificationCodeLoading: true })
                 .toDispatchActions(['requestVerificationCodeSuccess'])
                 .toMatchValues({ newlyRequestedVerificationCodeLoading: false })
