@@ -27,8 +27,8 @@ _PULSE_TARGET_MAX_LENGTH = 300
 _PULSE_DIRECTION_MAX_LENGTH = 50
 _PULSE_EXPECTED_MOVEMENT_MAX_LENGTH = 1_000
 _PULSE_DRAFT_VARIANTS = [
-    {"key": "control", "name": "Control Group", "rollout_percentage": 50},
-    {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
+    {"key": "control", "name": "Control group", "rollout_percentage": 50},
+    {"key": "test", "name": "Test variant", "rollout_percentage": 50},
 ]
 _PULSE_DRAFT_FLAG_FILTERS = {
     "aggregation_group_type_index": None,
@@ -126,9 +126,10 @@ def create_pulse_experiment_draft(input: PulseExperimentDraftInput) -> PulseExpe
                 input=input,
             )
     except IntegrityError as err:
-        replay = _replay_pulse_experiment_draft(team=team, feature_flag_key=feature_flag_key, input=input)
-        if replay is not None:
-            return replay
+        with transaction.atomic():
+            replay = _replay_pulse_experiment_draft(team=team, feature_flag_key=feature_flag_key, input=input)
+            if replay is not None:
+                return replay
         raise ValueError("Pulse experiment draft key collides with another resource.") from err
 
 
@@ -198,6 +199,8 @@ def _matches_pulse_experiment_draft(
         and experiment.name == input.title
         and experiment.description == _pulse_hypothesis(input)
         and experiment.parameters == {_PULSE_DRAFT_PARAMETERS_KEY: _pulse_provenance(input)}
+        and experiment.archived is False
+        and experiment.deleted is False
         and experiment.start_date is None
         and experiment.metrics == []
         and experiment.metrics_secondary == []
@@ -219,7 +222,8 @@ def _resolve_pulse_draft_actor(input: PulseExperimentDraftInput) -> tuple[Team, 
         raise PermissionDenied("Pulse experiment draft access is no longer available.")
     access = UserAccessControl(user=actor, team=team)
     if not (
-        access.check_access_level_for_resource("experiment", "editor")
+        access.has_project_access
+        and access.check_access_level_for_resource("experiment", "editor")
         and access.check_access_level_for_resource("feature_flag", "editor")
     ):
         raise PermissionDenied("Pulse experiment draft access is no longer available.")
