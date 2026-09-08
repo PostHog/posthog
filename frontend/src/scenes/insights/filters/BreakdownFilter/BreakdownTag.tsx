@@ -130,10 +130,12 @@ export function BreakdownTag({
         propertyName = 'All Users'
     } else if (isCohort(breakdown)) {
         propertyName = cohortsById[breakdown]?.name || `Cohort ${breakdown}`
-    } else if (breakdownType === 'event_metadata' && (propertyName as string).startsWith('$group_')) {
-        const group = groupTypes.get(
-            parseInt((propertyName as string).replace('$group_', '')) as unknown as GroupTypeIndex
-        )
+    } else if (
+        breakdownType === 'event_metadata' &&
+        typeof propertyName === 'string' &&
+        propertyName.startsWith('$group_')
+    ) {
+        const group = groupTypes.get(parseInt(propertyName.replace('$group_', '')) as unknown as GroupTypeIndex)
         if (group) {
             propertyName = group.name_singular || group.group_type
         }

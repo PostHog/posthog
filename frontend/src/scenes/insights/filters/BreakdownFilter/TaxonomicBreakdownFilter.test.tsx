@@ -37,6 +37,24 @@ describe('TaxonomicBreakdownFilter', () => {
         })
     })
 
+    describe('a saved breakdown without a property', () => {
+        it('keeps the breakdown filter rendered instead of blanking the editor', async () => {
+            renderInsightPage({
+                query: buildTrendsQuery({
+                    breakdownFilter: {
+                        breakdowns: [
+                            { property: null as unknown as string, type: 'event_metadata' },
+                            { property: 'distinct_id', type: 'event_metadata' },
+                        ],
+                    },
+                }),
+            })
+
+            await waitForBreakdownButton()
+            expect(screen.getByTitle('distinct_id')).toBeInTheDocument()
+        })
+    })
+
     describe('at the trends 3-breakdown cap', () => {
         const queryAtCap = buildTrendsQuery({
             breakdownFilter: {
