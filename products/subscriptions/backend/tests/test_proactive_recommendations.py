@@ -421,15 +421,19 @@ def test_recent_memory_projects_only_safe_outcome_readouts(team) -> None:
 
 
 @pytest.mark.django_db
-def test_recent_memory_reads_outcomes_in_its_existing_single_query(team, django_assert_num_queries) -> None:
+def test_recent_memory_reads_multiple_outcomes_without_per_outcome_queries(team, django_assert_num_queries) -> None:
     _memory_recommendation_with_outcome(
         team, semantic_key="improved", outcome_status=ProactiveRecommendationOutcome.Status.IMPROVED
     )
+    _memory_recommendation_with_outcome(
+        team, semantic_key="unavailable", outcome_status=ProactiveRecommendationOutcome.Status.UNAVAILABLE
+    )
 
-    with django_assert_num_queries(1):
+    # The fail-closed manager canonicalizes the raw team ID first; the outcome projection itself is one joined query.
+    with django_assert_num_queries(2):
         memory = recent_recommendation_memory(team_id=team.id, subscription_id=123)
 
-    assert memory[0].outcome_status == "improved"
+    assert {item.outcome_status for item in memory} == {"improved", "unavailable"}
 
 
 @pytest.mark.django_db
