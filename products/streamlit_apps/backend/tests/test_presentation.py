@@ -756,12 +756,25 @@ class TestCreateVersionFromSourceInputSerializer(SimpleTestCase):
             ("asset_traversal", {"assets": {"../x.bin": "AAAA"}}, "assets"),
             ("asset_not_base64", {"assets": {"x.bin": "not base64!"}}, "assets"),
             ("same_path_in_both", {"files": {"x.txt": "a"}, "assets": {"x.txt": "AAAA"}}, "assets"),
+            ("nul_in_path", {"files": {"bad\x00.txt": "a"}}, "files"),
+            ("file_and_directory", {"files": {"data": "a"}, "assets": {"data/events.csv": "AAAA"}}, "non_field_errors"),
+            ("under_app_py", {"files": {"app.py/helper.py": "a"}}, "non_field_errors"),
+            ("too_many_entries", {"files": {f"f{i}.txt": "a" for i in range(500)}}, "non_field_errors"),
         ]
     )
     def test_rejects_bad_attachments(self, _name, extra, error_field):
         serializer = CreateVersionFromSourceInputSerializer(data={"source": "import streamlit as st", **extra})
         assert not serializer.is_valid()
         assert error_field in serializer.errors
+
+    @parameterized.expand([("fits", 40, True), ("over_budget", 48, False)])
+    def test_raw_size_budget_counts_decoded_assets(self, _name, asset_bytes, expected_valid):
+        asset = base64.b64encode(b"x" * asset_bytes).decode()
+        with patch("products.streamlit_apps.backend.presentation.serializers.MAX_ZIP_SIZE", 64):
+            serializer = CreateVersionFromSourceInputSerializer(
+                data={"source": "import streamlit as st", "assets": {"d.bin": asset}}
+            )
+            assert serializer.is_valid() is expected_valid, serializer.errors
 
 
 class TestStreamlitAppPersonalAPIKeyAccess(_StreamlitAppsFlagMixin, APIBaseTest):

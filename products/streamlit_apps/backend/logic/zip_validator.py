@@ -41,6 +41,8 @@ def attachment_path_error(path: str) -> str | None:
     """Return why ``path`` cannot be an extra entry next to ``app.py``, or None if it can."""
     if "\\" in path or any(segment in ("", ".", "..") for segment in path.split("/")):
         return "Path must be a relative file path using '/' with no '.' or '..' segments."
+    if any(ord(char) < 32 for char in path):
+        return "Path cannot contain control characters."
     if path == ROOT_APP_FILE:
         return f"{ROOT_APP_FILE} comes from the source field; pick another path."
     return None

@@ -25,6 +25,7 @@ from products.streamlit_apps.backend.logic.oauth import (
     get_streamlit_oauth_app,
 )
 from products.streamlit_apps.backend.logic.zip_validator import (
+    MAX_FILE_COUNT,
     MAX_ZIP_SIZE,
     attachment_path_error,
     build_app_zip,
@@ -64,6 +65,7 @@ __all__ = [
     "NoActiveVersionError",
     "AppNotRunningError",
     "ConnectUnavailableError",
+    "MAX_FILE_COUNT",
     "MAX_ZIP_SIZE",
     "MIN_CPU_CORES",
     "MAX_CPU_CORES",

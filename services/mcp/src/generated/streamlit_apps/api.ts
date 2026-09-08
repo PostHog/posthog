@@ -101,6 +101,8 @@ export const streamlitAppsCreateVersionFromSourceCreateBodySourceMax = 1048576
 
 export const streamlitAppsCreateVersionFromSourceCreateBodyFilesMaxOne = 1048576
 
+export const streamlitAppsCreateVersionFromSourceCreateBodyAssetsMaxOne = 13981016
+
 export const StreamlitAppsCreateVersionFromSourceCreateBody = () => zod.object({
     source: zod
         .string()
@@ -115,7 +117,7 @@ export const StreamlitAppsCreateVersionFromSourceCreateBody = () => zod.object({
             "Extra text files to ship next to app.py, keyed by project-relative path (for example 'utils.py' or 'data\/config.json'), each as plain text (max 1 MB)."
         ),
     assets: zod
-        .record(zod.string(), zod.string())
+        .record(zod.string(), zod.string().max(streamlitAppsCreateVersionFromSourceCreateBodyAssetsMaxOne))
         .optional()
         .describe(
             "Extra binary files to ship next to app.py, keyed by project-relative path (for example 'data\/events.parquet'), each as standard base64 text."

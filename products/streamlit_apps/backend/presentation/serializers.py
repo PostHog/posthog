@@ -10,7 +10,7 @@ from rest_framework.request import Request
 from rest_framework.views import APIView
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from products.streamlit_apps.backend.facade.api import attachment_path_error
+from products.streamlit_apps.backend.facade.api import MAX_FILE_COUNT, MAX_ZIP_SIZE, attachment_path_error
 from products.streamlit_apps.backend.facade.contracts import (
     AppContract,
     AppSandboxContract,
@@ -95,6 +95,12 @@ class UpdateAppInputSerializer(DataclassSerializer):
 
 
 _MAX_TEXT_FILE_LENGTH = 1024 * 1024
+# Base64 length of MAX_ZIP_SIZE bytes: no single asset can be larger than the whole archive may be.
+_MAX_ASSET_BASE64_LENGTH = 4 * ((MAX_ZIP_SIZE + 2) // 3)
+
+
+def _decoded_base64_size(encoded: str) -> int:
+    return len(encoded) * 3 // 4 - (2 if encoded.endswith("==") else 1 if encoded.endswith("=") else 0)
 
 
 class CreateVersionFromSourceInputSerializer(DataclassSerializer):
@@ -120,7 +126,7 @@ class CreateVersionFromSourceInputSerializer(DataclassSerializer):
         ),
     )
     assets = serializers.DictField(
-        child=serializers.CharField(),
+        child=serializers.CharField(max_length=_MAX_ASSET_BASE64_LENGTH),
         required=False,
         help_text=(
             "Extra binary files to ship next to app.py, keyed by project-relative path "
@@ -152,6 +158,28 @@ class CreateVersionFromSourceInputSerializer(DataclassSerializer):
         overlap = sorted(set(attrs.files) & set(attrs.assets))
         if overlap:
             raise serializers.ValidationError({"assets": f"Paths also present in files: {', '.join(overlap)}"})
+
+        entry_count = 1 + len(attrs.files) + len(attrs.assets)
+        if entry_count > MAX_FILE_COUNT:
+            raise serializers.ValidationError(f"Too many files ({entry_count}, max {MAX_FILE_COUNT}).")
+
+        # A path that is also a directory prefix of another cannot be unpacked on any filesystem.
+        paths = {"app.py", *attrs.files, *attrs.assets}
+        for path in sorted(paths):
+            if any(other.startswith(f"{path}/") for other in paths):
+                raise serializers.ValidationError(f"'{path}' is used as both a file and a directory.")
+
+        # Bound the work before any asset is decoded or the archive is built. The zip check
+        # after compression stays, this only refuses what could never fit.
+        raw_size = (
+            len(attrs.source.encode())
+            + sum(len(text.encode()) for text in attrs.files.values())
+            + sum(_decoded_base64_size(content) for content in attrs.assets.values())
+        )
+        if raw_size > MAX_ZIP_SIZE:
+            raise serializers.ValidationError(
+                f"App files total {raw_size / (1024 * 1024):.1f} MB, max {MAX_ZIP_SIZE / (1024 * 1024):.1f} MB."
+            )
         return attrs
 
     class Meta:
