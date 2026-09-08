@@ -3,8 +3,6 @@ import { useMemo } from 'react'
 
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
-import { LemonField } from 'lib/lemon-ui/LemonField'
-
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
 import {
     filterEffortForModel,
@@ -59,44 +57,43 @@ export function AIRunPreferenceEditor({
     const effortOptions = useMemo(() => getEffortsForModel(catalogue, draft.model), [catalogue, draft.model])
 
     return (
-        <div className="flex flex-wrap items-end gap-2">
-            <LemonField.Pure label="Model" className="min-w-60">
-                <LemonSelect
-                    fullWidth
-                    value={draft.model}
-                    onChange={(model) =>
-                        onChange({
-                            model,
-                            // A model switch may invalidate the picked effort; drop it rather than store one
-                            // the model can't run, and let the server-side default apply instead.
-                            reasoning_effort:
-                                draft.reasoning_effort && model
-                                    ? filterEffortForModel(catalogue, draft.reasoning_effort, model)
-                                    : null,
-                        })
-                    }
-                    options={[{ options: [{ value: null as string | null, label: inheritLabel }] }, ...modelOptions]}
-                    placeholder={inheritLabel}
-                    disabledReason={restrictionReason ?? (saving ? 'Saving…' : undefined)}
-                    data-attr={`${dataAttrPrefix}-model`}
-                />
-            </LemonField.Pure>
-            <LemonField.Pure label="Reasoning effort" className="min-w-48">
-                <LemonSelect
-                    fullWidth
-                    value={draft.reasoning_effort}
-                    onChange={(reasoning_effort) => onChange({ reasoning_effort })}
-                    options={[
-                        { value: null as string | null, label: 'Default effort' },
-                        ...effortOptions.map(({ value, label }) => ({ value: value as string, label })),
-                    ]}
-                    disabledReason={
-                        restrictionReason ?? (saving ? 'Saving…' : draft.model ? undefined : 'Pick a model first')
-                    }
-                    data-attr={`${dataAttrPrefix}-effort`}
-                />
-            </LemonField.Pure>
+        <div className="flex flex-wrap items-center gap-2">
+            <LemonSelect
+                size="small"
+                className="min-w-40"
+                value={draft.model}
+                onChange={(model) =>
+                    onChange({
+                        model,
+                        // A model switch may invalidate the picked effort; drop it rather than store one
+                        // the model can't run, and let the server-side default apply instead.
+                        reasoning_effort:
+                            draft.reasoning_effort && model
+                                ? filterEffortForModel(catalogue, draft.reasoning_effort, model)
+                                : null,
+                    })
+                }
+                options={[{ options: [{ value: null as string | null, label: inheritLabel }] }, ...modelOptions]}
+                placeholder={inheritLabel}
+                disabledReason={restrictionReason ?? (saving ? 'Saving…' : undefined)}
+                data-attr={`${dataAttrPrefix}-model`}
+            />
+            <LemonSelect
+                size="small"
+                className="min-w-32"
+                value={draft.reasoning_effort}
+                onChange={(reasoning_effort) => onChange({ reasoning_effort })}
+                options={[
+                    { value: null as string | null, label: 'Default effort' },
+                    ...effortOptions.map(({ value, label }) => ({ value: value as string, label: `${label} effort` })),
+                ]}
+                disabledReason={
+                    restrictionReason ?? (saving ? 'Saving…' : draft.model ? undefined : 'Pick a model first')
+                }
+                data-attr={`${dataAttrPrefix}-effort`}
+            />
             <LemonButton
+                size="small"
                 type="primary"
                 onClick={onSave}
                 loading={saving}
@@ -106,6 +103,7 @@ export function AIRunPreferenceEditor({
             </LemonButton>
             {onReset && (
                 <LemonButton
+                    size="small"
                     type="secondary"
                     onClick={onReset}
                     loading={saving}

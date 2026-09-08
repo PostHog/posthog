@@ -41,7 +41,7 @@ export function TaskAnalysisSettings(): JSX.Element {
     }
 
     return (
-        <section className="flex flex-col gap-3 max-w-200 border rounded p-4 bg-surface-primary">
+        <section className="flex flex-col gap-2 w-fit border rounded p-3 bg-surface-primary">
             <AIRunPreferenceEditor
                 draft={draft}
                 dirty={draftDirty}
