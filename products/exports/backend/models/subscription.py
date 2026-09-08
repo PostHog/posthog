@@ -237,7 +237,7 @@ class Subscription(ModelActivityMixin, models.Model):
         if "prompt" not in self.get_deferred_fields():
             self._initial_prompt = self.prompt
         if "delivery_config" not in self.get_deferred_fields():
-            self._initial_include_images = bool((self.delivery_config or {}).get("include_images", True))
+            self._initial_include_images = self._delivery_config_includes_images(self.delivery_config)
 
     def save(self, *args, **kwargs) -> None:
         # Only if the schedule has changed do we update the next delivery date
@@ -246,9 +246,19 @@ class Subscription(ModelActivityMixin, models.Model):
             self.set_next_delivery_date()
             if "update_fields" in kwargs:
                 kwargs["update_fields"].append("next_delivery_date")
-        include_images = bool((self.delivery_config or {}).get("include_images", True))
+        include_images = self._delivery_config_includes_images(self.delivery_config)
+        initial_include_images = getattr(self, "_initial_include_images", None)
+        if initial_include_images is None and self.id:
+            persisted_delivery_config = (
+                type(self).objects.filter(id=self.id).values_list("delivery_config", flat=True).first()
+            )
+            initial_include_images = (
+                self._delivery_config_includes_images(persisted_delivery_config)
+                if persisted_delivery_config is not None
+                else include_images
+            )
         prompt_changed = self.prompt != getattr(self, "_initial_prompt", self.prompt)
-        images_just_enabled = include_images and not getattr(self, "_initial_include_images", include_images)
+        images_just_enabled = include_images and not initial_include_images
         # Keep invalidation at the model level so every save path gets a fresh plan when its prompt
         # changes or when chart validation resumes after images were hidden.
         if self.id and (prompt_changed or images_just_enabled) and self.ai_query_plan is not None:
@@ -258,6 +268,11 @@ class Subscription(ModelActivityMixin, models.Model):
         super().save(*args, **kwargs)
         self._initial_prompt = self.prompt
         self._initial_include_images = include_images
+
+    @staticmethod
+    def _delivery_config_includes_images(delivery_config: Any) -> bool:
+        config = delivery_config if isinstance(delivery_config, dict) else {}
+        return bool(config.get("include_images", True))
 
     @classmethod
     def derive_resource_type(cls, insight_id: int | None, dashboard_id: int | None, prompt: str | None) -> str:

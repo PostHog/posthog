@@ -226,6 +226,29 @@ class TestSubscription(BaseTest):
         subscription.save()
         assert old_date == subscription.next_delivery_date
 
+    @parameterized.expand(
+        [
+            ("enabling_images_clears_plan", {"include_images": False}, {"include_images": True}, False),
+            ("images_already_enabled_keeps_plan", {"include_images": True}, {"include_images": True}, True),
+        ]
+    )
+    def test_deferred_delivery_config_preserves_plan_invalidation_state(
+        self, _name: str, initial_config: dict, updated_config: dict, plan_survives: bool
+    ) -> None:
+        plan = {"version": 1, "plan": {}}
+        subscription = self._create_subscription(
+            prompt="Summarize signups",
+            delivery_config=initial_config,
+            ai_query_plan=plan,
+        )
+
+        deferred_subscription = Subscription.objects.defer("delivery_config").get(id=subscription.id)
+        deferred_subscription.delivery_config = updated_config
+        deferred_subscription.save(update_fields=["delivery_config"])
+
+        subscription.refresh_from_db()
+        assert subscription.ai_query_plan == (plan if plan_survives else None)
+
     @freeze_time("2022-01-11 09:55:00")
     def test_set_next_delivery_date_when_in_upcoming_delta(self):
         subscription = Subscription.objects.create(

@@ -4,6 +4,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
 
+from django.db.models import Q
+
 import nh3
 import structlog
 from markdown_it import MarkdownIt
@@ -192,12 +194,19 @@ def _resolve_subscription_context(
     return team, subscription.created_by, window, subscription.ai_query_plan
 
 
-def _persist_ai_query_plan(subscription_id: int, team_id: int, prompt: str | None, plan: dict) -> bool:
-    # Targeted update, never a full save() — that would re-emit the activity-log/analytics signals.
-    # Filtering on the planning-time prompt closes a race: a prompt edited mid-generation clears the
-    # plan via Subscription.save(), and this no-ops instead of re-freezing a plan for the old prompt.
+def _persist_ai_query_plan(
+    subscription_id: int, team_id: int, prompt: str | None, plan: dict, *, include_images: bool
+) -> bool:
+    matching_delivery_config = Q(delivery_config__include_images=include_images)
+    if include_images:
+        matching_delivery_config |= ~Q(delivery_config__has_key="include_images")
+    # A prompt or image-setting edit can land while generation runs. Match both values so this
+    # targeted update cannot restore a plan that Subscription.save() invalidated. Never use a full
+    # save() here, as that would re-emit the activity-log/analytics signals.
     return bool(
-        Subscription.objects.filter(id=subscription_id, team_id=team_id, prompt=prompt).update(ai_query_plan=plan)
+        Subscription.objects.filter(
+            matching_delivery_config, id=subscription_id, team_id=team_id, prompt=prompt
+        ).update(ai_query_plan=plan)
     )
 
 
@@ -209,6 +218,7 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
     if user is None:
         raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot deliver.")
 
+    include_images = _include_delivery_part(subscription, "include_images")
     result = await generate_ai_report(
         team=team,
         user=user,
@@ -216,7 +226,7 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
         window=window,
         ai_query_plan=ai_query_plan,
         trace_correlation_id=subscription.id,
-        include_charts=_include_delivery_part(subscription, "include_images"),
+        include_charts=include_images,
         include_manage_link=_include_delivery_part(subscription, "include_manage_link"),
     )
 
@@ -224,7 +234,11 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
         plan_persisted = False
         try:
             plan_persisted = await database_sync_to_async(_persist_ai_query_plan, thread_sensitive=False)(
-                subscription.id, subscription.team_id, subscription.prompt, result.plan_to_persist
+                subscription.id,
+                subscription.team_id,
+                subscription.prompt,
+                result.plan_to_persist,
+                include_images=include_images,
             )
         except Exception as exc:
             # The frozen plan is an optimization — losing this write must not abort the delivery (the
