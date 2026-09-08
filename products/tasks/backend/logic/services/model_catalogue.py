@@ -27,7 +27,7 @@ from django.core.cache import cache
 import structlog
 
 from products.tasks.backend import model_catalog
-from products.tasks.backend.model_catalog import display_name_for_model
+from products.tasks.backend.model_catalog import display_name_for_model  # noqa: F401 — re-exported
 
 if TYPE_CHECKING:
     from posthog.llm.gateway_client import Product
@@ -192,6 +192,7 @@ def available_model_choices(product: Product) -> tuple[ModelChoice, ...]:
     return tuple(choices)
 
 
+@lru_cache(maxsize=1)
 def catalog_model_choices() -> tuple[ModelChoice, ...]:
     """Every model the catalog serves, without asking the gateway.
 
@@ -233,13 +234,11 @@ def filter_unsupported_effort(runtime_adapter: str | None, model: str | None, ef
     The single answer to "is this effort legal for this pair" — every stored-preference
     resolver routes through it.
     """
-    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — see `available_model_choices`
-        get_supported_reasoning_efforts,
-    )
-
-    if not effort:
+    # A missing adapter or model supports nothing: an unknown model must not inherit the
+    # adapter's fallback ladder and quietly keep an effort the run would be rejected for.
+    if not effort or not runtime_adapter or not model:
         return None
-    return effort if effort in {e.value for e in get_supported_reasoning_efforts(runtime_adapter, model)} else None
+    return effort if effort in model_catalog.reasoning_efforts_for(runtime_adapter, model) else None
 
 
 @lru_cache(maxsize=1)

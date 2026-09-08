@@ -3,6 +3,7 @@ import { getReasoningEffortOptions } from "@posthog/agent/adapters/reasoning-eff
 import type { LoopSchemas } from "@posthog/api-client/loops";
 import {
   flattenSelectOptions,
+  formatModelId,
   isDeepseekModelId,
   isDefaultSelectOption,
   isGlm53FlashModelId,
@@ -21,11 +22,12 @@ export interface LoopModelOption {
   label: string;
 }
 
-// The name the catalog resolved for a model when it was generated. Every surface reads
-// it from there, so a model is named the same offline as it is in the served list. An id
-// the catalog does not carry shows as itself.
+// The name the catalog resolved for a model when it was generated, falling back to the
+// same formatter the served list uses. Every surface names a model this way, so one model
+// reads the same offline as it does online, and an id the catalog dropped still reads as
+// a name rather than as an id.
 function catalogLabel(id: string): string {
-  return labelForModel(id) ?? id;
+  return labelForModel(id) ?? formatModelId(id);
 }
 
 // The model a loop fires with when none is pinned, and the one the serializer
@@ -173,7 +175,7 @@ export function loopModelOptions(
         !isDeepseekModelId(option.value),
     );
   if (pinnedModel && !options.some((option) => option.value === pinnedModel)) {
-    options.push({ value: pinnedModel, label: pinnedModel });
+    options.push({ value: pinnedModel, label: catalogLabel(pinnedModel) });
   }
   return options;
 }

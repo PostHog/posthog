@@ -127,23 +127,40 @@ DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = {
 
 RUNTIME_ADAPTERS: tuple[str, ...] = tuple(PROVIDER_BY_RUNTIME_ADAPTER)
 
+# The catalog keyed the two ways it gets read. Built once from MODELS, which stays the
+# only place a model is written down.
+_MODEL_BY_ID: dict[str, CatalogModel] = {model.id: model for model in MODELS}
+_MODEL_IDS_BY_RUNTIME_ADAPTER: dict[str, tuple[str, ...]] = {
+    adapter: tuple(model.id for model in MODELS if model.runtime_adapter == adapter) for adapter in RUNTIME_ADAPTERS
+}
+
 
 def models_for_runtime_adapter(runtime_adapter: str) -> tuple[str, ...]:
     """The model ids one adapter drives, in catalog order."""
-    return tuple(model.id for model in MODELS if model.runtime_adapter == runtime_adapter)
+    return _MODEL_IDS_BY_RUNTIME_ADAPTER.get(runtime_adapter, ())
+
+
+def runtime_adapter_for_model(model_id: str | None) -> str | None:
+    """Which adapter drives this model, whichever spelling the caller sends.
+
+    ``None`` when the catalog lists no adapter for it. The adapter is a property of the
+    model rather than an independent choice, so deriving it is what keeps a
+    ``(runtime_adapter, model)`` pair from disagreeing with itself.
+    """
+    if not model_id:
+        return None
+    model = _MODEL_BY_ID.get(normalize_model_id(model_id))
+    return model.runtime_adapter if model else None
 
 
 def serves_model(runtime_adapter: str, model_id: str | None) -> bool:
     """Whether this adapter drives the model, whichever spelling the caller sends.
 
-    Membership rather than the id tuple, because comparing against
-    ``models_for_runtime_adapter`` directly means comparing raw strings: the gateway
-    serves some models provider-qualified, so an allowlist built that way rejects a
-    spelling every resolver here accepts.
+    Resolving the id rather than testing it against ``models_for_runtime_adapter``, whose
+    entries are raw catalog ids: the gateway serves some models provider-qualified, so an
+    allowlist built that way rejects a spelling every resolver here accepts.
     """
-    if not model_id:
-        return False
-    return normalize_model_id(model_id) in models_for_runtime_adapter(runtime_adapter)
+    return runtime_adapter_for_model(model_id) == runtime_adapter
 
 
 def normalize_model_id(model_id: str) -> str:
@@ -165,11 +182,8 @@ def normalize_model_id(model_id: str) -> str:
 
 def label_for_model(model_id: str) -> str | None:
     """The name this catalog pins for a model id, or ``None`` to let the caller derive one."""
-    normalized = normalize_model_id(model_id)
-    for model in MODELS:
-        if model.id == normalized:
-            return model.label
-    return None
+    model = _MODEL_BY_ID.get(normalize_model_id(model_id))
+    return model.label if model else None
 
 
 _MODEL_ACRONYMS: dict[str, str] = {"gpt": "GPT", "glm": "GLM"}
@@ -208,7 +222,9 @@ def display_name_for_model(model_id: str) -> str:
     else. Every surface resolves a display name through here, so a model reads the same in
     the web composer, the Slack picker, and the desktop app.
     """
-    return label_for_model(model_id) or format_model_id(model_id)
+    normalized = normalize_model_id(model_id)
+    model = _MODEL_BY_ID.get(normalized)
+    return (model.label if model else None) or format_model_id(normalized)
 
 
 def reasoning_efforts_for(runtime_adapter: str, model_id: str) -> tuple[str, ...]:
@@ -220,9 +236,9 @@ def reasoning_efforts_for(runtime_adapter: str, model_id: str) -> tuple[str, ...
     makes validation reject it.
     """
     normalized = normalize_model_id(model_id)
-    for model in MODELS:
-        if model.runtime_adapter == runtime_adapter and model.id == normalized:
-            return model.reasoning_efforts
+    exact = _MODEL_BY_ID.get(normalized)
+    if exact and exact.runtime_adapter == runtime_adapter:
+        return exact.reasoning_efforts
     families = [
         (prefix, efforts)
         for adapter, prefix, efforts in FAMILY_REASONING_EFFORTS
@@ -251,5 +267,6 @@ __all__ = [
     "display_name_for_model",
     "format_model_id",
     "reasoning_efforts_for",
+    "runtime_adapter_for_model",
     "serves_model",
 ]
