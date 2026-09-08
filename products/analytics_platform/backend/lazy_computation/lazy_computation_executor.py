@@ -140,6 +140,8 @@ LAZY_COMPUTATION_EXECUTIONS_TOTAL = Counter(
 #   - `failed`      → INSERT raised (retryable or non-retryable), row moved PENDING → FAILED.
 #   - `stale`       → another waiter detected the owning executor crashed and marked
 #                     the row FAILED via `_try_mark_stale_job_as_failed`.
+#   - `expired`     → a create conflict found the blocking PENDING row past its own
+#                     expires_at and marked it FAILED via `_try_fail_expired_pending_job`.
 LAZY_COMPUTATION_JOBS_CREATED_TOTAL = Counter(
     "lazy_computation_jobs_created_total",
     "PreaggregationJob rows inserted in PENDING status (one per missing range, per executor).",
@@ -1112,6 +1114,18 @@ class LazyComputationExecutor:
                                 time_range_start=str(range_start),
                                 time_range_end=str(range_end),
                             )
+                            if self._try_fail_expired_pending_job(team, query_hash, range_start, range_end):
+                                LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
+                                    outcome="expired", table=str(query_info.table)
+                                ).inc()
+                                logger.warning(
+                                    "lazy_computation.expired_pending_job_failed",
+                                    team_id=team.id,
+                                    query_hash=query_hash,
+                                    table=str(query_info.table),
+                                    time_range_start=str(range_start),
+                                    time_range_end=str(range_end),
+                                )
                             lost_create_race = True
                             continue
 
@@ -1216,13 +1230,12 @@ class LazyComputationExecutor:
                     if lost_create_race and not did_work:
                         # In the healthy race the loser's next rescan sees the winner's
                         # committed PENDING row and moves to the wait branch, so the
-                        # first conflict pass retries immediately. A conflict that
-                        # repeats with the window still missing means the blocking row
-                        # is PENDING but past its expires_at: invisible to
-                        # find_existing_jobs yet still holding the unique-index slot,
-                        # which would otherwise hot-spin no-op inserts until the wait
-                        # budget runs out. Pace those retries with the same backoff the
-                        # wait branch uses.
+                        # first conflict pass retries immediately. An expired blocking
+                        # row is failed by _try_fail_expired_pending_job above, so the
+                        # next pass can recreate it. Conflicts that still repeat with
+                        # the window missing would hot-spin no-op inserts until the
+                        # wait budget runs out. Pace those retries with the same
+                        # backoff the wait branch uses.
                         conflict_passes += 1
                         if conflict_passes > 1:
                             remaining = self.wait_timeout_seconds - (time.monotonic() - start_time)
@@ -1287,6 +1300,46 @@ class LazyComputationExecutor:
         result = LazyComputationResult(ready=True, job_ids=[j.id for j in final_ready])
         _log_execution("success", result)
         return result
+
+    def _try_fail_expired_pending_job(
+        self, team: Team, query_hash: str, range_start: datetime, range_end: datetime
+    ) -> bool:
+        """
+        Mark an expired PENDING row as FAILED so its window can be recomputed.
+
+        A PENDING row past its expires_at is excluded by find_existing_jobs but
+        still holds the unique_pending_job_per_range slot, so its window shows as
+        missing while every attempt to create a job for it hits a conflict. The
+        wait branch never stale-marks such a row because it only sees jobs
+        find_existing_jobs returns. Without this, the window stays blocked
+        forever and every reader burns its wait budget before falling back.
+
+        The expires_at < now() guard means only rows whose data would already be
+        past its ClickHouse TTL can be failed; a live INSERT finishing afterwards
+        overwrites FAILED with READY, so at worst a takeover costs one duplicate
+        build. The publish wakes waiters that subscribed to the row before it
+        expired, so they rescan now instead of at their next poll timeout.
+        """
+        blocker = PreaggregationJob.objects.filter(
+            team=team,
+            query_hash=query_hash,
+            time_range_start=range_start,
+            time_range_end=range_end,
+            status=PreaggregationJob.Status.PENDING,
+            expires_at__lt=django_timezone.now(),
+        ).first()
+        if blocker is None:
+            return False
+        updated = PreaggregationJob.objects.filter(
+            id=blocker.id,
+            status=PreaggregationJob.Status.PENDING,
+        ).update(
+            status=PreaggregationJob.Status.FAILED,
+            error="Expired while pending (owning executor never finished)",
+        )
+        if updated > 0:
+            publish_job_completion(blocker.id, "failed")
+        return updated > 0
 
     def _try_mark_stale_job_as_failed(self, job: PreaggregationJob) -> bool:
         """
