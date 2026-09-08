@@ -479,12 +479,7 @@ describe("PostHogAPIClient", () => {
     ["pinned", { pinned: true }, "pinned", "true"],
     ["commented-by", { commentedBy: 17 }, "commented_by", "17"],
     ["mentions", { mentions: 19 }, "mentions", "19"],
-    [
-      "include-description opt-out",
-      { includeDescription: false },
-      "include_description",
-      "false",
-    ],
+    ["basic summary", { basic: true }, "basic", "true"],
   ])("sends the %s task-list filter", async (_name, options, param, value) => {
     const fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ results: [], count: 0 }), {
@@ -506,8 +501,8 @@ describe("PostHogAPIClient", () => {
     expect(url.searchParams.get(param)).toBe(value);
   });
 
-  it.each([undefined, { includeDescription: true }])(
-    "omits include_description unless the caller opts out (%o)",
+  it.each([undefined, { basic: false }])(
+    "omits basic unless the caller asks for the summary payload (%o)",
     async (options) => {
       const fetch = vi.fn().mockResolvedValue(
         new Response(JSON.stringify({ results: [], count: 0 }), {
@@ -525,7 +520,7 @@ describe("PostHogAPIClient", () => {
       await client.getTasksPage(options);
 
       const url = fetch.mock.calls[0][0] as URL;
-      expect(url.searchParams.has("include_description")).toBe(false);
+      expect(url.searchParams.has("basic")).toBe(false);
     },
   );
 

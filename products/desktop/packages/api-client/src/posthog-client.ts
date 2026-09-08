@@ -239,11 +239,11 @@ export interface TaskListOptions {
   /** Case-insensitive substring match over task title, description, and number. */
   search?: string;
   /**
-   * Whether list rows carry the task description body. Defaults to true on the server. Pass
-   * false from a surface that does not render the description, to drop the field that
+   * Ask for the basic list payload: a summary shape with heavy fields dropped. Defaults to
+   * false. A surface that does not render the description sets this to skip the field that
    * dominates the list payload.
    */
-  includeDescription?: boolean;
+  basic?: boolean;
   /** Filter by the status of the task's most recent run. */
   status?: string;
   /** Filter by the state of the latest run's pull request (open/draft/merged/closed). */
@@ -2852,8 +2852,8 @@ export class PostHogAPIClient {
       params.ordering = options.ordering;
     }
 
-    if (options?.includeDescription === false) {
-      params.include_description = false;
+    if (options?.basic) {
+      params.basic = true;
     }
 
     const data = await this.api.get(`/api/projects/{project_id}/tasks/`, {
