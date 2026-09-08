@@ -37,6 +37,7 @@ from rest_framework.throttling import UserRateThrottle
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
+from posthog.auth import SessionAuthentication
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
@@ -782,11 +783,18 @@ class FeatureRequestViewSet(
 
 class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "account"
-    scope_object_read_actions = ["retrieve", "partial_update"]
-    scope_object_write_actions: list[str] = []
+    scope_object_read_actions = ["retrieve"]
+    scope_object_write_actions = ["partial_update"]
     serializer_class = UserCustomerAnalyticsConfigSerializer
     queryset = None
     lookup_value_regex = "@me"
+
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # Browser viewers can personalize their own sidebar without account edit access.
+        # Scoped credentials still need write permission to change their owner's preferences.
+        if self.action == "partial_update" and isinstance(request.successful_authenticator, SessionAuthentication):
+            return ["account:read"]
+        return None
 
     @extend_schema(
         responses={
@@ -819,11 +827,14 @@ class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         },
         summary="Update account sidebar configuration",
         description=(
-            "Replace the requesting user's ordered account sidebar properties for this project. "
+            "Replace the requesting user's ordered account sidebar properties when pinned_properties is provided. "
+            "Omitting pinned_properties leaves the configuration unchanged. "
             "At most 50 account custom properties and relationships can be pinned."
         ),
     )
     def partial_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        if "pinned_properties" not in request.validated_data:
+            return self.retrieve(request, *args, **kwargs)
         pinned_properties = [
             contracts.PinnedAccountProperty(kind=reference["kind"], id=reference["id"])
             for reference in request.validated_data["pinned_properties"]

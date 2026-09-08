@@ -1982,7 +1982,8 @@ class UserCustomerAnalyticsConfigUpdateSerializer(serializers.Serializer):
     pinned_properties = PinnedAccountPropertySerializer(
         many=True,
         allow_empty=True,
-        help_text="Complete ordered list of account properties to pin. Pass an empty list to clear it.",
+        required=False,
+        help_text="Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them.",
     )
 
 
