@@ -32,19 +32,19 @@ ResolvedAccessSourceSubjectValue = Literal["member", "role", "default"]
 class ResolvedAccessSource(models.TextChoices):
     """The `ResolvedAccessSourceValue` literals as choices, so the schema names the enum after this class."""
 
-    OBJECT = "object", "object"
-    PARENT_OBJECT = "parent_object", "parent_object"
-    RESOURCE = "resource", "resource"
-    PARENT_RESOURCE = "parent_resource", "parent_resource"
-    SYSTEM_DEFAULT = "system_default", "system_default"
-    ORG_ADMIN = "org_admin", "org_admin"
-    CREATOR = "creator", "creator"
-    ORG_MEMBERSHIP = "org_membership", "org_membership"
+    OBJECT = "object"
+    PARENT_OBJECT = "parent_object"
+    RESOURCE = "resource"
+    PARENT_RESOURCE = "parent_resource"
+    SYSTEM_DEFAULT = "system_default"
+    ORG_ADMIN = "org_admin"
+    CREATOR = "creator"
+    ORG_MEMBERSHIP = "org_membership"
 
 
 class ResolvedAccessSourceSubject(models.TextChoices):
     """The `ResolvedAccessSourceSubjectValue` literals as choices, so the schema names the enum after this class."""
 
-    MEMBER = "member", "member"
-    ROLE = "role", "role"
-    DEFAULT = "default", "default"
+    MEMBER = "member"
+    ROLE = "role"
+    DEFAULT = "default"
