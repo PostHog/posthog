@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGear } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { projectLogic } from 'scenes/projectLogic'
@@ -14,7 +13,8 @@ import {
     configuratorKeysToPinnedProperties,
     pinnedPropertyToConfiguratorKey,
 } from './accountSidebarConfigLogic'
-import { AccountPinnedPropertiesEmptyState } from './components/AccountPinnedProperties'
+import { accountSidebarPropertiesLogic } from './accountSidebarPropertiesLogic'
+import { AccountPinnedProperties } from './components/AccountPinnedProperties'
 import { AccountPropertyConfigurator } from './components/AccountPropertyConfigurator'
 import type { AccountPropertyOption } from './components/accountPropertyTypes'
 import { customerAnalyticsAccountSceneLogic } from './customerAnalyticsAccountSceneLogic'
@@ -44,10 +44,21 @@ export function AccountSidebar({ account }: { account: AccountApi }): JSX.Elemen
         savePinnedProperties,
         setDraftPinnedProperties,
     } = useActions(configLogic)
-
-    const configurationLoadFailed = configLoadFailed || availableDefinitionsLoadFailed
-    const configurationLoading = !configurationLoadFailed && (config === null || availableDefinitions === null)
-    const pinnedPropertyCount = config?.pinned_properties.length ?? 0
+    const propertyLogic = accountSidebarPropertiesLogic({ accountId: account.id, projectId: currentProjectId ?? 0 })
+    const {
+        sidebarProperties,
+        propertyData,
+        propertyDataLoadFailed,
+        propertySaveFailed,
+        editingPropertyKey,
+        savingPropertyKey,
+        availableMembers,
+        membersLoading,
+    } = useValues(propertyLogic)
+    const { loadPropertyData, editProperty, cancelEditing, saveCustomProperty, saveRelationship } =
+        useActions(propertyLogic)
+    const loadFailed = configLoadFailed || availableDefinitionsLoadFailed || propertyDataLoadFailed
+    const loading = !loadFailed && (config === null || availableDefinitions === null || propertyData === null)
     const propertyOptions: AccountPropertyOption[] = [
         ...(availableDefinitions?.customProperties ?? []).map((definition) => ({
             key: pinnedPropertyToConfiguratorKey({ kind: 'custom_property', id: definition.id }),
@@ -60,11 +71,6 @@ export function AccountSidebar({ account }: { account: AccountApi }): JSX.Elemen
             kind: 'relationship' as const,
         })),
     ]
-
-    const reloadConfiguration = (): void => {
-        loadConfig()
-        loadAvailableDefinitions()
-    }
 
     return (
         <aside
@@ -82,47 +88,68 @@ export function AccountSidebar({ account }: { account: AccountApi }): JSX.Elemen
                 />
             </div>
             <LemonDivider className="my-0" />
-            <div className="flex flex-col gap-3 py-4" data-attr="account-rail-properties">
-                <div className="flex items-center gap-2 px-4">
-                    <span className="secondary text-secondary">Properties</span>
-                    {!configurationLoading && !configurationLoadFailed && pinnedPropertyCount > 0 ? (
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconGear />}
-                            className="ml-auto"
-                            tooltip="Choose pinned properties"
-                            aria-label="Configure pinned properties"
-                            onClick={beginConfiguring}
-                            data-attr="account-configure-pinned-properties"
-                        />
-                    ) : null}
-                </div>
-                {configurationLoading ? (
-                    <div className="flex flex-col gap-2 px-4" data-attr="account-pinned-properties-loading">
-                        <LemonSkeleton className="h-4 w-full" />
-                        <LemonSkeleton className="h-4 w-3/4" />
-                    </div>
-                ) : configurationLoadFailed ? (
-                    <div className="px-4">
-                        <LemonBanner type="error" action={{ children: 'Try again', onClick: reloadConfiguration }}>
-                            Couldn't load pinned properties.
-                        </LemonBanner>
-                    </div>
-                ) : pinnedPropertyCount === 0 ? (
-                    <AccountPinnedPropertiesEmptyState onConfigure={beginConfiguring} />
-                ) : (
-                    <div className="flex flex-col gap-3 px-4">
-                        <span className="text-xs text-muted">
-                            {pinnedPropertyCount === 1
-                                ? '1 property pinned.'
-                                : `${pinnedPropertyCount} properties pinned.`}
-                        </span>
-                        {stalePinnedProperties.length > 0 ? (
-                            <LemonBanner type="warning">
-                                Some pinned properties are no longer available. Update your pins to remove them.
+            <div className="flex flex-col flex-1 min-h-0" data-attr="account-rail-properties">
+                {loading || loadFailed ? (
+                    <div className="flex flex-col gap-3 p-4">
+                        <span className="secondary text-secondary">Properties</span>
+                        {loadFailed ? (
+                            <LemonBanner
+                                type="error"
+                                action={{
+                                    children: 'Try again',
+                                    onClick: () => {
+                                        loadConfig()
+                                        loadAvailableDefinitions()
+                                        loadPropertyData()
+                                    },
+                                }}
+                            >
+                                Couldn't load pinned properties.
                             </LemonBanner>
-                        ) : null}
+                        ) : (
+                            <div className="flex flex-col gap-2" data-attr="account-pinned-properties-loading">
+                                <LemonSkeleton className="h-4 w-full" />
+                                <LemonSkeleton className="h-4 w-3/4" />
+                            </div>
+                        )}
                     </div>
+                ) : (
+                    <>
+                        {stalePinnedProperties.length > 0 ? (
+                            <div className="px-4 pt-4">
+                                <LemonBanner type="warning">
+                                    Some pinned properties are no longer available. Update your pins to remove them.
+                                </LemonBanner>
+                            </div>
+                        ) : null}
+                        {propertySaveFailed ? (
+                            <div className="px-4 pt-4">
+                                <LemonBanner type="error">
+                                    Couldn't save this property. Review the value and try again.
+                                </LemonBanner>
+                            </div>
+                        ) : null}
+                        <AccountPinnedProperties
+                            properties={sidebarProperties}
+                            editingPropertyKey={editingPropertyKey}
+                            savingPropertyKey={savingPropertyKey}
+                            availableMembers={availableMembers}
+                            membersLoading={membersLoading}
+                            onConfigure={beginConfiguring}
+                            onEdit={(property) => {
+                                if (!savingPropertyKey) {
+                                    editProperty(property)
+                                }
+                            }}
+                            onCancelEdit={() => {
+                                if (!savingPropertyKey) {
+                                    cancelEditing()
+                                }
+                            }}
+                            onSaveCustomProperty={(property, value) => saveCustomProperty(property.key, value)}
+                            onSaveRelationship={(property, memberIds) => saveRelationship(property.key, memberIds)}
+                        />
+                    </>
                 )}
             </div>
             <AccountPropertyConfigurator
