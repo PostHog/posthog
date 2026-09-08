@@ -39,7 +39,7 @@ An issue is NOT_ACTIONABLE if it is:
 - A duplicate that only says "same as X" with no new information
 - An internal housekeeping task (dependency bumps, CI config, infra maintenance)
 
-The issue may end with a record_metadata block. `assignee_name` names the person the issue is assigned to in Linear, and the key is absent when the issue has no assignee. The assignee is context and not a verdict. An assigned issue still describes real feedback, so never classify an issue as NOT_ACTIONABLE only because it has an assignee.
+The issue may end with a record_metadata block. `assignee_name` names the person the issue is assigned to in Linear, and the key is null or absent when the issue has no assignee. The assignee is context and not a verdict. An assigned issue still describes real feedback, so never classify an issue as NOT_ACTIONABLE only because it has an assignee.
 
 When in doubt, classify as ACTIONABLE. Linear issues are filed intentionally, so err on the side of capturing the signal.
 
