@@ -494,6 +494,7 @@ const visionScannersList = (): ToolBase<
                     'limit_reached',
                     'last_swept_at',
                     'created_at',
+                    'created_by.id',
                     'created_by.email',
                 ])
             ),

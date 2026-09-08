@@ -419,6 +419,7 @@ tools:
                 - limit_reached
                 - last_swept_at
                 - created_at
+                - created_by.id
                 - created_by.email
     vision-scanners-observations-create-task-create:
         operation: vision_scanners_observations_create_task_create
