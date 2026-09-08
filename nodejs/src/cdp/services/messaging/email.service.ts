@@ -112,7 +112,7 @@ function pickTokenBucketRetryDelayMs(refillPerSecond: number): number {
 
 const teamEmailCapDelayedTotal = new Counter({
     name: 'cdp_team_email_cap_delayed_total',
-    help: 'Workflow email sends delayed by the team trust-tier sending cap (or that would have been, in shadow mode). Bucket `error` counts a failed claim, where no cap was reached.',
+    help: 'Workflow email sends delayed by the team trust-tier sending cap (or that would have been, in shadow mode). Bucket `error` counts a claim that failed, where the outcome is unknown.',
     labelNames: ['tier', 'bucket', 'mode'],
 })
 
@@ -449,7 +449,7 @@ export class EmailService {
                     'info',
                     capDelay.label
                         ? `This project reached its email sending limit of ${capDelay.label}. Retrying this email in ${Math.round(capDelay.retryDelayMs / 1000)}s. The limit rises as the project builds a clean sending history. The Reputation tab in workflows shows your current allowance.`
-                        : `PostHog could not check this project's email sending limit. Retrying this email in ${Math.round(capDelay.retryDelayMs / 1000)}s. This is a temporary problem on our side, and not a limit your project reached.`
+                        : `PostHog could not check this project's email sending limit. Retrying this email in ${Math.round(capDelay.retryDelayMs / 1000)}s. This is a temporary problem on our side.`
                 )
                 return result
             }
@@ -619,8 +619,8 @@ export class EmailService {
                 return null
             }
             if (claim.deniedIndex === null) {
-                // A failed claim is not a denial, so the null label keeps the caller from naming a
-                // limit the project never hit. Nothing must refill, so wait the shorter cadence.
+                // A failed claim reports no bucket, so the null label keeps the caller from naming
+                // a cap the limiter never returned. Nothing must refill, so wait the shorter cadence.
                 teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: 'error', mode })
                 return {
                     retryDelayMs: pickTokenBucketRetryDelayMs(buckets[0].refillPerSecond),
