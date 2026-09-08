@@ -98,31 +98,6 @@ def fetch_evaluation(evaluation_id: str, team_id: int) -> dict[str, Any]:
         raise ValueError(f"Evaluation {evaluation_id} not found")
 
 
-@frozen
-class FetchGenerationEventInputs:
-    team_id: int
-    event_uuid: str
-    timestamp: str | None = None
-    trace_id: str | None = None
-
-    @property
-    def properties_to_log(self) -> dict[str, Any]:
-        return {"team_id": self.team_id, "event_uuid": self.event_uuid}
-
-
-@temporalio.activity.defn
-async def fetch_generation_event_activity(inputs: FetchGenerationEventInputs) -> dict[str, Any]:
-    """Load the full generation for a caller that only holds its uuid."""
-    return await database_sync_to_async(hydrate_event_reference, thread_sensitive=False)(
-        {
-            "team_id": inputs.team_id,
-            "uuid": inputs.event_uuid,
-            "timestamp": inputs.timestamp,
-            "trace_id": inputs.trace_id,
-        }
-    )
-
-
 @temporalio.activity.defn
 async def fetch_evaluation_activity(inputs: RunEvaluationInputs) -> dict[str, Any]:
     """Fetch evaluation config from Postgres."""

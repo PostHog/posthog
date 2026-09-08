@@ -45,7 +45,6 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
-    fetch_generation_event_activity,
     run_local_evaluation_activity,
     send_evaluation_disabled_email_activity,
     update_key_state_activity,
@@ -106,7 +105,6 @@ EVAL_WORKFLOWS = [
 
 EVAL_ACTIVITIES = [
     fetch_evaluation_activity,
-    fetch_generation_event_activity,
     run_local_evaluation_activity,
     disable_evaluation_activity,
     send_evaluation_disabled_email_activity,
@@ -199,7 +197,6 @@ ACTIVITIES = [
     fail_evaluation_backfill_activity,
     # Keep eval activities registered here temporarily so orphaned workflows on general-purpose queue can complete
     fetch_evaluation_activity,
-    fetch_generation_event_activity,
     run_local_evaluation_activity,
     disable_evaluation_activity,
     send_evaluation_disabled_email_activity,

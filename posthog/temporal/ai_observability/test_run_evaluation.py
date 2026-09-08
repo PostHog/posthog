@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -16,7 +16,6 @@ from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.api.capture import CaptureInternalError
 from posthog.models import Organization, Team
-from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.temporal.ai_observability.sentiment.extraction import truncate_to_head_tail
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
 
@@ -50,7 +49,6 @@ from .run_evaluation import (
     EmitInternalTelemetryInputs,
     EvaluationActivityResult,
     ExecuteLLMJudgeInputs,
-    FetchGenerationEventInputs,
     RunEvaluationInputs,
     RunEvaluationWorkflow,
     RunLocalEvaluationInputs,
@@ -63,7 +61,6 @@ from .run_evaluation import (
     execute_sentiment_eval_activity,
     extract_event_tools,
     fetch_evaluation_activity,
-    fetch_generation_event_activity,
     run_hog_eval,
     run_local_evaluation_activity,
     send_evaluation_disabled_email_activity,
@@ -769,61 +766,6 @@ class TestRunEvaluationWorkflow:
         assert "$ai_evaluation_allows_na" not in props
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
-    @pytest.mark.parametrize(
-        "pass_timestamp,trace_id,found",
-        [
-            pytest.param(True, None, True, id="bounded_by_timestamp"),
-            pytest.param(False, None, True, id="uuid_and_team_only"),
-            pytest.param(True, "trace-1", True, id="bounded_by_trace_id"),
-            pytest.param(True, "other-trace", False, id="wrong_trace_id_finds_nothing"),
-        ],
-    )
-    async def test_fetch_generation_event_activity_applies_its_narrowing_filters(
-        self, setup_data, pass_timestamp: bool, trace_id: str | None, found: bool
-    ):
-        team = setup_data["team"]
-        event_uuid = str(uuid.uuid4())
-        timestamp = datetime.now(UTC) - timedelta(hours=1)
-        bulk_create_ai_events(
-            [
-                {
-                    "event": "$ai_generation",
-                    "team_id": team.id,
-                    "distinct_id": "test-user",
-                    "event_uuid": event_uuid,
-                    "timestamp": timestamp,
-                    "properties": {"$ai_input": "q", "$ai_output": "a", "$ai_trace_id": "trace-1"},
-                }
-            ]
-        )
-
-        inputs = FetchGenerationEventInputs(
-            team_id=team.id,
-            event_uuid=event_uuid,
-            timestamp=timestamp.isoformat() if pass_timestamp else None,
-            trace_id=trace_id,
-        )
-        if not found:
-            with pytest.raises(ApplicationError) as exc:
-                await fetch_generation_event_activity(inputs)
-            assert exc.value.type == "generation_not_found"
-            assert exc.value.non_retryable is True
-            return
-
-        event = await fetch_generation_event_activity(inputs)
-
-        assert event["uuid"] == event_uuid
-        assert event["event"] == "$ai_generation"
-        # An activity that hydrates the reference itself has no Temporal converter in front of it,
-        # so the ClickHouse row's native UUID and datetime must already be JSON-safe.
-        assert isinstance(event["uuid"], str)
-        assert isinstance(event["timestamp"], str)
-        assert datetime.fromisoformat(event["timestamp"]).tzinfo is not None
-        assert isinstance(event["properties"], dict)
-        json.dumps(event)
-
-    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "event_data,expects_thin_reference",
         [
@@ -834,17 +776,10 @@ class TestRunEvaluationWorkflow:
     async def test_the_event_never_travels_through_the_workflow(
         self, event_data: dict[str, Any], expects_thin_reference: bool
     ):
-        calls: list[str] = []
         seen_inputs: list[RunLocalEvaluationInputs] = []
-
-        @activity.defn(name="fetch_generation_event_activity")
-        async def mock_fetch_generation_event(inputs: FetchGenerationEventInputs) -> dict[str, Any]:
-            calls.append("fetch_event")
-            return create_mock_event_data(team_id=inputs.team_id, uuid=inputs.event_uuid)
 
         @activity.defn(name="run_local_evaluation_activity")
         async def mock_run_local_evaluation(inputs: RunLocalEvaluationInputs) -> LocalEvaluationOutcome:
-            calls.append("local")
             seen_inputs.append(inputs)
             return LocalEvaluationOutcome(
                 evaluation=_local_evaluation(id=inputs.evaluation_id, evaluation_config={}),
@@ -858,7 +793,7 @@ class TestRunEvaluationWorkflow:
                 env.client,
                 task_queue=task_queue,
                 workflows=[RunEvaluationWorkflow],
-                activities=[mock_fetch_generation_event, mock_run_local_evaluation],
+                activities=[mock_run_local_evaluation],
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ):
                 await env.client.execute_workflow(
@@ -868,7 +803,6 @@ class TestRunEvaluationWorkflow:
                     task_queue=task_queue,
                 )
 
-        assert calls == ["local"]
         assert [inputs.backfill_id for inputs in seen_inputs] == ["bf-1"]
         assert [("properties" not in inputs.event_data) for inputs in seen_inputs] == [expects_thin_reference]
 

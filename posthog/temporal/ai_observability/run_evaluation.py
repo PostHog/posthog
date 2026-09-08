@@ -34,7 +34,6 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE,
     EmitEvaluationEventInputs,
     EmitInternalTelemetryInputs,
-    FetchGenerationEventInputs,
     RunEvaluationInputs,
     RunLocalEvaluationInputs,
     SendEvaluationDisabledEmailInputs,
@@ -42,7 +41,6 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
-    fetch_generation_event_activity,
     run_local_evaluation_activity,
     send_evaluation_disabled_email_activity,
     update_key_state_activity,
@@ -67,7 +65,6 @@ __all__ = [
     "EmitInternalTelemetryInputs",
     "ExecuteLLMJudgeInputs",
     "EvaluationActivityResult",
-    "FetchGenerationEventInputs",
     "RunEvaluationInputs",
     "RunEvaluationWorkflow",
     "RunLocalEvaluationInputs",
@@ -83,7 +80,6 @@ __all__ = [
     "extract_event_io",
     "extract_event_tools",
     "fetch_evaluation_activity",
-    "fetch_generation_event_activity",
     "get_output_type_config",
     "handle_llm_judge_activity_error",
     "handle_terminal_user_error_result",
@@ -269,24 +265,6 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         # 8 MiB while a Temporal payload is capped near 2 MiB, so a large generation cannot cross
         # this boundary at all. Each activity that needs the body now reads it itself.
         event_data = inputs.event_data
-        if "properties" not in event_data and not temporalio.workflow.patched("backfill-hydrate-in-activity"):
-            # A backfill child started before this patch recorded the fetch as its first command,
-            # and an llm_judge child can stay in flight for minutes, which is longer than a rolling
-            # worker deploy. Once no such history can replay, swap this call for
-            # `deprecate_patch("backfill-hydrate-in-activity")` for one release, as the
-            # "remove-trial-evals" call above does, then delete the branch,
-            # `fetch_generation_event_activity` and its registration.
-            event_data = await temporalio.workflow.execute_activity(
-                fetch_generation_event_activity,
-                FetchGenerationEventInputs(
-                    team_id=int(event_data["team_id"]),
-                    event_uuid=str(event_data["uuid"]),
-                    timestamp=event_data.get("timestamp"),
-                    trace_id=event_data.get("trace_id"),
-                ),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
 
         # One activity fetches the evaluation and, for hog and sentiment, also executes it and
         # emits its event, so three Temporal Cloud actions become one for these local evaluation

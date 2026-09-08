@@ -24,7 +24,7 @@ import posthoganalytics
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.schema import DateRange, LLMTrace, LLMTraceEvent, QueryLogTags, TraceQuery
+from posthog.schema import DateRange, LLMTrace, QueryLogTags, TraceQuery
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -213,56 +213,6 @@ def _sum_trace_payload_bytes(team: Team, trace_id: str, date_from: datetime, dat
     return int(result.results[0][0] or 0)
 
 
-# Only these report tokens and cost, so the SQL aggregates restrict their sums to them and so do
-# the mirrors below.
-_METERED_EVENTS = ("$ai_generation", "$ai_embedding")
-
-
-def _event_number(event: LLMTraceEvent, key: str) -> float | None:
-    value = event.properties.get(key)
-    return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else None
-
-
-def _summed_over_metered_events(events: list[LLMTraceEvent], key: str) -> float | None:
-    values = [
-        value for event in events if event.event in _METERED_EVENTS and (value := _event_number(event, key)) is not None
-    ]
-    # None means no event reported the field. A zero would read as a reported zero.
-    return sum(values) if values else None
-
-
-def _recomputed_latency(trace: LLMTrace) -> float | None:
-    """Mirror the total_latency aggregate in TraceQueryRunner over the events left after the bound.
-
-    A span reports the latency of everything under it, so summing every event counts the same time
-    more than once. Both branches key on a positive latency, like the SQL: a reported zero adds
-    nothing and must not decide which branch runs.
-    """
-    reported = [
-        (event, value)
-        for event in trace.events
-        if (value := _event_number(event, "$ai_latency")) is not None and value > 0
-    ]
-    if not reported:
-        return None
-    if all(event.event == "$ai_generation" for event, _ in reported):
-        return round(sum(value for _, value in reported), 2)
-    # The `$ai_trace` root row never reaches `trace.events`, so a direct child here is an event
-    # with no parent or one whose parent is the trace itself.
-    return round(
-        sum(value for event, value in reported if event.properties.get("$ai_parent_id") in (None, trace.id)), 2
-    )
-
-
-def _recompute_trace_totals(trace: LLMTrace) -> None:
-    total_cost = _summed_over_metered_events(trace.events, "$ai_total_cost_usd")
-    # Ten decimals, like the SQL: a per-token cost is small enough that fewer would round it away.
-    trace.totalCost = round(total_cost, 10) if total_cost is not None else None
-    trace.inputTokens = _summed_over_metered_events(trace.events, "$ai_input_tokens")
-    trace.outputTokens = _summed_over_metered_events(trace.events, "$ai_output_tokens")
-    trace.totalLatency = _recomputed_latency(trace)
-
-
 def _fetch_trace(team: Team, trace_id: str, date_from: datetime, date_to: datetime) -> TraceFetchOutcome:
     """Fetch a single full trace from ClickHouse over an explicit window, with a cheap count
     preflight so degenerate traces are skipped before pulling their payload."""
@@ -289,20 +239,16 @@ def _fetch_trace(team: Team, trace_id: str, date_from: datetime, date_to: dateti
             dateRange=DateRange(date_from=date_from.isoformat(), date_to=date_to.isoformat()),
             tags=QueryLogTags(productKey="AIObservability"),
         ),
+        # Without this the runner returns the whole trace whatever `dateRange` says, so a backfilled
+        # run would grade events that the live run never saw, and its totals would report cost and
+        # latency from them. The runner applies the upper bound only. A lower bound would cut off the
+        # early events of the trace, which live runs do grade.
+        bound_events_to_date_range=True,
     )
     response = runner.calculate()
     if not response.results:
         return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=event_count)
     trace = response.results[0]
-    # TraceQueryRunner reads ai_events with `include_timestamp_bounds=False`, so its dateRange
-    # bounds only the shared-events fallback, and even there it adds a 7 day forward buffer. The
-    # upper bound is applied here instead. The lower bound is deliberately not applied, because
-    # the runner returns the whole trace and cutting off early events would change what live runs
-    # grade.
-    trace.events = [event for event in trace.events if as_utc_datetime(event.createdAt) <= date_to]
-    # The runner aggregated the totals in ClickHouse over the whole trace, so they would report
-    # cost and latency the judge never sees for the events left after the bound.
-    _recompute_trace_totals(trace)
     if not trace.events:
         # The count preflight includes the `$ai_trace` root row, which never reaches `events`, so a
         # non-zero count does not promise a transcript. An empty one must skip rather than let the
