@@ -7610,6 +7610,41 @@ Tail with **bold** text`)
         expect(textBlocks[2].textContent).toEqual('Hello')
     })
 
+    it('continues a heading with standard text when Enter is pressed at its end', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('### Section'), onChange })
+        )
+        const heading = getBodyTextBlock(container)
+
+        selectTextInElement(heading, 'Section'.length, 'Section'.length)
+        fireEvent.keyDown(heading, { key: 'Enter' })
+
+        const textBlocks = getEditableTextBlocks(container)
+
+        expect(textBlocks[1].tagName).toEqual('H3')
+        expect(textBlocks[1].textContent).toEqual('Section')
+        expect(textBlocks[2].tagName).toEqual('P')
+        expect(textBlocks[2].textContent).toEqual('')
+        expect(document.activeElement).toEqual(textBlocks[2])
+    })
+
+    it('turns an empty heading into standard text when Enter is pressed', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+        const textBlock = getBodyTextBlock(container)
+
+        textBlock.textContent = '###'
+        fireEvent.input(textBlock)
+        fireEvent.keyDown(getBodyTextBlock(container), { key: 'Enter' })
+
+        const textBlocks = getEditableTextBlocks(container)
+
+        expect(textBlocks).toHaveLength(2)
+        expect(textBlocks[1].tagName).toEqual('P')
+        expect(textBlocks[1].textContent).toEqual('')
+    })
+
     it('converts a blockquote shortcut at the start of a text row into a quote block', () => {
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))

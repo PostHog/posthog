@@ -472,10 +472,26 @@ export function EditableTextBlock({
             }
 
             if (node.type === 'heading') {
+                if (textLength === 0) {
+                    replaceWithParagraph(0)
+                    return
+                }
+
                 if (selectionStart === 0) {
                     const previousParagraph = makeEmptyParagraph(`before-${node.id}`)
                     replaceNodeWithNodes(node.id, [previousParagraph, { ...node, children: after }])
                     restoreSelectionRef.current = { nodeId: previousParagraph.id, start: 0, end: 0 }
+                    return
+                }
+
+                if (selectionEnd >= textLength) {
+                    const nextParagraph = makeEmptyParagraph(`after-${node.id}`)
+                    if (node.blockquote) {
+                        // A quoted heading continues as quote text, staying in the quote
+                        nextParagraph.type = 'blockquote'
+                    }
+                    replaceNodeWithNodes(node.id, [{ ...node, children: before }, nextParagraph])
+                    restoreSelectionRef.current = { nodeId: nextParagraph.id, start: 0, end: 0 }
                     return
                 }
 
