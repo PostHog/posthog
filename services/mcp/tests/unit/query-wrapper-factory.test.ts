@@ -417,10 +417,12 @@ describe('createQueryWrapper filterTestAccounts project default', () => {
 describe('createQueryWrapper trace redaction and compaction', () => {
     const schema = z.object({ kind: z.string() })
 
-    function contextWithResults(results: unknown): Context {
+    function contextWithResults(results: unknown, formattedResults?: string): Context {
         return {
             api: {
-                query: vi.fn().mockReturnValue({ runQuery: vi.fn().mockResolvedValue({ results }) }),
+                query: vi.fn().mockReturnValue({
+                    runQuery: vi.fn().mockResolvedValue({ results, formatted_results: formattedResults }),
+                }),
                 getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
             },
             stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
@@ -447,6 +449,19 @@ describe('createQueryWrapper trace redaction and compaction', () => {
 
         expect(result.results[0].events[0].properties.$ai_input).toBe('x'.repeat(20_000))
     })
+
+    it.each(['TraceQuery', 'TracesQuery'])(
+        'drops the formatted string for %s, which is rendered from unredacted results',
+        async (kind) => {
+            const tool = createQueryWrapper({ name: 'test', schema, kind })()
+
+            const result = (await tool.handler(contextWithResults([], 'api_key: invented-key-value'), {
+                kind,
+            })) as any
+
+            expect(JSON.stringify(result)).not.toContain('invented-key-value')
+        }
+    )
 
     it.each(['TraceQuery', 'TracesQuery'])('withholds credential properties from %s results', async (kind) => {
         const trace = { id: 'trace-1', events: [{ properties: { api_key: 'invented-key-value', $ai_model: 'gpt-4' } }] }

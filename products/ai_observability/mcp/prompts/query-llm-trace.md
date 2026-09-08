@@ -79,7 +79,7 @@ If the trace is old, provide a date range to help the query find it efficiently:
 
 # Withheld properties
 
-Each event returns its `$ai_*` properties, plus `$session_id`, `$lib`, and `$lib_version`. The response withholds every other property. Those properties can carry authentication state, credentials, request headers, user identity, permissions, location, and budget context, and a trace inspection does not need them. `properties._redacted.withheldKeys` lists the withheld names, with no values. PostHog keeps the stored event unchanged, so open the trace there if a diagnosis needs one of those values.
+Each event returns its `$ai_*` properties, plus `$session_id`, `$lib`, and `$lib_version`. The response withholds every other property. Those properties can carry authentication state, credentials, request headers, user identity, permissions, location, and budget context, and a trace inspection does not need them. `properties._redactedKeys` lists the withheld names, with no values, and the trace's `_redacted` field explains why. PostHog keeps the stored event unchanged, so open the trace there if a diagnosis needs one of those values.
 
 Property filters still match on withheld properties. You can filter a query by a property that you cannot read back.
 

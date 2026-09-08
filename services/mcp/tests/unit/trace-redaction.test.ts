@@ -29,7 +29,7 @@ describe('trace redaction', () => {
         for (const [key, value] of Object.entries(SECRETS)) {
             expect(properties).not.toHaveProperty(key)
             expect(serialized).not.toContain(value)
-            expect(properties._redacted.withheldKeys).toContain(key)
+            expect(properties._redactedKeys).toContain(key)
         }
         expect(properties.$ai_model).toBe('gpt-4')
         expect(properties.$ai_input).toBe('summarize this')
@@ -47,6 +47,14 @@ describe('trace redaction', () => {
         expect(redactTraceResults([trace])).toEqual([trace])
     })
 
+    it('explains the redaction once per trace, not once per event bag', () => {
+        const events = Array.from({ length: 50 }, (_, i) => ({ id: `e${i}`, properties: { api_key: 'invented' } }))
+        const result = redactTraceResults([{ id: 'trace-1', events }]) as any
+
+        expect(result[0]._redacted.reason).toBeTruthy()
+        expect(JSON.stringify(result).split(result[0]._redacted.reason).length - 1).toBe(1)
+    })
+
     it('redacts the person properties a trace carries, not only its events', () => {
         const result = redactTraceResults([
             { id: 'trace-1', person: { uuid: 'p1', distinct_id: 'd1', properties: { email: 'someone@example.com' } } },
@@ -54,7 +62,7 @@ describe('trace redaction', () => {
 
         expect(JSON.stringify(result)).not.toContain('someone@example.com')
         expect(result[0].person.uuid).toBe('p1')
-        expect(result[0].person.properties._redacted.withheldKeys).toEqual(['email'])
+        expect(result[0].person.properties._redactedKeys).toEqual(['email'])
     })
 
     it('redacts every trace of a list response, not just the first', () => {

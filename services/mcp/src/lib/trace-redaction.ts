@@ -14,7 +14,7 @@ const ALLOWED_KEY_PREFIX = '$ai_'
 const ALLOWED_KEYS = new Set(['$session_id', '$lib', '$lib_version'])
 
 const REDACTION_REASON =
-    'Properties outside the $ai_* namespace are withheld from MCP responses, because they can carry authentication state, credentials, request headers, user identity, permissions, location, or budget context.'
+    'Each `_redactedKeys` list names properties this response withholds, because they can carry authentication state, credentials, request headers, user identity, permissions, location, or budget context.'
 const REDACTION_NOTE =
     'The values are unchanged in PostHog. Open the trace there, or query the one property you need, if a diagnosis depends on it.'
 
@@ -26,7 +26,11 @@ function isAllowed(key: string): boolean {
     return key.startsWith(ALLOWED_KEY_PREFIX) || ALLOWED_KEYS.has(key)
 }
 
-function redactProperties(properties: unknown): unknown {
+interface RedactionState {
+    withheldAny: boolean
+}
+
+function redactProperties(properties: unknown, state: RedactionState): unknown {
     if (!isRecord(properties)) {
         return properties
     }
@@ -42,16 +46,19 @@ function redactProperties(properties: unknown): unknown {
         }
     }
     if (withheld.length > 0) {
-        kept._redacted = { withheldKeys: withheld, reason: REDACTION_REASON, note: REDACTION_NOTE }
+        // Names only. A trace holds hundreds of bags, so the explanation goes on
+        // the trace once instead of spending the compaction budget per bag.
+        kept._redactedKeys = withheld
+        state.withheldAny = true
     }
     return kept
 }
 
-function redactEvent(event: unknown): unknown {
+function redactEvent(event: unknown, state: RedactionState): unknown {
     if (!isRecord(event) || !('properties' in event)) {
         return event
     }
-    return { ...event, properties: redactProperties(event.properties) }
+    return { ...event, properties: redactProperties(event.properties, state) }
 }
 
 function redactTrace(trace: unknown): unknown {
@@ -59,12 +66,16 @@ function redactTrace(trace: unknown): unknown {
         return trace
     }
     const out = { ...trace }
+    const state: RedactionState = { withheldAny: false }
     if (Array.isArray(out.events)) {
-        out.events = out.events.map(redactEvent)
+        out.events = out.events.map((event) => redactEvent(event, state))
     }
     // A trace can carry the person behind it, whose properties are identity metadata.
     if (isRecord(out.person) && 'properties' in out.person) {
-        out.person = { ...out.person, properties: redactProperties(out.person.properties) }
+        out.person = { ...out.person, properties: redactProperties(out.person.properties, state) }
+    }
+    if (state.withheldAny) {
+        out._redacted = { reason: REDACTION_REASON, note: REDACTION_NOTE }
     }
     return out
 }

@@ -194,10 +194,13 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             }
 
             const data = await context.api.query({ projectId }).runQuery({ query })
-            const shouldSurfaceFormatted = effectiveOutputFormat !== 'json' && data.formatted_results
-            const results = TRACE_QUERY_KINDS.has(config.kind)
-                ? compactTraceResults(redactTraceResults(data.results))
-                : data.results
+            const isTraceQuery = TRACE_QUERY_KINDS.has(config.kind)
+            // A formatted string is rendered from the same unredacted results and wins
+            // over the structured payload for some clients, so it would carry the
+            // properties past the redactor. No trace formatter exists yet; this keeps
+            // the boundary closed if one lands.
+            const shouldSurfaceFormatted = !isTraceQuery && effectiveOutputFormat !== 'json' && data.formatted_results
+            const results = isTraceQuery ? compactTraceResults(redactTraceResults(data.results)) : data.results
             // Include `query` in the payload so UI apps (TrendsVisualizer, LifecycleVisualizer)
             // can honor query-level filters like `lifecycleFilter.toggledLifecycles` and
             // `trendsFilter.display`.
