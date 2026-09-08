@@ -186,6 +186,8 @@ export function SnapshotChangeBadge({ snapshot, size = 'default' }: ChangeBadgeP
         'Baseline and current screenshots had different dimensions. Pixelhog padded to the larger size before computing the diff, so metrics are still meaningful — they just include the new content area as part of the change.'
     // A shift already says the page changed height, and says it more
     // precisely, so the size chip would only repeat it in warning colors.
+    // A shift also means the widths matched: pixelhog never aligns a pair
+    // whose widths differ, so a width change never comes with a shift.
     const sizeChip =
         snapshot.size_mismatch && !shift ? (
             <Tooltip title={sizeChipTooltip}>
