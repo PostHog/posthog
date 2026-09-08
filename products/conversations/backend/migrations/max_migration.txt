@@ -1,1 +1,1 @@
-0067_ticket_archived_at
+0068_ticket_archived_index
