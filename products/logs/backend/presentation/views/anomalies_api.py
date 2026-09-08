@@ -312,10 +312,11 @@ class LogsSeriesBandSeriesSerializer(serializers.Serializer):
         choices=_COARSENED_REASON_CHOICES,
         allow_null=True,
         help_text=(
-            f"Why this series does not sit at the requested grain, or null when it does. sparse: fewer than "
-            f"{ALIVE_SLOT_FRACTION:.0%} of its buckets held any records. quiet: its non-empty buckets averaged "
+            f"Why this series was too thin to read at the requested grain, or null when it was not. sparse: fewer "
+            f"than {ALIVE_SLOT_FRACTION:.0%} of its buckets held any records. quiet: its non-empty buckets averaged "
             f"under {MIN_MEAN_PER_ALIVE_BUCKET:g} records. A series that fails every rung is returned at the "
-            f"coarsest one."
+            f"coarsest one. A series that a coarser rung has no rows for, or that the request's time budget "
+            f"cannot refetch, keeps the requested grain and still carries its reason."
         ),
     )
     buckets = LogsSeriesBandBucketSerializer(

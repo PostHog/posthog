@@ -432,19 +432,19 @@ def _coarsen_sparse_series(
     worst case costs one pass per rung above the requested grain. The passes
     share the request's execution budget, so that worst case costs the same
     ClickHouse time as a single pass, and the walk stops at the rung reached when
-    the budget runs out. A coarsened series keeps the reason from the requested
-    grain, because that is the grain the caller asked for and did not get."""
+    the budget runs out. Every series that fails the gate keeps the reason from
+    the requested grain, because that is the grain the caller asked for and did
+    not get. A series the walk cannot reach, because a rung has no rows for it
+    or the budget is spent first, returns at the requested grain with that same
+    reason."""
     settled: list[BandSeries] = []
-    reasons: dict[_SeriesKey, CoarsenedReason] = {}
     pending: dict[_SeriesKey, BandSeries] = {}
     for candidate in series:
         shortfall = _density_shortfall(candidate)
         if shortfall is None:
             settled.append(candidate)
             continue
-        key = _series_key(candidate)
-        reasons[key] = shortfall
-        pending[key] = candidate
+        pending[_series_key(candidate)] = replace(candidate, coarsened_reason=shortfall)
 
     for rung in (rung for rung in INTERVAL_LADDER_MINUTES if rung > interval_minutes):
         if not pending:
@@ -469,7 +469,7 @@ def _coarsen_sparse_series(
                 settled.append(fallback)
                 continue
             candidate = replace(
-                _build_series(key, rows[key], rung_start, rung_end, rung), coarsened_reason=reasons[key]
+                _build_series(key, rows[key], rung_start, rung_end, rung), coarsened_reason=fallback.coarsened_reason
             )
             if _density_shortfall(candidate) is None:
                 settled.append(candidate)

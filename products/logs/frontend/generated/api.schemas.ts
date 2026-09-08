@@ -1332,7 +1332,7 @@ export interface LogsSeriesBandSeriesApi {
     band_ready_at: string | null
     /** Grain of this series' buckets, in minutes. Equals the response interval_minutes unless the series was too sparse at that grain and was coarsened to the next rung it is dense enough to read at. */
     interval_minutes: number
-    /** Why this series does not sit at the requested grain, or null when it does. sparse: fewer than 20% of its buckets held any records. quiet: its non-empty buckets averaged under 5 records. A series that fails every rung is returned at the coarsest one.
+    /** Why this series was too thin to read at the requested grain, or null when it was not. sparse: fewer than 20% of its buckets held any records. quiet: its non-empty buckets averaged under 5 records. A series that fails every rung is returned at the coarsest one. A series that a coarser rung has no rows for, or that the request's time budget cannot refetch, keeps the requested grain and still carries its reason.
      *
      * * `sparse` - sparse
      * * `quiet` - quiet */

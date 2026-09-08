@@ -178,7 +178,7 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         assert quiet.total_count == quiet_count * (24 * 12 // quiet_every_n_buckets)
         assert quiet.buckets[0].observed == quiet_count * max(1, expected_interval // 5 // quiet_every_n_buckets)
 
-    def test_series_only_in_the_trailing_partial_bucket_stays_at_the_requested_grain(self):
+    def test_series_only_in_the_trailing_partial_bucket_keeps_the_requested_grain_and_its_reason(self):
         service = "svc-trailing"
         # A grain above 5 minutes floors this window end back to WINDOW_END, so the
         # records below sit outside every coarser rung's window.
@@ -192,7 +192,7 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
 
         assert len(result.series) == 1
         series = result.series[0]
-        assert (series.interval_minutes, series.coarsened_reason) == (5, None)
+        assert (series.interval_minutes, series.coarsened_reason) == (5, "sparse")
         assert len(series.buckets) == 24 * 12
         assert series.total_count == 3
         # Nothing to coarsen towards, and no band to under-read either: the series
@@ -201,7 +201,7 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         assert series.band_ready_at is not None
         assert all(bucket.lower is None and bucket.upper is None for bucket in series.buckets)
 
-    def test_a_spent_execution_budget_stops_the_coarsening_walk(self):
+    def test_a_spent_execution_budget_stops_the_walk_and_keeps_the_reason(self):
         service = "svc-budget"
         window_start = WINDOW_END - dt.timedelta(days=1)
         self._insert(
@@ -218,7 +218,7 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
 
         assert len(result.series) == 1
         series = result.series[0]
-        assert (series.interval_minutes, series.coarsened_reason) == (5, None)
+        assert (series.interval_minutes, series.coarsened_reason) == (5, "sparse")
         assert len(series.buckets) == 24 * 12
 
     @parameterized.expand(
