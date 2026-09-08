@@ -266,6 +266,43 @@ describe('ExperimentRecordingsListEmptyState', () => {
         }
     )
 
+    it('names no reason while the metric filter is still being resolved', async () => {
+        // An unanswered bucket has the same empty session set as one that matched nothing, so the
+        // banner used to claim "matched nothing" and drop "Try again" for the length of the request.
+        // A retry after a failure shows it worst: the list never reloads, so only the banner moves.
+        teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+        let resolveBucket: (response: unknown) => void = () => {}
+        ;(experimentsSessionBucketsCreate as jest.Mock).mockReturnValue(
+            new Promise((resolve) => {
+                resolveBucket = resolve
+            })
+        )
+        const logic = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 213 } as Experiment,
+        })
+        logic.mount()
+        logic.actions.setMetricFilterMode('no_metric_activity')
+        await waitFor(() => expect(logic.values.sessionBucketLoading).toBe(true))
+
+        renderEmptyState({ ...EXPERIMENT, id: 213 } as Experiment)
+        expect(screen.getByTestId('experiment-recordings-empty-state')).toBeEmptyDOMElement()
+
+        resolveBucket({
+            session_ids: [],
+            truncated: false,
+            considered_metrics: [],
+            excluded_metrics: [],
+            filter_test_accounts: true,
+        })
+        await waitFor(() =>
+            expect(screen.getByTestId('experiment-recordings-empty-state')).toHaveTextContent(
+                'No recordings matched the metric filter.'
+            )
+        )
+
+        logic.unmount()
+    })
+
     it('answers with the hidden recordings instead of a reason when the list only looks empty', async () => {
         teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
         playerSettingsLogic.actions.setHideViewedRecordings('current-user')

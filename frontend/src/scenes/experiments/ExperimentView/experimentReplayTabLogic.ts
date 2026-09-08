@@ -175,13 +175,13 @@ export type ExperimentRecordingsEmptyAction =
  * does not measure the run window a second time against a clock this logic has already read.
  */
 export interface ExperimentRecordingsListEmptyContext {
-    /** Days since the experiment launched, null when it has not launched. */
+    /** Null until the experiment launches. */
     daysSinceStart: number | null
-    /** When the experiment stopped, null while it runs. */
+    /** Null while the experiment runs. */
     endDate: string | null
     /** The project's replay retention window, which `ended_past_retention` is decided against. */
     retentionWindowDays: number
-    /** The variant the list is narrowed to, null when it holds every variant. */
+    /** Null when the list holds every variant. */
     variantKey: string | null
 }
 
@@ -1623,10 +1623,9 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         },
         listEmptyActionClicked: ({ action }) => {
             actions.reportExperimentRecordingsEmptyActionClicked(props.experiment.id, {
-                // `show_hidden` is offered when the API did return rows and the browser is hiding
-                // them, so the list is not empty and no reason explains it. `listEmptyReason` still
-                // holds a value there, and reporting it would read as a cause of an emptiness that
-                // never happened.
+                // `show_hidden` is offered whenever the viewer hides watched recordings, which the
+                // API applies to the query. No reason explains that emptiness, and `listEmptyReason`
+                // would name one, so the report carries the action on its own.
                 empty_reason: action === 'show_hidden' ? null : values.listEmptyReason,
                 action,
             })

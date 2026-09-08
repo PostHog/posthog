@@ -187,7 +187,7 @@ function ReasonBanner({
  */
 export function ExperimentRecordingsListEmptyState({ experiment }: { experiment: Experiment }): JSX.Element {
     const logic = experimentReplayTabLogic({ experiment })
-    const { listEmptyReason, listEmptyContext, recordingsFilters } = useValues(logic)
+    const { listEmptyReason, listEmptyContext, recordingsFilters, sessionBucketLoading } = useValues(logic)
     const { listEmptyActionClicked, loadSessionBucket, setSelectedVariantKey, setExposureScope } = useActions(logic)
     const { hiddenRecordingsCount } = useValues(sessionRecordingsPlaylistLogic)
     const { setShowSettings, setFilters } = useActions(sessionRecordingsPlaylistLogic)
@@ -196,7 +196,6 @@ export function ExperimentRecordingsListEmptyState({ experiment }: { experiment:
 
     const recordingsAreHidden = hideViewedRecordings !== false
 
-    // Reporting the click and acting on it in one place, so a reason only has to name its action.
     const runAction = (action: ExperimentRecordingsEmptyAction): void => {
         listEmptyActionClicked(action)
         if (action === 'retry_metric_filter') {
@@ -231,9 +230,12 @@ export function ExperimentRecordingsListEmptyState({ experiment }: { experiment:
                         : 'Show hidden recordings'}
                 </LemonButton>
             )}
-            {/* Rows the API returned are hidden in the browser, so the list is empty only because of
-                the setting. A reason names a cause of emptiness, and here there is nothing to explain. */}
-            {hiddenRecordingsCount === 0 && (
+            {/* The client-side backstop hid rows the server let through, so the list is empty only
+                because of the setting. A reason names a cause of emptiness, and there is none here.
+                An in-flight bucket has the same shape as one that matched nothing, so a reason there
+                would claim an answer the request has not given yet. The caption above the playlist
+                carries the wait. */}
+            {hiddenRecordingsCount === 0 && !sessionBucketLoading && (
                 <ReasonBanner reason={listEmptyReason} context={listEmptyContext} onAction={runAction} />
             )}
         </div>
