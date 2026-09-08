@@ -635,6 +635,27 @@ describe('alertFormLogic', () => {
             expect(logic.values.forecastSimulationResult).toBeNull()
         })
 
+        it('ignores a failure for settings the user changed while it was in flight', async () => {
+            let rejectRequest: (reason: unknown) => void = () => {}
+            ;(alertsSimulateForecastCreate as jest.Mock).mockReturnValueOnce(
+                new Promise((_resolve, reject) => {
+                    rejectRequest = reject
+                })
+            )
+            const logic = mountForecastForm()
+
+            logic.actions.simulateForecast()
+            logic.actions.setAlertFormValue('forecast_config', { ...forecastConfig, horizon: 14 })
+            rejectRequest(new Error("Forecast alerts don't support breakdowns yet"))
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(errorToastSpy).not.toHaveBeenCalled()
+            expect(captureSpy).not.toHaveBeenCalledWith('alert simulation run', expect.anything())
+            expect(logic.values.forecastSimulationResult).toBeNull()
+            expect(logic.values.forecastSimulationResultLoading).toBe(false)
+        })
+
         it('drops the result when the history range changes', async () => {
             const mockResponse = {
                 data: [1, 2, 3],

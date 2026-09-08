@@ -624,23 +624,32 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         props.insightInterval
                     )
                     const requestedInputs = forecastSimulationInputs(values.alertForm, dateFrom)
-                    const response = await alertsSimulateForecastCreate(String(values.currentTeamId), {
-                        insight: props.insightId,
-                        forecast_config: forecastConfig as unknown as ForecastConfigApi,
-                        series_index: isTrendsAlertConfig(formConfig) ? formConfig.series_index : 0,
-                        date_from: dateFrom,
-                    })
-                    // An edit during the request already cleared the preview, so a late response
-                    // must not put old forecast data back next to the new settings.
-                    const settledInputs = forecastSimulationInputs(
-                        values.alertForm,
-                        resolveForecastSimulationRange(
-                            values.simulationDateFrom,
-                            values.alertForm.calculation_interval,
-                            props.insightInterval
+                    const settledInputs = (): string =>
+                        forecastSimulationInputs(
+                            values.alertForm,
+                            resolveForecastSimulationRange(
+                                values.simulationDateFrom,
+                                values.alertForm.calculation_interval,
+                                props.insightInterval
+                            )
                         )
-                    )
-                    return settledInputs === requestedInputs ? response : null
+                    // An edit during the request already cleared the preview, so a late answer must
+                    // neither put old forecast data back next to the new settings nor report a
+                    // failure about settings the user has since changed.
+                    try {
+                        const response = await alertsSimulateForecastCreate(String(values.currentTeamId), {
+                            insight: props.insightId,
+                            forecast_config: forecastConfig as unknown as ForecastConfigApi,
+                            series_index: isTrendsAlertConfig(formConfig) ? formConfig.series_index : 0,
+                            date_from: dateFrom,
+                        })
+                        return settledInputs() === requestedInputs ? response : null
+                    } catch (error) {
+                        if (settledInputs() !== requestedInputs) {
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
