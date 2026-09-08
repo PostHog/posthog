@@ -77,10 +77,11 @@ async def setup_row_tracking(team_id: int, schema_id: uuid.UUID | str) -> None:
             await redis.hset(_get_hash_key(team_id), str(schema_id), 0)
             await redis.expire(_get_hash_key(team_id), 60 * 60 * 24 * 7)  # 7 day expire
         except redis_exceptions.RedisError as e:
-            # A successful ping doesn't guarantee later commands succeed (e.g. Redis
-            # refusing writes because it can't persist an RDB snapshot). Row tracking is
-            # best-effort, so a command failing here shouldn't fail the whole import.
-            capture_exception(e)
+            # Same rationale as _get_redis above: a successful ping doesn't guarantee a
+            # later command succeeds (e.g. Redis refusing writes because it can't persist
+            # an RDB snapshot, or a replica failover). That's a transient infra blip, not
+            # a bug, so it fails open without being reported to error tracking.
+            await logger.awarning("Redis error while setting up row tracking, failing open", error=str(e))
 
 
 async def increment_rows(team_id: int, schema_id: uuid.UUID | str, rows: int) -> None:
@@ -91,7 +92,7 @@ async def increment_rows(team_id: int, schema_id: uuid.UUID | str, rows: int) ->
         try:
             await redis.hincrby(_get_hash_key(team_id), str(schema_id), rows)
         except redis_exceptions.RedisError as e:
-            capture_exception(e)
+            await logger.awarning("Redis error while incrementing row tracking, failing open", error=str(e))
 
 
 async def decrement_rows(team_id: int, schema_id: uuid.UUID | str, rows: int) -> None:
@@ -113,7 +114,7 @@ async def decrement_rows(team_id: int, schema_id: uuid.UUID | str, rows: int) ->
             else:
                 await redis.hincrby(_get_hash_key(team_id), str(schema_id), -rows)
         except redis_exceptions.RedisError as e:
-            capture_exception(e)
+            await logger.awarning("Redis error while decrementing row tracking, failing open", error=str(e))
 
 
 async def finish_row_tracking(team_id: int, schema_id: uuid.UUID | str) -> None:
@@ -124,7 +125,7 @@ async def finish_row_tracking(team_id: int, schema_id: uuid.UUID | str) -> None:
         try:
             await redis.hdel(_get_hash_key(team_id), str(schema_id))
         except redis_exceptions.RedisError as e:
-            capture_exception(e)
+            await logger.awarning("Redis error while finishing row tracking, failing open", error=str(e))
 
 
 async def get_rows(team_id: int, schema_id: uuid.UUID | str) -> int:
@@ -138,7 +139,7 @@ async def get_rows(team_id: int, schema_id: uuid.UUID | str) -> int:
                 if value:
                     return int(value)
         except redis_exceptions.RedisError as e:
-            capture_exception(e)
+            await logger.awarning("Redis error while reading row tracking, failing open", error=str(e))
 
         return 0
 
@@ -152,7 +153,7 @@ async def get_all_rows_for_team(team_id: int) -> int:
             pairs = await redis.hgetall(_get_hash_key(team_id))
             return sum(int(v) for v in pairs.values())
         except redis_exceptions.RedisError as e:
-            capture_exception(e)
+            await logger.awarning("Redis error while reading team row tracking, failing open", error=str(e))
             return 0
 
 
