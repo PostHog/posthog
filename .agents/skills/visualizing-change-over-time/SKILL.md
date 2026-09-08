@@ -62,7 +62,7 @@ const series: Series<SlopeSeriesMeta>[] = [
 ```
 
 Key options (full list in the charts
-[AGENTS.md](../../../packages/quill/packages/charts/AGENTS.md) "Composition" section):
+[docs/chart-types.md](../../../packages/quill/packages/charts/src/docs/chart-types.md) "SlopeChart" section):
 
 - `showStartLabels` / `showEndLabels` — chart-level defaults for the value labels;
   override per series with `meta.showStartLabel` / `meta.showEndLabel`.
