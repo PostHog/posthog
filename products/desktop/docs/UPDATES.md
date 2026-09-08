@@ -31,8 +31,9 @@ Remote announcements can drive this flow: a `required-update` announcement block
 
 1. A base tag like `desktop-v0.15` marks the start of a minor version.
 2. `.github/workflows/desktop-tag.yml` (monorepo root) runs on a twice-daily schedule. It computes `desktop-vX.Y.PATCH`, where PATCH is the number of commits since the base tag that touched `products/desktop/`, waits for a quiet period, then pushes the tag.
-3. The tag push triggers `desktop-release.yml`, which builds and publishes the release.
-4. No manual `package.json` updates are needed.
+3. It also refuses to tag while the `Desktop Tests Pass` check on master is missing, still running, or failed for the last commit that touched `products/desktop/`. While that check is still running it waits up to twenty minutes and then leaves the release to the next scheduled run. A manual dispatch with `ignore_master_ci` skips the check, for a break-glass release.
+4. The tag push triggers `desktop-release.yml`, which builds and publishes the release.
+5. No manual `package.json` updates are needed.
 
 ## Releasing a patch
 

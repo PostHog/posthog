@@ -8,6 +8,10 @@ on:
             quiet_retries:
                 type: number
                 default: 0
+            ignore_master_ci:
+                description: Skip the master Desktop Tests check, for a break-glass release.
+                type: boolean
+                default: false
     pull_request:
         types: [closed]
         branches:
@@ -33,7 +37,7 @@ jobs:
             pull-requests: write
             issues: write
         runs-on: depot-ubuntu-24.04
-        timeout-minutes: 30
+        timeout-minutes: 45
         steps:
             - name: Get app token
               id: app-token
@@ -121,8 +125,62 @@ jobs:
                   gh workflow run desktop-tag.yml -f quiet_retries="$NEXT"
                   echo "proceed=false" >> "$GITHUB_OUTPUT"
 
+            # A release is cut from master, and the merge queue does not run the desktop
+            # suites on its batches, so the master push run is the only signal that the
+            # tree being tagged still boots.
+            - name: Find the last desktop commit
+              id: desktop-head
+              if: steps.quiet.outputs.proceed != 'false' && steps.labeler.outputs.authorized != 'false' && github.event.inputs.ignore_master_ci != 'true'
+              run: |
+                  # Scoped to products/desktop/: master carries commits from every product,
+                  # and only a desktop commit dispatches the desktop push run.
+                  echo "sha=$(git log -1 --format=%H HEAD -- products/desktop/)" >> "$GITHUB_OUTPUT"
+
+            - name: Wait for Desktop Tests on the last desktop commit
+              id: master-ci
+              if: steps.desktop-head.outputs.sha != ''
+              uses: ./.github/actions/wait-for-check
+              with:
+                  token: ${{ github.token }}
+                  checkName: Desktop Tests Pass
+                  ref: ${{ steps.desktop-head.outputs.sha }}
+                  # The push run takes about ten minutes when runners are free. The wait
+                  # plus the quiet period stays inside the job timeout.
+                  timeoutSeconds: '1200'
+                  intervalSeconds: '30'
+
+            - name: Hold the tag unless Desktop Tests passed
+              id: master-ci-verdict
+              if: steps.desktop-head.outputs.sha != ''
+              env:
+                  CONCLUSION: ${{ steps.master-ci.outputs.conclusion }}
+                  SHA: ${{ steps.desktop-head.outputs.sha }}
+                  EVENT_NAME: ${{ github.event_name }}
+                  COMMENT_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: |
+                  if [ "$CONCLUSION" = "success" ]; then
+                    echo "Desktop Tests passed on ${SHA}."
+                    echo "proceed=true" >> "$GITHUB_OUTPUT"
+                    exit 0
+                  fi
+
+                  echo "proceed=false" >> "$GITHUB_OUTPUT"
+                  if [ "$CONCLUSION" = "timed_out" ]; then
+                    echo "Desktop Tests has not completed on ${SHA}. The next scheduled run picks it up."
+                    exit 0
+                  fi
+
+                  CHECKS_URL="${GITHUB_SERVER_URL}/${REPOSITORY}/commit/${SHA}/checks"
+                  echo "::warning::Desktop Tests concluded '${CONCLUSION}' on ${SHA}, so the release tag is held. ${CHECKS_URL}"
+                  if [ "$EVENT_NAME" = "pull_request" ]; then
+                    GH_TOKEN="$COMMENT_TOKEN" gh pr comment "$PR_NUMBER" --repo "$REPOSITORY" \
+                      --body "Auto-release is on hold: Desktop Tests concluded \`${CONCLUSION}\` on master (${CHECKS_URL}). It ships with the next scheduled release once master is green." || true
+                  fi
+
             - name: Compute version and create tag
-              if: steps.quiet.outputs.proceed != 'false' && steps.labeler.outputs.authorized != 'false'
+              if: steps.quiet.outputs.proceed != 'false' && steps.labeler.outputs.authorized != 'false' && steps.master-ci-verdict.outputs.proceed != 'false'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   REPOSITORY: ${{ github.repository }}
