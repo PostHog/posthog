@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import time
 from collections.abc import Iterable
 from typing import Any, NoReturn, Protocol, cast
 from urllib.parse import urlencode
@@ -12,16 +13,18 @@ from django.db.models import Q, QuerySet
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_serializer
 from prometheus_client import Counter
 from rest_framework import mixins, serializers, status, viewsets
-from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, PermissionDenied, Throttled, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from slack_sdk.errors import SlackApiError
 
 from posthog.api.github_callback import state as github_callback_state
@@ -58,6 +61,7 @@ from posthog.models.integration import (
     POSTHOG_CONNECT_DEFAULT_SCOPES,
     POSTHOG_CONNECT_GRANTABLE_SCOPES,
     POSTHOG_CONNECT_KIND,
+    POSTHOG_SLACK_SCOPE,
     SLACK_INTEGRATION_KINDS,
     AnthropicIntegration,
     ApplePushIntegration,
@@ -103,10 +107,10 @@ from posthog.permissions import (
     TeamMemberStrictManagementPermission,
 )
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.email import send_integration_access_request
 from posthog.utils import is_relative_url
 
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.batch_exports.backend.models.batch_export import get_batch_exports_using_integration
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
 from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
@@ -136,6 +140,28 @@ class SlackIntegrationInactiveError(APIException):
     default_detail = (
         "Your Slack connection is no longer active. Reconnect Slack to load channels and pick a destination."
     )
+
+
+class SlackIntegrationMissingScopeError(SlackIntegrationInactiveError):
+    # Reuses the inactive error's code so the pickers' existing reconnect banner renders; only the
+    # copy differs, because what the admin has to do — reinstall the app — is the same either way.
+    default_detail = (
+        "Your Slack connection is missing the permission PostHog needs to list workspace members. "
+        "Reconnect Slack to grant it."
+    )
+
+
+def _reraise_slack_users_api_error(error: SlackApiError) -> NoReturn:
+    """Same as `_reraise_slack_api_error`, plus the member endpoints' own scope failure.
+
+    `users.list` and `users.info` need `users:read`, which an install predating that scope never
+    granted. Slack answers `missing_scope`, which is not an auth failure, so without this it would
+    surface as a 500 and dead-end the member picker instead of offering the reconnect that fixes it.
+    """
+    error_code = error.response.get("error") if error.response is not None else None
+    if error_code == "missing_scope":
+        raise SlackIntegrationMissingScopeError() from error
+    _reraise_slack_api_error(error)
 
 
 def _reraise_slack_api_error(error: SlackApiError) -> NoReturn:
@@ -427,6 +453,82 @@ class SlackChannelsResponseSerializer(serializers.Serializer):
     )
 
 
+class SlackUserSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Slack member ID (e.g. U0123ABC) — post to it to open a direct message.")
+    name = serializers.CharField(help_text="Slack username (handle) without the leading '@'.")
+    display_name = serializers.CharField(
+        help_text="Name to show in pickers: the member's display name, falling back to their real name or handle."
+    )
+
+
+# Server-side floor between forced member-list refreshes, matching the picker's visible cooldown.
+SLACK_USERS_MIN_REFRESH_SECONDS = 30
+
+# Cap on uncached per-id member lookups per integration per minute; each one reaches Slack's
+# users.info endpoint, so distinct fabricated ids must not be able to drain the workspace quota.
+SLACK_USERS_INFO_LOOKUPS_PER_MINUTE = 30
+
+# How long a request that lost the member-list fill waits for the winner's result before
+# enumerating Slack itself. Bounds a cold-cache burst to one enumeration without failing the
+# request outright, at the cost of holding the losing requests for at most this long.
+SLACK_USERS_FILL_WAIT_SECONDS = 3.0
+SLACK_USERS_FILL_POLL_SECONDS = 0.1
+
+
+class SlackUsersQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional case-insensitive member name or ID search query.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=50,
+        min_value=1,
+        max_value=200,
+        help_text="Maximum number of members to return per request (max 200).",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Number of members to skip before returning results.",
+    )
+    # Deliberately not nullable: generated clients serialize an explicit null as the literal
+    # query string "user_id=null", which would then be looked up as a member id. Omit to skip.
+    user_id = serializers.CharField(
+        required=False,
+        default="",
+        allow_blank=True,
+        help_text=(
+            "Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and "
+            "`offset` are ignored and the response holds at most that member."
+        ),
+    )
+    force_refresh = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Bypass the 1 hour member cache. Honored only for browser session callers; API key, OAuth, and MCP "
+            "callers always read through the cache."
+        ),
+    )
+
+
+class SlackUsersResponseSerializer(serializers.Serializer):
+    users = SlackUserSerializer(many=True, help_text="Human Slack workspace members the PostHog Slack app can DM.")
+    lastRefreshedAt = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="ISO 8601 timestamp of the last full Slack API refresh (only set on full lists, not single-member lookups).",
+    )
+    has_more = serializers.BooleanField(
+        required=False,
+        help_text="Whether more members match the current search beyond this page.",
+    )
+
+
 class IntegrationAccessRequestSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
         choices=Integration.IntegrationKind.choices,
@@ -451,6 +553,9 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
     """Standard Integration serializer."""
 
     created_by = UserBasicSerializer(read_only=True)
+    files_write_requestable = serializers.SerializerMethodField(
+        help_text="Slack only: whether reconnecting can request the files:write scope."
+    )
     installation_shared = serializers.SerializerMethodField(
         help_text=(
             "GitHub only, null otherwise. Whether another project's GitHub integration references the same "
@@ -475,6 +580,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             "created_by",
             "errors",
             "display_name",
+            "files_write_requestable",
             "installation_shared",
             "installation_status",
         ]
@@ -484,9 +590,14 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             "created_by",
             "errors",
             "display_name",
+            "files_write_requestable",
             "installation_shared",
             "installation_status",
         ]
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_files_write_requestable(self, obj: Integration) -> bool:
+        return obj.kind == "slack" and "files:write" in POSTHOG_SLACK_SCOPE.split(",")
 
     @extend_schema_field(serializers.BooleanField(allow_null=True))
     def get_installation_shared(self, obj: Integration) -> bool | None:
@@ -542,19 +653,32 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         # `create` is a POST with upsert semantics: each kind's helper does an `update_or_create`
         # keyed on (team, kind, integration_id), so re-submitting the same resource overwrites the
         # existing integration instead of adding a new one. Adding is allowed for any project
-        # member, but overwriting an existing integration is an edit and requires admin. If a
-        # non-admin's request resolves to an integration that already existed, roll the write back
-        # and reject.
+        # member. A Google account's creator can also reconnect it because its credentials are
+        # personal; every other overwrite still requires admin. The transaction rolls back an
+        # unauthorized helper upsert.
         with transaction.atomic():
-            existing_integration_ids = set(
-                Integration.objects.filter(team_id=team_id, kind=kind).values_list("integration_id", flat=True)
-            )
+            existing_integrations = {
+                integration.integration_id: integration
+                for integration in Integration.objects.only("id", "kind", "integration_id", "created_by_id").filter(
+                    team_id=team_id, kind=kind
+                )
+            }
             instance = self._build_integration(validated_data)
-            is_overwrite = instance.integration_id in existing_integration_ids
-            if is_overwrite and not github_callback_state.has_team_management_access(
-                self.context["request"].user, self.context["get_team"]()
-            ):
-                raise PermissionDenied("Editing an existing integration requires project admin access.")
+            existing_integration = existing_integrations.get(instance.integration_id)
+            is_overwrite = existing_integration is not None
+            if existing_integration is not None:
+                has_management_access = github_callback_state.has_team_management_access(
+                    self.context["request"].user, self.context["get_team"]()
+                )
+                creator_can_manage = existing_integration.can_be_managed_by_creator(
+                    getattr(self.context["request"].user, "id", None)
+                )
+                if not has_management_access and not creator_can_manage:
+                    if kind == Integration.IntegrationKind.GOOGLE_CALENDAR:
+                        raise PermissionDenied(
+                            "Only the person who connected this Google account or a project admin can reconnect it."
+                        )
+                    raise PermissionDenied("Editing an existing integration requires project admin access.")
         # GitHub reports from GitHubIntegration.integration_from_installation_id instead, because it
         # is also created outside this serializer (the App installation callback, agentic
         # provisioning). This branch reaches that same helper, so reporting here too would count a
@@ -854,10 +978,12 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 redshift_integration: (
                     type[RedshiftIntegration] | type[AWSRedshiftIntegration] | type[AWSRedshiftRoleBasedIntegration]
                 ) = AWSRedshiftRoleBasedIntegration
+            elif any(required in config for required in ("aws_access_key_id", "aws_secret_access_key")):
+                # Checked before the plain-server keys: AWS-credential configs also carry
+                # 'user' (the database user to obtain temporary credentials for).
+                redshift_integration = AWSRedshiftIntegration
             elif any(required in config for required in ("host", "port", "user", "password")):
                 redshift_integration = RedshiftIntegration
-            elif any(required in config for required in ("aws_access_key_id", "aws_secret_access_key")):
-                redshift_integration = AWSRedshiftIntegration
             else:
                 raise ValidationError("Missing required inputs")
 
@@ -1086,6 +1212,24 @@ def github_rate_limited_response(exc: GitHubRateLimitError) -> Response:
     return response
 
 
+class IntegrationManagementPermission(TeamMemberStrictManagementPermission):
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        integration_view = cast("IntegrationViewSet", view)
+        if integration_view.action == "destroy":
+            return TeamMemberAccessPermission().has_permission(request, view)
+        return super().has_permission(request, view)
+
+    def has_object_permission(self, request: Request, view: APIView, obj: object) -> bool:
+        integration_view = cast("IntegrationViewSet", view)
+        if integration_view.action != "destroy":
+            return True
+        requesting_level = integration_view.user_permissions.current_team.effective_membership_level
+        has_management_access = requesting_level is not None and requesting_level >= OrganizationMembership.Level.ADMIN
+        return has_management_access or (
+            isinstance(obj, Integration) and obj.can_be_managed_by_creator(getattr(request.user, "id", None))
+        )
+
+
 @extend_schema(extensions={"x-product": "integrations"})
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
@@ -1100,6 +1244,7 @@ class IntegrationViewSet(
         "list",
         "retrieve",
         "channels",
+        "users",
         "github_repos",
         "github_branches",
         "github_teams",
@@ -1123,7 +1268,7 @@ class IntegrationViewSet(
         # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
         "request_access",
     ]
-    permission_classes = [TeamMemberStrictManagementPermission]
+    permission_classes = [IntegrationManagementPermission]
     queryset = defer_repository_cache_fields(Integration.objects.all())
     serializer_class = IntegrationSerializer
     filter_backends = [DjangoFilterBackend]
@@ -1151,9 +1296,8 @@ class IntegrationViewSet(
             AccessControlPermission(),
             TeamMemberAccessPermission(),
         ]
-        # Adding (connecting) an integration only requires project membership; editing or removing
-        # one still requires admin, enforced by the default TeamMemberStrictManagementPermission.
-        # The GitHub browser callback applies the same create-vs-modify split (see github_callback).
+        # Adding an integration only requires project membership. Every edit and removal uses the
+        # viewset permission class, including the creator exception for Google account removal.
         if self.action in ("create", "github_link_existing", "github_oauth_authorize", "request_access"):
             return base_permissions
         if self.action == "refresh_github_repos":
@@ -1165,7 +1309,7 @@ class IntegrationViewSet(
             return [GitHubRepositoryRefreshThrottle(), *super().get_throttles()]
         return super().get_throttles()
 
-    def perform_destroy(self, instance) -> None:
+    def perform_destroy(self, instance: Integration) -> None:
         flows_using_integration = get_active_hog_flows_using_integration(
             team_id=instance.team_id, integration_id=instance.id
         )
@@ -1396,6 +1540,144 @@ class IntegrationViewSet(
         return Response(
             {
                 "channels": page,
+                "lastRefreshedAt": data.get("lastRefreshedAt"),
+                "has_more": has_more,
+            }
+        )
+
+    @staticmethod
+    def _serialize_slack_user(member: dict) -> dict:
+        profile = member.get("profile") or {}
+        return {
+            "id": member["id"],
+            "name": member.get("name", ""),
+            "display_name": profile.get("display_name") or member.get("real_name") or member.get("name", ""),
+        }
+
+    @staticmethod
+    def _filter_slack_users_for_search(users: list[dict], search: str) -> list[dict]:
+        query = search.strip()
+        if not query:
+            return users
+        # Fuzzy-rank by display name and handle, then union in any member whose id contains the query
+        # so pasting an id still resolves.
+        ranked = fuzzy_filter(query, users, key=lambda member: f"{member['display_name']} {member['name']}")
+        ranked_ids = {member["id"] for member in ranked}
+        id_matches = [
+            member for member in users if query.lower() in member["id"].lower() and member["id"] not in ranked_ids
+        ]
+        return ranked + id_matches
+
+    @extend_schema(
+        parameters=[SlackUsersQuerySerializer],
+        responses={200: SlackUsersResponseSerializer},
+    )
+    @action(methods=["GET"], detail=True, url_path="users")
+    def users(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        if instance.kind not in SLACK_INTEGRATION_KINDS:
+            raise ValidationError("users endpoint is only supported for Slack integrations")
+        slack = SlackIntegration(instance)
+        query_serializer = SlackUsersQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        # force_refresh is only honored for cookie-session callers — MCP / API-key / OAuth
+        # callers always read through the 1h cache so an agent loop can't bypass it.
+        is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
+        force_refresh: bool = is_session_auth and query_serializer.validated_data["force_refresh"]
+
+        # Key on the Integration row PK (unique per PostHog team × Slack workspace), not
+        # integration_id (the Slack workspace id, shared across teams).
+        key = f"slack/{instance.id}/users"
+
+        user_id = query_serializer.validated_data["user_id"]
+        if user_id:
+            data = cache.get(key)
+            if data is not None:
+                for member in data["users"]:
+                    if member["id"] == user_id:
+                        return Response({"users": [member]})
+            # Cache hits AND misses per id, so a loop over arbitrary ids can't spend the
+            # workspace's Slack API quota one uncached users.info call at a time.
+            lookup_key = f"slack/{instance.id}/users/{user_id}"
+            cached_lookup = cache.get(lookup_key)
+            if cached_lookup is not None:
+                return Response({"users": cached_lookup})
+            # The per-id cache doesn't bound a caller cycling through distinct fabricated ids, so
+            # also cap how many uncached lookups an integration can send to Slack per minute.
+            budget_key = f"slack/{instance.id}/users_info_budget"
+            try:
+                lookups = 1 if cache.add(budget_key, 1, 60) else cache.incr(budget_key)
+            except ValueError:
+                lookups = 1
+            if lookups > SLACK_USERS_INFO_LOOKUPS_PER_MINUTE:
+                raise Throttled(detail="Too many Slack member lookups. Try again in a minute.")
+            try:
+                member = slack.get_user_by_id(user_id)
+            except SlackApiError as e:
+                _reraise_slack_users_api_error(e)
+            serialized_lookup = [self._serialize_slack_user(member)] if member else []
+            cache.set(lookup_key, serialized_lookup, 60 * 60)
+            return Response({"users": serialized_lookup})
+
+        search = query_serializer.validated_data["search"]
+        limit = query_serializer.validated_data["limit"]
+        offset = query_serializer.validated_data["offset"]
+
+        data = cache.get(key)
+
+        if data is not None and force_refresh:
+            # Server-side floor under the picker's cooldown: a session user mashing refresh must
+            # not spend up to ten Slack API pages per click.
+            last_refreshed = parse_datetime(data.get("lastRefreshedAt") or "")
+            if (
+                last_refreshed is not None
+                and (timezone.now() - last_refreshed).total_seconds() < SLACK_USERS_MIN_REFRESH_SECONDS
+            ):
+                force_refresh = False
+
+        # The refresh floor above compares a value that concurrent requests all read before any of
+        # them writes, so it alone can't stop parallel forced refreshes from each enumerating the
+        # workspace. Whoever claims this sentinel refreshes; the rest serve the list they have.
+        needs_fill = data is None or force_refresh
+        filling_key = f"{key}/filling"
+        claimed_fill = needs_fill and cache.add(filling_key, 1, 60)
+
+        if needs_fill and not claimed_fill and data is None:
+            # Nothing to serve, so a cold-cache burst would otherwise have every request enumerate
+            # the workspace at once. Wait for the winner instead, and only enumerate if it never
+            # lands — a winner that died must not leave the rest waiting on a list that never comes.
+            deadline = time.monotonic() + SLACK_USERS_FILL_WAIT_SECONDS
+            while data is None and time.monotonic() < deadline:
+                time.sleep(SLACK_USERS_FILL_POLL_SECONDS)
+                data = cache.get(key)
+            if data is None:
+                claimed_fill = cache.add(filling_key, 1, 60)
+
+        if needs_fill and (claimed_fill or data is None):
+            try:
+                members = slack.list_users()
+            except SlackApiError as e:
+                _reraise_slack_users_api_error(e)
+            finally:
+                if claimed_fill:
+                    cache.delete(filling_key)
+            serialized = sorted(
+                (self._serialize_slack_user(member) for member in members),
+                key=lambda member: member["display_name"].lower(),
+            )
+            data = {
+                "users": serialized,
+                "lastRefreshedAt": timezone.now().isoformat(),
+            }
+            cache.set(key, data, 60 * 60)  # one hour
+
+        filtered_users = self._filter_slack_users_for_search(data["users"], search)
+        page = filtered_users[offset : offset + limit]
+        has_more = offset + limit < len(filtered_users)
+
+        return Response(
+            {
+                "users": page,
                 "lastRefreshedAt": data.get("lastRefreshedAt"),
                 "has_more": has_more,
             }
@@ -1950,8 +2232,8 @@ class IntegrationViewSet(
             raise ValidationError("domain query parameter is required")
 
         # Extract root domain so subdomains (e.g. ph.example.com) resolve correctly
-        root_domain, _ = extract_root_domain_and_host(domain)
-        result = discover_domain_connect(root_domain)
+        domain_parts = extract_root_domain_and_host(domain)
+        result = discover_domain_connect(domain_parts.root_domain)
         return Response(
             {
                 "supported": result is not None,

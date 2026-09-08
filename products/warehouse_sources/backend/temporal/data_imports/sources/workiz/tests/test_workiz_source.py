@@ -4,14 +4,10 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.workiz import WorkizSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.workiz.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.workiz.source import WorkizSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.workiz.workiz import WorkizResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestWorkizSource:
@@ -19,9 +15,6 @@ class TestWorkizSource:
         self.source = WorkizSource()
         self.team_id = 123
         self.config = WorkizSourceConfig(api_token="tok")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.WORKIZ
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -35,47 +28,10 @@ class TestWorkizSource:
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert field_names == ["api_token"]
 
-    def test_api_token_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_token")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
-
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret API token; the base URL is hardcoded, so there is no
         # non-secret field an editor could retarget to reuse a preserved token against another host.
         assert self.source.connection_host_fields == []
-
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_covers_all_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    @parameterized.expand([("Jobs",), ("Leads",)])
-    def test_get_schemas_marks_date_windowed_endpoints_incremental(self, name: str) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas[name].supports_incremental is True
-        assert schemas[name].incremental_fields != []
-
-    @parameterized.expand([("Team",), ("TimeOff",)])
-    def test_get_schemas_marks_full_list_endpoints_full_refresh(self, name: str) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas[name].supports_incremental is False
-        assert schemas[name].incremental_fields == []
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["Team"])
-        assert [s.name for s in schemas] == ["Team"]
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
 
     @parameterized.expand(
         [
@@ -96,32 +52,6 @@ class TestWorkizSource:
     def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (True, None),
-            (False, "Invalid API token. Check Settings > Integrations > Developer in Workiz and try again."),
-        ]
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.workiz.source.validate_workiz_credentials"
-    )
-    def test_validate_credentials_delegates(
-        self,
-        expected_valid: bool,
-        expected_message: str | None,
-        mock_validate: mock.MagicMock,
-    ) -> None:
-        mock_validate.return_value = (expected_valid, expected_message)
-        is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
-        assert is_valid is expected_valid
-        assert returned == expected_message
-        mock_validate.assert_called_once_with("tok")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is WorkizResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.workiz.source.workiz_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

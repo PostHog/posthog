@@ -360,6 +360,8 @@ async def reap_backfill_schedules_activity() -> None:
     seen: set[UUID] = set()
     fixes = []
     async for listing in await client.list_schedules(query=f'PostHogScheduleType = "{BACKFILL_SCHEDULE_TYPE}"'):
+        # The SDK throttles the RPCs, so per-listing is cheap.
+        activity.heartbeat({"phase": "listing_schedules", "seen": len(seen)})
         if not listing.id.startswith(prefix):
             continue
         try:
@@ -376,4 +378,5 @@ async def reap_backfill_schedules_activity() -> None:
             logger.info("replay_vision.backfill_reaper.recreating_missing", backfill_id=str(backfill_id))
             fixes.append(_recreate_schedule(backfill_id, team_id, scanner_id, row_status, client))
     if fixes:
+        activity.heartbeat({"phase": "applying_fixes", "fixes": len(fixes)})
         await asyncio.gather(*fixes)

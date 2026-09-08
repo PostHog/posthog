@@ -10,7 +10,7 @@ from django.test import SimpleTestCase, override_settings
 from oauth2_provider.models import AbstractApplication
 from parameterized import parameterized
 
-from posthog.api.oauth.cimd import fetch_and_upsert_cimd_application, get_application_by_client_id
+from posthog.api.oauth.cimd import fetch_and_upsert_cimd_application
 from posthog.api.oauth.hogli_metadata import HOGLI_LOGO_URI, HOGLI_SCOPES
 from posthog.models.oauth import is_loopback_host
 from posthog.scopes import UNPRIVILEGED_SCOPES
@@ -99,15 +99,13 @@ class TestHogliClientMetadataRegistration(APIBaseTest):
 
         assert app is not None
         assert app.is_cimd_client
-        assert app.cimd_metadata_url == client_id
+        assert app.client_id == client_id
         assert app.name == "hogli CLI for PostHog"
         assert app.client_type == AbstractApplication.CLIENT_PUBLIC
         assert app.authorization_grant_type == AbstractApplication.GRANT_AUTHORIZATION_CODE
         assert app.redirect_uris == " ".join(document["redirect_uris"])
         assert set(app.scopes) == set(HOGLI_SCOPES)
         assert app.logo_uri == HOGLI_LOGO_URI
-
-        assert get_application_by_client_id(client_id).pk == app.pk
 
     @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
     @patch("posthog.api.oauth.cimd.requests.Session.get")

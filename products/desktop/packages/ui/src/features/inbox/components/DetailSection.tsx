@@ -36,7 +36,7 @@ export function DetailSection({
   const titleCluster = (
     <>
       <Icon size={14} weight="bold" className="shrink-0 text-gray-11" />
-      <span className="truncate font-semibold text-[13px] text-gray-12 tracking-[-0.01em]">
+      <span className="truncate font-semibold text-[14px] text-gray-12 tracking-[-0.01em]">
         {title}
       </span>
     </>

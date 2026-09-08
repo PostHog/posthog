@@ -8,9 +8,10 @@ use simd_json::borrowed::{Object, Value};
 
 use crate::blur::is_image_data_uri;
 use crate::collect::is_image_ref_strict;
-use crate::context::Ctx;
+use crate::context::{Ctx, ImageSource};
 use crate::images::ImageFallback;
-use crate::json::{as_str, string_value};
+use crate::json::{as_f64, as_str, string_value};
+use crate::srcset::largest_candidate;
 use crate::url::scrub_url;
 
 // rrweb inlines rendered pixels (a `toDataURL()` snapshot) into this attribute.
@@ -20,6 +21,7 @@ pub const PLACEHOLDER_SRC: &str = "data:image/svg+xml;utf8,<svg xmlns='http://ww
 
 pub const MEDIA_SRC_ATTRS: &[&str] = &["src", "rr_src", "srcset", "href", "xlink:href", "poster"];
 pub(crate) const IMAGE_REF_ATTR_PREFIX: &str = "data-anon-image-ref-";
+pub(crate) const CSS_IMAGE_REFS_ATTR_PREFIX: &str = "data-anon-image-refs-";
 
 pub fn is_media_tag(tag: &str) -> bool {
     matches!(
@@ -33,49 +35,103 @@ pub fn is_media_src_attr(name: &str) -> bool {
 }
 
 pub(crate) fn is_image_ref_attr(name: &str) -> bool {
-    name.starts_with(IMAGE_REF_ATTR_PREFIX)
+    name.starts_with(IMAGE_REF_ATTR_PREFIX) || name.starts_with(CSS_IMAGE_REFS_ATTR_PREFIX)
 }
 
-/// True for a tag whose `src` names an image.
-///
-/// `TagKind::Media` is too broad to decide this. It also covers `video`, `audio`, `track` and
-/// `source`. Their `src` is a movie, a sound file, or a WebVTT subtitle document.
-///
-/// `source` is excluded because its meaning depends on its parent, and the walk does not carry
-/// one.
-pub(crate) fn tag_src_is_image(tag: &str) -> bool {
-    matches!(
-        tag.to_ascii_lowercase().as_str(),
-        "img" | "image" | "picture"
-    )
+pub(crate) fn numbered_placeholder(slot: usize) -> String {
+    let before_close = PLACEHOLDER_SRC
+        .strip_suffix("</svg>")
+        .expect("the static image placeholder is SVG");
+    format!("{before_close}<metadata id='anon-image-slot-{slot}'/></svg>")
 }
 
-/// Whether the fetch lane may collect the URL in this attribute.
-///
-/// A subset of [`MEDIA_SRC_ATTRS`], because the rest do not name one fetchable image.
-///
-/// `src` and `rr_src` need the tag as well as the name.
-///
-/// Without the tag check, the lane collects the `src` of a `<video>`, an `<audio>` or a `<track>`.
-/// The mutation path is worse: rrweb sends attributes with no tag, so any `src` passes, including
-/// one from an `<iframe>` or a `<script>`.
-///
-/// The fetch lane is sized to download images. Video, subtitle text and third-party JavaScript are
-/// a different workload and a different data-classification question. `tag_src_is_image` is false
-/// on the tagless mutation path, so that path declines rather than guesses.
-///
-/// `poster` needs no tag check. It exists only on a video element and it always names a still
-/// image.
-///
-/// `srcset` holds several candidates with descriptors, so it needs a parse and a choice of which
-/// candidate to fetch. `href` and `xlink:href` on a media tag are as often a link or an SVG
-/// fragment reference as an image. Both can be added later without changing anything else here.
-pub(crate) fn is_fetchable_src_attr(name: &str, tag_src_is_image: bool) -> bool {
-    match name {
-        "poster" => true,
-        "src" | "rr_src" => tag_src_is_image,
+pub(crate) fn is_numbered_placeholder(value: &str) -> bool {
+    let Some(before_close) = PLACEHOLDER_SRC.strip_suffix("</svg>") else {
+        return false;
+    };
+    let Some(slot) = value
+        .strip_prefix(before_close)
+        .and_then(|value| value.strip_prefix("<metadata id='anon-image-slot-"))
+        .and_then(|value| value.strip_suffix("'/></svg>"))
+    else {
+        return false;
+    };
+    !slot.is_empty() && slot.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+pub(crate) fn is_fetchable_image_attr(name: &str, tag: &str, parent_is_picture: bool) -> bool {
+    match tag.to_ascii_lowercase().as_str() {
+        "img" => matches!(name, "src" | "rr_src" | "srcset"),
+        "image" => matches!(name, "href" | "xlink:href"),
+        "video" => name == "poster",
+        "source" => parent_is_picture && name == "srcset",
         _ => false,
     }
+}
+
+/// A CSS or HTML length read as pixels. `1`, `1px`, and `1.0` all read as one pixel. A percentage or
+/// another unit reads as unknown.
+pub(crate) fn px_length(text: &str) -> Option<f64> {
+    let text = text.trim().to_ascii_lowercase();
+    let number = text.strip_suffix("px").map_or(text.as_str(), str::trim);
+    number.parse::<f64>().ok()
+}
+
+/// Both dimensions are known and neither is larger than one pixel. A negative length is not a
+/// small box: the browser ignores it and renders the natural size.
+pub(crate) fn is_at_most_one_pixel(width: Option<f64>, height: Option<f64>) -> bool {
+    let at_most_one = |length: f64| (0.0..=1.0).contains(&length);
+    matches!((width, height), (Some(width), Some(height)) if at_most_one(width) && at_most_one(height))
+}
+
+/// The last value an inline style gives one property, lowercased and without `!important`.
+fn inline_style_declaration(style: &str, property: &str) -> Option<String> {
+    style
+        .split(';')
+        .filter_map(|declaration| declaration.split_once(':'))
+        .filter(|(name, _)| name.trim().eq_ignore_ascii_case(property))
+        .map(|(_, value)| without_important(&value.trim().to_ascii_lowercase()).to_string())
+        .next_back()
+}
+
+/// CSS allows white space between the `!` and `important`.
+fn without_important(value: &str) -> &str {
+    let Some(before_keyword) = value.strip_suffix("important") else {
+        return value;
+    };
+    match before_keyword.trim_end().strip_suffix('!') {
+        Some(declared_value) => declared_value.trim_end(),
+        None => value,
+    }
+}
+
+/// The inline style wins over the `width` and `height` attributes, as it does in the browser, so
+/// a declared style that is not a pixel length leaves the dimension unknown.
+fn dimension_px(attrs: &Object<'_>, style: Option<&str>, name: &str) -> Option<f64> {
+    if let Some(declared) = style.and_then(|style| inline_style_declaration(style, name)) {
+        return px_length(&declared);
+    }
+    let attribute = attrs.get(name)?;
+    as_str(attribute).map_or_else(|| as_f64(attribute), px_length)
+}
+
+/// An `img` nobody can see: hidden by the `hidden` attribute or by `display: none`, or a box of
+/// at most one pixel on each side. Such an element is a tracking pixel or a spacer, so its URL has
+/// no value to the fetch lane, and a fetch of it reports a visit to whoever serves it. The byte
+/// walker mirrors the attribute half of this rule in `bytewalk::attrs_hide_pixel`.
+pub(crate) fn is_hidden_pixel(attrs: &Object<'_>) -> bool {
+    if attrs.contains_key("hidden") {
+        return true;
+    }
+    let style = attrs.get("style").and_then(as_str);
+    let display = style.and_then(|style| inline_style_declaration(style, "display"));
+    if display.as_deref() == Some("none") {
+        return true;
+    }
+    is_at_most_one_pixel(
+        dimension_px(attrs, style, "width"),
+        dimension_px(attrs, style, "height"),
+    )
 }
 
 /// True if an attribute map contains any media-source attribute.
@@ -92,7 +148,11 @@ pub fn blur_inline_image_attr(ctx: &Ctx<'_>, attrs: &mut Object<'_>, name: &str)
     if !is_image_data_uri(&value) {
         return false;
     }
-    let blurred = ctx.scrub_image(&value, ImageFallback::Blank);
+    let blurred = ctx.scrub_image_from(
+        &value,
+        ImageFallback::Blank,
+        ImageSource::HtmlAttribute(INLINE_IMAGE_ATTR),
+    );
     attrs.insert(Cow::Owned(name.to_string()), string_value(blurred));
     true
 }
@@ -101,8 +161,16 @@ pub fn blur_inline_image_attr(ctx: &Ctx<'_>, attrs: &mut Object<'_>, name: &str)
 /// URLs). A collected remote URL's ref and scrubbed original are stashed under separate namespaced
 /// attrs. Returns whether it changed any attribute — a media tag with no source attrs (e.g. a bare
 /// `<img>`) is left untouched.
-pub fn apply_blur(ctx: &Ctx<'_>, attrs: &mut Object<'_>, tag_src_is_image: bool) -> bool {
+pub fn apply_blur(
+    ctx: &Ctx<'_>,
+    attrs: &mut Object<'_>,
+    tag: &str,
+    parent_is_picture: bool,
+) -> bool {
     let mut acted = false;
+    // Computed only when a remote image is about to be collected, because the inline style is
+    // parsed for it and most elements never reach that branch.
+    let mut hidden_pixel: Option<bool> = None;
     for key in MEDIA_SRC_ATTRS {
         let Some(existing) = attrs.get(*key).and_then(as_str).map(str::to_string) else {
             continue;
@@ -116,14 +184,38 @@ pub fn apply_blur(ctx: &Ctx<'_>, attrs: &mut Object<'_>, tag_src_is_image: bool)
             continue;
         }
         acted = true;
-        if is_image_data_uri(&existing) {
-            let blurred = ctx.scrub_image(&existing, ImageFallback::Placeholder);
+        let selected = if *key == "srcset" {
+            largest_candidate(&existing).map(str::to_string)
+        } else {
+            Some(existing.clone())
+        };
+        let Some(selected) = selected else {
+            attrs.insert(
+                Cow::Borrowed(*key),
+                Value::String(Cow::Borrowed(PLACEHOLDER_SRC)),
+            );
+            continue;
+        };
+        if is_image_data_uri(&selected) {
+            let blurred = ctx.scrub_image_from(
+                &selected,
+                ImageFallback::Placeholder,
+                ImageSource::HtmlAttribute(key),
+            );
             attrs.insert(Cow::Borrowed(*key), string_value(blurred));
         } else {
-            let collected = is_fetchable_src_attr(key, tag_src_is_image)
-                .then(|| ctx.collect_url(&existing))
-                .flatten();
-            let scrubbed = scrub_url(ctx, &existing).unwrap_or(existing);
+            let collected =
+                if !ctx.collects_urls() || !is_fetchable_image_attr(key, tag, parent_is_picture) {
+                    None
+                } else if *hidden_pixel.get_or_insert_with(|| {
+                    tag.eq_ignore_ascii_case("img") && is_hidden_pixel(attrs)
+                }) {
+                    ctx.decline_url(&selected, "hidden_pixel");
+                    None
+                } else {
+                    ctx.collect_url_from(&selected, ImageSource::HtmlAttribute(key))
+                };
+            let scrubbed = scrub_url(ctx, &selected).unwrap_or_else(|| selected.clone());
             // Fetch completion must not change how an ordinary replay renders this element.
             attrs.insert(
                 Cow::Borrowed(*key),

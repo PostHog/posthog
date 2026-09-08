@@ -3,6 +3,7 @@ from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -11,12 +12,9 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.error_tracking.backend.logic.rules import MAX_SEVERITY_RULE_BYTECODE_OPS, MAX_SEVERITY_RULES_PER_TEAM
 from products.error_tracking.backend.models import ErrorTrackingSeverityRule
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
 
 VALID_FILTERS = {
     "type": "AND",
@@ -71,6 +69,44 @@ class TestSeverityRuleAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == attr
+        assert not ErrorTrackingSeverityRule.objects.unscoped().exists()
+
+    def test_create_rejects_rule_above_project_limit(self) -> None:
+        ErrorTrackingSeverityRule.objects.unscoped().bulk_create(
+            [
+                ErrorTrackingSeverityRule(
+                    team=self.team,
+                    filters=VALID_FILTERS,
+                    bytecode=[],
+                    severity="low",
+                    order_key=index,
+                )
+                for index in range(MAX_SEVERITY_RULES_PER_TEAM)
+            ]
+        )
+
+        response = self.client.post(
+            self._url(),
+            data={"filters": VALID_FILTERS, "severity": "critical"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (
+            ErrorTrackingSeverityRule.objects.unscoped().filter(team=self.team).count() == MAX_SEVERITY_RULES_PER_TEAM
+        )
+
+    @patch("products.error_tracking.backend.logic.rules._rule_bytecode")
+    def test_create_rejects_oversized_bytecode(self, mock_rule_bytecode) -> None:
+        mock_rule_bytecode.return_value = [0] * (MAX_SEVERITY_RULE_BYTECODE_OPS + 1)
+
+        response = self.client.post(
+            self._url(),
+            data={"filters": VALID_FILTERS, "severity": "critical"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not ErrorTrackingSeverityRule.objects.unscoped().exists()
 
     def test_update_recompiles_and_clears_disabled_data(self) -> None:

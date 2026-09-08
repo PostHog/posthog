@@ -29,7 +29,7 @@ export function isAlreadyDisconnectedError(error: unknown): boolean {
   );
 }
 
-export const GITHUB_CONNECT_ERROR_MESSAGES: Record<string, string> = {
+const GITHUB_CONNECT_ERROR_MESSAGES: Record<string, string> = {
   access_denied:
     "You declined access on GitHub. Try again to grant the permissions PostHog needs.",
   github_oauth_error: "GitHub returned an error during sign-in. Please retry.",

@@ -1,6 +1,10 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { type ReactNode, useMemo } from "react";
-import { createWorkspaceClient, type WorkspaceConnection } from "./client";
+import {
+  createLazyWorkspaceClient,
+  createWorkspaceClient,
+  type WorkspaceConnection,
+} from "./client";
 import { WorkspaceTRPCProvider } from "./trpc";
 
 const UNAVAILABLE: WorkspaceConnection = {
@@ -9,19 +13,24 @@ const UNAVAILABLE: WorkspaceConnection = {
 };
 
 export interface WorkspaceClientProviderProps {
-  connection: WorkspaceConnection | null | undefined;
+  connection?: WorkspaceConnection | null;
+  getConnection?: () => Promise<WorkspaceConnection>;
   queryClient: QueryClient;
   children: ReactNode;
 }
 
 export function WorkspaceClientProvider({
   connection,
+  getConnection,
   queryClient,
   children,
 }: WorkspaceClientProviderProps) {
   const client = useMemo(
-    () => createWorkspaceClient(connection ?? UNAVAILABLE),
-    [connection],
+    () =>
+      getConnection
+        ? createLazyWorkspaceClient(getConnection)
+        : createWorkspaceClient(connection ?? UNAVAILABLE),
+    [connection, getConnection],
   );
 
   return (

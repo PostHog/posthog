@@ -28,13 +28,16 @@ class AccountPropertiesValidationTest(TeamScopedTestMixin, BaseTest):
 
     def test_typed_property_round_trip_through_setter(self):
         account = Account.objects.create(team=self.team, name="Round-trip")
-        account.properties = AccountProperties(stripe_customer_id="cus_1")
+        account.properties = AccountProperties(
+            stripe_customer_id="cus_1", website_domain="https://www.acme.example/about"
+        )
         account.save()
         account.refresh_from_db()
 
         props = account.properties
         assert isinstance(props, AccountProperties)
         assert props.stripe_customer_id == "cus_1"
+        assert props.website_domain == "acme.example"
         assert props.sfdc_id is None
 
     def test_getter_ignores_retired_role_keys_in_stored_rows(self):

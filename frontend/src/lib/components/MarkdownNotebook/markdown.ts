@@ -36,7 +36,24 @@ type PropParseResult = {
     errors: string[]
 }
 
+type ComponentScanResult = {
+    raw: string
+    nextLineIndex: number
+    foundTerminator: boolean
+}
+
+type ComponentScanState = {
+    quote: string | null
+    expressionDepth: number
+    escapeNext: boolean
+    awaitingPropValue: boolean
+    openingTagClosed: boolean
+}
+
 const COMPONENT_START_REGEX = /^<[A-Z][A-Za-z0-9]*(\s|>|\/)/
+const ESCAPED_COMPONENT_START_REGEX = /^\\<[A-Z][A-Za-z0-9]*(\s|>|\/)/
+const MAX_COMPONENT_BLOCK_LINES = 1_000
+const MAX_COMPONENT_BLOCK_CHARACTERS = 256 * 1024
 const ORDERED_LIST_REGEX = /^\s*\d+[.)](?:\s+|$)/
 const BULLET_LIST_REGEX = /^\s*[-*+•](?:\s+|$)/
 const LIST_ITEM_REGEX = /^(\s*)(\d+[.)]|[-*+•])(?:\s+(.*))?$/
@@ -268,6 +285,10 @@ function serializeNodeUncached(node: NotebookBlockNode): string {
         return serializeImageNode(node)
     }
     if (node.type === 'component') {
+        const multilineSource = getUnchangedMultilineComponentSource(node)
+        if (multilineSource) {
+            return multilineSource
+        }
         return `<${node.tagName}${serializeComponentProps(node.props)} />`
     }
     return ''
@@ -601,7 +622,19 @@ function parseBlock(lines: string[], lineIndex: number): BlockParseResult {
     }
 
     if (COMPONENT_START_REGEX.test(trimmed)) {
-        return parseComponentBlock(lines, lineIndex)
+        const parsedComponent = parseComponentBlock(lines, lineIndex)
+        const parsedNode = parsedComponent.node
+        if (parsedNode?.type === 'component' && !parsedNode.errors?.length) {
+            return parsedComponent
+        }
+        return parseRecoveredMultilineComponentBlock(lines, lineIndex) ?? parsedComponent
+    }
+
+    if (ESCAPED_COMPONENT_START_REGEX.test(trimmed)) {
+        const recoveredComponent = parseRecoveredMultilineComponentBlock(lines, lineIndex)
+        if (recoveredComponent) {
+            return recoveredComponent
+        }
     }
 
     const headingMatch = line.match(HEADING_REGEX)
@@ -671,6 +704,16 @@ function parseBlock(lines: string[], lineIndex: number): BlockParseResult {
     }
 
     return parseParagraphBlock(lines, lineIndex)
+}
+
+function parseRecoveredMultilineComponentBlock(lines: string[], lineIndex: number): BlockParseResult | null {
+    const recoveredComponent = parseComponentBlock(lines, lineIndex, true)
+    const recoveredNode = recoveredComponent.node
+    return recoveredNode?.type === 'component' &&
+        recoveredComponent.nextLineIndex > lineIndex + 1 &&
+        !recoveredNode.errors?.length
+        ? recoveredComponent
+        : null
 }
 
 function parseParagraphBlock(lines: string[], lineIndex: number): BlockParseResult {
@@ -1084,41 +1127,237 @@ function parseImageBlock(lines: string[], lineIndex: number): BlockParseResult {
     }
 }
 
-function parseComponentBlock(lines: string[], lineIndex: number): BlockParseResult {
-    const rawLines: string[] = []
-    const firstLine = lines[lineIndex].trim()
+function parseComponentBlock(
+    lines: string[],
+    lineIndex: number,
+    recoverEscapedSource: boolean = false
+): BlockParseResult {
+    const firstLine = getComponentSourceLine(lines[lineIndex], recoverEscapedSource).trim()
     const tagName = firstLine.match(/^<([A-Z][A-Za-z0-9]*)/)?.[1]
-    let nextLineIndex = lineIndex
-    let foundTerminator = false
 
-    // Components are block-level: a blank line ends the scan so an unterminated tag can
-    // never swallow the rest of the document
-    while (nextLineIndex < lines.length && (nextLineIndex === lineIndex || lines[nextLineIndex].trim())) {
-        rawLines.push(lines[nextLineIndex])
-        const raw = rawLines.join('\n').trim()
-        if (raw.endsWith('/>') || (tagName && raw.includes(`</${tagName}>`))) {
-            foundTerminator = true
-            break
-        }
-        nextLineIndex += 1
-    }
-
-    const raw = rawLines.join('\n').trim()
-    if (!foundTerminator) {
+    if (!tagName) {
+        const raw = firstLine
         return {
             node: makeComponentFallbackParagraph(raw),
-            nextLineIndex,
+            nextLineIndex: lineIndex + 1,
             error: { message: 'Unclosed component tag', raw, line: lineIndex + 1 },
         }
     }
 
-    const parsed = parseComponentTag(raw)
+    const scan = scanComponentBlock(lines, lineIndex, tagName, recoverEscapedSource)
+    if (!scan.foundTerminator) {
+        const singleLineComponent = parseComponentTag(firstLine)
+        if (singleLineComponent.node) {
+            return {
+                node: singleLineComponent.node,
+                nextLineIndex: lineIndex + 1,
+            }
+        }
+
+        return {
+            node: makeComponentFallbackParagraph(scan.raw),
+            nextLineIndex: scan.nextLineIndex,
+            error: { message: 'Unclosed component tag', raw: scan.raw, line: lineIndex + 1 },
+        }
+    }
+
+    const parsed = parseComponentTag(scan.raw)
     return {
         // A malformed tag degrades to a paragraph holding the raw source — source text must
         // never be dropped from the node tree, or the next save destroys it
-        node: parsed.node ?? makeComponentFallbackParagraph(raw),
-        nextLineIndex: nextLineIndex + 1,
+        node: parsed.node ?? makeComponentFallbackParagraph(scan.raw),
+        nextLineIndex: scan.nextLineIndex,
         error: parsed.error ? { ...parsed.error, line: lineIndex + 1 } : undefined,
+    }
+}
+
+function scanComponentBlock(
+    lines: string[],
+    lineIndex: number,
+    tagName: string,
+    recoverEscapedSource: boolean
+): ComponentScanResult {
+    const rawLines: string[] = []
+    const state: ComponentScanState = {
+        quote: null,
+        expressionDepth: 0,
+        escapeNext: false,
+        awaitingPropValue: false,
+        openingTagClosed: false,
+    }
+    let characterCount = 0
+    let nextLineIndex = lineIndex
+    let fallbackRawLineCount: number | null = null
+    let fallbackNextLineIndex: number | null = null
+    const lineLimit = Math.min(lines.length, lineIndex + MAX_COMPONENT_BLOCK_LINES)
+
+    while (nextLineIndex < lineLimit) {
+        const line = getComponentSourceLine(lines[nextLineIndex], recoverEscapedSource)
+        if (nextLineIndex > lineIndex && !line.trim() && fallbackNextLineIndex === null) {
+            fallbackRawLineCount = rawLines.length
+            fallbackNextLineIndex = nextLineIndex
+        }
+        if (isComponentBlankLineBoundary(line, nextLineIndex, lineIndex, state)) {
+            break
+        }
+
+        const separatorLength = rawLines.length ? 1 : 0
+        if (isComponentCharacterLimitReached(rawLines, characterCount, separatorLength, line)) {
+            break
+        }
+        characterCount += separatorLength + line.length
+        rawLines.push(line)
+
+        let characterIndex = 0
+        while (characterIndex < line.length) {
+            const character = line[characterIndex]
+
+            if (state.openingTagClosed) {
+                if (isComponentClosingTag(line, characterIndex, tagName)) {
+                    return {
+                        raw: rawLines.join('\n').trim(),
+                        nextLineIndex: nextLineIndex + 1,
+                        foundTerminator: true,
+                    }
+                }
+                characterIndex += 1
+                continue
+            }
+
+            if (isComponentSelfClosingTag(line, characterIndex, state)) {
+                return {
+                    raw: rawLines.join('\n').trim(),
+                    nextLineIndex: nextLineIndex + 1,
+                    foundTerminator: true,
+                }
+            }
+            advanceComponentScan(state, character)
+            characterIndex += 1
+        }
+
+        // Joined source contains a newline here. It consumes a pending escape without closing
+        // the quoted value, matching the prop parser's treatment of backslash-newline.
+        consumeComponentScanLineBreak(state)
+        nextLineIndex += 1
+    }
+
+    const fallbackRawLines = fallbackRawLineCount === null ? rawLines : rawLines.slice(0, fallbackRawLineCount)
+    return {
+        raw: fallbackRawLines.join('\n').trim(),
+        nextLineIndex: fallbackNextLineIndex ?? nextLineIndex,
+        foundTerminator: false,
+    }
+}
+
+function getComponentSourceLine(line: string, recoverEscapedSource: boolean): string {
+    if (!recoverEscapedSource) {
+        return line
+    }
+
+    let source = ''
+    let index = 0
+    while (index < line.length) {
+        const character = line[index]
+        const nextCharacter = line[index + 1]
+        if (character === '\\' && nextCharacter !== undefined && INLINE_ESCAPABLE_CHARS.has(nextCharacter)) {
+            source += nextCharacter
+            index += 2
+        } else {
+            source += character
+            index += 1
+        }
+    }
+    return source
+}
+
+function isComponentBlankLineBoundary(
+    line: string,
+    nextLineIndex: number,
+    lineIndex: number,
+    state: ComponentScanState
+): boolean {
+    return nextLineIndex > lineIndex && !line.trim() && state.quote === null && state.expressionDepth === 0
+}
+
+function isComponentCharacterLimitReached(
+    rawLines: string[],
+    characterCount: number,
+    separatorLength: number,
+    line: string
+): boolean {
+    return rawLines.length > 0 && characterCount + separatorLength + line.length > MAX_COMPONENT_BLOCK_CHARACTERS
+}
+
+function isComponentClosingTag(line: string, characterIndex: number, tagName: string): boolean {
+    const closingTag = `</${tagName}>`
+    return line.startsWith(closingTag, characterIndex) && !line.slice(characterIndex + closingTag.length).trim()
+}
+
+function isComponentSelfClosingTag(line: string, characterIndex: number, state: ComponentScanState): boolean {
+    return (
+        state.quote === null &&
+        state.expressionDepth === 0 &&
+        line.startsWith('/>', characterIndex) &&
+        !line.slice(characterIndex + 2).trim()
+    )
+}
+
+function advanceComponentScan(state: ComponentScanState, character: string): void {
+    if (state.quote !== null) {
+        advanceComponentQuote(state, character)
+        return
+    }
+
+    if (state.expressionDepth > 0) {
+        advanceComponentExpression(state, character)
+        return
+    }
+
+    if (state.awaitingPropValue) {
+        if (/\s/.test(character)) {
+            return
+        }
+        state.awaitingPropValue = false
+        if (character === '"' || character === "'") {
+            state.quote = character
+            return
+        }
+        if (character === '{') {
+            state.expressionDepth = 1
+            return
+        }
+    }
+
+    if (character === '=') {
+        state.awaitingPropValue = true
+    } else if (character === '>') {
+        state.openingTagClosed = true
+    }
+}
+
+function advanceComponentQuote(state: ComponentScanState, character: string): void {
+    if (state.escapeNext) {
+        state.escapeNext = false
+    } else if (character === '\\') {
+        state.escapeNext = true
+    } else if (character === state.quote) {
+        state.quote = null
+    }
+}
+
+function advanceComponentExpression(state: ComponentScanState, character: string): void {
+    if (character === '"' || character === "'") {
+        state.quote = character
+    } else if (character === '{') {
+        state.expressionDepth += 1
+    } else if (character === '}') {
+        state.expressionDepth -= 1
+    }
+}
+
+function consumeComponentScanLineBreak(state: ComponentScanState): void {
+    if (state.quote !== null && state.escapeNext) {
+        state.escapeNext = false
     }
 }
 
@@ -1342,6 +1581,19 @@ function serializeComponentProps(props: NotebookComponentProps): string {
         .map(([key, value]) => (value === true ? ` ${key}` : ` ${key}=${serializePropValue(value)}`))
         .join('')
     return serialized
+}
+
+function getUnchangedMultilineComponentSource(node: NotebookComponentBlockNode): string | null {
+    if (!node.raw?.includes('\n')) {
+        return null
+    }
+
+    const parsed = parseComponentTag(node.raw)
+    if (!parsed.node || parsed.node.errors?.length) {
+        return null
+    }
+
+    return getNodeFingerprint(parsed.node) === getNodeFingerprint(node) ? node.raw : null
 }
 
 function getSerializableComponentProps(props: NotebookComponentProps): NotebookComponentProps {

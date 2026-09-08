@@ -3,7 +3,6 @@ import { BindLogic } from 'kea'
 import { router } from 'kea-router'
 import { delay } from 'msw'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -12,6 +11,7 @@ import {
     ENROLLED_CURRENT_EXPERIMENT_ID,
     experimentSessionContextEnrolledCurrentResponse,
     experimentSessionContextResponse,
+    makeExperimentSessionContextItem,
 } from '../../__mocks__/experiment_session_context'
 import { recordingMetaJson } from '../../__mocks__/recording_meta'
 import { sessionRecordingDataCoordinatorLogic } from '../sessionRecordingDataCoordinatorLogic'
@@ -22,7 +22,6 @@ const meta: Meta = {
     title: 'Replay/Overview Tab/Experiments',
     component: PlayerSidebarExperimentsSection,
     parameters: {
-        featureFlags: [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT],
         testOptions: {
             waitForLoadersToDisappear: true,
         },
@@ -92,6 +91,49 @@ CurrentExperimentNotExposed.decorators = [
         get: {
             '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
             '/api/projects/:team_id/experiments/session_context/': experimentSessionContextEnrolledCurrentResponse,
+        },
+    }),
+]
+
+// The recording window resolves to 14:46:20–14:46:32 from the meta mock. One exposure fired before
+// the first frame, one inside, one after the last frame, so the story snapshots the signed offsets
+// (-, none, +) that the out-of-window rows now render.
+export function ExposureOutsideWindow(): JSX.Element {
+    return <MockedPlayerSidebarExperimentsSection sessionRecordingId="experiment-context-out-of-window" />
+}
+ExposureOutsideWindow.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: true,
+        waitForSelector: '[data-attr=replay-experiment-context-jump-to-first-exposure]',
+    },
+}
+ExposureOutsideWindow.decorators = [
+    mswDecorator({
+        get: {
+            '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
+            '/api/projects/:team_id/experiments/session_context/': {
+                session_id: 'experiment-context-out-of-window',
+                results: [
+                    makeExperimentSessionContextItem({
+                        experiment_id: 301,
+                        experiment_name: 'Exposed before first frame',
+                        flag_key: 'exposed-before-first-frame',
+                        first_exposure_timestamp: '2023-05-01T14:45:57.000000Z',
+                    }),
+                    makeExperimentSessionContextItem({
+                        experiment_id: 302,
+                        experiment_name: 'Exposed in window',
+                        flag_key: 'exposed-in-window',
+                        first_exposure_timestamp: '2023-05-01T14:46:26.000000Z',
+                    }),
+                    makeExperimentSessionContextItem({
+                        experiment_id: 303,
+                        experiment_name: 'Exposed after last frame',
+                        flag_key: 'exposed-after-last-frame',
+                        first_exposure_timestamp: '2023-05-01T14:47:00.000000Z',
+                    }),
+                ],
+            },
         },
     }),
 ]

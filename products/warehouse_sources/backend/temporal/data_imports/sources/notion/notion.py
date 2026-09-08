@@ -345,9 +345,19 @@ def _iter_page_ids(
 ) -> Iterator[str]:
     cursor: str | None = None
     while True:
-        data = _request(
-            session, "POST", "/v1/search", logger, json_body=_search_body("page", cursor), throttle=throttle
-        )
+        try:
+            data = _request(
+                session, "POST", "/v1/search", logger, json_body=_search_body("page", cursor), throttle=throttle
+            )
+        except NotionBadRequestError as e:
+            if cursor is None or not _is_invalid_start_cursor(e):
+                raise
+            # A cursor can expire mid-enumeration on a large workspace; restart from the beginning
+            # rather than failing the blocks/comments fan-out. Page ids already yielded get re-yielded,
+            # which the callers tolerate (blocks/comments dedup on primary key at merge).
+            logger.warning("Notion: page-id search cursor rejected as invalid; restarting enumeration from the start")
+            cursor = None
+            continue
         for item in data.get("results", []):
             # "id" is the primary key driving the blocks/comments fan-out; access it directly so a
             # malformed response missing it surfaces loudly instead of silently dropping the page.

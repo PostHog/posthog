@@ -84,6 +84,9 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
   useFileTaskToChannel: () => vi.fn(),
 }));
+vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
+  useOpenBrowserTab: () => vi.fn(),
+}));
 vi.mock("@posthog/ui/features/browser-tabs/TaskTabIcon", () => ({
   TaskTabIcon: () => <span />,
 }));
@@ -159,6 +162,58 @@ describe("ChannelFeedView", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Loading tasks");
   });
 
+  it("shows a queued cloud run as starting", () => {
+    channelTaskData.current = {
+      cloudPrUrl: null,
+      isGenerating: true,
+      isPinned: false,
+      needsPermission: false,
+      taskRunEnvironment: "cloud",
+      taskRunStatus: "queued",
+    };
+
+    render(
+      <Theme>
+        <ChannelFeedView
+          channelId="channel-1"
+          tasks={[task]}
+          isLoading={false}
+          onOpenTask={vi.fn()}
+          onOpenThread={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    expect(screen.getByText("Starting")).toBeInTheDocument();
+    expect(screen.queryByText("In progress")).not.toBeInTheDocument();
+  });
+
+  it("does not show an idle interactive cloud run as in progress", () => {
+    channelTaskData.current = {
+      cloudPrUrl: null,
+      isGenerating: false,
+      isPinned: false,
+      needsPermission: false,
+      runMode: "interactive",
+      taskRunEnvironment: "cloud",
+      taskRunStatus: "in_progress",
+    };
+
+    render(
+      <Theme>
+        <ChannelFeedView
+          channelId="channel-1"
+          tasks={[task]}
+          isLoading={false}
+          onOpenTask={vi.fn()}
+          onOpenThread={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    expect(screen.queryByText("In progress")).not.toBeInTheDocument();
+  });
+
   it("hides archived tasks from the feed", () => {
     const archived = {
       ...task,
@@ -180,6 +235,34 @@ describe("ChannelFeedView", () => {
 
     expect(screen.queryByText("Already archived")).not.toBeInTheDocument();
     expect(screen.getByText(task.title)).toBeInTheDocument();
+  });
+
+  it("shows the kind's empty note, not the channel welcome, when a filter empties the feed", () => {
+    render(
+      <Theme>
+        <ChannelFeedView
+          channelId="channel-1"
+          tasks={[]}
+          reports={[]}
+          isLoading={false}
+          emptyState={<div>Welcome to space</div>}
+          onOpenTask={vi.fn()}
+          onOpenThread={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    // A genuinely empty, unfiltered feed still shows the channel welcome.
+    expect(screen.getByText("Welcome to space")).toBeInTheDocument();
+
+    // Selecting an empty kind must show its own note, not the welcome screen.
+    fireEvent.click(screen.getByText("Reports"));
+    expect(
+      screen.getByText(
+        "No reports here yet. Open the filter to widen the list.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Welcome to space")).not.toBeInTheDocument();
   });
 
   it.each([

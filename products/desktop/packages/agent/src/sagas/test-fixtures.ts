@@ -6,9 +6,8 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import type { SagaLogger } from "@posthog/shared";
 import { vi } from "vitest";
-import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import type { PostHogAPIClient } from "../posthog-api";
-import type { GitCheckpointEvent, StoredNotification, TaskRun } from "../types";
+import type { StoredNotification, TaskRun } from "../types";
 
 const execFileAsync = promisify(execFile);
 
@@ -66,52 +65,6 @@ export async function createTestRepo(prefix = "test-repo"): Promise<TestRepo> {
   };
 }
 
-export async function cloneTestRepo(
-  sourcePath: string,
-  prefix = "test-repo-clone",
-): Promise<TestRepo> {
-  const clonePath = join(
-    tmpdir(),
-    `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  await execFileAsync("git", ["clone", sourcePath, clonePath]);
-  await execFileAsync("git", ["config", "user.email", "test@test.com"], {
-    cwd: clonePath,
-  });
-  await execFileAsync("git", ["config", "user.name", "Test"], {
-    cwd: clonePath,
-  });
-  await execFileAsync("git", ["config", "commit.gpgsign", "false"], {
-    cwd: clonePath,
-  });
-
-  const git = async (args: string[]): Promise<string> => {
-    const { stdout } = await execFileAsync("git", args, { cwd: clonePath });
-    return stdout.trim();
-  };
-
-  return {
-    path: clonePath,
-    cleanup: () => rm(clonePath, { recursive: true, force: true }),
-    git,
-    writeFile: async (relativePath: string, content: string) => {
-      const fullPath = join(clonePath, relativePath);
-      const dir = join(fullPath, "..");
-      await mkdir(dir, { recursive: true });
-      await writeFile(fullPath, content);
-    },
-    readFile: async (relativePath: string) => {
-      return readFile(join(clonePath, relativePath), "utf-8");
-    },
-    deleteFile: async (relativePath: string) => {
-      await rm(join(clonePath, relativePath), { force: true });
-    },
-    exists: (relativePath: string) => {
-      return existsSync(join(clonePath, relativePath));
-    },
-  };
-}
-
 export function createMockLogger(): SagaLogger {
   return {
     info: vi.fn(),
@@ -127,7 +80,7 @@ export function createMockApiClient(
   return {
     uploadTaskArtifacts: vi
       .fn()
-      .mockResolvedValue([{ storage_path: "gs://bucket/handoff/test.pack" }]),
+      .mockResolvedValue([{ storage_path: "gs://bucket/artifacts/test.pack" }]),
     downloadArtifact: vi.fn(),
     getTaskRun: vi.fn(),
     fetchTaskRunLogs: vi.fn(),
@@ -223,25 +176,5 @@ export function createToolResult(
         claudeCode: { toolCallId, toolResponse },
       },
     },
-  });
-}
-
-export function createGitCheckpointNotification(
-  overrides: Partial<GitCheckpointEvent> = {},
-): StoredNotification {
-  return createNotification(POSTHOG_NOTIFICATIONS.GIT_CHECKPOINT, {
-    checkpointId: "checkpoint-1",
-    commit: "commit-1",
-    checkpointRef: "refs/posthog-code-checkpoint/checkpoint-1",
-    headRef: "refs/posthog-code-handoff/head/checkpoint-1",
-    head: "head-1",
-    branch: "main",
-    indexTree: "index-tree-1",
-    worktreeTree: "worktree-tree-1",
-    timestamp: new Date().toISOString(),
-    upstreamRemote: "origin",
-    upstreamMergeRef: "refs/heads/main",
-    remoteUrl: "git@github.com:posthog/posthog.git",
-    ...overrides,
   });
 }

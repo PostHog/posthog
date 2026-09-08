@@ -11,7 +11,7 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
-import type { FeatureRequestStatusEnumApi, RequestPriorityEnumApi } from '../../generated/api.schemas'
+import type { FeatureRequestStatusEnumApi, FeatureRequestPriorityEnumApi } from '../../generated/api.schemas'
 import { FEATURE_REQUEST_PRIORITY_OPTIONS, FEATURE_REQUEST_STATUS_OPTIONS } from './featureRequestOptions'
 import { featureRequestsLogic } from './featureRequestsLogic'
 
@@ -92,7 +92,7 @@ export function FeatureRequestEditModal(): JSX.Element {
                     </div>
                     <div className="flex flex-col gap-1">
                         <LemonLabel>Priority</LemonLabel>
-                        <LemonSelect<RequestPriorityEnumApi | 'none'>
+                        <LemonSelect<FeatureRequestPriorityEnumApi | 'none'>
                             value={editPriority ?? 'none'}
                             onChange={(value) => setEditPriority(value === 'none' ? null : value)}
                             options={[{ value: 'none', label: 'No priority' }, ...FEATURE_REQUEST_PRIORITY_OPTIONS]}

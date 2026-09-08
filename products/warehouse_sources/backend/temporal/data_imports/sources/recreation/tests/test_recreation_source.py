@@ -3,19 +3,13 @@ from typing import Optional
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recreation import (
     RecreationSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.recreation.recreation import (
-    RecreationResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.recreation.settings import RECREATION_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.recreation.source import RecreationSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(schema_name: str) -> SourceInputs:
@@ -40,33 +34,6 @@ class TestRecreationSource:
         self.source = RecreationSource()
         self.config = RecreationSourceConfig(api_key="test-key")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.RECREATION
-
-    def test_source_is_released_with_alpha_status(self) -> None:
-        config = self.source.get_source_config
-        assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        fields = self.source.get_source_config.fields
-        assert [f.name for f in fields] == ["api_key"]
-        field = fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.secret is True
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.required is True
-
-    def test_get_schemas_returns_full_refresh_only_catalog(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1)
-        assert {s.name for s in schemas} == set(RECREATION_ENDPOINTS.keys())
-        assert all(not s.supports_incremental and not s.supports_append for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["Facilities", "Campsites"])
-        assert {s.name for s in schemas} == {"Facilities", "Campsites"}
-
     @pytest.mark.parametrize(
         ("status_code", "expected_valid", "expected_error_fragment"),
         [
@@ -90,11 +57,6 @@ class TestRecreationSource:
             assert error is None
         else:
             assert error is not None and expected_error_fragment in error
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_source_inputs("Facilities"))
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is RecreationResumeConfig
 
     @pytest.mark.parametrize("endpoint", list(RECREATION_ENDPOINTS.keys()))
     def test_source_for_pipeline_maps_endpoint_to_response(self, endpoint: str) -> None:

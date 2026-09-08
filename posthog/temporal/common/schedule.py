@@ -3,7 +3,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from asgiref.sync import async_to_sync
-from temporalio.client import Client, Schedule, ScheduleOverlapPolicy, ScheduleUpdate, ScheduleUpdateInput
+from temporalio.client import (
+    Client,
+    Schedule,
+    ScheduleDescription,
+    ScheduleOverlapPolicy,
+    ScheduleUpdate,
+    ScheduleUpdateInput,
+)
 from temporalio.service import RPCError, RPCStatusCode
 
 if TYPE_CHECKING:
@@ -120,6 +127,12 @@ async def a_delete_schedule(temporal: Client, schedule_id: str) -> None:
 @async_to_sync
 async def describe_schedule(temporal: Client, schedule_id: str):
     """Describe a Temporal Schedule."""
+    handle = temporal.get_schedule_handle(schedule_id)
+    return await handle.describe()
+
+
+async def a_describe_schedule(temporal: Client, schedule_id: str) -> ScheduleDescription:
+    """Async describe a Temporal Schedule."""
     handle = temporal.get_schedule_handle(schedule_id)
     return await handle.describe()
 

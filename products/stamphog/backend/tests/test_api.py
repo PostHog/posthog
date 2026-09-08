@@ -1,20 +1,28 @@
+from typing import Any
+
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core import signing
-from django.test import SimpleTestCase
+from django.db import transaction
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models.integration import Integration
+from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, uuid7
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.stamphog.backend.facade import contracts
-from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus
-from products.stamphog.backend.models import DigestChannel, PullRequest, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.facade.enums import ChannelResolutionSource, DigestRunStatus, ReviewMode, ReviewRunStatus
+from products.stamphog.backend.models import DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.presentation.serializers import StamphogRepoConfigWriteSerializer
 from products.stamphog.backend.presentation.views import _INSTALL_STATE_SALT
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogTeamScopedTestMixin
@@ -36,6 +44,193 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.url = f"/api/projects/{self.team.id}/stamphog/repo_configs/"
+        # Flipping the review-gating fields takes the manager level, which org admins hold
+        # everywhere. The plain-member cases below cover the other side.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def _create_config(self) -> str:
+        created = self.client.post(self.url, {"repository": "PostHog/posthog", "enabled": True}, format="json").json()
+        return created["id"]
+
+    def _login_as_member(self, *, stamphog_level: str | None = None, grant_team: Team | None = None) -> User:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "member@posthog.com", "testtest")
+        if stamphog_level is not None:
+            AccessControl.objects.create(
+                team=grant_team or self.team,
+                resource="stamphog",
+                resource_id=None,
+                access_level=stamphog_level,
+                organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+            )
+        self.client.force_login(member)
+        return member
+
+    @parameterized.expand(
+        [
+            ("enabled", {"enabled": False}),
+            ("review_mode", {"review_mode": ReviewMode.LABEL}),
+            ("trigger_label", {"trigger_label": "review-me"}),
+        ]
+    )
+    def test_member_cannot_change_a_review_gating_field(self, _name: str, payload: dict) -> None:
+        # These three decide whether a pull request is reviewed at all, so a project member who is
+        # only an editor must not be able to switch reviews off or point them at a label nobody uses.
+        config_id = self._create_config()
+        self._login_as_member()
+
+        response = self.client.patch(f"{self.url}{config_id}/", payload, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert "manager" in response.json()["detail"]
+        assert StamphogRepoConfig.objects.unscoped().get(id=config_id).enabled is True
+
+    def test_member_can_still_change_the_digest_toggle(self) -> None:
+        # The digest only decides who reads about merges, so gating it on manager too would take a
+        # setting away from editors that was never a review decision.
+        config_id = self._create_config()
+        self._login_as_member()
+
+        response = self.client.patch(f"{self.url}{config_id}/", {"digest_enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["digest_enabled"] is True
+
+    @parameterized.expand(
+        [
+            ("names_a_gate_field", {"enabled": True}, status.HTTP_403_FORBIDDEN),
+            ("leaves_the_defaults", {}, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_member_create_is_gated_only_when_it_names_a_review_field(
+        self, _name: str, extra: dict, expected_status: int
+    ) -> None:
+        # Spelling out a review policy is the same decision whichever verb carries it, so create
+        # gates on the field being present, like update does. Connecting a repository without one
+        # stays an editor's job: the row binds disabled at sync and routes no digest until then.
+        self._login_as_member()
+
+        response = self.client.post(self.url, {"repository": "PostHog/new", **extra}, format="json")
+
+        assert response.status_code == expected_status, response.content
+        assert StamphogRepoConfig.objects.unscoped().filter(repository="PostHog/new").exists() is (
+            expected_status == status.HTTP_201_CREATED
+        )
+
+    def test_member_cannot_soft_delete_a_config(self) -> None:
+        # The soft delete flips `enabled` behind a different verb, so gating only PATCH would leave
+        # the same switch reachable through DELETE.
+        config_id = self._create_config()
+        self._login_as_member()
+
+        response = self.client.delete(f"{self.url}{config_id}/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert StamphogRepoConfig.objects.unscoped().get(id=config_id).enabled is True
+
+    def test_member_granted_manager_can_change_a_review_gating_field(self) -> None:
+        # An admin must be able to hand the review switch to somebody through the normal access
+        # control settings, or the manager gate would be an admin-only hardcode.
+        config_id = self._create_config()
+        self._login_as_member(stamphog_level="manager")
+
+        response = self.client.patch(f"{self.url}{config_id}/", {"enabled": False}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["enabled"] is False
+
+    @parameterized.expand(
+        [
+            ("granted_on_the_child", False, status.HTTP_403_FORBIDDEN),
+            ("granted_on_the_parent", True, status.HTTP_200_OK),
+        ]
+    )
+    def test_editor_grant_is_read_on_the_team_that_owns_the_rows(
+        self, _name: str, grant_on_parent: bool, expected_status: int
+    ) -> None:
+        # Same canonicalization as the manager case, one level down: the digest toggle needs editor,
+        # and the level that counts is the one on the team the rows live under, not the URL team.
+        config_id = self._create_config()
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        grant_team = self.team if grant_on_parent else env
+        member = self._login_as_member(stamphog_level="editor", grant_team=grant_team)
+        # "none" on the other team, so the request can only pass on the grant under test.
+        AccessControl.objects.create(
+            team=env if grant_on_parent else self.team,
+            resource="stamphog",
+            resource_id=None,
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{env.id}/stamphog/repo_configs/{config_id}/", {"digest_enabled": True}, format="json"
+        )
+
+        assert response.status_code == expected_status, response.content
+
+    def test_child_project_denial_still_blocks_the_request(self) -> None:
+        # The viewset anchors user_access_control to the parent, so AccessControlPermission can no
+        # longer see the child's own project rules. Somebody the child environment denies must still
+        # be refused, or canonicalizing the resource check would have opened the environment up.
+        config_id = self._create_config()
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        member = self._login_as_member(stamphog_level="manager")
+        AccessControl.objects.create(
+            team=env,
+            resource="project",
+            resource_id=str(env.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{env.id}/stamphog/repo_configs/{config_id}/", {"enabled": False}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert StamphogRepoConfig.objects.unscoped().get(id=config_id).enabled is True
+
+    @parameterized.expand(
+        [
+            ("granted_on_the_child", False, status.HTTP_403_FORBIDDEN),
+            ("granted_on_the_parent", True, status.HTTP_200_OK),
+        ]
+    )
+    def test_manager_grant_is_read_on_the_team_that_owns_the_rows(
+        self, _name: str, grant_on_parent: bool, expected_status: int
+    ) -> None:
+        # stamphog rows canonicalize to the parent team, so the manager check must read the parent
+        # too. Reading the URL team would let a grant on a child environment alone rewrite the
+        # parent's review settings through the child's URL.
+        config_id = self._create_config()
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        self._login_as_member(stamphog_level="manager", grant_team=self.team if grant_on_parent else env)
+
+        response = self.client.patch(
+            f"/api/projects/{env.id}/stamphog/repo_configs/{config_id}/", {"enabled": False}, format="json"
+        )
+
+        assert response.status_code == expected_status, response.content
+        assert StamphogRepoConfig.objects.unscoped().get(id=config_id).enabled == (not grant_on_parent)
+
+    @parameterized.expand([("admin", True, "manager"), ("member", False, "editor")])
+    def test_user_access_level_rides_on_the_repo_config(self, _name: str, as_admin: bool, expected: str) -> None:
+        # The scene disables the review controls off this field. Reading it from the app context
+        # instead would answer for the URL environment while the backend checks the parent, so the
+        # controls and the API would disagree through a child environment's URL.
+        config_id = self._create_config()
+        if not as_admin:
+            self._login_as_member()
+
+        response = self.client.get(f"{self.url}{config_id}/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["user_access_level"] == expected
 
     def test_create_ignores_client_supplied_installation_id(self) -> None:
         # installation_id is read-only: a manual create must not let a caller claim an installation
@@ -70,6 +265,43 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert body["repository"] == "PostHog/posthog"
         assert body["provider"] == "github"
         assert body["enabled"] is False
+
+    def test_toggling_enabled_writes_an_activity_log_row(self) -> None:
+        created = self.client.post(self.url, {"repository": "PostHog/posthog", "enabled": True}, format="json").json()
+        # Review history hangs off the config as a reverse relation; the diff must leave it out.
+        PullRequest.objects.create(team_id=self.team.id, repo_config_id=created["id"], pr_number=1)
+        self.client.patch(f"{self.url}{created['id']}/", {"enabled": False}, format="json")
+
+        log = ActivityLog.objects.get(scope="StamphogRepoConfig", item_id=created["id"], activity="updated")
+        assert log.team_id == self.team.id
+        assert log.user == self.user
+        assert log.detail is not None
+        assert log.detail["name"] == "PostHog/posthog"
+        assert log.detail["changes"] == [
+            {"type": "StamphogRepoConfig", "action": "changed", "field": "enabled", "before": True, "after": False}
+        ]
+
+    def test_rolled_back_config_write_leaves_no_activity_row(self) -> None:
+        # Repo configs live on the stamphog database while the audit row lives on the main one, so
+        # the audit write has to ride that connection's commit rather than landing immediately.
+        created = self.client.post(self.url, {"repository": "PostHog/posthog", "enabled": True}, format="json").json()
+        config = StamphogRepoConfig.objects.for_team(self.team.id).get(id=created["id"])
+        updates = ActivityLog.objects.filter(scope="StamphogRepoConfig", item_id=created["id"], activity="updated")
+
+        with override_settings(ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True):
+            with self.captureOnCommitCallbacks(using="stamphog_db_writer", execute=True):
+                with pytest.raises(RuntimeError):
+                    with transaction.atomic(using="stamphog_db_writer"):
+                        config.enabled = False
+                        config.save()
+                        raise RuntimeError("the write this audits failed")
+            assert not updates.exists()
+
+            with self.captureOnCommitCallbacks(using="stamphog_db_writer", execute=True):
+                with transaction.atomic(using="stamphog_db_writer"):
+                    config.enabled = False
+                    config.save()
+            assert updates.exists()
 
     def test_blank_installation_does_not_reserve_repo_across_teams(self) -> None:
         # A manual placeholder carries a blank installation and proves no ownership, so it must not
@@ -151,11 +383,21 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert StamphogRepoConfig.objects.unscoped().filter(id=theirs.id).exists()
 
-    def test_delete_soft_disables_as_tombstone(self) -> None:
+    @parameterized.expand(
+        [
+            ("delete", "delete", None, status.HTTP_204_NO_CONTENT),
+            ("patch", "patch", {"enabled": False}, status.HTTP_200_OK),
+        ]
+    )
+    def test_disabling_a_repo_tombstones_supersedes_and_records_it(
+        self, _name: str, method: str, body: dict[str, Any] | None, expected_status: int
+    ) -> None:
         # A hard delete would cascade away the PRs and review runs (including posted_review_id), so a
         # push to a previously approved PR could no longer resolve the config or dismiss the stale
         # approval — deleting a repo must not launder a standing approval. In-flight runs are
         # superseded too: their workflows never re-check enabled and could still post an approval.
+        # Both routes disable through the same facade transaction, so both must land the supersede
+        # and the audit row.
         mine = StamphogRepoConfig.objects.unscoped().create(
             team_id=self.team.id, repository="PostHog/mine", installation_id="3", enabled=True, digest_enabled=True
         )
@@ -165,13 +407,19 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         in_flight = ReviewRun.objects.unscoped().create(
             team_id=self.team.id, pull_request=pull_request, head_sha="sha-live", status=ReviewRunStatus.REVIEWING
         )
-        response = self.client.delete(f"{self.url}{mine.id}/")
-        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+        response = getattr(self.client, method)(f"{self.url}{mine.id}/", body, format="json")
+        assert response.status_code == expected_status, response.content
         mine.refresh_from_db()
         in_flight.refresh_from_db()
         assert mine.enabled is False
         assert mine.digest_enabled is False
         assert in_flight.status == ReviewRunStatus.SUPERSEDED
+
+        log = ActivityLog.objects.get(scope="StamphogRepoConfig", item_id=str(mine.id), activity="updated")
+        assert log.user == self.user
+        assert log.detail is not None
+        enabled_change = next(change for change in log.detail["changes"] if change["field"] == "enabled")
+        assert (enabled_change["before"], enabled_change["after"]) == (True, False)
 
     def test_cannot_enable_digest_without_reviews(self) -> None:
         # Wiring guard for the serializer matrix below: the viewset must actually reject the
@@ -393,12 +641,26 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert response.json()["app_not_installed"] is False
         synced = sorted(row["repository"] for row in response.json()["synced"])
         assert synced == ["PostHog/other", "PostHog/posthog"]
+        # The scene disables the review controls off this field, and it renders these rows straight
+        # from the sync response. A null here would leave every control disabled right after connecting.
+        assert {row["user_access_level"] for row in response.json()["synced"]} == {"editor"}
         bound = StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id, installation_id="42")
         assert bound.count() == 2
         # Bind disabled: an install can surface hundreds of repos, so none starts reviewing until toggled.
         assert all(not config.enabled for config in bound)
         # The caller becomes the connecting user — the identity review-sandbox credentials are minted under.
         assert all(config.connected_by_user_id == self.user.id for config in bound)
+        # One audit row per connected repo, written as a batch: the per-row receiver is silenced for
+        # the sync loop because an installation can expose thousands of repositories.
+        created = ActivityLog.objects.filter(scope="StamphogRepoConfig", activity="created")
+        assert created.count() == 2
+        connected_names = set()
+        for log in created:
+            assert log.user == self.user
+            assert log.detail is not None
+            assert log.detail["type"] == "connected"
+            connected_names.add(log.detail["name"])
+        assert connected_names == {"PostHog/other", "PostHog/posthog"}
 
     @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
@@ -408,9 +670,17 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         # team later syncs the verified installation, that row must be adopted (its installation stamped)
         # rather than reported skipped and left unbound forever — but adopted DISABLED: the placeholder's
         # flags were set by someone who never proved GitHub access, so a member could otherwise pre-arm
-        # enabled=True for a private repo and have reviews start the moment a teammate installs.
+        # enabled=True for a private repo and have reviews start the moment a teammate installs. The
+        # review policy resets for the same reason: label mode pointed at a label nobody uses would
+        # go live, reviewing nothing, the moment a manager turns the row on.
         manual = StamphogRepoConfig.objects.unscoped().create(
-            team_id=self.team.id, repository="PostHog/posthog", installation_id="", enabled=True, digest_enabled=True
+            team_id=self.team.id,
+            repository="PostHog/posthog",
+            installation_id="",
+            enabled=True,
+            digest_enabled=True,
+            review_mode=ReviewMode.LABEL,
+            trigger_label="nobody-uses-this",
         )
         response = self.client.post(
             self.url, {"installation_id": "42", "code": "oauth-code", "state": self.state}, format="json"
@@ -424,6 +694,8 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert manual.connected_by_user_id == self.user.id
         assert manual.enabled is False
         assert manual.digest_enabled is False
+        assert manual.review_mode == ReviewMode.ALL
+        assert manual.trigger_label == StamphogRepoConfig._meta.get_field("trigger_label").get_default()
 
     @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
@@ -432,8 +704,14 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         # An uninstall/reinstall cycle mints a new installation id; the old binding is dead (the app
         # can only be installed once per repo). Re-syncing the verified new installation must rebind
         # the team's existing row instead of skipping it and leaving the repo dead forever.
+        previous_connector_id = 4242
         stale = StamphogRepoConfig.objects.unscoped().create(
-            team_id=self.team.id, repository="PostHog/posthog", installation_id="41", enabled=True
+            team_id=self.team.id,
+            repository="PostHog/posthog",
+            installation_id="41",
+            enabled=True,
+            review_mode=ReviewMode.LABEL,
+            connected_by_user_id=previous_connector_id,
         )
         response = self.client.post(
             self.url, {"installation_id": "42", "code": "oauth-code", "state": self.state}, format="json"
@@ -444,6 +722,20 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         stale.refresh_from_db()
         assert stale.installation_id == "42"
         assert stale.enabled is True  # settings survive the rebind
+        assert stale.review_mode == ReviewMode.LABEL  # including the review policy
+        assert stale.connected_by_user_id == self.user.id
+        # The restamp reads its before-value from the locked row, so the log names who held the
+        # connection before this sync took it over.
+        updates = ActivityLog.objects.filter(scope="StamphogRepoConfig", item_id=str(stale.id), activity="updated")
+        connector_changes = []
+        for log in updates:
+            assert log.detail is not None
+            connector_changes += [c for c in log.detail["changes"] if c["field"] == "connected_by_user_id"]
+        assert len(connector_changes) == 1
+        assert (connector_changes[0]["before"], connector_changes[0]["after"]) == (
+            previous_connector_id,
+            self.user.id,
+        )
 
     @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories")
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=False)
@@ -575,65 +867,29 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert not StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id).exists()
 
 
-class TestDigestChannelAPI(StamphogTeamScopedTestMixin, APIBaseTest):
+class TestDigestRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
     databases = PRODUCT_DATABASES
 
-    def test_delete_soft_disables_as_tombstone(self) -> None:
-        # Deleting a channel keeps the row as a disabled tombstone so the daily beat's auto-provisioning
-        # can't recreate and re-post it. A hard delete would resurrect a channel someone opted out of.
-        channel = DigestChannel.objects.unscoped().create(
-            team_id=self.team.id,
-            audience_key="team-x",
-            slack_integration_id=1,
-            slack_channel_id="C1",
-            enabled=True,
-        )
-        url = f"/api/projects/{self.team.id}/stamphog/digest_channels/{channel.id}/"
-        response = self.client.delete(url)
-        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
-        channel.refresh_from_db()
-        assert channel.enabled is False
-        assert DigestChannel.objects.unscoped().filter(id=channel.id).exists()
+    def test_a_run_reports_where_its_digest_went(self) -> None:
+        # The run is the only record of a digest's destination now that routing is derived per run
+        # rather than stored on a channel row. Losing these fields leaves "why did my digest go
+        # there" unanswerable from anywhere but a worker log.
+        for channel_id, audience in (("C1", "team-x"), ("C2", "team-y")):
+            DigestRun.objects.unscoped().create(
+                team_id=self.team.id,
+                audience_key=audience,
+                slack_channel_id=channel_id,
+                # Stored bare, the way _match records it. The "#" belongs to display only.
+                slack_channel_name=audience,
+                resolution_source=ChannelResolutionSource.OWNERS_CONTACT,
+                status=DigestRunStatus.COMPLETED,
+            )
 
-    def test_update_cannot_change_audience_key(self) -> None:
-        # audience_key anchors the digest bucket and its opt-out tombstone. A PATCH that re-pointed it
-        # would re-open an audience someone opted out of, so it's create-only — ignored on update while
-        # other fields (here slack_channel_name) still change.
-        integration = Integration.objects.create(
-            team_id=self.team.id, kind="slack", config={}, sensitive_config={"access_token": "x"}
-        )
-        created = self.client.post(
-            f"/api/projects/{self.team.id}/stamphog/digest_channels/",
-            {"audience_key": "team-x", "slack_integration_id": integration.id, "slack_channel_id": "C1"},
-            format="json",
-        ).json()
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/stamphog/digest_channels/{created['id']}/",
-            {"audience_key": "team-evil", "slack_channel_name": "renamed"},
-            format="json",
-        )
-        assert response.status_code == status.HTTP_200_OK, response.content
-        body = response.json()
-        assert body["audience_key"] == "team-x"
-        assert body["slack_channel_name"] == "renamed"
+        url = f"/api/projects/{self.team.id}/stamphog/digest_runs/"
+        body = self.client.get(url).json()
+        assert {r["slack_channel_id"] for r in body["results"]} == {"C1", "C2"}
+        assert {r["audience_key"] for r in body["results"]} == {"team-x", "team-y"}
+        assert {r["resolution_source"] for r in body["results"]} == {"owners_contact"}
 
-    def test_duplicate_audience_is_a_400_not_a_500(self) -> None:
-        # team_id is injected in perform_create, so DRF can't pre-validate the unique
-        # (team, audience_key) constraint — the IntegrityError must surface as a validation error.
-        integration = Integration.objects.create(
-            team_id=self.team.id, kind="slack", config={}, sensitive_config={"access_token": "x"}
-        )
-        DigestChannel.objects.unscoped().create(
-            team_id=self.team.id,
-            audience_key="team-x",
-            slack_integration_id=integration.id,
-            slack_channel_id="C1",
-            enabled=True,
-        )
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/stamphog/digest_channels/",
-            {"audience_key": "team-x", "slack_integration_id": integration.id, "slack_channel_id": "C2"},
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert "already exists" in response.json()["detail"]
+        filtered = self.client.get(f"{url}?slack_channel_id=C1").json()
+        assert [r["audience_key"] for r in filtered["results"]] == ["team-x"]

@@ -115,12 +115,18 @@ export function isThirdPartyScriptError(value: ErrorTrackingException['value']):
 // before the exception fired, and past last_seen so a single-occurrence issue isn't a zero-width window.
 // The selected event keeps the range valid when the user clicks before the last_seen query finishes.
 export function getIssueReplayDateRange(
-    firstSeen: string,
+    firstSeen: string | null | undefined,
     lastSeen: Dayjs | null,
     selectedEventTimestamp?: string | null
 ): DateRange {
-    const from = dayjs(firstSeen)
+    const firstSeenAt = dayjs(firstSeen)
     const selectedEventSeenAt = selectedEventTimestamp ? dayjs(selectedEventTimestamp) : null
+    // first_seen is annotated from fingerprint rows, so an issue with no ingested events
+    // (reachable via the metrics error-spike overlay) has none — anchor on another known
+    // timestamp instead of letting toISOString throw on an invalid date.
+    const from = firstSeenAt.isValid()
+        ? firstSeenAt
+        : ([lastSeen, selectedEventSeenAt].find((d): d is Dayjs => !!d?.isValid()) ?? dayjs())
     const latestKnownSeenAt =
         selectedEventSeenAt?.isValid() && (!lastSeen || selectedEventSeenAt.isAfter(lastSeen))
             ? selectedEventSeenAt

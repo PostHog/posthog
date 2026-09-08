@@ -190,4 +190,32 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             authorId="ID of the user who created the project.",
         ),
     },
+    "referrals": {
+        "description": "A referral of a candidate for a job in Ashby.",
+        "docs_url": "https://developers.ashbyhq.com/reference/referrallist",
+        "columns": _columns(
+            candidateId="ID of the referred candidate.",
+            applicationId="ID of the application created from the referral.",
+            jobId="ID of the job the candidate was referred for.",
+            referralType="How the referral was made (e.g. Direct).",
+            referrer="The user who submitted the referral.",
+            sourceFormDefinitionId="ID of the referral form definition used.",
+            formDefinition="The referral form's sections and fields.",
+            submittedValues="The values submitted on the referral form.",
+        ),
+    },
+    "sequences": {
+        "description": "A candidate's enrollment in an outreach sequence in Ashby.",
+        # sequence.list objects carry no updatedAt, so this entry omits the shared column.
+        "docs_url": "https://developers.ashbyhq.com/reference/sequencelist",
+        "columns": {
+            "id": _COMMON_COLUMNS["id"],
+            "createdAt": _COMMON_COLUMNS["createdAt"],
+            "candidateId": "ID of the candidate enrolled in the sequence.",
+            "applicationId": "ID of the application the enrollment is associated with.",
+            "sequenceTemplateId": "ID of the sequence template this enrollment is based on.",
+            "status": "Status of the enrollment (Running, Paused, Completed, Cancelled, Unsubscribed).",
+            "stages": "The sequence's stages and their scheduling details.",
+        },
+    },
 }

@@ -1,3 +1,9 @@
+// This lint suggests `ok_or(VmError::...)` over `ok_or_else(|| VmError::...)` when the error is
+// "trivial" to build. On the interpreter's per-token fetch path that eager construction of the
+// large VmError enum is a measured end-to-end regression, so the crate deliberately stays lazy
+// everywhere on the hot path.
+#![allow(clippy::unnecessary_lazy_evaluations)]
+
 mod context;
 mod error;
 mod memory;
@@ -17,6 +23,10 @@ pub use context::ExecutionContext;
 pub use program::ExportedFunction;
 pub use program::Module;
 pub use program::Program;
+pub use program::Token;
+
+// The opcode vocabulary, for consumers that read bytecode without running it
+pub use ops::Operation;
 
 // VM, and helpers
 pub use vm::sync_execute;
@@ -50,6 +60,8 @@ pub use values::Closure;
 pub use values::FromHogLiteral;
 pub use values::FromHogRef;
 pub use values::HogLiteral;
+pub use values::HogMap;
+pub use values::HogStr;
 pub use values::HogValue;
 pub use values::LocalCallable;
 pub use values::Num;

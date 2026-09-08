@@ -19,6 +19,10 @@ pub enum FeatureFlagMatchReason {
     /// enriched description carries the extra signal about skipped groups.
     #[strum(serialize = "no_condition_match_groups_not_evaluated")]
     NoConditionMatchGroupsNotEvaluated,
+    /// Person conditions didn't match, but the deciding cohort has a behavioral or lifecycle
+    /// leaf this evaluator can't fully resolve, so the non-match can disagree with the cohort.
+    #[strum(serialize = "no_condition_match_cohort_not_evaluated")]
+    NoConditionMatchCohortNotEvaluated,
     #[strum(serialize = "holdout_condition_value")]
     HoldoutConditionValue,
     #[strum(serialize = "flag_disabled")]
@@ -42,6 +46,7 @@ impl FeatureFlagMatchReason {
             FeatureFlagMatchReason::OutOfRolloutBound => 3,
             FeatureFlagMatchReason::NoConditionMatch => 2,
             FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated => 2,
+            FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated => 2,
             FeatureFlagMatchReason::NoGroupType => 1,
             FeatureFlagMatchReason::FlagDisabled => 0,
             FeatureFlagMatchReason::MissingDependency => -1,
@@ -71,6 +76,7 @@ impl std::fmt::Display for FeatureFlagMatchReason {
                 FeatureFlagMatchReason::ConditionMatch => "condition_match",
                 FeatureFlagMatchReason::NoConditionMatch => "no_condition_match",
                 FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated => "no_condition_match",
+                FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated => "no_condition_match",
                 FeatureFlagMatchReason::OutOfRolloutBound => "out_of_rollout_bound",
                 FeatureFlagMatchReason::NoGroupType => "no_group_type",
                 FeatureFlagMatchReason::HoldoutConditionValue => "holdout_condition_value",
@@ -93,6 +99,7 @@ mod tests {
             FeatureFlagMatchReason::NoGroupType,       // 1
             FeatureFlagMatchReason::NoConditionMatch,  // 2
             FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated, // 2 (same tier)
+            FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated, // 2 (same tier)
             FeatureFlagMatchReason::OutOfRolloutBound, // 3
             FeatureFlagMatchReason::ConditionMatch,    // 4
             FeatureFlagMatchReason::HoldoutConditionValue, // 5
@@ -129,6 +136,10 @@ mod tests {
         );
         assert_eq!(
             FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated.to_string(),
+            "no_condition_match"
+        );
+        assert_eq!(
+            FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated.to_string(),
             "no_condition_match"
         );
         assert_eq!(

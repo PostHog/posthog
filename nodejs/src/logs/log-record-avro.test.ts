@@ -6,6 +6,7 @@ import * as logBodyParse from './log-body-parse'
 import { PII_REDACTED, encodeAttributeCell } from './log-pii-scrub'
 import {
     LogRecord,
+    bufferProcessingMode,
     decodeLogRecords,
     encodeLogRecords,
     enrichLogRecordWithJsonAttributes,
@@ -520,6 +521,53 @@ describe('log-record-avro', () => {
 
             expect(out).toBe(inputBuffer)
             expect(pii).toEqual({ piiReplacements: 0 })
+        })
+
+        it('forwards the original buffer when only a visitor ran', async () => {
+            const records: LogRecord[] = [
+                {
+                    uuid: 'test-uuid',
+                    trace_id: null,
+                    span_id: null,
+                    trace_flags: null,
+                    timestamp: null,
+                    observed_timestamp: null,
+                    body: JSON.stringify({ level: 'info', message: 'test' }),
+                    severity_text: null,
+                    severity_number: null,
+                    service_name: null,
+                    resource_attributes: null,
+                    instrumentation_scope: null,
+                    event_name: null,
+                    attributes: null,
+                    bytes_uncompressed: null,
+                },
+            ]
+
+            const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
+            const onRecordsDecoded = jest.fn()
+            const { value: out } = await processLogMessageBuffer(
+                inputBuffer,
+                { json_parse_logs: false, pii_scrub_logs: false },
+                { onRecordsDecoded }
+            )
+
+            // The visitor forces a decode, but nothing mutated the records, so the buffer is returned by
+            // identity rather than re-encoded.
+            expect(onRecordsDecoded).toHaveBeenCalledTimes(1)
+            expect(onRecordsDecoded.mock.calls[0][0]).toHaveLength(1)
+            expect(out).toBe(inputBuffer)
+        })
+
+        it.each([
+            ['everything off', {}, 0, false, 'passthrough'],
+            ['json parse on', { json_parse_logs: true }, 0, false, 'decode_and_reencode'],
+            ['pii scrub on', { pii_scrub_logs: true }, 0, false, 'decode_and_reencode'],
+            ['a stage present', {}, 1, false, 'decode_and_reencode'],
+            ['a decoded-records visitor present', {}, 0, true, 'decode_only'],
+            ['a visitor and a stage', {}, 1, true, 'decode_and_reencode'],
+        ])('bufferProcessingMode: %s', (_name, settings, stageCount, hasVisitor, expected) => {
+            expect(bufferProcessingMode(settings, stageCount, hasVisitor)).toEqual(expected)
         })
 
         it('decodes and scrubs only when PII scrub is on without JSON parse', async () => {

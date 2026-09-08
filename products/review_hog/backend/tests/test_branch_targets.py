@@ -137,8 +137,9 @@ class TestFetchBranchTarget(BaseTest):
         assert meta.pr_number == 9
         assert meta.pr_url == "https://github.com/o/r/pull/9"
         assert meta.empty_diff is False
-        # PR reviews check out the pinned pull ref, which survives head-branch deletion on merge.
-        assert meta.branch == "pull/9/head"
+        # PR reviews check out the head branch by name: the sandbox cannot resolve a `pull/N/head`
+        # ref and would silently land on the base tip.
+        assert meta.branch == "feat"
         mock_fetcher.assert_called_once_with(owner="o", repo="r", pr_number=9, token="tok", installation_id="9876543")
         row = ReviewReport.objects.for_team(self.team.id).get(id=stored_id)
         assert row.pr_number == 9

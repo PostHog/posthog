@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { isKeyOf } from 'lib/utils/guards'
 import { objectCleanWithEmpty } from 'lib/utils/objects'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import {
     isFunnelsFilter,
     isLifecycleFilter,
@@ -95,7 +95,7 @@ const insightTypeToNodeKind: Record<
     [InsightType.LIFECYCLE]: NodeKind.LifecycleQuery,
 }
 
-const actorsOnlyMathTypes = [
+export const actorsOnlyMathTypes = [
     BaseMathType.UniqueUsers,
     BaseMathType.WeeklyActiveUsers,
     BaseMathType.MonthlyActiveUsers,

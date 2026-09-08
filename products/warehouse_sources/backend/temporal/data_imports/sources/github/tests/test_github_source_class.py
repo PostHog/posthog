@@ -1,3 +1,5 @@
+import datetime
+
 import pytest
 from unittest import mock
 
@@ -22,7 +24,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.set
     GRANT_NAMES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.source import GithubSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _GITHUB_INTEGRATION_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.GitHubIntegration"
@@ -41,9 +42,6 @@ class TestGithubSource:
     def setup_method(self):
         self.source = GithubSource()
         self.team_id = 123
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.GITHUB
 
     @mock.patch(_GITHUB_INTEGRATION_PATH)
     @mock.patch.object(GithubSource, "get_oauth_integration")
@@ -115,10 +113,22 @@ class TestGithubSource:
             "Integration not found",
             "Missing integration ID",
             "This installation has been suspended",
+            # A sunset API version pinned in X-GitHub-Api-Version returns 410 Gone permanently, so it
+            # must disable the schema rather than retry forever.
+            "410 Client Error",
         ],
     )
     def test_non_retryable_errors(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
+
+    def test_deprecated_api_version_metadata(self):
+        # The generic registry test only checks deprecated ⊆ supported and default ∉ deprecated; this
+        # locks GitHub's specific deprecation — 2022-11-28 sunset on 2028-03-10, 2026-03-10 current —
+        # which drives the in-product warning and the source-level repin migration.
+        deprecation = self.source.get_version_deprecation("2022-11-28")
+        assert deprecation is not None
+        assert deprecation.sunset_at == datetime.date(2028, 3, 10)
+        assert self.source.get_version_deprecation("2026-03-10") is None
 
     def test_rate_limit_error_is_retryable_not_non_retryable(self):
         # A GitHubRateLimitError that exhausts _fetch_page's tenacity retry must stay retryable
@@ -632,6 +642,36 @@ class TestGithubSource:
 
         assert valid is False
         assert message is not None and "a/missing" in message
+        assert message.count("read access") == 1
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.validate_github_credentials"
+    )
+    def test_validate_credentials_states_the_next_step_once_for_several_repos(self, mock_validate):
+        # Guards against the next step moving back into the per-repo reason, where N inaccessible
+        # repos would read as the same sentence N times.
+        mock_validate.side_effect = [
+            (False, "Repository 'a/one' not found or not accessible"),
+            (False, "Repository 'a/two' not found or not accessible"),
+        ]
+
+        valid, message = self.source.validate_credentials(_pat_config(repositories=["a/one", "a/two"]), self.team_id)
+
+        assert valid is False
+        assert message is not None
+        assert "a/one" in message and "a/two" in message
+        assert message.count("read access") == 1
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.validate_github_credentials"
+    )
+    def test_validate_credentials_omits_repo_guidance_for_other_failures(self, mock_validate):
+        mock_validate.side_effect = [(False, "Validation failed")]
+
+        valid, message = self.source.validate_credentials(_pat_config(repositories=["a/one"]), self.team_id)
+
+        assert valid is False
+        assert message == "Validation failed"
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.validate_github_credentials"

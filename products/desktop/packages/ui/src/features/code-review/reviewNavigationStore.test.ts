@@ -10,6 +10,7 @@ describe("reviewNavigationStore", () => {
       selectedPrUrls: {},
       commentFileFilters: {},
       hideViewedFiles: {},
+      fileBrowserCollapsed: {},
     });
   });
 
@@ -41,6 +42,22 @@ describe("reviewNavigationStore", () => {
     expect(useReviewNavigationStore.getState().hideViewedFiles["task-1"]).toBe(
       false,
     );
+  });
+
+  it("keeps the file browser collapse choice across a task reset", () => {
+    const store = useReviewNavigationStore.getState();
+    store.setFileBrowserCollapsed("task-1", true);
+
+    expect(
+      useReviewNavigationStore.getState().fileBrowserCollapsed["task-1"],
+    ).toBe(true);
+
+    // The collapse choice is a persistent preference, unlike the viewed-file
+    // filter, so a task reset must not drop it.
+    store.clearTask("task-1");
+    expect(
+      useReviewNavigationStore.getState().fileBrowserCollapsed["task-1"],
+    ).toBe(true);
   });
 
   it("clears the comment filter when navigating to a file", () => {
