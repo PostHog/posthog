@@ -29,13 +29,13 @@ export function NotebookGeneratedWidgetRunButton({
     // state lives on the server under the block id, so a block that carries no explicit id gets
     // one the first time it renders for an editor. The write belongs in the toolbar because the
     // shell mounts the toolbar for every block, while it mounts the results panel only when that
-    // panel is open.
+    // panel is open. It stays out of the undo history, which the person owns.
     useEffect(() => {
         if (!isEditableNotebook || hasSourceOnlyInRaw) {
             return
         }
         if (typeof node.props.nodeId !== 'string' || !node.props.nodeId) {
-            updateProps({ nodeId: node.id })
+            updateProps({ nodeId: node.id }, { addToHistory: false })
         }
     }, [hasSourceOnlyInRaw, isEditableNotebook, node.id, node.props.nodeId, updateProps])
 

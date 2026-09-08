@@ -24,7 +24,7 @@ import {
 } from './editorTypes'
 import { MemoizedNotebookComponentShell } from './NotebookComponentShell'
 import { NotebookMermaidBlock } from './NotebookMermaidBlock'
-import { NotebookBlockNode, NotebookComponentRegistry, NotebookMode } from './types'
+import { NotebookBlockNode, NotebookComponentRegistry, NotebookMode, NotebookNodeUpdateOptions } from './types'
 
 export function renderNode({
     node,
@@ -94,7 +94,11 @@ export function renderNode({
     setBlockRef: (element: HTMLElement | null) => void
     setListItemRef: (itemIndex: number, itemId: string | undefined, element: HTMLElement | null) => void
     setTableCellRef: (position: TableCellPosition, element: HTMLElement | null) => void
-    updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
+    updateNode: (
+        nodeId: string,
+        updater: (node: NotebookBlockNode) => NotebookBlockNode | null,
+        options?: NotebookNodeUpdateOptions
+    ) => void
     replaceNodeWithNodes: (nodeId: string, replacementNodes: NotebookBlockNode[]) => void
     deleteNode: () => void
     deleteNodeAndFocusAdjacent: () => void
