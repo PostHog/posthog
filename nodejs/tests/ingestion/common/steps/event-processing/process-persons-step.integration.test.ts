@@ -277,37 +277,58 @@ describe('createProcessPersonsStep', () => {
         }
     })
 
-    it('returns DLQ result when merge limit is exceeded in LIMIT mode', async () => {
-        await createPersonWithDistinctIds('person-1')
-        await createPersonWithDistinctIds('person-2', 'person-2-extra-1', 'person-2-extra-2')
+    it.each([
+        { mode: 'LIMIT', precheck: false, expectedType: PipelineResultType.DLQ, moveCalls: 1 },
+        { mode: 'LIMIT', precheck: true, expectedType: PipelineResultType.DLQ, moveCalls: 0 },
+        { mode: 'ASYNC', precheck: false, expectedType: PipelineResultType.REDIRECT, moveCalls: 1 },
+        { mode: 'ASYNC', precheck: true, expectedType: PipelineResultType.REDIRECT, moveCalls: 0 },
+    ])(
+        'refuses an over-limit merge in $mode mode with precheck=$precheck after $moveCalls move attempts',
+        async ({ mode, precheck, expectedType, moveCalls }) => {
+            await createPersonWithDistinctIds('person-1')
+            await createPersonWithDistinctIds('person-2', 'person-2-extra-1', 'person-2-extra-2')
+            const moveSpy = jest.spyOn(personRepository, 'moveDistinctIds')
 
-        const identifyEvent: PluginEvent = {
-            ...pluginEvent,
-            event: '$identify',
-            distinct_id: 'person-1',
-            properties: {
-                $anon_distinct_id: 'person-2',
-            },
-        }
+            const identifyEvent: PluginEvent = {
+                ...pluginEvent,
+                event: '$identify',
+                distinct_id: 'person-1',
+                properties: {
+                    $anon_distinct_id: 'person-2',
+                },
+            }
 
-        const limitOptions: EventPipelineRunnerOptions = {
-            ...options,
-            PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 2,
-        }
-
-        const step = createProcessPersonsStep(limitOptions, personOutputs)
-        const result = await step(
-            createInput({
-                normalizedEvent: identifyEvent,
-                timestamp: DateTime.fromISO(identifyEvent.timestamp!),
+            const limitOptions: EventPipelineRunnerOptions = {
+                ...options,
+                PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 2,
+                PERSON_MERGE_ASYNC_ENABLED: mode === 'ASYNC',
+            }
+            const store = new BatchWritingPersonsStore(personRepository, personOutputs, {
+                mergeMoveLimitPrecheck: precheck,
             })
-        )
 
-        expect(result.type).toBe(PipelineResultType.DLQ)
-        if (isDlqResult(result)) {
-            expect(result.reason).toBe('Merge limit exceeded')
+            const step = createProcessPersonsStep(limitOptions, personOutputs)
+            const result = await step(
+                createInput({
+                    normalizedEvent: identifyEvent,
+                    timestamp: DateTime.fromISO(identifyEvent.timestamp!),
+                    personsStoreForBatch: new BatchBoundPersonsStore(store, 0),
+                })
+            )
+
+            expect(result.type).toBe(expectedType)
+            if (isDlqResult(result)) {
+                expect(result.reason).toBe('Merge limit exceeded')
+            }
+            if (isRedirectResult(result)) {
+                expect(result.reason).toBe('Event redirected to async merge topic')
+                expect(result.output).toBe(ASYNC_OUTPUT)
+            }
+            expect(moveSpy).toHaveBeenCalledTimes(moveCalls)
+            const persons = await fetchPostgresPersons(infra.postgres, teamId)
+            expect(persons).toHaveLength(2)
         }
-    })
+    )
 
     it('returns a refused merge before its warning is acked and defers the ack to the side effects', async () => {
         for (const distinctId of ['identified-source', 'target']) {
@@ -449,40 +470,6 @@ describe('createProcessPersonsStep', () => {
         const persons = await fetchPostgresPersons(infra.postgres, enabledTeamId)
         expect(persons).toHaveLength(1)
         expect(persons[0].last_seen_at).toEqual(futureTimestamp.startOf('hour'))
-    })
-
-    it('returns redirect result when merge limit is exceeded in ASYNC mode', async () => {
-        await createPersonWithDistinctIds('person-1')
-        await createPersonWithDistinctIds('person-2', 'person-2-extra-1', 'person-2-extra-2')
-
-        const identifyEvent: PluginEvent = {
-            ...pluginEvent,
-            event: '$identify',
-            distinct_id: 'person-1',
-            properties: {
-                $anon_distinct_id: 'person-2',
-            },
-        }
-
-        const asyncOptions: EventPipelineRunnerOptions = {
-            ...options,
-            PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 2,
-            PERSON_MERGE_ASYNC_ENABLED: true,
-        }
-
-        const step = createProcessPersonsStep(asyncOptions, personOutputs)
-        const result = await step(
-            createInput({
-                normalizedEvent: identifyEvent,
-                timestamp: DateTime.fromISO(identifyEvent.timestamp!),
-            })
-        )
-
-        expect(result.type).toBe(PipelineResultType.REDIRECT)
-        if (isRedirectResult(result)) {
-            expect(result.reason).toBe('Event redirected to async merge topic')
-            expect(result.output).toBe(ASYNC_OUTPUT)
-        }
     })
 
     describe('merge distinct id versioning', () => {

@@ -168,6 +168,8 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_ASYNC_TOPIC: string
     PERSON_MERGE_ASYNC_ENABLED: boolean
     PERSON_MERGE_SYNC_BATCH_SIZE: number
+    // Refuse an over-limit LIMIT/ASYNC merge before it writes the rows it would roll back.
+    PERSON_MERGE_MOVE_LIMIT_PRECHECK_ENABLED: boolean
     // Kill switch for emitting person_merge_events to the cohort-stream-processor.
     // Enable ordering: (1) create the topic, (2) set INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC
     // (startup topic verification is then fatal by design), (3) flip this on. Flipping this on before
@@ -359,6 +361,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_ASYNC_TOPIC: '',
         PERSON_MERGE_ASYNC_ENABLED: false,
         PERSON_MERGE_SYNC_BATCH_SIZE: 0,
+        PERSON_MERGE_MOVE_LIMIT_PRECHECK_ENABLED: false,
         PERSON_MERGE_EVENTS_ENABLED: false,
         PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
         PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '2',

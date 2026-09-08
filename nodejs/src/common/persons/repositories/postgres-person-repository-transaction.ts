@@ -101,6 +101,10 @@ export class PostgresPersonRepositoryTransaction implements PersonRepositoryTran
         return await this.repository.fetchPersonDistinctIds(person, limit, this.transaction)
     }
 
+    async hasMoreDistinctIdsThan(person: InternalPerson, limit: number): Promise<boolean> {
+        return await this.repository.hasMoreDistinctIdsThan(person, limit, this.transaction)
+    }
+
     async updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],
         sourcePersonID: InternalPerson['id'],

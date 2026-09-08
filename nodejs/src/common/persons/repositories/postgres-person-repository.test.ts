@@ -288,6 +288,7 @@ describe('PostgresPersonRepository', () => {
             await expect(repository.countDistinctIdsForPersons(team.id, [person.id])).resolves.toEqual(
                 new Map([[person.id, 1]])
             )
+            await expect(repository.hasMoreDistinctIdsThan(person, 1)).resolves.toBe(false)
         })
 
         it('updatePerson does not touch a tombstoned person', async () => {
@@ -1307,6 +1308,19 @@ describe('PostgresPersonRepository', () => {
                 expect(distinctIds).toContain('tx-distinct')
                 expect(distinctIds).toContain('tx-distinct-2')
             })
+        })
+    })
+
+    describe('hasMoreDistinctIdsThan()', () => {
+        it.each([
+            [2, true],
+            [3, false],
+        ])('with three live mappings and limit %i resolves %s', async (limit, expected) => {
+            const person = await createTestPerson(team.id, 'probe-did-1')
+            await repository.addDistinctId(person, 'probe-did-2', 1)
+            await repository.addDistinctId(person, 'probe-did-3', 1)
+
+            await expect(repository.hasMoreDistinctIdsThan(person, limit)).resolves.toBe(expected)
         })
     })
 

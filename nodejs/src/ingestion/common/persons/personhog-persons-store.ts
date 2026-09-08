@@ -444,6 +444,21 @@ export class PersonhogPersonsStore implements PersonsStore {
         return byPerson[person.id] ?? []
     }
 
+    async hasMoreDistinctIdsThan(
+        person: InternalPerson,
+        _distinctId: string,
+        limit: number,
+        _tx: PersonRepositoryTransaction
+    ): Promise<boolean> {
+        const byPerson = await this.repository.getDistinctIdsForPersons(
+            person.team_id,
+            [person.id],
+            limit + 1,
+            CALLER_TAG
+        )
+        return (byPerson[person.id]?.length ?? 0) > limit
+    }
+
     removeDistinctIdFromCache(teamId: number, distinctId: string): void {
         // Resolution only: the person's state may still be valid under
         // its other distinct ids; what a merge changed is which person

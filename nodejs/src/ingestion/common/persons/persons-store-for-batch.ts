@@ -97,6 +97,8 @@ export interface PersonsStoreTransactionForBatch {
     ): Promise<void>
 
     fetchPersonDistinctIds(person: InternalPerson, distinctId: string, limit?: number): Promise<string[]>
+
+    hasMoreDistinctIdsThan(person: InternalPerson, distinctId: string, limit: number): Promise<boolean>
 }
 
 /**
@@ -282,6 +284,10 @@ export class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactio
 
     fetchPersonDistinctIds(person: InternalPerson, distinctId: string, limit?: number): Promise<string[]> {
         return this.tx.fetchPersonDistinctIds(person, distinctId, limit)
+    }
+
+    hasMoreDistinctIdsThan(person: InternalPerson, distinctId: string, limit: number): Promise<boolean> {
+        return this.tx.hasMoreDistinctIdsThan(person, distinctId, limit)
     }
 }
 

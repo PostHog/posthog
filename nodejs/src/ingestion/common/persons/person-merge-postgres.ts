@@ -73,6 +73,19 @@ export const mergeDistinctIdOverrideCounter = new Counter({
     labelNames: ['call'],
 })
 
+export const mergeMoveLimitPrecheckCounter = new Counter({
+    name: 'person_merge_move_limit_precheck_total',
+    help: 'Outcomes of the pre-move distinct-id limit probe on the source person.',
+    labelNames: ['result'],
+})
+
+export const mergeMoveLimitPrecheckDurationHistogram = new Histogram({
+    name: 'person_merge_move_limit_precheck_duration_seconds',
+    help: 'Wall time of the pre-move distinct-id limit probe, by outcome. This is the cost the probe adds to every both-exist merge.',
+    labelNames: ['result'],
+    buckets: [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+})
+
 export const personMergeEventProducedCounter = new Counter({
     name: 'person_merge_event_produced_total',
     help: 'Number of person_merge_events messages acked by the broker (gate-on merges only).',
@@ -119,6 +132,8 @@ export interface MergeEventsConfig {
 export interface PostgresMergePolicy {
     /** When true, all property changes trigger person updates; mirrors the store option of the same name. */
     updateAllProperties: boolean
+    /** Probe the source's distinct-id count before a LIMIT/ASYNC move instead of discovering the overflow after the rows are written. */
+    moveLimitPrecheck: boolean
     /** Teams on the new-world merge behavior: lifecycle-mark claims plus tombstone deletes. */
     isTombstoneTeam: ValueMatcher<number>
     mergeEvents: MergeEventsConfig
@@ -825,6 +840,8 @@ export class PostgresPersonMerge {
                         throw new SourcePersonNotFoundError('Source person was deleted concurrently')
                     }
                 }
+                await this.assertSourceWithinMoveLimit(tx, currentSourcePerson)
+
                 const [person, updatePersonMessages] = await tx.updatePersonForMerge(
                     currentTargetPerson,
                     {
@@ -943,6 +960,38 @@ export class PostgresPersonMerge {
             mergeDistinctIdOverrideCounter.labels({ call }).inc(count)
         }
         this.pendingOverrideCounts = []
+    }
+
+    /**
+     * The limited move rewrites up to `limit` rows before it can learn that more
+     * remain, and then rolls all of them back. This probe reads at most limit + 1
+     * rows instead. The post-move leftover check stays as the guard against ids
+     * that a concurrent write adds after the probe.
+     */
+    private async assertSourceWithinMoveLimit(
+        tx: PersonsStoreTransactionForBatch,
+        currentSourcePerson: InternalPerson
+    ): Promise<void> {
+        if (!this.policy.moveLimitPrecheck || this.request.mergeMode.type === 'SYNC') {
+            return
+        }
+        const limit = this.request.mergeMode.limit
+        const stopTimer = mergeMoveLimitPrecheckDurationHistogram.startTimer()
+        const overLimit = await tx.hasMoreDistinctIdsThan(currentSourcePerson, this.targetDistinctId, limit)
+        const result = overLimit ? 'over_limit' : 'within_limit'
+        stopTimer({ result })
+        mergeMoveLimitPrecheckCounter.labels({ result }).inc()
+        if (!overLimit) {
+            return
+        }
+        personMergeFailureCounter.labels({ call: this.eventName }).inc()
+        logger.warn('🤔', 'person merge move limit hit before the move', {
+            team_id: this.teamId,
+            distinct_id: this.targetDistinctId,
+            source_person_id: currentSourcePerson.id,
+            limit,
+        })
+        throw new PersonMergeLimitExceededError('person_merge_move_limit_precheck')
     }
 
     private async moveDistinctIdsBasedOnMode(

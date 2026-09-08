@@ -180,6 +180,7 @@ describe('BatchWritingPersonStore', () => {
             updateCohortsAndFeatureFlagsForMerge: jest.fn().mockResolvedValue(undefined),
             updateCohortsAndFeatureFlagsForMergeBatch: jest.fn().mockResolvedValue(undefined),
             countDistinctIdsForPersons: jest.fn().mockResolvedValue(new Map()),
+            hasMoreDistinctIdsThan: jest.fn().mockResolvedValue(false),
         }
         return mockTransaction
     }

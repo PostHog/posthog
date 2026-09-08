@@ -38,6 +38,7 @@ describe('PostgresPersonMerge merge events', () => {
             mockOutputs as any,
             {
                 updateAllProperties: false,
+                moveLimitPrecheck: false,
                 isTombstoneTeam: () => false,
                 mergeEvents,
             },
@@ -151,6 +152,7 @@ describe('PostgresPersonMerge merge events', () => {
             mockOutputs as never,
             {
                 updateAllProperties: false,
+                moveLimitPrecheck: false,
                 isTombstoneTeam: () => false,
                 mergeEvents: { enabled: false, partitionCount: 64, isTeamEnabled: () => false },
             },
@@ -198,6 +200,7 @@ describe('PostgresPersonMerge merge events', () => {
             mockOutputs as never,
             {
                 updateAllProperties: false,
+                moveLimitPrecheck: false,
                 isTombstoneTeam: () => false,
                 mergeEvents: { enabled: false, partitionCount: 64, isTeamEnabled: () => false },
             },

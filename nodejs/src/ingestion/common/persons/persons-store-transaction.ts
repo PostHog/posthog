@@ -173,4 +173,8 @@ export class PersonsStoreTransaction {
     async fetchPersonDistinctIds(person: InternalPerson, distinctId: string, limit?: number): Promise<string[]> {
         return await this.store.fetchPersonDistinctIds(person, distinctId, limit, this.tx)
     }
+
+    async hasMoreDistinctIdsThan(person: InternalPerson, distinctId: string, limit: number): Promise<boolean> {
+        return await this.store.hasMoreDistinctIdsThan(person, distinctId, limit, this.tx)
+    }
 }

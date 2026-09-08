@@ -52,6 +52,8 @@ export interface PersonRepositoryTransaction {
 
     fetchPersonDistinctIds(person: InternalPerson, limit?: number): Promise<string[]>
 
+    hasMoreDistinctIdsThan(person: InternalPerson, limit: number): Promise<boolean>
+
     updateCohortsAndFeatureFlagsForMerge(
         teamId: Team['id'],
         sourcePersonID: InternalPerson['id'],
