@@ -14,6 +14,7 @@ from posthog.models.async_deletion.delete_cohorts import (
     MutationCounts,
     _collapse,
     _mark_verified,
+    _wait_for_capacity,
     sweep_cohort_deletions,
 )
 
@@ -193,3 +194,21 @@ class TestCollapseCohortDeletions(TestCase):
 
         assert AsyncDeletion.objects.filter(delete_verified_at__isnull=True).count() == 1
         assert AsyncDeletion.objects.get(delete_verified_at__isnull=True).key == "21_0"
+
+    def test_capacity_waits_while_any_cohort_mutation_is_still_running(self):
+        # cohortpeople refuses an enqueue while one of its mutations is unfinished, with
+        # "Too many unfinished mutations". Returning on a single in-flight mutation loses the whole
+        # next pass: prod-EU run fb4a4e31 swept Cohort_full, then Cohort_stale was rejected with
+        # code 692 and its targets went unswept. The person tables avoid this because
+        # MutationRunner.wait_for_mutation_capacity waits for zero.
+        counts = [counts_of(3, 1), counts_of(1, 1), counts_of(0, 0)]
+        with (
+            patch(
+                "posthog.models.async_deletion.delete_cohorts._mutation_counts", side_effect=counts
+            ) as mutation_counts,
+            patch("posthog.models.async_deletion.delete_cohorts.time.sleep"),
+            patch("posthog.models.async_deletion.delete_cohorts.time.monotonic", side_effect=range(0, 1000, 10)),
+        ):
+            _wait_for_capacity()
+
+        assert mutation_counts.call_count == len(counts)

@@ -64,7 +64,12 @@ COHORT_MARK_PAGE_SIZE = 50_000
 # Unfinished mutations on `cohortpeople` the sweep will tolerate before it stops enqueueing more.
 # Mutations are enqueued asynchronously, so without this every target chunk lands at once and they
 # all compete for the same background pool.
-COHORT_MUTATION_CAPACITY = 2
+#
+# One, not two. `cohortpeople` rejects an enqueue while any mutation on it is unfinished, with
+# "Too many unfinished mutations", so tolerating one in flight means the next chunk is refused and
+# its whole pass is lost. `MutationRunner.wait_for_mutation_capacity`, which the person tables use,
+# waits for zero for the same reason.
+COHORT_MUTATION_CAPACITY = 1
 COHORT_MUTATION_POLL_SECONDS = 30.0
 # Log one line in this many polls. Dagster stores every log line, and a drain can poll for an hour,
 # so the wait reports periodically rather than every tick.
@@ -248,7 +253,7 @@ def _mutation_counts(since: datetime | None = None) -> MutationCounts:
 
 
 def _wait_for_capacity(timeout: float = COHORT_MUTATION_TIMEOUT_SECONDS) -> None:
-    """Block until `cohortpeople` is carrying fewer than `COHORT_MUTATION_CAPACITY` mutations.
+    """Block until `cohortpeople` is carrying no unfinished mutations.
 
     Bounded on purpose. A mutation this sweep did not enqueue can hold the table for as long as it
     likes, and the ClickHouse client is configured with no practical socket timeout, so an unbounded
