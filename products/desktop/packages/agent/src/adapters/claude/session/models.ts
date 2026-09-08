@@ -1,6 +1,8 @@
 import {
   DEFAULT_OPTION_META_KEY,
   OPTION_DOCS_URL_META_KEY,
+  supports1MContext,
+  supportsFastMode,
 } from "@posthog/shared";
 import {
   EFFORT_LEVEL_DOCS_URLS,
@@ -45,21 +47,7 @@ export function rerootedModelOptions(
   return { model: modelId, fallbackModel };
 }
 
-const MODELS_WITH_1M_CONTEXT = new Set([
-  "claude-opus-4-7",
-  "claude-opus-4-8",
-  "claude-opus-5",
-  "claude-sonnet-4-6",
-  "claude-sonnet-5",
-  "claude-fable-5",
-  "claude-fable-5-1",
-]);
-
-// Normalized like the effort lookup below: the gateway serves some ids
-// provider-qualified, and a raw check there would silently drop the model to 200k.
-export function supports1MContext(modelId: string): boolean {
-  return MODELS_WITH_1M_CONTEXT.has(normalizeModelId(modelId));
-}
+export { supports1MContext, supportsFastMode };
 
 export const CONTEXT_WINDOW_1M_BETA = "context-1m-2025-08-07";
 export const CONTEXT_WINDOW_200K_TOKENS = 200_000;
@@ -104,16 +92,6 @@ const MODELS_TO_EXCLUDE_MCP_TOOLS = new Set(["claude-haiku-4-5"]);
 
 export function supportsMcpInjection(modelId: string): boolean {
   return !MODELS_TO_EXCLUDE_MCP_TOOLS.has(modelId);
-}
-
-const MODELS_WITH_FAST_MODE = new Set([
-  "claude-opus-4-7",
-  "claude-opus-4-8",
-  "claude-opus-5",
-]);
-
-export function supportsFastMode(modelId: string): boolean {
-  return MODELS_WITH_FAST_MODE.has(normalizeModelId(modelId));
 }
 
 export function getFastModeOptions(
