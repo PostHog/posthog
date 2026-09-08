@@ -537,7 +537,7 @@ def fork_reusable_widget(*, notebook: Notebook, node_id: str, user: User) -> Wid
         widget.current_version = version
         widget.save(update_fields=["current_version"])
         locked_instance.widget = widget
-        locked_instance.pinned_version = version
+        locked_instance.pinned_version = None
         locked_instance.save(update_fields=["widget", "pinned_version"])
     return get_widget_status(notebook=notebook, node_id=node_id)
 
@@ -671,6 +671,7 @@ def read_reusable_widget_source(*, team_id: int, widget_id: UUID, version_id: UU
             team_id=team_id,
             canvas_id=widget.canvas_id,
             version_id=version.canvas_source_version_id,
+            allow_draft=version.id == widget.pending_version_id,
         )
     except canvas_facade.NotebookCanvasError as error:
         raise WidgetError("This reusable widget source is unavailable.", "source_unavailable") from error

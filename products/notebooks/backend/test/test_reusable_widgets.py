@@ -1,12 +1,19 @@
+import gzip
+import json
+import hashlib
 from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.utils import timezone
+
+from parameterized import parameterized
 from rest_framework.exceptions import PermissionDenied
 
 from posthog.models import Team
 
+from products.canvas.backend.models import Canvas, CanvasSourceVersion
 from products.canvas.backend.notebook_integration import CanvasGenerationState, NotebookCanvasVersion
 from products.notebooks.backend.models import (
     GeneratedWidget,
@@ -36,6 +43,7 @@ from products.notebooks.backend.widgets import (
     run_widget_generation_job,
     set_widget_instance_version,
 )
+from products.tasks.backend.models import Channel
 
 
 def _markdown_content(markdown: str) -> dict[str, object]:
@@ -139,6 +147,67 @@ class TestReusableWidgets(APIBaseTest):
                 },
                 format="json",
             )
+
+    @parameterized.expand([("published", False), ("draft", True)])
+    def test_source_reads_the_requested_version_without_publishing_the_draft(
+        self, _name: str, request_draft: bool
+    ) -> None:
+        channel = Channel.objects.for_team(self.team.id).create(team=self.team, name="Widget previews")
+        canvas = Canvas.objects.for_team(self.team.id).create(
+            team=self.team,
+            id=self.widget.canvas_id,
+            channel=channel,
+            name="Revenue widget",
+            source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET,
+        )
+        source_objects: dict[str, bytes] = {}
+        source_versions = []
+        for is_draft in [False, True]:
+            source = f"export default function Widget() {{ return <div>{'Draft' if is_draft else 'Published'}</div> }}"
+            canonical = json.dumps({"files": {"src/canvas.tsx": source}}).encode()
+            object_key = f"canvas_source/test-{'draft' if is_draft else 'published'}.json.gz"
+            source_objects[object_key] = gzip.compress(canonical)
+            source_versions.append(
+                CanvasSourceVersion.objects.for_team(self.team.id).create(
+                    team=self.team,
+                    canvas=canvas,
+                    id=uuid4() if is_draft else self.version.canvas_source_version_id,
+                    draft=is_draft,
+                    source_hash=hashlib.sha256(canonical).hexdigest(),
+                    source_object_key=object_key,
+                    source_size=len(canonical),
+                )
+            )
+        canvas.current_source_version = source_versions[0]
+        canvas.save(update_fields=["current_source_version"])
+        draft = GeneratedWidgetVersion.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            widget=self.widget,
+            canvas_source_version_id=source_versions[1].id,
+            parent_version=self.version,
+            operation=GeneratedWidgetVersion.Operation.IMPROVE,
+        )
+        self.widget.pending_version = draft
+        self.widget.publication_status = GeneratedWidget.PublicationStatus.PUBLISHED
+        self.widget.published_at = timezone.now()
+        self.widget.save(update_fields=["pending_version", "publication_status", "published_at"])
+
+        with patch("products.canvas.backend.build_service.object_storage.read_bytes", side_effect=source_objects.get):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/notebook_widgets/{self.widget.id}/source/",
+                {"version_id": str(draft.id)} if request_draft else {},
+            )
+
+        assert response.status_code == 200, response.json()
+        expected_label = "Draft" if request_draft else "Published"
+        assert response.json()["source"] == (
+            f"export default function Widget() {{ return <div>{expected_label}</div> }}"
+        )
+        self.widget.refresh_from_db()
+        source_versions[1].refresh_from_db()
+        assert self.widget.current_version_id == self.version.id
+        assert self.widget.pending_version_id == draft.id
+        assert source_versions[1].draft
 
     def test_publish_saves_demo_data_and_unpins_the_source_instance(self) -> None:
         response = self._publish()
@@ -568,6 +637,7 @@ class TestReusableWidgets(APIBaseTest):
         assert self.instance.widget_id != self.widget.id
         assert self.instance.widget.publication_status == GeneratedWidget.PublicationStatus.PRIVATE
         assert self.instance.widget.canvas_id == forked_canvas_id
-        assert self.instance.pinned_version_id == self.instance.widget.current_version_id
+        assert self.instance.pinned_version_id is None
+        assert response.json()["current_version_id"] == str(self.instance.widget.current_version_id)
         assert self.instance.widget.current_version is not None
         assert self.instance.widget.current_version.canvas_source_version_id == forked_source_version_id

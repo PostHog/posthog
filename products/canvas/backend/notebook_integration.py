@@ -300,7 +300,9 @@ def list_notebook_canvas_versions(
     return result
 
 
-def get_notebook_canvas_source(*, team_id: int, canvas_id: UUID, version_id: UUID | None = None) -> str:
+def get_notebook_canvas_source(
+    *, team_id: int, canvas_id: UUID, version_id: UUID | None = None, allow_draft: bool = False
+) -> str:
     canvas = (
         Canvas.objects.for_team(team_id)
         .filter(id=canvas_id, deleted=False, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
@@ -311,11 +313,10 @@ def get_notebook_canvas_source(*, team_id: int, canvas_id: UUID, version_id: UUI
     resolved_version_id = version_id or canvas.current_source_version_id
     if resolved_version_id is None:
         raise NotebookCanvasNotFoundError
-    version = (
-        CanvasSourceVersion.objects.for_team(team_id)
-        .filter(id=resolved_version_id, canvas_id=canvas.id, draft=False)
-        .first()
-    )
+    versions = CanvasSourceVersion.objects.for_team(team_id).filter(id=resolved_version_id, canvas_id=canvas.id)
+    if not allow_draft:
+        versions = versions.filter(draft=False)
+    version = versions.first()
     if version is None:
         raise NotebookCanvasNotFoundError
     try:

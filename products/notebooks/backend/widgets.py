@@ -1229,7 +1229,7 @@ def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
                 widget.name = title
                 widget_update_fields.append("name")
             widget.save(update_fields=widget_update_fields)
-            if widget.publication_status == GeneratedWidget.PublicationStatus.PRIVATE:
+            if widget.publication_status == GeneratedWidget.PublicationStatus.PRIVATE and instance.pinned_version_id:
                 instance.pinned_version = version
                 instance.save(update_fields=["pinned_version"])
             locked_job.status = GeneratedWidgetGenerationJob.Status.COMPLETED
@@ -1720,8 +1720,9 @@ def revert_widget_version(
         widget.current_version = version
         widget.name = title
         widget.save(update_fields=["current_version", "name"])
-        locked_instance.pinned_version = version
-        locked_instance.save(update_fields=["pinned_version"])
+        if locked_instance.pinned_version_id:
+            locked_instance.pinned_version = version
+            locked_instance.save(update_fields=["pinned_version"])
     return get_widget_status(notebook=notebook, node_id=node_id)
 
 

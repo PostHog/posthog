@@ -1,6 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
 
 import { LemonBanner, LemonButton, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
@@ -86,6 +85,7 @@ export function NotebookNodeGeneratedWidgetSettings({
         loadStatus,
         loadVersions,
         openGenerationModal,
+        openPublishModal,
         openSourceModal,
         followLatestVersion,
         forkReusableWidget,
@@ -124,25 +124,6 @@ export function NotebookNodeGeneratedWidgetSettings({
     const initialPrompt = attributes.prompt ?? ''
     const visibleGenerationError =
         generationError || (!isWorking && !generationRequestLoading ? status?.error_detail : null)
-
-    useEffect(() => {
-        if (!status) {
-            return
-        }
-        if (!status.is_reusable) {
-            if (attributes.id || attributes.version || attributes.inputs) {
-                updateAttributes({ id: undefined, version: undefined, inputs: undefined })
-            }
-            return
-        }
-        if (!status.widget_id) {
-            return
-        }
-        const nextVersion = status.pinned_version_id ?? undefined
-        if (attributes.id !== status.widget_id || attributes.version !== nextVersion) {
-            updateAttributes({ id: status.widget_id, version: nextVersion })
-        }
-    }, [attributes.id, attributes.inputs, attributes.version, status, updateAttributes])
 
     // A null status means the first status response has not arrived. Never show the initial
     // generation form here, or an editor could start a job on a widget that already has versions
@@ -241,7 +222,7 @@ export function NotebookNodeGeneratedWidgetSettings({
                             className="mt-1"
                             data-attr="widget-version-select"
                         />
-                        <div className="mt-1 flex items-center justify-between text-xs text-muted">
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
                             <span>
                                 {versions.length} of {versionsCount} versions loaded
                             </span>
@@ -249,6 +230,26 @@ export function NotebookNodeGeneratedWidgetSettings({
                                 <LemonButton size="xsmall" onClick={loadMoreVersions} loading={versionsLoading}>
                                     Load older versions
                                 </LemonButton>
+                            ) : null}
+                            <span>{status.pinned_version_id ? 'Pinned to a version' : 'Following latest version'}</span>
+                            {isEditable && !isWorking ? (
+                                <div className="ml-auto flex flex-wrap items-center gap-2">
+                                    {status.pinned_version_id ? (
+                                        <LemonButton size="xsmall" onClick={followLatestVersion} loading={pinInFlight}>
+                                            Follow latest version
+                                        </LemonButton>
+                                    ) : null}
+                                    {selectedVersionId && status.pinned_version_id !== selectedVersionId ? (
+                                        <LemonButton size="xsmall" onClick={pinSelectedVersion} loading={pinInFlight}>
+                                            Pin this version
+                                        </LemonButton>
+                                    ) : null}
+                                    {!status.is_reusable && status.lifecycle_status === 'ready' ? (
+                                        <LemonButton size="xsmall" onClick={openPublishModal}>
+                                            Make reusable…
+                                        </LemonButton>
+                                    ) : null}
+                                </div>
                             ) : null}
                         </div>
                         {versionsError && !versionsLoading ? (
@@ -308,17 +309,6 @@ export function NotebookNodeGeneratedWidgetSettings({
                     </>
                 ) : hasVersions ? (
                     <>
-                        {isEditable && selectedVersionId ? (
-                            status.pinned_version_id === selectedVersionId ? (
-                                <LemonButton onClick={followLatestVersion} loading={pinInFlight}>
-                                    Follow latest version
-                                </LemonButton>
-                            ) : (
-                                <LemonButton onClick={pinSelectedVersion} loading={pinInFlight}>
-                                    Pin this version
-                                </LemonButton>
-                            )
-                        ) : null}
                         {!isCurrentVersion && isEditable && !status.is_reusable ? (
                             <LemonButton onClick={restoreSelectedVersion} loading={restoreInFlight}>
                                 Restore as new version

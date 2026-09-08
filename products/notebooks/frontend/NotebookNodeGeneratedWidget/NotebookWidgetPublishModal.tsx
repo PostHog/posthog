@@ -20,7 +20,7 @@ export function NotebookWidgetPublishModal(props: NotebookNodeGeneratedWidgetLog
         <LemonModal
             isOpen={publishModalOpen}
             onClose={closePublishModal}
-            title="Convert to reusable widget"
+            title="Make widget reusable"
             description="This publishes the widget to your project and saves a small snapshot of its current inputs as demo data."
             footer={
                 <>

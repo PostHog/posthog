@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconSearch } from '@posthog/icons'
 import { LemonBanner, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
@@ -49,14 +50,13 @@ export function ReusableWidgetCatalog(): JSX.Element {
             dataIndex: 'version_count',
         },
         {
-            title: 'Used in',
+            title: 'Uses',
             dataIndex: 'instance_count',
-            render: (count) => `${count} placement${count === 1 ? '' : 's'}`,
         },
         {
             title: 'Updated',
             dataIndex: 'updated_at',
-            render: (_, widget) => new Date(widget.updated_at).toLocaleDateString(),
+            render: (_, widget) => <TZLabel time={widget.updated_at} />,
         },
     ]
 

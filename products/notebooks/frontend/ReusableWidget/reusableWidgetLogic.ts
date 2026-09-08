@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -38,6 +38,7 @@ export interface reusableWidgetLogicValues {
     sourceModalOpen: boolean
     updateError: string | null
     updateInFlight: boolean
+    updateOperation: 'improve' | 'regenerate' | null
 }
 
 export interface reusableWidgetLogicActions {
@@ -71,7 +72,7 @@ export interface reusableWidgetLogicActions {
     updateFailed: (error: string) => { error: string }
     updateFinished: () => { value: true }
     updateReusableWidget: (operation?: 'improve' | 'regenerate') => { operation: 'improve' | 'regenerate' }
-    updateStarted: () => { value: true }
+    updateStarted: (operation?: 'improve' | 'regenerate') => { operation: 'improve' | 'regenerate' }
 }
 
 export interface reusableWidgetLogicMeta {
@@ -100,7 +101,7 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
         updateFailed: (error: string) => ({ error }),
         updateFinished: true,
         updateReusableWidget: (operation: 'improve' | 'regenerate' = 'improve') => ({ operation }),
-        updateStarted: true,
+        updateStarted: (operation: 'improve' | 'regenerate' = 'improve') => ({ operation }),
     }),
     reducers({
         artifactUnavailable: [
@@ -144,7 +145,14 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
             null as string | null,
             { updateStarted: () => null, updateFailed: (_, { error }) => error, updateFinished: () => null },
         ],
-        updateInFlight: [false, { updateStarted: () => true, updateFailed: () => false, updateFinished: () => false }],
+        updateOperation: [
+            null as 'improve' | 'regenerate' | null,
+            {
+                updateStarted: (_, { operation }) => operation,
+                updateFailed: () => null,
+                updateFinished: () => null,
+            },
+        ],
     }),
     loaders(({ props, values }) => ({
         reusableWidget: [
@@ -199,6 +207,9 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
             },
         ],
     })),
+    selectors({
+        updateInFlight: [(s) => [s.updateOperation], (operation): boolean => operation !== null],
+    }),
     listeners(({ actions, cache, props, values }) => ({
         openSourceModal: actions.loadSource,
         loadReusableWidgetSuccess: ({ reusableWidget }) => {
@@ -221,7 +232,7 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
             if (!values.currentTeamId || !values.reusableWidget || !prompt || values.updateInFlight) {
                 return
             }
-            actions.updateStarted()
+            actions.updateStarted(operation)
             cache.updateStartingVersion = values.reusableWidget.current_version.id
             try {
                 await reusableWidgetsGenerate(String(values.currentTeamId), props.widgetId, {

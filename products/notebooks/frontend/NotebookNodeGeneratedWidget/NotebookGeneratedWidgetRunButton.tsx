@@ -6,7 +6,6 @@ import { IconPlayFilled } from '@posthog/icons'
 
 import type { NotebookComponentToolbarProps } from 'lib/components/MarkdownNotebook/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { notebookNodeLogic } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -20,28 +19,19 @@ export function NotebookGeneratedWidgetRunButton({
     updateProps,
 }: NotebookComponentToolbarProps): JSX.Element | null {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const mountedNodeLogic = useMountedLogic(notebookNodeLogic)
     const { canEditNotebook, isShared } = useValues(mountedNotebookLogic)
 
     if (isShared || !canEditNotebook) {
         return null
     }
 
-    return (
-        <EditableNotebookGeneratedWidgetRunButton
-            node={node}
-            mountedNodeLogic={mountedNodeLogic}
-            updateProps={updateProps}
-        />
-    )
+    return <EditableNotebookGeneratedWidgetRunButton node={node} updateProps={updateProps} />
 }
 
 function EditableNotebookGeneratedWidgetRunButton({
-    mountedNodeLogic,
     node,
     updateProps,
 }: {
-    mountedNodeLogic: ReturnType<typeof notebookNodeLogic.build>
     node: NotebookComponentToolbarProps['node']
     updateProps: NotebookComponentToolbarProps['updateProps']
 }): JSX.Element {
@@ -70,39 +60,21 @@ function EditableNotebookGeneratedWidgetRunButton({
     }
     const logic = notebookNodeGeneratedWidgetLogic(logicProps)
     const { dataRefreshInFlight, runDataDependenciesDisabledReason, status } = useValues(logic)
-    const { openPublishModal, runDataDependencies } = useActions(logic)
-    const { setActions } = useActions(mountedNodeLogic)
+    const { runDataDependencies } = useActions(logic)
 
     useEffect(() => {
-        setActions([
-            status?.is_reusable && status.widget_id
-                ? {
-                      text: 'Open reusable widget',
-                      onClick: () => router.actions.push(urls.reusableWidget(status.widget_id!)),
-                  }
-                : status?.lifecycle_status === 'ready' && status.current_version_id
-                  ? {
-                        text: 'Convert to reusable widget',
-                        onClick: openPublishModal,
-                    }
-                  : undefined,
-        ])
-    }, [
-        openPublishModal,
-        setActions,
-        status?.current_version_id,
-        status?.is_reusable,
-        status?.lifecycle_status,
-        status?.widget_id,
-    ])
-
-    useEffect(() => {
-        if (!status) {
+        if (!status?.instance_id || !status.has_versions) {
             return
         }
+        const version = status.pinned_version_id ?? undefined
         if (!status.is_reusable) {
-            if (node.props.id || node.props.version || node.props.inputs) {
-                updateProps({ id: undefined, version: undefined, inputs: undefined })
+            if (node.props.id || node.props.version !== version) {
+                updateProps({
+                    nodeId,
+                    id: undefined,
+                    version,
+                    ...(node.props.id ? { inputs: undefined } : {}),
+                })
             }
             return
         }
@@ -115,15 +87,14 @@ function EditableNotebookGeneratedWidgetRunButton({
                 { source: binding.source, ...(binding.hog ? { hog: binding.hog } : {}) },
             ])
         )
-        const version = status.pinned_version_id ?? undefined
         if (
             node.props.id !== status.widget_id ||
             node.props.version !== version ||
             JSON.stringify(node.props.inputs ?? {}) !== JSON.stringify(inputs)
         ) {
-            updateProps({ id: status.widget_id, version, inputs })
+            updateProps({ nodeId, id: status.widget_id, version, inputs })
         }
-    }, [node.props.id, node.props.inputs, node.props.version, status, updateProps])
+    }, [nodeId, node.props.id, node.props.inputs, node.props.version, status, updateProps])
 
     return (
         <>
@@ -139,6 +110,11 @@ function EditableNotebookGeneratedWidgetRunButton({
             >
                 Run
             </LemonButton>
+            {status?.is_reusable && status.widget_id ? (
+                <LemonButton size="xsmall" onClick={() => router.actions.push(urls.reusableWidget(status.widget_id!))}>
+                    Open reusable widget
+                </LemonButton>
+            ) : null}
             <NotebookWidgetPublishModal {...logicProps} />
         </>
     )

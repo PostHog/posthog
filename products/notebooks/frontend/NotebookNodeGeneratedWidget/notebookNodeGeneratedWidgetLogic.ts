@@ -14,11 +14,13 @@ import {
     selectors,
 } from 'kea'
 import posthog from 'posthog-js'
+import { createElement } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 
 import { ApiError, isAbortError } from 'lib/api'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { Link } from 'lib/lemon-ui/Link'
 import {
     buildNotebookDependencyGraph,
     collectDependencyNodeIds,
@@ -27,6 +29,7 @@ import {
 import { notebookNodeStalenessLogic } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 import { notebookOperationsLogic } from 'scenes/notebooks/Notebook/notebookOperationsLogic'
 import { NotebookNodeType } from 'scenes/notebooks/types'
+import { urls } from 'scenes/urls'
 
 import {
     notebooksWidgetCancel,
@@ -991,7 +994,18 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         })
                         actions.closePublishModal()
                         actions.loadStatus()
-                        lemonToast.success('Widget added to the reusable widget catalog')
+                        lemonToast.success(
+                            createElement(
+                                'span',
+                                null,
+                                'Widget added to the ',
+                                createElement(
+                                    Link,
+                                    { to: `${urls.notebooks()}?tab=widgets` },
+                                    'reusable widget catalog'
+                                )
+                            )
+                        )
                     } catch (error) {
                         actions.publishFailed(errorMessage(error))
                     } finally {
