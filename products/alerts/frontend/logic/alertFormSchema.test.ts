@@ -246,6 +246,32 @@ describe('a target alert whose date has passed', () => {
         )
     })
 
+    // The scheduler disables an expired target alert, so turning one back on has to reach a future
+    // date. The server rejects that save, so the form has to name it first.
+    it('blocks turning an expired alert back on with its old date', () => {
+        const errors = getAlertFormValidationErrors(
+            { ...finishedAlert, enabled: true },
+            { savedTargetDate, savedEnabled: false }
+        )
+        expect(errors.forecast_config).toBe('The target date must be in the future.')
+    })
+
+    it('still saves an expired alert that stays turned off', () => {
+        const errors = getAlertFormValidationErrors(
+            { ...finishedAlert, enabled: false, name: 'Renamed' },
+            { savedTargetDate, savedEnabled: false }
+        )
+        expect(errors).toEqual({})
+    })
+
+    it('still saves an expired alert that was already on', () => {
+        const errors = getAlertFormValidationErrors(
+            { ...finishedAlert, enabled: true, name: 'Renamed' },
+            { savedTargetDate, savedEnabled: true }
+        )
+        expect(errors).toEqual({})
+    })
+
     it('blocks when the edit moves the date into the past, which the server also rejects', () => {
         const errors = getAlertFormValidationErrors(
             { ...finishedAlert, forecast_config: { ...savedForecastConfig, target_date: '2021-01-01' } },

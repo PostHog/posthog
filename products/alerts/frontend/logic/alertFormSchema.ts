@@ -120,6 +120,7 @@ const alertFormSchema = z
 
 export interface AlertValidationContext {
     savedTargetDate?: string
+    savedEnabled?: boolean
     insightInterval?: IntervalType | null
     projectTimezone?: string
 }
@@ -134,10 +135,13 @@ export function getAlertFormValidationErrors(
     if (forecast?.condition === ForecastConditionType.TARGET_BY_DATE) {
         const today = context.projectTimezone ? dayjsNowInTimezone(context.projectTimezone) : dayjs()
         // An unchanged date keeps its past-date pass, matching the server, so an expired alert can
-        // still be renamed or turned off. How far it reaches is checked either way, because
-        // regrouping the insight to a finer interval can push a saved date over the point limit.
+        // still be renamed or turned off. Turning one back on gives up that pass, also matching the
+        // server: the scheduler expires it again on its next sweep, so the enable never persists.
+        // How far the date reaches is checked either way, because regrouping the insight to a finer
+        // interval can push a saved date over the point limit.
+        const turningBackOn = alert.enabled === true && context.savedEnabled === false
         const dateError =
-            forecast.target_date === context.savedTargetDate
+            forecast.target_date === context.savedTargetDate && !turningBackOn
                 ? forecastTargetReachError(forecast.target_date, today, context.insightInterval)
                 : forecastTargetDateError(forecast.target_date, today, context.insightInterval)
         if (dateError) {

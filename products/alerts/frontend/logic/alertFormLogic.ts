@@ -689,6 +689,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         props.alert?.forecast_config?.condition === ForecastConditionType.TARGET_BY_DATE
                             ? props.alert.forecast_config.target_date
                             : undefined,
+                    savedEnabled: props.alert?.enabled,
                     insightInterval: props.insightInterval,
                     projectTimezone: props.projectTimezone,
                 }),
