@@ -71,8 +71,9 @@ export function SignalCardHeader({
                         signalCardSourceLine(signal)
                     )}
                 </span>
-                <span className="shrink-0 pl-1">
-                    · <TZLabel time={signal.timestamp} />
+                <span className="shrink-0 whitespace-pre">
+                    {' · '}
+                    <TZLabel time={signal.timestamp} />
                 </span>
             </span>
             {label && <span className="text-xs font-medium text-primary flex-1 truncate">{label}</span>}
