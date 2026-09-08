@@ -39,7 +39,7 @@ describe('WebExperimentVariant', () => {
         render(<WebExperimentVariant variant="test" />)
         await userEvent.click(screen.getByText('.subtitle'))
 
-        const secondPanel = screen.getByText('.subtitle').closest('[aria-expanded]') as HTMLElement
+        const secondPanel = screen.getByText('.subtitle').closest('.LemonCollapsePanel') as HTMLElement
         expect(secondPanel).toHaveAttribute('aria-expanded', 'true')
         expect(within(secondPanel).getByText('Select element')).toBeInTheDocument()
     })
