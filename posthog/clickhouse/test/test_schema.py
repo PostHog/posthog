@@ -146,7 +146,11 @@ def _kafka_topics_in_schema() -> set[str]:
 
 def test_dev_stack_pre_creates_every_kafka_table_topic():
     bootstrap = Path(__file__).parents[3] / "docker" / "kafka" / "topics.txt"
-    listed = {line.strip() for line in bootstrap.read_text().splitlines() if line.strip() and not line.startswith("#")}
+    listed = {
+        stripped
+        for line in bootstrap.read_text().splitlines()
+        if (stripped := line.strip()) and not stripped.startswith("#")
+    }
 
     missing = sorted(_kafka_topics_in_schema() - listed)
 
