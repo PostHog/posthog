@@ -2735,6 +2735,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       typeof meta?.taskOriginProduct === "string"
         ? meta.taskOriginProduct
         : undefined;
+    const taskSummarySupported = meta?.taskSummarySupported === true;
     const endRunWhenDone = meta?.endRunWhenDone === true;
     const spokenNarration = resolveSpokenNarration(meta);
     const bedrockGatewayVariant = resolveBedrockGatewayVariant(meta);
@@ -2759,6 +2760,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           background: meta?.mode === "background",
           peerMessaging: process.env.POSTHOG_AGENT_PEER_MESSAGING === "1",
           taskOriginProduct,
+          taskSummarySupported,
           endRunWhenDone,
         },
       );
