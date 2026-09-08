@@ -192,6 +192,18 @@ export function formatInputValidationError(toolName: string, error: z.ZodError):
     return `Invalid input for "${toolName}": ${[...new Set(parts)].join('; ')}`
 }
 
+/** Per-property cap on the collected detail — keeps event cardinality bounded
+ *  even if an agent sends a pathological payload. */
+const MAX_VALIDATION_DETAIL_ENTRIES = 25
+
+/** Depth cap on the descent into `invalid_union` branches. The generated
+ *  schemas express a nullable field as `union([X, null])`, and nest those a
+ *  couple of levels deep (a nullable object whose own fields are nullable);
+ *  past that the extra paths localize nothing and only cost cardinality. */
+const MAX_VALIDATION_UNION_DEPTH = 4
+
+type ZodIssue = z.ZodError['issues'][number]
+
 /** Field-name/issue-code pairs pulled from a Zod failure — the input-free half
  *  of {@link formatInputValidationError}, safe to attach to a captured
  *  `$mcp_tool_call` so a dashboard can localize which parameter agents get
@@ -202,7 +214,30 @@ export function formatInputValidationError(toolName: string, error: z.ZodError):
 export function extractZodValidationDetail(error: z.ZodError): { fields: string[]; codes: string[] } {
     const fields = new Set<string>()
     const codes = new Set<string>()
-    for (const issue of error.issues) {
+    collectZodIssueDetail(error.issues, [], 0, fields, codes)
+    return {
+        fields: [...fields].slice(0, MAX_VALIDATION_DETAIL_ENTRIES),
+        codes: [...codes].slice(0, MAX_VALIDATION_DETAIL_ENTRIES),
+    }
+}
+
+/** A failing union reports one `invalid_union` issue whose path stops at the
+ *  union itself; the branch issues that name the offending leaf live in
+ *  `issue.errors`, with paths relative to that boundary. Descending and
+ *  re-prefixing them is what turns `threshold.configuration.bounds` /
+ *  `invalid_union` into `threshold.configuration.bounds.upper` /
+ *  `invalid_type`. */
+function collectZodIssueDetail(
+    issues: readonly ZodIssue[],
+    prefix: readonly (string | number | symbol)[],
+    depth: number,
+    fields: Set<string>,
+    codes: Set<string>
+): void {
+    for (const issue of issues) {
+        if (fields.size >= MAX_VALIDATION_DETAIL_ENTRIES) {
+            return
+        }
         codes.add(issue.code)
         if (issue.code === 'unrecognized_keys') {
             for (const key of issue.keys) {
@@ -210,9 +245,14 @@ export function extractZodValidationDetail(error: z.ZodError): { fields: string[
             }
             continue
         }
-        fields.add(issue.path.map(String).join('.') || '(root)')
+        const path = [...prefix, ...issue.path]
+        fields.add(path.map(String).join('.') || '(root)')
+        if (issue.code === 'invalid_union' && depth < MAX_VALIDATION_UNION_DEPTH) {
+            for (const branch of issue.errors) {
+                collectZodIssueDetail(branch, path, depth + 1, fields, codes)
+            }
+        }
     }
-    return { fields: [...fields].slice(0, 25), codes: [...codes].slice(0, 25) }
 }
 
 /** Whether the tool's input schema declares an `output_format` field. */

@@ -1149,6 +1149,38 @@ describe('exec tool', () => {
             expect(serialized).not.toContain('SENSITIVE')
         })
 
+        it('descends into union branches to name the failing leaf field', () => {
+            // The generated schemas express a nullable field as union([X, null]), so a
+            // wrong-typed leaf surfaces as one invalid_union issue stopping at the union
+            // boundary — the concrete field and code only exist in issue.errors.
+            const schema = z.object({
+                threshold: z.object({
+                    configuration: z.object({
+                        bounds: z
+                            .union([
+                                z.object({
+                                    lower: z.union([z.number(), z.null()]).optional(),
+                                    upper: z.union([z.number(), z.null()]).optional(),
+                                }),
+                                z.null(),
+                            ])
+                            .optional(),
+                        type: z.enum(['absolute', 'percentage']),
+                    }),
+                }),
+            })
+            const result = schema.safeParse(
+                { threshold: { configuration: { bounds: { upper: '100-SENSITIVE' }, type: 'absolute' } } },
+                { reportInput: true }
+            )
+            expect(result.success).toBe(false)
+            const detail = extractZodValidationDetail((result as { error: z.ZodError }).error)
+
+            expect(detail.fields).toContain('threshold.configuration.bounds.upper')
+            expect(detail.codes).toContain('invalid_type')
+            expect(JSON.stringify(detail)).not.toContain('SENSITIVE')
+        })
+
         it('surfaces rejected key names for unrecognized properties', () => {
             const schema = z.object({ name: z.string() }).strict()
             const result = schema.safeParse({ name: 'ok', notifcation_targets: ['x'] }, { reportInput: true })
