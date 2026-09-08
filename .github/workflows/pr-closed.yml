@@ -109,10 +109,8 @@ jobs:
                   echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
             # uv (repo convention): --no-project skips the monorepo sync, --with
             # pins the first-party SDK (exempted from the 7-day soak in [tool.uv]).
-            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+            - uses: ./.github/actions/setup-uv
               if: steps.gate.outputs.had_preview == 'true'
-              with:
-                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
             - name: Destroy preview box + pen
               if: steps.gate.outputs.had_preview == 'true'
               working-directory: tools/hogbox-preview
