@@ -100,8 +100,8 @@ repository change was the row's own `updated_at`.
 Fires when a Space's or a Task's repository configuration changes. Nothing is captured when a
 write resubmits the same repository set and the same integration.
 
-| Property                         | Type    | Description                                                                                     |
-| -------------------------------- | ------- | ----------------------------------------------------------------------------------------------- |
+| Property                         | Type    | Description                                                                                       |
+| -------------------------------- | ------- | ------------------------------------------------------------------------------------------------- |
 | `subject`                        | `str`   | `space` or `task`                                                                                 |
 | `trigger`                        | `str`   | `space_settings_edit`, `task_settings_edit`, `task_created`, or `github_integration_disconnected` |
 | `team_id`                        | `int`   |                                                                                                   |
@@ -138,21 +138,21 @@ dialog fires both a task-level and a space-level change from a single click. Two
 Fires when a Space's CONTEXT.md is published or cleared. Carries byte counts only; CONTEXT.md is
 customer-authored free text.
 
-| Property                 | Type   | Description                                                     |
-| ------------------------ | ------ | --------------------------------------------------------------- |
-| `action`                 | `str`  | `published` or `cleared`                                          |
-| `source`                 | `str`  | `user` or `agent`                                                 |
-| `storage`                | `str`  | `legacy_instructions` or `context_wiki`                            |
+| Property                 | Type   | Description                                                         |
+| ------------------------ | ------ | ------------------------------------------------------------------- |
+| `action`                 | `str`  | `published` or `cleared`                                            |
+| `source`                 | `str`  | `user` or `agent`                                                   |
+| `storage`                | `str`  | `legacy_instructions` or `context_wiki`                             |
 | `actor_type`             | `str?` | `user_or_api`, `task_agent`, or `loop_agent` for context-wiki edits |
-| `team_id`                | `int`  |                                                                   |
-| `channel_id`             | `str`  |                                                                   |
-| `previous_version`       | `int?` | 0 when there was none; null for context-wiki commits               |
-| `new_version`            | `int?` | Null on `cleared`                                                 |
-| `is_first_version`       | `bool` |                                                                   |
-| `content_bytes`          | `int`  | Length only, never content                                        |
-| `previous_content_bytes` | `int?` | Gives edit magnitude                                              |
-| `base_version_provided`  | `bool` | Whether the client used the optimistic-concurrency guard          |
-| `versions_deleted`       | `int?` | `cleared` only                                                    |
+| `team_id`                | `int`  |                                                                     |
+| `channel_id`             | `str`  |                                                                     |
+| `previous_version`       | `int?` | 0 when there was none; null for context-wiki commits                |
+| `new_version`            | `int?` | Null on `cleared`                                                   |
+| `is_first_version`       | `bool` |                                                                     |
+| `content_bytes`          | `int`  | Length only, never content                                          |
+| `previous_content_bytes` | `int?` | Gives edit magnitude                                                |
+| `base_version_provided`  | `bool` | Whether the client used the optimistic-concurrency guard            |
+| `versions_deleted`       | `int?` | `cleared` only                                                      |
 
 `source` is load-bearing: a loop configured with `update_context` republishes on every fire, so
 an hourly loop produces hundreds of rows a month for one Space. Filter to `source=user` for any

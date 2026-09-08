@@ -51,6 +51,7 @@ def _capture_context_page_update(
     organization_id,  # noqa: ANN001
     request: Request,
     *,
+    path: str,
     channel_id: str | None,
     is_first_version: bool,
     content_bytes: int,
@@ -58,10 +59,17 @@ def _capture_context_page_update(
 ) -> None:
     if channel_id is None:
         return
+    path_parts = path.split("/")
+    if len(path_parts) != 4 or path_parts[0] != "projects" or path_parts[2] != "spaces":
+        return
+    try:
+        team_id = int(path_parts[1])
+    except ValueError:
+        return
     channel = (
         Channel.objects.unscoped()
         .select_related("team")
-        .filter(id=channel_id, team__organization_id=organization_id)
+        .filter(id=channel_id, team_id=team_id, team__organization_id=organization_id)
         .first()
     )
     if channel is None:
@@ -257,6 +265,7 @@ def _write_page(organization_id, request: Request, *, team_id=None) -> Response:
     _capture_context_page_update(
         organization_id,
         request,
+        path=serializer.validated_data["path"],
         channel_id=channel_id,
         is_first_version=is_first_version,
         content_bytes=len(content.encode("utf-8")),

@@ -315,7 +315,7 @@ class TestContextLayerAPI(APIBaseTest):
 
         assert response.status_code == 200, response.content
         capture.assert_called_once()
-        properties = capture.call_args.kwargs
+        properties = dict(capture.call_args.kwargs)
         assert properties.pop("team") == self.team
         assert properties == {
             "user_id": self.user.id,
