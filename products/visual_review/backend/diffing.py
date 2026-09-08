@@ -33,10 +33,10 @@ def classify_compare_result(result: CompareResult) -> ChangeKind | None:
     drives `_diff_snapshot` below; keeping it here means the production
     branch and the tests can't drift.
 
-    When the pair aligned, the pixel tier reads the residual and `ssim_score`
-    is already measured over the matched rows, so a page that only moved down
-    is judged on what changed rather than on everything the shift dragged
-    along. A shift taller than the absorb cap is its own kind, because moving
+    When the pair aligned, the pixel tier reads the residual plus the area of
+    the rows the shift added or removed, and `ssim_score` is already measured
+    over the matched rows, so a page that only moved down is judged on what
+    changed rather than on everything the shift dragged along. A shift taller than the absorb cap is its own kind, because moving
     a block is a change a reviewer can act on even when the content in it is
     identical.
 
@@ -45,7 +45,7 @@ def classify_compare_result(result: CompareResult) -> ChangeKind | None:
     that sizes differed is recorded separately on `DiffMetadata`.
     """
     shift = result.row_shift
-    pixel_percentage = shift.residual_percentage if shift else result.diff_percentage
+    pixel_percentage = result.aligned_diff_percentage
     shifted_rows = shift.shifted_rows if shift else 0
 
     if pixel_percentage >= PIXEL_DIFF_THRESHOLD_PERCENT:

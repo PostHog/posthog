@@ -68,10 +68,11 @@ class CompareResult:
     thumbnail_hash: str
     size_mismatch: bool  # baseline and current have different dimensions
     cluster_summary: ClusterSummary | None  # None when not computed (size mismatch / no thumbnail-only mode)
-    # The residual after row alignment paired the rows that exist in both
-    # images. Falls back to the naive numbers above when `row_shift` is None,
-    # so a caller that always stores these keeps the unaligned behavior for
-    # free.
+    # What still differs once row alignment paired the rows that exist in
+    # both images: the residual plus the rows the shift added or removed, so
+    # a band of new rows is a change the size of its own area. Falls back to
+    # the naive numbers above when `row_shift` is None, so a caller that
+    # always stores these keeps the unaligned behavior for free.
     aligned_diff_pixel_count: int
     aligned_diff_percentage: float
     # None when there was nothing to align, or when pixelhog could not align
@@ -139,15 +140,21 @@ def compare_images(
     # artifact row records and what the frontend scales its overlays by.
     diff_width, diff_height = width, height
     if alignment is not None and aligned:
-        aligned_diff_pixel_count = alignment.residual_count
+        # The rows a shift added or removed have no counterpart, so the residual
+        # does not see them. They still are a change the size of their area:
+        # two rows on a tall page is nothing, two rows on a small component is
+        # a bar across it.
+        band_pixel_count = (alignment.inserted_rows + alignment.deleted_rows) * width
+        aligned_diff_pixel_count = alignment.residual_count + band_pixel_count
         aligned_diff_percentage = (aligned_diff_pixel_count / total_pixels * 100) if total_pixels > 0 else 0.0
+        residual_percentage = (alignment.residual_count / total_pixels * 100) if total_pixels > 0 else 0.0
         ssim_score = cmp.aligned_ssim(alignment)
         row_shift = RowShift(
             inserted_rows=alignment.inserted_rows,
             deleted_rows=alignment.deleted_rows,
             changed_rows=alignment.changed_rows,
             residual_pixel_count=alignment.residual_count,
-            residual_percentage=round(aligned_diff_percentage, 4),
+            residual_percentage=round(residual_percentage, 4),
             raw_diff_percentage=round(diff_percentage, 4),
             bands=[ShiftBand(y=b.y, rows=b.rows, kind=b.kind) for b in alignment.bands],
         )

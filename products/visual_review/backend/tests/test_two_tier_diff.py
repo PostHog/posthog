@@ -15,7 +15,7 @@ from products.visual_review.backend.facade.contracts import (
     SSIM_DISSIMILARITY_THRESHOLD,
 )
 from products.visual_review.backend.facade.enums import ChangeKind
-from products.visual_review.backend.tests.conftest import insert_background_rows, open_png, to_png
+from products.visual_review.backend.tests.conftest import insert_background_rows, make_striped_png, open_png, to_png
 
 
 def _make_png(width: int, height: int, color: tuple[int, int, int, int]) -> bytes:
@@ -257,6 +257,28 @@ class TestRowShiftClassification:
         assert result.row_shift is not None
         assert (result.row_shift.inserted_rows, result.row_shift.deleted_rows) == (moved_rows, moved_rows)
         assert result.row_shift.shifted_rows == moved_rows
+
+        assert classify_compare_result(result) == expected_kind
+
+    @pytest.mark.parametrize(
+        "page_rows, expected_kind",
+        [
+            pytest.param(20, ChangeKind.PIXEL, id="bar_across_a_small_component"),
+            pytest.param(3000, None, id="two_rows_on_a_tall_page"),
+        ],
+    )
+    def test_inserted_rows_count_their_own_area(self, page_rows: int, expected_kind: ChangeKind | None):
+        # The residual never sees rows that have no counterpart, so the cap
+        # alone would absorb two black rows across a twenty-row component.
+        # The band's own area has to count against the pixel threshold.
+        colors = [(200 + (i * 7) % 50, 200 + (i * 13) % 50, 220, 255) for i in range(page_rows)]
+        baseline = make_striped_png(colors, width=100)
+        current = insert_background_rows(baseline, y=page_rows // 2, rows=2, fill=(0, 0, 0, 255))
+
+        result = compare_images(baseline, current, with_thumbnail=False)
+        assert result.row_shift is not None
+        assert result.row_shift.shifted_rows == 2
+        assert result.row_shift.residual_percentage == 0
 
         assert classify_compare_result(result) == expected_kind
 
