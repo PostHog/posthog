@@ -10034,7 +10034,7 @@ export namespace Schemas {
       readonly last_notified_at: string | null;
       /** @nullable */
       readonly last_checked_at: string | null;
-      /** Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to use the default schedule. */
+      /** Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Real-time, 15-minute, and hourly alerts continue from that check. Daily alerts run at 01:00, weekly alerts run Monday at 03:00, and monthly alerts run on the first day at 04:00, in the project timezone. */
       schedule_start_time?: AlertScheduleStartTime | null;
       /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
       readonly checks: readonly AlertCheck[];
@@ -61365,7 +61365,7 @@ export namespace Schemas {
       readonly last_notified_at?: string | null;
       /** @nullable */
       readonly last_checked_at?: string | null;
-      /** Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to use the default schedule. */
+      /** Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Real-time, 15-minute, and hourly alerts continue from that check. Daily alerts run at 01:00, weekly alerts run Monday at 03:00, and monthly alerts run on the first day at 04:00, in the project timezone. */
       schedule_start_time?: AlertScheduleStartTime | null;
       /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
       readonly checks?: readonly AlertCheck[];
