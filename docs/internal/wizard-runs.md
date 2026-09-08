@@ -3,6 +3,14 @@
 The Wizard is a setup agent distributed as an npm package.
 A Wizard run records one execution of that agent inside a user-provided workspace.
 
+## Concurrent creation
+
+Cloud run creation holds a PostgreSQL transaction advisory lock for the project and user.
+The lock covers the active-run check, rolling hourly and daily limits, and run insertion.
+Concurrent requests for the same project and user wait until the first transaction commits or rolls back.
+The lock does not lock the `Team` row or serialize different users or projects.
+Local runs do not take this lock. Cloud dispatch starts after commit.
+
 ## Environments and workspaces
 
 V0 supports two configurations:
