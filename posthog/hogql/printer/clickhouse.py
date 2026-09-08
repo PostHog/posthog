@@ -1183,7 +1183,7 @@ class ClickHousePrinter(BasePrinter):
         # When self.settings exists, table-level settings are merged in visit() instead
         merged = (
             None
-            if is_top_level_query and self.settings
+            if is_top_level_query and not self.context.emit_top_level_settings
             else self._merge_table_top_level_settings(node.settings)
             if is_top_level_query and not self.settings
             else node.settings
