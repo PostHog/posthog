@@ -271,6 +271,7 @@ describe('accountSidebarConfigLogic', () => {
     it('keeps the draft open for retry and shows one notification when saving fails', async () => {
         silenceKeaLoadersErrors()
         const toastSpy = jest.spyOn(lemonToast, 'error')
+        const captureSpy = jest.spyOn(posthog, 'capture')
         useMocks({
             ...defaultMocks({ pinned_properties: [{ kind: 'custom_property', id: 'custom-1' }] }),
             patch: { [CONFIG_URL]: () => [500, { detail: 'Could not save pinned properties.' }] },
@@ -292,5 +293,6 @@ describe('accountSidebarConfigLogic', () => {
         expect(logic.values.isConfiguring).toBe(true)
         expect(logic.values.canSavePinnedProperties).toBe(true)
         expect(toastSpy).toHaveBeenCalledTimes(1)
+        expect(captureSpy).not.toHaveBeenCalledWith(AccountsEvents.PinnedPropertiesSaved, expect.anything())
     })
 })
