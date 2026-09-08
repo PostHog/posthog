@@ -774,6 +774,8 @@ class TestCreateVersionFromSourceInputSerializer(SimpleTestCase):
             ("file_and_directory", {"files": {"data": "a"}, "assets": {"data/events.csv": "AAAA"}}, "non_field_errors"),
             ("under_app_py", {"files": {"app.py/helper.py": "a"}}, "non_field_errors"),
             ("too_many_entries", {"files": {f"f{i}.txt": "a" for i in range(500)}}, "non_field_errors"),
+            ("overlong_segment", {"files": {"data/" + "a" * 256: "a"}}, "files"),
+            ("overlong_path", {"files": {"/".join(["d"] * 600) + "/x.txt": "a"}}, "files"),
         ]
     )
     def test_rejects_bad_attachments(self, _name, extra, error_field):

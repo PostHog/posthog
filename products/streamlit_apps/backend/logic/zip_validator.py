@@ -9,6 +9,11 @@ from io import BytesIO
 MAX_ZIP_SIZE = 10 * 1024 * 1024  # 10 MB
 MAX_UNCOMPRESSED_SIZE = 100 * 1024 * 1024  # 100 MB
 MAX_FILE_COUNT = 500
+# The sandbox unpacks every entry onto a real filesystem, which allows 255 bytes per name.
+# The whole-path bound keeps an entry clear of PATH_MAX once the sandbox prefix is added, and
+# inside the two-byte name length a zip header can hold.
+MAX_PATH_SEGMENT_BYTES = 255
+MAX_PATH_BYTES = 1024
 
 
 def _format_mb(size_bytes: int) -> str:
@@ -43,6 +48,10 @@ def attachment_path_error(path: str) -> str | None:
         return "Path must be a relative file path using '/' with no '.' or '..' segments."
     if any(ord(char) < 32 for char in path):
         return "Path cannot contain control characters."
+    if len(path.encode()) > MAX_PATH_BYTES:
+        return f"Path is too long (max {MAX_PATH_BYTES} bytes)."
+    if any(len(segment.encode()) > MAX_PATH_SEGMENT_BYTES for segment in path.split("/")):
+        return f"Each name in the path must be {MAX_PATH_SEGMENT_BYTES} bytes or fewer."
     if path == ROOT_APP_FILE:
         return f"{ROOT_APP_FILE} comes from the source field; pick another path."
     return None
