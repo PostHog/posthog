@@ -3453,8 +3453,9 @@ export const experimentLogic = kea<experimentLogicType>([
 
             actions.setPrimaryMetricsResultsLoading(false)
 
-            // Mark the review results task as complete when results are loaded for a launched experiment
-            if (values.experiment && isLaunched(values.experiment)) {
+            // Mark the review results task as complete when results are loaded for a launched experiment.
+            // Mounted check first: the load can outlive the page, and `values` reads throw once unmounted.
+            if (experimentLogic.findMounted(props) && values.experiment && isLaunched(values.experiment)) {
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ReviewExperimentResults)
             }
         },
