@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from structlog.testing import capture_logs
 
-from posthog.schema import IntervalType
+from posthog.schema import ForecastConfig, IntervalType
 
 from products.alerts.backend.forecasting.engine import (
     MAX_FORECAST_LOOKBACK_DAYS,
@@ -17,9 +17,11 @@ from products.alerts.backend.forecasting.engine import (
     ForecastExecutionError,
     ForecastResult,
     bounded_training_points,
+    default_horizon,
     forecast_reach_days,
     get_forecast_engine,
     horizon_for_target_date,
+    validate_forecast_horizon,
 )
 
 
@@ -164,6 +166,24 @@ class TestForecastReach:
     def test_horizon_rejects_a_date_beyond_the_cap(self) -> None:
         with pytest.raises(ValueError, match="within 92 days"):
             horizon_for_target_date(datetime.date(2027, 3, 1), IntervalType.DAY, datetime.date(2026, 3, 1))
+
+    @parameterized.expand(
+        [
+            ("hourly", IntervalType.HOUR, 7),
+            ("daily", IntervalType.DAY, 7),
+            ("weekly", IntervalType.WEEK, 7),
+            ("monthly clamps to the quarter cap", IntervalType.MONTH, 3),
+            ("none_defaults_to_daily", None, 7),
+        ]
+    )
+    def test_an_omitted_horizon_resolves_within_the_reach_cap(self, _name, interval, expected) -> None:
+        assert default_horizon(interval) == expected
+        validate_forecast_horizon(
+            ForecastConfig.model_validate(
+                {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"}
+            ),
+            interval,
+        )
 
     @parameterized.expand(
         [

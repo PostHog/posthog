@@ -31,7 +31,6 @@ from products.alerts.backend.evaluation.contract import (
 from products.alerts.backend.evaluation.detector import extract_trends_series
 from products.alerts.backend.evaluation.formatting import make_trends_value_formatter
 from products.alerts.backend.forecasting.engine import (
-    DEFAULT_HORIZON,
     DEFAULT_INTERVAL_WIDTH,
     MAX_FORECAST_LOOKBACK_DAYS,
     MAX_FORECAST_OUTPUT_POINTS,
@@ -39,6 +38,7 @@ from products.alerts.backend.forecasting.engine import (
     ForecastConfigurationError,
     ForecastResult,
     bounded_training_points,
+    default_horizon,
     get_forecast_engine,
     intervals_between,
     min_forecast_points,
@@ -59,7 +59,7 @@ def _horizon_from_config(
     start_date: date,
 ) -> int:
     if isinstance(config, FutureBreachForecastConfig):
-        return config.horizon if config.horizon is not None else DEFAULT_HORIZON
+        return config.horizon if config.horizon is not None else default_horizon(interval)
 
     target_date = date.fromisoformat(config.target_date)
     days = (target_date - start_date).days

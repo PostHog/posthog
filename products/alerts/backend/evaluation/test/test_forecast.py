@@ -127,6 +127,18 @@ class TestPredictedThresholdBreach:
         ]
         assert engine.calls == []
 
+    def test_a_monthly_forecast_without_a_horizon_stays_within_the_reach_cap(self) -> None:
+        engine = StubEngine(_forecast(["2026-04-01", "2026-05-01", "2026-06-01"], [90.0, 90.0, 90.0]))
+
+        with patch("products.alerts.backend.evaluation.forecast.get_forecast_engine", return_value=engine):
+            evaluate_with_forecast(
+                _series(n=14, interval=IntervalType.MONTH),
+                {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
+                _threshold(upper=1000.0),
+            )
+
+        assert engine.calls[0]["horizon"] == 3
+
     def test_first_point_forecast_outside_the_bound_fires(self) -> None:
         engine = StubEngine(
             _forecast(

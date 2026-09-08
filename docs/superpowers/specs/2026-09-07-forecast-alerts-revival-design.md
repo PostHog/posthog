@@ -29,7 +29,7 @@ At least 48 hourly observations or 14 daily, weekly, or monthly observations are
 
 A target date can be at most 92 calendar days ahead in the project timezone. This is a product guardrail, not a claim that every 92-day forecast is reliable. Annual goals should be represented by quarterly milestones.
 
-Future threshold breach uses the same 92-day absolute ceiling and defaults to seven insight intervals. A separate maximum of 250 returned forecast points bounds response size and rendering work while keeping the four-to-one history rule satisfiable under the 1,000-point training cap. Consequently, an hourly insight can look ahead at most 250 hours; longer-lived goals should use daily or weekly buckets.
+Future threshold breach uses the same 92-day absolute ceiling and defaults to seven insight intervals, lowered to the most that fit inside the ceiling when seven would pass it. A monthly insight therefore defaults to three intervals. A separate maximum of 250 returned forecast points bounds response size and rendering work while keeping the four-to-one history rule satisfiable under the 1,000-point training cap. Consequently, an hourly insight can look ahead at most 250 hours; longer-lived goals should use daily or weekly buckets.
 
 The target-date limit is checked both from the project-local current date and from the latest completed non-null observation. A stale insight cannot hide a longer effective extrapolation behind an apparently valid target date; it remains inconclusive until fresh data arrives.
 

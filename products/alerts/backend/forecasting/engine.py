@@ -1,5 +1,5 @@
 from datetime import date
-from math import ceil
+from math import ceil, floor
 from typing import Protocol
 
 from posthog.schema import ForecastConfig, FutureBreachForecastConfig, IntervalType
@@ -63,10 +63,16 @@ def intervals_between(start: date, end: date, interval: IntervalType | None) -> 
 
 
 def max_evaluable_horizon(interval: IntervalType | None) -> int:
+    # Rounds down because validate_forecast_horizon rejects a horizon whose reach passes the
+    # 92-day cap. Rounding up would return a horizon that cannot be saved.
     return min(
         MAX_FORECAST_OUTPUT_POINTS,
-        ceil(MAX_FORECAST_REACH_DAYS / _INTERVAL_DAYS.get(interval or IntervalType.DAY, 1)),
+        floor(MAX_FORECAST_REACH_DAYS / _INTERVAL_DAYS.get(interval or IntervalType.DAY, 1)),
     )
+
+
+def default_horizon(interval: IntervalType | None) -> int:
+    return min(DEFAULT_HORIZON, max_evaluable_horizon(interval))
 
 
 def validate_forecast_horizon(
@@ -74,7 +80,7 @@ def validate_forecast_horizon(
 ) -> None:
     config = parsed.root
     if check_horizon and isinstance(config, FutureBreachForecastConfig):
-        horizon = config.horizon if config.horizon is not None else DEFAULT_HORIZON
+        horizon = config.horizon if config.horizon is not None else default_horizon(interval)
         if horizon < 1:
             raise ValueError("Forecast horizon must be at least 1 interval")
         if horizon > MAX_FORECAST_OUTPUT_POINTS:

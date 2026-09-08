@@ -48,10 +48,10 @@ tools:
             forecast alert needs a time-series trends insight with no breakdown and an hour, day, week, or month
             interval, and it cannot run more often than that interval. Set forecast_config.condition to 'future_breach'
             to fire when the point forecast crosses the alert's threshold bounds within horizon future intervals
-            (horizon defaults to 7, and the alert still needs an absolute threshold with at least one of lower or
-            upper), or to 'target_by_date' to fire when the value forecast for target_date lands on the wrong side of
-            target (set target, target_date as a future ISO date, and target_direction 'at_least' or 'at_most'). A
-            forecast looks ahead at most 250 points and 92 days.
+            (horizon defaults to 7, or fewer when 7 intervals would pass the 92-day limit, and the alert still needs an
+            absolute threshold with at least one of lower or upper), or to 'target_by_date' to fire when the value
+            forecast for target_date lands on the wrong side of target (set target, target_date as a future ISO date,
+            and target_direction 'at_least' or 'at_most'). A forecast looks ahead at most 250 points and 92 days.
 
             calculation_interval sets how often the alert runs: real_time, every_15_minutes, hourly, daily, weekly, or
             monthly. real_time needs a Scale or Enterprise plan. every_15_minutes needs a Boost, Scale, or Enterprise
@@ -140,11 +140,11 @@ tools:
             with no breakdown and an hour, day, week, or month interval), or set it to null to switch back to threshold
             mode. detector_config and forecast_config are mutually exclusive, so send the other one as null in the same
             call when switching between those two modes. forecast_config takes either a 'future_breach' condition
-            (optional horizon, default 7, evaluated against the alert's absolute threshold bounds) or a 'target_by_date'
-            condition (target, a future ISO target_date, and target_direction 'at_least' or 'at_most'). For SQL-insight
-            alerts the config is HogQLAlertConfig (column, evaluation 'last_row'/'first_row'/'any_row', label_column).
-            To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set
-            snoozed_until to null.
+            (optional horizon, default 7 or fewer when 7 intervals would pass the 92-day limit, evaluated against the
+            alert's absolute threshold bounds) or a 'target_by_date' condition (target, a future ISO target_date, and
+            target_direction 'at_least' or 'at_most'). For SQL-insight alerts the config is HogQLAlertConfig (column,
+            evaluation 'last_row'/'first_row'/'any_row', label_column). To snooze an alert, set snoozed_until to a
+            relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.
 
             Note: Slack/webhook/Discord delivery for this alert lives as a HogFunction. See the recipe on
             cdp-functions-create for the dedupe-and-create flow; to change or remove an existing destination, find it
