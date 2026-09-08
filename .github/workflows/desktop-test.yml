@@ -19,6 +19,8 @@ on:
     # run clear of desktop-update-e2e.yml, the other daily job on that pool, at 07:00.
     schedule:
         - cron: '3 5 * * *'
+    # desktop-tag.yml dispatches this workflow on the tree it is about to tag.
+    workflow_dispatch:
 
 concurrency:
     group: desktop-test-${{ github.head_ref || github.ref }}
