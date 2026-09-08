@@ -10,7 +10,7 @@ from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from temporalio import activity
 from temporalio.api.enums.v1 import EventType
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
@@ -1527,6 +1527,37 @@ class TestRunEvaluationWorkflow:
                 execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
             mock_increment_errors.assert_called_once_with(expected_label, provider="openai")
+
+    @pytest.mark.django_db(transaction=True)
+    def test_execute_llm_judge_activity_cancellation_is_counted_but_not_logged(self, setup_data, active_key_config):
+        evaluation_obj = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this accurate?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+        event_data = create_mock_event_data(team.id)
+
+        with (
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_errors") as mock_increment_errors,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.logger") as mock_logger,
+        ):
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_client.complete.side_effect = CancelledError("Cancelled")
+
+            with pytest.raises(CancelledError):
+                execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+            mock_increment_errors.assert_called_once_with("cancelled", provider="openai")
+            mock_logger.exception.assert_not_called()
 
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity_terminal_team_requires_provider_key(self, setup_data):
