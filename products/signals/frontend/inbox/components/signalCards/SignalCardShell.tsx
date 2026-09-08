@@ -49,6 +49,7 @@ export function SignalCardHeader({
             ? (signal.extra as { skill_name?: unknown } | undefined)?.skill_name
             : undefined
     const scoutName = typeof scoutSkillName === 'string' ? scoutDisplayName(scoutSkillName) : null
+    const sourceLine = scoutName ? `Scout · ${scoutName}` : signalCardSourceLine(signal)
 
     return (
         <div
@@ -62,13 +63,13 @@ export function SignalCardHeader({
                 <span className="size-2.5 rounded-full shrink-0 bg-border" />
             )}
             <span className="flex min-w-0 items-center text-xs font-medium text-tertiary">
-                <span className="truncate">
+                <span className="truncate" title={sourceLine}>
                     {scoutName && typeof scoutSkillName === 'string' ? (
                         <>
                             Scout · <ScoutLink skillName={scoutSkillName} className="text-tertiary" />
                         </>
                     ) : (
-                        signalCardSourceLine(signal)
+                        sourceLine
                     )}
                 </span>
                 <span className="shrink-0 whitespace-pre">
