@@ -8225,6 +8225,52 @@
         },
         "feature_flag": "revamped-py-notebooks"
     },
+    "notebooks-widget-cancel": {
+        "description": "Cancel an active generated notebook widget job. Use the notebook short_id, the Widget tag's nodeId, and the generation_id supplied when starting the job or returned as active_job.id by notebooks-widget-status. Existing generated versions remain available.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Cancel notebook widget generation",
+        "title": "Cancel notebook widget generation",
+        "required_scopes": ["notebook:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "notebook-generated-widgets"
+    },
+    "notebooks-widget-generate": {
+        "description": "Generate or improve an interactive notebook widget from instructions and the notebook's completed SQL and Python dataframes. This tool's availability means generated Widget tags are enabled for the current user. First insert a Widget component with notebooks-add-cell: cell_type=\"component\", tag_name=\"Widget\", props={\"prompt\":\"Describe the visualization\"}, and a short title. If using markdown editing instead, insert <Widget nodeId=\"a-stable-unique-id\" prompt=\"Describe the visualization\" /> into a saved markdown notebook. Insertion alone does not start generation. Run all notebook SQL and Python dataframes first, then call this tool with the notebook short_id, the inserted node_id, prompt, and a fresh UUID generation_id. Reuse that UUID when retrying the same request. Use generation_operation=\"initial\" for a new widget, \"regenerate\" to replace it, or \"improve\" with expected_current_version_id to change the current version. Generation uses AI credits. Poll notebooks-widget-status until lifecycle_status is ready or failed; notebooks-widget-cancel stops an active job. Direct the user to the widget in the notebook to review and run it. Generated previews with dataframe access require the user's approval in the notebook.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Generate notebook widget",
+        "title": "Generate notebook widget",
+        "required_scopes": ["notebook:write", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true,
+        "feature_flag": "notebook-generated-widgets"
+    },
+    "notebooks-widget-status": {
+        "description": "Read a generated notebook widget's lifecycle_status, active job, current version, and automated security review. Use the notebook short_id and the Widget tag's nodeId. Poll while generating or building, waiting a few seconds between calls. Ready means the build finished; the user may still need to approve execution in the notebook. On failed or incompatible, read error_detail and error_code before retrying.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Get notebook widget generation status",
+        "title": "Get notebook widget generation status",
+        "required_scopes": ["notebook:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "notebook-generated-widgets"
+    },
     "opt-outs-add": {
         "description": "Opt one or more recipients (up to 1000 per call) out of marketing messages. Each entry can name its own message category via category_key; entries without one use the request-level category_key, or all marketing messages if omitted. Importing only ever opts recipients out, so repeating a call is safe.",
         "category": "Messaging",
