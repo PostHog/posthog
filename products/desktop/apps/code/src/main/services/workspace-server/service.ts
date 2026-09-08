@@ -264,7 +264,13 @@ async function pollHealth(url: string): Promise<boolean> {
   const deadline = Date.now() + HEALTH_POLL_TIMEOUT_MS;
   while (Date.now() < deadline) {
     try {
-      if ((await fetch(`${url}/health`)).ok) return true;
+      // Bound each probe on the remaining budget. A probe that connects but
+      // never answers would otherwise hold the loop past the deadline, and
+      // every workspace-server call would wait with no error and no retry.
+      const response = await fetch(`${url}/health`, {
+        signal: AbortSignal.timeout(deadline - Date.now()),
+      });
+      if (response.ok) return true;
     } catch {}
     await new Promise((r) => setTimeout(r, HEALTH_POLL_INTERVAL_MS));
   }
