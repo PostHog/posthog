@@ -105,8 +105,6 @@ class TestLinearIssueEmitter:
         assert result.extra["assignee_name"] == "Jane Doe"
         # The rest of the object is an internal id and an email address.
         assert "assignee" not in result.extra
-        # The eval fixtures predate the assignee column, so this is the only coverage of a populated
-        # assignee against a contract that forbids unknown keys.
         LinearIssueSignalExtra(**result.extra)
 
     @pytest.mark.parametrize(
@@ -120,8 +118,6 @@ class TestLinearIssueEmitter:
         ],
     )
     def test_assignee_degrades_to_none_without_raising(self, linear_issue_record, record_overrides):
-        # An assignee the emitter can't read has to become None rather than drop the issue, so a
-        # shape change upstream costs triage the context and nothing else.
         linear_issue_record.pop("assignee")
         linear_issue_record.update(record_overrides)
 
@@ -131,8 +127,7 @@ class TestLinearIssueEmitter:
         assert result.extra["assignee_name"] is None
 
     def test_a_failed_record_reaches_the_pipeline_log_without_the_assignee_object(self, linear_issue_record):
-        # The emitter raises on malformed labels, and the shared pipeline logs the record it handed
-        # over — the whole warehouse row, unless the source declares `assignee` unloggable.
+        # Malformed labels make the emitter raise, and the pipeline then logs the whole record.
         linear_issue_record["labels"] = "not-json"
 
         with patch.object(pipeline.logger, "exception") as log_exception:

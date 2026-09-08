@@ -182,8 +182,8 @@ class LinearIssueSignalExtra(SignalExtraBase):
     team_name: str | None
     created_at: str
     updated_at: str
-    # Defaulted, unlike the fields above: payloads emitted before this column existed carry no key,
-    # and an owner is context for triage rather than something a signal needs.
+    # Defaulted, unlike the fields above, because payloads emitted before this column existed
+    # carry no key.
     assignee_name: str | None = None
 
 
