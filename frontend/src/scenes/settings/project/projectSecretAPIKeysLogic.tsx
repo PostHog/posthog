@@ -31,6 +31,14 @@ export type EditingProjectKeyFormValues = ProjectSecretAPIKeyRequest & {
 
 export const MAX_PROJECT_API_KEYS_PER_PROJECT = 10
 
+/**
+ * The table keeps a row for every key loaded on mount, and the logic never reloads that list. A key
+ * removed in another tab therefore stays clickable, and the team-scoped viewset answers 404 for it.
+ * The response is expected for a key the table already lists, so those callers recover from it
+ * instead of raising it to error tracking.
+ */
+const isMissingKeyError = (error: unknown): boolean => (error as { status?: number } | null)?.status === 404
+
 // llm_gateway powers the new AI gateway here, so label it "AI gateway" (PAKs keep "LLM gateway").
 const PROJECT_SECRET_SCOPE_OBJECT_NAMES: Record<string, string> = {
     llm_gateway: 'AI gateway',
@@ -265,11 +273,14 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
                     try {
                         await api.projectSecretApiKeys.delete(id)
                         lemonToast.success('Project API key deleted')
-                        return values.keys.filter((key: ProjectSecretAPIKeyApi) => key.id !== id)
                     } catch (error: any) {
-                        lemonToast.error('Failed to delete project API key')
-                        throw error
+                        if (!isMissingKeyError(error)) {
+                            lemonToast.error('Failed to delete project API key')
+                            throw error
+                        }
+                        lemonToast.success('That project API key was already deleted')
                     }
+                    return values.keys.filter((key: ProjectSecretAPIKeyApi) => key.id !== id)
                 },
                 rollKey: async ({ id }: { id: string }) => {
                     const origKey = values.keys.find((key: ProjectSecretAPIKeyApi) => key.id === id)
@@ -284,6 +295,10 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
                         const storedKey = { ...rolledKey, value: '' }
                         return values.keys.map((key: ProjectSecretAPIKeyApi) => (key.id === id ? storedKey : key))
                     } catch (error: any) {
+                        if (isMissingKeyError(error)) {
+                            lemonToast.error('That project API key no longer exists, so we removed it from the list')
+                            return values.keys.filter((key: ProjectSecretAPIKeyApi) => key.id !== id)
+                        }
                         lemonToast.error('Failed to roll project API key')
                         throw error
                     }
@@ -304,7 +319,11 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
                 scopes: !scopes?.length ? ('Your API key needs at least one scope' as any) : undefined,
             }),
             submit: async (payload, breakpoint) => {
-                if (!values.editingKeyId || !values.currentTeamId) {
+                // The editor can close or move to another key while the request runs, so hold the
+                // submitted id. By the time the response lands, `values.editingKeyId` can be null or
+                // another key.
+                const submittedKeyId = values.editingKeyId
+                if (!submittedKeyId || !values.currentTeamId) {
                     return
                 }
 
@@ -313,13 +332,13 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
                     const { preset, ...apiPayload } = payload
 
                     const key =
-                        values.editingKeyId === 'new'
+                        submittedKeyId === 'new'
                             ? await api.projectSecretApiKeys.create(apiPayload)
-                            : await api.projectSecretApiKeys.update(values.editingKeyId, apiPayload)
+                            : await api.projectSecretApiKeys.update(submittedKeyId, apiPayload)
 
                     breakpoint()
 
-                    if (values.editingKeyId === 'new') {
+                    if (submittedKeyId === 'new') {
                         actions.createKeySuccess(key)
                     } else {
                         lemonToast.success('Project API key updated')
@@ -327,10 +346,24 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
 
                     actions.loadKeysSuccess([
                         key,
-                        ...values.keys.filter((k: ProjectSecretAPIKeyApi) => k.id !== values.editingKeyId),
+                        ...values.keys.filter((k: ProjectSecretAPIKeyApi) => k.id !== submittedKeyId),
                     ])
                     actions.setEditingKeyId(null)
                 } catch (error: any) {
+                    // A 404 on create comes from the project route, not from a missing key, so it
+                    // stays a real failure.
+                    if (submittedKeyId !== 'new' && isMissingKeyError(error)) {
+                        lemonToast.error('That project API key no longer exists, so we removed it from the list')
+                        actions.loadKeysSuccess(
+                            values.keys.filter((k: ProjectSecretAPIKeyApi) => k.id !== submittedKeyId)
+                        )
+                        // Another key can be open by now, so close only the editor that sent this
+                        // request. Closing the current one would discard its unsaved label and scopes.
+                        if (values.editingKeyId === submittedKeyId) {
+                            actions.setEditingKeyId(null)
+                        }
+                        return
+                    }
                     lemonToast.error('Failed to save project API key')
                     throw error
                 }

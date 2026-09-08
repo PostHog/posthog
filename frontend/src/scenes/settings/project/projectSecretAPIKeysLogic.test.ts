@@ -1,10 +1,19 @@
+import { expectLogic } from 'kea-test-utils'
+
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { projectSecretAPIKeysLogic } from './projectSecretAPIKeysLogic'
+
+const KEYS_PATH = '/api/projects/:team_id/project_secret_api_keys/'
+const KEY_PATH = `${KEYS_PATH}:id/`
+const STALE_KEY = { id: 'stale', label: 'Stale' } as ProjectSecretAPIKeyApi
+const LIVE_KEY = { id: 'live', label: 'Live' } as ProjectSecretAPIKeyApi
 
 describe('projectSecretAPIKeysLogic', () => {
     let logic: ReturnType<typeof projectSecretAPIKeysLogic.build>
@@ -13,7 +22,7 @@ describe('projectSecretAPIKeysLogic', () => {
         useMocks({
             get: {
                 // api.projectSecretApiKeys.list() reads `.results` off a paginated response
-                '/api/projects/:team_id/project_secret_api_keys/': { results: [] },
+                [KEYS_PATH]: { results: [] },
             },
         })
 
@@ -54,5 +63,89 @@ describe('projectSecretAPIKeysLogic', () => {
         expect(gatewayScope).not.toBeUndefined()
         expect(gatewayScope?.label).toBe('AI gateway')
         expect(gatewayScope?.disabledActions).toContain('write')
+    })
+
+    describe('a key that another tab already deleted', () => {
+        beforeEach(async () => {
+            // The mount load resolves with an empty list, so seed the table only once it settles.
+            await expectLogic(logic).toFinishAllListeners()
+            useMocks({
+                delete: { [KEY_PATH]: () => [404, { detail: 'Not found.' }] },
+                patch: { [KEY_PATH]: () => [404, { detail: 'Not found.' }] },
+                post: { [`${KEY_PATH}roll/`]: () => [404, { detail: 'Not found.' }] },
+            })
+            logic.actions.loadKeysSuccess([STALE_KEY, LIVE_KEY])
+        })
+
+        // A 404 here is the state the user asked for, or a row they can no longer act on. Both
+        // recover in the logic, so neither may reach the loader failure that error tracking reads.
+        it.each([
+            ['deleteKey', 'deleteKeyFailure', () => logic.actions.deleteKey(STALE_KEY.id)],
+            ['rollKey', 'rollKeyFailure', () => logic.actions.rollKey(STALE_KEY.id)],
+            [
+                'submitEditingKey',
+                'submitEditingKeyFailure',
+                () => {
+                    logic.actions.setEditingKeyId(STALE_KEY.id)
+                    logic.actions.setEditingKeyValues({ label: 'Renamed', scopes: ['endpoint:read'] })
+                    logic.actions.submitEditingKey()
+                },
+            ],
+        ])('drops its row and reports no failure when %s gets a 404', async (_name, failureAction, trigger) => {
+            const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation()
+
+            await expectLogic(logic, trigger).toFinishAllListeners().toNotHaveDispatchedActions([failureAction])
+
+            expect(logic.values.keys).toEqual([LIVE_KEY])
+            expect(errorToast).not.toHaveBeenCalledWith(expect.stringContaining('Failed to'))
+        })
+
+        it('leaves the editor alone when the person has opened another key by then', async () => {
+            let respond: () => void
+            const held = new Promise<void>((resolve) => {
+                respond = resolve
+            })
+            useMocks({
+                patch: {
+                    [KEY_PATH]: async () => {
+                        await held
+                        return [404, { detail: 'Not found.' }]
+                    },
+                },
+            })
+            jest.spyOn(lemonToast, 'error').mockImplementation()
+
+            logic.actions.setEditingKeyId(STALE_KEY.id)
+            logic.actions.setEditingKeyValues({ label: 'Renamed', scopes: ['endpoint:read'] })
+            await expectLogic(logic, () => logic.actions.submitEditingKey()).toDispatchActions([
+                'submitEditingKeyRequest',
+            ])
+
+            logic.actions.setEditingKeyId(LIVE_KEY.id)
+            respond!()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.keys).toEqual([LIVE_KEY])
+            expect(logic.values.editingKeyId).toEqual(LIVE_KEY.id)
+        })
+    })
+
+    // Creating a key cannot hit a missing key, so its 404 is a real failure and stays reportable.
+    it('reports a failure when creating a key gets a 404', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        useMocks({ post: { [KEYS_PATH]: () => [404, { detail: 'Not found.' }] } })
+        logic.actions.loadKeysSuccess([LIVE_KEY])
+        const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation()
+
+        await expectLogic(logic, () => {
+            logic.actions.setEditingKeyId('new')
+            logic.actions.setEditingKeyValues({ label: 'Fresh', scopes: ['endpoint:read'] })
+            logic.actions.submitEditingKey()
+        })
+            .toFinishAllListeners()
+            .toDispatchActions(['submitEditingKeyFailure'])
+
+        expect(logic.values.keys).toEqual([LIVE_KEY])
+        expect(errorToast).toHaveBeenCalledWith('Failed to save project API key')
     })
 })
