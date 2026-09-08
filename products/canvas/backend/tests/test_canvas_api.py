@@ -145,6 +145,25 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/canvases/")
         assert {row["id"] for row in response.json()["results"]} == {canvas_id, other_id}
 
+    def test_list_filters_by_generation_task(self):
+        task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=self.user,
+            title="Build a canvas",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        generated_id = self._create_canvas(name="Generated")
+        self._create_canvas(name="Unrelated")
+        Canvas.objects.unscoped().filter(id=generated_id).update(generation_task_id=task.id)
+
+        listing = self.client.get(f"/api/projects/{self.team.id}/canvases/?generation_task={task.id}")
+        assert [row["id"] for row in listing.json()["results"]] == [generated_id]
+
+        malformed = self.client.get(f"/api/projects/{self.team.id}/canvases/?generation_task=not-a-uuid")
+        assert malformed.json()["results"] == []
+
     def test_notebook_widget_canvas_is_hidden_from_the_canvas_api(self):
         with team_scope(self.team.id):
             notebook_canvas = Canvas.objects.create(

@@ -382,6 +382,12 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
                 required=False,
                 description="Only return canvases whose name or description contains this text (case-insensitive).",
             ),
+            OpenApiParameter(
+                "generation_task",
+                OpenApiTypes.UUID,
+                required=False,
+                description="Only return canvases this task generated.",
+            ),
         ]
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -417,6 +423,13 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             search = self.request.query_params.get("search")
             if search:
                 queryset = queryset.filter(Q(name__icontains=search) | Q(description__icontains=search))
+            generation_task = self.request.query_params.get("generation_task")
+            if generation_task:
+                try:
+                    generation_task = str(UUID(generation_task))
+                except ValueError:
+                    return queryset.none()
+                queryset = queryset.filter(generation_task_id=generation_task)
         return queryset.order_by("-created_at")
 
     @extend_schema(

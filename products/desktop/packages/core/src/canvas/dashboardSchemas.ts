@@ -107,6 +107,12 @@ export const listComponentsInput = z.object({
   search: z.string().optional(),
 });
 
+// Canvases a task generated, found by their generation_task_id stamp rather
+// than by an announcement in the task's thread.
+export const listTaskCanvasesInput = z.object({
+  taskId: z.string().min(1),
+});
+
 export const createDashboardInput = z.object({
   channelId: z.string().min(1),
   name: z.string().min(1),

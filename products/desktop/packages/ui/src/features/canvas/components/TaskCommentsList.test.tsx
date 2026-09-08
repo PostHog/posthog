@@ -41,6 +41,9 @@ function openThread(body: string): void {
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskRuns", () => ({
   useTaskRuns: () => ({ runs: mocks.runs, isLoading: false }),
 }));
+vi.mock("@posthog/ui/features/canvas/hooks/useTaskCanvases", () => ({
+  useTaskCanvases: () => [],
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
   useOrgMembers: () => ({ members: [] }),
 }));

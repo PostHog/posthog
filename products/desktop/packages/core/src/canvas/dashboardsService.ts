@@ -189,6 +189,21 @@ export class DashboardsService {
     return rows.map(toRecord).filter((record) => record.kind !== "component");
   }
 
+  // Canvases a task generated. The canvas row carries the task stamp, so this
+  // holds even when the task's thread never announced the canvas. The stamp is
+  // re-checked here because a deployment that predates the query parameter
+  // ignores it and answers with every canvas the caller can see.
+  async listForTask(taskId: string): Promise<DashboardRecord[]> {
+    const rows = await this.api.listPaginated<ApiCanvas>(
+      `canvases/?generation_task=${encodeURIComponent(taskId)}`,
+      "list task canvases",
+      { limit: 200 },
+    );
+    return rows
+      .map(toRecord)
+      .filter((record) => record.generationTaskId === taskId);
+  }
+
   async create(input: {
     channelId: string;
     name: string;

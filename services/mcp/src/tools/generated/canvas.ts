@@ -301,6 +301,7 @@ const canvasList = (): ToolBase<ReturnType<typeof CanvasListSchema>, Schemas.Pag
             path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/`,
             query: {
                 channel: params.channel,
+                generation_task: params.generation_task,
                 kind: params.kind,
                 limit: params.limit,
                 offset: params.offset,
