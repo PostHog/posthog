@@ -680,12 +680,14 @@ async def test_incremental_lookback_shifts_query_value_not_stored_watermark(
     source.parse_config.return_value = {}
     source.source_for_pipeline.return_value = mock.MagicMock()
     schema = _incremental_schema(is_incremental=is_incremental, lookback_seconds=3600)
+    schema.last_synced_at = datetime(2026, 6, 14, 12, 0)
 
     with _patched_activity_reaching_run(source, schema):
         await import_data_activity_sync(_inputs_no_reset())
 
     _, source_inputs = source.source_for_pipeline.call_args.args
     assert source_inputs.db_incremental_field_last_value == expected_last_value
+    assert source_inputs.last_synced_at == schema.last_synced_at
     assert schema.sync_type_config["incremental_field_last_value"] == "2026-06-14T15:33:31.802833"
     # The unshifted cursor travels alongside the shifted one. A consumer needs both to tell overlap
     # from new ground, and capturing it after the shift would make them equal and silently disarm

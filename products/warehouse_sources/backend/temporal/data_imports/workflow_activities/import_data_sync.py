@@ -520,6 +520,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 else None,
                 db_incremental_field_last_value_before_lookback=incremental_last_value_before_lookback,
                 history_start=history_start,
+                last_synced_at=schema.last_synced_at,
                 logger=logger,
                 job_id=inputs.run_id,
                 reset_pipeline=reset_pipeline,
