@@ -635,6 +635,35 @@ def _create_multi_search_call(expr: ast.Expr, value: list) -> ast.Call:
     )
 
 
+# ClickHouse 26.6.2 rejects a nonconstant multiSearchAnyCaseInsensitive call with more than 255
+# needles ("passed N, should be at most 255").
+_MULTI_SEARCH_NEEDLE_LIMIT = 255
+
+
+def _chunk_needles(value: list) -> list[list]:
+    if not value:
+        return [value]
+    return [value[i : i + _MULTI_SEARCH_NEEDLE_LIMIT] for i in range(0, len(value), _MULTI_SEARCH_NEEDLE_LIMIT)]
+
+
+def _multi_search_found_for_values(expr: ast.Expr, value: list) -> ast.Expr:
+    """True if `expr` matches any of `value`, chunking past ClickHouse's needle limit and ORing
+    the chunks together."""
+    found_exprs: list[ast.Expr] = [
+        _multi_search_found(_create_multi_search_call(expr, chunk)) for chunk in _chunk_needles(value)
+    ]
+    return found_exprs[0] if len(found_exprs) == 1 else ast.Or(exprs=found_exprs)
+
+
+def _multi_search_not_found_for_values(expr: ast.Expr, value: list) -> ast.Expr:
+    """True if `expr` matches none of `value`, chunking past ClickHouse's needle limit and ANDing
+    the chunks together so every chunk must find no match."""
+    not_found_exprs = [
+        _multi_search_not_found(_create_multi_search_call(expr, chunk), expr) for chunk in _chunk_needles(value)
+    ]
+    return not_found_exprs[0] if len(not_found_exprs) == 1 else ast.And(exprs=not_found_exprs)
+
+
 def _validate_regex(value: ValueT) -> None:
     """Reject an invalid regular expression with a clear user-facing error rather
     than letting ClickHouse fail the whole query with CANNOT_COMPILE_REGEXP. The
@@ -665,7 +694,7 @@ def _expr_to_compare_op(
     elif operator == PropertyOperator.ICONTAINS:
         if isinstance(value, list) and len(value) > 1:
             # Multiple values: use ClickHouse's multiSearchAnyCaseInsensitive for efficient searching
-            return _multi_search_found(_create_multi_search_call(expr, value))
+            return _multi_search_found_for_values(expr, value)
         else:
             # Single value (or single-element array): keep existing ILIKE logic for backward compatibility
             single_value = value[0] if isinstance(value, list) and len(value) == 1 else value
@@ -677,7 +706,7 @@ def _expr_to_compare_op(
     elif operator == PropertyOperator.NOT_ICONTAINS:
         if isinstance(value, list) and len(value) > 1:
             # Multiple values: use ClickHouse's multiSearchAnyCaseInsensitive with negation
-            return _multi_search_not_found(_create_multi_search_call(expr, value), expr)
+            return _multi_search_not_found_for_values(expr, value)
         else:
             # Single value (or single-element array): keep existing NOT ILIKE logic for backward compatibility
             single_value = value[0] if isinstance(value, list) and len(value) == 1 else value
@@ -710,14 +739,14 @@ def _expr_to_compare_op(
             values_list = value
         else:
             values_list = cast(list, [value])
-        return _multi_search_found(_create_multi_search_call(expr, values_list))
+        return _multi_search_found_for_values(expr, values_list)
     elif operator == PropertyOperator.NOT_ICONTAINS_MULTI:
         # Always expect multiple values for multi-not-contains operator
         if isinstance(value, list):
             values_list = value
         else:
             values_list = cast(list, [value])
-        return _multi_search_not_found(_create_multi_search_call(expr, values_list), expr)
+        return _multi_search_not_found_for_values(expr, values_list)
     elif operator == PropertyOperator.REGEX:
         _validate_regex(value)
         return ast.Call(

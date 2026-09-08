@@ -2621,6 +2621,24 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
         filter = {"type": "event", "key": "plan", "value": ["free", "enterprise"], "operator": operator}
         assert self._kept(filter, self.EVENT) == {"missing"}
 
+    # 256 needles used to build one multiSearchAnyCaseInsensitive call, which ClickHouse rejects
+    # against a nonconstant haystack ("passed 256, should be at most 255"); a constant haystack
+    # folds away before that check runs, so this needs real event data rather than a literal. The
+    # matching needle sits in the second chunk, so a fix that only checked the first chunk would
+    # also fail this.
+    @parameterized.expand(
+        [
+            ("icontains", {"present_match"}),
+            ("icontains_multi", {"present_match"}),
+            ("not_icontains", {"present_nonmatch", "missing"}),
+            ("not_icontains_multi", {"present_nonmatch", "missing"}),
+        ]
+    )
+    def test_multi_value_operator_chunks_needles_past_clickhouse_limit(self, operator: str, expected_kept: set[str]):
+        needles = [f"needle_{i}" for i in range(255)] + ["free"]
+        filter = {"type": "event", "key": "plan", "value": needles, "operator": operator}
+        assert self._kept(filter, self.EVENT) == expected_kept
+
     # Same inputs and outcomes as test_match_properties_between_operator_uncoercible_values in
     # rust/feature-flags/src/properties/property_matching.rs. NaN is in neither set: its comparisons
     # are false and it is not NULL.
