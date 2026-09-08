@@ -24,7 +24,14 @@ from posthog.constants import INVITE_DAYS_VALIDITY, MAX_SLUG_LENGTH, AvailableFe
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.utils import LowercaseSlugField, UUIDTModel, create_with_slug, generate_slug_candidates, sane_repr
+from posthog.models.utils import (
+    LowercaseSlugField,
+    UUIDTModel,
+    create_with_slug,
+    generate_slug_candidates,
+    sane_repr,
+    slug_matches_base,
+)
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -394,7 +401,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
             and self._loaded_name != self.name
         )
         # Read self.name only after a rename is known, so a deferred name costs no query.
-        base_slug = slugify(self.name)[:MAX_SLUG_LENGTH] if renamed else ""
+        base_slug = self.slug_from_name if renamed else ""
         if renamed and base_slug != self.slug:
             if update_fields is not None:
                 kwargs["update_fields"] = {*update_fields, "slug"}
@@ -403,6 +410,24 @@ class Organization(ModelActivityMixin, UUIDTModel):
             super().save(*args, **kwargs)
         if name_is_written and "name" in self.__dict__:
             self._loaded_name = self.name
+
+    @property
+    def slug_from_name(self) -> str:
+        return slugify(self.name)[:MAX_SLUG_LENGTH]
+
+    def repair_slug(self) -> bool:
+        """Set the slug from the current name, whether or not the name changed. Return whether the slug moved.
+
+        `save` regenerates the slug on a rename only, so an organization renamed before that behavior
+        existed keeps its old slug. This is the repair path for those rows.
+        """
+        base_slug = self.slug_from_name
+        if not base_slug:
+            raise ValueError(f"Organization {self.id} has a name that gives an empty slug")
+        if slug_matches_base(self.slug, base_slug):
+            return False
+        self._save_with_regenerated_slug(base_slug, update_fields=["slug"])
+        return True
 
     def _save_with_regenerated_slug(self, base_slug: str, *args: Any, **kwargs: Any) -> None:
         for candidate in generate_slug_candidates(base_slug):

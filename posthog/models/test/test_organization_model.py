@@ -99,6 +99,36 @@ class TestOrganization(BaseTest):
         self.assertEqual(organization.slug, expected_slug)
         self.assertEqual(organization.name, expected_name)
 
+    @parameterized.expand(
+        [
+            ("stale_slug", "old-inc", "new-inc", True),
+            ("slug_already_matches", "new-inc", "new-inc", False),
+            ("slug_is_suffixed_variant", "new-inc-abcd", "new-inc-abcd", False),
+        ]
+    )
+    def test_repair_slug(self, _name, current_slug, expected_slug, expected_change):
+        organization = Organization.objects.create(name="Old Inc")
+        Organization.objects.filter(pk=organization.pk).update(name="New Inc", slug=current_slug)
+        organization.refresh_from_db()
+
+        self.assertEqual(organization.repair_slug(), expected_change)
+
+        organization.refresh_from_db()
+        self.assertEqual(organization.slug, expected_slug)
+
+    def test_repair_slug_appends_suffix_when_target_slug_is_taken(self):
+        Organization.objects.create(name="New Inc")
+        organization = Organization.objects.create(name="Old Inc")
+        Organization.objects.filter(pk=organization.pk).update(name="New Inc")
+        organization.refresh_from_db()
+
+        self.assertTrue(organization.repair_slug())
+
+        in_memory_slug = organization.slug
+        organization.refresh_from_db()
+        self.assertRegex(organization.slug, r"^new-inc-[a-z]{4}$")
+        self.assertEqual(in_memory_slug, organization.slug)
+
     def test_organization_active_invites(self):
         self.assertEqual(self.organization.invites.count(), 0)
         self.assertEqual(self.organization.active_invites.count(), 0)
