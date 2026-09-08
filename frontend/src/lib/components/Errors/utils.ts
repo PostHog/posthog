@@ -264,16 +264,9 @@ export function getExceptionRelease(properties: ErrorEventProperties): ErrorTrac
     }
 }
 
-/**
- * Whether this event went unmatched to a release because the SDK never reported one.
- *
- * The CLI can upload symbol sets that carry no release, and the release then comes from the
- * `$release_id` the SDK puts on every event. An SDK from before that support reports nothing, so
- * the exception ends up with no release at all. A symbol set cymbal fetched off the web is keyed
- * by its URL rather than a chunk id, and carries no release either, so it does not count here.
- * A frame with no loaded record could still name a release, so until every frame has a record the
- * answer is unknown and this returns false.
- */
+// Uploaded symbol sets without a release leave the SDK's `$release_id` as the only source of a release.
+// A symbol set fetched by URL never carries one, so it cannot signal a missing `$release_id`.
+// A frame with no loaded record still could, so the answer stays unknown until every frame has one.
 export function isReleaseIdMissingFromSDK(
     properties: ErrorEventProperties,
     frames: ErrorTrackingStackFrame[],
