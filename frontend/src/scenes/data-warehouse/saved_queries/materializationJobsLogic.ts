@@ -229,8 +229,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             {
                 loadIncrementalCheck: async () => {
                     const sql = values.savedQuery?.query?.query
-                    // The endpoint refuses a query above its cap, so asking would only waste a
-                    // request. The panel names the length instead.
+                    // Above the cap the endpoint only refuses, and the panel names the length.
                     if (!sql || values.queryTooLongToCheck) {
                         return null
                     }

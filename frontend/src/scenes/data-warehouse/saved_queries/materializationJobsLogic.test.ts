@@ -125,8 +125,7 @@ describe('materializationJobsLogic', () => {
         }
     )
 
-    // Regression: a view longer than the cap used to send the request anyway and get a raw
-    // validation error back, with nothing in the panel to explain the length.
+    // Regression: a view over the cap used to send the request anyway, for a certain refusal.
     it('skips the eligibility check when the query is longer than the check accepts', async () => {
         useMocks(
             apiMocks({
