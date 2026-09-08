@@ -80,7 +80,10 @@ from products.replay_vision.backend.temporal.activities.observation_state import
     mark_observation_running_activity,
     mark_observation_succeeded_activity,
 )
-from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import upload_video_to_gemini_activity
+from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import (
+    _write_and_upload,
+    upload_video_to_gemini_activity,
+)
 from products.replay_vision.backend.temporal.errors import (
     INELIGIBLE_SESSION_ERROR_TYPE,
     SCANNER_ADMISSION_BUSY_ERROR_TYPE,
@@ -91,7 +94,7 @@ from products.replay_vision.backend.temporal.errors import (
     IneligibleSessionKind,
     ScannerFailureError,
 )
-from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error
+from products.replay_vision.backend.temporal.gemini import classify_gemini_error
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants import (
     REDIS_INDEX_KEY as _GEMINI_REDIS_INDEX_KEY,
     REDIS_KEY_PREFIX as _GEMINI_REDIS_KEY_PREFIX,
@@ -3070,33 +3073,32 @@ class TestClassifyGeminiError:
         # the same user story as a 5xx and must not land as internal_error.
         assert classify_gemini_error(error) is FailureKind.PROVIDER_TRANSIENT
 
+    def test_leaves_non_provider_exceptions_unclassified(self) -> None:
+        # Claiming a kind here would be worse than the status quo: a PostHog bug would be blamed on the provider,
+        # and for the transient kinds it would burn the retry budget before failing anyway.
+        assert classify_gemini_error(ValueError("bad arg")) is None
+
+
+class TestUploadFinalizeFailures:
     @parameterized.expand(
         [
-            ("key_error_on_missing_file", KeyError("file")),
-            ("value_error_on_upload_status", ValueError("Failed to upload file: Upload status is not finalized.")),
+            ("missing_file_key", KeyError("file")),
+            ("empty_body", TypeError("string indices must be integers, not 'str'")),
+            ("status_not_final", ValueError("Failed to upload file: Upload status is not finalized.")),
+            ("chunks_not_final", ValueError("All content has been uploaded, but the upload status is not finalized.")),
             (
-                "value_error_on_unfinalized_chunks",
-                ValueError("All content has been uploaded, but the upload status is not finalized."),
+                "no_upload_url",
+                KeyError("Failed to create file. Upload URL did not returned from the create file request."),
             ),
         ]
     )
-    def test_maps_unfinalized_upload_to_provider_transient(self, _label: str, error: Exception) -> None:
-        # `google-genai` never checks the finalize request's HTTP status, so a failed upload reaches us as a bare
-        # builtin with no APIError attached. Unclassified, it lands as internal_error and sends the user to support
-        # over a hiccup a retry clears.
-        assert classify_gemini_error(error) is FailureKind.PROVIDER_TRANSIENT
-        assert describe_gemini_error(error) == "The AI provider did not finish the video upload"
-
-    @parameterized.expand(
-        [
-            ("bare_value_error", ValueError("bad arg")),
-            ("unrelated_key_error", KeyError("team_id")),
-        ]
-    )
-    def test_leaves_non_provider_exceptions_unclassified(self, _label: str, error: Exception) -> None:
-        # Claiming a kind here would be worse than the status quo: a PostHog bug would be blamed on the provider,
-        # and for the transient kinds it would burn the retry budget before failing anyway.
-        assert classify_gemini_error(error) is None
+    def test_maps_sdk_upload_failures_to_provider_transient(self, _label: str, error: Exception) -> None:
+        raw_client = MagicMock()
+        raw_client.files.upload.side_effect = error
+        with pytest.raises(ScannerFailureError) as exc_info:
+            _write_and_upload(raw_client, b"mp4", "video/mp4", "wf-1")
+        assert exc_info.value.kind is FailureKind.PROVIDER_TRANSIENT
+        assert exc_info.value.message == "The AI provider did not finish the video upload"
 
 
 class TestGeminiErrorRedaction:
