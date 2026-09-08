@@ -2222,8 +2222,8 @@ describe('LogsIngestionConsumer', () => {
                 const produced = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)
                 expect(produced).toHaveLength(1)
                 // Byte-identical: the buffer was forwarded without a decode and re-encode.
-                expect(produced[0].value).toEqual(messages[0].value)
-                expect(produced[0].headers['json-parse']).toEqual('false')
+                expect(produced[0]?.value).toEqual(messages[0].value)
+                expect(produced[0]?.headers?.['json-parse']).toEqual('false')
             } finally {
                 await tracesConsumer.stop()
             }

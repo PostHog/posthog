@@ -32,6 +32,7 @@ import {
 import { logsPatternForcedDecodeCounter, makePatternMaskingStage } from './log-pattern-stage'
 import { type PiiScrubStats } from './log-pii-scrub'
 import {
+    type BodyTransforms,
     type LogRecord,
     type LogRecordsTransform,
     bufferProcessingMode,
@@ -456,6 +457,17 @@ export class LogsIngestionConsumer {
     }
 
     /**
+     * A record with no body has no JSON to parse, whatever the team's setting says. PII scrub is not
+     * gated the same way because it also scrubs attribute values.
+     */
+    private bodyTransformsFor(logsSettings: LogsSettings): BodyTransforms {
+        return {
+            jsonParse: this.recordsHaveBody && (logsSettings.json_parse_logs ?? false),
+            piiScrub: logsSettings.pii_scrub_logs ?? false,
+        }
+    }
+
+    /**
      * Builds the hog log transformation hook for a message, or undefined when the team
      * is not gated in or has no enabled transformation_log functions (the existence
      * check is an in-process cache hit, preserving the no-decode passthrough).
@@ -506,6 +518,7 @@ export class LogsIngestionConsumer {
               contentBytesTotal: number
           }
     > {
+        const transforms = this.bodyTransformsFor(logsSettings)
         const samplingCache = this.deps.samplingRulesCache
         const samplingEvalEnabled = this.isSamplingEvalEnabledForTeam(message.teamId)
         let ruleSet: CompiledRuleSet | null = null
@@ -547,7 +560,7 @@ export class LogsIngestionConsumer {
         // so a batch that would have passed through pays both, and one already decoded for a visitor
         // pays the encode. The counter prices each.
         if (this.isPatternMaskingEnabledForTeam(message.teamId)) {
-            const modeWithoutMasking = bufferProcessingMode(logsSettings, stages.length, Boolean(onRecordsDecoded))
+            const modeWithoutMasking = bufferProcessingMode(transforms, stages.length, Boolean(onRecordsDecoded))
             if (modeWithoutMasking !== 'decode_and_reencode') {
                 logsPatternForcedDecodeCounter.inc({ from: modeWithoutMasking })
             }
@@ -573,7 +586,7 @@ export class LogsIngestionConsumer {
                   : 'passthrough',
         })
 
-        const { value, pii, drops } = await processLogMessageBuffer(message.message.value!, logsSettings, {
+        const { value, pii, drops } = await processLogMessageBuffer(message.message.value!, transforms, {
             onRecordsDecoded,
             stages,
         })
@@ -896,15 +909,10 @@ export class LogsIngestionConsumer {
                         const team = await this.retryOnDependencyUnavailable(() =>
                             this.deps.teamManager.getTeam(message.teamId)
                         )
-                        const teamLogsSettings = team?.logs_settings || {}
-                        // With no body, `json_parse_logs` would decode and re-encode every batch to parse
-                        // nothing. The copy leaves the team cache entry untouched.
-                        const logsSettings = this.recordsHaveBody
-                            ? teamLogsSettings
-                            : { ...teamLogsSettings, json_parse_logs: false }
+                        const logsSettings = team?.logs_settings || {}
 
                         // Extract settings with defaults
-                        const jsonParse = logsSettings.json_parse_logs ?? false
+                        const { jsonParse } = this.bodyTransformsFor(logsSettings)
                         const retentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
 
                         // Retention is uniform per team; stash it for the retention usage metrics.

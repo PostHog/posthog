@@ -4,7 +4,6 @@ import { Histogram } from 'prom-client'
 import { Readable } from 'stream'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
-import type { LogsSettings } from '~/types'
 
 import { recordLogProcessingDuration } from './ingestion-otel-metrics'
 import { type LogBodyParseResult, parseLogBodyForIngestion } from './log-body-parse'
@@ -281,16 +280,25 @@ const scrubBatch = instrumented({
 })
 
 /**
+ * Which body transforms run on decoded records. The consumer derives this from the team's settings
+ * and from what it knows about its own records, so a decision such as "these records carry no body"
+ * is expressed here and never by rewriting the team's settings.
+ */
+export type BodyTransforms = {
+    jsonParse: boolean
+    piiScrub: boolean
+}
+
+/**
  * Applies PII scrub and optional JSON parse + attribute enrichment to decoded records in place.
  * Used by the main buffer processor and by the sampling path (which must decode even when
  * json_parse / pii_scrub are off, then optionally runs this when either flag is on).
  */
 export async function transformDecodedLogRecordsInPlace(
     records: LogRecord[],
-    settings: LogsSettings
+    transforms: BodyTransforms
 ): Promise<PiiScrubStats> {
-    const jsonParse = settings.json_parse_logs ?? false
-    const piiScrub = settings.pii_scrub_logs ?? false
+    const { jsonParse, piiScrub } = transforms
     let pii: PiiScrubStats = EMPTY_PII
     if (jsonParse && piiScrub) {
         pii = await scrubBatch(records)
@@ -335,11 +343,11 @@ export type BufferProcessingMode = 'passthrough' | 'decode_only' | 'decode_and_r
  * `passthrough` adds a decode and an encode.
  */
 export function bufferProcessingMode(
-    settings: LogsSettings,
+    transforms: BodyTransforms,
     stageCount: number,
     hasVisitor: boolean
 ): BufferProcessingMode {
-    const normalizeActive = (settings.json_parse_logs ?? false) || (settings.pii_scrub_logs ?? false)
+    const normalizeActive = transforms.jsonParse || transforms.piiScrub
     if (normalizeActive || stageCount > 0) {
         return 'decode_and_reencode'
     }
@@ -364,11 +372,11 @@ export const processLogMessageBuffer = instrumented({
     ...logRecordProcessInstrumentOpts,
 })(async function processLogMessageBufferImpl(
     buffer: Buffer,
-    settings: LogsSettings,
+    transforms: BodyTransforms,
     options: ProcessLogMessageBufferOptions = {}
 ): Promise<ProcessLogMessageBufferResult> {
     const { onRecordsDecoded, stages = [] } = options
-    const processingMode = bufferProcessingMode(settings, stages.length, Boolean(onRecordsDecoded))
+    const processingMode = bufferProcessingMode(transforms, stages.length, Boolean(onRecordsDecoded))
 
     if (processingMode === 'passthrough') {
         // Passthrough: nothing mutates or drops and no visitor needs the records — forward untouched.
@@ -376,8 +384,7 @@ export const processLogMessageBuffer = instrumented({
     }
 
     // Read only by the duration labels in the `finally`, which the passthrough return never reaches.
-    const jsonParse = settings.json_parse_logs ?? false
-    const piiScrub = settings.pii_scrub_logs ?? false
+    const { jsonParse, piiScrub } = transforms
     const startTime = Date.now()
     let codec = 'unknown'
 
@@ -389,7 +396,7 @@ export const processLogMessageBuffer = instrumented({
             throw new Error('avro schema metadata not found')
         }
 
-        const pii = await transformDecodedLogRecordsInPlace(records, settings)
+        const pii = await transformDecodedLogRecordsInPlace(records, transforms)
         onRecordsDecoded?.(records)
 
         const { kept, stats } = await runPipelineStages(records, stages)
@@ -422,6 +429,6 @@ export const processLogMessageBuffer = instrumented({
     }
 }) as (
     buffer: Buffer,
-    settings: LogsSettings,
+    transforms: BodyTransforms,
     options?: ProcessLogMessageBufferOptions
 ) => Promise<ProcessLogMessageBufferResult>
