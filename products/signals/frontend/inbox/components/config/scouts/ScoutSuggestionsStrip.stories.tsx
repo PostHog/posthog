@@ -99,6 +99,30 @@ export const Stale: Story = {
     ],
 }
 
+// Motivations vary in length, so the cards must align to the top. A row stretched to its tallest
+// card leaves the short ones as empty boxes with their buttons pinned to the bottom.
+export const UnevenMotivations: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                [SUGGESTIONS_URL]: () => [
+                    200,
+                    mockScoutSuggestionSet({
+                        items: [
+                            {
+                                ...mockScoutSuggestions[0],
+                                why_here:
+                                    'Checkout is the slowest page in this project on every Core Web Vital, and it has been getting slower for three weeks. Nothing in your fleet reads web vitals today, so a regression here only shows up once someone opens web analytics and looks.',
+                            },
+                            ...mockScoutSuggestions.slice(1),
+                        ],
+                    }),
+                ],
+            },
+        }),
+    ],
+}
+
 // A batch shrinks on its own as its picks get created, so one card has to look deliberate.
 export const SingleCard: Story = {
     decorators: [
