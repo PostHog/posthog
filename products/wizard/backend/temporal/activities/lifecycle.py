@@ -30,6 +30,7 @@ def transition_cloud_run(
     error_code: str | None = None,
 ) -> None:
     current = _get_cloud_run(team_id, run_id)
+
     if _is_settled(current, status, error_code):
         return
 
@@ -37,15 +38,19 @@ def transition_cloud_run(
         wizard_facade.update_run_status(team_id, run_id, status, error_code=error_code)
     except IllegalStatusTransitionError:
         current = _get_cloud_run(team_id, run_id)
+
         if _is_settled(current, status, error_code):
             return
+
         raise
 
 
 def _get_cloud_run(team_id: int, run_id: UUID) -> WizardRunDTO:
     run = wizard_facade.get_run(team_id, run_id)
+
     if run.environment != WizardRunEnvironment.CLOUD:
         raise ValueError("Wizard Run transitions require a cloud Wizard Run.")
+
     return run
 
 
@@ -54,20 +59,26 @@ def _is_settled(
     status: WizardRunStatus,
     error_code: str | None,
 ) -> bool:
-    if _matches(run, status, error_code):
+    """
+    Determines if the Wizard Run is already in a settled state for the given status and error code.
+    """
+
+    if _matches_status_and_error_code(run, status, error_code):
         return True
-    # A user cancellation is terminal and wins over a late finalizer: a failure or completion
-    # arriving after the run is cancelled is a no-op, not an illegal transition that would fail
-    # the workflow while the record stays cancelled.
+
     return run.status == WizardRunStatus.CANCELLED and status in (
         WizardRunStatus.FAILED,
         WizardRunStatus.COMPLETED,
     )
 
 
-def _matches(
+def _matches_status_and_error_code(
     run: WizardRunDTO,
     status: WizardRunStatus,
     error_code: str | None,
 ) -> bool:
+    """
+    Checks if the Wizard Run's status and error code match the provided values.
+    """
+
     return run.status == status and run.error_code == error_code

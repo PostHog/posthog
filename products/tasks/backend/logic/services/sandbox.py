@@ -265,10 +265,15 @@ def sandbox_repo_path(repository: str) -> str:
 
 
 def redact_sandbox_command(command: str) -> str:
-    redacted = SENSITIVE_SANDBOX_ENV_PATTERN.sub(r"\g<name>=<redacted>", command)
-    redacted = SENSITIVE_AGENT_RUNTIME_ARGUMENT_PATTERN.sub(r"\g<name> <redacted>", redacted)
-    redacted = SENSITIVE_FILE_HEREDOC_PATTERN.sub(r"\g<prefix><redacted>\g<suffix>", redacted)
-    return GITHUB_CLONE_TOKEN_PATTERN.sub(r"\g<prefix><redacted>\g<suffix>", redacted)
+    redacted = command
+    for pattern, substitution in (
+        (SENSITIVE_SANDBOX_ENV_PATTERN, r"\g<name>=<redacted>"),
+        (SENSITIVE_AGENT_RUNTIME_ARGUMENT_PATTERN, r"\g<name> <redacted>"),
+        (SENSITIVE_FILE_HEREDOC_PATTERN, r"\g<prefix><redacted>\g<suffix>"),
+        (GITHUB_CLONE_TOKEN_PATTERN, r"\g<prefix><redacted>\g<suffix>"),
+    ):
+        redacted = pattern.sub(substitution, redacted)
+    return redacted
 
 
 def build_agent_runtime_env_prefix(

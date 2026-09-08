@@ -20,6 +20,7 @@ WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
 async def start_wizard_run_workflow(input: WizardRunActivityInput) -> None:
     try:
         client = await async_connect()
+
         await client.start_workflow(
             EXECUTE_WIZARD_RUN_WORKFLOW,
             input,
