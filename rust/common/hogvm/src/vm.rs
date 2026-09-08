@@ -1559,10 +1559,6 @@ fn drive_resumable(mut vm: HogVM, context: &ExecutionContext) -> Result<Resumabl
                 // (args already popped, `ip` past the call) and hand it back for the host to perform
                 // the side effect and `resume`. Everything else is a normal inline native call.
                 if context.is_async(&name) {
-                    // An async builtin (e.g. sleep) gets the same contract-arity check as a sync
-                    // native, before the suspension hands its args to the host.
-                    crate::stl_spec::check_stl_arity(&name, args.len())
-                        .map_err(|e| failure(e, Some(&vm), i))?;
                     if vm.async_steps >= context.max_async_steps {
                         return Err(failure(
                             VmError::OutOfResource(format!(

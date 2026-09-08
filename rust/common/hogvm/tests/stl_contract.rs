@@ -4,7 +4,8 @@
 
 use std::collections::BTreeSet;
 
-use hogvm::{stl_map, STL_ARITY};
+use hogvm::{native_func, stl_map, sync_execute, ExecutionContext, HogLiteral, Program, STL_ARITY};
+use serde_json::json;
 
 // Async builtins (dispatched via the suspension machinery, not the native fn map).
 const ASYNC_BUILTINS: &[&str] = &["sleep"];
@@ -31,4 +32,37 @@ fn contract_table_and_native_stl_agree() {
         uncontracted.is_empty(),
         "native STL functions missing from common/hogvm/spec/stl.json: {uncontracted:?}"
     );
+}
+
+// The reference VM dispatches embedder-registered functions before the STL, without an arity
+// check, so an override under a builtin name must escape the contract while the stock builtin
+// stays held to it.
+#[test]
+fn ext_fn_override_escapes_the_contract_arity() {
+    // lower('a', 'b') — one argument over the contract maximum
+    let bytecode = vec![
+        json!("_H"),
+        json!(1),
+        json!(32),
+        json!("a"),
+        json!(32),
+        json!("b"),
+        json!(2),
+        json!("lower"),
+        json!(2),
+    ];
+
+    let stock = ExecutionContext::with_defaults(Program::new(bytecode.clone()).unwrap());
+    let stock_err = sync_execute(&stock, false).unwrap_err();
+    assert_eq!(
+        stock_err.error.to_string(),
+        "Function lower requires at most 1 arguments"
+    );
+
+    let overridden = ExecutionContext::with_defaults(Program::new(bytecode).unwrap()).with_ext_fn(
+        "lower".to_string(),
+        native_func(|_, args| Ok(HogLiteral::from(args.len() as i64).into())),
+    );
+    let result = sync_execute(&overridden, false).expect("override must run unchecked");
+    assert_eq!(result, json!(2));
 }
