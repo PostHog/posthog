@@ -1185,6 +1185,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         self, mock_authentication, mock_flag, mock_authorized, mock_mint
     ):
         self._mock_oauth(mock_authentication)
+        claimed: object
         for claimed in ("false", "true", 1, [], {"a": 1}):
             with self.subTest(claimed=claimed):
                 response = self.client.post(

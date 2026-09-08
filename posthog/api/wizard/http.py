@@ -229,7 +229,9 @@ class SetupWizardViewSet(viewsets.ViewSet):
 
         return []
 
-    def throttled(self, request: Request, wait: float) -> None:
+    # NoReturn matches DRF, whose own throttled() is typed Never; ty cannot see
+    # that super() always raises, so its narrower read is suppressed here.
+    def throttled(self, request: Request, wait: float) -> NoReturn:  # ty: ignore[invalid-return-type]
         # A rejection from DRF's own throttle check returns before the action body, so
         # it counts here. A reservation that raises inside a body counts there instead.
         if self.action == "cloud_run":
