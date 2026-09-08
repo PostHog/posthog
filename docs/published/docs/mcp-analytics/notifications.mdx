@@ -36,6 +36,10 @@ default and can be disabled with `proactive_config.allow_public_web_research: fa
 
 Instance operators enable this alpha with `PULSE_PROACTIVE_ENABLED=true`. Public web research has a separate
 `PULSE_PUBLIC_RESEARCH_ENABLED=true` switch, and `PULSE_PROACTIVE_TIMEOUT_SECONDS` controls its 10-minute default deadline.
+Repository-backed recommendations require both the report actor and the project's GitHub installation to have write
+access. Private repositories are eligible by default. Public repositories are denied unless
+`PULSE_PUBLIC_REPOSITORY_ALLOWLIST` explicitly contains their `owner/repository` name (a comma-separated list; empty by
+default).
 
 Because a report summarizes a window of time, it stays useful on a low-volume server and can't flood a channel.
 

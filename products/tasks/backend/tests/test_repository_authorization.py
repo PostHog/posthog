@@ -98,7 +98,12 @@ class TestRepositoryAuthorization(TestCase):
             repositories=[self._repository(), self._repository("owner/read-only", can_push=False)],
         )
         mock_get.side_effect = [
-            {"default_branch": "main"},
+            {
+                "full_name": "owner/repository",
+                "private": True,
+                "visibility": "private",
+                "default_branch": "main",
+            },
             {"commit": {"sha": "a" * 40}},
         ]
 
@@ -134,7 +139,12 @@ class TestRepositoryAuthorization(TestCase):
             repositories=[{**self._repository(), "default_branch": "main", "default_branch_sha": "b" * 40}],
         )
         mock_get.side_effect = [
-            {"default_branch": "main"},
+            {
+                "full_name": "owner/repository",
+                "private": True,
+                "visibility": "private",
+                "default_branch": "main",
+            },
             {"commit": {"sha": "c" * 40}},
         ]
 
@@ -184,9 +194,19 @@ class TestRepositoryAuthorization(TestCase):
         personal = self._create_personal_integration()
         self._create_team_integration(self.team)
         mock_get.side_effect = [
-            {"default_branch": "main"},
+            {
+                "full_name": "owner/repository",
+                "private": True,
+                "visibility": "private",
+                "default_branch": "main",
+            },
             {"commit": {"sha": "e" * 40}},
-            {"default_branch": "main"},
+            {
+                "full_name": "owner/repository",
+                "private": True,
+                "visibility": "private",
+                "default_branch": "main",
+            },
             {"commit": {"sha": "e" * 40}},
         ]
 
@@ -208,7 +228,17 @@ class TestRepositoryAuthorization(TestCase):
         assert self._resolve() is None
 
         with patch.object(
-            GitHubIntegration, "_gh_api_get", side_effect=[{"default_branch": "main"}, {"commit": {"sha": "d" * 40}}]
+            GitHubIntegration,
+            "_gh_api_get",
+            side_effect=[
+                {
+                    "full_name": "owner/repository",
+                    "private": True,
+                    "visibility": "private",
+                    "default_branch": "main",
+                },
+                {"commit": {"sha": "d" * 40}},
+            ],
         ):
             binding = self._resolve(github_integration_id=first.id)
 
@@ -237,6 +267,24 @@ class TestRepositoryAuthorization(TestCase):
             entry.repository for entry in list_authorizable_repositories(team_id=self.team.id, actor_id=self.user.id)
         ] == ["owner/public"]
 
+        with patch.object(
+            GitHubIntegration,
+            "_gh_api_get",
+            side_effect=[
+                {
+                    "full_name": "owner/public",
+                    "private": False,
+                    "visibility": "public",
+                    "default_branch": "main",
+                },
+                {"commit": {"sha": "b" * 40}},
+            ],
+        ):
+            binding = self._resolve(repository="owner/public")
+
+        assert binding is not None
+        assert binding.repository == "owner/public"
+
     @patch.object(GitHubIntegration, "_gh_api_get")
     def test_fails_closed_for_malformed_repository_or_live_base_response(self, mock_get: MagicMock) -> None:
         self._create_personal_integration()
@@ -246,7 +294,64 @@ class TestRepositoryAuthorization(TestCase):
         assert self._resolve(repository="owner/../repository") is None
         assert self._resolve(repository=" owner/repository") is None
 
-        mock_get.side_effect = [{"default_branch": "main"}, {"commit": {"sha": "not-a-sha"}}]
+        mock_get.side_effect = [
+            {
+                "full_name": "owner/repository",
+                "private": True,
+                "visibility": "private",
+                "default_branch": "main",
+            },
+            {"commit": {"sha": "not-a-sha"}},
+        ]
+        assert self._resolve() is None
+
+    @patch.object(GitHubIntegration, "_gh_api_get")
+    def test_fails_closed_when_a_cached_private_repository_is_live_public(self, mock_get: MagicMock) -> None:
+        self._create_personal_integration()
+        self._create_team_integration(self.team)
+        mock_get.return_value = {
+            "full_name": "owner/repository",
+            "private": False,
+            "visibility": "public",
+            "default_branch": "main",
+        }
+
+        assert self._resolve() is None
+        mock_get.assert_called_once_with("/repos/owner/repository", endpoint="/repos/{owner}/{repo}")
+
+    @patch.object(GitHubIntegration, "_gh_api_get")
+    def test_fails_closed_when_live_repository_name_differs_from_the_cached_binding(self, mock_get: MagicMock) -> None:
+        self._create_personal_integration()
+        self._create_team_integration(self.team)
+        mock_get.return_value = {
+            "full_name": "owner/renamed-repository",
+            "private": True,
+            "visibility": "private",
+            "default_branch": "main",
+        }
+
+        assert self._resolve() is None
+        mock_get.assert_called_once_with("/repos/owner/repository", endpoint="/repos/{owner}/{repo}")
+
+    @patch.object(GitHubIntegration, "_gh_api_get")
+    def test_fails_closed_when_the_selected_installation_changes_during_live_lookup(self, mock_get: MagicMock) -> None:
+        personal = self._create_personal_integration()
+        team_integration = self._create_team_integration(self.team)
+
+        def mutate_installation(*args: object, **kwargs: object) -> dict[str, object]:
+            personal.integration_id = "installation-2"
+            personal.save(update_fields=["integration_id", "updated_at"])
+            team_integration.integration_id = "installation-2"
+            team_integration.save(update_fields=["integration_id", "updated_at"])
+            return {
+                "full_name": "owner/repository",
+                "private": True,
+                "visibility": "private",
+                "default_branch": "main",
+            }
+
+        mock_get.side_effect = [mutate_installation, {"commit": {"sha": "f" * 40}}]
+
         assert self._resolve() is None
 
     def test_dtos_do_not_expose_credentials(self) -> None:

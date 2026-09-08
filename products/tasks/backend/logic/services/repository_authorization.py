@@ -89,6 +89,7 @@ def resolve_staged_repository_binding(
     base = _resolve_current_base(
         team_id=team_id,
         github_integration_id=authorized.github_integration_id,
+        github_installation_id=candidate.github_installation_id,
         repository=authorized.repository,
     )
     if base is None:
@@ -176,7 +177,11 @@ def _revalidate_authorization(
         if team_integration is None or personal_integration is None:
             return None
         installation_id = _installation_id(team_integration)
-        if installation_id is None or installation_id != _installation_id(personal_integration):
+        if (
+            installation_id is None
+            or installation_id != candidate.github_installation_id
+            or installation_id != _installation_id(personal_integration)
+        ):
             return None
         if not _personal_integration_is_usable(personal_integration):
             return None
@@ -194,13 +199,17 @@ def _revalidate_authorization(
         )
 
 
-def _resolve_current_base(*, team_id: int, github_integration_id: int, repository: str) -> tuple[str, str] | None:
+def _resolve_current_base(
+    *, team_id: int, github_integration_id: int, github_installation_id: str, repository: str
+) -> tuple[str, str] | None:
     integration = _active_team_integrations(team_id).filter(id=github_integration_id).first()
-    if integration is None:
+    if integration is None or _installation_id(integration) != github_installation_id:
         return None
     try:
         github = GitHubIntegration(integration)
         repository_data = github._gh_api_get(f"/repos/{repository}", endpoint="/repos/{owner}/{repo}")
+        if not _live_repository_is_authorized(repository_data, repository):
+            return None
         base_branch = repository_data.get("default_branch")
         if not isinstance(base_branch, str) or not _is_safe_branch(base_branch):
             return None
@@ -215,6 +224,17 @@ def _resolve_current_base(*, team_id: int, github_integration_id: int, repositor
     if not isinstance(base_sha, str) or not _COMMIT_SHA.fullmatch(base_sha):
         return None
     return base_branch, base_sha.lower()
+
+
+def _live_repository_is_authorized(repository_data: dict[object, object], repository: str) -> bool:
+    normalized_repository = _normalize_repository(repository)
+    full_name = repository_data.get("full_name")
+    return (
+        normalized_repository is not None
+        and isinstance(full_name, str)
+        and full_name == repository
+        and _repository_is_permitted(repository_data, normalized_repository)
+    )
 
 
 def _active_team_integrations(team_id: int) -> QuerySet[Integration]:
