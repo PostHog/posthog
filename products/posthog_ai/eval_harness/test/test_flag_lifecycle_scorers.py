@@ -23,6 +23,7 @@ from products.posthog_ai.eval_harness.scorers.contract import Score
 
 CREATE_TOOL = "create-feature-flag"
 UPDATE_TOOL = "update-feature-flag"
+BY_KEY_TOOL = "feature-flag-get-definition-by-key"
 
 
 def _session_update(sequence: int, update: dict) -> str:
@@ -80,6 +81,10 @@ ROLLOUT_SEED = {
     "rollout_from_percentage": ROLLOUT_FROM_PERCENTAGE,
     "rollout_to_percentage": ROLLOUT_TO_PERCENTAGE,
 }
+
+SEEDED_FLAG_ID = 7
+SEEDED_FLAG_KEY = "smart-upload-retry"
+FLAG_SEED = {"feature_flag_id": SEEDED_FLAG_ID, "feature_flag_key": SEEDED_FLAG_KEY}
 
 
 def _merged_filters() -> dict[str, Any]:
@@ -180,6 +185,38 @@ def test_called_expected_tool(_name: str, calls: list[tuple[str, dict[str, Any],
     assert score.score == expected_score
 
 
+# Every case runs in a team that already holds the demo project's own flags, so the right
+# tool on the wrong flag is the mis-resolution these cases exist to catch. The id arrives
+# as a string or a number depending on how the agent wrote the call, and a rename carries
+# the new key alongside the seeded id.
+@parameterized.expand(
+    [
+        ("lifecycle_call_on_the_seeded_flag", [("feature-flag-disable", {"id": SEEDED_FLAG_ID}, "completed")], 1.0),
+        ("id_written_as_a_string", [("feature-flag-disable", {"id": str(SEEDED_FLAG_ID)}, "completed")], 1.0),
+        ("lifecycle_call_on_another_flag", [("feature-flag-disable", {"id": 4242}, "completed")], 0.0),
+        (
+            "rename_keeps_the_seeded_id_and_takes_a_new_key",
+            [(UPDATE_TOOL, {"id": SEEDED_FLAG_ID, "key": "renamed"}, "completed")],
+            1.0,
+        ),
+        ("lookup_of_the_seeded_key", [(BY_KEY_TOOL, {"key": SEEDED_FLAG_KEY}, "completed")], 1.0),
+        ("lookup_under_an_accepted_alias", [(BY_KEY_TOOL, {"flag_key": SEEDED_FLAG_KEY}, "completed")], 1.0),
+        ("lookup_of_another_key", [(BY_KEY_TOOL, {"key": "file-previews"}, "completed")], 0.0),
+        # A search names no single flag, so it is graded on the tool alone.
+        ("search_names_no_flag", [("feature-flag-get-all", {"search": "upload"}, "completed")], 1.0),
+    ]
+)
+def test_called_expected_tool_grades_the_seeded_flag(
+    _name: str, calls: list[tuple[str, dict[str, Any], str]], expected_score: float
+) -> None:
+    score = CalledExpectedTool()._run_eval_sync(
+        {"raw_log": _tool_log(calls), "seed": FLAG_SEED},
+        {"called_expected_tool": {"tools": ["feature-flag-disable", UPDATE_TOOL, BY_KEY_TOOL, "feature-flag-get-all"]}},
+    )
+
+    assert score.score == expected_score
+
+
 # Four judges are registered across the two suites and each case opts in to some of them.
 # If the spec check stopped short-circuiting, every case would be graded by questions
 # written about a different case. `FinalMessageJudge` deliberately scores a missing final
@@ -258,6 +295,27 @@ def test_created_flag_with_tags(
 ) -> None:
     scorer = CreatedFlagWithTags()
     score = scorer._run_eval_sync({"raw_log": _tool_log(calls)}, {"created_flag_with_tags": {"required": True}})
+
+    assert score.score == expected_score
+
+
+# The case asks for one flag, so a tagged create under some other key is a different flag
+# and leaves the asked-for one unmade.
+@parameterized.expand(
+    [
+        ("created_the_flag_the_case_asked_for", "billing-sync-killswitch", 1.0),
+        ("created_a_different_flag", "some-other-flag", 0.0),
+    ]
+)
+def test_created_flag_with_tags_grades_the_asked_for_key(_name: str, created_key: str, expected_score: float) -> None:
+    scorer = CreatedFlagWithTags()
+    score = scorer._run_eval_sync(
+        {
+            "raw_log": _tool_log([(CREATE_TOOL, {"key": created_key, "tags": ["billing"]}, "completed")]),
+            "seed": {"feature_flag_key": "billing-sync-killswitch", "requires_tags": True},
+        },
+        {"created_flag_with_tags": {"required": True}},
+    )
 
     assert score.score == expected_score
 

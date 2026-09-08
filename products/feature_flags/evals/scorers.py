@@ -60,16 +60,53 @@ def _successful(parser: LogParser, name: str) -> list[ToolCall]:
     return [call for call in parser.get_tool_calls(name) if not call.is_error]
 
 
+def _seed(output: dict | None) -> dict | None:
+    seed = (output or {}).get("seed")
+    return seed if isinstance(seed, dict) else None
+
+
+# The by-key lookup accepts these aliases and normalizes them onto `key`, and the log
+# records what the agent sent rather than what the tool normalized it to.
+_FLAG_KEY_FIELDS = ("key", "flagKey", "flag_key", "feature_flag_key", "featureFlagKey")
+
+
+def _targets_seeded_flag(call: ToolCall, seed: dict | None) -> bool:
+    """Did this call name the flag the case seeded?
+
+    Each case runs in a team that already holds the demo project's own flags, and the
+    prompts name a flag by key while the write tools take a numeric id. The same tool
+    call on a different flag is a different answer, so the tool name alone cannot say
+    the agent did what was asked. A call that names no flag this can check, such as a
+    search, still counts: what that call contributes to a case is the tool itself.
+    """
+    if seed is None:
+        return True
+    flag_id = seed.get("feature_flag_id")
+    if flag_id is not None and "id" in call.input:
+        return str(call.input["id"]) == str(flag_id)
+    key = seed.get("feature_flag_key")
+    if key is None:
+        return True
+    named = [call.input[field] for field in _FLAG_KEY_FIELDS if field in call.input]
+    return key in named if named else True
+
+
+def _on_seeded_flag(calls: list[ToolCall], seed: dict | None) -> list[ToolCall]:
+    return [call for call in calls if _targets_seeded_flag(call, seed)]
+
+
 def _tools(spec: dict) -> list[str]:
     raw = spec.get("tools")
     return [tool for tool in raw if isinstance(tool, str)] if isinstance(raw, list) else []
 
 
 class CalledExpectedTool(Scorer):
-    """Binary: did the agent successfully call one of ``expected.tools``?
+    """Binary: did the agent successfully call one of ``expected.tools`` on the seeded flag?
 
     One instance serves every case, because what varies between cases is exactly the
-    tool a competent agent should reach for.
+    tool a competent agent should reach for. The flag has to match too: the same
+    lifecycle call on one of the demo project's own flags is the mis-resolution these
+    cases exist to catch, not a pass.
     """
 
     def _name(self) -> str:
@@ -84,10 +121,18 @@ class CalledExpectedTool(Scorer):
         if not parser:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
 
-        called = sorted({tool for tool in tools if _successful(parser, tool)})
+        seed = _seed(output)
+        called = sorted({tool for tool in tools if _on_seeded_flag(_successful(parser, tool), seed)})
         if called:
             return Score(name=self._name(), score=1.0, metadata={"called": called})
-        return Score(name=self._name(), score=0.0, metadata={"expected_any_of": sorted(tools)})
+        return Score(
+            name=self._name(),
+            score=0.0,
+            metadata={
+                "expected_any_of": sorted(tools),
+                "called_on_another_flag": sorted({tool for tool in tools if _successful(parser, tool)}),
+            },
+        )
 
 
 class AvoidedTool(Scorer):
@@ -147,11 +192,12 @@ class GenericUpdateOmitsFields(Scorer):
 
 
 class CreatedFlagWithTags(Scorer):
-    """Binary: did a successful create land, carrying at least one tag?
+    """Binary: did the flag the case asked for land, carrying at least one tag?
 
     The project requires a tag, so a create with none is rejected. This passes only
-    when the agent ends up with the flag created, whether it tagged the first attempt
-    or recovered from the rejection.
+    when the agent ends up with that flag created, whether it tagged the first attempt
+    or recovered from the rejection. A tagged create under some other key is a
+    different flag, so it does not count.
     """
 
     def _name(self) -> str:
@@ -165,9 +211,10 @@ class CreatedFlagWithTags(Scorer):
         if not parser:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
 
+        seed = _seed(output)
         attempts = parser.get_tool_calls(CREATE_TOOL)
         for call in attempts:
-            if call.is_error:
+            if call.is_error or not _targets_seeded_flag(call, seed):
                 continue
             tags = call.input.get("tags")
             if isinstance(tags, list) and any(isinstance(tag, str) and tag.strip() for tag in tags):
@@ -175,7 +222,7 @@ class CreatedFlagWithTags(Scorer):
         return Score(
             name=self._name(),
             score=0.0,
-            metadata={"reason": "No successful create carried a tag", "attempts": len(attempts)},
+            metadata={"reason": "No successful create of the case's flag carried a tag", "attempts": len(attempts)},
         )
 
 
