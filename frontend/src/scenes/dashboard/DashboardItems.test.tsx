@@ -182,11 +182,13 @@ const mockedUseAsyncActions = useAsyncActions as jest.Mock
 const mockRemoveTile = jest.fn()
 const mockTriggerDashboardRefresh = jest.fn()
 const mockInsightCard = jest.fn()
+let canEditDashboard = true
 
 describe('DashboardItems', () => {
     beforeEach(() => {
         mockInsightCard.mockClear()
         jest.clearAllMocks()
+        canEditDashboard = true
 
         mockedUseValues.mockImplementation((logic) => {
             if (logic === dashboardLogic) {
@@ -214,7 +216,7 @@ describe('DashboardItems', () => {
                     currentDashboardVariables: {},
                     temporaryBreakdownColors: [],
                     dataColorThemeId: null,
-                    canEditDashboard: true,
+                    canEditDashboard,
                     layoutZoom: 0.75,
                 }
             }
@@ -282,6 +284,16 @@ describe('DashboardItems', () => {
     it('matches snapshot in edit mode with layout zoom enabled', () => {
         const { container } = render(<DashboardItems />)
         expect(container.firstChild).toMatchSnapshot()
+    })
+
+    it('disables layout controls for read-only viewers', () => {
+        canEditDashboard = false
+
+        const { container } = render(<DashboardItems />)
+
+        expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute('data-drag-enabled', 'false')
+        expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute('data-resize-enabled', 'false')
+        expect(container.querySelector('[data-attr="insight-card"]')).toHaveAttribute('data-show-resize-handles', 'false')
     })
 
     it.each([

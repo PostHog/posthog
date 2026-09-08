@@ -117,6 +117,36 @@ describe('DashboardFilterBar', () => {
         logic.unmount()
     })
 
+    it('keeps Preview and Discard available, but hides Save filters, for viewers', async () => {
+        const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(0)
+        const viewerDashboard: DashboardType<QueryBasedInsightModel> = {
+            ...MOCK_DASHBOARD,
+            user_access_level: AccessControlLevel.Viewer,
+            tiles: [
+                {
+                    id: 1,
+                    color: null,
+                    layouts: {},
+                    insight: { id: 1, short_id: 'viewer', name: 'Viewer' } as QueryBasedInsightModel,
+                },
+            ],
+        }
+        const logic = renderFilterBar(DashboardEventSource.DashboardFilters, viewerDashboard)
+
+        try {
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-7d', null)
+            }).toFinishAllListeners()
+
+            expect(document.querySelector('[data-attr="dashboard-edit-mode-discard"]')).toBeInTheDocument()
+            expect(document.querySelector('[data-attr="dashboard-apply-filters"]')).toBeInTheDocument()
+            expect(document.querySelector('[data-attr="dashboard-save-filters"]')).not.toBeInTheDocument()
+        } finally {
+            payloadSpy.mockRestore()
+            logic.unmount()
+        }
+    })
+
     it('keeps Preview disabled until the dashboard settings change', async () => {
         const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(0)
         let finishPreview: (insight: QueryBasedInsightModel) => void = () => {
