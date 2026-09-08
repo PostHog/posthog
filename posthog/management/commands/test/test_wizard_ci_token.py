@@ -10,7 +10,8 @@ from django.core.management.base import CommandError
 from django.test import override_settings
 from django.utils import timezone
 
-from posthog.models import OAuthAccessToken, OAuthApplication, User
+from posthog.management.commands.wizard_ci_token import rotate_wizard_ci_token
+from posthog.models import OAuthAccessToken, OAuthApplication, Team, User
 
 _WIZARD_CLIENT_ID = "wizard-ci-client-id"
 
@@ -21,6 +22,9 @@ class TestWizardCiTokenCommand(BaseTest):
         return OAuthApplication.objects.create(
             client_id=_WIZARD_CLIENT_ID,
             name="PostHog Wizard",
+            # The gateway attributes the app's tokens to this organization's root
+            # team, so an app without one issues tokens it will refuse.
+            organization=self.organization,
             client_type=OAuthApplication.CLIENT_PUBLIC,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="http://localhost:8237/callback",
@@ -98,6 +102,41 @@ class TestWizardCiTokenCommand(BaseTest):
         with pytest.raises(CommandError, match="not a member"):
             call_command("wizard_ci_token", "--email", outsider.email, "--team", str(self.team.id), stdout=out)
         assert not OAuthAccessToken.objects.exists()
+
+    def test_the_rotation_is_callable_without_the_command(self) -> None:
+        self._create_wizard_app(["project:read", "llm_gateway:read"])
+
+        issued = rotate_wizard_ci_token(email=self.user.email, team_id=self.team.id, days=30)
+
+        assert issued.token.startswith("pha_")
+        assert issued.revoked == 0
+        assert issued.team_id == self.team.id
+
+    def test_refuses_a_team_the_gateway_would_not_attribute_to(self) -> None:
+        # Projection resolves an OAuth credential's team from the application's
+        # organization root, then fails the token closed when scoped_teams
+        # disagrees, so the mismatch has to refuse rather than print a dead token.
+        self._create_wizard_app(["project:read", "llm_gateway:read"])
+        other = Team.objects.create(organization=self.organization, name="child")
+
+        with pytest.raises(CommandError, match="organization root team"):
+            call_command("wizard_ci_token", "--email", self.user.email, "--team", str(other.id), stdout=StringIO())
+        assert not OAuthAccessToken.objects.filter(user=self.user).exists()
+
+    def test_refuses_when_the_app_has_no_organization(self) -> None:
+        OAuthApplication.objects.create(
+            client_id=_WIZARD_CLIENT_ID,
+            name="PostHog Wizard",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="http://localhost:8237/callback",
+            algorithm="RS256",
+            scopes=["project:read", "llm_gateway:read"],
+        )
+
+        with pytest.raises(CommandError, match="no single organization root team"):
+            self._run()
+        assert not OAuthAccessToken.objects.filter(user=self.user).exists()
 
     def test_refuses_when_the_app_cannot_grant_the_gateway_scope(self) -> None:
         # A token without llm_gateway:read mints nothing at the gateway, so it
