@@ -86,6 +86,15 @@ class TrendsActorsQueryBuilder:
         self.modifiers = modifiers
         self.limit_context = limit_context
 
+        series_count = len(trends_query.series)
+        if series_count == 0:
+            raise QueryError("This query has no series, so it has no actors to show.")
+        if not 0 <= series_index < series_count:
+            raise QueryError(
+                f"Series index {series_index} is out of range. "
+                f"This query has {series_count} series, so the index must be between 0 and {series_count - 1}."
+            )
+
         entity = trends_query.series[series_index]
 
         # TODO: Add support for DataWarehouseNode
