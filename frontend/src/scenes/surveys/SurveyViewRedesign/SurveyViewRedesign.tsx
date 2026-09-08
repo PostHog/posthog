@@ -697,10 +697,11 @@ function SurveyResponsesContent(): JSX.Element {
                     aria-busy={isRefreshingResults}
                     className={
                         isRefreshingResults
-                            ? 'survey-table-results opacity-75 transition-opacity duration-200 ease-out'
-                            : 'survey-table-results opacity-100 transition-opacity duration-200 ease-out'
+                            ? 'survey-table-results space-y-4 opacity-75 transition-opacity duration-200 ease-out'
+                            : 'survey-table-results space-y-4 opacity-100 transition-opacity duration-200 ease-out'
                     }
                 >
+                    <SurveyStatsSummary />
                     <Query
                         query={dataTableQuery}
                         context={{
