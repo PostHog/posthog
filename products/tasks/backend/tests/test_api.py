@@ -5204,6 +5204,27 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
         [payload] = response.json()["results"]
         self.assertEqual(payload["latest_run"]["task_summary"], "Resolving review comments")
 
+    def test_summaries_hide_a_workflow_summary_from_a_teammate(self):
+        owner = self.create_organization_user("workflow-owner")
+        task = self.create_task("Workflow task", created_by=owner)
+        task.origin_product = Task.OriginProduct.WORKFLOW
+        task.save(update_fields=["origin_product"])
+        run = TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"task_summary": "Private workflow context"},
+        )
+
+        summaries_response = self.post_summaries([str(task.id)])
+        detail_response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
+
+        self.assertEqual(summaries_response.status_code, status.HTTP_200_OK)
+        [payload] = summaries_response.json()["results"]
+        self.assertIsNone(payload["latest_run"]["task_summary"])
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(detail_response.json()["task_summary"])
+
     def test_summaries_paginates_large_id_sets(self):
         tasks = [self.create_task(f"Task {i}") for i in range(3)]
         ids = [str(t.id) for t in tasks]
@@ -5223,10 +5244,26 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
         payload2 = response2.json()
         self.assertEqual(len(payload2["results"]), 1)
         self.assertIsNone(payload2["next"])
-
         seen_ids = [r["id"] for r in payload["results"]] + [r["id"] for r in payload2["results"]]
         self.assertEqual(sorted(seen_ids), sorted(ids))
         self.assertEqual(len(set(seen_ids)), 3)
+
+    def test_summaries_apply_the_page_limit_in_the_database(self):
+        tasks = [self.create_task(f"Task {i}") for i in range(3)]
+
+        with CaptureQueriesContext(connection) as queries:
+            summaries, count = tasks_facade.get_task_summaries(
+                self.team.id,
+                self.user.id,
+                ids=[task.id for task in tasks],
+                limit=2,
+            )
+
+        self.assertEqual(count, 3)
+        self.assertEqual(len(summaries), 2)
+        summary_queries = [query["sql"] for query in queries if "task_summary" in query["sql"]]
+        self.assertEqual(len(summary_queries), 1)
+        self.assertIn("LIMIT 2", summary_queries[0])
 
     @parameterized.expand(
         [

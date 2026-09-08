@@ -265,7 +265,7 @@ class TestFacadeReadsAndMappers(TestCase):
         # task.description. But it embeds the triggering event wholesale (for a Slack
         # trigger, a private channel's content) and workflow tasks are team-readable,
         # so human readers must not receive it.
-        task = self._make_task()
+        task = self._make_task(origin_product=Task.OriginProduct.WORKFLOW)
         run = TaskRun.objects.create(
             task=task,
             team=self.team,
@@ -275,6 +275,7 @@ class TestFacadeReadsAndMappers(TestCase):
                 "end_run_when_done": True,
                 "store_skills": [{"name": "my-skill", "description": "Mine.", "version": 1}],
                 "sandbox_jwt_kid": "secret",
+                "task_summary": "Private workflow context",
             },
         )
 
@@ -289,6 +290,7 @@ class TestFacadeReadsAndMappers(TestCase):
         # The agent writes these into its skill roots at boot; dropped, it installs none.
         assert ("store_skills" in detail.state) is include_agent_state
         assert "sandbox_jwt_kid" not in detail.state
+        assert detail.task_summary == ("Private workflow context" if include_agent_state else None)
 
     def test_get_task_run_maps_all_fields(self):
         task = self._make_task()
@@ -728,6 +730,27 @@ class TestFacadeReadsAndMappers(TestCase):
             self.assertNotIn("snapshot_external_id", new_run.state)
             self.assertNotIn("snapshot_kind", new_run.state)
             self.assertNotIn("snapshot_mount_path", new_run.state)
+
+    def test_run_task_pi_resume_carries_the_prior_summary(self):
+        task = self._make_task(runtime=Task.Runtime.PI)
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"task_summary": "Reviewing the API"},
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=previous_run.id).get()
+        self.assertEqual(new_run.state.get("prior_run_summary"), "Reviewing the API")
 
     def test_run_task_resume_exposes_pending_prompt_to_agent(self):
         task = self._make_task()

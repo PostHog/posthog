@@ -33,7 +33,6 @@ export const LOCAL_TOOLS: LocalTool[] = [
   showActionsTool,
   uploadArtifactTool,
   reportActivityTool,
-  reportInsightTool,
   finishTool,
   listAgentsTool,
   sendAgentMessageTool,

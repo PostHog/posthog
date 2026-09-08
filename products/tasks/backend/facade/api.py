@@ -477,7 +477,28 @@ def _task_run_log_url(run: TaskRun) -> str | None:
     return presigned_url
 
 
-def _task_run_detail_to_dto(run: TaskRun, *, include_agent_state: bool = False) -> contracts.TaskRunDetailDTO:
+def _task_run_summary_for_viewer(
+    run: TaskRun,
+    *,
+    task: Task | None = None,
+    user_id: int | None = None,
+    include_agent_state: bool = False,
+) -> str | None:
+    if include_agent_state:
+        return run.task_summary
+    parent = task if task is not None else run.task
+    if parent.origin_product == Task.OriginProduct.WORKFLOW and parent.created_by_id != user_id:
+        return None
+    return run.task_summary
+
+
+def _task_run_detail_to_dto(
+    run: TaskRun,
+    *,
+    task: Task | None = None,
+    include_agent_state: bool = False,
+    user_id: int | None = None,
+) -> contracts.TaskRunDetailDTO:
     """Map a ``TaskRun`` to its HTTP detail DTO.
 
     Reproduces the SMF-derived fields ``TaskRunDetailSerializer`` computed: ``log_url`` does
@@ -503,7 +524,9 @@ def _task_run_detail_to_dto(run: TaskRun, *, include_agent_state: bool = False) 
         log_url=_task_run_log_url(run),
         error_message=run.error_message,
         output=run.output,
-        task_summary=run.task_summary,
+        task_summary=_task_run_summary_for_viewer(
+            run, task=task, user_id=user_id, include_agent_state=include_agent_state
+        ),
         state=_public_task_run_state(run.state, include_agent_keys=include_agent_state),
         artifacts=run.artifacts or [],
         created_at=run.created_at,
@@ -610,6 +633,7 @@ def has_slack_thread_reference(
 def _task_detail_to_dto(
     task: Task,
     *,
+    user_id: int | None = None,
     include_latest_run: bool = True,
     latest_run: TaskRun | None | _LatestRunUnset = _LATEST_RUN_UNSET,
 ) -> contracts.TaskDetailDTO:
@@ -642,7 +666,11 @@ def _task_detail_to_dto(
         archived=task.archived,
         archived_at=task.archived_at,
         ci_prompt=task.ci_prompt,
-        latest_run=_task_run_detail_to_dto(resolved_latest_run) if resolved_latest_run is not None else None,
+        latest_run=(
+            _task_run_detail_to_dto(resolved_latest_run, task=task, user_id=user_id)
+            if resolved_latest_run is not None
+            else None
+        ),
         created_at=task.created_at,
         updated_at=task.updated_at,
         last_activity_at=task.last_activity_at or task.updated_at,
@@ -2400,14 +2428,21 @@ def task_accessible_for_run_view(
     return task_filter.exists()
 
 
-def list_task_runs(task_id: str | UUID, team_id: int) -> list[contracts.TaskRunDetailDTO]:
+def list_task_runs(
+    task_id: str | UUID, team_id: int, *, user_id: int | None = None
+) -> list[contracts.TaskRunDetailDTO]:
     """All runs for a task, team-scoped. Caller enforces task visibility."""
     runs = _task_run_queryset().filter(team_id=team_id, task_id=task_id)
-    return [_task_run_detail_to_dto(run) for run in runs]
+    return [_task_run_detail_to_dto(run, user_id=user_id) for run in runs]
 
 
 def get_task_run_detail(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, include_agent_state: bool = False
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    include_agent_state: bool = False,
+    user_id: int | None = None,
 ) -> contracts.TaskRunDetailDTO | None:
     """A single run as a detail DTO, scoped to its task + team.
 
@@ -2415,7 +2450,11 @@ def get_task_run_detail(
     boot-prompt keys that are withheld from human readers.
     """
     run = _get_visible_run(run_id, task_id, team_id)
-    return _task_run_detail_to_dto(run, include_agent_state=include_agent_state) if run is not None else None
+    return (
+        _task_run_detail_to_dto(run, include_agent_state=include_agent_state, user_id=user_id)
+        if run is not None
+        else None
+    )
 
 
 def get_task_run_stream_info(
@@ -2863,7 +2902,13 @@ def set_task_run_output(
 
 
 def set_task_run_summary(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, summary: str
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    summary: str,
+    include_agent_state: bool = False,
+    user_id: int | None = None,
 ) -> contracts.TaskRunDetailDTO | None:
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
@@ -2871,7 +2916,7 @@ def set_task_run_summary(
     run.state = TaskRun.update_state_atomic(run.id, updates={TASK_RUN_SUMMARY_STATE_KEY: summary})
     run.refresh_from_db()
     run.publish_stream_state_event()
-    return _task_run_detail_to_dto(run)
+    return _task_run_detail_to_dto(run, include_agent_state=include_agent_state, user_id=user_id)
 
 
 def _entries_show_agent_activity(entries: list[dict]) -> bool:
@@ -5156,7 +5201,7 @@ def get_task_detail(
         .filter(id=task_id)
         .first()
     )
-    return _task_detail_to_dto(task) if task is not None else None
+    return _task_detail_to_dto(task, user_id=user_id) if task is not None else None
 
 
 def get_conversation_task_dtos(
@@ -5180,7 +5225,7 @@ def get_conversation_task_dtos(
         .prefetch_related(Prefetch("team", queryset=Team.objects.only("id", "name")))
         .annotate(_latest_run_id=Subquery(latest_run_id_sq))
     )
-    return {task.id: _task_detail_to_dto(task, include_latest_run=False) for task in tasks}
+    return {task.id: _task_detail_to_dto(task, user_id=user_id, include_latest_run=False) for task in tasks}
 
 
 def pi_cloud_runtime_enabled(team: Team, user: User) -> bool:
@@ -5483,15 +5528,17 @@ def _latest_runs_by_task_id(task_ids: Iterable[UUID], team_id: int) -> dict[UUID
     return {run.task_id: run for run in runs}
 
 
-def _tasks_to_dtos(tasks: Iterable[Task], team_id: int) -> list[contracts.TaskDetailDTO]:
+def _tasks_to_dtos(tasks: Iterable[Task], team_id: int, user_id: int | None = None) -> list[contracts.TaskDetailDTO]:
     task_list = list(tasks)
     latest_runs_by_task_id = _latest_runs_by_task_id((task.id for task in task_list), team_id)
-    return [_task_detail_to_dto(task, latest_run=latest_runs_by_task_id.get(task.id)) for task in task_list]
+    return [
+        _task_detail_to_dto(task, user_id=user_id, latest_run=latest_runs_by_task_id.get(task.id)) for task in task_list
+    ]
 
 
 def list_tasks(team_id: int, user_id: int | None, *, filters: dict) -> list[contracts.TaskDetailDTO]:
     """All visible tasks for the team as DTOs, mirroring the task list view filters."""
-    return _tasks_to_dtos(_list_tasks_queryset(team_id, user_id, filters=filters), team_id)
+    return _tasks_to_dtos(_list_tasks_queryset(team_id, user_id, filters=filters), team_id, user_id)
 
 
 _SEARCH_KIND_ORDER = (
@@ -5531,6 +5578,7 @@ def _search_latest_run_summary(run: TaskRun | None) -> contracts.TaskLatestRunSu
         status=run.status,
         environment=run.environment,
         mode="interactive" if interactive else "background",
+        task_summary=None,
     )
 
 
@@ -5634,7 +5682,9 @@ def list_task_repositories(team_id: int, user_id: int | None) -> list[str]:
     return sorted(set(plural) | {repository for repository in legacy if repository})
 
 
-def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[contracts.TaskSummaryDTO]:
+def get_task_summaries(
+    team_id: int, user_id: int | None, *, ids: list, limit: int | None = None, offset: int = 0
+) -> tuple[list[contracts.TaskSummaryDTO], int]:
     """Summary fields for the requested tasks, mirroring ``TaskViewSet.summaries``."""
     from django.db.models.functions import JSONObject  # noqa: PLC0415
 
@@ -5654,7 +5704,7 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
                 mode="_mode",
                 task_summary="state__task_summary",
                 prior_run_summary="state__prior_run_summary",
-            )
+            ),
         )
     )
     tasks = (
@@ -5663,16 +5713,20 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
         .annotate(_latest_run=Subquery(latest_run.values("_data")[:1]))
         .order_by("-created_at", "id")
     )
+    count = tasks.count()
+    if limit is not None:
+        tasks = tasks[offset : offset + limit]
     summaries: list[contracts.TaskSummaryDTO] = []
     for task in tasks:
         raw = getattr(task, "_latest_run", None)
+        can_read_summary = task.origin_product != Task.OriginProduct.WORKFLOW or task.created_by_id == user_id
         latest = (
             contracts.TaskLatestRunSummaryDTO(
                 id=raw["id"],
                 status=raw.get("status"),
                 environment=raw.get("environment"),
                 mode=raw.get("mode", "background"),
-                task_summary=raw.get("task_summary") or raw.get("prior_run_summary"),
+                task_summary=(raw.get("task_summary") or raw.get("prior_run_summary")) if can_read_summary else None,
             )
             if isinstance(raw, dict)
             else None
@@ -5689,7 +5743,7 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
                 latest_run=latest,
             )
         )
-    return summaries
+    return summaries, count
 
 
 def compute_repository_readiness(team_id: int, *, repository: str, window_days: int, refresh: bool) -> dict:
@@ -7168,6 +7222,8 @@ def run_task(
         assert previous_run is not None and previous_state is not None
         prev_state = previous_state
         extra_state = extra_state or {}
+        if previous_run.task_summary:
+            extra_state[PRIOR_RUN_SUMMARY_STATE_KEY] = previous_run.task_summary
         if not is_pi_task:
             extra_state["resume_from_run_id"] = str(resume_from_run_id)
             extra_state.update(prev_state.resume_snapshot_carry_state())

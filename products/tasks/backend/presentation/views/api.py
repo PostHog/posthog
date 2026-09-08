@@ -30,7 +30,6 @@ from rest_framework.exceptions import (
     PermissionDenied,
     ValidationError,
 )
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.parsers import BaseParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -41,6 +40,7 @@ from rest_framework.views import APIView
 from posthog.schema import QuerySchemaRoot
 
 from posthog.api.mixins import validated_request
+from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered
@@ -326,7 +326,7 @@ def _can_bypass_visibility(request, team_id: int | None) -> bool:
     )
 
 
-class _SchemaAwareLimitOffsetPagination(LimitOffsetPagination):
+class _SchemaAwareLimitOffsetPagination(PrecountedLimitOffsetPagination):
     """LimitOffsetPagination subclass that surfaces `default_limit`/`max_limit` in the OpenAPI schema."""
 
     def get_schema_operation_parameters(self, view):
@@ -927,7 +927,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def summaries(self, request, **kwargs):
         ids = request.validated_data["ids"]
-        summaries = tasks_facade.get_task_summaries(self.team_id, self._user_id(), ids=ids)
+        paginator = cast(PrecountedLimitOffsetPagination, self.paginator)
+        limit = paginator.get_limit(request)
+        offset = paginator.get_offset(request)
+        summaries, count = tasks_facade.get_task_summaries(
+            self.team_id, self._user_id(), ids=ids, limit=limit, offset=offset
+        )
+        paginator.set_count(count)
         page = self.paginate_queryset(summaries)
         if page is not None:
             return self.get_paginated_response(TaskSummarySerializer(page, many=True).data)
@@ -1480,7 +1486,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _get_run_or_404(self, pk) -> tasks_contracts.TaskRunDetailDTO:
         task_id = self._ensure_task_accessible()
         run = tasks_facade.get_task_run_detail(
-            pk, task_id, self.team_id, include_agent_state=self._is_sandbox_agent_request(task_id)
+            pk,
+            task_id,
+            self.team_id,
+            include_agent_state=self._is_sandbox_agent_request(task_id),
+            user_id=self._user_id(),
         )
         if run is None:
             raise NotFound()
@@ -1495,7 +1505,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def list(self, request, *args, **kwargs):
         task_id = self._ensure_task_accessible()
-        runs = tasks_facade.list_task_runs(task_id, self.team_id)
+        runs = tasks_facade.list_task_runs(task_id, self.team_id, user_id=self._user_id())
         page = self.paginate_queryset(runs)
         if page is not None:
             return self.get_paginated_response(TaskRunDetailSerializer(page, many=True).data)
@@ -1806,6 +1816,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             task_id,
             self.team_id,
             summary=request.validated_data["summary"],
+            include_agent_state=self._is_sandbox_agent_request(task_id),
+            user_id=self._user_id(),
         )
         if run is None:
             raise NotFound()
