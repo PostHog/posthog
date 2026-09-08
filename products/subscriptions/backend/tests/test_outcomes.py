@@ -11,6 +11,7 @@ from products.product_analytics.backend.facade.contracts import SavedInsightMeas
 from products.subscriptions.backend.facade import outcomes
 from products.subscriptions.backend.facade.outcomes import (
     observed_window_for_baseline,
+    parse_provisioned_measurement,
     provision_outcome_for_adopted_artifact,
     read_outcome_once,
     verdict_for_measurement,
@@ -61,6 +62,30 @@ def test_verdict_uses_absolute_movement_without_a_threshold(
     assert decision.status == status
     assert decision.failure_code == failure_code
     assert decision.delta == observed - baseline
+
+
+def test_reader_reconstructs_the_compact_persisted_outcome_measurement() -> None:
+    measurement = _measurement()
+    parsed = parse_provisioned_measurement(
+        measurement_spec={
+            "saved_insight": measurement["saved_insight"],
+            "query": {key: value for key, value in measurement["query"].items() if key != "dateRange"},
+        },
+        baseline_value=Decimal("10"),
+        baseline_from=date(2026, 9, 1),
+        baseline_to=date(2026, 9, 7),
+        metric_name="Signups",
+        expected_metric_movement="More signups",
+        direction="increase",
+    )
+
+    assert parsed is not None
+    assert parsed.frozen_query == {
+        "kind": "TrendsQuery",
+        "series": [{"kind": "EventsNode", "event": "signed_up", "math": "total"}],
+        "interval": "day",
+    }
+    assert parsed.baseline_value == Decimal("10")
 
 
 def _measurement(*, value: int = 10) -> dict[str, object]:

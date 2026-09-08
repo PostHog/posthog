@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -83,7 +84,15 @@ def read_outcome_once(*, team_id: int, outcome_id: UUID) -> OutcomeReadResult:
     if outcome.due_at is None or outcome.due_at > timezone.now():
         return OutcomeReadResult(outcome_id=outcome.id, status="not_due", persisted=False)
 
-    measurement = parse_frozen_measurement(outcome.measurement_spec)
+    measurement = parse_provisioned_measurement(
+        measurement_spec=outcome.measurement_spec,
+        baseline_value=outcome.baseline_value,
+        baseline_from=outcome.baseline_from,
+        baseline_to=outcome.baseline_to,
+        metric_name=outcome.metric_name,
+        expected_metric_movement=outcome.expected_metric_movement,
+        direction=outcome.direction,
+    )
     if measurement is None or outcome.artifact.adopted_at is None:
         return _persist_terminal(
             team_id=team_id,
@@ -169,6 +178,54 @@ def verdict_for_measurement(*, baseline: Decimal, observed: Decimal, direction: 
         else ProactiveRecommendationOutcome.Status.REGRESSED,
         failure_code=None,
         delta=delta,
+    )
+
+
+def parse_provisioned_measurement(
+    *,
+    measurement_spec: object,
+    baseline_value: Decimal | None,
+    baseline_from: date | None,
+    baseline_to: date | None,
+    metric_name: str | None,
+    expected_metric_movement: str | None,
+    direction: str | None,
+) -> FrozenMeasurement | None:
+    """Reconstruct and validate Task 11's snapshot from the compact outcome row."""
+    if (
+        not isinstance(measurement_spec, Mapping)
+        or not isinstance(measurement_spec.get("saved_insight"), Mapping)
+        or not isinstance(measurement_spec.get("query"), Mapping)
+        or baseline_value is None
+        or baseline_from is None
+        or baseline_to is None
+        or metric_name is None
+        or expected_metric_movement is None
+        or direction is None
+    ):
+        return None
+    return parse_frozen_measurement(
+        {
+            "saved_insight": dict(measurement_spec["saved_insight"]),
+            "query": {
+                **dict(measurement_spec["query"]),
+                "dateRange": {
+                    "date_from": baseline_from.isoformat(),
+                    "date_to": baseline_to.isoformat(),
+                },
+            },
+            "baseline": {
+                "value": baseline_value,
+                "date_from": baseline_from.isoformat(),
+                "date_to": baseline_to.isoformat(),
+            },
+            "metric": {
+                "name": metric_name,
+                "expected_movement": expected_metric_movement,
+                "direction": direction,
+            },
+        },
+        allow_decimal=True,
     )
 
 

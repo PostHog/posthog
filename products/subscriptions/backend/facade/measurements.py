@@ -102,7 +102,7 @@ class FrozenMeasurement:
     direction: str
 
 
-def parse_frozen_measurement(value: object) -> FrozenMeasurement | None:
+def parse_frozen_measurement(value: object, *, allow_decimal: bool = False) -> FrozenMeasurement | None:
     """Read the bounded Task 11 snapshot without introducing a second validator."""
     if not isinstance(value, Mapping):
         return None
@@ -132,7 +132,7 @@ def parse_frozen_measurement(value: object) -> FrozenMeasurement | None:
     if not isinstance(date_range, Mapping):
         return None
     baseline_from, baseline_to = _parse_baseline_dates(date_range)
-    baseline_value = _decimal_value(baseline.get("value"))
+    baseline_value = _decimal_value(baseline.get("value"), allow_decimal=allow_decimal)
     metric_name = metric.get("name")
     expected_movement = metric.get("expected_movement")
     direction = metric.get("direction")
@@ -177,8 +177,12 @@ def _parse_baseline_dates(value: Mapping[str, object]) -> tuple[date | None, dat
     return parsed_from, parsed_to
 
 
-def _decimal_value(value: object) -> Decimal | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+def _decimal_value(value: object, *, allow_decimal: bool = False) -> Decimal | None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        and not (allow_decimal and isinstance(value, Decimal))
+    ):
         return None
     try:
         decimal = Decimal(str(value))
