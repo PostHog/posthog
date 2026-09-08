@@ -195,6 +195,21 @@ describe('RateLimiterService', () => {
             const after = await readCounter(labels)
             expect(after - before).toBe(1)
         })
+
+        it('reports a fault apart from a denial', async () => {
+            const brokenValkey = {
+                useClient: jest.fn().mockRejectedValue(new Error('connection lost')),
+                usePipeline: jest.fn(),
+            } as unknown as RedisV2
+            const brokenLimiter = new RateLimiterService(brokenValkey, { name: 'broken-limiter' })
+            const claimRequest = { key: KEY, requested: 5, capacity: 10, refillPerSecond: 0 }
+
+            await limiter.claimUpTo({ key: KEY, requested: 10, capacity: 10, refillPerSecond: 0 })
+
+            // Both grant nothing, so only the status tells a caller which one it is.
+            expect(await limiter.claimUpToWithStatus(claimRequest)).toEqual({ granted: 0, errored: false })
+            expect(await brokenLimiter.claimUpToWithStatus(claimRequest)).toEqual({ granted: 0, errored: true })
+        })
     })
 
     describe('claimAllOrNothingPair', () => {

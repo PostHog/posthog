@@ -448,7 +448,7 @@ export class EmailService {
                 addLog(
                     'info',
                     capDelay.label
-                        ? `This project reached its email sending limit of ${capDelay.label}. Retrying this email in ${Math.round(capDelay.retryDelayMs / 1000)}s. The limit rises as the project builds a clean sending history. The Reputation tab in workflows shows your current allowance.`
+                        ? `This project reached its email sending limit of ${capDelay.label}. Retrying this email in ${Math.round(capDelay.retryDelayMs / 1000)}s. The limit rises as the project builds a clean sending history.`
                         : `PostHog could not check this project's email sending limit. Retrying this email in ${Math.round(capDelay.retryDelayMs / 1000)}s. This is a temporary problem on our side.`
                 )
                 return result
@@ -620,10 +620,10 @@ export class EmailService {
             }
             if (claim.deniedIndex === null) {
                 // A failed claim reports no bucket, so the null label keeps the caller from naming
-                // a cap the limiter never returned. Nothing must refill, so wait the shorter cadence.
+                // a cap the limiter never returned. The daily cadence, unchanged here, paces retries.
                 teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: 'error', mode })
                 return {
-                    retryDelayMs: pickTokenBucketRetryDelayMs(buckets[0].refillPerSecond),
+                    retryDelayMs: pickTokenBucketRetryDelayMs(buckets[1].refillPerSecond),
                     label: null,
                 }
             }
@@ -638,21 +638,32 @@ export class EmailService {
         // Shadow mode: the send goes out regardless, so drain each bucket by what the send costs
         // and log the first cap that would have delayed it, measuring both against real traffic.
         let firstDenial: TeamEmailCapBucket | null = null
+        let errored = false
         for (const bucket of buckets) {
-            const granted = await this.teamEmailRateLimiter.claimUpTo({
+            const claim = await this.teamEmailRateLimiter.claimUpToWithStatus({
                 key: bucket.key,
                 requested,
                 capacity: bucket.capacity,
                 refillPerSecond: bucket.refillPerSecond,
                 ttlSeconds: bucket.ttlSeconds,
             })
-            if (granted >= requested) {
+            // A fault grants 0 tokens like a denial does. Counting it as one would tighten the
+            // measured cap distribution that the rollout decision reads.
+            if (claim.errored) {
+                errored = true
+                continue
+            }
+            if (claim.granted >= requested) {
                 continue
             }
             teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: bucket.name, mode })
             firstDenial = firstDenial ?? bucket
         }
 
+        if (errored) {
+            teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: 'error', mode })
+            logger.warn('📧', 'Team email sending cap check failed', { teamId: invocation.teamId, tier })
+        }
         if (firstDenial) {
             logger.info('📧', 'Team email sending cap would have delayed this send', {
                 teamId: invocation.teamId,
