@@ -314,13 +314,38 @@ def test_lowers_event_element_materializations_to_the_physical_chain() -> None:
     assert 'array_distinct(regexp_extract_all("tenant"."posthog"."events"."elements_chain"' in sql
 
 
-def test_lowers_clickhouse_select_alias_references_to_expressions() -> None:
+@pytest.mark.parametrize(
+    "expression, group_by, order_by, expected_order, expected_values",
+    [
+        ("user_id", "account_id", "total", "2 ASC", []),
+        (
+            "concat(user_id, 'suffix')",
+            "concat(user_id, 'suffix')",
+            "account_id DESC",
+            "1 DESC",
+            ["suffix"],
+        ),
+        ("properties.color", "account_id", "account_id", "1 ASC", ['$["color"]']),
+        ("0", "account_id", "account_id", "1 ASC", []),
+        ("user_id", "account_id", "2", "2 ASC", []),
+        (
+            "user_id",
+            "account_id",
+            "concat(account_id, 'suffix')",
+            'concat(CAST("users"."user_id" AS VARCHAR), CAST(? AS VARCHAR)) ASC',
+            ["suffix"],
+        ),
+    ],
+)
+def test_lowers_clickhouse_select_alias_references_to_expressions(
+    expression: str, group_by: str, order_by: str, expected_order: str, expected_values: list[str]
+) -> None:
     context = _context_with_trino_table()
 
     sql, _ = prepare_and_print_ast(
         parse_select(
-            "SELECT user_id AS account_id, count() AS total FROM users "
-            "GROUP BY account_id HAVING total > 0 ORDER BY total"
+            f"SELECT {expression} AS account_id, count() AS total FROM users "
+            f"GROUP BY {group_by} HAVING total > 0 ORDER BY {order_by}"
         ),
         context,
         "trino",
@@ -328,7 +353,9 @@ def test_lowers_clickhouse_select_alias_references_to_expressions() -> None:
 
     assert "GROUP BY 1" in sql
     assert "HAVING (count(*) > 0)" in sql
-    assert "ORDER BY count(*) ASC" in sql
+    sql, values = convert_pyformat_placeholders(sql, context.values)
+    assert sql.endswith(f"ORDER BY {expected_order}")
+    assert values == expected_values
 
 
 @pytest.mark.parametrize(

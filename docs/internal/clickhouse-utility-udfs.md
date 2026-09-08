@@ -11,6 +11,21 @@ The event, person, and temporary cleaners reuse parser nodes across rows.
 Recycled nodes keep small backing arrays for reuse and release larger arrays whose capacity exceeds twice their used length, so a wide row does not make later small rows repeatedly clear oversized arrays.
 They clear references across the remaining backing arrays, including entries removed during cleanup, so borrowed property keys do not retain previously processed input rows.
 
+### Array nesting limit
+
+The event, person, and temporary cleaners accept at most eight nested arrays along any path, including arrays separated by objects.
+This limit is separate from the general JSON depth limit of 300.
+Small documents with deeply nested arrays and nulls can cause excessive memory allocation during ClickHouse JSON type inference.
+The eight-array limit is a conservative input policy, not a guarantee against every possible inference failure.
+
+The cleaners check the parsed document before filtering properties and check the normalized result before emitting it.
+The second check covers arrays decoded from strings or introduced by schema normalization.
+Event and person cleaners preserve a rejected document verbatim as an escaped JSON string under `$unparseable_properties`.
+The rejected document's original properties are no longer available as individually queryable JSON paths.
+The temporary cleaner emits `{}` because the permanent cleaner preserves the original input, including temporary properties.
+Run both event cleaners on the original document to retain that guarantee.
+Malformed JSON still fails instead of entering this quarantine path.
+
 ### `JSONCleanPostHogTemporaryProperties(json)`
 
 Accepts a JSON object and retains only the following top-level properties, including their dotted descendants. It uses the event cleaner's dotted-key expansion, null-object-field removal, duplicate handling, and integer protection, without coercing values to declared schema types. Non-object input fails.
