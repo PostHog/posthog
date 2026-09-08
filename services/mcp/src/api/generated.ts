@@ -20234,12 +20234,26 @@ export namespace Schemas {
       color?: string | null;
     }
 
+    /**
+     * Extra text files to ship next to app.py, keyed by project-relative path (for example 'utils.py' or 'data/config.json'), each as plain text (max 1 MB).
+     */
+    export type CreateVersionFromSourceInputFiles = {[key: string]: string};
+
+    /**
+     * Extra binary files to ship next to app.py, keyed by project-relative path (for example 'data/events.parquet'), each as standard base64 text.
+     */
+    export type CreateVersionFromSourceInputAssets = {[key: string]: string};
+
     export interface CreateVersionFromSourceInput {
       /**
          * Full Python source for the Streamlit app's root app.py file, as free text (max 1 MB). Becomes a new version and is set as the active version.
          * @maxLength 1048576
          */
       source: string;
+      /** Extra text files to ship next to app.py, keyed by project-relative path (for example 'utils.py' or 'data/config.json'), each as plain text (max 1 MB). */
+      files?: CreateVersionFromSourceInputFiles;
+      /** Extra binary files to ship next to app.py, keyed by project-relative path (for example 'data/events.parquet'), each as standard base64 text. */
+      assets?: CreateVersionFromSourceInputAssets;
     }
 
     /**
