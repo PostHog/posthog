@@ -2129,6 +2129,28 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
 
         self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
 
+    @parameterized.expand([("write", "2026-01-01T00:00:00Z"), ("clear", None)])
+    def test_canonical_definition_rejects_manual_write(self, _name: str, value: str | None) -> None:
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name="Last Slack message at", display_type=DisplayType.DATETIME
+        )
+        recorded_at = timezone.now()
+        current = CustomPropertyValue.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            account=self.account,
+            definition=definition,
+            value_datetime=recorded_at,
+        )
+
+        response = self._set(definition.id, value)
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertEqual("definition", response.json()["attr"])
+        current.refresh_from_db()
+        self.assertFalse(current.is_deleted)
+        self.assertEqual(recorded_at, current.value_datetime)
+        self.assertEqual(1, len(self.client.get(self.endpoint).json()))
+
     @parameterized.expand([("write", "manual"), ("clear", None)])
     def test_source_backed_definition_rejects_manual_write(self, _name: str, value: str | None) -> None:
         saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
