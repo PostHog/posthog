@@ -19,6 +19,7 @@ import {
     forecastTargetDateError,
     forecastTargetValueError,
     maxHorizonForInterval,
+    maxTargetDaysForInterval,
 } from 'products/alerts/frontend/logic/forecastReach'
 
 const HORIZON_UNIT: Partial<Record<IntervalType, string>> = {
@@ -63,7 +64,11 @@ export function withConditionDefaults(
         target_date:
             config.condition === ForecastConditionType.TARGET_BY_DATE
                 ? config.target_date
-                : today.add(DEFAULT_TARGET_DAYS, 'day').format('YYYY-MM-DD'),
+                : // A fine insight interval reaches less far, so seed the nearest date the interval
+                  // allows instead of a fixed quarter that opens the path in an error state.
+                  today
+                      .add(Math.min(DEFAULT_TARGET_DAYS, maxTargetDaysForInterval(insightInterval)), 'day')
+                      .format('YYYY-MM-DD'),
     }
 }
 

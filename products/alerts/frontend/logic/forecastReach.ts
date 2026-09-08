@@ -46,6 +46,15 @@ export function maxHorizonForInterval(interval: IntervalType | null | undefined)
     return Math.min(MAX_FORECAST_OUTPUT_POINTS, Math.floor(MAX_FORECAST_REACH_DAYS / days))
 }
 
+/** The furthest a target date can sit and still pass `forecastTargetReachError`: 92 days of reach,
+ * and no more than 250 forecast points at the insight's interval. The point cap binds first on an
+ * hourly insight, where 92 days would need 2208 points. */
+export function maxTargetDaysForInterval(interval: IntervalType | null | undefined): number {
+    const intervalMinutes = INSIGHT_INTERVAL_DURATION_MINUTES[interval ?? 'day']
+    const byPoints = Math.floor((MAX_FORECAST_OUTPUT_POINTS * intervalMinutes) / MINUTES_PER_DAY)
+    return Math.max(1, Math.min(MAX_FORECAST_REACH_DAYS, byPoints))
+}
+
 export function clampHorizon<T extends { horizon?: number | null }>(
     config: T,
     interval: IntervalType | null | undefined

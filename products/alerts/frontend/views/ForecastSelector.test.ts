@@ -32,6 +32,19 @@ describe('withConditionDefaults', () => {
         expect(next).not.toHaveProperty('horizon')
     })
 
+    it.each(['hour', 'day', 'week', 'month'] as const)(
+        'seeds a target date the %s insight can reach, so the path does not open in an error state',
+        (interval) => {
+            const today = dayjs('2026-09-07')
+            const next = withConditionDefaults(futureBreach, ForecastConditionType.TARGET_BY_DATE, today, interval)
+
+            if (next.condition !== ForecastConditionType.TARGET_BY_DATE) {
+                throw new Error('Expected target-by-date config')
+            }
+            expect(forecastTargetDateError(next.target_date, today, interval)).toBeNull()
+        }
+    )
+
     it('switches back to a breach without carrying target fields', () => {
         const next = withConditionDefaults(
             {
