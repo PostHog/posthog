@@ -25,7 +25,7 @@ describe('SubscriptionQueryPlanStatus', () => {
         async (status, copy) => {
             render(<SubscriptionQueryPlanStatus status={status as AIQueryPlanStatusEnumApi} />)
 
-            const indicator = screen.getByRole('img', { name: copy })
+            const indicator = screen.getByLabelText(copy)
             expect(indicator).toHaveAttribute('tabindex', '0')
             expect(indicator.querySelector('svg')).toBeInTheDocument()
 
@@ -40,7 +40,7 @@ describe('SubscriptionQueryPlanStatus', () => {
         const copy = EXPECTED_COPY[AIQueryPlanStatusEnumApi.Frozen]
         render(<SubscriptionQueryPlanStatus status={AIQueryPlanStatusEnumApi.Frozen} />)
 
-        fireEvent.focus(screen.getByRole('img', { name: copy }))
+        fireEvent.focus(screen.getByLabelText(copy))
 
         expect(await screen.findByText(copy)).toBeInTheDocument()
     })
@@ -48,15 +48,13 @@ describe('SubscriptionQueryPlanStatus', () => {
     it('distinguishes frozen and not-frozen plans with a snowflake and a slashed snowflake', () => {
         const { rerender } = render(<SubscriptionQueryPlanStatus status={AIQueryPlanStatusEnumApi.Frozen} />)
 
-        const frozenIndicator = screen.getByRole('img', { name: EXPECTED_COPY[AIQueryPlanStatusEnumApi.Frozen] })
+        const frozenIndicator = screen.getByLabelText(EXPECTED_COPY[AIQueryPlanStatusEnumApi.Frozen])
         expect(frozenIndicator.querySelector('svg')).toHaveClass('lucide-snowflake')
         expect(frozenIndicator.querySelector('span[aria-hidden="true"]')).not.toBeInTheDocument()
 
         rerender(<SubscriptionQueryPlanStatus status={AIQueryPlanStatusEnumApi.NotFrozen} />)
 
-        const notFrozenIndicator = screen.getByRole('img', {
-            name: EXPECTED_COPY[AIQueryPlanStatusEnumApi.NotFrozen],
-        })
+        const notFrozenIndicator = screen.getByLabelText(EXPECTED_COPY[AIQueryPlanStatusEnumApi.NotFrozen])
         expect(notFrozenIndicator.querySelector('svg')).toHaveClass('lucide-snowflake')
         expect(notFrozenIndicator.querySelector('span[aria-hidden="true"]')).toBeInTheDocument()
     })

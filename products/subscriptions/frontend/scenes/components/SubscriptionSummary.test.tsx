@@ -31,13 +31,13 @@ describe('SubscriptionSummary', () => {
         render(<SubscriptionSummary sub={AI_SUBSCRIPTION} />)
 
         expect(screen.queryByText('Query plan')).not.toBeInTheDocument()
-        expect(screen.queryByRole('img', { name: /query plan/i })).not.toBeInTheDocument()
+        expect(screen.queryByLabelText(/query plan/i)).not.toBeInTheDocument()
     })
 
     it('does not show a query plan state for a non-AI subscription', () => {
         render(<SubscriptionSummary sub={MOCK_SUBSCRIPTION_INSIGHT} />)
 
         expect(screen.queryByText('Query plan')).not.toBeInTheDocument()
-        expect(screen.queryByRole('img', { name: /query plan/i })).not.toBeInTheDocument()
+        expect(screen.queryByLabelText(/query plan/i)).not.toBeInTheDocument()
     })
 })

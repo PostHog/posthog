@@ -94,7 +94,7 @@ describe('SubscriptionAiReportDelivery helpers', () => {
         expect(screen.getByText('Queries')).toBeInTheDocument()
         expect(screen.queryByText('Generated queries')).not.toBeInTheDocument()
         expect(screen.getByText('Queries').parentElement).toContainElement(
-            screen.getByRole('img', { name: /^This delivery's query plan was frozen for reuse\./ })
+            screen.getByLabelText(/^This delivery's query plan was frozen for reuse\./)
         )
     })
 
@@ -107,7 +107,7 @@ describe('SubscriptionAiReportDelivery helpers', () => {
         render(<ExpandedDeliveryRow row={{ ...row, ai_query_plan_status: null }} />)
 
         expect(screen.getByText('Queries')).toBeInTheDocument()
-        expect(screen.queryByRole('img', { name: /query plan/i })).not.toBeInTheDocument()
+        expect(screen.queryByLabelText(/query plan/i)).not.toBeInTheDocument()
     })
 
     it('shows the planner-update outcome recorded for that delivery', () => {
@@ -119,7 +119,7 @@ describe('SubscriptionAiReportDelivery helpers', () => {
         render(<ExpandedDeliveryRow row={{ ...row, ai_query_plan_status: AIQueryPlanStatusEnumApi.PlannerUpdated }} />)
 
         expect(
-            screen.getByRole('img', { name: /^The query planner changed, so this delivery generated a new plan\./ })
+            screen.getByLabelText(/^The query planner changed, so this delivery generated a new plan\./)
         ).toBeInTheDocument()
     })
 })
