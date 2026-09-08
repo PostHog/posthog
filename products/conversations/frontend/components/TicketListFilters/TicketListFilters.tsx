@@ -4,6 +4,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { pluralize } from 'lib/utils/strings'
 
 import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
@@ -19,8 +20,8 @@ interface TicketListFiltersProps {
 
 export function TicketListFilters({ embedded = false }: TicketListFiltersProps): JSX.Element {
     const logic = useMountedLogic(supportTicketsSceneLogic)
-    const { searchQuery, ticketsLoading, totalCount, hasActiveFilters, aiEnabled } = useValues(logic)
-    const { setSearchQuery, loadTickets } = useActions(logic)
+    const { searchQuery, ticketsLoading, totalCount, hasActiveFilters, aiEnabled, dateFrom, dateTo } = useValues(logic)
+    const { setSearchQuery, loadTickets, setDateRange } = useActions(logic)
 
     return (
         <div className="flex flex-col gap-2">
@@ -37,7 +38,16 @@ export function TicketListFilters({ embedded = false }: TicketListFiltersProps):
                         // longer searches and rejects saving them in a view.
                         maxLength={200}
                     />
+                    <DateFilter
+                        dateFrom={dateFrom}
+                        dateTo={dateTo}
+                        onChange={(nextDateFrom, nextDateTo) => setDateRange(nextDateFrom, nextDateTo)}
+                        size="small"
+                    />
                     <TicketFiltersDropdown />
+                    <SavedViewsButton id="SupportTicketsScene" />
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
                     <Tooltip
                         title={
                             hasActiveFilters || searchQuery
@@ -52,27 +62,21 @@ export function TicketListFilters({ embedded = false }: TicketListFiltersProps):
                             {ticketsLoading && totalCount === 0 ? null : pluralize(totalCount, 'ticket')}
                         </span>
                     </Tooltip>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                    <SavedViewsButton id="SupportTicketsScene" />
                     <LemonButton
-                        type="secondary"
+                        type="tertiary"
                         icon={<IconRefresh />}
                         loading={ticketsLoading}
                         disabledReason={ticketsLoading ? 'Loading tickets...' : undefined}
                         onClick={loadTickets}
                         size="small"
                         data-attr="refresh-tickets"
-                    >
-                        Refresh
-                    </LemonButton>
+                        tooltip="Refresh"
+                    />
+                    <TicketColumnsDropdown aiEnabled={aiEnabled} embedded={embedded} />
                 </div>
             </div>
             <TicketAppliedFilters />
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <TicketListBulkActions />
-                <TicketColumnsDropdown aiEnabled={aiEnabled} embedded={embedded} />
-            </div>
+            <TicketListBulkActions />
         </div>
     )
 }

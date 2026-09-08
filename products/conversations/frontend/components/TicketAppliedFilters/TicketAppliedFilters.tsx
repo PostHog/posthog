@@ -20,7 +20,6 @@ export function TicketAppliedFilters(): JSX.Element | null {
         setAssigneeFilter,
         setTagsFilter,
         setTagsExcludeFilter,
-        setDateRange,
         resetFilters,
     } = useActions(logic)
 
@@ -55,9 +54,6 @@ export function TicketAppliedFilters(): JSX.Element | null {
                 break
             case 'assignee':
                 setAssigneeFilter(assigneeFilterEntries.filter((entry) => !isSameAssigneeEntry(entry, chip.entry)))
-                break
-            case 'date':
-                setDateRange(null, null)
                 break
         }
     }

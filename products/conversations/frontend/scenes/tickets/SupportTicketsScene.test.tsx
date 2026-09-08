@@ -227,6 +227,8 @@ describe('TicketListFilters count', () => {
             </Provider>
         )
 
+        expect(screen.getByText('Last 7 days')).toBeInTheDocument()
+
         const filtersButton = document.querySelector('[data-attr="ticket-filters-button"]')
         expect(filtersButton).toBeInstanceOf(HTMLElement)
         await userEvent.click(filtersButton as HTMLElement)
@@ -234,6 +236,7 @@ describe('TicketListFilters count', () => {
         expect(await screen.findByText('Status')).toBeInTheDocument()
         expect(screen.getByText('Priority')).toBeInTheDocument()
         expect(screen.getByText('Assignee')).toBeInTheDocument()
+        expect(screen.queryByText('Date')).not.toBeInTheDocument()
     })
 
     it('shows a chip for an applied filter and the chip x clears it', async () => {

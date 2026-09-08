@@ -12,8 +12,6 @@ import {
     LemonSelect,
 } from '@posthog/lemon-ui'
 
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-
 import { tagsModel } from '~/models/tagsModel'
 
 import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
@@ -63,8 +61,6 @@ function TicketFiltersDropdownOverlay(): JSX.Element {
         tagsFilter,
         tagsMatch,
         tagsExcludeFilter,
-        dateFrom,
-        dateTo,
         aiEnabled,
     } = useValues(logic)
     const {
@@ -77,7 +73,6 @@ function TicketFiltersDropdownOverlay(): JSX.Element {
         setTagsFilter,
         setTagsMatch,
         setTagsExcludeFilter,
-        setDateRange,
     } = useActions(logic)
     const { tags: tagsAvailable } = useValues(tagsModel)
     const tagOptions = tagsAvailable?.map((t: string) => ({ key: t, label: t })) || []
@@ -85,16 +80,6 @@ function TicketFiltersDropdownOverlay(): JSX.Element {
     return (
         <div className="flex flex-col gap-3 p-2 w-80 max-w-full max-h-[70vh] overflow-y-auto">
             {/* max-h-[70vh]: keep every filter section reachable when the panel would overflow the window */}
-            <div className="flex flex-col gap-1">
-                <LemonLabel>Date</LemonLabel>
-                <DateFilter
-                    dateFrom={dateFrom}
-                    dateTo={dateTo}
-                    onChange={(nextDateFrom, nextDateTo) => setDateRange(nextDateFrom, nextDateTo)}
-                    size="small"
-                    fullWidth
-                />
-            </div>
             <div className="flex flex-col gap-1">
                 <LemonLabel>Status</LemonLabel>
                 <FilterCheckboxList

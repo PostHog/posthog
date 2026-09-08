@@ -10,8 +10,6 @@ const emptyState: AppliedTicketFiltersState = {
     tagsFilter: [],
     tagsMatch: 'any',
     tagsExcludeFilter: [],
-    dateFrom: null,
-    dateTo: null,
 }
 
 describe('listAppliedTicketFilters', () => {
@@ -31,8 +29,6 @@ describe('listAppliedTicketFilters', () => {
             tagsFilter: ['billing'],
             tagsMatch: 'all',
             tagsExcludeFilter: ['spam'],
-            dateFrom: '-7d',
-            dateTo: null,
         })
 
         expect(chips.map((chip) => chip.key)).toEqual([
@@ -44,10 +40,8 @@ describe('listAppliedTicketFilters', () => {
             'tag:billing',
             'tag-exclude:spam',
             'assignee:me',
-            'date',
         ])
         expect(chips.find((chip) => chip.kind === 'status')).toMatchObject({ label: 'Status: Open' })
         expect(chips.find((chip) => chip.kind === 'tag')).toMatchObject({ label: 'Tag (all): billing' })
-        expect(chips.find((chip) => chip.kind === 'date')?.label).toMatch(/^Date: /)
     })
 })

@@ -1,7 +1,5 @@
 import { useMountedLogic, useValues } from 'kea'
 
-import { dateFilterToText } from 'lib/utils/dateFilters'
-
 import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
 import {
     type AITriageFilterValue,
@@ -27,7 +25,6 @@ export type AppliedTicketFilter =
     | { key: string; kind: 'tag'; value: string; label: string }
     | { key: string; kind: 'tag-exclude'; value: string; label: string }
     | { key: string; kind: 'assignee'; entry: AssigneeFilterEntry }
-    | { key: string; kind: 'date'; label: string }
 
 export interface AppliedTicketFiltersState {
     statusFilter: TicketStatus[]
@@ -39,8 +36,6 @@ export interface AppliedTicketFiltersState {
     tagsFilter: string[]
     tagsMatch: TicketTagsMatch
     tagsExcludeFilter: string[]
-    dateFrom: string | null
-    dateTo: string | null
 }
 
 export function listAppliedTicketFilters(state: AppliedTicketFiltersState): AppliedTicketFilter[] {
@@ -90,11 +85,6 @@ export function listAppliedTicketFilters(state: AppliedTicketFiltersState): Appl
         chips.push({ key: assigneeChipKey(entry), kind: 'assignee', entry })
     }
 
-    if (state.dateFrom !== null || state.dateTo !== null) {
-        const dateLabel = dateFilterToText(state.dateFrom, state.dateTo, 'Custom range') ?? 'Custom range'
-        chips.push({ key: 'date', kind: 'date', label: `Date: ${dateLabel}` })
-    }
-
     return chips
 }
 
@@ -110,8 +100,6 @@ export function useAppliedTicketFilters(): AppliedTicketFilter[] {
         tagsFilter,
         tagsMatch,
         tagsExcludeFilter,
-        dateFrom,
-        dateTo,
     } = useValues(logic)
 
     return listAppliedTicketFilters({
@@ -124,8 +112,6 @@ export function useAppliedTicketFilters(): AppliedTicketFilter[] {
         tagsFilter,
         tagsMatch,
         tagsExcludeFilter,
-        dateFrom,
-        dateTo,
     })
 }
 
