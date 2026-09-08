@@ -1667,15 +1667,15 @@ class GitHubIntegrationBase:
             nodes {
               id isResolved path
               comments(last: 1) {
-                nodes { id url body author { login } authorAssociation }
+                nodes { id url body author { login __typename } authorAssociation }
               }
             }
           }
           comments(last: 30) {
-            nodes { id url body author { login } authorAssociation }
+            nodes { id url body author { login __typename } authorAssociation }
           }
           reviews(last: 10) {
-            nodes { id url body author { login } authorAssociation }
+            nodes { id url body author { login __typename } authorAssociation }
           }
           commits(last: 1) {
             nodes {
@@ -1741,6 +1741,12 @@ class GitHubIntegrationBase:
             "url": node.get("url"),
         }
 
+    @staticmethod
+    def _is_bot_author(node: dict[str, Any]) -> bool:
+        # GraphQL drops the `[bot]` login suffix REST adds, and authorAssociation says
+        # nothing about whether an author is automated.
+        return ((node.get("author") or {}).get("__typename")) == "Bot"
+
     def get_pull_request_babysit_snapshot(self, pr_url: str) -> dict[str, Any]:
         """Fetch the per-item PR state the babysit loop dispatches on: every unresolved
         review thread with its latest comment, top-level comments and review bodies,
@@ -1770,13 +1776,21 @@ class GitHubIntegrationBase:
                 {**item, "id": node.get("id"), "path": node.get("path"), "last_comment_id": item["id"] or ""}
             )
 
+        # A woken agent pushes, and a push ejects the PR from the merge queue whose bot was
+        # reporting on it, taking the whole batch with it (PostHog/posthog#96393). Review
+        # threads are exempt — an unresolved one is work somebody is waiting on.
         feedback: list[dict[str, Any]] = []
         for connection in ("comments", "reviews"):
             for node in ((pr.get(connection) or {}).get("nodes")) or []:
                 if not isinstance(node, dict):
                     continue
                 item = self._feedback_item(node)
-                if item["id"] and item["body"].strip() and item["author"] != author_login:
+                if (
+                    item["id"]
+                    and item["body"].strip()
+                    and item["author"] != author_login
+                    and not self._is_bot_author(node)
+                ):
                     feedback.append(item)
 
         rollup_nodes = ((pr.get("commits") or {}).get("nodes")) or []
