@@ -76,6 +76,29 @@ function yForRollout(rollout: number): number {
     return MARGIN.top + ((100 - rollout) * PLOT_HEIGHT) / 100
 }
 
+/** Hover text for a mark: why it waits on approval, why its level holds, or both. */
+function markTitle(occurrence: ScheduleOccurrence): string {
+    return [
+        occurrence.needsApproval ? 'Needs approval' : '',
+        occurrence.rolloutUnchanged
+            ? `This condition sits at ${occurrence.addedRolloutPercentage}%, at or below the ${occurrence.projected.rolloutPercentage}% the flag already serves`
+            : '',
+    ]
+        .filter(Boolean)
+        .join('. ')
+}
+
+/** Label above a step mark. Says when the level holds, or a flat line reads as a broken chart. */
+function stepLabel(occurrence: ScheduleOccurrence, rollout: number): string {
+    const level = occurrence.rolloutUnchanged ? `still ${rollout}%` : `${rollout}%`
+    return occurrence.needsApproval ? `${level} (needs approval)` : level
+}
+
+/** A centered label runs past the plot at the last mark, and the SVG clips what leaves the viewBox. */
+function stepLabelAnchor(x: number): 'end' | 'middle' {
+    return x > MARGIN.left + PLOT_WIDTH - STEP_LABEL_EDGE_PAD ? 'end' : 'middle'
+}
+
 /** Where each occurrence's marks and labels land, resolved before render so the JSX map stays pure. */
 interface OccurrenceLayout {
     x: number
@@ -252,17 +275,10 @@ export function ScheduleTimeline({
                     const isRolloutStep = occurrence.operation === ScheduledChangeOperationType.AddReleaseCondition
                     const rollout = occurrence.projected.rolloutPercentage
                     // One <title> per mark: a second one is never read out.
-                    const markTitle = [
-                        blocked ? 'Needs approval' : '',
-                        occurrence.rolloutUnchanged
-                            ? `This condition sits at ${occurrence.addedRolloutPercentage}%, at or below the ${rollout}% the flag already serves`
-                            : '',
-                    ]
-                        .filter(Boolean)
-                        .join('. ')
+                    const title = markTitle(occurrence)
                     return (
                         <g key={`${occurrence.schedule.id}-${occurrence.timestamp}`} opacity={blocked ? 0.5 : 1}>
-                            {markTitle && <title>{markTitle}</title>}
+                            {title && <title>{title}</title>}
                             <line
                                 x1={x}
                                 x2={x}
@@ -284,16 +300,11 @@ export function ScheduleTimeline({
                                     <text
                                         x={x}
                                         y={yForRollout(rollout) - 7}
-                                        // A centered label runs past the plot at the last mark, and
-                                        // the SVG clips whatever leaves the viewBox.
-                                        textAnchor={
-                                            x > MARGIN.left + PLOT_WIDTH - STEP_LABEL_EDGE_PAD ? 'end' : 'middle'
-                                        }
+                                        textAnchor={stepLabelAnchor(x)}
                                         fontSize={9}
                                         fill="var(--color-text-secondary)"
                                     >
-                                        {occurrence.rolloutUnchanged ? `still ${rollout}%` : `${rollout}%`}
-                                        {blocked ? ' (needs approval)' : ''}
+                                        {stepLabel(occurrence, rollout)}
                                     </text>
                                 </>
                             ) : (
