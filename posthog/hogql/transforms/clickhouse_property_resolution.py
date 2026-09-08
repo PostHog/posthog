@@ -1270,7 +1270,9 @@ class ClickHousePropertyResolver(CloningVisitor):
 
         property_name = str(property_access.keys[0])
         if self._is_virtual_feature_flag_property(field_type, property_name):
-            return self.visit_property_access(property_access)
+            if property_name in ("$feature_flags", "$active_feature_flags"):
+                return self.visit_property_access(property_access)
+            return None
         source = resolve_materialized_property_source(field_type, property_name, self.context)
         if source is None or source.kind != "json_subcolumn":
             return None
