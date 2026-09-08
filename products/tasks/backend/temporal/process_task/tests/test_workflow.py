@@ -1341,7 +1341,7 @@ async def test_completed_run_awaits_reserved_publication_child(monkeypatch) -> N
     monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity)
     monkeypatch.setattr(process_task_workflow_module.workflow, "execute_child_workflow", execute_child_workflow)
     workflow = ProcessTaskWorkflow()
-    workflow._context = _build_context(github_integration_id=123)
+    workflow._context = dataclasses.replace(_build_context(github_integration_id=123), staged_execution=True)
 
     await workflow._publish_staged_artifact_if_reserved()
 
@@ -1351,6 +1351,17 @@ async def test_completed_run_awaits_reserved_publication_child(monkeypatch) -> N
         publication,
     )
     assert execute_child_workflow.await_args.kwargs["id"] == f"task-draft-publication-{publication.publication_id}"
+
+
+async def test_completed_regular_run_skips_staged_publication(monkeypatch) -> None:
+    execute_activity = AsyncMock()
+    monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity)
+    workflow = ProcessTaskWorkflow()
+    workflow._context = _build_context(github_integration_id=123)
+
+    await workflow._publish_staged_artifact_if_reserved()
+
+    execute_activity.assert_not_awaited()
 
 
 @pytest.mark.django_db

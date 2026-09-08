@@ -2719,6 +2719,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
 
     async def _publish_staged_artifact_if_reserved(self) -> None:
+        if not self.context.staged_execution:
+            return
+
         publication = await workflow.execute_activity(
             resolve_completed_publication,
             self.context.run_id,
