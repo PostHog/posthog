@@ -32,6 +32,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_cont
     _execute_insight,
     _PendingInsight,
     _rank_dashboard_tiles,
+    _saved_query_events,
     _SavedInsight,
     _validated_saved_query,
     creator_can_access_report_context,
@@ -200,6 +201,33 @@ class TestReportContextPureFunctions(SimpleTestCase):
         assert len(executed.content) <= budget
         assert executed.content.endswith(_TRUNCATED_CONTEXT_MARKER) is expects_marker
 
+    def test_cancelling_a_queued_insight_does_not_scan_clickhouse(self) -> None:
+        pending = _PendingInsight(
+            saved=_SavedInsight(
+                id=1,
+                short_id="1",
+                name="Queued insight",
+                description="",
+                query=None,
+                filters_override=None,
+                variables_override=None,
+                available=True,
+            ),
+            context=MagicMock(team=MagicMock(pk=1), execute_and_format=AsyncMock()),
+        )
+
+        async def run() -> None:
+            task = asyncio.create_task(_execute_insight(pending, asyncio.Semaphore(0)))
+            await asyncio.sleep(0)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        with patch(f"{_MODULE}.cancel_query_on_cluster") as cancel_query:
+            async_to_sync(run)()
+
+        cancel_query.assert_not_called()
+
     def test_failed_markers_are_not_successful_computed_evidence(self) -> None:
         evidence = ReportContextEvidence(
             dashboards=(),
@@ -215,6 +243,11 @@ class TestReportContextPureFunctions(SimpleTestCase):
 
         assert evidence.formatted_evidence
         assert evidence.has_successful_evidence is False
+
+    def test_saved_query_events_come_from_precomputed_metadata(self) -> None:
+        insight = MagicMock(query_metadata={"events": ["signup", "purchase", "signup"]})
+
+        assert _saved_query_events(insight) == ("signup", "purchase")
 
 
 class TestResolveReportContext(BaseTest):
@@ -441,7 +474,7 @@ class TestResolveReportContext(BaseTest):
         current_time = datetime(2026, 8, 28, 12, tzinfo=UTC)
         with (
             patch(f"{_MODULE}.timezone.now", return_value=current_time),
-            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight", return_value=counts) as popularity,
+            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight_for_project", return_value=counts) as popularity,
             patch(_EXECUTOR, new_callable=AsyncMock, return_value="formatted rows") as execute,
         ):
             evidence = async_to_sync(resolve_report_context)(subscription)
@@ -458,7 +491,7 @@ class TestResolveReportContext(BaseTest):
         assert len(selected_ids) == MAX_DASHBOARD_INSIGHTS
         assert execute.call_count == MAX_DASHBOARD_INSIGHTS
         popularity.assert_called_once_with(
-            team_id=self.team.id,
+            project_id=self.team.project_id,
             insight_ids=[insight.id for insight in insights],
             since=current_time - timedelta(days=7),
         )
@@ -477,7 +510,7 @@ class TestResolveReportContext(BaseTest):
         DashboardTile.objects.create(dashboard=dashboard, insight=first, layouts={"sm": {"y": 1, "x": 0}})
 
         with (
-            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight", return_value={}),
+            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight_for_project", return_value={}),
             patch(_EXECUTOR, new_callable=AsyncMock, return_value="formatted rows"),
         ):
             evidence = async_to_sync(resolve_report_context)(subscription)
@@ -521,7 +554,7 @@ class TestResolveReportContext(BaseTest):
         DashboardTile.objects.create(dashboard=dashboard, insight=variable)
 
         with (
-            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight", return_value={}),
+            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight_for_project", return_value={}),
             patch(_EXECUTOR, new_callable=AsyncMock, return_value="formatted rows") as execute,
         ):
             async_to_sync(resolve_report_context)(subscription)
@@ -565,7 +598,7 @@ class TestResolveReportContext(BaseTest):
         self._add_dashboard_context(subscription, dashboard)
 
         with (
-            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight", return_value={}),
+            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight_for_project", return_value={}),
             patch(_EXECUTOR, new_callable=AsyncMock, return_value="formatted rows") as execute,
         ):
             async_to_sync(resolve_report_context)(subscription)
@@ -614,7 +647,7 @@ class TestResolveReportContext(BaseTest):
             await task
 
         with (
-            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight", return_value={}),
+            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight_for_project", return_value={}),
             patch(f"{_MODULE}.asyncio.Semaphore", wraps=asyncio.Semaphore) as semaphore_constructor,
             patch(_EXECUTOR, side_effect=execute) as executor,
         ):
@@ -643,7 +676,7 @@ class TestResolveReportContext(BaseTest):
             return "successful formatted rows"
 
         with (
-            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight", return_value={}),
+            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight_for_project", return_value={}),
             patch(_EXECUTOR, side_effect=execute),
         ):
             evidence = async_to_sync(resolve_report_context)(subscription)
@@ -788,6 +821,46 @@ class TestResolveReportContext(BaseTest):
         assert evidence.insights[0].status == "success"
         execute.assert_awaited_once()
 
+    def test_environment_dashboard_popularity_uses_the_whole_project(self) -> None:
+        environment = Team.objects.create(
+            organization=self.organization,
+            name="Environment",
+            parent_team=self.team,
+        )
+        subscription = Subscription.objects.create(
+            team=environment,
+            created_by=self.user,
+            prompt="Summarize the dashboard",
+            target_type=Subscription.SubscriptionTarget.EMAIL,
+            target_value="report@example.com",
+            frequency=Subscription.SubscriptionFrequency.WEEKLY,
+            interval=1,
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="Root dashboard")
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Root insight",
+            query=_trends_query("root event"),
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        SubscriptionContext.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            subscription=subscription,
+            dashboard=dashboard,
+        )
+
+        with (
+            patch(f"{_MODULE}.UserAccessControl.check_access_level_for_resource", return_value=True),
+            patch(f"{_MODULE}.UserAccessControl.check_access_level_for_object", return_value=True),
+            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight_for_project", return_value={}) as popularity,
+            patch(_EXECUTOR, new_callable=AsyncMock, return_value="formatted rows"),
+        ):
+            async_to_sync(resolve_report_context)(subscription)
+
+        assert popularity.call_args.kwargs["project_id"] == environment.project_id
+
     def test_delivery_context_access_fails_closed_after_object_access_is_revoked(self) -> None:
         subscription = self._subscription()
         insight = Insight.objects.create(
@@ -880,7 +953,7 @@ class TestResolveReportContext(BaseTest):
         with (
             patch(f"{_MODULE}.UserAccessControl.check_access_level_for_resource", return_value=True),
             patch(f"{_MODULE}.UserAccessControl.check_access_level_for_object", return_value=True) as object_access,
-            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight", return_value={}) as popularity,
+            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight_for_project", return_value={}) as popularity,
             patch(_EXECUTOR, new_callable=AsyncMock, return_value="formatted rows") as execute,
         ):
             evidence = async_to_sync(resolve_report_context)(subscription)
@@ -889,7 +962,7 @@ class TestResolveReportContext(BaseTest):
         accessed_targets = {(type(call.args[0]), call.args[0].pk) for call in object_access.call_args_list}
         assert (Insight, foreign_insight.id) not in accessed_targets
         popularity.assert_called_once_with(
-            team_id=self.team.id,
+            project_id=self.team.project_id,
             insight_ids=[local_insight.id],
             since=popularity.call_args.kwargs["since"],
         )
@@ -1003,7 +1076,7 @@ class TestResolveReportContext(BaseTest):
             return result_by_id[insight_id]
 
         with (
-            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight", return_value={}),
+            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight_for_project", return_value={}),
             patch(_EXECUTOR, side_effect=execute),
         ):
             full_evidence = async_to_sync(resolve_report_context)(subscription)
@@ -1014,7 +1087,7 @@ class TestResolveReportContext(BaseTest):
 
         with (
             patch(f"{_MODULE}.DASHBOARD_CONTEXT_CHAR_BUDGET", budget),
-            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight", return_value={}),
+            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight_for_project", return_value={}),
             patch(_EXECUTOR, side_effect=execute),
         ):
             evidence = async_to_sync(resolve_report_context)(subscription)
@@ -1054,7 +1127,7 @@ class TestResolveReportContext(BaseTest):
 
         with (
             patch(f"{_MODULE}.DASHBOARD_CONTEXT_CHAR_BUDGET", budget),
-            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight", return_value={}),
+            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight_for_project", return_value={}),
             patch(_EXECUTOR, side_effect=execute),
         ):
             evidence = async_to_sync(resolve_report_context)(subscription)
@@ -1090,7 +1163,7 @@ class TestResolveReportContext(BaseTest):
             return "dashboard evidence"
 
         with (
-            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight", return_value={}),
+            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight_for_project", return_value={}),
             patch(_EXECUTOR, side_effect=execute),
         ):
             full_evidence = async_to_sync(resolve_report_context)(subscription)
@@ -1098,7 +1171,7 @@ class TestResolveReportContext(BaseTest):
         budget = len(full_evidence.dashboards[0].content)
         with (
             patch(f"{_MODULE}.DASHBOARD_CONTEXT_CHAR_BUDGET", budget),
-            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight", return_value={}),
+            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight_for_project", return_value={}),
             patch(_EXECUTOR, side_effect=execute),
         ):
             evidence = async_to_sync(resolve_report_context)(subscription)

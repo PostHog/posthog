@@ -20,6 +20,7 @@ from posthog.sync import database_sync_to_async
 
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
+    QueryAccessRevokedError,
     build_ai_subscription_report,
     build_ai_teams_card,
     build_chart_image_urls,
@@ -55,7 +56,11 @@ from products.exports.backend.temporal.subscriptions.types import (
 
 from ee.billing.quota_limiting import is_team_over_ai_credit_budget
 from ee.tasks.subscriptions import _capture_delivery_failed_event
-from ee.tasks.subscriptions.auto_disable import AI_CONSENT_REVOKED_DISABLE_REASON, AI_PROMPT_INVALID_DISABLE_REASON
+from ee.tasks.subscriptions.auto_disable import (
+    AI_CONSENT_REVOKED_DISABLE_REASON,
+    AI_PROMPT_INVALID_DISABLE_REASON,
+    AI_QUERY_ACCESS_REVOKED_DISABLE_REASON,
+)
 
 LOGGER = get_logger(__name__)
 
@@ -395,7 +400,9 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         ]
         aborted = await auto_disable_and_return(
             subscription,
-            AI_PROMPT_INVALID_DISABLE_REASON,
+            AI_QUERY_ACCESS_REVOKED_DISABLE_REASON
+            if isinstance(exc, QueryAccessRevokedError)
+            else AI_PROMPT_INVALID_DISABLE_REASON,
             recipient_results,
         )
         return GenerateAIReportResult(

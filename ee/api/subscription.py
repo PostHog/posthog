@@ -773,6 +773,17 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                     raise ValidationError(
                         {"enabled": ["Cannot re-enable AI subscription: the original creator is unavailable."]}
                     )
+                if not UserAccessControl(
+                    user=created_by_after,
+                    team=self.context["get_team"](),
+                ).check_access_level_for_resource("query", "viewer"):
+                    raise ValidationError(
+                        {
+                            "enabled": [
+                                "Cannot re-enable AI subscription: the original creator no longer has query access."
+                            ]
+                        }
+                    )
                 try:
                     sanitize_prompt(prompt_after)
                 except PromptRejectedError as exc:

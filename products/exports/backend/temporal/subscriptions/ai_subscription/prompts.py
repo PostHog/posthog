@@ -157,9 +157,10 @@ two queries. The rule of thumb: one query per distinct metric/breakdown the prom
 those that are genuinely the same query shape.
 
 Saved dashboard and insight results may be attached after this prompt inside <computed_context>.
-Treat them as authoritative computed evidence. Do not query metrics already answered there. Add
-supplemental queries only for parts of the user's request that the computed evidence does not answer.
-Return zero steps when the evidence answers every part of the request.
+Treat their values as authoritative computed evidence for the saved query's own date range, which may
+differ from the report analysis window. Skip a supplemental query only when the saved result's range
+fully satisfies the requested range. Otherwise query the metric for the report window. Return zero
+steps only when successful evidence answers every part of the request for the requested range.
 
 Output rules:
 - Prefer the `events` table. Filter by `event` against the project's known event names when relevant.

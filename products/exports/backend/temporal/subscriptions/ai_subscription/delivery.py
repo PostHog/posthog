@@ -185,6 +185,10 @@ class SubscriptionReportContext:
     creator_can_query: bool
 
 
+class QueryAccessRevokedError(PromptRejectedError):
+    pass
+
+
 def _resolve_subscription_context(subscription: Subscription) -> SubscriptionReportContext:
     # team/created_by are FK relations and the last-delivery lookup hits the DB; resolving the window
     # here keeps all ORM access (and the timezone math) off the event loop in one sync hop. The frozen
@@ -257,7 +261,7 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
     if context.user is None:
         raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot deliver.")
     if not context.creator_can_query:
-        raise PromptRejectedError("AI subscription creator no longer has query access; cannot deliver.")
+        raise QueryAccessRevokedError("AI subscription creator no longer has query access; cannot deliver.")
 
     report_context = await resolve_report_context(subscription, context.context_selection)
 
