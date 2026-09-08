@@ -28,6 +28,11 @@ WEBHOOKS_PAGE_SIZE = 100
 SUBMISSION_FILTER_COMPLETED: Literal["completed"] = "completed"
 SUBMISSION_FILTER_ALL: Literal["all"] = "all"
 
+# /forms/{formId}/analytics/metrics requires a `period`. It returns one aggregate row per form, so
+# the whole-lifetime window is the only one that makes the row self-contained rather than a moving
+# slice — every sync recomputes it in full.
+FORM_METRICS_PERIOD = "all"
+
 
 @dataclass
 class TallyEndpointConfig:
@@ -55,7 +60,10 @@ class TallyEndpointConfig:
     capture_samples: bool = True
 
 
-def _forms_fanout(parent_params: Optional[dict[str, object]] = None) -> DependentEndpointConfig:
+def _forms_fanout(
+    parent_params: Optional[dict[str, object]] = None,
+    child_params: Optional[dict[str, object]] = None,
+) -> DependentEndpointConfig:
     # Child rows already carry `formId`, but injecting the parent id guarantees the composite
     # primary key's column exists even if a future response shape drops it.
     return DependentEndpointConfig(
@@ -65,6 +73,20 @@ def _forms_fanout(parent_params: Optional[dict[str, object]] = None) -> Dependen
         include_from_parent=["id"],
         parent_field_renames={"id": "formId"},
         parent_params=dict(parent_params or {}),
+        child_params=dict(child_params or {}),
+    )
+
+
+def _workspaces_fanout() -> DependentEndpointConfig:
+    # Folders are listed per workspace, and a folder id is only documented as unique within its
+    # workspace, so the parent workspace is part of the key. The row already carries `workspaceId`,
+    # but injecting the parent id guarantees the key column exists even if the shape drops it.
+    return DependentEndpointConfig(
+        parent_name="workspaces",
+        resolve_param="workspaceId",
+        resolve_field="id",
+        include_from_parent=["id"],
+        parent_field_renames={"id": "workspaceId"},
     )
 
 
@@ -130,6 +152,33 @@ TALLY_ENDPOINTS: dict[str, TallyEndpointConfig] = {
         partition_key="createdAt",
         redact_fields=("signingSecret", "httpHeaders"),
         capture_samples=False,
+    ),
+    # One request per workspace. Folders organize a workspace's forms; the endpoint returns the
+    # whole set as a bare JSON array with no wrapper key and no pagination.
+    "folders": TallyEndpointConfig(
+        name="folders",
+        path="/workspaces/{workspaceId}/folders",
+        data_selector="$",
+        page_size_param=None,
+        paginated=False,
+        primary_keys=["workspaceId", "id"],
+        partition_key="createdAt",
+        fanout=_workspaces_fanout(),
+    ),
+    # One request per form. Returns a single aggregate object (visits, submissions, completion rate)
+    # with no wrapper, no array, and no id of its own — one row per form, recomputed every sync.
+    "form_analytics_metrics": TallyEndpointConfig(
+        name="form_analytics_metrics",
+        path="/forms/{formId}/analytics/metrics",
+        data_selector="$",
+        page_size_param=None,
+        paginated=False,
+        primary_keys=["formId"],
+        # The aggregate carries no timestamp, so there is no stable field to partition it by.
+        fanout=_forms_fanout(
+            parent_params={"limit": FORMS_PAGE_SIZE},
+            child_params={"period": FORM_METRICS_PERIOD},
+        ),
     ),
 }
 

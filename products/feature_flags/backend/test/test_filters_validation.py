@@ -362,6 +362,9 @@ class TestRejectSerdeUnsafeFilters(SimpleTestCase):
             ("property_type_not_string", {"groups": [{"properties": [{"key": "k", "type": 1}]}]}),
             # Rust has no `event` variant, so one of these fails the team's whole cached set.
             ("property_type_event", {"groups": [{"properties": [{"key": "k", "type": "event"}]}]}),
+            # `behavioral` is a real insight filter type, but Rust flag matching has no variant
+            # for it (it can't evaluate events history) — it must stay rejected here.
+            ("property_type_behavioral", {"groups": [{"properties": [{"key": "$pageview", "type": "behavioral"}]}]}),
             ("property_type_missing", {"groups": [{"properties": [{"key": "k"}]}]}),
             ("property_empty", {"groups": [{"properties": [{}]}]}),
             ("property_key_missing", {"groups": [{"properties": [{"type": "person"}]}]}),

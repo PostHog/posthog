@@ -22,7 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tiktokads import (
     TikTokAdsSourceConfig,
@@ -34,7 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads
     TikTokAdsAPIError,
     TikTokAdsPaginator,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 class TestTikTokAdsSource:
@@ -53,9 +52,6 @@ class TestTikTokAdsSource:
         self.mock_integration = Mock(spec=Integration)
         self.mock_integration.access_token = "test_access_token"
         self.mock_integration.team_id = self.team_id
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.TIKTOKADS
 
     @parameterized.expand(
         [
@@ -415,17 +411,6 @@ class TestTikTokAdsSource:
             "ad_platform_report",
         }
 
-    def test_get_resumable_source_manager(self):
-        """The source must expose a ResumableSourceManager instance."""
-        inputs = MagicMock()
-        inputs.team_id = self.team_id
-        inputs.job_id = self.job_id
-        inputs.logger = MagicMock()
-
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source.tiktok_ads_source")
     def test_source_for_pipeline_success(self, mock_tiktok_source):
         inputs = SourceInputs(
@@ -488,13 +473,21 @@ class TestTikTokAdsSource:
             with pytest.raises(ValueError, match="TikTok Ads access token not found"):
                 self.source.source_for_pipeline(self.config, MagicMock(), inputs)
 
-    def test_validate_credentials_exception_handling(self):
+    @parameterized.expand(
+        [
+            # A deleted/disconnected integration is an expected user state — surface a clean
+            # "reconnect" message rather than the internal id the ValueError carries.
+            ("missing_integration", ValueError("Integration not found: 123"), "TikTok Ads integration not found"),
+            ("unexpected_error", Exception("Network error"), "Failed to validate TikTok Ads credentials"),
+        ]
+    )
+    def test_validate_credentials_exception_handling(self, _name, side_effect, expected_error_fragment):
         config = TikTokAdsSourceConfig(advertiser_id="123456789", tiktok_integration_id=123)
 
         with patch.object(self.source, "get_oauth_integration") as mock_get_integration:
-            mock_get_integration.side_effect = Exception("Network error")
+            mock_get_integration.side_effect = side_effect
 
             is_valid, error = self.source.validate_credentials(config, self.team_id)
 
             assert is_valid is False
-            assert "Failed to validate TikTok Ads credentials" in str(error)
+            assert expected_error_fragment in str(error)

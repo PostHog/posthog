@@ -8,6 +8,7 @@ from posthog.temporal.ai.slack_app.activities.classifiers import (
     classify_task_needs_repo,
     classify_untagged_followup_activity,
 )
+from posthog.temporal.ai.slack_app.activities.fork import process_slack_app_fork_thread_activity
 from posthog.temporal.ai.slack_app.activities.messaging import (
     POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE,
     POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
@@ -68,6 +69,7 @@ __all__ = [
     "post_posthog_code_no_repos_activity",
     "post_posthog_code_picker_timeout_activity",
     "post_posthog_code_repo_picker_activity",
+    "process_slack_app_fork_thread_activity",
     "request_untagged_followup_confirmation_activity",
     "resolve_posthog_code_slack_command_user_activity",
     "run_posthog_slack_inbox_onboarding",

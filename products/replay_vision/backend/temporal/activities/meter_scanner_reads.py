@@ -9,8 +9,7 @@ from posthog.clickhouse.workload import Workload
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEEP_SWEEP_CANDIDATE_QUERY_TYPE,
-    EXCLUDED_SESSIONS_QUERY_TYPE,
-    SWEEP_CANDIDATE_QUERY_TYPE,
+    FAST_SWEEP_QUERY_TYPES,
 )
 from products.replay_vision.backend.temporal.constants import DEEP_SPEND_WINDOW_DAYS
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -21,15 +20,11 @@ from products.replay_vision.backend.temporal.read_meter_types import MeterScanne
 # lands in its (re-scanned, complete) hour bucket.
 _FULL_HOURS_RESCANNED = 2
 
-# Metered positively rather than by subtraction: a backfill runs under the same scanner id, so
-# anything not named here is not charged to the frequent sweep's cadence.
-_FAST_QUERY_TYPES = [SWEEP_CANDIDATE_QUERY_TYPE, EXCLUDED_SESSIONS_QUERY_TYPE]
-
 _READ_BYTES_BY_SCANNER_HOUR_SQL = """
 SELECT
     JSONExtractString(log_comment, 'scanner_id') AS scanner_id,
     toStartOfHour(toTimeZone(event_time, 'UTC')) AS hour,
-    sum(read_bytes) AS read_bytes,
+    sum(read_bytes) AS total_read_bytes,
     sumIf(read_bytes, JSONExtractString(log_comment, 'query_type') = %(deep_query_type)s) AS deep_read_bytes,
     sumIf(read_bytes, JSONExtractString(log_comment, 'query_type') IN %(fast_query_types)s) AS fast_read_bytes
 FROM clusterAllReplicas(%(cluster)s, system.query_log)
@@ -61,19 +56,23 @@ def meter_scanner_read_bytes_activity() -> MeterScannerReadsResult:
             "cluster": settings.CLICKHOUSE_CLUSTER,
             "since": since,
             "deep_query_type": DEEP_SWEEP_CANDIDATE_QUERY_TYPE,
-            "fast_query_types": _FAST_QUERY_TYPES,
+            "fast_query_types": FAST_SWEEP_QUERY_TYPES,
         },
         workload=Workload.OFFLINE,
         settings={"max_execution_time": 120, "skip_unavailable_shards": 1},
     )
 
     by_scanner: dict[str, dict[str, tuple[int, int, int]]] = {}
-    for scanner_id, hour, read_bytes, deep_read_bytes, fast_read_bytes in rows:
+    for scanner_id, hour, total_read_bytes, deep_read_bytes, fast_read_bytes in rows:
         # The tag is a free-form string in the query log, so a junk value must not take the run down.
         if not _is_uuid(scanner_id):
             continue
         hour_iso = hour.replace(tzinfo=dt.UTC).isoformat()
-        by_scanner.setdefault(scanner_id, {})[hour_iso] = (int(read_bytes), int(deep_read_bytes), int(fast_read_bytes))
+        by_scanner.setdefault(scanner_id, {})[hour_iso] = (
+            int(total_read_bytes),
+            int(deep_read_bytes),
+            int(fast_read_bytes),
+        )
 
     prune_cutoff = now - dt.timedelta(hours=25)
     # Wider than the sweep's: the deep pass is priced on its average over this window, so a bucket

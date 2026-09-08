@@ -6,7 +6,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { SCRATCHPAD_PREVIEW_CHARS, scratchpadLogic } from './scratchpadLogic'
+import { SCRATCHPAD_FETCH_LIMIT, SCRATCHPAD_PREVIEW_CHARS, scratchpadLogic } from './scratchpadLogic'
 
 const SCRATCHPAD_URL = '/api/projects/:team_id/signals/scout/scratchpad/'
 
@@ -144,6 +144,26 @@ describe('scratchpadLogic', () => {
         expect(logic.values.visibleEntries).toHaveLength(3)
         // Clearing the box needs no request: the window never went anywhere.
         expect(searchRequests).toHaveLength(1)
+    })
+
+    it('flags the learned count as capped only when a full fetch all falls inside the window', () => {
+        const fresh = (i: number): ScratchpadEntryApi => ({
+            ...entry(`pattern:${i}`, 'note'),
+            updated_at: new Date().toISOString(),
+        })
+        const full = Array.from({ length: SCRATCHPAD_FETCH_LIMIT }, (_, i) => fresh(i))
+
+        logic.actions.loadEntriesSuccess(full)
+        expect(logic.values.recentlyLearnedCount).toBe(SCRATCHPAD_FETCH_LIMIT)
+        expect(logic.values.recentlyLearnedCountCapped).toBe(true)
+
+        // One stale entry in a full fetch means the window ended inside it, so the count is exact.
+        logic.actions.loadEntriesSuccess([...full.slice(1), WHOLE])
+        expect(logic.values.recentlyLearnedCount).toBe(SCRATCHPAD_FETCH_LIMIT - 1)
+        expect(logic.values.recentlyLearnedCountCapped).toBe(false)
+
+        logic.actions.loadEntriesSuccess(full.slice(0, 10))
+        expect(logic.values.recentlyLearnedCountCapped).toBe(false)
     })
 
     it('keeps the card usable when the body lookup fails', async () => {

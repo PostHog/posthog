@@ -217,7 +217,7 @@ describe('hog-charts canvas-renderer (bars)', () => {
                 bar({ x: 60, dataIndex: 1 }),
                 bar({ x: 120, dataIndex: 2 }),
             ])
-            expect(ctx.fill).toHaveBeenCalledTimes(3)
+            expect(ctx.fill).toHaveBeenCalledTimes(5)
         })
 
         it('fills all bars when partial toIndex is set', () => {
@@ -234,7 +234,7 @@ describe('hog-charts canvas-renderer (bars)', () => {
                 bar({ x: 60, dataIndex: 1 }),
                 bar({ x: 120, dataIndex: 2 }),
             ])
-            expect(ctx.fill).toHaveBeenCalledTimes(3)
+            expect(ctx.fill).toHaveBeenCalledTimes(4)
         })
 
         it('hatches bars by their dataIndex, not their array position (filtered bars stay correct)', () => {
@@ -264,8 +264,8 @@ describe('hog-charts canvas-renderer (bars)', () => {
                 Object.defineProperty(ctx, 'fillStyle', original)
             }
             expect(fillStyleSeen[0]).toBe('#11223344')
-            expect(typeof fillStyleSeen[1]).not.toBe('string')
             expect(typeof fillStyleSeen[2]).not.toBe('string')
+            expect(typeof fillStyleSeen[4]).not.toBe('string')
         })
 
         it('hatches individual bars flagged via bars[i].hatch, including non-contiguous indices', () => {
@@ -296,9 +296,9 @@ describe('hog-charts canvas-renderer (bars)', () => {
             } finally {
                 Object.defineProperty(ctx, 'fillStyle', original!)
             }
-            expect(typeof fillStyleSeen[0]).not.toBe('string')
-            expect(fillStyleSeen[1]).toBe('#55667788')
-            expect(typeof fillStyleSeen[2]).not.toBe('string')
+            expect(typeof fillStyleSeen[1]).not.toBe('string')
+            expect(fillStyleSeen[2]).toBe('#55667788')
+            expect(typeof fillStyleSeen[4]).not.toBe('string')
         })
 
         it('respects the cornerRadius option', () => {

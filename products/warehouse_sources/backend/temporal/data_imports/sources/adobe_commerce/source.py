@@ -12,6 +12,7 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_commerce.adobe_commerce import (
+    ADMIN_TOKEN_RETRYABLE_ERROR,
     HOST_NOT_ALLOWED_ERROR,
     HTTPS_REQUIRED_ERROR,
     INCOMPLETE_CREDENTIALS_ERROR,
@@ -167,6 +168,12 @@ class AdobeCommerceSource(ResumableSource[AdobeCommerceSourceConfig, AdobeCommer
             INCOMPLETE_CREDENTIALS_ERROR: "Adobe Commerce credentials are incomplete. Please re-enter them and reconnect.",
             PAGINATION_LIMIT_ERROR: "Adobe Commerce kept returning pages without signalling the end of the collection. This usually means the store's REST API is misconfigured — check the store URL and store code.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # The admin token exchange already retries 429/5xx at the transport level (the tracked
+        # session); this is only raised once that budget is exhausted, and re-minting later
+        # recovers on its own. Keep it out of error tracking rather than paging it as a bug.
+        return {ADMIN_TOKEN_RETRYABLE_ERROR}
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_commerce.canonical_descriptions import (  # noqa: PLC0415

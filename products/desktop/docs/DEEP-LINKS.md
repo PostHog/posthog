@@ -96,15 +96,20 @@ posthog-code://task/abc123?comment=thread-1&scope=desktop_canvas&item=canvas-9
 
 An **https** bridge also exists for links sent outside the app (e.g. comment Slack DMs): `<instance>/code/task/<taskId>` resolves to a web interstitial in PostHog Cloud, which fires this scheme — forwarding the `comment`, `scope`, and `item` params — or offers the desktop-app download.
 
-### `posthog-code://inbox/<reportId>`
+### `posthog-code://inbox[/<reportId>]`
 
-Open a report in Inbox. When `posthog-desktop-report-canvases` is enabled and the report has a generated canvas, open that canvas instead.
+Open Self-driving, or a specific report inside it.
+
+The report "Copy link" action lets users copy this app-only scheme or the
+browser-accessible web URL (`<instance>/project/<projectId>/inbox/<reportId>`).
+The web report can still hand off to Desktop where appropriate.
 
 | Segment | Required | Description |
 |---|---|---|
-| `<reportId>` | Yes | Report ID |
+| `<reportId>` | No | Inbox report ID. Omit to open the inbox itself. |
 
 ```
+posthog-code://inbox
 posthog-code://inbox/report_abc123
 ```
 
@@ -137,20 +142,6 @@ a loop's detail page.
 posthog-code://loop/abc123
 ```
 
-### `posthog-code://approval/<requestId>`
-
-Open the agent fleet approvals inbox focused on a specific tool-approval request.
-Emitted by the agent-runner on a gated tool call so non-PostHog-Code clients
-(Slack, MCP) can land on the approval; the request id alone resolves it.
-
-| Segment / Parameter | Required | Description |
-|---|---|---|
-| `<requestId>` | Yes | Agent tool-approval request id (e.g. `ar_...`). |
-
-```
-posthog-code://approval/ar_abc123
-```
-
 ### `posthog-code://canvas/<channelId>/<dashboardId>`
 
 Open a canvas (a dashboard inside a Channels-space channel) straight in the
@@ -160,6 +151,10 @@ canvas copies an **https** link (`<instance>/code/canvas/<channelId>/<dashboardI
 that resolves to a web interstitial in PostHog Cloud, which fires this scheme
 (or offers the desktop-app download). That way the link works for anyone,
 whether or not they have the app.
+
+Use the link button in the canvas toolbar to copy this link without opening a
+menu. The button has a "Copy link to canvas" tooltip, like the session link
+button. "Copy link" also remains in the canvas options menu.
 
 | Segment | Required | Description |
 |---|---|---|
@@ -255,7 +250,6 @@ In development the same payload is delivered to `http://localhost:8238/mcp-oauth
 | `inbox` | [packages/core/src/links/inbox-link.ts](../packages/core/src/links/inbox-link.ts) |
 | `scout` | [packages/core/src/links/scout-link.ts](../packages/core/src/links/scout-link.ts) |
 | `loop` | [packages/core/src/links/loop-link.ts](../packages/core/src/links/loop-link.ts) |
-| `approval` | [packages/core/src/links/approval-link.ts](../packages/core/src/links/approval-link.ts) |
 | `canvas` | [packages/core/src/links/canvas-link.ts](../packages/core/src/links/canvas-link.ts) |
 | `channel` | [packages/core/src/links/channel-link.ts](../packages/core/src/links/channel-link.ts) |
 | `new`, `plan`, `issue` | [packages/core/src/links/new-task-link.ts](../packages/core/src/links/new-task-link.ts) |

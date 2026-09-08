@@ -1,9 +1,9 @@
 import {
   ArrowRightIcon,
   CaretDownIcon,
-  CopyIcon,
   FileTextIcon,
   GitPullRequestIcon,
+  LinkIcon,
   MagnifyingGlassIcon,
   TerminalIcon,
   WarningIcon,
@@ -58,7 +58,7 @@ import { DropdownMenu, Flex, Text } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
-export function TaskRunStatusDot({ status }: { status: TaskRunStatus }) {
+function TaskRunStatusDot({ status }: { status: TaskRunStatus }) {
   const terminal = isTerminalStatus(status);
   const color = terminal
     ? status === "failed" || status === "cancelled"
@@ -142,9 +142,7 @@ function RunOutputReadyCard({ report }: { report: SignalReport }) {
 
   return (
     <Link
-      to={
-        isPr ? "/code/inbox/pulls/$reportId" : "/code/inbox/reports/$reportId"
-      }
+      to={isPr ? "/inbox/pulls/$reportId" : "/inbox/reports/$reportId"}
       params={{ reportId: report.id }}
       className="group block rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3.5 no-underline transition duration-150 hover:border-(--gray-6) hover:bg-(--gray-2) hover:shadow-sm focus-visible:outline-none"
     >
@@ -209,7 +207,7 @@ export function AgentRunDetail({ reportId }: AgentRunDetailProps) {
   return (
     <InboxReportDetailGate
       reportId={reportId}
-      backTo="/code/inbox/runs"
+      backTo="/inbox/runs"
       backLabel="Back to runs"
       missingCopy="This run couldn't be found. It may have completed or been removed."
     >
@@ -266,7 +264,7 @@ function AgentRunDetailContent({ report }: { report: SignalReport }) {
   return (
     <Flex direction="column" className="min-h-full">
       <InboxDetailPageHeader
-        backTo="/code/inbox/runs"
+        backTo="/inbox/runs"
         backLabel="Back to runs"
         breadcrumb={
           <>
@@ -350,7 +348,7 @@ function AgentRunDetailContent({ report }: { report: SignalReport }) {
               onClick={() => copyInboxReportLink(report)}
               title="Copy a deep link to this run"
             >
-              <CopyIcon size={12} />
+              <LinkIcon size={12} />
               Copy link
             </Button>
           </>

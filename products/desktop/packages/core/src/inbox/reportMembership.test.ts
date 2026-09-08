@@ -12,6 +12,7 @@ import {
   isInboxDetailPath,
   isPullRequestReport,
   isReportTabReport,
+  isRestorableReport,
   matchesReviewerScope,
   partitionRunsTabReports,
   teammateInboxScope,
@@ -37,6 +38,32 @@ function fakeReport(overrides: Partial<SignalReport> = {}): SignalReport {
   };
 }
 
+describe("isRestorableReport", () => {
+  it("restores a suppressed report with no refund", () => {
+    expect(isRestorableReport(fakeReport({ status: "suppressed" }))).toBe(true);
+  });
+
+  it("does not restore a suppressed report that was refunded", () => {
+    // The backend `state` action 409s on suppressed → potential for a refunded
+    // report, so Restore would be a dead-end.
+    expect(
+      isRestorableReport(
+        fakeReport({
+          status: "suppressed",
+          refund: { id: "ref-1", reason: "pr_not_useful" },
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it.each(["resolved", "ready", "deleted"] as const)(
+    "does not restore a %s report",
+    (status) => {
+      expect(isRestorableReport(fakeReport({ status }))).toBe(false);
+    },
+  );
+});
+
 describe("isDismissedReport", () => {
   it.each(["suppressed", "resolved"] as const)(
     "matches %s reports",
@@ -60,26 +87,26 @@ describe("isDismissedReport", () => {
 
 describe("isInboxDetailPath", () => {
   it("matches detail paths for each inbox tab", () => {
-    expect(isInboxDetailPath("/code/inbox/pulls/abc")).toBe(true);
-    expect(isInboxDetailPath("/code/inbox/reports/abc")).toBe(true);
-    expect(isInboxDetailPath("/code/inbox/runs/abc")).toBe(true);
+    expect(isInboxDetailPath("/inbox/pulls/abc")).toBe(true);
+    expect(isInboxDetailPath("/inbox/reports/abc")).toBe(true);
+    expect(isInboxDetailPath("/inbox/runs/abc")).toBe(true);
   });
 
   it("does not match tab list paths", () => {
-    expect(isInboxDetailPath("/code/inbox/pulls")).toBe(false);
-    expect(isInboxDetailPath("/code/inbox/reports")).toBe(false);
-    expect(isInboxDetailPath("/code/inbox/runs")).toBe(false);
-    expect(isInboxDetailPath("/code/inbox")).toBe(false);
+    expect(isInboxDetailPath("/inbox/pulls")).toBe(false);
+    expect(isInboxDetailPath("/inbox/reports")).toBe(false);
+    expect(isInboxDetailPath("/inbox/runs")).toBe(false);
+    expect(isInboxDetailPath("/inbox")).toBe(false);
   });
 
   it("does not match paths with extra trailing segments", () => {
-    expect(isInboxDetailPath("/code/inbox/pulls/abc/edit")).toBe(false);
-    expect(isInboxDetailPath("/code/inbox/runs/abc/")).toBe(false);
+    expect(isInboxDetailPath("/inbox/pulls/abc/edit")).toBe(false);
+    expect(isInboxDetailPath("/inbox/runs/abc/")).toBe(false);
   });
 
   it("does not match unrelated paths", () => {
-    expect(isInboxDetailPath("/code/agents")).toBe(false);
-    expect(isInboxDetailPath("/code/inbox/agents")).toBe(false);
+    expect(isInboxDetailPath("/agents")).toBe(false);
+    expect(isInboxDetailPath("/inbox/agents")).toBe(false);
     expect(isInboxDetailPath("/")).toBe(false);
   });
 });

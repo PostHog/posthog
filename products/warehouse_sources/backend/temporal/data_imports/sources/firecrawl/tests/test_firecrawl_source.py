@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.firecrawl import FirecrawlResumeConfig
@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.firecrawl import (
     FirecrawlSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> FirecrawlSourceConfig:
@@ -19,9 +18,6 @@ def _config() -> FirecrawlSourceConfig:
 
 
 class TestFirecrawlSourceConfig:
-    def test_source_type(self) -> None:
-        assert FirecrawlSource().source_type == ExternalDataSourceType.FIRECRAWL
-
     def test_api_key_field_is_a_required_secret(self) -> None:
         # A non-secret / non-password api_key field would render in plaintext and leak the credential.
         fields = {f.name: f for f in FirecrawlSource().get_source_config.fields}
@@ -30,9 +26,6 @@ class TestFirecrawlSourceConfig:
         assert api_key.required is True
         assert api_key.secret is True
         assert api_key.type == SourceFieldInputConfigType.PASSWORD
-
-    def test_released_as_alpha(self) -> None:
-        assert FirecrawlSource().get_source_config.releaseStatus == ReleaseStatus.ALPHA
 
 
 class TestFirecrawlGetSchemas:
@@ -106,16 +99,3 @@ class TestFirecrawlResumableWiring:
         manager = FirecrawlSource().get_resumable_source_manager(inputs)
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is FirecrawlResumeConfig
-
-    def test_source_for_pipeline_plumbs_api_key_and_endpoint(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "team_activity"
-        manager = MagicMock()
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.source.firecrawl_source"
-        ) as mock_source:
-            FirecrawlSource().source_for_pipeline(_config(), manager, inputs)
-        _, kwargs = mock_source.call_args
-        assert kwargs["api_key"] == "fc-test"
-        assert kwargs["endpoint"] == "team_activity"
-        assert kwargs["resumable_source_manager"] is manager

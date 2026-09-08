@@ -211,6 +211,7 @@ describe('inboxAnalytics', () => {
             sourceProductFilter: ['error_tracking'],
             scoutFilter: [],
             priorityFilter: ['P0'],
+            stateFilter: ['monitoring'],
             searchQuery: '  acme checkout crash  ',
             hasActiveFilters: true,
         })

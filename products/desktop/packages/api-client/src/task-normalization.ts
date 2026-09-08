@@ -1,35 +1,41 @@
-import type {
-  ArtifactType,
-  Task,
-  TaskRun,
-  TaskRunArtifact,
-  TaskRunArtifactMetadata,
-  TaskRunStatus,
+import {
+  type ArtifactType,
+  type EffortLevel,
+  effortLevelSchema,
+  type Task,
+  type TaskRun,
+  type TaskRunArtifact,
+  type TaskRunArtifactMetadata,
+  type TaskRunStatus,
+  taskRunStateSchema,
 } from "@posthog/shared/domain-types";
 import type { Schemas } from "./generated";
 
-export type TaskRunArtifactDTO = Schemas.TaskRunArtifactResponse & {
+export type TaskRunArtifactDTO = Omit<
+  Schemas.TaskRunArtifactResponse,
+  "metadata" | "storage_path"
+> & {
   metadata?: unknown;
+  storage_path?: string;
   uploaded_by?: "agent" | "user";
   uploaded_by_user_id?: number;
   dismissed_at?: string | null;
 };
 
 type TaskRunResponseDTO = Partial<
-  Omit<Schemas.TaskRunDetail, "artifacts" | "status">
+  Omit<Schemas.TaskRunDetailDTO, "artifacts" | "state">
 > & {
   id: string;
   artifacts?: Array<TaskRunArtifactDTO> | null;
-  status?: Schemas.StatusA35Enum | "started" | null;
+  state?: unknown;
   team?: number | null;
 };
 
 type TaskResponseDTO = Partial<
-  Omit<Schemas.Task, "created_by" | "json_schema" | "latest_run">
+  Omit<Schemas.TaskDetailDTO, "json_schema" | "latest_run">
 > & {
   id: string;
   channel?: string | null;
-  created_by?: Schemas.UserBasic | null;
   github_user_integration?: string | null;
   last_activity_at?: string | null;
   json_schema?: unknown | null;
@@ -62,6 +68,11 @@ function normalizeTaskRunStatus(status: unknown): TaskRunStatus {
   }
 }
 
+function normalizeEffortLevel(value: string | null): EffortLevel | null {
+  const parsed = effortLevelSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
 function normalizeArtifactType(type: string): ArtifactType {
   switch (type) {
     case "plan":
@@ -80,8 +91,24 @@ function normalizeArtifactType(type: string): ArtifactType {
 function normalizeArtifactMetadata(
   value: unknown,
 ): TaskRunArtifactMetadata | undefined {
+  if (!isRecord(value)) return undefined;
   if (
-    !isRecord(value) ||
+    value.reference_type === "posthog_object" &&
+    typeof value.object_kind === "string" &&
+    typeof value.object_id === "string" &&
+    Array.isArray(value.source_message_ids) &&
+    value.source_message_ids.every((entry) => typeof entry === "string") &&
+    typeof value.occurrence_count === "number"
+  ) {
+    return {
+      reference_type: "posthog_object",
+      object_kind: value.object_kind,
+      object_id: value.object_id,
+      source_message_ids: value.source_message_ids,
+      occurrence_count: value.occurrence_count,
+    };
+  }
+  if (
     typeof value.skill_name !== "string" ||
     (value.skill_source !== "user" &&
       value.skill_source !== "repo" &&
@@ -118,7 +145,8 @@ export function normalizeTaskRunArtifact(
     type: normalizeArtifactType(artifact.type),
     ...(artifact.source === "agent_output" ||
     artifact.source === "user_attachment" ||
-    artifact.source === "posthog_code_skill"
+    artifact.source === "posthog_code_skill" ||
+    artifact.source === "posthog_object"
       ? { source: artifact.source }
       : {}),
     ...(artifact.size === undefined ? {} : { size: artifact.size }),
@@ -159,14 +187,16 @@ export function normalizeTaskRunResponse(
     ...(dto.model === undefined ? {} : { model: dto.model }),
     ...(dto.reasoning_effort === undefined
       ? {}
-      : { reasoning_effort: dto.reasoning_effort }),
+      : { reasoning_effort: normalizeEffortLevel(dto.reasoning_effort) }),
     ...(dto.stage === undefined ? {} : { stage: dto.stage }),
-    ...(dto.environment === undefined ? {} : { environment: dto.environment }),
+    ...(dto.environment === "local" || dto.environment === "cloud"
+      ? { environment: dto.environment }
+      : {}),
     status: normalizeTaskRunStatus(dto.status),
     log_url: dto.log_url ?? "",
     error_message: dto.error_message ?? null,
     output: isRecord(dto.output) ? dto.output : null,
-    state: isRecord(dto.state) ? dto.state : {},
+    state: taskRunStateSchema.parse(dto.state),
     ...(dto.artifacts == null
       ? {}
       : { artifacts: dto.artifacts.map(normalizeTaskRunArtifact) }),

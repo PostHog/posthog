@@ -1,3 +1,4 @@
+import datetime as dt
 from typing import TYPE_CHECKING, Any, Literal, Optional, Protocol
 
 from django.db.models import F
@@ -110,7 +111,6 @@ async def notify_revenue_analytics_that_sync_has_completed(
 
     try:
 
-        @database_sync_to_async_pool
         def _check_and_notify():
             if (
                 schema.name == STRIPE_CHARGE_RESOURCE_NAME
@@ -132,7 +132,7 @@ async def notify_revenue_analytics_that_sync_has_completed(
                 schema.team.revenue_analytics_config.notified_first_sync = True
                 schema.team.revenue_analytics_config.save()
 
-        await _check_and_notify()
+        await database_sync_to_async_pool(retry_on_operational_error(_check_and_notify))()
     except Exception as e:
         # Silently fail, we don't want this to crash the pipeline
         # Sending an email is not critical to the pipeline
@@ -369,7 +369,7 @@ async def _finalize_sync_bookkeeping(
 
     if not schema.initial_sync_complete:
         await logger.adebug("Setting initial_sync_complete on schema")
-        await set_initial_sync_complete(schema_id=schema.id, team_id=job.team_id)
+        await set_initial_sync_complete(schema_id=schema.id, team_id=job.team_id, logger=logger)
 
     if resource is not None:
         await finalize_desc_sort_incremental_value(resource, schema, last_incremental_field_value, logger)
@@ -551,6 +551,41 @@ POST_LOAD_STEPS: tuple[PostLoadStep, ...] = (
 )
 
 
+def _repartitioned_during_job(schema: ExternalDataSchema, job: ExternalDataJob) -> bool:
+    """Whether a repartition rewrote the table earlier in this same job.
+
+    The swap clears `repartition_pending` and `repartition_swap` before extraction runs, so
+    those markers cannot tell post-load that the layout was just replaced and its files still
+    need publishing. An unparseable stamp publishes rather than skips.
+    """
+    stamped = schema.last_repartition_at
+    if not stamped:
+        return False
+    try:
+        return dt.datetime.fromisoformat(stamped) >= job.created_at
+    except (TypeError, ValueError):
+        return True
+
+
+async def _run_post_load_steps(
+    job: ExternalDataJob,
+    schema: ExternalDataSchema,
+    source: "ExternalDataSource",
+    delta_table_ref: "DeltaTableRef",
+    is_cdc_companion: bool,
+    logger: FilteringBoundLogger,
+) -> None:
+    for step in POST_LOAD_STEPS:
+        await step(
+            job=job,
+            schema=schema,
+            source=source,
+            delta_table_ref=delta_table_ref,
+            is_cdc_companion=is_cdc_companion,
+            logger=logger,
+        )
+
+
 async def run_post_load_operations(
     job: ExternalDataJob,
     schema: ExternalDataSchema,
@@ -563,6 +598,7 @@ async def run_post_load_operations(
     last_incremental_field_value: Any = None,
     resource: "Optional[SourceResponse]" = None,
     cdc_write_mode: Optional[str] = None,
+    allow_zero_row_skip: bool = False,
 ) -> Optional[str]:
     """
     Orchestrator that runs all post-load operations, in order:
@@ -575,6 +611,9 @@ async def run_post_load_operations(
            analytics views, repartition detection)
 
     Returns the queryable folder the table now serves from, or None when there is no delta table.
+
+    With `allow_zero_row_skip`, a steady-state non-CDC run that wrote zero rows skips steps
+    1, 2 and 4 and returns None.
     """
     if delta_table_ref is None or await delta_table_ref.get_delta_table() is None:
         logger.debug("No deltalake table, not continuing with post-run ops")
@@ -588,6 +627,28 @@ async def run_post_load_operations(
     # Read before the bookkeeping below sets the flag, which would otherwise make every run
     # look like a continuation.
     is_initial_load = not schema.initial_sync_complete
+
+    # Zero rows means the Delta table is untouched: nothing to compact, and republishing
+    # would only orphan a fresh copy of every parquet file. Registration already no-ops at
+    # zero rows. Bookkeeping and POST_LOAD_STEPS still run below, because those repair
+    # managed views and watermarks rather than describing what this run wrote. Opt-in
+    # because only the v2 pipeline's row_count is ground truth for what the run wrote; the
+    # v3 consumer's can read 0 for a batch that did write data.
+    if (
+        allow_zero_row_skip
+        and row_count == 0
+        and not is_cdc_schema
+        and not is_cdc_companion
+        and schema.initial_sync_complete
+        and schema.repartition_pending is None
+        and schema.repartition_swap is None
+        and schema.delta_revive_required is None
+        and not _repartitioned_during_job(schema, job)
+    ):
+        logger.debug("Zero rows synced, skipping delta maintenance and S3 publish")
+        await _finalize_sync_bookkeeping(job, schema, resource, last_incremental_field_value, logger)
+        await _run_post_load_steps(job, schema, source, delta_table_ref, is_cdc_companion, logger)
+        return None
 
     await _run_delta_maintenance(schema, delta_table_ref, is_cdc_companion, logger)
 
@@ -621,14 +682,6 @@ async def run_post_load_operations(
             logger=logger,
         )
 
-    for step in POST_LOAD_STEPS:
-        await step(
-            job=job,
-            schema=schema,
-            source=source,
-            delta_table_ref=delta_table_ref,
-            is_cdc_companion=is_cdc_companion,
-            logger=logger,
-        )
+    await _run_post_load_steps(job, schema, source, delta_table_ref, is_cdc_companion, logger)
 
     return queryable_folder

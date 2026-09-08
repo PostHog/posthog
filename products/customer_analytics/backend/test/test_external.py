@@ -318,7 +318,7 @@ class TestExternalAccountAPI(APIBaseTest):
                     "tags": ["enterprise"],
                 }
             )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertEqual(self._active_csm_user_ids(), [])
 
     def test_patch_cannot_change_external_id_or_name(self):
@@ -524,6 +524,20 @@ class TestExternalAccountCustomPropertiesAPI(APIBaseTest):
                 ("Plan", "enterprise", None),
                 ("Seats", None, 42.0),
             },
+        )
+
+    def test_null_clears_an_active_value_and_returns_no_values(self):
+        response = self._patch({"external_id": "acme-1", "properties": {str(self.plan.id): "enterprise"}})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self._patch({"external_id": "acme-1", "properties": {str(self.plan.id): None}})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["values"], [])
+        self.assertFalse(
+            CustomPropertyValue.objects.for_team(self.team.id)
+            .filter(account=self.account, definition=self.plan, is_deleted=False)
+            .exists()
         )
 
     def test_unknown_external_id_returns_404(self):

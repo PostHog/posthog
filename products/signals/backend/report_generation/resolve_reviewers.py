@@ -16,6 +16,7 @@ from django.utils import timezone
 
 from social_django.models import UserSocialAuth
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.organization import OrganizationMembership
@@ -57,6 +58,52 @@ GitHubLoginFieldLookup = Literal[
     "config__github_user__login",
     "config__connecting_user_github_login",
 ]
+
+# Why a resolution ended with no reviewers. `no_repository` / `no_commit_hashes` are set by
+# callers that bail before calling into GitHub; the rest are decided here. Two caveats worth
+# knowing when reading the event:
+#   - `no_github_integration` means "no integration whose access probe said yes", which also
+#     covers a probe that failed transiently: `installation_can_access_repository` returns False
+#     for a GitHub 5xx or a token/transport failure just as it does for a repo the installation
+#     genuinely can't see. Distinguishing them needs probe-failure information that
+#     `first_for_team_repository` doesn't return today.
+#   - `no_repository` is unreachable from the research pipeline (the summary workflow bails to
+#     `repo_selection_required` before running research); it exists for the other callers of
+#     `resolve_suggested_reviewers`, which discard diagnostics.
+ReviewerResolutionOutcome = Literal[
+    "resolved",
+    "no_repository",
+    "no_commit_hashes",
+    "no_github_integration",
+    "github_rate_limited",
+    "no_commit_authors",
+    "only_bot_authors",
+    "no_candidates",
+]
+
+
+@frozen
+class ReviewerResolutionDiagnostics:
+    """Counters explaining a resolution, so an empty suggestion list is attributable to a cause."""
+
+    outcome: ReviewerResolutionOutcome
+    commit_hash_count: int = 0
+    lookups_attempted: int = 0
+    # A lookup "resolves" when GitHub attributes the commit to an account (bot or human);
+    # "missing" covers non-200 responses, unattributed commits, and lookups lost to a rate limit.
+    lookups_resolved: int = 0
+    lookups_missing: int = 0
+    lookups_rate_limited: int = 0
+    bot_author_count: int = 0
+    blame_login_count: int = 0
+    touched_path_count: int = 0
+    activity_login_count: int = 0
+
+
+@frozen
+class ReviewerResolution:
+    reviewers: list[_ResolvedReviewer]
+    diagnostics: ReviewerResolutionDiagnostics
 
 
 def enrich_reviewer_dicts_with_org_members(
@@ -140,6 +187,14 @@ def resolve_suggested_reviewers(
     repository: str,
     commit_hashes_with_reasons: dict[str, str],
 ) -> list[_ResolvedReviewer]:
+    return resolve_suggested_reviewers_with_diagnostics(team_id, repository, commit_hashes_with_reasons).reviewers
+
+
+def resolve_suggested_reviewers_with_diagnostics(
+    team_id: int,
+    repository: str,
+    commit_hashes_with_reasons: dict[str, str],
+) -> ReviewerResolution:
     """Resolve commit hashes to up to 3 reviewers, preferring recently-active owners.
 
     Blame candidates (commit authors, weighted by finding position) are recency-shaped
@@ -149,22 +204,25 @@ def resolve_suggested_reviewers(
     an unrouted report goes unreviewed, so crowded-area contributors are proposed as the
     final fallback (``allow_crowd_fallback``).
     """
-    if not commit_hashes_with_reasons or not repository:
-        return []
+    commit_hash_count = len(commit_hashes_with_reasons)
+    if not repository:
+        return _empty_resolution("no_repository", commit_hash_count=commit_hash_count)
+    if not commit_hashes_with_reasons:
+        return _empty_resolution("no_commit_hashes")
 
     try:
         github = GitHubIntegration.first_for_team_repository(team_id, repository)
     except GitHubRateLimitError:
         # Suggested reviewers are an optional artefact — omit them rather than failing the report.
         logger.info("GitHub rate limited while probing %s, skipping reviewer resolution", repository)
-        return []
+        return _empty_resolution("github_rate_limited", commit_hash_count=commit_hash_count)
     if github is None:
         logger.info(
             "No GitHub integration for team %d can access %s, cannot resolve reviewers",
             team_id,
             repository,
         )
-        return []
+        return _empty_resolution("no_github_integration", commit_hash_count=commit_hash_count)
 
     # Cap lookups — we only need 3 reviewers, so diminishing returns past ~15 commits.
     items = list(commit_hashes_with_reasons.items())[:MAX_COMMIT_LOOKUPS]
@@ -172,6 +230,7 @@ def resolve_suggested_reviewers(
 
     # Fetch all commit author info in parallel (IO-bound GitHub API calls)
     author_results: dict[int, Any] = {}
+    lookups_rate_limited = 0
     with ThreadPoolExecutor(max_workers=min(total, 5)) as pool:
         future_to_idx = {
             pool.submit(github.get_commit_author_info, repository, sha): i for i, (sha, _reason) in enumerate(items)
@@ -181,31 +240,72 @@ def resolve_suggested_reviewers(
                 author_results[future_to_idx[future]] = future.result()
             except GitHubRateLimitError:
                 # Best-effort: score reviewers from whatever lookups landed before the limit.
+                lookups_rate_limited += 1
                 logger.info("GitHub rate limited during commit author lookups for %s", repository)
 
     # Weight earlier commits more heavily (position-based weighting)
     login_weights: Counter[str] = Counter()
     login_commits: dict[str, list[RelevantCommit]] = {}
     login_names: dict[str, str | None] = {}
+    bot_author_count = 0
 
     for i, (sha, reason) in enumerate(items):
         author_info = author_results.get(i)
-        if author_info and not author_info.is_bot:
-            # Lowercased to match the activity map's keys (and the persisted artefact shape).
-            login = author_info.login.lower()
-            weight = total - i
-            login_weights[login] += weight
-            login_commits.setdefault(login, []).append(
-                RelevantCommit(sha=sha, url=author_info.commit_url, reason=reason)
-            )
-            if login not in login_names:
-                login_names[login] = author_info.name
+        if author_info is None:
+            continue
+        if author_info.is_bot:
+            bot_author_count += 1
+            continue
+        # Lowercased to match the activity map's keys (and the persisted artefact shape).
+        login = author_info.login.lower()
+        weight = total - i
+        login_weights[login] += weight
+        login_commits.setdefault(login, []).append(RelevantCommit(sha=sha, url=author_info.commit_url, reason=reason))
+        if login not in login_names:
+            login_names[login] = author_info.name
 
     touched_paths = [path for info in author_results.values() if info is not None for path in info.file_paths]
     activity_by_login = _relevant_area_activity(team_id, repository, touched_paths)
 
-    return _rank_scored_candidates(
+    reviewers = _rank_scored_candidates(
         login_weights, activity_by_login, login_commits, login_names, allow_crowd_fallback=True
+    )
+    lookups_resolved = sum(1 for info in author_results.values() if info is not None)
+    outcome: ReviewerResolutionOutcome
+    if reviewers:
+        outcome = "resolved"
+    elif lookups_rate_limited:
+        # Any throttled lookup could have been the one holding the missing human author, so a
+        # mixed batch is attributed to the rate limit rather than to whatever the lookups that
+        # did land happened to return.
+        outcome = "github_rate_limited"
+    elif lookups_resolved == 0:
+        outcome = "no_commit_authors"
+    elif not login_weights:
+        outcome = "only_bot_authors"
+    else:
+        outcome = "no_candidates"
+    return ReviewerResolution(
+        reviewers=reviewers,
+        diagnostics=ReviewerResolutionDiagnostics(
+            outcome=outcome,
+            commit_hash_count=commit_hash_count,
+            lookups_attempted=total,
+            lookups_resolved=lookups_resolved,
+            lookups_missing=total - lookups_resolved,
+            lookups_rate_limited=lookups_rate_limited,
+            bot_author_count=bot_author_count,
+            blame_login_count=len(login_weights),
+            touched_path_count=len(touched_paths),
+            activity_login_count=len(activity_by_login),
+        ),
+    )
+
+
+def _empty_resolution(outcome: ReviewerResolutionOutcome, *, commit_hash_count: int = 0) -> ReviewerResolution:
+    return ReviewerResolution(
+        reviewers=[],
+        diagnostics=ReviewerResolutionDiagnostics(outcome=outcome, commit_hash_count=commit_hash_count),
     )
 
 

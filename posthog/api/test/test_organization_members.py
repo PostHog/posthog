@@ -49,7 +49,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
     def _restrict_member_list_visibility(self) -> tuple[User, User, User]:
         from posthog.constants import AvailableFeature
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         project_mate = User.objects.create_and_join(self.organization, "mate@posthog.com", None)
         outsider = User.objects.create_and_join(self.organization, "outsider@posthog.com", None)
@@ -116,7 +116,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
     def test_open_project_keeps_members_visible_except_those_explicitly_denied(self):
         from posthog.constants import AvailableFeature
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         other = User.objects.create_and_join(self.organization, "1@posthog.com", None)
         demoted = User.objects.create_and_join(self.organization, "demoted@posthog.com", None)

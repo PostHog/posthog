@@ -6,7 +6,7 @@ import { isRunLive, RunStatusIndicator } from '../cards/runStatusVariant'
 import { SignalRunCard } from '../cards/SignalRunCard'
 
 /**
- * Runs tab: the project's scout and signals-pipeline tasks, split into what's happening now ("Live")
+ * Runs panel: the project's scout and signals-pipeline tasks, split into what's happening now ("Live")
  * and what's already finished ("Past"). Each row links out to the standalone Tasks scene.
  * `inboxSceneLogic` merges the two sources newest-first, so each section stays newest-first too. A
  * skeleton covers the first load so the empty state doesn't flash before any data has been fetched.

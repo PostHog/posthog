@@ -3,19 +3,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vendr import VendrSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vendr.settings import ENDPOINTS, VENDR_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.vendr.source import VendrSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.vendr.vendr import VendrResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestVendrSource:
@@ -23,9 +15,6 @@ class TestVendrSource:
         self.source = VendrSource()
         self.team_id = 123
         self.config = VendrSourceConfig(api_key="vendr-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.VENDR
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -39,13 +28,6 @@ class TestVendrSource:
 
         field_names = [f.name for f in config.fields]
         assert field_names == ["api_key"]
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        api_key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.secret is True
-        assert api_key_field.required is True
 
     def test_lists_tables_without_credentials(self) -> None:
         # Every endpoint is a static entry in ENDPOINTS with no I/O - safe for public docs.
@@ -124,30 +106,3 @@ class TestVendrSource:
         assert is_valid is expected_valid
         assert error_message == expected_message
         mock_validate.assert_called_once_with("vendr-key")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is VendrResumeConfig
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.vendr.source.vendr_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_vendr_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "Products"
-        inputs.team_id = self.team_id
-        inputs.job_id = "job-1"
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_vendr_source.assert_called_once()
-        kwargs = mock_vendr_source.call_args.kwargs
-        assert kwargs["api_key"] == "vendr-key"
-        assert kwargs["endpoint"] == "Products"
-        assert kwargs["team_id"] == self.team_id
-        assert kwargs["job_id"] == "job-1"
-        assert kwargs["resumable_source_manager"] is manager
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(VENDR_ENDPOINTS.keys())

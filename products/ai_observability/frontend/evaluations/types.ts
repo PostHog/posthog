@@ -1,4 +1,4 @@
-import { AnyPropertyFilter, UserBasicType } from '~/types'
+import { AccessControlLevel, AnyPropertyFilter, UserBasicType } from '~/types'
 
 import type {
     EvaluationReportCitationApi,
@@ -34,6 +34,9 @@ export interface ModelConfiguration {
 
 export interface EvaluationOutputConfig {
     allows_na?: boolean
+    /** Whether a true result means the evaluation found a problem. Absent or false means a true
+     * result is a pass, which is what every evaluation stored before this field intends. */
+    true_is_failure?: boolean
 }
 
 /** Settle config for aggregate targets (trace, session). A missing `strategy` resolves per target:
@@ -86,6 +89,7 @@ export interface BaseEvaluationConfig {
     updated_at: string
     created_by?: UserBasicType | null
     deleted?: boolean
+    user_access_level?: AccessControlLevel | null
 }
 
 export interface LLMJudgeEvaluation extends BaseEvaluationConfig {

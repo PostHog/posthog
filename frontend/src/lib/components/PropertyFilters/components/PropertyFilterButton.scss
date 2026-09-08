@@ -36,6 +36,25 @@
         padding-right: 0.5rem;
     }
 
+    // Sentence-length labels wrap instead of being ellipsised, so the pill grows into a block
+    &.PropertyFilterButton--wraps {
+        align-items: flex-start;
+        height: auto;
+        min-height: 2rem;
+        padding: 0.3125rem 0.625rem;
+        white-space: normal;
+        border-radius: var(--radius);
+
+        > .LemonIcon {
+            margin-top: 0.125rem;
+        }
+
+        .PropertyFilterButton-content {
+            overflow: visible;
+            text-overflow: clip;
+        }
+    }
+
     &.PropertyFilterButton--compact {
         height: unset;
         padding: 0.25rem;

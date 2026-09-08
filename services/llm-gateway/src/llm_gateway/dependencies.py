@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 from typing import Annotated, Any
 
@@ -22,6 +21,7 @@ from llm_gateway.flags import evaluate_flag
 from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
     INTERNAL_RUN_SCOPE,
+    POSTHOG_CODE_PRODUCT,
     check_free_tier_model_access,
     check_product_access,
     get_product_config,
@@ -37,7 +37,6 @@ from llm_gateway.request_context import (
     set_throttle_context,
 )
 from llm_gateway.services.desktop_access_resolver import DesktopAccessResolver
-from llm_gateway.services.plan_resolver import POSTHOG_CODE_PRODUCT, PlanInfo, resolve_plan_info
 from llm_gateway.services.quota_resolver import QuotaResourceStatus, resolve_quota_status
 
 logger = structlog.get_logger(__name__)
@@ -175,21 +174,45 @@ async def enforce_desktop_access(request: Request, user: AuthenticatedUser, prod
     if INTERNAL_RUN_SCOPE in (user.scopes or []):
         return
 
-    resolver: DesktopAccessResolver = request.app.state.desktop_access_resolver
-    if await resolver.has_access(user.user_id, upstream_auth_header(request)):
-        return
+    if user.team_id is None:
+        logger.warning("desktop_access_missing_team", user_id=user.user_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": {
+                    "message": "We couldn't verify PostHog Desktop access. Try again.",
+                    "type": "service_unavailable",
+                    "code": "desktop_access_unavailable",
+                }
+            },
+        )
 
-    logger.warning("desktop_access_denied", user_id=user.user_id, team_id=user.team_id)
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail={
-            "error": {
-                "message": "PostHog Desktop access is required to use this product.",
-                "type": "permission_error",
-                "code": "code_access_required",
-            }
-        },
-    )
+    resolver: DesktopAccessResolver = request.app.state.desktop_access_resolver
+    decision = await resolver.resolve_access(user.user_id, user.team_id, upstream_auth_header(request))
+    if decision.allowed:
+        return
+    if decision.resolution_failed:
+        logger.warning("desktop_access_resolution_failed", user_id=user.user_id, team_id=user.team_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": {
+                    "message": "We couldn't verify PostHog Desktop access. Try again.",
+                    "type": "service_unavailable",
+                    "code": "desktop_access_unavailable",
+                }
+            },
+        )
+
+    logger.warning("desktop_access_denied", user_id=user.user_id, team_id=user.team_id, reason=decision.reason)
+    error: dict[str, object] = {
+        "message": "PostHog Desktop access is required to use this product.",
+        "type": "permission_error",
+        "code": "code_access_required",
+    }
+    if decision.reason is not None:
+        error["reason"] = decision.reason
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": error})
 
 
 async def _extract_end_user_id_from_body(request: Request) -> str | None:
@@ -215,19 +238,17 @@ async def _extract_end_user_id_from_body(request: Request) -> str | None:
     return None
 
 
-async def resolve_plan_and_quota(
+async def resolve_quota(
     request: Request,
     *,
-    user_id: int,
     team_id: int | None,
     product: str,
-) -> tuple[PlanInfo, QuotaResourceStatus]:
-    """Fetch plan info and (for bucket-billed products) the bucket's quota in parallel.
+) -> QuotaResourceStatus:
+    """Fetch the bucket's quota for bucket-billed products.
 
-    Both calls are independent Django roundtrips on cache miss, so for products
-    billing into a credit bucket we overlap them. Unbilled products short-circuit
-    the throttle stack regardless of quota state, so we skip the resolver entirely
-    rather than paying for the Redis GET (and the HTTP fallback on cache miss).
+    Unbilled products short-circuit the throttle stack regardless of quota state,
+    so we skip the resolver entirely rather than paying for the Redis GET (and the
+    HTTP fallback on cache miss).
 
     Caveat: ``code_usage_billing_active`` rides the quota fetch, so a product
     without a credit bucket always reads as unbilled — removing or repointing
@@ -235,13 +256,8 @@ async def resolve_plan_and_quota(
     """
     product_config = get_product_config(product)
     if product_config and product_config.credit_bucket is not None:
-        plan_info, quota_status = await asyncio.gather(
-            resolve_plan_info(request, user_id, product),
-            resolve_quota_status(request, team_id, product_config.credit_bucket.value),
-        )
-        return plan_info, quota_status
-    plan_info = await resolve_plan_info(request, user_id, product)
-    return plan_info, QuotaResourceStatus(limited=False)
+        return await resolve_quota_status(request, team_id, product_config.credit_bucket.value)
+    return QuotaResourceStatus(limited=False)
 
 
 def _format_retry_delay(seconds: int) -> str:
@@ -268,14 +284,35 @@ async def enforce_throttles(
     else:
         end_user_id = await _extract_end_user_id_from_body(request)
 
-    plan_info, quota_status = await resolve_plan_and_quota(
+    quota_status = await resolve_quota(
         request,
-        user_id=user.user_id,
         team_id=user.team_id,
         product=product,
     )
 
     model = await get_model_from_request(request)
+
+    access_flag = get_required_model_flag(model)
+    if access_flag is not None and not get_settings().debug:
+        if not await evaluate_flag(access_flag, user.distinct_id):
+            logger.warning(
+                "model_access_blocked",
+                user_id=user.user_id,
+                team_id=user.team_id,
+                product=product,
+                flag=access_flag,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": {
+                        "message": f"Model '{model}' is not available for your account. Choose another model. (rate_limit)",
+                        "type": "permission_error",
+                        "code": "model_gate",
+                        "reason": "model_not_available",
+                    }
+                },
+            )
 
     model_allowed, model_error = check_free_tier_model_access(
         product=product,
@@ -302,40 +339,12 @@ async def enforce_throttles(
             },
         )
 
-    # Entitlement gate for models not cleared for general use on this path (e.g. Kimi K3,
-    # Baseten-only DeepSeek). Each maps to its own access flag. Fails closed (a None eval outage
-    # blocks) since these decide spend / backend rollout.
-    access_flag = get_required_model_flag(model)
-    if access_flag is not None and not get_settings().debug:
-        if not await evaluate_flag(access_flag, user.distinct_id):
-            logger.warning(
-                "model_access_blocked",
-                user_id=user.user_id,
-                team_id=user.team_id,
-                product=product,
-                flag=access_flag,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    "error": {
-                        "message": f"Model '{model}' is not available. Choose another model. (rate_limit)",
-                        "type": "permission_error",
-                        "code": "model_gate",
-                    }
-                },
-            )
-
     context = ThrottleContext(
         user=user,
         product=product,
         request_id=get_request_id() or None,
         end_user_id=end_user_id,
-        plan_key=plan_info.plan_key,
-        seat_created_at=plan_info.seat_created_at,
-        seat_missing=plan_info.seat_missing,
         code_usage_billed=quota_status.code_usage_billing_active,
-        billing_period_start=plan_info.billing_period.current_period_start if plan_info.billing_period else None,
         credits_exhausted=quota_status.limited,
         sandbox_task_id=user.sandbox_task_id,
     )

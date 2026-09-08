@@ -6,7 +6,8 @@ from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_fiel
 from pydantic import BaseModel
 from rest_framework import serializers
 
-from products.dashboards.backend.models.dashboard import DASHBOARD_GRID_SPACING_GAPS
+from products.dashboards.backend.facade.enums import RestrictionLevel
+from products.dashboards.backend.models.dashboard import DASHBOARD_GRID_COMPACTION_MODES, DASHBOARD_GRID_SPACING_GAPS
 from products.dashboards.backend.widget_specs.pydantic_openapi import pydantic_config_field, pydantic_stub_serializer
 from products.dashboards.backend.widget_specs.registry import EXPECTED_WIDGET_TYPES, WIDGET_SPECS
 
@@ -296,7 +297,11 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
         help_text="ID of the color theme used for chart visualizations.",
     )
     tags = serializers.ListField(child=serializers.CharField(), required=False)
-    restriction_level = serializers.ChoiceField(choices=[21, 37], required=False)
+    restriction_level = serializers.ChoiceField(
+        choices=RestrictionLevel.choices,
+        required=False,
+        help_text="Who can edit this dashboard.",
+    )
     quick_filter_ids = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -307,6 +312,14 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
         choices=tuple(DASHBOARD_GRID_SPACING_GAPS),
         required=False,
         help_text="Named tile density preset. Use tight, condensed, standard, relaxed, or wide.",
+    )
+    layout_compaction = serializers.ChoiceField(
+        choices=DASHBOARD_GRID_COMPACTION_MODES,
+        required=False,
+        help_text=(
+            "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles "
+            "to the left, and stable preserves positions while moving colliding tiles."
+        ),
     )
     tiles = DashboardPatchTileOpenApiSerializer(
         many=True,

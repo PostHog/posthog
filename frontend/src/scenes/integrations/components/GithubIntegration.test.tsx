@@ -5,6 +5,8 @@ import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import posthog from 'posthog-js'
 
+import type { IntegrationConnectSurface } from 'lib/integrations/utils'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -12,12 +14,26 @@ import { GithubIntegration } from './GithubIntegration'
 
 describe('GithubIntegration', () => {
     let captureSpy: jest.SpyInstance
+    let installRequests: Record<string, unknown>[]
+    let availableInstallations: Record<string, unknown>[]
 
     beforeEach(() => {
+        installRequests = []
+        availableInstallations = []
         useMocks({
             get: {
                 '/api/environments/:team_id/integrations': { results: [] },
-                '/api/projects/:team_id/integrations/github/available_installations/': { installations: [] },
+                '/api/projects/:team_id/integrations/github/available_installations/': () => [
+                    200,
+                    { installations: availableInstallations, personal_github_connected: false },
+                ],
+                '/api/users/@me/integrations/github/install_requests/': () => [
+                    200,
+                    { results: installRequests, install_url: 'https://github.com/apps/posthog-dev/installations/new' },
+                ],
+            },
+            post: {
+                '/api/projects/:team_id/integrations/github/link_existing/': { id: 1 },
             },
         })
         initKeaTests()
@@ -54,5 +70,57 @@ describe('GithubIntegration', () => {
         await clickConnect(<GithubIntegration />)
 
         expect(connectClicks()).toEqual([])
+    })
+
+    it.each([
+        ['settings', 'settings_link_existing'],
+        ['inbox_welcome', 'inbox_welcome'],
+    ])(
+        'reports linking an existing installation with the %s surface as %s',
+        async (connectSurface, expectedSurface) => {
+            availableInstallations = [{ installation_id: '55555', account_name: 'posthog-org', account_type: null }]
+
+            render(
+                <Provider>
+                    <GithubIntegration connectSurface={connectSurface as IntegrationConnectSurface} />
+                </Provider>
+            )
+
+            const button = await screen.findByText(/^Connect to /)
+            await userEvent.click(button)
+
+            await waitFor(() =>
+                expect(connectClicks()).toEqual([
+                    { integration: 'github', integration_kind: 'github', surface: expectedSurface },
+                ])
+            )
+        }
+    )
+
+    it.each([
+        ['pending', 'GitHub sent your request', 'Copy message for your org owner'],
+        ['approved', 'An organization owner approved the PostHog app for', 'Finish connecting'],
+    ])('shows the %s install request with its action', async (status, text, action) => {
+        installRequests = [
+            {
+                id: '018f0000-0000-7000-8000-000000000001',
+                github_login: 'octocat',
+                status,
+                installation_id: status === 'approved' ? '55555' : null,
+                account_login: status === 'approved' ? 'posthog-org' : null,
+                account_type: null,
+                requested_at: '2026-08-18T00:00:00Z',
+                resolved_at: null,
+            },
+        ]
+
+        render(
+            <Provider>
+                <GithubIntegration connectSurface="settings" />
+            </Provider>
+        )
+
+        expect(await screen.findByText(text, { exact: false })).toBeInTheDocument()
+        expect(screen.getByText(action)).toBeInTheDocument()
     })
 })

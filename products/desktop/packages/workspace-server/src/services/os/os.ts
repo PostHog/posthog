@@ -479,6 +479,10 @@ export class OsService {
     return this.workspaceSettings.getWorktreeLocation();
   }
 
+  setWorktreeLocation(location: string): void {
+    this.workspaceSettings.setWorktreeLocation(location);
+  }
+
   async readFileAsDataUrl(
     filePath: string,
     maxSizeBytes: number,

@@ -17,12 +17,14 @@ import {
     TooltipTrigger,
 } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GitHubBranchCombobox } from 'lib/integrations/GitHubBranchCombobox'
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { inboxUsageLogic } from '../../logics/inboxUsageLogic'
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
+import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { PRIORITY_THRESHOLD_OPTIONS, SignalReportPriority } from '../../types'
 
 /** Compact segmented-control label per priority. P4 (the lowest bar) reads as "All". */
@@ -38,6 +40,9 @@ const THRESHOLD_SEGMENTS = PRIORITY_THRESHOLD_OPTIONS.map(({ value }) => ({
     value,
     label: THRESHOLD_SEGMENT_LABELS[value],
 }))
+
+const MY_THRESHOLD_DEFAULT_VALUE = '__default__'
+const MY_THRESHOLD_SEGMENTS = [{ value: MY_THRESHOLD_DEFAULT_VALUE, label: 'Default' }, ...THRESHOLD_SEGMENTS]
 
 function BaseBranchOverrideRows(): JSX.Element | null {
     const { baseBranchOverrides, teamConfigUpdating } = useValues(signalTeamConfigLogic)
@@ -303,16 +308,27 @@ function DailyReportLimit(): JSX.Element {
  * threshold) that can't live inside that card's single button/link wrapper.
  */
 export function SelfDrivingSection(): JSX.Element {
+    // The Settings tab wraps this in its own card; the legacy setup rail does not.
+    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const { teamConfig, teamConfigLoading, teamConfigUpdating, autostartEnabled, defaultAutostartPriority } =
         useValues(signalTeamConfigLogic)
     const { patchTeamConfig } = useActions(signalTeamConfigLogic)
+    const { autonomyConfig, autonomyConfigLoading, autostartPriorityUpdating } = useValues(userAutonomyLogic)
+    const { setAutostartPriority } = useActions(userAutonomyLogic)
+    const myThreshold = autonomyConfig?.autostart_priority ?? MY_THRESHOLD_DEFAULT_VALUE
 
     if (teamConfigLoading && teamConfig === null) {
         return <LemonSkeleton className="h-20 w-full rounded" />
     }
 
     return (
-        <div className="flex flex-col rounded border border-primary bg-surface-primary overflow-hidden">
+        <div
+            className={
+                redesign
+                    ? '-mx-2.5 flex flex-col'
+                    : 'flex flex-col rounded border border-primary bg-surface-primary overflow-hidden'
+            }
+        >
             <div className="flex items-start gap-2 px-2.5 py-2">
                 <span className="flex size-7 shrink-0 items-center justify-center rounded bg-surface-secondary text-default [&_svg]:size-4">
                     <IconRocket />
@@ -331,18 +347,51 @@ export function SelfDrivingSection(): JSX.Element {
                 </div>
             </div>
 
-            <div className="border-t border-primary bg-surface-secondary">
+            <div className={redesign ? 'border-t border-primary' : 'border-t border-primary bg-surface-secondary'}>
                 {autostartEnabled ? (
                     <>
-                        <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
-                            <span className="text-xs text-secondary shrink-0">Threshold</span>
-                            <LemonSegmentedButton
-                                size="xsmall"
-                                value={defaultAutostartPriority}
-                                options={THRESHOLD_SEGMENTS}
-                                disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
-                                onChange={(next) => patchTeamConfig({ default_autostart_priority: next })}
-                            />
+                        {/* Label above the control rather than beside it: the rail is narrow enough that a
+                            five- or six-segment row alongside a label overflows the card. `fullWidth` keeps the
+                            segments even, capped so the same markup doesn't stretch in the wide stacked layout. */}
+                        <div className="flex flex-col gap-2 px-2.5 py-1.5">
+                            <div className="flex flex-col gap-1">
+                                <span className="text-xs text-secondary">Project threshold</span>
+                                <LemonSegmentedButton
+                                    size="xsmall"
+                                    fullWidth
+                                    className="max-w-xs"
+                                    value={defaultAutostartPriority}
+                                    options={THRESHOLD_SEGMENTS}
+                                    disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
+                                    onChange={(next) => patchTeamConfig({ default_autostart_priority: next })}
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <span className="text-xs text-secondary">My threshold</span>
+                                <LemonSegmentedButton
+                                    size="xsmall"
+                                    fullWidth
+                                    className="max-w-xs"
+                                    value={myThreshold}
+                                    options={MY_THRESHOLD_SEGMENTS}
+                                    disabledReason={
+                                        autostartPriorityUpdating
+                                            ? 'Saving changes'
+                                            : autonomyConfigLoading
+                                              ? 'Loading settings'
+                                              : undefined
+                                    }
+                                    onChange={(next) =>
+                                        setAutostartPriority(
+                                            next === MY_THRESHOLD_DEFAULT_VALUE ? null : (next as SignalReportPriority)
+                                        )
+                                    }
+                                />
+                                <p className="text-[11px] text-tertiary leading-snug mb-0">
+                                    Overrides the project threshold for reports that suggest you as reviewer. It applies
+                                    across all your projects.
+                                </p>
+                            </div>
                         </div>
                         <div className="border-t border-primary">
                             <BaseBranchOverrides />

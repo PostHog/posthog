@@ -257,13 +257,21 @@ class TestLogsMetricRulesAPI(APIBaseTest):
         assert body["enabled"] is True
         assert body["version"] == created["version"] + 1
 
-    def test_requires_feature_flag(self):
-        self._ff_patcher.stop()
-        with patch("posthoganalytics.feature_enabled", return_value=False):
+    @parameterized.expand(
+        [
+            ("no flags", (), status.HTTP_403_FORBIDDEN),
+            ("the retired logs flag alone", ("logs-metric-rules",), status.HTTP_403_FORBIDDEN),
+            ("the metrics flag", ("metrics",), status.HTTP_201_CREATED),
+        ]
+    )
+    def test_metrics_feature_flag_admits_the_team(
+        self, _label: str, enabled_flags: tuple[str, ...], expected_status: int
+    ) -> None:
+        # A rule's output is only readable in Metrics, so that alpha flag is the one that admits a
+        # team. `logs-metric-rules` is retired and must not open the API on its own.
+        with patch("posthoganalytics.feature_enabled", side_effect=lambda flag, *_, **__: flag in enabled_flags):
             response = self.client.post(self.base_url, self._payload(), format="json")
-            assert response.status_code == status.HTTP_403_FORBIDDEN
-        self._ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
-        self._ff_patcher.start()
+            assert response.status_code == expected_status, response.json()
 
     def test_child_environment_url_targets_canonical_team(self):
         # RootTeamMixin.save() stores rules under the parent (canonical) team, so the

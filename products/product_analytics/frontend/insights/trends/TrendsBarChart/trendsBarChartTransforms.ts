@@ -4,6 +4,7 @@ import type { Series, TimeInterval, TimeSeriesBarChartConfig, TooltipContext, YA
 import { COMPARE_PREVIOUS_DIM_OPACITY, dimHexColor } from '../shared/compareDimming'
 import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
 import { humanizeSeriesLabel } from '../shared/humanizeSeriesLabel'
+import { computeMagnitudeAxisIds } from '../shared/magnitudeAxisIds'
 import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
 import type { GoalLineLike, YFormatterFields } from '../shared/trendsChartDisplayOptions'
 
@@ -30,8 +31,9 @@ export interface BuildTrendsBarSeriesOpts<R extends TrendsBarResultLike, M = unk
     // Resolves the legend/series label (custom name + breakdown formatting). Hosts that lack the
     // breakdown/cohort deps (e.g. MCP) omit it and fall back to the raw humanized event name.
     getLabel?: (r: R) => string
-    // Scale each series past the first against its own y-axis. Grouped (unstacked) bars only —
-    // stacked layouts must share one axis, so the adapter never sets this for them.
+    // Give series of different orders of magnitude their own y-axes (similar ones share).
+    // Grouped (unstacked) bars only — stacked layouts must share one axis, so the adapter
+    // never sets this for them.
     showMultipleYAxes?: boolean
 }
 
@@ -58,12 +60,12 @@ function buildMainTrendsBarSeries<R extends TrendsBarResultLike, M = unknown>(
     r: R,
     index: number,
     opts: BuildTrendsBarSeriesOpts<R, M>,
-    data: number[]
+    data: number[],
+    yAxisId: string = DEFAULT_Y_AXIS_ID
 ): Series<M> {
     const color = resolveBarColor(r, index, opts)
     const excluded = opts.getHidden ? opts.getHidden(r, index) : false
     const meta = opts.buildMeta ? opts.buildMeta(r, index) : undefined
-    const yAxisId = opts.showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID
     return {
         key: String(r.id),
         label: opts.getLabel ? opts.getLabel(r) : humanizeSeriesLabel(r.label),
@@ -79,7 +81,8 @@ export function buildTrendsBarTimeSeries<R extends TrendsBarResultLike, M = unkn
     results: R[],
     opts: BuildTrendsBarSeriesOpts<R, M>
 ): Series<M>[] {
-    return results.map((r, index) => buildMainTrendsBarSeries(r, index, opts, r.data))
+    const yAxisIds = opts.showMultipleYAxes ? computeMagnitudeAxisIds(results.map((r) => r.data)) : undefined
+    return results.map((r, index) => buildMainTrendsBarSeries(r, index, opts, r.data, yAxisIds?.[index]))
 }
 
 export interface BuildTrendsBarTimeSeriesConfigOpts {

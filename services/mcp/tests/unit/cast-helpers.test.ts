@@ -1,16 +1,16 @@
 /**
- * Unit tests for the narrow string→primitive casts used by
+ * Unit tests for the narrow input casts used by
  * `param_overrides: { ...: { cast: '...' } }` in tools.yaml.
  *
- * The intent is to be permissive about the *one* shape LLM agents
- * commonly mis-emit (stringified integer ids) and strict about
- * everything else, so genuine type mismatches still surface as
- * honest zod rejections instead of silently casting to 0/1.
+ * The intent is to be permissive about the shapes LLM agents commonly
+ * mis-emit (a stringified integer id, a boolean for a string filter)
+ * and strict about everything else, so genuine type mismatches still
+ * surface as honest zod rejections instead of silently casting to 0/1.
  */
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
-import { castStringToInt } from '../../src/tools/cast-helpers'
+import { castBooleanToString, castStringToInt } from '../../src/tools/cast-helpers'
 
 describe('castStringToInt', () => {
     const schema = z.preprocess(castStringToInt, z.number().int())
@@ -54,5 +54,28 @@ describe('castStringToInt', () => {
         // Min constraint still applies after the cast runs.
         expect(() => wrapped.parse('0')).toThrow()
         expect(wrapped.parse('1')).toBe(1)
+    })
+})
+
+describe('castBooleanToString', () => {
+    const schema = z.preprocess(castBooleanToString, z.string())
+
+    it.each([
+        [true, 'true'],
+        [false, 'false'],
+    ] as const)('casts the boolean %s to its lowercase string form', (input, expected) => {
+        expect(schema.parse(input)).toBe(expected)
+    })
+
+    it('passes through plain strings untouched', () => {
+        expect(schema.parse('enabled')).toBe('enabled')
+    })
+
+    it.each([
+        ['number', 1],
+        ['null', null],
+        ['empty array', []],
+    ] as const)('rejects non-boolean, non-string input: %s', (_label, input) => {
+        expect(() => schema.parse(input)).toThrow()
     })
 })

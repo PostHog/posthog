@@ -1,9 +1,8 @@
 {% extends "admin/base_site.html" %}
 {% load i18n admin_urls static %}
-
 {% block extrastyle %}
-{{ block.super }}
-<style nonce="{{ request.csp_nonce }}">
+    {{ block.super }}
+    <style nonce="{{ request.csp_nonce }}">
     .form-row { margin-bottom: 15px; margin-top: 15px; }
     .help { font-size: 11px; color: #666; }
     .submit-row { margin-top: 20px; }
@@ -16,99 +15,101 @@
     .empty-state { color: #666; font-style: italic; padding: 12px 0; }
     .msg-success { background: #dfd; padding: 8px 12px; margin-bottom: 10px; border-radius: 4px; }
     .msg-error { background: #fdd; padding: 8px 12px; margin-bottom: 10px; border-radius: 4px; }
-</style>
+    </style>
 {% endblock %}
-
 {% block content %}
-
-<div id="messages"></div>
-
-<div id="global-disable" style="margin-bottom: 30px;">
-    <fieldset class="module aligned">
-        <h2>Global email MFA disable</h2>
-        {% if global_disable %}
-        <div class="msg-error">
-            <strong>Email MFA is currently DISABLED for all users.</strong><br/>
-            Reason: {{ global_disable.reason }}<br/>
-            Disabled by: {{ global_disable.disabled_by }}<br/>
-            Disabled at: {{ global_disable.disabled_at }}<br/>
-            {% if global_disable.expires_in_seconds %}Auto re-enables in ~{{ global_disable.expires_in_seconds }} seconds.{% endif %}
-        </div>
-        <div class="submit-row">
-            <button type="button" id="reenable-btn" class="default">Re-enable email MFA now</button>
-        </div>
-        {% else %}
-        <p class="empty-state">Email MFA is currently enabled for all users.</p>
-
-        <form id="disable-form">
-            {% csrf_token %}
-            <div class="form-row">
-                <label for="id_reason">Reason:</label>
-                <input type="text" name="reason" id="id_reason" required />
-                <p class="help">Why email MFA is being disabled. Required and stored for audit.</p>
-            </div>
-            <div class="form-row">
-                <label for="id_duration">Duration:</label>
-                <input type="number" id="id_duration" min="1" value="6" style="width: 80px;" required />
-                <select id="id_duration_unit">
-                    <option value="60">minutes</option>
-                    <option value="3600" selected>hours</option>
-                    <option value="86400">days</option>
-                </select>
-                <p class="help">Auto re-enables after this. Maximum 7 days.</p>
-            </div>
-            <div class="submit-row">
-                <input type="submit" value="Disable email MFA for all users" class="default" />
-            </div>
-        </form>
-        {% endif %}
-    </fieldset>
-</div>
-
-<div class="email-list">
-    <fieldset class="module aligned">
-        <h2>Bypassed emails (<span id="email-count">{{ bypass_emails|length }}</span>)</h2>
-
-        <table id="email-table" {% if not bypass_emails %}style="display:none"{% endif %}>
-            <thead>
-                <tr>
-                    <th>Email</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody id="email-list-body">
-                {% for email in bypass_emails %}
-                <tr data-email="{{ email }}">
-                    <td>{{ email }}</td>
-                    <td>
-                        <button type="button" class="remove-btn">Remove</button>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        <p id="empty-state" class="empty-state" {% if bypass_emails %}style="display:none"{% endif %}>No emails are currently bypassed.</p>
-    </fieldset>
-</div>
-
-<form id="add-form" style="margin-top: 30px;">
-    {% csrf_token %}
-    <fieldset class="module aligned">
-        <h2>Add email</h2>
-
-        <div class="form-row">
-            <label for="id_email">Email:</label>
-            <input type="email" name="email" id="id_email" required />
-            <p class="help">Email address to bypass email MFA verification</p>
-        </div>
-    </fieldset>
-
-    <div class="submit-row">
-        <input type="submit" value="Add to bypass list" class="default" />
+    <div id="messages"></div>
+    <div id="global-disable" style="margin-bottom: 30px;">
+        <fieldset class="module aligned">
+            <h2>Global email MFA disable</h2>
+            {% if global_disable %}
+                <div class="msg-error">
+                    <strong>Email MFA is currently DISABLED for all users.</strong>
+                    <br />
+                    Reason: {{ global_disable.reason }}
+                    <br />
+                    Disabled by: {{ global_disable.disabled_by }}
+                    <br />
+                    Disabled at: {{ global_disable.disabled_at }}
+                    <br />
+                    {% if global_disable.expires_in_seconds %}Auto re-enables in ~{{ global_disable.expires_in_seconds }} seconds.{% endif %}
+                </div>
+                <div class="submit-row">
+                    <button type="button" id="reenable-btn" class="default">Re-enable email MFA now</button>
+                </div>
+            {% else %}
+                <p class="empty-state">Email MFA is currently enabled for all users.</p>
+                <form id="disable-form">
+                    {% csrf_token %}
+                    <div class="form-row">
+                        <label for="id_reason">Reason:</label>
+                        <input type="text" name="reason" id="id_reason" required />
+                        <p class="help">Why email MFA is being disabled. Required and stored for audit.</p>
+                    </div>
+                    <div class="form-row">
+                        <label for="id_duration">Duration:</label>
+                        <input type="number"
+                               id="id_duration"
+                               min="1"
+                               value="6"
+                               style="width: 80px"
+                               required />
+                        <select id="id_duration_unit">
+                            <option value="60">minutes</option>
+                            <option value="3600" selected>hours</option>
+                            <option value="86400">days</option>
+                        </select>
+                        <p class="help">Auto re-enables after this. Maximum 7 days.</p>
+                    </div>
+                    <div class="submit-row">
+                        <input type="submit" value="Disable email MFA for all users" class="default" />
+                    </div>
+                </form>
+            {% endif %}
+        </fieldset>
     </div>
-</form>
-
-<script nonce="{{ request.csp_nonce }}">
+    <div class="email-list">
+        <fieldset class="module aligned">
+            <h2>Bypassed emails (<span id="email-count">{{ bypass_emails|length }}</span>)</h2>
+            <table id="email-table"
+                   {% if not bypass_emails %}style="display:none"{% endif %}>
+                <thead>
+                    <tr>
+                        <th>Email</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="email-list-body">
+                    {% for email in bypass_emails %}
+                        <tr data-email="{{ email }}">
+                            <td>{{ email }}</td>
+                            <td>
+                                <button type="button" class="remove-btn">Remove</button>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <p id="empty-state"
+               class="empty-state"
+               {% if bypass_emails %}style="display:none"{% endif %}>No emails are currently bypassed.</p>
+        </fieldset>
+    </div>
+    <form id="add-form" style="margin-top: 30px;">
+        {% csrf_token %}
+        <fieldset class="module aligned">
+            <h2>Add email</h2>
+            <div class="form-row">
+                <label for="id_email">Email:</label>
+                <input type="email" name="email" id="id_email" required />
+                <p class="help">Email address to bypass email MFA verification</p>
+            </div>
+        </fieldset>
+        <div class="submit-row">
+            <input type="submit" value="Add to bypass list" class="default" />
+        </div>
+    </form>
+    <script nonce="{{ request.csp_nonce }}">
 const API_BASE = '/admin/api/code-based-verification-bypass/';
 
 function getCSRFToken() {
@@ -263,5 +264,5 @@ if (reenableBtn) {
         });
     });
 }
-</script>
+    </script>
 {% endblock %}

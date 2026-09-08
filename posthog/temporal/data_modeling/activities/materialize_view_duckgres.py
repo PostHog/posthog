@@ -1,3 +1,4 @@
+import os
 import time
 import typing
 import datetime as dt
@@ -6,6 +7,7 @@ import dataclasses
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
@@ -24,6 +26,7 @@ from products.endpoints.backend.facade.temporal import prepare_executable_query
 from products.managed_warehouse.backend.facade.api import (
     duckgres_data_modeling_schema,
     has_provisioned_warehouse,
+    is_data_modeling_shadow_ready,
     is_dev_mode,
 )
 from products.managed_warehouse.backend.facade.contracts import DuckLakeCompiledQuery, DuckLakeS3Secret
@@ -39,6 +42,13 @@ from .utils import (
 LOGGER = get_logger(__name__)
 
 FEATURE_FLAG = "duckgres-data-modeling-shadow"
+
+
+@frozen
+class DuckgresShadowEligibilityInputs:
+    team_id: int
+    dag_id: str
+    node_id: str
 
 
 @dataclasses.dataclass
@@ -70,10 +80,15 @@ class DuckgresShadowResult:
     file_size_delta_bytes: int = 0
 
 
-def _is_duckgres_shadow_enabled(team: Team) -> bool:
-    if is_dev_mode():
-        import os
+@frozen
+class _DuckgresShadowObjects:
+    team: Team
+    node: Node
+    saved_query: DataWarehouseSavedQuery
 
+
+def _is_duckgres_shadow_flag_enabled(team: Team) -> bool:
+    if is_dev_mode():
         return os.environ.get("DUCKGRES_SHADOW_ENABLED", "").lower() in ("1", "true")
 
     if not has_provisioned_warehouse(str(team.organization_id)):
@@ -98,6 +113,18 @@ def _is_duckgres_shadow_enabled(team: Team) -> bool:
         return False
 
 
+def _is_duckgres_shadow_enabled(team: Team, saved_query: DataWarehouseSavedQuery) -> bool:
+    if not _is_duckgres_shadow_flag_enabled(team):
+        return False
+
+    return is_data_modeling_shadow_ready(
+        organization_id=team.organization_id,
+        team_id=team.id,
+        saved_query_id=saved_query.id,
+        source_query=saved_query.query,
+    )
+
+
 def _compile_hogql_for_ducklake(hogql_query: str, team_id: int) -> DuckLakeCompiledQuery:
     from posthog.schema import HogQLQuery
 
@@ -112,30 +139,43 @@ def _compile_hogql_for_ducklake(hogql_query: str, team_id: int) -> DuckLakeCompi
     )
 
 
-@database_sync_to_async_pool
-def _get_shadow_input_objects(
-    inputs: DuckgresShadowInputs,
-) -> tuple[Team, Node, DataWarehouseSavedQuery]:
-    team = Team.objects.get(id=inputs.team_id)
-    node = Node.objects.prefetch_related("saved_query").get(
-        id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
-    )
+def _load_shadow_objects(*, team_id: int, dag_id: str, node_id: str) -> _DuckgresShadowObjects:
+    team = Team.objects.get(id=team_id)
+    node = Node.objects.prefetch_related("saved_query").get(id=node_id, team_id=team_id, dag_id=dag_id)
     if node.type == NodeType.TABLE or node.saved_query is None:
         raise ValueError(f"Node {node.name} is not materializable")
-    saved_query = DataWarehouseSavedQuery.objects.exclude(deleted=True).get(
-        id=node.saved_query.id, team_id=inputs.team_id
-    )
+    saved_query = DataWarehouseSavedQuery.objects.exclude(deleted=True).get(id=node.saved_query.id, team_id=team_id)
+
+    return _DuckgresShadowObjects(team=team, node=node, saved_query=saved_query)
+
+
+@database_sync_to_async_pool
+def _get_shadow_input_objects(inputs: DuckgresShadowInputs) -> _DuckgresShadowObjects:
+    objects = _load_shadow_objects(team_id=inputs.team_id, dag_id=inputs.dag_id, node_id=inputs.node_id)
+    saved_query = objects.saved_query
     if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
         prepare_executable_query(saved_query)
 
-    return (team, node, saved_query)
+    return objects
+
+
+@database_sync_to_async_pool
+def _check_duckgres_shadow_eligibility(inputs: DuckgresShadowEligibilityInputs) -> bool:
+    objects = _load_shadow_objects(team_id=inputs.team_id, dag_id=inputs.dag_id, node_id=inputs.node_id)
+    return _is_duckgres_shadow_enabled(objects.team, objects.saved_query)
 
 
 @activity.defn
 async def check_duckgres_shadow_enabled_activity(team_id: int) -> bool:
-    """Check whether the duckgres shadow flag is enabled for a team."""
+    """Check the legacy team-level shadow prerequisites."""
     team = await database_sync_to_async_pool(Team.objects.get)(id=team_id)
-    return await database_sync_to_async_pool(_is_duckgres_shadow_enabled)(team)
+    return await database_sync_to_async_pool(_is_duckgres_shadow_flag_enabled)(team)
+
+
+@activity.defn
+async def check_duckgres_shadow_eligibility_activity(inputs: DuckgresShadowEligibilityInputs) -> bool:
+    """Check whether the duckgres shadow path is eligible to run."""
+    return await _check_duckgres_shadow_eligibility(inputs)
 
 
 @database_sync_to_async_pool
@@ -167,7 +207,10 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
-    team, node, saved_query = await _get_shadow_input_objects(inputs)
+    objects = await _get_shadow_input_objects(inputs)
+    team = objects.team
+    node = objects.node
+    saved_query = objects.saved_query
     bind_data_modeling_log_context(inputs.team_id, saved_query.id)
     hogql_query = typing.cast(dict, saved_query.query)["query"]
     schema_name = duckgres_data_modeling_schema(team.pk)
