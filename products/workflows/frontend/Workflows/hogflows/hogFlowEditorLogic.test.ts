@@ -622,6 +622,22 @@ describe('hogFlowEditorLogic', () => {
                 height: metricsHeight,
             })
         })
+
+        it('keeps a rebuild that a mode change interrupts', async () => {
+            await applyFlow(makeFlow())
+
+            // A rebuild's nodes reach the store only when its layout lands. A mode change inside
+            // that window cancels the rebuild, so it has to lay out the rebuild's nodes rather
+            // than the ones they replaced.
+            await expectLogic(logic, () => {
+                logic.actions.resetFlowFromHogFlow(makeFlow('Renamed branch'))
+                logic.actions.setMode('metrics')
+            }).toDispatchActions(['setNodesRaw'])
+
+            const branch = logic.values.nodes.find((node) => node.id === 'branch')
+            expect(branch?.data.name).toBe('Renamed branch')
+            expect(branch?.height).toBe(NODE_HEIGHT + NODE_METRICS_SUMMARY_HEIGHT)
+        })
     })
 
     describe('showDropzones placement', () => {

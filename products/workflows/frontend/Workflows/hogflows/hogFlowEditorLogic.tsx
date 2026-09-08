@@ -2347,6 +2347,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     })),
     listeners(({ values, actions }) => {
         let animationTimeout: ReturnType<typeof setTimeout> | null = null
+        // The node list the layout run in flight is laying out. `values.nodes` only catches up
+        // when a run lands, so a relayout that starts during one has to start from this list
+        // instead: starting from the store cancels that run and lays out the list it replaced.
+        let nodesBeingLaidOut: HogFlowActionNode[] | null = null
         return {
             onEdgesChange: ({ edges }) => {
                 actions.setEdges(applyEdgeChanges(edges, values.edges))
@@ -2472,10 +2476,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
 
             setNodes: async ({ nodes }, breakpoint) => {
+                nodesBeingLaidOut = nodes
                 const formattedNodes = await getFormattedNodes(nodes, values.edges, values.nodeHeight)
                 // Drop this layout run if a newer setNodes was dispatched while elk was working,
                 // so overlapping rebuilds can't finish out of order and let a stale layout win.
                 breakpoint()
+                nodesBeingLaidOut = null
 
                 // Only ReactFlow measures a node, and it can report a measurement while elk
                 // works. This payload predates that report, so take the measurement the store
@@ -2497,8 +2503,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 // Nodes are a different height in metrics mode, so the sizes written onto them
                 // are stale until the graph is laid out again. Before the first graph arrives
                 // there is nothing to lay out, and the edges have no nodes to point at.
-                if (values.nodes.length > 0) {
-                    actions.setNodes(values.nodes)
+                const nodes = nodesBeingLaidOut ?? values.nodes
+                if (nodes.length > 0) {
+                    actions.setNodes(nodes)
                 }
             },
 
