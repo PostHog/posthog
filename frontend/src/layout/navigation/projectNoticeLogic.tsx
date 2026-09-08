@@ -665,7 +665,18 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                             message: 'Please verify your email address.',
                             action: {
                                 'data-attr': 'unverified-email-cta',
-                                onClick: () => user && verifyEmailLogic.actions.requestVerificationCode(user.uuid),
+                                onClick: () => {
+                                    if (!user) {
+                                        return
+                                    }
+                                    verifyEmailLogic.actions.requestVerificationCode(user.uuid)
+                                    const { pathname, search, hash } = router.values.location
+                                    // The code has nowhere to go until the code entry is on screen.
+                                    // `next` carries the reader back to this page once the code verifies.
+                                    router.actions.push(urls.verifyEmail(user.uuid), {
+                                        next: `${pathname}${search}${hash}`,
+                                    })
+                                },
                                 children: 'Send verification email',
                             },
                             type: 'warning',

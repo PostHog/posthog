@@ -38,6 +38,7 @@ const PATHS_WITHOUT_PROJECT_ID = new Set([
     'preflight',
     'login',
     'signup',
+    'verify_email',
     'create-organization',
     'account',
     'oauth',

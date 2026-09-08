@@ -51,9 +51,12 @@ describe('generate-app-url', () => {
         expect(result.url).toBe('https://us.posthog.com/project/354703/events/evt_1/2026-06-01T15%3A48%3A00Z')
     })
 
-    it('uses the bare host (no project prefix) for global-scope pages', async () => {
-        const result = await generateAppUrlHandler(ctx, { url: '/instance/status', params: {} })
-        expect(result.url).toBe('https://us.posthog.com/instance/status')
+    it.each([
+        ['/instance/status', 'https://us.posthog.com/instance/status'],
+        ['/verify_email', 'https://us.posthog.com/verify_email'],
+    ])('uses the bare host (no project prefix) for global-scope page %s', async (url, expected) => {
+        const result = await generateAppUrlHandler(ctx, { url, params: {} })
+        expect(result.url).toBe(expected)
     })
 
     it('throws on an unknown url template', async () => {
