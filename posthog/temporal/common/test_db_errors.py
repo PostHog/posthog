@@ -2,6 +2,8 @@ import pytest
 
 from django.db import InterfaceError, InternalError, OperationalError
 
+import psycopg
+
 from posthog.temporal.common.db_errors import is_transient_db_error
 
 
@@ -36,6 +38,16 @@ class _WithSqlstate(Exception):
         ),
         (OperationalError("connection failed: FATAL: password authentication failed for user"), False),
         (OperationalError("no such database"), False),
+        # A caller that connects over a raw psycopg connection never passes through the ORM, so
+        # the identical pooler condition arrives as psycopg's own class rather than Django's.
+        (
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  '
+                "server login has been failing, cached error: connect failed (server_login_retry)"
+            ),
+            True,
+        ),
+        (psycopg.OperationalError("connection failed: FATAL:  password authentication failed for user"), False),
     ],
 )
 def test_is_transient_db_error_by_message(error: BaseException, expected: bool) -> None:
@@ -62,4 +74,17 @@ def test_is_transient_db_error_by_message(error: BaseException, expected: bool) 
 def test_is_transient_db_error_by_sqlstate(error_cls: type[Exception], sqlstate: str, expected: bool) -> None:
     error = error_cls("some driver-specific message")
     error.__cause__ = _WithSqlstate(sqlstate)
+    assert is_transient_db_error(error) is expected
+
+
+# psycopg puts SQLSTATE on the error class itself, so a raw driver failure never reaches the
+# wrapped-cause lookup that covers ORM errors.
+@pytest.mark.parametrize(
+    "error,expected",
+    [
+        (psycopg.errors.ReadOnlySqlTransaction("cannot execute UPDATE in a read-only transaction"), True),
+        (psycopg.errors.InFailedSqlTransaction("current transaction is aborted"), False),
+    ],
+)
+def test_is_transient_db_error_by_raw_psycopg_sqlstate(error: BaseException, expected: bool) -> None:
     assert is_transient_db_error(error) is expected
