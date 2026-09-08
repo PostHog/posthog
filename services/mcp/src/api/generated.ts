@@ -7906,6 +7906,8 @@ export namespace Schemas {
     } as const;
 
     export interface IntegrationFilter {
+      /** Keep rows that no integration reports cost for, such as organic, email or an unmapped source. Defaults to true. */
+      includeNonIntegrated?: boolean | null;
       /** Selected integration source IDs to filter by (e.g., table IDs or source map IDs) */
       integrationSourceIds?: string[] | null;
     }
