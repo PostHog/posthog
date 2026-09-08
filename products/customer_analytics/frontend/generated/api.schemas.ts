@@ -3956,7 +3956,7 @@ export interface UserCustomerAnalyticsConfigApi {
 }
 
 export interface PatchedUserCustomerAnalyticsConfigUpdateApi {
-    /** Complete ordered list of account properties to pin. Pass an empty list to clear it. */
+    /** Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them. */
     pinned_properties?: PinnedAccountPropertyApi[]
 }
 

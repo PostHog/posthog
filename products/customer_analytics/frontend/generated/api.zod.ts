@@ -1633,7 +1633,7 @@ export const GroupsTypesMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Replace the requesting user's ordered account sidebar properties for this project. At most 50 account custom properties and relationships can be pinned.
+ * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided. Omitting pinned_properties leaves the configuration unchanged. At most 50 account custom properties and relationships can be pinned.
  * @summary Update account sidebar configuration
  */
 export const UserCustomerAnalyticsConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -1650,5 +1650,7 @@ export const UserCustomerAnalyticsConfigPartialUpdateBody = /* @__PURE__ */ zod.
             })
         )
         .optional()
-        .describe('Complete ordered list of account properties to pin. Pass an empty list to clear it.'),
+        .describe(
+            'Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them.'
+        ),
 })

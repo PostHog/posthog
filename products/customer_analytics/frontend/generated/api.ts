@@ -2368,7 +2368,7 @@ export const getUserCustomerAnalyticsConfigPartialUpdateUrl = (projectId: string
 }
 
 /**
- * Replace the requesting user's ordered account sidebar properties for this project. At most 50 account custom properties and relationships can be pinned.
+ * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided. Omitting pinned_properties leaves the configuration unchanged. At most 50 account custom properties and relationships can be pinned.
  * @summary Update account sidebar configuration
  */
 export const userCustomerAnalyticsConfigPartialUpdate = async (
