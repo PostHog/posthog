@@ -257,12 +257,13 @@ class TtlSchedule:
 
     `default_ttl_jitter_seconds` spreads out when default-band (frozen) windows expire. A
     backfill builds every chunk on the same day, so with one uniform TTL the whole history
-    expires at once and the next read pays for a full rebuild. The jitter adds a stable
+    expires at once and the next read must rebuild all of it. The jitter adds a stable
     per-window offset in [0, jitter) to the default TTL, so chunks expire days apart and a read
     only finds a chunk or two missing. The offset comes from the window's start date, not from
-    randomness, so it survives rebuilds and the spread cannot re-synchronize. Rule-matched
-    (recent) windows never get jitter. Opt in only for frozen, immutable data: jitter keeps
-    data around longer, which is safe only when the data cannot change. `None` disables it.
+    randomness, so a rebuild gives each chunk the same offset again and chunks do not go back
+    to expiring together. Rule-matched (recent) windows never get jitter. Opt in only for
+    frozen, immutable data: jitter keeps data longer, which is safe only when the data cannot
+    change. `None` disables it.
 
     Use parse_ttl_schedule() to create from user-facing dict format.
     """

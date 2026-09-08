@@ -111,7 +111,7 @@ PRECOMPUTE_MAX_WINDOW_DAYS = 7
 
 # Spread frozen chunk expiries so an experiment's history does not expire all at once
 # (see TtlSchedule.default_ttl_jitter_seconds). 14 days means roughly one chunk expiry
-# per day for a months-long experiment; more would just hold storage longer.
+# per day for a months-long experiment; a larger value would only keep data on disk longer.
 PRECOMPUTE_TTL_JITTER_SECONDS = 14 * 24 * 60 * 60
 
 # Upper bound on how far past the experiment end a metric-events build may scan.
