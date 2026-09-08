@@ -182,6 +182,27 @@ class TestCreateFlagGateAPI(APIBaseTest):
         assert flag.active is True
         assert flag.filters["groups"][0]["rollout_percentage"] == 100
 
+    def test_change_request_creation_failure_reports_the_cause(self, _mock_enabled):
+        # The policy is non-bypassable, so a failure here blocks the save outright. The message
+        # must name the cause instead of hiding it behind a generic error.
+        self._enable_policy()
+
+        with patch(
+            "products.approvals.backend.decorators._create_change_request",
+            side_effect=RuntimeError("intent data is not serializable"),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"key": "gate-broken", "active": True, "filters": {"groups": [{"rollout_percentage": 100}]}},
+                format="json",
+            )
+
+        assert response.status_code == 500
+        detail = response.json()["detail"]
+        assert "RuntimeError" in detail
+        assert "intent data is not serializable" in detail
+        assert not FeatureFlag.objects.filter(team=self.team, key="gate-broken").exists()
+
     def test_create_rollout_gated_flag_requires_approval_then_applies(self, _mock_enabled):
         # any-change-from-baseline: a born-at-100% flag trips a >0 condition.
         self._update_policy({"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 0})
