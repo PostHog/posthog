@@ -813,9 +813,8 @@ class TestProductIntent(BaseTest):
             # Pre-existing-metrics teams never record the transition-only first-ingested
             # context, so engagement alone must still activate them.
             ("charted without first-ingested intent", {"metrics_viewer_query_run": 3}, False, True),
-            # Data flowing activates without any engagement: during the gated alpha only
-            # allowlisted teams could fire the UI events, so a sending team with no viewer
-            # access would otherwise never activate.
+            # Data flowing activates without any engagement: sending does not require the
+            # viewer, so ingestion alone is the product outcome.
             ("ingesting but never looked at", {"metrics_first_ingested": 1}, True, True),
             ("ingesting with no contexts at all", {}, True, True),
             # No engagement and no data is not activation.
@@ -827,7 +826,7 @@ class TestProductIntent(BaseTest):
         intent = self._make_metrics_intent(contexts)
 
         with patch(
-            "products.metrics.backend.has_metrics_query_runner.team_has_metrics",
+            "products.metrics.backend.facade.api.team_has_metrics",
             return_value=has_data,
         ):
             assert intent.has_activated_metrics() is expected
