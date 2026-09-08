@@ -162,9 +162,11 @@ export const getShopifyEventStep = (ctx: OnboardingComponentsContext): StepDefin
                     events to see where shoppers drop off.
                 </Markdown>
                 <Markdown>
-                    To report revenue, add `checkout_completed` as a revenue event in your revenue analytics settings
-                    and set `revenue` as the amount property. See the [Shopify integration
-                    docs](https://posthog.com/docs/libraries/shopify) for more options.
+                    To report revenue, add `checkout_completed` as a revenue event in your revenue analytics settings.
+                    Set `revenue` as the revenue property, and `currency` as the dynamic currency property so each order
+                    converts from the currency it was placed in. If your store only sells in one currency, set static
+                    currency instead. See the [Shopify integration docs](https://posthog.com/docs/libraries/shopify) for
+                    more options.
                 </Markdown>
             </>
         ),
