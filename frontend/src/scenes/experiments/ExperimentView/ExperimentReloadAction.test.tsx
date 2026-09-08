@@ -28,7 +28,11 @@ describe('ExperimentReloadAction', () => {
         logic.unmount()
     })
 
-    const renderAction = (status: ExperimentStatus, dataThrough: string | null): void => {
+    const renderAction = (
+        status: ExperimentStatus,
+        dataThrough: string | null,
+        coversCurrentMetrics: boolean
+    ): void => {
         logic.actions.setExperiment({
             id: EXPERIMENT_ID,
             status,
@@ -41,6 +45,7 @@ describe('ExperimentReloadAction', () => {
                     isRefreshing={false}
                     lastRefresh="2026-06-10T00:05:00Z"
                     dataThrough={dataThrough}
+                    coversCurrentMetrics={coversCurrentMetrics}
                     onClick={jest.fn()}
                 />
             </BindLogic>
@@ -52,24 +57,40 @@ describe('ExperimentReloadAction', () => {
             'blocks the reload once a stopped experiment covers its full window',
             ExperimentStatus.Stopped,
             END_DATE,
+            true,
             'true',
         ],
         [
             'keeps the reload live when the results stop short of the end date',
             ExperimentStatus.Stopped,
             '2026-06-09T12:00:00Z',
+            true,
             'false',
         ],
         [
             'keeps the reload live when the results overshoot a backdated end date',
             ExperimentStatus.Stopped,
             '2026-06-12T00:00:00Z',
+            true,
             'false',
         ],
-        ['keeps the reload live on a stopped experiment with no results yet', ExperimentStatus.Stopped, null, 'false'],
-        ['keeps the reload live while the experiment runs', ExperimentStatus.Running, END_DATE, 'false'],
-    ])('%s', (_name, status, dataThrough, expected) => {
-        renderAction(status as ExperimentStatus, dataThrough as string | null)
+        [
+            'keeps the reload live when the run never computed one of the current metrics',
+            ExperimentStatus.Stopped,
+            END_DATE,
+            false,
+            'false',
+        ],
+        [
+            'keeps the reload live on a stopped experiment with no results yet',
+            ExperimentStatus.Stopped,
+            null,
+            false,
+            'false',
+        ],
+        ['keeps the reload live while the experiment runs', ExperimentStatus.Running, END_DATE, true, 'false'],
+    ])('%s', (_name, status, dataThrough, coversCurrentMetrics, expected) => {
+        renderAction(status as ExperimentStatus, dataThrough as string | null, coversCurrentMetrics as boolean)
 
         expect(screen.getByTestId('refresh-experiment')).toHaveAttribute('aria-disabled', expected)
     })

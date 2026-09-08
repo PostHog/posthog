@@ -102,6 +102,7 @@ export const ExperimentReloadAction = ({
     isRefreshing,
     lastRefresh,
     dataThrough,
+    coversCurrentMetrics = false,
     onClick,
     progress,
     queuedHint,
@@ -109,6 +110,8 @@ export const ExperimentReloadAction = ({
     isRefreshing: boolean
     lastRefresh: string | null
     dataThrough?: string | null
+    /** Whether the run behind `dataThrough` resolved every metric the experiment carries now. */
+    coversCurrentMetrics?: boolean
     onClick: () => void
     progress?: { completed: number; total: number }
     queuedHint?: string
@@ -127,8 +130,12 @@ export const ExperimentReloadAction = ({
      */
     const coversFullWindow =
         !!dataThrough && !!experiment.end_date && dayjs(dataThrough).isSame(dayjs(experiment.end_date))
+    /**
+     * A run that never computed a metric leaves that metric loading forever, so its results are not final
+     * however far its window reaches. This is what a failed recalculation create leaves behind.
+     */
     const finalResultsReason =
-        ended && coversFullWindow
+        ended && coversFullWindow && coversCurrentMetrics
             ? `This experiment stopped on ${dayjs(experiment.end_date).format('MMM D, YYYY')}. Results are final.`
             : null
 
