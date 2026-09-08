@@ -2753,6 +2753,68 @@ async fn test_cache_miss_enqueues_rebuild_when_self_heal_enabled() {
 }
 
 #[tokio::test]
+async fn test_cache_miss_enqueues_rebuild_on_dedicated_redis() {
+    use feature_flags::{
+        config::{Config, FlexBool},
+        utils::test_utils::{
+            clear_flag_definitions_rebuild_requests, dummy_s3_client,
+            read_flag_definitions_rebuild_requests, TestContext,
+        },
+    };
+    use reqwest;
+
+    // The Celery drain reads the queue from the dedicated cluster, so the enqueue has to
+    // follow the writer even while the flags-with-cohorts reader is hardcoded to the
+    // shared one (`server.rs`).
+    let mut config = Config::default_test_config();
+    config.flags_redis_url = "redis://localhost:6379/1".to_string();
+    config.flag_definitions_self_heal_enabled = FlexBool(true);
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    // Only the dedicated db is cleared: the shared one is polled concurrently by the
+    // sibling self-heal tests in this binary, so the shared assertion below compares
+    // membership before and after instead of requiring an empty set.
+    clear_flag_definitions_rebuild_requests(&config.flags_redis_url).await;
+    let shared_before = read_flag_definitions_rebuild_requests(&config.redis_url).await;
+
+    // Leave both caches unseeded and inject a NotFound S3 so the read is a genuine
+    // cache_miss rather than an s3_error.
+    let server =
+        common::ServerHandle::for_config_with_s3(config.clone(), Some(dummy_s3_client())).await;
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 503, "expected a cache-miss 503");
+    assert!(
+        poll_for_rebuild_enqueue(&config.flags_redis_url, team.id).await,
+        "team {} should be enqueued on the dedicated redis, where the drain reads",
+        team.id
+    );
+
+    let shared_after = read_flag_definitions_rebuild_requests(&config.redis_url).await;
+    let added: Vec<&String> = shared_after
+        .iter()
+        .filter(|member| !shared_before.contains(member))
+        .collect();
+    assert!(
+        !added.contains(&&team.id.to_string()),
+        "team {} must not be enqueued on the shared redis, where nothing drains",
+        team.id
+    );
+}
+
+#[tokio::test]
 async fn test_cache_miss_does_not_enqueue_rebuild_when_self_heal_disabled() {
     use feature_flags::{
         config::Config,
