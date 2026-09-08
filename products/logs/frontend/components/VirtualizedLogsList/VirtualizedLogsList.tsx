@@ -11,6 +11,7 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { TZLabelProps } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { columnExpression, isPinnedColumn } from 'products/logs/frontend/components/LogsViewer/config/columns'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
@@ -181,6 +182,7 @@ export function VirtualizedLogsList({
         setVisibleRowRange,
     } = useActions(logsViewerLogic)
     const { openLogDetails } = useActions(logDetailsModalLogic)
+    const showSessionErrors = useFeatureFlag('LOGS_SESSION_ERROR_BADGES')
 
     const containerRef = useRef<HTMLDivElement>(null)
 
@@ -224,7 +226,7 @@ export function VirtualizedLogsList({
         // Move bounds range over movable columns only — pinned columns sort last and never swap
         const movable = columnConfigs.filter((config) => !isPinnedColumn(config))
         return [
-            createControlsColumn({ dataSourceRef }),
+            createControlsColumn({ dataSourceRef, showSessionErrors }),
             ...columnConfigs.map((config) =>
                 createConfiguredColumn({
                     config,
@@ -247,6 +249,7 @@ export function VirtualizedLogsList({
         moveColumn,
         wrapBody,
         prettifyJson,
+        showSessionErrors,
     ])
 
     const minRowWidth = useMemo(() => getColumnsMinRowWidth(columns), [columns])
