@@ -9,6 +9,7 @@
 // TaskRunRedisStream calls (XADD, XRANGE, XREVRANGE, XREAD, XLEN, GET, SET,
 // EXISTS, EXPIRE, DEL, WATCH, UNWATCH, MULTI/EXEC).
 
+import type { Redis } from 'ioredis'
 import { describe, it, expect, vi } from 'vitest'
 
 import { STREAM_COMPLETED_TTL_SECONDS, STREAM_WATCHED_TTL_SECONDS } from '@/lib/constants.js'
@@ -496,10 +497,11 @@ describe('redis-stream', () => {
     describe('relay activity', () => {
         it('records epoch seconds and throttles updates for ten seconds', async () => {
             const { stream, redis, streamKey } = newStream()
+            const secondStream = new TaskRunRedisStream(streamKey, redis as unknown as Redis)
             vi.useFakeTimers()
             vi.setSystemTime(100_000)
 
-            await stream.recordRelayActivity()
+            await secondStream.recordRelayActivity()
             expect(await redis.get(getRelayActivityKey(streamKey))).toBe('100')
             vi.setSystemTime(105_000)
             await stream.recordRelayActivity()

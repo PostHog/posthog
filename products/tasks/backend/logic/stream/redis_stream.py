@@ -32,6 +32,7 @@ TASK_RUN_STREAM_WATCHED_TIMEOUT = 5 * 60
 TASK_RUN_STREAM_WATCHED_CACHE_SECONDS = 2.0
 TASK_RUN_STREAM_WATCHED_REFRESH_INTERVAL_SECONDS = 120.0
 TASK_RUN_STREAM_RELAY_ACTIVITY_REFRESH_INTERVAL_SECONDS = 10.0
+TASK_RUN_STREAM_RELAY_ACTIVITY_CACHE_MAX_SIZE = 10_000
 TASK_RUN_STREAM_PREFIX = "task-run-stream:"
 TASK_RUN_STREAM_READ_COUNT = 16
 # XREAD BLOCK is push-based (XADD wakes the blocked client immediately), so a
@@ -46,6 +47,7 @@ TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS = 120.0  # sandbox provisioning can be slow
 DATA_KEY = b"data"
 TaskRunStreamEntry = tuple[str, dict]
 TaskRunStreamEntryOrKeepalive = TaskRunStreamEntry | None
+_relay_activity_refreshed_at: dict[str, float] = {}
 
 
 def _normalize_stream_id(stream_id: str | bytes) -> str:
@@ -191,7 +193,6 @@ class TaskRunRedisStream:
         self._origin_product = origin_product
         self._watched_cached_until = 0.0
         self._last_watched_refresh_at: float | None = None
-        self._last_relay_activity_at: float | None = None
 
     async def initialize(self) -> None:
         """Set expiry on the stream key to prevent unbounded growth."""
@@ -429,17 +430,28 @@ class TaskRunRedisStream:
 
     async def record_relay_activity(self) -> None:
         now = time.monotonic()
+        last_activity_at = _relay_activity_refreshed_at.get(self._stream_key)
         if (
-            self._last_relay_activity_at is not None
-            and now - self._last_relay_activity_at < TASK_RUN_STREAM_RELAY_ACTIVITY_REFRESH_INTERVAL_SECONDS
+            last_activity_at is not None
+            and now - last_activity_at < TASK_RUN_STREAM_RELAY_ACTIVITY_REFRESH_INTERVAL_SECONDS
         ):
             return
-        await self._redis_client.set(
-            get_task_run_stream_relay_activity_key(self._stream_key),
-            str(time.time()),
-            ex=self._timeout,
-        )
-        self._last_relay_activity_at = now
+        _relay_activity_refreshed_at[self._stream_key] = now
+        try:
+            await self._redis_client.set(
+                get_task_run_stream_relay_activity_key(self._stream_key),
+                str(time.time()),
+                ex=self._timeout,
+            )
+        except Exception:
+            if _relay_activity_refreshed_at.get(self._stream_key) == now:
+                _relay_activity_refreshed_at.pop(self._stream_key, None)
+            raise
+        if len(_relay_activity_refreshed_at) > TASK_RUN_STREAM_RELAY_ACTIVITY_CACHE_MAX_SIZE:
+            stale_before = now - TASK_RUN_STREAM_RELAY_ACTIVITY_REFRESH_INTERVAL_SECONDS
+            for key, refreshed_at in list(_relay_activity_refreshed_at.items()):
+                if refreshed_at < stale_before:
+                    _relay_activity_refreshed_at.pop(key, None)
 
     async def get_relay_activity_at(self) -> float | None:
         activity_raw = await self._redis_client.get(get_task_run_stream_relay_activity_key(self._stream_key))
@@ -722,6 +734,7 @@ class TaskRunRedisStream:
             agent_active_key = get_task_run_stream_agent_active_key(self._stream_key)
             heartbeat_key = get_task_run_stream_heartbeat_key(self._stream_key)
             relay_activity_key = get_task_run_stream_relay_activity_key(self._stream_key)
+            _relay_activity_refreshed_at.pop(self._stream_key, None)
             first_command_key = get_task_run_stream_first_command_key(self._stream_key)
             first_activity_key = get_task_run_stream_first_activity_key(self._stream_key)
             watched_key = get_task_run_stream_watched_key(self._stream_key)

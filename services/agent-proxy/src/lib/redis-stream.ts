@@ -133,6 +133,9 @@ function sleep(ms: number): Promise<void> {
 // unsafe in Node. 100 iterations is far beyond what real contention
 // requires — if a slot is genuinely that contested something is wrong.
 const MAX_WATCH_RETRIES = 100
+const RELAY_ACTIVITY_REFRESH_INTERVAL_MS = 10_000
+const RELAY_ACTIVITY_CACHE_MAX_SIZE = 10_000
+const relayActivityRefreshedAt = new Map<string, number>()
 
 export class TaskRunRedisStream {
     private readonly streamKey: string
@@ -143,7 +146,6 @@ export class TaskRunRedisStream {
     private readonly maxLength: number
     private readonly presenceGated: boolean
     private readonly thinTail: boolean
-    private lastRelayActivityAt: number | null = null
 
     constructor(
         streamKey: string,
@@ -415,11 +417,27 @@ export class TaskRunRedisStream {
 
     async recordRelayActivity(): Promise<void> {
         const now = Date.now()
-        if (this.lastRelayActivityAt !== null && now - this.lastRelayActivityAt < 10_000) {
+        const lastActivityAt = relayActivityRefreshedAt.get(this.streamKey)
+        if (lastActivityAt !== undefined && now - lastActivityAt < RELAY_ACTIVITY_REFRESH_INTERVAL_MS) {
             return
         }
-        await this.redis.set(getRelayActivityKey(this.streamKey), String(now / 1000), 'EX', this.timeout)
-        this.lastRelayActivityAt = now
+        relayActivityRefreshedAt.set(this.streamKey, now)
+        try {
+            await this.redis.set(getRelayActivityKey(this.streamKey), String(now / 1000), 'EX', this.timeout)
+        } catch (err: unknown) {
+            if (relayActivityRefreshedAt.get(this.streamKey) === now) {
+                relayActivityRefreshedAt.delete(this.streamKey)
+            }
+            throw err
+        }
+        if (relayActivityRefreshedAt.size > RELAY_ACTIVITY_CACHE_MAX_SIZE) {
+            const staleBefore = now - RELAY_ACTIVITY_REFRESH_INTERVAL_MS
+            for (const [key, refreshedAt] of relayActivityRefreshedAt) {
+                if (refreshedAt < staleBefore) {
+                    relayActivityRefreshedAt.delete(key)
+                }
+            }
+        }
     }
 
     // EXISTS completed-key -> bool
@@ -625,6 +643,7 @@ export class TaskRunRedisStream {
             const agentActiveKey = getAgentActiveKey(this.streamKey)
             const heartbeatKey = getHeartbeatKey(this.streamKey)
             const relayActivityKey = getRelayActivityKey(this.streamKey)
+            relayActivityRefreshedAt.delete(this.streamKey)
             const firstCommandKey = getFirstCommandKey(this.streamKey)
             const firstActivityKey = getFirstActivityKey(this.streamKey)
             const watchedKey = getWatchedKey(this.streamKey)

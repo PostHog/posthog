@@ -51,12 +51,13 @@ async def test_record_relay_activity_round_trips_timestamp() -> None:
 @pytest.mark.asyncio
 async def test_record_relay_activity_throttles_redis_writes() -> None:
     redis_stream = _new_stream()
+    second_stream = TaskRunRedisStream(redis_stream._stream_key, timeout=60)
     original_set = redis_stream._redis_client.set
     redis_stream._redis_client.set = AsyncMock(wraps=original_set)
     try:
         with patch("products.tasks.backend.logic.stream.redis_stream.time.monotonic", side_effect=[100, 105, 111]):
             await redis_stream.record_relay_activity()
-            await redis_stream.record_relay_activity()
+            await second_stream.record_relay_activity()
             await redis_stream.record_relay_activity()
 
         assert redis_stream._redis_client.set.await_count == 2
