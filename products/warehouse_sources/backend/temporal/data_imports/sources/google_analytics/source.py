@@ -42,6 +42,25 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ana
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
+def _with_google_reason(message: str, error: requests.HTTPError) -> str:
+    """Append the reason Google put in the error body.
+
+    A Google API error body holds a human-readable reason under `error.message`, and it is the only
+    part that says which permission is missing. `HTTPError` itself keeps just the status line, so
+    the reason is lost unless the body is read.
+    """
+    try:
+        body = error.response.json() if error.response is not None else None
+    except ValueError:
+        return message
+    if not isinstance(body, dict) or not isinstance(body.get("error"), dict):
+        return message
+    reason = body["error"].get("message")
+    if not isinstance(reason, str) or not reason.strip():
+        return message
+    return f"{message} Google reported: {reason.strip()}"
+
+
 @SourceRegistry.register
 class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleAnalyticsResumeConfig], OAuthMixin):
     supported_versions = ("v1",)
@@ -187,11 +206,26 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
             get_property_metadata(session, property_id)
         except requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else None
-            if status in (401, 403):
+            if status == 401:
                 return (
                     False,
-                    f"Google Analytics rejected the credentials for property '{property_id}'. Please reconnect "
-                    "your account and ensure it has read access to the property.",
+                    _with_google_reason(
+                        "Your Google Analytics connection is invalid or expired. Please reconnect your account.",
+                        e,
+                    ),
+                )
+            if status == 403:
+                # A 403 is about the property, not the token, so telling the user to reconnect sends
+                # them to a screen that cannot fix it. Keep this in step with the 403 entry in
+                # `get_non_retryable_errors`, which reports the same condition during a sync.
+                return (
+                    False,
+                    _with_google_reason(
+                        "The connected Google account is not allowed to read Google Analytics property "
+                        f"'{property_id}'. Give that account read access to the property in Google Analytics, "
+                        "then save again.",
+                        e,
+                    ),
                 )
             if status == 404:
                 return (

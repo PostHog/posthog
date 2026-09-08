@@ -51,14 +51,6 @@ export interface sourcesDataLogicActions {
             value: true
         }
     }
-    updateSource: (source: ExternalDataSource) => ExternalDataSource
-    updateSourceFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
     updateSourceRevenueAnalyticsConfig: ({
         source,
         config,
@@ -96,21 +88,6 @@ export interface sourcesDataLogicActions {
             source: ExternalDataSource
             config: Partial<ExternalDataSourceRevenueAnalyticsConfig>
         }
-    }
-    updateSourceSuccess: (
-        dataWarehouseSources: {
-            next?: string | null | undefined
-            previous?: string | null | undefined
-            results: ExternalDataSource[]
-        },
-        payload?: ExternalDataSource
-    ) => {
-        dataWarehouseSources: {
-            next?: string | null | undefined
-            previous?: string | null | undefined
-            results: ExternalDataSource[]
-        }
-        payload?: ExternalDataSource
     }
 }
 
@@ -160,16 +137,6 @@ export const sourcesDataLogic = kea<sourcesDataLogicType>([
                         breakpoint()
                         cache.abortController = null
                         return { results: [], count: 0, next: null, previous: null }
-                    }
-                },
-                updateSource: async (source: ExternalDataSource) => {
-                    const updatedSource = await api.externalDataSources.update(source.id, source)
-                    return {
-                        ...values.dataWarehouseSources,
-                        results:
-                            values.dataWarehouseSources?.results.map((s: ExternalDataSource) =>
-                                s.id === updatedSource.id ? updatedSource : s
-                            ) || [],
                     }
                 },
                 updateSourceRevenueAnalyticsConfig: async ({

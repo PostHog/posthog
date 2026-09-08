@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -258,6 +260,26 @@ describe('sourceSettingsLogic', () => {
         expect(bulkUpdateSchemasSpy).toHaveBeenLastCalledWith('source-1', [
             { id: 'schema-1', should_sync: true, sync_frequency: '24hour' },
         ])
+    })
+
+    it('does not report success when the source save fails', async () => {
+        // A kea-loaders action resolves its promise even when the request fails, so a loader-backed
+        // save reports success next to the loaders plugin's failure toast.
+        const successToast = jest.spyOn(lemonToast, 'success')
+        const errorToast = jest.spyOn(lemonToast, 'error')
+        jest.spyOn(api.externalDataSources, 'update').mockRejectedValue(
+            new Error('The connected Google account is not allowed to read the property.')
+        )
+
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.submitSourceConfig()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(successToast).not.toHaveBeenCalled()
+        expect(errorToast).toHaveBeenCalledWith('The connected Google account is not allowed to read the property.')
     })
 
     it('keys the logic by source id', () => {

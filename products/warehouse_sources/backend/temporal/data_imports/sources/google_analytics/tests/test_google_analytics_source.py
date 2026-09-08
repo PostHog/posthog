@@ -182,17 +182,21 @@ def test_validate_credentials_names_common_wrong_ids(wrong_id, expected_substrin
     assert expected_substring in (message or "")
 
 
-def _http_error(status_code: int) -> requests.HTTPError:
+def _http_error(status_code: int, body: object | None = None) -> requests.HTTPError:
     response = mock.MagicMock()
     response.status_code = status_code
+    if body is None:
+        response.json.side_effect = ValueError("no body")
+    else:
+        response.json.return_value = body
     return requests.HTTPError(response=response)
 
 
 @pytest.mark.parametrize(
     "status_code,expected_substring",
     [
-        (401, "rejected the credentials"),
-        (403, "rejected the credentials"),
+        (401, "invalid or expired"),
+        (403, "not allowed to read"),
         (404, "was not found"),
         (500, "Failed to read Google Analytics property metadata"),
     ],
@@ -211,6 +215,30 @@ def test_validate_credentials_maps_http_errors(status_code, expected_substring):
 
     assert ok is False
     assert expected_substring in (message or "")
+
+
+def test_validate_credentials_reports_a_property_403_without_a_reconnect_prompt():
+    # A 403 means the property, not the token. Users who were told to reconnect kept reconnecting
+    # the same working account, so the message must name the property and carry Google's reason.
+    error = _http_error(
+        403,
+        {"error": {"code": 403, "status": "PERMISSION_DENIED", "message": "User does not have access."}},
+    )
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session"
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.get_property_metadata",
+            side_effect=error,
+        ),
+    ):
+        ok, message = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)
+
+    assert ok is False
+    assert "123456789" in (message or "")
+    assert "User does not have access." in (message or "")
+    assert "reconnect" not in (message or "").lower()
 
 
 def test_validate_credentials_maps_token_refresh_error():
