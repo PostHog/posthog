@@ -4,6 +4,7 @@ import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api-error'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { uuid } from 'lib/utils/dom'
 import { projectLogic } from 'scenes/projectLogic'
@@ -50,6 +51,7 @@ import {
 } from '../../utils/composerModels'
 import { DEFAULT_COMPOSER_MODE, type PermissionMode } from '../../utils/composerModes'
 import { wrapWithPosthogContext } from '../../utils/posthogContextBlock'
+import { submitWithWarmRunRetry } from '../../utils/warmRunSubmission'
 
 export type { ActiveCreation } from '../../logics/runnerPanelLogic'
 
@@ -704,6 +706,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             }
         },
         submitNewTask: async () => {
+            if (cache.submittingTask && !cache.submittingTask.isDisposed) {
+                return
+            }
             if (!values.dataProcessingAccepted) {
                 actions.blockOnConsent()
                 return
@@ -720,6 +725,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.submitNewTaskFailure('Project is required')
                 return
             }
+            const disposables = cache.disposables
+            cache.submittingTask = disposables
 
             // Optimistically open the thread on send: a `runStreamLogic` keyed by a client `streamKey`, seeded
             // with the typed message + provisioning indicator, rendered by the pending `RunSurface` (the
@@ -788,7 +795,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 }
 
                 const projectId = String(values.currentProjectId)
-                const newTask = await tasksCreate(projectId, taskData)
+                const newTask = await submitWithWarmRunRetry(
+                    (options) => tasksCreate(projectId, taskData, options),
+                    disposables
+                )
                 // Whatever happened, this submit owns the warm now: drop the lease without cancelling it,
                 // since the Run it points at is the one the create just activated.
                 actions.consumeWarm()
@@ -802,7 +812,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 // and launches with the picked model / reasoning effort (clamped to one the model supports).
                 let runId = newTask.latest_run?.id
                 if (!runId) {
-                    const runResponse = await tasksRunCreate(projectId, newTask.id, runRequest)
+                    const runResponse = await submitWithWarmRunRetry(
+                        (options) => tasksRunCreate(projectId, newTask.id, runRequest, options),
+                        disposables
+                    )
                     runId = runResponse.latest_run?.id
                 }
 
@@ -826,15 +839,25 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 // Reset before signaling success: the success listener applies any seed held during this
                 // submission, and resetting afterwards would wipe that seed's prefill.
                 actions.resetNewTaskData()
+                cache.submittingTask = null
                 actions.submitNewTaskSuccess()
                 actions.loadTasks(values.taskListParams)
                 actions.loadRepositories()
             } catch (error) {
+                if (disposables.isDisposed) {
+                    return
+                }
                 actions.releaseApplyBackTargets(streamKey)
-                // Return to the composer with the typed text intact, and no toast: the composer is
-                // still on screen, so a failure banner over it reads as a dead end.
                 actions.clearActiveCreation()
+                if (error instanceof ApiError && error.code === 'warm_run_activation_unavailable') {
+                    lemonToast.error("Couldn't start this run yet. Please try again.")
+                }
+                cache.submittingTask = null
                 actions.submitNewTaskFailure(error instanceof Error ? error.message : 'Unknown error')
+            } finally {
+                if (cache.submittingTask === disposables) {
+                    cache.submittingTask = null
+                }
             }
         },
         openExistingTask: ({ task }) => {

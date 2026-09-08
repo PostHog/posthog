@@ -28,7 +28,7 @@ import {
     ScoutSuggestionKind,
     ScoutSuggestionSurface,
 } from '../inboxAnalytics'
-import type { ScoutChatType } from '../inboxAnalytics'
+import type { ScoutChatType, ScoutSuggestionClickVia } from '../inboxAnalytics'
 import type { ExistingScoutForSuggestion } from '../utils/scoutSuggestions'
 import { scoutFleetLogic } from './scoutFleetLogic'
 import type { SignalScoutConfig } from './scoutFleetLogic'
@@ -62,7 +62,6 @@ export interface scoutSuggestionsLogicValues {
         existing: ExistingScoutForSuggestion | null
         item: ScoutSuggestionItemApi
     } | null
-    expandedSuggestionId: string | null
     hasPicks: boolean
     hiddenSuggestionIds: string[]
     isRefreshing: boolean
@@ -147,10 +146,12 @@ export interface scoutSuggestionsLogicActions {
     }
     openCreateFromSuggestion: (
         item: ScoutSuggestionItemApi,
-        surface: ScoutSuggestionSurface
+        surface: ScoutSuggestionSurface,
+        via?: ScoutSuggestionClickVia
     ) => {
         item: ScoutSuggestionItemApi
         surface: ScoutSuggestionSurface
+        via: ScoutSuggestionClickVia
     }
     refineSuggestionWithAi: (
         item: ScoutSuggestionItemApi,
@@ -187,13 +188,6 @@ export interface scoutSuggestionsLogicActions {
         suggestionId: string
     }
     suggestionCreated: (
-        item: ScoutSuggestionItemApi,
-        surface: ScoutSuggestionSurface
-    ) => {
-        item: ScoutSuggestionItemApi
-        surface: ScoutSuggestionSurface
-    }
-    toggleSuggestionExpanded: (
         item: ScoutSuggestionItemApi,
         surface: ScoutSuggestionSurface
     ) => {
@@ -275,10 +269,11 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
         refineSuggestionWithAi: (item: ScoutSuggestionItemApi, surface: ScoutSuggestionSurface) => ({ item, surface }),
         restoreSuggestion: (suggestionId: string) => ({ suggestionId }),
         suggestionActionFinished: (suggestionId: string) => ({ suggestionId }),
-        openCreateFromSuggestion: (item: ScoutSuggestionItemApi, surface: ScoutSuggestionSurface) => ({
-            item,
-            surface,
-        }),
+        openCreateFromSuggestion: (
+            item: ScoutSuggestionItemApi,
+            surface: ScoutSuggestionSurface,
+            via: ScoutSuggestionClickVia = 'button'
+        ) => ({ item, surface, via }),
         closeCreateFromSuggestion: true,
         askForSuggestions: true,
         suggestionCreated: (item: ScoutSuggestionItemApi, surface: ScoutSuggestionSurface) => ({ item, surface }),
@@ -289,10 +284,6 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
         setCollapsed: (collapsed: boolean) => ({ collapsed }),
         hideStrip: true,
         showStrip: true,
-        toggleSuggestionExpanded: (item: ScoutSuggestionItemApi, surface: ScoutSuggestionSurface) => ({
-            item,
-            surface,
-        }),
         reportSuggestionsShown: (surface: ScoutSuggestionSurface) => ({ surface }),
     }),
 
@@ -354,12 +345,6 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                 refreshRequestRefused: () => false,
                 startRefreshPolling: () => true,
                 refreshFinished: () => false,
-            },
-        ],
-        expandedSuggestionId: [
-            null as string | null,
-            {
-                toggleSuggestionExpanded: (state, { item }) => (state === item.id ? null : item.id),
             },
         ],
         createFromSuggestion: [
@@ -487,6 +472,7 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                 kind: suggestionKind(item),
                 skillName: item.skill_name,
                 target: 'refine_with_ai',
+                via: 'button',
                 surface,
             })
             // The server builds the primed first turn from the stored draft, so the chat opens on
@@ -507,11 +493,12 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                 cache.refiningSuggestionId = null
             }
         },
-        openCreateFromSuggestion: async ({ item, surface }) => {
+        openCreateFromSuggestion: async ({ item, surface, via }) => {
             captureScoutSuggestionClicked({
                 kind: suggestionKind(item),
                 skillName: item.skill_name,
                 target: item.kind === 'canonical' ? 'turn_on' : 'create',
+                via,
                 surface,
             })
             if (item.kind !== 'canonical') {
@@ -557,15 +544,6 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                 surface,
             })
             actions.loadSuggestions()
-        },
-        toggleSuggestionExpanded: ({ item, surface }) => {
-            captureScoutSuggestionClicked({
-                kind: suggestionKind(item),
-                skillName: item.skill_name,
-                // The reducer has already applied the toggle, so this reads the resulting state.
-                target: values.expandedSuggestionId === item.id ? 'expand' : 'collapse',
-                surface,
-            })
         },
         reportSuggestionsShown: ({ surface }) => {
             captureScoutSuggestionsShown({
