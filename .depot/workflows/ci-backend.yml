@@ -8,11 +8,15 @@
 # changes without a matching depot bump.
 #
 # Intentional deltas vs canonical (everything else is kept apples-to-apples):
+# - Side effects read only needs.sample.outputs.side_effects. The sample job enables
+#   them for CI_DEPOT_SIDE_EFFECTS == 'true' or the depot-side-effects PR label.
+#   The control job runs even at zero sampling to evaluate the opt-in; disabled
+#   runs still skip the downstream graph. Opted-in source PRs bypass sampling.
 # - runs-on: depot-* labels instead of ubuntu-latest
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install,
-#   setup-sqlx-cli, setup-python-cached, and paths-filter mirror the canonical
-#   composites; any deltas are documented in each mirror's header). setup-turbo has no
-#   mirror because there is nothing Depot needs to strip from it.
+#   setup-sqlx-cli, setup-python-cached, setup-turbo, and paths-filter mirror the
+#   canonical composites; any deltas are documented in each mirror's header).
+#   Depot remaps local action paths, so even unchanged composites need a mirror.
 # - permissions: pull-requests:read (no comment/auto-commit side effects)
 # - Stripped side effects: artifact uploads, CI report section posters (canonical
 #   additionally skips these on trunk-merge/** branches to save GITHUB_TOKEN budget;
@@ -137,8 +141,9 @@ name: '[optional, does not block merge] Backend CI'
 # OPTIONAL, non-blocking shadow of canonical Backend CI — its statuses must never gate
 # merging (hence the "[optional, does not block merge]" name prefix). The
 # CI_DEPOT_SHADOW_PERCENT Depot CI variable (0-100; 0 or unset = fully off) is both the
-# master switch and the eligible pull_request sample rate: when >0, source PR runs are sampled
-# at that percent. Trunk merge-queue PRs and draft PRs labeled `no-ci` are excluded before a
+# sampling switch and the eligible pull_request sample rate: when >0, source PR runs are sampled
+# at that percent unless side effects are enabled. Trunk merge-queue PRs and drafts
+# labeled `no-ci` are excluded before a
 # runner is allocated. Master (push) runs only check-migrations to prime the schema cache (test
 # matrices are skipped there); manual triggers always run. The `sample` job rolls deterministic
 # per-run dice; `changes` (root of the needs graph) only runs when sampled in, so the whole
@@ -224,33 +229,45 @@ permissions:
     actions: read
     pull-requests: read
 jobs:
-    # A manual trigger bypasses sampling so an explicit full run cannot silently no-op.
-    # Automatic runs still require a nonzero sampling percentage. Exclude automatic
-    # runs that only duplicate work before allocating even this small runner.
+    # Evaluate the opt-in even when sampling is off; otherwise a PR label cannot
+    # enable a proof run. Merge-queue eligibility is separate from the effects gate.
     sample:
         if: >-
             github.event_name == 'workflow_dispatch'
             || github.event_name == 'api'
-            || (vars.CI_DEPOT_SHADOW_PERCENT != ''
-                && vars.CI_DEPOT_SHADOW_PERCENT != '0'
-                && (github.event_name != 'pull_request'
-                    || (!startsWith(github.head_ref, 'trunk-merge/')
-                        && (github.event.pull_request.draft != true
-                            || !contains(github.event.pull_request.labels.*.name, 'no-ci')))))
+            || (github.event_name != 'pull_request'
+                || (!startsWith(github.head_ref, 'trunk-merge/')
+                    && (github.event.pull_request.draft != true
+                        || !contains(github.event.pull_request.labels.*.name, 'no-ci'))))
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         name: '[optional, does not block merge] Sample run'
         outputs:
             sampled: ${{ steps.roll.outputs.sampled }}
+            side_effects: ${{ steps.side-effects.outputs.enabled }}
         steps:
+            - name: Resolve side effects gate
+              id: side-effects
+              env:
+                  ENABLED: ${{ vars.CI_DEPOT_SIDE_EFFECTS == 'true' || contains(github.event.pull_request.labels.*.name, 'depot-side-effects') }}
+              run: echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
             - name: Roll sampling dice
               id: roll
               env:
                   PERCENT: ${{ vars.CI_DEPOT_SHADOW_PERCENT }}
                   RUN_ID: ${{ github.run_id }}
                   EVENT: ${{ github.event_name }}
+                  SIDE_EFFECTS: ${{ steps.side-effects.outputs.enabled }}
               run: |
                   set -euo pipefail
+                  if [ "$SIDE_EFFECTS" = "true" ]; then
+                      echo "sampled=true" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+                  if [ "$EVENT" != "workflow_dispatch" ] && [ "$EVENT" != "api" ] && { [ -z "$PERCENT" ] || [ "$PERCENT" = "0" ]; }; then
+                      echo "sampled=false" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
                   # Only pull_request is sampled; any other event that reaches this job always
                   # runs (sampling it would skip cache priming or no-op a manual trigger).
                   if [ "$EVENT" != "pull_request" ]; then
@@ -918,7 +935,7 @@ jobs:
                         token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             # Needs pnpm from the block above, so it cannot run inside it.
             - name: Install turbo
-              uses: ./.github/actions/setup-turbo
+              uses: ./.depot/actions/setup-turbo
 
             - name: Install uv
               id: setup-uv
@@ -2679,6 +2696,7 @@ jobs:
                   check_required_result "Django test matrix" "${{ needs.django.result }}"
                   check_required_result "Migration checks" "${{ needs.check-migrations.result }}"
                   check_required_result "OpenAPI type checks" "${{ needs.check-openapi-types.result }}"
+                  check_required_result "Sampling gate" "${{ needs.sample.result }}"
                   check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
                   check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"
                   check_required_result "Product test matrix build" "${{ needs.build-product-test-matrix.result }}"
