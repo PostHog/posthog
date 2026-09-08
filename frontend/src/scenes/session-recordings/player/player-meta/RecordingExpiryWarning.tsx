@@ -37,9 +37,11 @@ export function RecordingExpiryWarning(): JSX.Element | null {
         return null
     }
 
-    const captureExport = (format: 'mp4' | 'posthog_json'): void => {
+    // The export can stop at a paywall or fail after this fires, and no later event reports the
+    // outcome, so this counts requests. A count of finished exports has to come from the export pipeline.
+    const captureExportRequest = (format: 'mp4' | 'posthog_json'): void => {
         // pinned: analytics event name, renaming it breaks dashboards
-        posthog.capture('recording exported from expiry warning', {
+        posthog.capture('recording export requested from expiry warning', {
             export_format: format,
             recording_ttl: recordingTtl,
             session_id: sessionPlayerMetaData?.id,
@@ -56,11 +58,11 @@ export function RecordingExpiryWarning(): JSX.Element | null {
             hasReachedExportFullVideoLimit
         ),
         onExportVideo: () => {
-            captureExport('mp4')
+            captureExportRequest('mp4')
             exportRecordingToVideoFile()
         },
         onExportJson: () => {
-            captureExport('posthog_json')
+            captureExportRequest('posthog_json')
             exportRecordingToFile()
         },
     })
