@@ -183,17 +183,46 @@ describe('supportLogic', () => {
             expect(logic.values.lastSubmittedTicketId).toBe('t1')
         })
 
-        it('appends exception context to the message so it survives on the ticket', async () => {
+        it.each([
+            [
+                'exception',
+                { exception_event: { uuid: 'exc-1', event: '$exception' } } as Partial<SupportFormFields>,
+                'Exception:',
+            ],
+            [
+                'diagnostic',
+                { diagnostic_context: 'Error code: invalid_credentials' } as Partial<SupportFormFields>,
+                'Error code: invalid_credentials',
+            ],
+        ])('appends %s context to the message so it survives on the ticket', async (_case, fields, expected) => {
             const sendMessage = jest.fn().mockResolvedValue({ ticket_id: 't1' })
             conversationsMock(sendMessage)
 
-            await logic.asyncActions.submitSupportTicket({
-                ...FORM_FIELDS,
-                exception_event: { uuid: 'exc-1', event: '$exception' },
-            })
+            await logic.asyncActions.submitSupportTicket({ ...FORM_FIELDS, ...fields })
 
             expect(sendMessage.mock.calls[0][0]).toContain('Help!')
-            expect(sendMessage.mock.calls[0][0]).toContain('Exception:')
+            expect(sendMessage.mock.calls[0][0]).toContain(expected)
+        })
+
+        it('keeps diagnostic context out of the editable message, so a person cannot overwrite it', async () => {
+            const sendMessage = jest.fn().mockResolvedValue({ ticket_id: 't1' })
+            conversationsMock(sendMessage)
+
+            await expectLogic(logic, () => {
+                logic.actions.openSupportForm({
+                    kind: 'support',
+                    diagnostic_context: 'Error code: invalid_credentials',
+                })
+            }).toFinishAllListeners()
+            expect(logic.values.sendSupportRequest.message).toBe('')
+
+            await expectLogic(logic, () => {
+                logic.actions.setSendSupportRequestValue('message', 'I cannot log in')
+                logic.actions.submitSendSupportRequest()
+            }).toFinishAllListeners()
+
+            expect(sendMessage.mock.calls[0][0]).toContain('I cannot log in')
+            expect(sendMessage.mock.calls[0][0]).toContain('Error code: invalid_credentials')
         })
 
         it('accepts a submission with no topic or severity, since the form no longer collects them', async () => {
