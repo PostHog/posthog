@@ -1,8 +1,7 @@
-import { IconCopy, IconRewindPlay, IconSparkles } from '@posthog/icons'
+import { IconCopy, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { colonDelimitedDuration } from 'lib/utils/durations'
 import { urls } from 'scenes/urls'
 
 import type { ReplayObservationApi } from '../generated/api.schemas'
@@ -18,10 +17,12 @@ import {
 } from '../replay_scanners/types'
 import { citedTextToPlainText, parseCitedSegments } from '../utils/citations'
 import { readReasoning, scannerLabel } from '../utils/observation'
+import { CitedMarkdown } from './CitedMarkdown'
 import { LabeledRow } from './LabeledRow'
 import { ObservationProgressBar } from './ObservationProgressBar'
 import { ObservationRetryButton } from './ObservationRetryButton'
 import { ScannerTypeBadge } from './ScannerTypeBadge'
+import { TimestampCitation } from './TimestampCitation'
 
 export function ObservationStatusTag({
     status,
@@ -99,26 +100,13 @@ export function CitedText({
     }
     return (
         <>
-            {list.map((segment, i) => {
-                if (segment.kind === 'text') {
-                    return <span key={i}>{segment.value}</span>
-                }
-                const seconds = Math.max(0, Math.floor(segment.timestamp_ms / 1000))
-                const label = colonDelimitedDuration(seconds, null)
-                if (onSeek) {
-                    return (
-                        <Link key={i} onClick={() => onSeek(segment.timestamp_ms)} className="ml-0.5">
-                            <IconRewindPlay className="inline-block align-text-bottom mr-0.5" />
-                            <span className="font-mono">{label}</span>
-                        </Link>
-                    )
-                }
-                return (
-                    <span key={i} className="text-muted font-mono ml-0.5">
-                        {label}
-                    </span>
+            {list.map((segment, i) =>
+                segment.kind === 'text' ? (
+                    <span key={i}>{segment.value}</span>
+                ) : (
+                    <TimestampCitation key={i} timestampMs={segment.timestamp_ms} onSeek={onSeek} />
                 )
-            })}
+            )}
         </>
     )
 }
@@ -496,9 +484,7 @@ export function ObservationDockCard({
                     </LabeledRow>
                     {reasoning && (
                         <LabeledRow label="Model reasoning">
-                            <p className="text-sm text-default whitespace-pre-wrap m-0 leading-snug">
-                                <CitedText text={reasoning} segments={result.reasoning_segments} onSeek={onSeek} />
-                            </p>
+                            <CitedMarkdown text={reasoning} segments={result.reasoning_segments} onSeek={onSeek} />
                         </LabeledRow>
                     )}
                 </>

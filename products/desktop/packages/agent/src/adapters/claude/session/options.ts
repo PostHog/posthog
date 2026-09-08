@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { Writable } from "node:stream";
 import type {
   CanUseTool,
   McpServerConfig,
@@ -42,6 +43,8 @@ import {
 } from "../hooks";
 import {
   applyMachineClaudeAuth,
+  CLOUD_AUTH_STRIPPED_KEYS,
+  MACHINE_AUTH_STRIPPED_KEYS,
   type MachineClaudeAuth,
 } from "../machine-auth";
 import { type CodeExecutionMode, toSdkPermissionMode } from "../tools";
@@ -219,6 +222,40 @@ function buildEnvironment(
   return env;
 }
 
+/**
+ * `CLAUDE_CODE_USE_BEDROCK` puts the CLI on the direct-Bedrock path: it
+ * SigV4-signs its requests and calls bedrock-runtime directly, with no PostHog
+ * LLM gateway in the request path. Any set, non-falsy value enables it
+ * (hogland's guest profile sets it to "1").
+ */
+function usesDirectBedrock(value: string | undefined): boolean {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized !== "" && normalized !== "0" && normalized !== "false";
+}
+
+/**
+ * AWS strips any header whose NAME contains "_" before it validates a SigV4
+ * signature, but the Claude CLI signs custom headers verbatim — so a signed
+ * `x-posthog-property-task_id` makes AWS recompute a different signature and
+ * reject the request with 403 SignatureDoesNotMatch. On the direct-Bedrock
+ * path these `x-posthog-property-*` attribution headers reach no gateway (the
+ * only consumer that reads them), so dropping the underscore-named ones there
+ * unbreaks signing and loses no attribution that path could have captured.
+ * Hyphen-only headers (X-PostHog-Project-Id, x-posthog-use-bedrock-fallback,
+ * x-posthog-provider, x-posthog-flag-*) sign fine and are kept.
+ */
+function dropUnderscoreNamedHeaderLines(customHeaders: string): string {
+  return customHeaders
+    .split("\n")
+    .filter((line) => {
+      const separator = line.indexOf(":");
+      const name = separator === -1 ? line : line.slice(0, separator);
+      return !name.includes("_");
+    })
+    .join("\n");
+}
+
 function applyGatewayAuth(
   env: Record<string, string>,
   gateway: GatewayEnv | undefined,
@@ -267,7 +304,14 @@ function applyGatewayAuth(
       `x-posthog-flag-${BEDROCK_LLM_GATEWAY_FLAG}: ${bedrockGatewayVariant}`,
     );
   }
-  env.ANTHROPIC_CUSTOM_HEADERS = headerLines.join("\n");
+  const customHeaders = headerLines.join("\n");
+  // On the direct-Bedrock path the CLI SigV4-signs these headers, and AWS
+  // rejects any underscore-named one (see dropUnderscoreNamedHeaderLines). Strip
+  // them there so signing succeeds; every other path keeps them for gateway
+  // attribution.
+  env.ANTHROPIC_CUSTOM_HEADERS = usesDirectBedrock(env.CLAUDE_CODE_USE_BEDROCK)
+    ? dropUnderscoreNamedHeaderLines(customHeaders)
+    : customHeaders;
 
   // Explicit gateway values win over whatever happens to be in process.env.
   // This prevents concurrent Agent instances from clobbering each other's
@@ -438,19 +482,42 @@ function getAbortController(
 
 function buildSpawnWrapper(
   sessionId: string,
-  onProcessSpawned: (info: ProcessSpawnedInfo) => void,
+  onProcessSpawned?: (info: ProcessSpawnedInfo) => void,
   onProcessExited?: (pid: number) => void,
   logger?: Logger,
+  oauthToken?: string,
 ): (options: SpawnOptions) => SpawnedProcess {
   return (spawnOpts: SpawnOptions): SpawnedProcess => {
-    const child = spawn(spawnOpts.command, spawnOpts.args, {
+    const command = oauthToken ? "/bin/bash" : spawnOpts.command;
+    const args = oauthToken
+      ? [
+          "-p",
+          "-c",
+          'exec "$@" 3< <(/bin/cat <&3)',
+          "--",
+          spawnOpts.command,
+          ...spawnOpts.args,
+        ]
+      : spawnOpts.args;
+    const child = spawn(command, args, {
       cwd: spawnOpts.cwd,
-      env: spawnOpts.env as NodeJS.ProcessEnv,
-      stdio: ["pipe", "pipe", "pipe"],
+      env: {
+        ...spawnOpts.env,
+        ...(oauthToken ? { CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR: "3" } : {}),
+      },
+      stdio: oauthToken
+        ? ["pipe", "pipe", "pipe", "pipe"]
+        : ["pipe", "pipe", "pipe"],
     });
 
+    if (oauthToken) {
+      const tokenPipe = child.stdio[3] as Writable;
+      tokenPipe.on("error", () => child.kill("SIGTERM"));
+      tokenPipe.end(oauthToken);
+    }
+
     if (child.pid) {
-      onProcessSpawned({
+      onProcessSpawned?.({
         pid: child.pid,
         command: `${spawnOpts.command} ${spawnOpts.args.join(" ")}`,
         sessionId,
@@ -562,7 +629,9 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
 
   const agents = buildAgents(params.userProvidedOptions?.agents);
   const registeredAgentNames = new Set(Object.keys(agents));
-  const claudeCodeExecutable = process.env.CLAUDE_CODE_EXECUTABLE;
+  const claudeCodeExecutable = params.machineAuth?.oauthToken
+    ? undefined
+    : process.env.CLAUDE_CODE_EXECUTABLE;
 
   const options: Options = {
     ...params.userProvidedOptions,
@@ -626,15 +695,49 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     abortController: getAbortController(
       params.userProvidedOptions?.abortController,
     ),
-    ...(params.onProcessSpawned && {
+    ...((params.onProcessSpawned || params.machineAuth?.oauthToken) && {
       spawnClaudeCodeProcess: buildSpawnWrapper(
         params.sessionId,
         params.onProcessSpawned,
         params.onProcessExited,
         params.logger,
+        params.machineAuth?.oauthToken,
       ),
     }),
   };
+
+  if (params.machineAuth?.oauthToken) {
+    delete options.pathToClaudeCodeExecutable;
+    delete options.executable;
+    delete options.executableArgs;
+    if (typeof options.settings === "string")
+      throw new Error("Cloud subscription settings must be an object.");
+    const extraSettings = options.extraArgs?.settings;
+    const inlineSettings: Settings = extraSettings
+      ? JSON.parse(extraSettings)
+      : {};
+    if (options.extraArgs) delete options.extraArgs.settings;
+    options.settings = {
+      ...inlineSettings,
+      ...options.settings,
+      apiKeyHelper: "",
+      env: {
+        ...inlineSettings.env,
+        ...options.settings?.env,
+        ...Object.fromEntries(
+          [...MACHINE_AUTH_STRIPPED_KEYS, ...CLOUD_AUTH_STRIPPED_KEYS].map(
+            (key) => [key, ""],
+          ),
+        ),
+        NODE_TLS_REJECT_UNAUTHORIZED: "1",
+        ANTHROPIC_BASE_URL: "https://api.anthropic.com",
+        CLAUDE_CODE_OAUTH_TOKEN: "",
+        CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR: "3",
+        CLAUDE_CODE_REMOTE: "",
+        CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0",
+      },
+    };
+  }
 
   if (claudeCodeExecutable) {
     options.pathToClaudeCodeExecutable = claudeCodeExecutable;

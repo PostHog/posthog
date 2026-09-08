@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from google.genai.types import FinishReason
 from rest_framework import status
 
 from posthog.schema import RecordingsQuery
@@ -420,7 +421,22 @@ class TestGenerate:
 
         _generate(user_content="goal", team_id=1, distinct_id="u")
 
-        assert generate.call_args.kwargs["config"].max_output_tokens == 4096
+        assert generate.call_args.kwargs["config"].max_output_tokens == 8192
+
+    @patch("products.replay_vision.backend.scanner_draft.genai.Client")
+    def test_output_cut_off_by_the_token_budget_is_its_own_failure(self, mock_client_cls):
+        # Thinking shares the output budget, so a truncated draft is our cap's fault, not a bad
+        # model response — the two used to be indistinguishable as "invalid_response".
+        truncated = MagicMock(
+            text='{"scanner_type": "classifier", "name": "Chec',
+            candidates=[MagicMock(finish_reason=FinishReason.MAX_TOKENS)],
+        )
+        self._mock_client(mock_client_cls, [truncated])
+
+        with pytest.raises(DraftError) as caught:
+            _generate(user_content="goal", team_id=1, distinct_id="u")
+
+        assert caught.value.reason == "output_truncated"
 
 
 class TestDraftScannerEndpoint(_VisionAPITestCase):

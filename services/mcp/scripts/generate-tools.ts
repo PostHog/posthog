@@ -454,6 +454,12 @@ function operationIdToPascal(operationId: string): string {
 // Schema composition — determine Orval imports and build expressions
 // ------------------------------------------------------------------
 
+/** `param_overrides.cast` value → the helper exported from `@/tools/cast-helpers`. */
+const CAST_HELPERS = {
+    'string-int': 'castStringToInt',
+    'boolean-string': 'castBooleanToString',
+} as const
+
 interface SchemaComposition {
     orvalImports: string[]
     toolInputsImports: string[]
@@ -715,7 +721,7 @@ function composeToolSchema(
                 optionalParamNames.add(paramName)
             }
 
-            const castHelper = override.cast === 'string-int' ? 'castStringToInt' : null
+            const castHelper = override.cast ? CAST_HELPERS[override.cast] : null
             if (castHelper) {
                 castHelperImports.add(castHelper)
             }
@@ -1970,6 +1976,9 @@ function generateDefinitionsJson(
             const featureEntitlement = toolConfig.feature_entitlement ?? category.feature_entitlement
             const featureFlagBehavior = toolConfig.feature_flag_behavior ?? category.feature_flag_behavior
             const featureFlagVariant = toolConfig.feature_flag_variant ?? category.feature_flag_variant
+            // Successors are per-tool: a category gate says what retires a tool, never what replaces it.
+            const supersededBy = toolConfig.superseded_by
+            const redirectHint = toolConfig.redirect_hint
 
             if (toolConfig.confirmed_action) {
                 // Two-tool typed-confirm paradigm: emit `<name>-prepare` and
@@ -1998,6 +2007,8 @@ function generateDefinitionsJson(
                     ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                    ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
+                    ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
                 }
                 definitions[`${name}-execute`] = {
@@ -2022,6 +2033,8 @@ function generateDefinitionsJson(
                     ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                    ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
+                    ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
                 }
             } else {
@@ -2043,6 +2056,8 @@ function generateDefinitionsJson(
                     ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                    ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
+                    ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
                 }
             }
@@ -2072,6 +2087,8 @@ function generateDefinitionsJson(
                 ...(wrapperConfig.feature_flag_variant
                     ? { feature_flag_variant: wrapperConfig.feature_flag_variant }
                     : {}),
+                ...(wrapperConfig.superseded_by?.length ? { superseded_by: wrapperConfig.superseded_by } : {}),
+                ...(wrapperConfig.redirect_hint ? { redirect_hint: wrapperConfig.redirect_hint } : {}),
                 ...(wrapperConfig.system_prompt_hint ? { system_prompt_hint: wrapperConfig.system_prompt_hint } : {}),
             }
         }
@@ -2247,6 +2264,8 @@ function generateQueryWrapperDefinitionsJson(
             ...(toolConfig.feature_entitlement ? { feature_entitlement: toolConfig.feature_entitlement } : {}),
             ...(toolConfig.feature_flag_behavior ? { feature_flag_behavior: toolConfig.feature_flag_behavior } : {}),
             ...(toolConfig.feature_flag_variant ? { feature_flag_variant: toolConfig.feature_flag_variant } : {}),
+            ...(toolConfig.superseded_by?.length ? { superseded_by: toolConfig.superseded_by } : {}),
+            ...(toolConfig.redirect_hint ? { redirect_hint: toolConfig.redirect_hint } : {}),
             ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
         }
     }
