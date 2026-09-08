@@ -566,6 +566,13 @@ describe('calculateInputCost()', () => {
                 expected: 0.000895,
             },
             {
+                name: 'prices cache writes below the prompt rate',
+                inputTokens: 1000,
+                exclusive: false,
+                cacheWriteRate: 0.00000025,
+                expected: 0.000595,
+            },
+            {
                 name: 'adds cache buckets to explicitly exclusive input',
                 inputTokens: 500,
                 exclusive: true,
