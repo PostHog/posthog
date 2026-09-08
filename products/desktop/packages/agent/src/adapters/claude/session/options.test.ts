@@ -619,6 +619,97 @@ describe("buildSessionOptions", () => {
 
       expect(options.fallbackModel).toBeUndefined();
     });
+
+    it("keeps the relayed OAuth token out of the environment", async () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        userProvidedOptions: {
+          pathToClaudeCodeExecutable: "/tmp/untrusted-claude",
+          executable: "node",
+          executableArgs: ["--eval", "throw new Error('wrong executable')"],
+          settings: {
+            apiKeyHelper: "printf fake-api-key",
+            env: {
+              ANTHROPIC_BASE_URL: "https://example.com",
+              HTTPS_PROXY: "https://proxy.example.com",
+              NODE_EXTRA_CA_CERTS: "/tmp/example-ca.pem",
+              NODE_TLS_REJECT_UNAUTHORIZED: "0",
+              CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0",
+              CLAUDE_CODE_REMOTE: "1",
+              ANTHROPIC_UNIX_SOCKET: "/tmp/untrusted.sock",
+              CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD: "1",
+            },
+          },
+        },
+        machineAuth: { oauthToken: "sk-ant-oat01-fake-test-token" },
+        gatewayEnv: {
+          anthropicBaseUrl: "https://gateway.example.com",
+          anthropicAuthToken: "gateway-token",
+          openaiBaseUrl: "https://gateway.example.com/v1",
+          openaiApiKey: "gateway-token",
+          anthropicCustomHeaders: "x-posthog-property-task_id: task-abc",
+          posthogProjectId: "42",
+        },
+      });
+      const env = options.env;
+
+      expect(env?.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+      expect(env?.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe("0");
+      for (const key of STRIPPED_KEYS) {
+        expect(env?.[key]).toBeUndefined();
+      }
+      expect(env?.OPENAI_BASE_URL).toBeUndefined();
+      expect(env?.OPENAI_API_KEY).toBeUndefined();
+      for (const [key, value] of Object.entries(env ?? {})) {
+        expect(value).not.toContain("x-posthog-");
+        expect(key).not.toMatch(/X-PostHog/i);
+      }
+      expect(options.settings).toMatchObject({
+        apiKeyHelper: "",
+        env: {
+          ANTHROPIC_BASE_URL: "https://api.anthropic.com",
+          HTTPS_PROXY: "",
+          NODE_EXTRA_CA_CERTS: "",
+          NODE_TLS_REJECT_UNAUTHORIZED: "1",
+          CLAUDE_CODE_OAUTH_TOKEN: "",
+          CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR: "3",
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0",
+          CLAUDE_CODE_REMOTE: "",
+          ANTHROPIC_UNIX_SOCKET: "",
+          CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD: "",
+        },
+      });
+      expect(options.pathToClaudeCodeExecutable).toBeUndefined();
+      expect(options.executable).toBeUndefined();
+      expect(options.executableArgs).toBeUndefined();
+      expect(options.spawnClaudeCodeProcess).toBeTypeOf("function");
+      expect(JSON.stringify(options)).not.toContain(
+        "sk-ant-oat01-fake-test-token",
+      );
+      const child = options.spawnClaudeCodeProcess?.({
+        command: process.execPath,
+        args: [
+          "-e",
+          'const fs = require("node:fs"); const token = fs.readFileSync("/dev/fd/3", "utf8"); process.stdout.write(JSON.stringify({ received: token === "sk-ant-oat01-fake-test-token", inEnvironment: Object.values(process.env).includes(token), remaining: fs.readFileSync("/dev/fd/3", "utf8") }));',
+        ],
+        cwd: os.tmpdir(),
+        env: options.env ?? {},
+        signal: new AbortController().signal,
+      });
+      expect(child).toBeDefined();
+      if (!child) throw new Error("Claude process did not start.");
+      let output = "";
+      const exited = new Promise<number | null>((resolve) => {
+        child.on("exit", resolve);
+      });
+      for await (const chunk of child.stdout) output += chunk.toString();
+      expect(await exited).toBe(0);
+      expect(JSON.parse(output)).toEqual({
+        received: true,
+        inEnvironment: false,
+        remaining: "",
+      });
+    });
   });
 
   describe("per-session context wiki env", () => {

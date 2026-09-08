@@ -5,6 +5,9 @@ name: Turbo CI
 
 on:
     workflow_call:
+        secrets:
+            GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY:
+                required: false
 
 jobs:
     turbo-affected-4:
