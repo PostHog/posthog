@@ -587,4 +587,63 @@ describe('sidepanelTicketsLogic', () => {
 
         expect(logic.values.filteredTickets.map((ticket) => ticket.id)).toEqual(expectedIds)
     })
+    // The panel bar's unread badge mounts this logic on every page, so a toast for a failed list
+    // load interrupted unrelated work and blocked clicks under the toast container. The failure
+    // belongs in the ticket list, where the person is actually looking at support.
+    it('reports a failed ticket load in the list instead of toasting', async () => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+        ;(posthog as any).conversations.getTickets = jest
+            .fn()
+            .mockRejectedValue(new Error('Unable to reach the server'))
+
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(errorToast).not.toHaveBeenCalled()
+        expect(logic.values.ticketsLoadFailed).toBe(true)
+        const loadFailures = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === 'support widget load failed'
+        )
+        expect(loadFailures).toHaveLength(1)
+        expect(loadFailures[0][1]).toMatchObject({ surface: 'side_panel_tickets', reason: 'tickets_load_failed' })
+
+        errorToast.mockRestore()
+    })
+
+    // A failing load used to keep the background cadence, so a bad network minute re-asked the
+    // server once a minute from every page. Each consecutive failure now doubles the gap, and a
+    // load that lands clears the failure and restores the normal cadence.
+    it('widens the gap between failing ticket loads and recovers on success', async () => {
+        jest.useFakeTimers()
+        try {
+            const getTickets = jest
+                .fn()
+                .mockRejectedValueOnce(new Error('Unable to reach the server'))
+                .mockRejectedValueOnce(new Error('Unable to reach the server'))
+                .mockResolvedValue({ results: [] })
+            ;(posthog as any).conversations.getTickets = getTickets
+
+            logic = sidepanelTicketsLogic.build()
+            logic.mount()
+            // kea-test-utils waits on real timers, so the loads are flushed by the fake clock instead
+            await jest.advanceTimersByTimeAsync(0)
+            expect(getTickets).toHaveBeenCalledTimes(1)
+
+            // First retry after the background interval
+            await jest.advanceTimersByTimeAsync(60 * 1000)
+            expect(getTickets).toHaveBeenCalledTimes(2)
+            expect(logic.values.ticketsLoadFailed).toBe(true)
+
+            // The second failure doubles the gap, so the same wait is not enough this time
+            await jest.advanceTimersByTimeAsync(60 * 1000)
+            expect(getTickets).toHaveBeenCalledTimes(2)
+
+            await jest.advanceTimersByTimeAsync(60 * 1000)
+            expect(getTickets).toHaveBeenCalledTimes(3)
+            expect(logic.values.ticketsLoadFailed).toBe(false)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
 })

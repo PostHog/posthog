@@ -49,6 +49,9 @@ import type {
 const POLL_INTERVAL_BACKGROUND = 60 * 1000 // support surface not visible: only keep the unread badge fresh
 const POLL_INTERVAL_ACTIVE = 20 * 1000 // support surface open on the ticket list
 const POLL_INTERVAL_THREAD = 10 * 1000 // a ticket thread is open, so replies must land quickly
+// A failing load doubles its own gap on every consecutive failure, up to this ceiling. A blip
+// recovers on the next attempt; a longer outage stops us asking once a minute from every page.
+const POLL_INTERVAL_MAX_BACKOFF = 10 * 60 * 1000
 
 // Panel options for a ticket deep link (#panel=support:ticket:<id>); supportRouterLogic skips this prefix
 const TICKET_OPTIONS_PREFIX = 'ticket:'
@@ -114,6 +117,7 @@ export interface sidepanelTicketsLogicValues {
     restoreState: RestoreFlowState
     statusFilter: TicketStatus | 'all'
     tickets: ConversationTicket[]
+    ticketsLoadFailed: boolean
     ticketsLoading: boolean
     totalUnreadCount: number
     view: SidePanelViewState
@@ -206,6 +210,9 @@ export interface sidepanelTicketsLogicActions {
     setTickets: (tickets: ConversationTicket[]) => {
         tickets: ConversationTicket[]
     }
+    setTicketsLoadFailed: (failed: boolean) => {
+        failed: boolean
+    }
     setTicketsLoading: (loading: boolean) => {
         loading: boolean
     }
@@ -286,6 +293,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         setMessages: (messages: ChatMessage[]) => ({ messages }),
         setHasMoreMessages: (hasMore: boolean) => ({ hasMore }),
         setTicketsLoading: (loading: boolean) => ({ loading }),
+        setTicketsLoadFailed: (failed: boolean) => ({ failed }),
         setMessagesLoading: (loading: boolean) => ({ loading }),
         markAsRead: (ticketId: string) => ({ ticketId }),
         setMessageSending: (sending: boolean) => ({ sending }),
@@ -332,6 +340,15 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             false,
             {
                 setTicketsLoading: (_, { loading }) => loading,
+            },
+        ],
+        // Drives the inline error in the ticket list. A new attempt clears it, so a retry drops the
+        // message while it runs and only brings it back if that attempt fails too.
+        ticketsLoadFailed: [
+            false,
+            {
+                setTicketsLoadFailed: (_, { failed }) => failed,
+                loadTickets: () => false,
             },
         ],
         currentTicket: [
@@ -547,6 +564,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 const response = await posthog.conversations.getTickets({ limit: 50 })
                 if (response) {
                     cache.ticketsFetched = true
+                    cache.loadFailures = 0
                     actions.setTickets(response.results as ConversationTicket[])
                     // With no tickets there's nothing to poll for; creating one re-runs loadTickets
                     // and restarts polling. Otherwise (re)schedule at the cadence startPolling picks.
@@ -558,6 +576,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 }
             } catch (e) {
                 console.error('Failed to load tickets:', e)
+                cache.loadFailures = (cache.loadFailures ?? 0) + 1
                 // Reported because a customer who can't see their tickets can't reply to support on
                 // them either, and the toast alone left us blind to how often that happens
                 captureSupportWidgetLoadFailed({
@@ -566,7 +585,14 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     error: e,
                     can_create_ticket: values.canCreateTicket,
                 })
-                lemonToast.error('Failed to load tickets.')
+                // The panel bar's unread badge mounts this logic on every page, so a toast here
+                // interrupted unrelated work and blocked clicks under the toast container - once per
+                // failing poll. The ticket list shows the failure in place instead, with a retry,
+                // where the person is actually looking at support.
+                actions.setTicketsLoadFailed(true)
+                // Keep the poll chain alive so a blip recovers on its own, but at the backed-off
+                // cadence startPolling picks while loads are failing.
+                actions.startPolling()
             } finally {
                 actions.setTicketsLoading(false)
             }
@@ -576,15 +602,24 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             if (document.visibilityState !== 'visible') {
                 return
             }
+            // Clear any existing poll timer
+            if (cache.pollTimer) {
+                clearTimeout(cache.pollTimer)
+            }
+            // While loads are failing, the cadence is the retry cadence: the list is stale either
+            // way, so widen the gap instead of asking a server that just refused every minute from
+            // every page. Runs even with no tickets loaded, so a failed first load still recovers.
+            const failures = cache.loadFailures ?? 0
+            if (failures > 0) {
+                const backoff = Math.min(POLL_INTERVAL_BACKGROUND * 2 ** (failures - 1), POLL_INTERVAL_MAX_BACKOFF)
+                cache.pollTimer = window.setTimeout(() => actions.loadTickets(), backoff)
+                return
+            }
             // Nothing to poll for until the user has at least one ticket. Creating one re-runs
             // loadTickets, which restarts polling from there.
             if (values.tickets.length === 0) {
                 actions.stopPolling()
                 return
-            }
-            // Clear any existing poll timer
-            if (cache.pollTimer) {
-                clearTimeout(cache.pollTimer)
             }
             const onSupportSurface = isOnSupportSurface(values.sidePanelOpen, values.selectedTab)
             // Only treat a thread as open when the surface showing it is actually visible — the logic
