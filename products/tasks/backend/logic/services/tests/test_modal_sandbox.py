@@ -698,13 +698,43 @@ class TestModalSandboxAgentServer:
         assert expected_env in command
 
     @pytest.mark.parametrize(
-        "keep_stream_open, expected_env_present",
+        "claude_model_access, subscription_flag",
         [
-            (True, True),
-            (False, False),
+            ("own-subscription", True),
+            ("posthog-gateway", False),
+            (None, False),
         ],
     )
-    def test_start_agent_server_keep_stream_open_env(self, mock_sandbox: Any, keep_stream_open, expected_env_present):
+    def test_start_agent_server_claude_subscription_flag(
+        self, mock_sandbox: Any, claude_model_access, subscription_flag
+    ):
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+        )
+
+        mock_sandbox.start_agent_server(
+            repository="posthog/posthog",
+            task_id="task-123",
+            run_id="run-456",
+            mode="background",
+            claude_model_access=claude_model_access,
+        )
+
+        command = _agent_server_launch_command(mock_sandbox.execute)
+        assert (" --claudeSubscription" in command) is subscription_flag
+
+    @pytest.mark.parametrize(
+        "keep_stream_open, debug, expected_env_value",
+        [
+            (True, False, "true"),
+            (False, False, None),
+            (False, True, "false"),
+        ],
+    )
+    def test_start_agent_server_keep_stream_open_env(
+        self, mock_sandbox: Any, keep_stream_open, debug, expected_env_value, settings
+    ):
+        settings.DEBUG = debug
         mock_sandbox.execute = MagicMock(
             return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
         )
@@ -718,8 +748,8 @@ class TestModalSandboxAgentServer:
         )
 
         command = _agent_server_launch_command(mock_sandbox.execute)
-        if expected_env_present:
-            assert "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN=true" in command
+        if expected_env_value is not None:
+            assert f"POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN={expected_env_value}" in command
         else:
             assert "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN" not in command
 
@@ -774,24 +804,21 @@ class TestModalSandboxAgentServer:
         assert error.value.context["health_poll_ms"] == 120000
         assert mock_sandbox.supports_combined_agent_server_start_and_health() is True
 
-    def test_wait_for_health_check_passes(self, mock_sandbox: Any):
+    @pytest.mark.parametrize(
+        "exit_code, stdout, expected", [(0, "ok:3", True), (1, "", False), (1, "claude_credential_unavailable", None)]
+    )
+    def test_wait_for_health_check(self, mock_sandbox: Any, exit_code, stdout, expected):
+        from products.tasks.backend.exceptions import ProcessTaskFatalError
+
         mock_sandbox.execute = MagicMock(
-            return_value=ExecutionResult(stdout="ok:3", stderr="", exit_code=0, error=None),
+            return_value=ExecutionResult(stdout=stdout, stderr="", exit_code=exit_code, error=None),
         )
-
-        result = mock_sandbox._wait_for_health_check()
-
-        assert result is True
-        assert mock_sandbox.execute.call_count == 1
-
-    def test_wait_for_health_check_fails(self, mock_sandbox: Any):
-        mock_sandbox.execute = MagicMock(
-            return_value=ExecutionResult(stdout="", stderr="", exit_code=1, error=None),
-        )
-
-        result = mock_sandbox._wait_for_health_check()
-
-        assert result is False
+        if expected is None:
+            with pytest.raises(ProcessTaskFatalError) as error:
+                mock_sandbox._wait_for_health_check()
+            assert error.value.non_retryable
+        else:
+            assert mock_sandbox._wait_for_health_check() is expected
         assert mock_sandbox.execute.call_count == 1
 
     def test_start_agent_server_skips_relaunch_when_already_healthy(self, mock_sandbox: Any):
@@ -1224,8 +1251,8 @@ class TestModalSandboxAgentServerStartupHelpers:
         sandbox._free_agent_server_port()
 
         command = sandbox.execute.call_args_list[0][0][0]
-        assert "pkill -TERM -f agent-server" in command
-        assert "pkill -KILL -f agent-server" in command
+        assert "pkill -TERM -f '[a]gent-server'" in command
+        assert "pkill -KILL -f '[a]gent-server'" in command
 
 
 class TestStartupFailureDiagnostics:

@@ -329,6 +329,7 @@ export interface SessionTrpc {
     onSessionIdleKilled: TrpcSubscription;
   };
   workspace: { verify: TrpcQuery };
+  claudeSubscriptionToken: { has: TrpcQuery };
   cloudTask: {
     watch: TrpcMutation;
     unwatch: TrpcMutation;
@@ -336,6 +337,7 @@ export interface SessionTrpc {
     sendCommand: TrpcMutation;
     stop: TrpcMutation;
     designateRelayedMcpServers: TrpcMutation;
+    designateClaudeSubscription: TrpcMutation;
     onUpdate: TrpcSubscription;
   };
   logs: {
@@ -503,6 +505,8 @@ export interface SessionServiceDeps {
     bedrockGatewayVariant?: BedrockGatewayVariant;
     codexModelAccess?: ModelAccess;
     claudeModelAccess?: ModelAccess;
+    claudeCloudSubscriptionOn?: boolean;
+    claudeCloudSubscriptionEnabled?: boolean;
   };
   usageLimit: { show: (...args: any[]) => any };
   readonly addDirectoryDialog: { open: boolean };
@@ -4950,6 +4954,16 @@ export class SessionService {
     }
     const { auth } = authStatus;
 
+    if (session.claudeModelAccess === "own-subscription") {
+      await this.designateClaudeSubscription(
+        session.taskId,
+        session.taskRunId,
+      ).catch((error) => {
+        this.d.store.clearTailOptimisticItems(session.taskRunId);
+        throw error;
+      });
+    }
+
     this.watchCloudTask(
       session.taskId,
       session.taskRunId,
@@ -5261,13 +5275,6 @@ export class SessionService {
     let updatedTask: Task;
     let runtimeOptions: CloudRuntimeOptions;
     try {
-      const artifactIds = await this.d.h.uploadTaskStagedAttachments(
-        authCredentials.client,
-        session.taskId,
-        transport.filePaths,
-        transport.skillBundles,
-      );
-
       const previousRun = await authCredentials.client.getTaskRun(
         session.taskId,
         session.taskRunId,
@@ -5297,6 +5304,23 @@ export class SessionService {
       });
 
       runtimeOptions = getCloudRuntimeOptions(session, previousRun);
+      if (previousState.claude_model_access === "own-subscription") {
+        if (session.isTaskAuthor === false) {
+          const task = await authCredentials.client.getTask(session.taskId);
+          if (task.channel) {
+            throw new Error(
+              "Only the person who created this task can resume it. Start a new task to continue.",
+            );
+          }
+        }
+        await this.resolveClaudeCloudModelAccess("own-subscription");
+      }
+      const artifactIds = await this.d.h.uploadTaskStagedAttachments(
+        authCredentials.client,
+        session.taskId,
+        transport.filePaths,
+        transport.skillBundles,
+      );
 
       try {
         this.markTaskCreationInFlight(session.taskId);
@@ -5310,6 +5334,10 @@ export class SessionService {
             reasoningLevel: runtimeOptions.reasoningLevel,
             initialPermissionMode: runtimeOptions.initialPermissionMode,
             resumeFromRunId: session.taskRunId,
+            claudeModelAccess:
+              previousState.claude_model_access === "own-subscription"
+                ? "own-subscription"
+                : undefined,
             pendingUserMessage: transport.messageText,
             pendingUserArtifactIds:
               artifactIds.length > 0 ? artifactIds : undefined,
@@ -5323,6 +5351,22 @@ export class SessionService {
                 : undefined,
           },
         );
+        if (
+          previousState.claude_model_access === "own-subscription" &&
+          updatedTask.latest_run?.id
+        ) {
+          try {
+            await this.designateClaudeSubscription(
+              session.taskId,
+              updatedTask.latest_run.id,
+            );
+          } catch (error) {
+            await authCredentials.client
+              .cancelTaskRun(session.taskId, updatedTask.latest_run.id)
+              .catch(() => undefined);
+            throw error;
+          }
+        }
       } catch (error) {
         // Only the resume call gates on authorship: non-creators of a channeled
         // task get a 404 (not a 403) here, so on a task the app can already read
@@ -6453,6 +6497,39 @@ export class SessionService {
     });
   }
 
+  async resolveClaudeCloudModelAccess(
+    requested?: ModelAccess,
+  ): Promise<ModelAccess> {
+    const access =
+      requested ??
+      (this.d.settings.claudeCloudSubscriptionOn
+        ? "own-subscription"
+        : "posthog-gateway");
+    if (access === "own-subscription") {
+      if (!this.d.settings.claudeCloudSubscriptionEnabled) {
+        throw new Error(
+          "Claude plan billing is unavailable for cloud tasks. Try again later.",
+        );
+      }
+      if (!(await this.d.trpc.claudeSubscriptionToken.has.query())) {
+        throw new Error(
+          "Save a Claude token in Settings > Harness before you start or resume this task.",
+        );
+      }
+    }
+    return access;
+  }
+
+  async designateClaudeSubscription(
+    taskId: string,
+    runId: string,
+  ): Promise<void> {
+    await this.d.trpc.cloudTask.designateClaudeSubscription.mutate({
+      taskId,
+      runId,
+    });
+  }
+
   watchCloudTask(
     taskId: string,
     runId: string,
@@ -6477,6 +6554,14 @@ export class SessionService {
       watchedSession?.firstPromptForRunId !== taskRunId
     ) {
       this.d.store.setTaskStarting?.(taskId, taskRunId);
+    }
+    const claudeModelAccess =
+      runState?.claude_model_access === "own-subscription" ||
+      runState?.claude_model_access === "posthog-gateway"
+        ? runState.claude_model_access
+        : undefined;
+    if (claudeModelAccess && watchedSession?.taskRunId === taskRunId) {
+      this.d.store.updateSession(taskRunId, { claudeModelAccess });
     }
     const persistedConfigOptions = this.d.getPersistedConfigOptions(taskRunId);
     const persistedAdapter = this.d.adapterStore.getAdapter(taskRunId);
@@ -6675,6 +6760,7 @@ export class SessionService {
           ? [runState.resume_from_run_id]
           : undefined;
       session.adapter = adapter;
+      session.claudeModelAccess = claudeModelAccess;
       session.configOptions = buildInitialConfigOptions(
         initialMode,
         existing?.taskRunId === taskRunId ? existing.adapter : persistedAdapter,
@@ -7874,6 +7960,8 @@ export class SessionService {
       throw new Error("No active cloud session for task");
     }
 
+    if (session.errorRetryable === false) return;
+
     const previousErrorTitle = session.errorTitle;
     const previousErrorMessage = session.errorMessage;
     const previousErrorRetryable = session.errorRetryable;
@@ -7923,6 +8011,7 @@ export class SessionService {
     for (const session of Object.values(sessions)) {
       if (!session.isCloud) continue;
       if (session.status !== "error") continue;
+      if (session.errorRetryable === false) continue;
       this.d.log.info("Auto-retrying errored cloud session on focus", {
         taskId: session.taskId,
       });
@@ -8606,6 +8695,28 @@ export class SessionService {
         // Pending resume messages can never be sent to a settled run.
         this.clearTerminalCloudPromptState(taskRunId);
         this.stopCloudTaskWatch(update.taskId);
+      }
+    }
+    if (update.kind === "logs" || update.kind === "snapshot") {
+      for (const entry of update.newEntries) {
+        if (entry.type !== "notification") continue;
+        const notification = entry.notification as {
+          method?: string;
+          params?: { initializationPhase?: string; message?: string };
+        };
+        if (
+          notification.method === POSTHOG_NOTIFICATIONS.INITIALIZATION_FAILED &&
+          notification.params?.initializationPhase === "credential_relay"
+        ) {
+          this.d.store.updateSession(taskRunId, {
+            status: "error",
+            errorTitle: "Claude token unavailable",
+            errorMessage:
+              "Open Desktop and check your Claude token in Settings > Harness. Then start the task again.",
+            errorRetryable: false,
+            isPromptPending: false,
+          });
+        }
       }
     }
   }

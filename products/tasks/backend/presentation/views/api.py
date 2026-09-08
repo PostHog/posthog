@@ -76,7 +76,7 @@ from products.tasks.backend.facade.access import (
     usage_limit_response,
 )
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get_task_usage
-from products.tasks.backend.facade.client_provenance import get_task_client_provenance
+from products.tasks.backend.facade.client_provenance import get_task_client_provenance, is_sandbox_oauth_request
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
 from products.tasks.backend.facade.contracts import TaskAnalysisError
 from products.tasks.backend.facade.metrics import (
@@ -1417,15 +1417,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-@extend_schema(tags=["task-runs", "tasks"])
-def is_sandbox_oauth_request(request) -> bool:
-    authenticator = request.successful_authenticator
-    if not isinstance(authenticator, OAuthAccessTokenAuthentication):
-        return False
-    application = authenticator.access_token.application
-    return application is not None and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS
-
-
 def _sandbox_bound_task_id(request) -> UUID | None:
     if not is_sandbox_oauth_request(request):
         return None
@@ -1441,6 +1432,7 @@ def is_sandbox_agent_request(request, task_id: str) -> bool:
 _HUMAN_STEERING_COMMAND_METHODS = frozenset({"user_message", "side_question"})
 
 
+@extend_schema(tags=["task-runs", "tasks"])
 class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     API for managing task runs. Each run represents an execution of a task.
@@ -1539,6 +1531,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if run is None:
             raise NotFound()
         return run
+
+    def _ensure_subscription_owner(self, task_id: str, run_id: str) -> None:
+        run = tasks_facade.get_task_run_detail(run_id, task_id, self.team_id)
+        if run is None:
+            raise NotFound()
+        if (
+            run.state.get("claude_model_access") == "own-subscription"
+            and run.state.get("claude_subscription_user_id") != self._user_id()
+        ):
+            raise PermissionDenied("Only the user who started this run can use its Claude plan.")
 
     @validated_request(
         responses={
@@ -2710,6 +2712,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def connection_token(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
+        self._ensure_subscription_owner(task_id, pk)
         if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
             access_response := code_access_required_response(request, self.organization, task_id=task_id)
         ):
@@ -2806,6 +2809,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def command(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
         method = request.validated_data["method"]
+        if method not in {"cancel", "close", "credential_response"}:
+            self._ensure_subscription_owner(task_id, pk)
+        if method == "credential_response":
+            run = tasks_facade.get_task_run_detail(pk, task_id, self.team_id)
+            if (
+                run is None
+                or is_sandbox_oauth_request(request)
+                or run.state.get("claude_subscription_user_id") != self._user_id()
+            ):
+                raise PermissionDenied("Only the user who started this run can send a Claude token.")
         # Steering an analysis run spends model tokens on a task whose generations are excluded
         # from the customer's rollup, so these are the reuse path the one-shot rule closes. Cancel
         # and the agent's own operations stay open.
@@ -3105,7 +3118,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             json=payload,
             headers=headers,
             params=params,
-            timeout=600,
+            timeout=5 if payload.get("method") == "credential_response" else 600,
+            allow_redirects=payload.get("method") != "credential_response",
         )
 
     @validated_request(
