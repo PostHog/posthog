@@ -19,6 +19,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.redis import get_client
 
@@ -168,7 +169,7 @@ class _RedisLock:
             self._lock.release()
 
 
-@dataclass
+@frozen
 class KernelRuntimeSession:
     service: KernelRuntimeService
     notebook: Notebook
