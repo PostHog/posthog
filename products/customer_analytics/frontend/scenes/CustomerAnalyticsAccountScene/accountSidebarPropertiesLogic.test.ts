@@ -226,6 +226,7 @@ describe('accountSidebarPropertiesLogic', () => {
         ['boolean', false],
         ['clear', null],
     ])('saves %s values and reloads the row', async (_, value) => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
         await mount()
         const property = logic.values.sidebarProperties[1]
         logic.actions.editProperty(property)
@@ -234,6 +235,11 @@ describe('accountSidebarPropertiesLogic', () => {
             .toMatchValues({ editingPropertyKey: null, savingPropertyKey: null })
         expect(storedValue).toBe(value)
         expect(logic.values.sidebarProperties[1]).toMatchObject({ value })
+        expect(captureSpy).toHaveBeenCalledWith(AccountsEvents.CustomPropertyUpdated, {
+            display_type: 'text',
+            workflow_reference: false,
+            source: 'account_sidebar',
+        })
     })
 
     it('reports saved values and assignments as account product events', async () => {
@@ -245,6 +251,7 @@ describe('accountSidebarPropertiesLogic', () => {
         expect(capture).toHaveBeenCalledWith(AccountsEvents.CustomPropertyUpdated, {
             display_type: 'text',
             workflow_reference: false,
+            source: 'account_sidebar',
         })
         await expectLogic(logic, () =>
             logic.actions.saveRelationship('relationship:relationship-1', [2])
@@ -273,6 +280,7 @@ describe('accountSidebarPropertiesLogic', () => {
     })
 
     it('replaces a multi-holder selection without ending retained or unrelated assignments', async () => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
         await mount()
         await expectLogic(logic, () =>
             logic.actions.saveRelationship('relationship:relationship-1', [2, 4])
@@ -289,19 +297,114 @@ describe('accountSidebarPropertiesLogic', () => {
         ).toFinishAllListeners()
         expect(assignments.filter((row) => !row.ended_at).map((row) => row.user?.id)).toEqual([3])
         expect(assignments).toHaveLength(4)
+        expect(captureSpy).toHaveBeenCalledWith(AccountsEvents.RoleAssigned, {
+            role: relationshipDefinition.name,
+            is_assigned: true,
+            assigned_user_id: null,
+            source: 'account_sidebar',
+        })
     })
 
-    it('keeps the draft after a partial relationship failure and retries without duplicate assignments', async () => {
+    it.each([
+        { label: 'unchanged', desired: [1, 2], expected: [2, 4], reassign: false },
+        { label: 'added holder', desired: [1, 2, 5], expected: [2, 4, 5], reassign: false },
+        { label: 'removed holder', desired: [2, 5], expected: [2, 4, 5], reassign: false },
+        { label: 'reassigned holder', desired: [2, 5], expected: [1, 2, 4, 5], reassign: true },
+    ])('preserves concurrent assignments when saving $label', async ({ desired, expected, reassign }) => {
+        await mount()
+        logic.actions.editProperty(logic.values.sidebarProperties[0])
+        assignments = assignments.map((row) =>
+            row.id === 'assignment-1' ? { ...row, ended_at: '2026-01-02T00:00:00Z' } : row
+        )
+        assignments.push(assignment(4))
+        if (reassign) {
+            assignments.push({ ...assignment(1), id: 'concurrent-reassignment' })
+        }
+        await expectLogic(logic, () => logic.actions.loadPropertyData()).toFinishAllListeners()
+        await expectLogic(logic, () =>
+            logic.actions.saveRelationship('relationship:relationship-1', desired)
+        ).toFinishAllListeners()
+        const property = logic.values.sidebarProperties[0]
+        expect(property.kind === 'relationship' && property.members.map((member) => member.id).sort()).toEqual(expected)
+        expect(assignments.find((row) => row.id === 'assignment-4')?.ended_at).toBeNull()
+    })
+
+    it('retains loaded rows and the edit after both a save and its refresh fail', async () => {
+        silenceKeaLoadersErrors()
+        await mount()
+        logic.actions.editProperty(logic.values.sidebarProperties[0])
+        const data = logic.values.propertyData
+        useMocks({
+            get: {
+                [VALUES_URL]: () => [500, { detail: 'Unavailable' }],
+                [RELATIONSHIPS_URL]: () => [500, { detail: 'Unavailable' }],
+            },
+        })
+        await expectLogic(logic, () => logic.actions.saveRelationship('relationship:relationship-1', [2, 4]))
+            .toFinishAllListeners()
+            .toMatchValues({
+                propertySaveFailed: true,
+                propertyDataLoadFailed: true,
+                editingPropertyKey: 'relationship:relationship-1',
+            })
+        expect(logic.values.propertyData).toEqual(data)
+        expect(logic.values.sidebarProperties).toHaveLength(2)
+    })
+
+    it.each([true, false])(
+        'retries a partial addition without duplicates (keep the addition: %s)',
+        async (keepAddition) => {
+            silenceKeaLoadersErrors()
+            let fail = true
+            useMocks({
+                post: {
+                    [RELATIONSHIPS_URL]: async ({ request }) => {
+                        const { user } = (await request.json()) as AccountRelationshipWriteApi
+                        if (user === 5 && fail) {
+                            return [500, { detail: 'Try again' }]
+                        }
+                        const row = assignment(user)
+                        assignments.push(row)
+                        return [201, row]
+                    },
+                },
+            })
+            await mount()
+            logic.actions.editProperty(logic.values.sidebarProperties[0])
+            await expectLogic(logic, () => logic.actions.saveRelationship('relationship:relationship-1', [2, 4, 5]))
+                .toFinishAllListeners()
+                .toMatchValues({ propertySaveFailed: true, editingPropertyKey: 'relationship:relationship-1' })
+            expect(logic.values.sidebarProperties[0]).toMatchObject({ members: [{ id: 1 }, { id: 2 }, { id: 4 }] })
+            fail = false
+            await expectLogic(logic, () =>
+                logic.actions.saveRelationship('relationship:relationship-1', keepAddition ? [2, 4, 5] : [2, 5])
+            )
+                .toFinishAllListeners()
+                .toMatchValues({ propertySaveFailed: false, editingPropertyKey: null })
+            expect(assignments.filter((row) => row.user?.id === 4)).toHaveLength(1)
+            expect(logic.values.sidebarProperties[0]).toMatchObject({
+                members: (keepAddition ? [2, 4, 5] : [2, 5]).map((id) => ({ id })),
+            })
+        }
+    )
+
+    it('can restore its own ended holder when changing a draft after a partial failure', async () => {
         silenceKeaLoadersErrors()
         let fail = true
         useMocks({
             post: {
-                [RELATIONSHIPS_URL]: async ({ request }) => {
-                    const { user } = (await request.json()) as AccountRelationshipWriteApi
-                    if (user === 5 && fail) {
+                '/api/projects/:project_id/accounts/:account_id/relationships/:id/end/': ({ params }) => {
+                    if (params.id === 'assignment-2' && fail) {
                         return [500, { detail: 'Try again' }]
                     }
-                    const row = assignment(user)
+                    assignments = assignments.map((row) =>
+                        row.id === params.id ? { ...row, ended_at: '2026-01-02T00:00:00Z' } : row
+                    )
+                    return assignments.find((row) => row.id === params.id)!
+                },
+                [RELATIONSHIPS_URL]: async ({ request }) => {
+                    const { user } = (await request.json()) as AccountRelationshipWriteApi
+                    const row = { ...assignment(user), id: `restored-${user}` }
                     assignments.push(row)
                     return [201, row]
                 },
@@ -309,16 +412,15 @@ describe('accountSidebarPropertiesLogic', () => {
         })
         await mount()
         logic.actions.editProperty(logic.values.sidebarProperties[0])
-        await expectLogic(logic, () => logic.actions.saveRelationship('relationship:relationship-1', [2, 4, 5]))
+        await expectLogic(logic, () => logic.actions.saveRelationship('relationship:relationship-1', []))
             .toFinishAllListeners()
-            .toMatchValues({ propertySaveFailed: true, editingPropertyKey: 'relationship:relationship-1' })
-        expect(logic.values.sidebarProperties[0]).toMatchObject({ members: [{ id: 1 }, { id: 2 }, { id: 4 }] })
+            .toMatchValues({ propertySaveFailed: true })
         fail = false
-        await expectLogic(logic, () => logic.actions.saveRelationship('relationship:relationship-1', [2, 4, 5]))
+        await expectLogic(logic, () => logic.actions.saveRelationship('relationship:relationship-1', [1]))
             .toFinishAllListeners()
-            .toMatchValues({ propertySaveFailed: false, editingPropertyKey: null })
-        expect(assignments.filter((row) => row.user?.id === 4)).toHaveLength(1)
-        expect(logic.values.sidebarProperties[0]).toMatchObject({ members: [{ id: 2 }, { id: 4 }, { id: 5 }] })
+            .toMatchValues({ propertySaveFailed: false })
+        expect(logic.values.sidebarProperties[0]).toMatchObject({ members: [{ id: 1 }] })
+        expect(assignments.filter((row) => row.user?.id === 1)).toHaveLength(2)
     })
 
     it('lets the server end the previous single-holder assignment when replacing it', async () => {
