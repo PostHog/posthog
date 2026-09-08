@@ -1,0 +1,78 @@
+{
+    "id": 921,
+    "short_id": "SqlPieRe",
+    "name": "Top events",
+    "derived_name": null,
+    "filters": {},
+    "query": {
+        "kind": "DataVisualizationNode",
+        "source": {
+            "kind": "HogQLQuery",
+            "query": "select event, count() as total from events group by event order by total desc limit 5"
+        },
+        "display": "ActionsPie"
+    },
+    "order": null,
+    "deleted": false,
+    "dashboards": [
+        4
+    ],
+    "dashboard_tiles": [
+        {
+            "id": 11,
+            "dashboard_id": 4,
+            "deleted": null
+        }
+    ],
+    "last_refresh": "2023-06-06T10:56:05.984440Z",
+    "next_allowed_client_refresh": "2023-06-06T11:11:05.984440Z",
+    "columns": [
+        "event",
+        "total"
+    ],
+    "types": [
+        [
+            "event",
+            "String"
+        ],
+        [
+            "total",
+            "UInt64"
+        ]
+    ],
+    "result": [
+        [
+            "$autocapture",
+            324
+        ],
+        [
+            "$feature_flag_called",
+            114
+        ],
+        [
+            "query completed",
+            93
+        ],
+        [
+            "insight viewed",
+            45
+        ],
+        [
+            "$pageview",
+            37
+        ]
+    ],
+    "created_at": "2023-06-06T10:55:54.692657Z",
+    "created_by": null,
+    "description": "",
+    "updated_at": "2023-06-06T10:55:59.974286Z",
+    "favorited": false,
+    "saved": true,
+    "last_modified_at": "2023-06-06T10:55:59.972612Z",
+    "last_modified_by": null,
+    "is_sample": false,
+    "timezone": "UTC",
+    "is_cached": true,
+    "tags": [],
+    "filters_hash": "cache_sqlpierepro"
+}

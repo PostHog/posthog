@@ -63,7 +63,9 @@ export function useSqlChartModel<TConfig extends object>(
         [xData, chartSettings, timezone, goalLines, visualizationType, buildConfig, ySeriesData, legendRenderItem]
     )
 
-    if (!xData || !ySeriesData || series.length === 0 || !config) {
+    // A series with no data points draws an empty frame, which reads as a broken chart. Report it as
+    // "nothing to plot" so the caller can say why.
+    if (!xData || !ySeriesData || series.length === 0 || series.every((s) => s.data.length === 0) || !config) {
         return null
     }
 

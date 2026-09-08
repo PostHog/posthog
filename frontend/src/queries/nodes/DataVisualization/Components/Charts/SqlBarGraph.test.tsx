@@ -190,6 +190,14 @@ describe('SqlBarGraph', () => {
         })
     })
 
+    describe('nothing to plot', () => {
+        it('explains itself instead of drawing an empty frame when no column is on the y-axis', async () => {
+            renderBar(ChartDisplayType.ActionsBar, { yAxis: [] }, twoSeries())
+
+            expect(await screen.findByText(/No values to plot/)).toBeInTheDocument()
+        })
+    })
+
     describe('goal lines', () => {
         it('renders a goal line as a horizontal reference line', async () => {
             renderBar(

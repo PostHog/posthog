@@ -1142,7 +1142,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             props.query.chartSettings?.xAxis?.column ?? null,
             {
                 setVisualizationType: (_, { node }) => node.chartSettings?.xAxis?.column ?? null,
-                _setQuery: (_, { node }) => node.chartSettings?.xAxis?.column ?? null,
+                // A read-only surface (a dashboard tile, an insight card) drops the query update that
+                // writes a derived x axis back, so props keep arriving without `chartSettings.xAxis`.
+                // Keep the derived column instead of falling back to "None", which leaves the chart
+                // with blank labels. This matches how `selectedYAxis` treats a node with no `yAxis`.
+                _setQuery: (state, { node }) => node.chartSettings?.xAxis?.column ?? state,
                 clearAxis: () => null,
                 updateXSeries: (_, { columnName }) => columnName,
             },

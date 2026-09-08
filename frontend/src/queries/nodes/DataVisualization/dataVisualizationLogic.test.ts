@@ -136,6 +136,26 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it('keeps a derived x-axis when the unchanged query arrives again, as it does on a dashboard tile', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['fruit', 'count'],
+            types: [
+                ['fruit', 'String'],
+                ['count', 'Int64'],
+            ],
+            results: [
+                ['banana', 1],
+                ['pineapple', 2],
+            ],
+        })
+
+        await expectLogic(logic).toMatchValues({ selectedXAxis: 'fruit' })
+
+        logic.actions._setQuery(defaultQuery)
+
+        await expectLogic(logic).toMatchValues({ selectedXAxis: 'fruit' })
+    })
+
     it('initializes axes when columns load after selecting a visualization type', async () => {
         logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
 
