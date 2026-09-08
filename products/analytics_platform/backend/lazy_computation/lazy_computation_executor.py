@@ -203,10 +203,10 @@ def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False) -> dict:
 
 
 def _ttl_jitter_offset(window_start: datetime, jitter_seconds: int) -> int:
-    """Deterministic offset in [0, jitter_seconds) for a window, from its start date.
+    """Stable offset in [0, jitter_seconds) for a window, from its start date.
 
-    sha256 rather than hash() because Python string hashing is salted per process and the
-    offset must be identical across executors, deploys, and rebuilds.
+    sha256, not hash(): hash() is salted per process, and the offset must come out the same
+    everywhere.
     """
     digest = hashlib.sha256(window_start.date().isoformat().encode()).digest()
     return int.from_bytes(digest[:8], "big") % jitter_seconds
@@ -255,18 +255,14 @@ class TtlSchedule:
     long warmer window). Windows older than this keep their full band TTL. `None` caps every
     empty window regardless of age.
 
-    `default_ttl_jitter_seconds` spreads the expiry of default-band (frozen) windows. A backfill
-    creates every chunk of an entity's history on the same day, so with a uniform default TTL the
-    whole history expires on the same day too, and the next read pays for a full-history rebuild
-    at once (for high-volume teams that rebuild's direct-scan fallback deterministically exceeds
-    the per-query bytes-to-read cap, so reads fail until it converges). The jitter adds a
-    deterministic per-window offset in [0, jitter) to the default TTL, derived from the window's
-    start date, so chunks built together expire days apart and a read only ever finds a chunk or
-    two missing. Deterministic (not random) so a window keeps the same offset across rebuilds and
-    processes, which keeps expiries reproducible and stops the spread from re-synchronizing.
-    Windows matched by a recency rule never get jitter; day-scale offsets would defeat the short
-    bands. `None` disables it. Only readers of frozen, immutable data should opt in: the offset
-    extends how long data is served, which is harmless only when the data cannot change.
+    `default_ttl_jitter_seconds` spreads out when default-band (frozen) windows expire. A
+    backfill builds every chunk on the same day, so with one uniform TTL the whole history
+    expires at once and the next read pays for a full rebuild. The jitter adds a stable
+    per-window offset in [0, jitter) to the default TTL, so chunks expire days apart and a read
+    only finds a chunk or two missing. The offset comes from the window's start date, not from
+    randomness, so it survives rebuilds and the spread cannot re-synchronize. Rule-matched
+    (recent) windows never get jitter. Opt in only for frozen, immutable data: jitter keeps
+    data around longer, which is safe only when the data cannot change. `None` disables it.
 
     Use parse_ttl_schedule() to create from user-facing dict format.
     """
@@ -280,12 +276,11 @@ class TtlSchedule:
     default_ttl_jitter_seconds: int | None = None
 
     def get_ttl(self, window_start: datetime, *, jittered: bool = False) -> int:
-        """TTL for a window. `jittered=True` adds the per-window default-band offset.
+        """TTL for a window. `jittered=True` adds the default-band jitter offset.
 
-        Job creation and the freshness check must both pass `jittered=True`, or a job created
-        with a jittered expiry is judged stale at the base TTL and recomputed early.
-        `split_ranges_by_ttl` must NOT: it merges consecutive windows by comparing TTLs, and
-        per-window offsets would make every daily window distinct and break chunk merging.
+        Job creation and the freshness check must both pass `jittered=True`, or jobs get
+        recomputed before they expire. `split_ranges_by_ttl` must not: it merges windows by
+        comparing TTLs, and per-window offsets would break the merging.
         """
         for cutoff, ttl in self.rules:
             if window_start >= cutoff:
@@ -1136,8 +1131,7 @@ class LazyComputationExecutor:
                             _log_execution("timeout", result)
                             return result
 
-                        # `ttl` from split_ranges_by_ttl is the band TTL used for merging;
-                        # the job's actual expiry gets the per-window jitter on top.
+                        # `ttl` is the band TTL used for merging; the job's real expiry adds the jitter
                         new_job = create_lazy_computation_job(
                             team,
                             query_hash,

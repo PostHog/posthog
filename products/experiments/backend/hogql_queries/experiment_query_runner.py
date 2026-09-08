@@ -109,10 +109,9 @@ DEFAULT_EXPOSURE_TTL_SECONDS = {
 # instead of failing atomically on every attempt.
 PRECOMPUTE_MAX_WINDOW_DAYS = 7
 
-# Spread frozen-band chunk expiries so a backfilled experiment's history does not
-# expire all at once (see TtlSchedule.default_ttl_jitter_seconds for the mechanism).
-# Fourteen days spreads a months-long experiment's chunks to roughly one expiry per
-# day; more would only hold storage longer.
+# Spread frozen chunk expiries so an experiment's history does not expire all at once
+# (see TtlSchedule.default_ttl_jitter_seconds). 14 days means roughly one chunk expiry
+# per day for a months-long experiment; more would just hold storage longer.
 PRECOMPUTE_TTL_JITTER_SECONDS = 14 * 24 * 60 * 60
 
 # Upper bound on how far past the experiment end a metric-events build may scan.
