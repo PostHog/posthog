@@ -20,6 +20,8 @@ import { BillingChart, orderSeriesForDrawing, runningTotal, type BillingSeriesTy
 jest.mock('lib/colors', () => ({
     ...jest.requireActual('lib/colors'),
     getSeriesColor: (index: number) => ['#ff0000', '#0000ff'][index],
+    // Likewise a fixed, valid color for the running total, which is drawn in the resolved text color.
+    getColorVar: () => '#111111',
 }))
 
 const DATES = ['2026-01-01', '2026-01-02', '2026-01-03']
@@ -267,6 +269,9 @@ describe('BillingChart', () => {
             // (10 + 1) + (20 + 2)
             const tooltip = createDefaultTooltipAccessor(await hoverUntilTooltip(chart.element, middle, DATES.length))
             await waitFor(() => expect(tooltip.value(LABEL)).toBe('33'))
+            // A concrete color: the canvas cannot resolve a `var()`, and an unresolved color leaves the
+            // line and its hover dot in whichever color the series before them used.
+            expect(tooltip.swatchColors()[tooltip.rows().indexOf(LABEL)]).toBe('rgb(17, 17, 17)')
         })
 
         it('leaves hidden series out of the running total', async () => {
@@ -318,11 +323,10 @@ describe('BillingChart', () => {
             await waitFor(() => expect(tooltip.value(LABEL)).toBe('12'))
         })
 
-        it('is drawn over lines too, and named under the chart since there is no legend', async () => {
+        it('is drawn over lines too', async () => {
             render(<BillingChart series={SERIES} dates={DATES} hiddenSeries={[]} cumulativeLabel={LABEL} />)
 
             await waitFor(() => expect(getHogChart().seriesCount).toBe(3))
-            expect(await screen.findByText(/Dashed line: cumulative spend/)).toBeTruthy()
         })
 
         it('is not drawn unless asked for', async () => {
@@ -331,7 +335,6 @@ describe('BillingChart', () => {
             const chart = getHogChart()
             await waitFor(() => expect(chart.seriesCount).toBe(2))
             expect(chart.hasRightAxis).toBe(false)
-            expect(screen.queryByText(/Dashed line/)).toBeNull()
         })
     })
 })
