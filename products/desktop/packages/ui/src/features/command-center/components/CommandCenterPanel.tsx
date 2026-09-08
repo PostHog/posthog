@@ -22,7 +22,6 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-  Spinner as QuillSpinner,
   Text as QuillText,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS, type WorkspaceMode } from "@posthog/shared";
@@ -33,6 +32,7 @@ import { useDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { destroyShellTerminal } from "@posthog/ui/features/terminal/destroyShellTerminal";
 import { ShellTerminal } from "@posthog/ui/features/terminal/ShellTerminal";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
@@ -454,11 +454,7 @@ function BrainrotCell({ cellIndex }: { cellIndex: number }) {
           onLoad={handleLoad}
           className="h-full w-full border-0"
         />
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center text-gray-11">
-            <QuillSpinner className="h-6 w-6" />
-          </div>
-        )}
+        {loading && <LoadingState className="absolute inset-0" />}
       </div>
     </div>
   );
@@ -579,9 +575,7 @@ function CanvasCell({
       </div>
       <div className="min-h-0 flex-1">
         {isLoading ? (
-          <div className="flex h-full items-center justify-center">
-            <QuillSpinner className="h-6 w-6" />
-          </div>
+          <LoadingState />
         ) : dashboard?.kind === "grid" ? (
           <GridCanvasView canvasId={canvasId} interactive={false} />
         ) : dashboard ? (
