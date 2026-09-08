@@ -121,6 +121,24 @@ class TestJiraIntegrationModel:
         assert integration.errors == ERROR_TOKEN_REFRESH_FAILED
         integration.save.assert_called_once_with(update_fields=["errors"])
 
+    @patch("posthog.models.integration.jira.capture_exception")
+    @patch("posthog.models.integration.jira.requests.request")
+    def test_search_issues_records_a_rate_limited_search(self, mock_request, mock_capture_exception):
+        mock_request.return_value = MagicMock(status_code=429, headers={"Content-Type": "application/json"})
+
+        with pytest.raises(ValidationError) as error:
+            JiraIntegration(self.integration()).search_issues("checkout")
+
+        assert error.value.args[0] == "Could not search Jira issues. Check the Jira connection and try again."
+        captured_error = mock_capture_exception.call_args.args[0]
+        assert str(captured_error) == "Jira issue search failed"
+        assert mock_capture_exception.call_args.kwargs["additional_properties"] == {
+            "jira_status_code": 429,
+            "jira_response_content_type": "application/json",
+            "integration_id": 123,
+            "team_id": 456,
+        }
+
     @patch("posthog.models.integration.jira.requests.request")
     def test_search_issues_explains_a_permission_error(self, mock_request):
         mock_request.return_value = jira_response(403)

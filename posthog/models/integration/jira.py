@@ -217,6 +217,16 @@ class JiraIntegration:
             params={"query": query, "currentJQL": "order by created DESC", "showSubTasks": "true"},
         )
         if response.status_code != 200:
+            # Record the metadata only, because the response body can echo the search text.
+            capture_exception(
+                Exception("Jira issue search failed"),
+                additional_properties={
+                    "jira_status_code": response.status_code,
+                    "jira_response_content_type": response.headers.get("Content-Type"),
+                    "integration_id": self.integration.id,
+                    "team_id": self.integration.team_id,
+                },
+            )
             raise ValidationError("Could not search Jira issues. Check the Jira connection and try again.")
         body = response.json()
 
