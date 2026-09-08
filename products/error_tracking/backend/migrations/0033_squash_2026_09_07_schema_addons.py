@@ -84,4 +84,4 @@ class Migration(migrations.Migration):
     # unique_team_id_raw_id_part: migration 0005 had renamed that index into
     # the constraint. The file stays, empty, because databases record it as
     # applied and the other schema_addons files depend on it.
-    operations: list[migrations.operations.base.Operation] = []
+    operations = []
