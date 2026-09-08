@@ -231,9 +231,14 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
     }
 
     const cacheWriteTokens = numericProperty(event, '$ai_cache_creation_input_tokens')
+    // Gemini's catalog write rate covers storage, not the input charge. Keep writes
+    // in normal input pricing (including audio/image rates); storage needs a known duration.
+    // https://cloud.google.com/vertex-ai/generative-ai/docs/context-cache/context-cache-overview#caching_storage_costs
+    const isGeminiCatalogCost = cost.provider !== 'custom' && /(^|\/)gemini-/.test(cost.model.toLowerCase())
+    const separateCacheWriteTokens = isGeminiCatalogCost ? 0 : cacheWriteTokens
     const baseRegularTokens = exclusive
-        ? inputTokens
-        : bigDecimal.subtract(bigDecimal.subtract(inputTokens, cachedTextTokens), cacheWriteTokens)
+        ? bigDecimal.add(inputTokens, isGeminiCatalogCost ? cacheWriteTokens : 0)
+        : bigDecimal.subtract(bigDecimal.subtract(inputTokens, cachedTextTokens), separateCacheWriteTokens)
     const regularTextTokens = clampTextTokens(
         bigDecimal.subtract(bigDecimal.subtract(baseRegularTokens, audioInputTokens), imageInputTokens),
         hasModalityTokens
@@ -260,7 +265,7 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
     }
 
     const cacheWriteRate = cost.cost.cache_write_token ?? cost.cost.prompt_token
-    const cacheWriteCost = bigDecimal.multiply(cacheWriteRate, cacheWriteTokens)
+    const cacheWriteCost = bigDecimal.multiply(cacheWriteRate, separateCacheWriteTokens)
     const regularCost = bigDecimal.multiply(cost.cost.prompt_token, regularTextTokens)
 
     return bigDecimal.add(bigDecimal.add(bigDecimal.add(cacheReadCost, cacheWriteCost), regularCost), modalityInputCost)

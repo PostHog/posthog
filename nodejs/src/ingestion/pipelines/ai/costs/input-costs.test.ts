@@ -668,6 +668,31 @@ describe('calculateInputCost()', () => {
     })
 
     describe('gemini provider - cache handling', () => {
+        it.each([
+            { inputTokens: 100000, exclusive: false },
+            { inputTokens: 50000, exclusive: true },
+        ])('prices cache writes as input with exclusive=$exclusive', ({ inputTokens, exclusive }) => {
+            const model = createTestModel({
+                model: 'google/gemini-2.5-flash',
+                provider: 'google-vertex',
+                cost: {
+                    prompt_token: 3e-7,
+                    completion_token: 0.0000025,
+                    cache_read_token: 3e-8,
+                    cache_write_token: 8.333333333e-8,
+                },
+            })
+            const event = createGeminiTestEvent(inputTokens, 20000, {
+                $ai_model: 'gemini-2.5-flash',
+                $ai_provider: 'vertex',
+                $ai_cache_creation_input_tokens: 30000,
+                $ai_cache_reporting_exclusive: exclusive,
+            })
+
+            expectCostToBeCloseTo(calculateInputCost(event, model), 0.0246)
+            expect(event.properties!.$ai_cache_reporting_exclusive).toBe(exclusive)
+        })
+
         it('calculates cost with cache read tokens using explicit costs', () => {
             const event = createGeminiTestEvent(10000, 4000)
             const result = calculateInputCost(event, GEMINI_MODEL)
@@ -1107,7 +1132,7 @@ describe('calculateInputCost()', () => {
             expectCostToBeCloseTo(result, 0.0001)
         })
 
-        it('handles audio + image input together for multimodal calls', () => {
+        it.each([0, 600])('handles audio + image input with %i cache-write tokens', (cacheWriteTokens) => {
             const multiModalCost: ResolvedModelCost = {
                 model: 'gemini-2.5-flash',
                 provider: 'google',
@@ -1116,6 +1141,7 @@ describe('calculateInputCost()', () => {
                     completion_token: 0.0000025,
                     image: 3e-7,
                     audio: 0.000001,
+                    cache_write_token: 8.333333333e-8,
                 },
             }
             const event = createAIEvent({
@@ -1124,6 +1150,7 @@ describe('calculateInputCost()', () => {
                 $ai_input_tokens: 1000, // 400 text + 200 audio + 400 image
                 $ai_audio_input_tokens: 200,
                 $ai_image_input_tokens: 400,
+                $ai_cache_creation_input_tokens: cacheWriteTokens,
             })
 
             const result = calculateInputCost(event, multiModalCost)
