@@ -4,8 +4,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
 
-from django.db.models import Q
-
 import nh3
 import structlog
 from markdown_it import MarkdownIt
@@ -194,19 +192,12 @@ def _resolve_subscription_context(
     return team, subscription.created_by, window, subscription.ai_query_plan
 
 
-def _persist_ai_query_plan(
-    subscription_id: int, team_id: int, prompt: str | None, plan: dict, *, include_images: bool
-) -> bool:
-    matching_delivery_config = Q(delivery_config__include_images=include_images)
-    if include_images:
-        matching_delivery_config |= ~Q(delivery_config__has_key="include_images")
-    # A prompt or image-setting edit can land while generation runs. Match both values so this
-    # targeted update cannot restore a plan that Subscription.save() invalidated. Never use a full
-    # save() here, as that would re-emit the activity-log/analytics signals.
+def _persist_ai_query_plan(subscription_id: int, team_id: int, prompt: str | None, plan: dict) -> bool:
+    # Targeted update, never a full save() — that would re-emit the activity-log/analytics signals.
+    # Filtering on the planning-time prompt closes a race: a prompt edited mid-generation clears the
+    # plan via Subscription.save(), and this no-ops instead of re-freezing a plan for the old prompt.
     return bool(
-        Subscription.objects.filter(
-            matching_delivery_config, id=subscription_id, team_id=team_id, prompt=prompt
-        ).update(ai_query_plan=plan)
+        Subscription.objects.filter(id=subscription_id, team_id=team_id, prompt=prompt).update(ai_query_plan=plan)
     )
 
 
@@ -218,7 +209,7 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
     if user is None:
         raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot deliver.")
 
-    include_images = _include_delivery_part(subscription, "include_images")
+    include_images = subscription.includes_delivery_part("include_images")
     result = await generate_ai_report(
         team=team,
         user=user,
@@ -227,7 +218,7 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
         ai_query_plan=ai_query_plan,
         trace_correlation_id=subscription.id,
         include_charts=include_images,
-        include_manage_link=_include_delivery_part(subscription, "include_manage_link"),
+        include_manage_link=subscription.includes_delivery_part("include_manage_link"),
     )
 
     if result.plan_to_persist is not None:
@@ -238,7 +229,6 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
                 subscription.team_id,
                 subscription.prompt,
                 result.plan_to_persist,
-                include_images=include_images,
             )
         except Exception as exc:
             # The frozen plan is an optimization — losing this write must not abort the delivery (the
@@ -284,11 +274,6 @@ def _build_feedback_url(subscription_url: str, delivery_id: uuid.UUID, feedback:
     return f"{subscription_url}?{params}"
 
 
-def _include_delivery_part(subscription: Subscription, option: str) -> bool:
-    config = subscription.delivery_config if isinstance(subscription.delivery_config, dict) else {}
-    return bool(config.get(option, True))
-
-
 def render_ai_email_html(markdown: str) -> str:
     rendered = _MARKDOWN_RENDERER.render(strip_external_links_markdown(markdown))
     return nh3.clean(rendered, tags=_ALLOWED_EMAIL_TAGS, attributes=_ALLOWED_EMAIL_ATTRS)
@@ -320,9 +305,9 @@ def send_email_ai_subscription_report(
         template_context={
             "title": title,
             "rendered_html": html,
-            "charts": (charts or []) if _include_delivery_part(subscription, "include_images") else [],
-            "include_feedback": _include_delivery_part(subscription, "include_feedback"),
-            "include_manage_link": _include_delivery_part(subscription, "include_manage_link"),
+            "charts": (charts or []) if subscription.includes_delivery_part("include_images") else [],
+            "include_feedback": subscription.includes_delivery_part("include_feedback"),
+            "include_manage_link": subscription.includes_delivery_part("include_manage_link"),
             # `delivery` lets the frontend capture `ai_report_clicked` on landing — the
             # click-through signal for whether delivered reports actually get read.
             "subscription_url": f"{subscription_url}?{utm_tags}&delivery={delivery_id}",
@@ -387,7 +372,7 @@ def _build_ai_slack_message(
         {"type": "section", "text": {"type": "mrkdwn", "text": f"*{title}*"}},
         {"type": "section", "text": {"type": "mrkdwn", "text": first_section}},
     ]
-    for chart in (charts or []) if _include_delivery_part(subscription, "include_images") else []:
+    for chart in (charts or []) if subscription.includes_delivery_part("include_images") else []:
         caption = chart.get("title") or "Chart"
         image_block: dict = {
             "type": "image",
@@ -406,7 +391,7 @@ def _build_ai_slack_message(
         f"/project/{subscription.team_id}/subscriptions/{subscription.id}"
     )
     footer_blocks: list[dict] = []
-    if _include_delivery_part(subscription, "include_manage_link"):
+    if subscription.includes_delivery_part("include_manage_link"):
         footer_blocks.append(
             {
                 "type": "actions",
@@ -419,7 +404,7 @@ def _build_ai_slack_message(
                 ],
             }
         )
-    if _include_delivery_part(subscription, "include_feedback"):
+    if subscription.includes_delivery_part("include_feedback"):
         feedback_positive_url = _build_feedback_url(subscription_url, delivery_id, "positive", "slack")
         feedback_negative_url = _build_feedback_url(subscription_url, delivery_id, "negative", "slack")
         footer_blocks.append(
@@ -436,8 +421,8 @@ def _build_ai_slack_message(
                 ],
             }
         )
-    # AI consent is enforced upstream before this report is built, so the hint always shows here.
-    if _include_delivery_part(subscription, "include_posthog_hint"):
+    # AI consent is enforced before report generation, so this renderer only applies the delivery option.
+    if subscription.includes_delivery_part("include_posthog_hint"):
         if explore_hint := build_explore_hint(integration, utm_tags=utm_tags, ai_enabled=True):
             footer_blocks.append(explore_hint)
     if footer_blocks:
@@ -462,7 +447,7 @@ async def send_slack_ai_subscription_report(
     # Resolve the charts the message will really carry, so the retry-without-charts decision
     # cannot promise a different payload than the first send: a report that hides its charts
     # would otherwise resend an identical message and double the posts Slack rate-limits.
-    effective_charts = charts if _include_delivery_part(subscription, "include_images") else None
+    effective_charts = charts if subscription.includes_delivery_part("include_images") else None
 
     def build(with_charts: list[dict] | None) -> SlackMessage:
         return _build_ai_slack_message(
@@ -500,8 +485,8 @@ def build_ai_teams_card(
     sections = _split_text_into_chunks(report[:_TEAMS_REPORT_CHUNKING_LIMIT], TEAMS_TEXT_BLOCK_LIMIT)
 
     heading = f"**{title}**"
-    include_manage_link = _include_delivery_part(subscription, "include_manage_link")
-    include_feedback = _include_delivery_part(subscription, "include_feedback")
+    include_manage_link = subscription.includes_delivery_part("include_manage_link")
+    include_feedback = subscription.includes_delivery_part("include_feedback")
     shortened_notice = "This report was shortened to fit."
     if include_manage_link:
         shortened_notice += f" [Read all of it in PostHog]({subscription_url}?{TEAMS_UTM_TAGS})"
@@ -537,7 +522,7 @@ def build_ai_teams_card(
         body.extend(teams_text_block(section) for section in kept)
     else:
         body.append(teams_text_block("_No report content was generated._"))
-    for chart in (charts or []) if _include_delivery_part(subscription, "include_images") else []:
+    for chart in (charts or []) if subscription.includes_delivery_part("include_images") else []:
         body.append(
             {
                 "type": "Image",

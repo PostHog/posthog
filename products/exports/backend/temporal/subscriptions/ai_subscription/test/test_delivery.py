@@ -221,6 +221,9 @@ def _mock_subscription() -> MagicMock:
     sub.team_id = 1
     sub.id = 2
     sub.delivery_config = {}
+    sub.includes_delivery_part.side_effect = lambda option: Subscription._delivery_config_includes(
+        sub.delivery_config, option
+    )
     return sub
 
 
@@ -685,29 +688,22 @@ class TestFeedbackFooter:
         assert "Unsubscribe from this report" in html
 
 
-class TestPersistAiQueryPlanRaceGuard(APIBaseTest):
+class TestPersistAiQueryPlan(APIBaseTest):
     @parameterized.expand(
         [
-            # A relevant edit that lands during generation must not be overwritten by the old run.
-            ("unchanged_default_images_persists", "original prompt?", {}, True, True),
-            ("unchanged_hidden_images_persists", "original prompt?", {"include_images": False}, False, True),
-            ("prompt_changed_noops", "edited mid-generation?", {}, True, False),
-            ("images_enabled_mid_generation_noops", "original prompt?", {"include_images": True}, False, False),
-            ("images_disabled_mid_generation_noops", "original prompt?", {"include_images": False}, True, False),
+            ("unchanged_prompt_persists", "original prompt?", True),
+            ("changed_prompt_noops", "edited mid-generation?", False),
         ]
     )
-    def test_persist_is_conditional_on_planning_state(
+    def test_persist_is_conditional_on_prompt(
         self,
         _name: str,
         current_prompt: str,
-        current_delivery_config: dict,
-        planning_include_images: bool,
         written: bool,
     ) -> None:
         sub = Subscription.objects.create(
             team=self.team,
             prompt=current_prompt,
-            delivery_config=current_delivery_config,
             target_type="email",
             target_value="a@posthog.com",
             frequency="weekly",
@@ -716,13 +712,7 @@ class TestPersistAiQueryPlanRaceGuard(APIBaseTest):
         )
         plan = {"version": 1, "plan": {}}
 
-        persisted = _persist_ai_query_plan(
-            sub.id,
-            self.team.id,
-            "original prompt?",
-            plan,
-            include_images=planning_include_images,
-        )
+        persisted = _persist_ai_query_plan(sub.id, self.team.id, "original prompt?", plan)
 
         sub.refresh_from_db()
         assert persisted is written
@@ -813,15 +803,21 @@ class TestFreezePlanPersistence:
     These guard the freeze contract without touching the DB — the persist write itself is a one-line
     queryset .update() exercised by the integration/activity suites."""
 
-    def _subscription(self, ai_query_plan: dict | None) -> MagicMock:
-        sub = MagicMock()
-        sub.id = 42
-        sub.team_id = 7
-        sub.prompt = "how are exports doing?"
-        sub.ai_query_plan = ai_query_plan
-        return sub
+    def _subscription(self, ai_query_plan: dict | None) -> Subscription:
+        return Subscription(
+            id=42,
+            team_id=7,
+            prompt="how are exports doing?",
+            ai_query_plan=ai_query_plan,
+            delivery_config={},
+            target_type="email",
+            target_value="a@posthog.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+        )
 
-    def _context(self, sub: MagicMock) -> tuple[MagicMock, MagicMock, ReportWindow, dict | None]:
+    def _context(self, sub: Subscription) -> tuple[MagicMock, MagicMock, ReportWindow, dict | None]:
         end = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
         window = ReportWindow(start=end - timedelta(days=1), end=end)
         return MagicMock(), MagicMock(), window, sub.ai_query_plan
@@ -851,7 +847,7 @@ class TestFreezePlanPersistence:
             returned = await build_ai_subscription_report(sub)
 
         # The plan generated on the first delivery is frozen onto the (id, team_id)-scoped subscription.
-        mock_persist.assert_called_once_with(sub.id, sub.team_id, sub.prompt, fresh_plan, include_images=True)
+        mock_persist.assert_called_once_with(sub.id, sub.team_id, sub.prompt, fresh_plan)
         assert returned.query_plan_status == AIQueryPlanStatus.FROZEN
 
     async def test_persist_failure_does_not_abort_the_delivery(self) -> None:

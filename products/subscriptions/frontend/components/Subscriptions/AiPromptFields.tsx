@@ -232,8 +232,7 @@ export function AiPromptFields({
             <LemonField name="delivery_config">
                 {({ value, onChange }) => {
                     const deliveryConfig = value as DeliveryConfigApi | undefined
-                    const displaySummary = getAiSubscriptionDisplaySummary(deliveryConfig, 'compact', targetType)
-                    const posthogActionsState = getAiSubscriptionDisplayOptionState(deliveryConfig, 'posthog_actions')
+                    const displaySummary = getAiSubscriptionDisplaySummary(deliveryConfig, targetType)
 
                     return (
                         <LemonCollapse
@@ -288,10 +287,6 @@ export function AiPromptFields({
                                                                 <div className="leading-tight">{label}</div>
                                                                 <div className="text-xs text-secondary font-normal leading-tight">
                                                                     {description}
-                                                                    {option === 'posthog_actions' &&
-                                                                    posthogActionsState === 'indeterminate'
-                                                                        ? ' Some PostHog links are currently included; changing this option updates them together.'
-                                                                        : null}
                                                                 </div>
                                                             </div>
                                                         }

@@ -237,7 +237,7 @@ class Subscription(ModelActivityMixin, models.Model):
         if "prompt" not in self.get_deferred_fields():
             self._initial_prompt = self.prompt
         if "delivery_config" not in self.get_deferred_fields():
-            self._initial_include_images = self._delivery_config_includes_images(self.delivery_config)
+            self._initial_include_images = self.includes_delivery_part("include_images")
 
     def save(self, *args, **kwargs) -> None:
         # Only if the schedule has changed do we update the next delivery date
@@ -246,21 +246,21 @@ class Subscription(ModelActivityMixin, models.Model):
             self.set_next_delivery_date()
             if "update_fields" in kwargs:
                 kwargs["update_fields"].append("next_delivery_date")
-        include_images = self._delivery_config_includes_images(self.delivery_config)
+        include_images = self.includes_delivery_part("include_images")
         initial_include_images = getattr(self, "_initial_include_images", None)
         if initial_include_images is None and self.id:
             persisted_delivery_config = (
                 type(self).objects.filter(id=self.id).values_list("delivery_config", flat=True).first()
             )
             initial_include_images = (
-                self._delivery_config_includes_images(persisted_delivery_config)
+                self._delivery_config_includes(persisted_delivery_config, "include_images")
                 if persisted_delivery_config is not None
                 else include_images
             )
         prompt_changed = self.prompt != getattr(self, "_initial_prompt", self.prompt)
         images_just_enabled = include_images and not initial_include_images
-        # Keep invalidation at the model level so every save path gets a fresh plan when its prompt
-        # changes or when chart validation resumes after images were hidden.
+        # Frozen plans skip chart validation while images are hidden. Enabling images needs a new
+        # plan, while feedback and footer options only affect rendering.
         if self.id and (prompt_changed or images_just_enabled) and self.ai_query_plan is not None:
             self.ai_query_plan = None
             if kwargs.get("update_fields") is not None:
@@ -270,9 +270,12 @@ class Subscription(ModelActivityMixin, models.Model):
         self._initial_include_images = include_images
 
     @staticmethod
-    def _delivery_config_includes_images(delivery_config: Any) -> bool:
+    def _delivery_config_includes(delivery_config: Any, option: str) -> bool:
         config = delivery_config if isinstance(delivery_config, dict) else {}
-        return bool(config.get("include_images", True))
+        return bool(config.get(option, True))
+
+    def includes_delivery_part(self, option: str) -> bool:
+        return self._delivery_config_includes(self.delivery_config, option)
 
     @classmethod
     def derive_resource_type(cls, insight_id: int | None, dashboard_id: int | None, prompt: str | None) -> str:

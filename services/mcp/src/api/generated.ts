@@ -28322,7 +28322,7 @@ export namespace Schemas {
     export interface DeliveryConfig {
       /** Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. */
       post_all_insights_in_main_message?: boolean;
-      /** AI prompt subscriptions only: include generated chart images in Slack, email, and Microsoft Teams. Defaults to true when omitted. */
+      /** AI prompt subscriptions only: include generated chart images. Defaults to true when omitted. */
       include_images?: boolean;
       /** AI prompt subscriptions only: include report feedback links. Defaults to true when omitted. */
       include_feedback?: boolean;
@@ -59465,7 +59465,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       summary_prompt_guide?: string;
-      /** Per-delivery rendering options. PATCH merges submitted options with the stored configuration; PUT replaces it. Each option documents which delivery targets it applies to. */
+      /** Per-delivery rendering options. Each option documents which delivery targets it applies to. */
       delivery_config?: DeliveryConfig;
     }
 
@@ -68742,7 +68742,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       summary_prompt_guide?: string;
-      /** Per-delivery rendering options. PATCH merges submitted options with the stored configuration; PUT replaces it. Each option documents which delivery targets it applies to. */
+      /** Per-delivery rendering options. Each option documents which delivery targets it applies to. */
       delivery_config?: DeliveryConfig;
     }
 

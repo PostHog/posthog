@@ -93,6 +93,26 @@ class TestSubscriptionScheduling:
         assert next_delivery_date is None
 
 
+class TestSubscriptionDeliveryConfig:
+    @parameterized.expand(
+        [
+            ("omitted_option", {}, "include_feedback", True),
+            ("malformed_config", "invalid", "include_images", True),
+            ("enabled_option", {"include_manage_link": True}, "include_manage_link", True),
+            ("disabled_option", {"include_manage_link": False}, "include_manage_link", False),
+        ]
+    )
+    def test_includes_delivery_part(self, _name: str, delivery_config, option: str, expected: bool) -> None:
+        subscription = Subscription(
+            delivery_config=delivery_config,
+            frequency=Subscription.SubscriptionFrequency.WEEKLY,
+            interval=1,
+            start_date=datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC")),
+        )
+
+        assert subscription.includes_delivery_part(option) is expected
+
+
 @patch.object(settings, "JWT_SIGNING_KEY", "not-so-secret")
 @freeze_time("2022-01-01")
 class TestSubscription(BaseTest):

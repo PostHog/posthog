@@ -49,15 +49,15 @@ function resolveAiSubscriptionDisplayConfig(
 
 export type AiSubscriptionDisplayOption = 'images' | 'feedback' | 'posthog_actions'
 
-function getAiSubscriptionDisplayCompactSummary(resolved: AiSubscriptionDisplayConfig): string {
+function summarizeAiSubscriptionDisplayConfig(resolved: AiSubscriptionDisplayConfig): string {
     if (Object.values(resolved).every(Boolean)) {
         return 'Full report'
     }
     if (!Object.values(resolved).some(Boolean)) {
-        return 'Text only'
+        return 'Report only'
     }
 
-    const includedContent = ['Text']
+    const includedContent = ['Report']
     if (resolved.include_images) {
         includedContent.push('charts')
     }
@@ -65,51 +65,28 @@ function getAiSubscriptionDisplayCompactSummary(resolved: AiSubscriptionDisplayC
         includedContent.push('feedback')
     }
     if (resolved.include_manage_link && resolved.include_posthog_hint) {
-        includedContent.push('PostHog')
+        includedContent.push('PostHog links and suggestions')
     } else if (resolved.include_manage_link) {
         includedContent.push('manage link')
     } else if (resolved.include_posthog_hint) {
-        includedContent.push('PostHog suggestions')
+        includedContent.push('PostHog suggestion')
     }
 
-    return includedContent.length === 2 && includedContent[1] === 'charts'
-        ? 'Text and charts'
-        : includedContent.join(' + ')
-}
-
-function getAiSubscriptionDisplayReviewSummary(resolved: AiSubscriptionDisplayConfig): string {
-    const includedContent = ['AI-written report']
-    if (resolved.include_images) {
-        includedContent.push('Chart images')
-    }
-    if (resolved.include_feedback) {
-        includedContent.push('Feedback buttons')
-    }
-    if (resolved.include_manage_link && resolved.include_posthog_hint) {
-        includedContent.push('PostHog links and suggestions')
-    } else if (resolved.include_manage_link) {
-        includedContent.push('Manage subscription link')
-    } else if (resolved.include_posthog_hint) {
-        includedContent.push('PostHog suggestions')
-    }
-    return includedContent.length === 1 ? 'AI-written report only' : includedContent.join(' · ')
+    return includedContent.join(' + ')
 }
 
 export function getAiSubscriptionDisplaySummary(
     deliveryConfig: DeliveryConfigApi | null | undefined,
-    mode: 'compact' | 'review' = 'compact',
     targetType?: SubscriptionType['target_type'] | null
 ): string {
     const resolved = resolveAiSubscriptionDisplayConfig(deliveryConfig, targetType)
-    return mode === 'review'
-        ? getAiSubscriptionDisplayReviewSummary(resolved)
-        : getAiSubscriptionDisplayCompactSummary(resolved)
+    return summarizeAiSubscriptionDisplayConfig(resolved)
 }
 
 export function getAiSubscriptionDisplayOptionState(
     deliveryConfig: DeliveryConfigApi | null | undefined,
     option: AiSubscriptionDisplayOption
-): boolean | 'indeterminate' {
+): boolean {
     const resolved = resolveAiSubscriptionDisplayConfig(deliveryConfig)
 
     if (option === 'images') {
@@ -118,10 +95,7 @@ export function getAiSubscriptionDisplayOptionState(
     if (option === 'feedback') {
         return resolved.include_feedback
     }
-    if (resolved.include_manage_link !== resolved.include_posthog_hint) {
-        return 'indeterminate'
-    }
-    return resolved.include_manage_link
+    return resolved.include_manage_link || resolved.include_posthog_hint
 }
 
 export function updateAiSubscriptionDisplayOption(

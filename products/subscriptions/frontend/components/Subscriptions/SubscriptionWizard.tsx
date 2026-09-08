@@ -599,11 +599,7 @@ function SubscriptionSettingsStep({
 
     return (
         <div className="mt-6 flex flex-col gap-2">
-            <LemonLabel>
-                {subscription.resource_type === SubscriptionResourceTypes.AiPrompt
-                    ? 'After creating'
-                    : 'Advanced settings'}
-            </LemonLabel>
+            <LemonLabel>Advanced settings</LemonLabel>
             {dataProcessingAccepted && subscription.resource_type !== SubscriptionResourceTypes.AiPrompt ? (
                 <LemonField name="summary_enabled">
                     {({ value, onChange }) => (
@@ -717,11 +713,7 @@ function SubscriptionReviewStep({
                   { label: 'Analysis window', value: formatAiAnalysisWindow(subscription) },
                   {
                       label: 'Report contents',
-                      value: getAiSubscriptionDisplaySummary(
-                          subscription.delivery_config,
-                          'review',
-                          subscription.target_type
-                      ),
+                      value: getAiSubscriptionDisplaySummary(subscription.delivery_config, subscription.target_type),
                   },
               ]
             : []),

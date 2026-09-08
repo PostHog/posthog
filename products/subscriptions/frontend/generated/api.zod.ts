@@ -198,7 +198,7 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                     .boolean()
                     .optional()
                     .describe(
-                        'AI prompt subscriptions only: include generated chart images in Slack, email, and Microsoft Teams. Defaults to true when omitted.'
+                        'AI prompt subscriptions only: include generated chart images. Defaults to true when omitted.'
                     ),
                 include_feedback: zod
                     .boolean()
@@ -221,9 +221,7 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             })
             .describe('Typed view over the Subscription.delivery_config JSON blob.')
             .optional()
-            .describe(
-                'Per-delivery rendering options. PATCH merges submitted options with the stored configuration; PUT replaces it. Each option documents which delivery targets it applies to.'
-            ),
+            .describe('Per-delivery rendering options. Each option documents which delivery targets it applies to.'),
     })
     .describe('Standard Subscription serializer.')
 
@@ -416,7 +414,7 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
                     .boolean()
                     .optional()
                     .describe(
-                        'AI prompt subscriptions only: include generated chart images in Slack, email, and Microsoft Teams. Defaults to true when omitted.'
+                        'AI prompt subscriptions only: include generated chart images. Defaults to true when omitted.'
                     ),
                 include_feedback: zod
                     .boolean()
@@ -439,9 +437,7 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             })
             .describe('Typed view over the Subscription.delivery_config JSON blob.')
             .optional()
-            .describe(
-                'Per-delivery rendering options. PATCH merges submitted options with the stored configuration; PUT replaces it. Each option documents which delivery targets it applies to.'
-            ),
+            .describe('Per-delivery rendering options. Each option documents which delivery targets it applies to.'),
     })
     .describe('Standard Subscription serializer.')
 
@@ -639,7 +635,7 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                     .boolean()
                     .optional()
                     .describe(
-                        'AI prompt subscriptions only: include generated chart images in Slack, email, and Microsoft Teams. Defaults to true when omitted.'
+                        'AI prompt subscriptions only: include generated chart images. Defaults to true when omitted.'
                     ),
                 include_feedback: zod
                     .boolean()
@@ -662,8 +658,6 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             })
             .describe('Typed view over the Subscription.delivery_config JSON blob.')
             .optional()
-            .describe(
-                'Per-delivery rendering options. PATCH merges submitted options with the stored configuration; PUT replaces it. Each option documents which delivery targets it applies to.'
-            ),
+            .describe('Per-delivery rendering options. Each option documents which delivery targets it applies to.'),
     })
     .describe('Standard Subscription serializer.')

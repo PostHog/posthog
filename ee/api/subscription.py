@@ -274,10 +274,7 @@ class DeliveryConfigSerializer(serializers.Serializer):
     )
     include_images = serializers.BooleanField(
         required=False,
-        help_text=(
-            "AI prompt subscriptions only: include generated chart images in Slack, email, and Microsoft Teams. "
-            "Defaults to true when omitted."
-        ),
+        help_text="AI prompt subscriptions only: include generated chart images. Defaults to true when omitted.",
     )
     include_feedback = serializers.BooleanField(
         required=False,
@@ -351,10 +348,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     )
     delivery_config = DeliveryConfigSerializer(
         required=False,
-        help_text=(
-            "Per-delivery rendering options. PATCH merges submitted options with the stored configuration; "
-            "PUT replaces it. Each option documents which delivery targets it applies to."
-        ),
+        help_text="Per-delivery rendering options. Each option documents which delivery targets it applies to.",
     )
     insight_short_id = serializers.SerializerMethodField()
     resource_name = serializers.SerializerMethodField()
@@ -550,12 +544,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         existing = self.instance
 
-        # Unlike PUT, a partial update changes only the submitted delivery options. Merge before
-        # validation so destination guards, persistence, and the redelivery comparison all see the
-        # same effective configuration. An empty object is therefore an intentional PATCH no-op.
-        if self.partial and existing is not None and "delivery_config" in attrs:
-            attrs["delivery_config"] = {**(existing.delivery_config or {}), **attrs["delivery_config"]}
-
         if attrs.get("dashboard") and attrs["dashboard"].team.id != self.context["team_id"]:
             raise ValidationError({"dashboard": ["This dashboard does not belong to your team."]})
 
@@ -586,6 +574,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 )
         except ValueError as exc:
             raise ValidationError(str(exc))
+        if (
+            resource_type == Subscription.ResourceType.AI_PROMPT
+            and self.partial
+            and existing is not None
+            and "delivery_config" in attrs
+        ):
+            attrs["delivery_config"] = {**(existing.delivery_config or {}), **attrs["delivery_config"]}
         content_validators: dict[str, Callable[[dict, Optional[Subscription]], None]] = {
             Subscription.ResourceType.INSIGHT: self._validate_insight_content,
             Subscription.ResourceType.DASHBOARD: self._validate_dashboard_content,

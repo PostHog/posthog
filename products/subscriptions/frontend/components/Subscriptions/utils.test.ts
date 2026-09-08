@@ -87,24 +87,24 @@ describe('AI subscription display options', () => {
     it.each([
         ['uses full report for legacy subscriptions with no display flags', undefined, 'Full report'],
         [
-            'recognizes text only',
+            'recognizes the report-only state',
             {
                 include_images: false,
                 include_feedback: false,
                 include_manage_link: false,
                 include_posthog_hint: false,
             },
-            'Text only',
+            'Report only',
         ],
         [
-            'recognizes text and charts',
+            'recognizes the report-and-charts state',
             {
                 include_images: true,
                 include_feedback: false,
                 include_manage_link: false,
                 include_posthog_hint: false,
             },
-            'Text and charts',
+            'Report + charts',
         ],
         [
             'names feedback-only content',
@@ -114,7 +114,7 @@ describe('AI subscription display options', () => {
                 include_manage_link: false,
                 include_posthog_hint: false,
             },
-            'Text + feedback',
+            'Report + feedback',
         ],
         [
             'names PostHog-only content',
@@ -124,7 +124,7 @@ describe('AI subscription display options', () => {
                 include_manage_link: true,
                 include_posthog_hint: true,
             },
-            'Text + PostHog',
+            'Report + PostHog links and suggestions',
         ],
         [
             'names charts and feedback content',
@@ -134,7 +134,7 @@ describe('AI subscription display options', () => {
                 include_manage_link: false,
                 include_posthog_hint: false,
             },
-            'Text + charts + feedback',
+            'Report + charts + feedback',
         ],
         [
             'names charts and PostHog content',
@@ -144,7 +144,7 @@ describe('AI subscription display options', () => {
                 include_manage_link: true,
                 include_posthog_hint: true,
             },
-            'Text + charts + PostHog',
+            'Report + charts + PostHog links and suggestions',
         ],
         [
             'names feedback and PostHog content',
@@ -154,7 +154,7 @@ describe('AI subscription display options', () => {
                 include_manage_link: true,
                 include_posthog_hint: true,
             },
-            'Text + feedback + PostHog',
+            'Report + feedback + PostHog links and suggestions',
         ],
         [
             'names an API-managed manage-link-only state',
@@ -164,7 +164,7 @@ describe('AI subscription display options', () => {
                 include_manage_link: true,
                 include_posthog_hint: false,
             },
-            'Text + manage link',
+            'Report + manage link',
         ],
         [
             'names an API-managed suggestion-only state',
@@ -174,7 +174,7 @@ describe('AI subscription display options', () => {
                 include_manage_link: false,
                 include_posthog_hint: true,
             },
-            'Text + PostHog suggestions',
+            'Report + PostHog suggestion',
         ],
     ] as const)('%s', (_label, deliveryConfig, expected) => {
         expect(getAiSubscriptionDisplaySummary(deliveryConfig)).toBe(expected)
@@ -207,13 +207,13 @@ describe('AI subscription display options', () => {
         })
     })
 
-    it('treats different PostHog action flags as a mixed setting', () => {
+    it('treats either PostHog action flag as enabled', () => {
         expect(
             getAiSubscriptionDisplayOptionState(
                 { include_manage_link: true, include_posthog_hint: false },
                 'posthog_actions'
             )
-        ).toBe('indeterminate')
+        ).toBe(true)
     })
 
     it('treats omitted legacy flags as enabled', () => {
@@ -223,53 +223,11 @@ describe('AI subscription display options', () => {
     })
 
     it.each([
-        [
-            'lists the full legacy report',
-            undefined,
-            'AI-written report · Chart images · Feedback buttons · PostHog links and suggestions',
-        ],
-        [
-            'lists text only',
-            {
-                include_images: false,
-                include_feedback: false,
-                include_manage_link: false,
-                include_posthog_hint: false,
-            },
-            'AI-written report only',
-        ],
-        [
-            'lists the exact parts of a mixed API configuration',
-            {
-                include_images: false,
-                include_feedback: true,
-                include_manage_link: true,
-                include_posthog_hint: false,
-            },
-            'AI-written report · Feedback buttons · Manage subscription link',
-        ],
-    ] as const)('%s in the review summary', (_label, deliveryConfig, expected) => {
-        expect(getAiSubscriptionDisplaySummary(deliveryConfig, 'review')).toBe(expected)
-    })
-
-    it.each([
-        [
-            'Slack',
-            SubscriptionTargetEnumApi.Slack,
-            'AI-written report · Chart images · Feedback buttons · PostHog links and suggestions',
-        ],
-        [
-            'email',
-            SubscriptionTargetEnumApi.Email,
-            'AI-written report · Chart images · Feedback buttons · Manage subscription link',
-        ],
-        [
-            'Microsoft Teams',
-            SubscriptionTargetEnumApi.Teams,
-            'AI-written report · Chart images · Feedback buttons · Manage subscription link',
-        ],
+        ['Slack', SubscriptionTargetEnumApi.Slack, 'Full report'],
+        ['email', SubscriptionTargetEnumApi.Email, 'Report + charts + feedback + manage link'],
+        ['Microsoft Teams', SubscriptionTargetEnumApi.Teams, 'Report + charts + feedback + manage link'],
     ] as const)('lists the content that %s recipients receive', (_label, targetType, expected) => {
-        expect(getAiSubscriptionDisplaySummary(undefined, 'review', targetType)).toBe(expected)
+        expect(getAiSubscriptionDisplaySummary(undefined, targetType)).toBe(expected)
     })
 
     it.each([

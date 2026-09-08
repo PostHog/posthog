@@ -753,6 +753,25 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["delivery_config"] == {"post_all_insights_in_main_message": True}
 
+    def test_patch_replaces_delivery_config_on_non_ai_subscription(self):
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
+        )
+        subscription_id = self._create_subscription(
+            target_type="slack",
+            target_value="C1234|#general",
+            integration_id=integration.id,
+            delivery_config={"post_all_insights_in_main_message": True},
+        ).json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"delivery_config": {}},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["delivery_config"] == {}
+
     def test_post_all_in_main_requires_files_write_scope(self):
         integration = Integration.objects.create(
             team=self.team, kind="slack", config={"scope": "chat:write,channels:read"}
@@ -3448,40 +3467,14 @@ class TestAISubscriptionAPI(APILicensedTest):
         subscription = Subscription.objects.get(id=response.json()["id"])
         assert subscription.delivery_config == expected_config
 
-    def test_patch_merges_ai_delivery_display_flags(self, mock_is_cloud, mock_flag, mock_sync):
-        self._enable_ai()
-        mock_client = self._mock_temporal(mock_sync)
-        display_flags = {
-            "include_images": True,
-            "include_feedback": False,
-            "include_manage_link": False,
-            "include_posthog_hint": False,
-        }
-        create_response = self.client.post(
-            f"/api/projects/{self.team.id}/subscriptions",
-            self._make_ai_payload(delivery_config=display_flags),
-        )
-        assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
-        mock_client.start_workflow.reset_mock()
-
-        patch_response = self.client.patch(
-            f"/api/projects/{self.team.id}/subscriptions/{create_response.json()['id']}",
-            {"delivery_config": {"include_images": False}},
-        )
-
-        assert patch_response.status_code == status.HTTP_200_OK, patch_response.json()
-        expected_config = {
-            "post_all_insights_in_main_message": False,
-            **display_flags,
-            "include_images": False,
-        }
-        assert patch_response.json()["delivery_config"] == expected_config
-        subscription = Subscription.objects.get(id=create_response.json()["id"])
-        assert subscription.delivery_config == expected_config
-        mock_client.start_workflow.assert_called_once()
-
-    def test_patch_of_unchanged_ai_delivery_flag_does_not_redeliver_or_drop_other_flags(
-        self, mock_is_cloud, mock_flag, mock_sync
+    @parameterized.expand(
+        [
+            ("changed_flag", False, 1),
+            ("unchanged_flag", True, 0),
+        ]
+    )
+    def test_patch_merges_ai_delivery_display_flags(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, include_images, expected_redelivery_count
     ):
         self._enable_ai()
         mock_client = self._mock_temporal(mock_sync)
@@ -3500,15 +3493,19 @@ class TestAISubscriptionAPI(APILicensedTest):
 
         patch_response = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{create_response.json()['id']}",
-            {"delivery_config": {"include_images": True}},
+            {"delivery_config": {"include_images": include_images}},
         )
 
         assert patch_response.status_code == status.HTTP_200_OK, patch_response.json()
-        assert patch_response.json()["delivery_config"] == {
+        expected_config = {
             "post_all_insights_in_main_message": False,
             **display_flags,
+            "include_images": include_images,
         }
-        mock_client.start_workflow.assert_not_called()
+        assert patch_response.json()["delivery_config"] == expected_config
+        subscription = Subscription.objects.get(id=create_response.json()["id"])
+        assert subscription.delivery_config == expected_config
+        assert mock_client.start_workflow.call_count == expected_redelivery_count
 
     def test_patch_validates_the_merged_delivery_config(self, mock_is_cloud, mock_flag, mock_sync):
         self._enable_ai()
