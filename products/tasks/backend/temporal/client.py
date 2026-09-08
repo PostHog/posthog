@@ -1,6 +1,7 @@
 import uuid
 import asyncio
 import logging
+from contextlib import nullcontext
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
@@ -9,6 +10,8 @@ from django.utils import timezone as django_timezone
 
 import posthoganalytics
 from asgiref.sync import sync_to_async
+from opentelemetry import trace
+from opentelemetry.trace import SpanKind
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -16,9 +19,18 @@ from posthog.models.team.team import Team
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.constants import AGENT_OTEL_TELEMETRY_STATE_KEY, SANDBOX_EVENT_INGEST_FEATURE_FLAG
+from products.tasks.backend.constants import (
+    AGENT_OTEL_TELEMETRY_STATE_KEY,
+    SANDBOX_EVENT_INGEST_FEATURE_FLAG,
+    TASK_START_TRACE_STATE_KEY,
+)
 from products.tasks.backend.error_telemetry import truncate_error_message
-from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled, is_native_steering_signals_enabled
+from products.tasks.backend.feature_flags import (
+    is_agent_otel_telemetry_enabled,
+    is_native_steering_signals_enabled,
+    is_task_start_trace_enabled,
+    task_start_trace_enabled_for_state,
+)
 from products.tasks.backend.logic.services.dev_stack_image import DEV_STACK_IMAGE_NAME
 from products.tasks.backend.metrics import AGENT_OTEL_TELEMETRY_STAMPED_TOTAL, observe_task_run_workflow_start
 from products.tasks.backend.models import Task, TaskRun
@@ -116,7 +128,7 @@ def _get_task_run_for_metrics(run_id: str) -> TaskRun | None:
         return None
 
 
-def _capture_run_feature_flags(run_id: str) -> None:
+def _capture_run_feature_flags(run_id: str) -> dict[str, Any] | None:
     """Evaluate per-run rollout flags once at dispatch and stamp them into run state.
 
     Idempotent per key, so retries and resumes keep the decision the run started with.
@@ -130,8 +142,9 @@ def _capture_run_feature_flags(run_id: str) -> None:
     state = task_run.state or {}
     need_event_ingest = not isinstance(state.get("sandbox_event_ingest_enabled"), bool)
     need_otel_telemetry = not isinstance(state.get(AGENT_OTEL_TELEMETRY_STATE_KEY), bool)
-    if not need_event_ingest and not need_otel_telemetry:
-        return
+    need_start_trace = not isinstance(state.get(TASK_START_TRACE_STATE_KEY), bool)
+    if not need_event_ingest and not need_otel_telemetry and not need_start_trace:
+        return state
 
     task = task_run.task
     organization_id = str(task.team.organization_id)
@@ -160,12 +173,17 @@ def _capture_run_feature_flags(run_id: str) -> None:
     otel_telemetry_enabled = need_otel_telemetry and is_agent_otel_telemetry_enabled(
         distinct_id=distinct_id, organization_id=organization_id
     )
+    start_trace_enabled = need_start_trace and is_task_start_trace_enabled(
+        distinct_id=distinct_id, organization_id=organization_id
+    )
 
     def _stamp_flags(latest_state: dict[str, Any]) -> None:
         if need_event_ingest and not isinstance(latest_state.get("sandbox_event_ingest_enabled"), bool):
             latest_state["sandbox_event_ingest_enabled"] = event_ingest_enabled
         if need_otel_telemetry and not isinstance(latest_state.get(AGENT_OTEL_TELEMETRY_STATE_KEY), bool):
             latest_state[AGENT_OTEL_TELEMETRY_STATE_KEY] = otel_telemetry_enabled
+        if need_start_trace and not isinstance(latest_state.get(TASK_START_TRACE_STATE_KEY), bool):
+            latest_state[TASK_START_TRACE_STATE_KEY] = start_trace_enabled
 
     captured_state = TaskRun.mutate_state_atomic(task_run.id, _stamp_flags)
     if need_otel_telemetry:
@@ -179,6 +197,23 @@ def _capture_run_feature_flags(run_id: str) -> None:
             "task_id": str(task.id),
             "sandbox_event_ingest_enabled": captured_state.get("sandbox_event_ingest_enabled"),
             "agent_otel_telemetry_enabled": captured_state.get(AGENT_OTEL_TELEMETRY_STATE_KEY),
+            "task_start_trace_enabled": captured_state.get(TASK_START_TRACE_STATE_KEY),
+        },
+    )
+    return captured_state
+
+
+def _task_start_trace(task_run: TaskRun | None):
+    if task_run is None or not task_start_trace_enabled_for_state(task_run.state):
+        return nullcontext()
+    return trace.get_tracer(__name__).start_as_current_span(
+        "tasks.run.trigger",
+        kind=SpanKind.PRODUCER,
+        attributes={
+            "task_id": str(task_run.task_id),
+            "task_run_id": str(task_run.id),
+            "task_origin_product": task_run.task.origin_product,
+            "task_run_environment": task_run.environment,
         },
     )
 
@@ -224,7 +259,9 @@ async def execute_task_processing_workflow_async(
         task_run_for_metrics = await _aget_task_run_for_metrics(run_id)
         observe_task_run_workflow_start(task_run_for_metrics, outcome="attempted", reason="requested")
         await Team.objects.select_related("organization").aget(id=team_id)
-        await sync_to_async(_capture_run_feature_flags)(run_id)
+        captured_state = await sync_to_async(_capture_run_feature_flags)(run_id)
+        if captured_state is not None and task_run_for_metrics is not None:
+            task_run_for_metrics.state = captured_state
 
         workflow_id = TaskRun.get_workflow_id(task_id, run_id, workflow_id_prefix)
         if workflow_id_prefix:
@@ -246,14 +283,15 @@ async def execute_task_processing_workflow_async(
         )
 
         client = await async_connect()
-        await client.start_workflow(
-            "process-task",
-            workflow_input,
-            id=workflow_id,
-            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-            task_queue=settings.TASKS_TASK_QUEUE,
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+        with _task_start_trace(task_run_for_metrics):
+            await client.start_workflow(
+                "process-task",
+                workflow_input,
+                id=workflow_id,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                task_queue=settings.TASKS_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
 
         logger.info("task_processing_workflow_started", extra={"task_id": task_id, "run_id": run_id})
         observe_task_run_workflow_start(task_run_for_metrics, outcome="started", reason="accepted")
@@ -321,7 +359,9 @@ def execute_task_processing_workflow(
         )
 
         Team.objects.get(id=team_id)
-        _capture_run_feature_flags(run_id)
+        captured_state = _capture_run_feature_flags(run_id)
+        if captured_state is not None and task_run_for_metrics is not None:
+            task_run_for_metrics.state = captured_state
 
         workflow_id = TaskRun.get_workflow_id(task_id, run_id, workflow_id_prefix)
         if workflow_id_prefix:
@@ -349,16 +389,17 @@ def execute_task_processing_workflow(
             extra={"workflow_id": workflow_id, "task_id": task_id, "run_id": run_id},
         )
 
-        asyncio.run(
-            client.start_workflow(
-                "process-task",
-                workflow_input,
-                id=workflow_id,
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                task_queue=settings.TASKS_TASK_QUEUE,
-                retry_policy=RetryPolicy(maximum_attempts=3),
+        with _task_start_trace(task_run_for_metrics):
+            asyncio.run(
+                client.start_workflow(
+                    "process-task",
+                    workflow_input,
+                    id=workflow_id,
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    task_queue=settings.TASKS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
             )
-        )
 
         logger.info("task_processing_workflow_started", extra={"task_id": task_id, "run_id": run_id})
         observe_task_run_workflow_start(task_run_for_metrics, outcome="started", reason="accepted")

@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
 
@@ -10,6 +10,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.models import Organization, Team
 from posthog.models.user import User
 
+from products.tasks.backend.constants import TASK_START_TRACE_STATE_KEY
 from products.tasks.backend.models import Loop, Task, TaskRun
 from products.tasks.backend.temporal.client import (
     execute_task_processing_workflow,
@@ -230,10 +231,15 @@ class TestExecuteTaskProcessingWorkflow(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.state["sandbox_event_ingest_enabled"], True)
         self.assertEqual(run.state["agent_otel_telemetry_enabled"], True)
+        self.assertEqual(run.state[TASK_START_TRACE_STATE_KEY], True)
         # Patching the shared posthoganalytics module attribute covers both evaluation
         # sites (event ingest in client.py, telemetry in feature_flags.py).
-        self.assertEqual(flag.call_count, 2)
-        for flag_key in ("tasks-cloud-runs-sandbox-event-ingest", "tasks-agent-run-otel-telemetry"):
+        self.assertEqual(flag.call_count, 3)
+        for flag_key in (
+            "tasks-cloud-runs-sandbox-event-ingest",
+            "tasks-agent-run-otel-telemetry",
+            "tasks-start-trace",
+        ):
             flag.assert_any_call(
                 flag_key,
                 distinct_id="process_task_workflow",
@@ -242,6 +248,48 @@ class TestExecuteTaskProcessingWorkflow(TestCase):
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
             )
+
+    @parameterized.expand([("enabled", True), ("disabled", False)])
+    def test_task_start_trace_wraps_workflow_start_only_when_enabled(self, _name: str, enabled: bool) -> None:
+        run = self._create_run()
+        run.state = {
+            "sandbox_event_ingest_enabled": False,
+            "agent_otel_telemetry_enabled": False,
+            TASK_START_TRACE_STATE_KEY: enabled,
+        }
+        run.save(update_fields=["state"])
+        client = Mock()
+        client.start_workflow = AsyncMock()
+        tracer = Mock()
+        tracer.start_as_current_span.return_value = MagicMock()
+
+        with (
+            patch("products.tasks.backend.temporal.client.sync_connect", return_value=client),
+            patch("products.tasks.backend.temporal.client.trace.get_tracer", return_value=tracer),
+        ):
+            execute_task_processing_workflow(
+                task_id=str(self.task.id),
+                run_id=str(run.id),
+                team_id=self.team.id,
+                user_id=self.user.id,
+            )
+
+        if not enabled:
+            tracer.start_as_current_span.assert_not_called()
+            return
+
+        tracer.start_as_current_span.assert_called_once()
+        args, kwargs = tracer.start_as_current_span.call_args
+        self.assertEqual(args, ("tasks.run.trigger",))
+        self.assertEqual(
+            kwargs["attributes"],
+            {
+                "task_id": str(self.task.id),
+                "task_run_id": str(run.id),
+                "task_origin_product": Task.OriginProduct.USER_CREATED,
+                "task_run_environment": run.environment,
+            },
+        )
 
     def test_captures_sandbox_event_ingest_flag_before_resuming_workflow(self) -> None:
         run = self._create_run()

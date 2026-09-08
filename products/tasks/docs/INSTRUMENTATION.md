@@ -126,6 +126,12 @@ Source: `products/tasks/backend/temporal/process_task/workflow.py`
 
 These events are tracked via `_track_workflow_event()` which calls the `track_workflow_event` Temporal activity. All workflow events include `organization` and `project` group analytics and are enriched with Temporal context properties (see [Temporal Context](#temporal-context-enrichment)).
 
+## Distributed tracing
+
+When `tasks-start-trace` is enabled, a `tasks.run.trigger` producer span wraps the Temporal workflow start. Temporal propagates its trace context to the workflow and its activities, including sandbox provisioning and the first prompt dispatch.
+
+The span has `task_id`, `task_run_id`, `task_origin_product`, and `task_run_environment`. It does not include task text, prompt text, sandbox URLs, or credentials.
+
 ### `task_run_started`
 
 Tracked when the workflow begins execution.

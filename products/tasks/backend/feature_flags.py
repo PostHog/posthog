@@ -10,6 +10,8 @@ from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG,
     DEV_STACK_IMAGE_BAKE_FEATURE_FLAG,
+    TASK_START_TRACE_FEATURE_FLAG,
+    TASK_START_TRACE_STATE_KEY,
     WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
     WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
     WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG,
@@ -149,6 +151,23 @@ def is_agent_otel_telemetry_enabled(*, distinct_id: str, organization_id: str) -
         return False
 
 
+def is_task_start_trace_enabled(*, distinct_id: str, organization_id: str) -> bool:
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                TASK_START_TRACE_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("task_start_trace_flag_check_failed")
+        return False
+
+
 def get_model_access_error(model: str | None, *, distinct_id: str | None) -> str | None:
     """Reject a gated model the caller isn't entitled to; `None` when the selection is allowed.
 
@@ -191,3 +210,7 @@ def agent_otel_telemetry_enabled_for_state(state: dict | None) -> bool:
     if settings.DEBUG:
         return True
     return (state or {}).get(AGENT_OTEL_TELEMETRY_STATE_KEY) is True
+
+
+def task_start_trace_enabled_for_state(state: dict | None) -> bool:
+    return (state or {}).get(TASK_START_TRACE_STATE_KEY) is True
