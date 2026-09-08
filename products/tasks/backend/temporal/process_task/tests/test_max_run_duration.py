@@ -7,6 +7,7 @@ from parameterized import parameterized
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.constants import MAX_INACTIVITY_TIMEOUT_SECONDS, resolve_max_run_duration
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
+from products.tasks.backend.temporal.process_task.workflow import _max_run_duration_error_message
 
 DEFAULT_CAP_SECONDS = 3 * 60 * 60
 
@@ -88,3 +89,16 @@ class TestMaxRunDuration:
         assert context.max_run_duration() is None
         context.interactive_max_run_duration_seconds = 6 * 60 * 60
         assert context.max_run_duration() == timedelta(seconds=6 * 60 * 60)
+
+    @parameterized.expand(
+        [
+            (timedelta(hours=6), "Stopped automatically: the run reached its time limit of 6 hours."),
+            (timedelta(hours=1), "Stopped automatically: the run reached its time limit of 1 hour."),
+            (timedelta(seconds=90), "Stopped automatically: the run reached its time limit of 90 seconds."),
+            (None, "Stopped automatically: the run reached its time limit."),
+        ]
+    )
+    def test_capped_run_failure_message_states_the_limit(self, cap: timedelta | None, expected: str):
+        # Every surface that reads error_message shows this text, so a capped run must not look
+        # like an unexplained crash.
+        assert _max_run_duration_error_message(cap) == expected

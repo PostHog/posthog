@@ -278,6 +278,13 @@ class TestPostSlackUpdate(TestCase):
 
     @parameterized.expand(
         [
+            (
+                {
+                    "state": {"timed_out_wall_clock": True},
+                    "error_message": "Stopped automatically: the run reached its time limit of 6 hours.",
+                },
+            ),
+            # Runs finalized before the wall-clock cap recorded a message.
             ({"state": {"timed_out_wall_clock": True}, "error_message": None},),
             ({"state": {"timed_out_inactivity": True}, "error_message": None},),
         ]
@@ -294,8 +301,9 @@ class TestPostSlackUpdate(TestCase):
         mock_delete_progress,
         mock_post_error,
     ):
-        # Timeouts can now land as FAILED, but they carry a state marker and no error_message, so
-        # the thread clears its progress marker rather than posting an error card with no reason.
+        # Timeouts can now land as FAILED, but the state marker names them as timeouts, so the
+        # thread clears its progress marker rather than posting an error card. The marker decides
+        # this, not the error_message, which the wall-clock cap fills in for the other surfaces.
         mock_run = self._make_mock_run(
             mock_task_run_class.Status.FAILED,
             output={},

@@ -14,6 +14,7 @@ import pytest
 from unittest.mock import AsyncMock, Mock
 
 from django.conf import settings
+from django.test import override_settings
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
@@ -2033,24 +2034,35 @@ class TestProcessTaskWorkflowUnit:
                 "completed",
                 {"timed_out_inactivity": True},
             ),
-            (
-                process_task_workflow_module.TaskEvent.MAX_DURATION_REACHED,
-                None,
-                False,
-                1,
-                "failed",
-                {"timeout_marker": TIMED_OUT_WALL_CLOCK_STATE_KEY},
-            ),
+            # A capped run names its cap in error_message, so the failure does not read as an
+            # unexplained crash on every surface that shows the message.
             (
                 process_task_workflow_module.TaskEvent.MAX_DURATION_REACHED,
                 "onboarding",
                 False,
                 1,
                 "failed",
-                {"timeout_marker": TIMED_OUT_WALL_CLOCK_STATE_KEY},
+                {
+                    "error_message": "Stopped automatically: the run reached its time limit of 3 hours.",
+                    "timeout_marker": TIMED_OUT_WALL_CLOCK_STATE_KEY,
+                },
+            ),
+            # An uncapped origin only reaches this branch if the cap was cleared mid-run, so the
+            # message drops the duration rather than inventing one.
+            (
+                process_task_workflow_module.TaskEvent.MAX_DURATION_REACHED,
+                None,
+                False,
+                1,
+                "failed",
+                {
+                    "error_message": "Stopped automatically: the run reached its time limit.",
+                    "timeout_marker": TIMED_OUT_WALL_CLOCK_STATE_KEY,
+                },
             ),
         ],
     )
+    @override_settings(TASKS_MAX_RUN_DURATION_SECONDS=3 * 60 * 60)
     async def test_run_terminalizes_timeouts_with_their_marker(
         self, monkeypatch, event, origin_product, pr_progress_emitted, ci_repetitions, expected_status, expected_kwargs
     ):

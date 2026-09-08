@@ -19,9 +19,9 @@ from products.tasks.backend.temporal.observability import log_with_activity_cont
 # TaskRun.state marker for runs completed by the inactivity timeout; kept out of
 # error_message so a normal completion never reads as a failure.
 TIMED_OUT_INACTIVITY_STATE_KEY = "timed_out_inactivity"
-# TaskRun.state marker for runs stopped by the hard wall-clock cap. Written without an
-# error_message: the marker is the machine-readable reason, and a fabricated prose
-# message would just get parroted back to users by every error surface.
+# TaskRun.state marker for runs stopped by the hard wall-clock cap. The marker is the
+# machine-readable reason; the workflow also records an error_message that names the cap,
+# because every error surface otherwise shows the run as an unexplained failure.
 TIMED_OUT_WALL_CLOCK_STATE_KEY = "timed_out_wall_clock"
 # TaskRun.state marker for runs terminalized because their sandbox disappeared.
 SANDBOX_GONE_STATE_KEY = "sandbox_gone"

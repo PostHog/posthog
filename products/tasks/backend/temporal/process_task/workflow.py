@@ -172,6 +172,22 @@ def _failure_error_type(cause: BaseException | None, exc: Exception) -> str:
     return type(exc).__name__
 
 
+def _format_run_duration_cap(cap: timedelta) -> str:
+    """Render the wall-clock cap for the run's failure message ("6 hours", "90 minutes")."""
+    seconds = int(cap.total_seconds())
+    for unit_seconds, unit_name in ((3600, "hour"), (60, "minute"), (1, "second")):
+        if seconds >= unit_seconds and seconds % unit_seconds == 0:
+            value = seconds // unit_seconds
+            return f"{value} {unit_name}" if value == 1 else f"{value} {unit_name}s"
+    return f"{seconds} seconds"
+
+
+def _max_run_duration_error_message(cap: timedelta | None) -> str:
+    if cap is None:
+        return "Stopped automatically: the run reached its time limit."
+    return f"Stopped automatically: the run reached its time limit of {_format_run_duration_cap(cap)}."
+
+
 def _message_dedupe_key(
     message_id: str,
     actor_user_id: int | None,
@@ -1491,9 +1507,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 )
             elif timeout_event == TaskEvent.MAX_DURATION_REACHED:
                 # Only reachable under the lifecycle-bounds patch (the timer is gated on it).
-                # A run that outlived the hard cap is a failure, not a completion, and the
-                # state marker carries the reason so error_message stays empty.
-                await self._update_task_run_status("failed", timeout_marker=TIMED_OUT_WALL_CLOCK_STATE_KEY)
+                # A run that outlived the hard cap is a failure, not a completion. The state
+                # marker carries the machine-readable reason, and the message states the cap
+                # so the run does not read as an unexplained crash.
+                await self._update_task_run_status(
+                    "failed",
+                    error_message=_max_run_duration_error_message(self.context.max_run_duration()),
+                    timeout_marker=TIMED_OUT_WALL_CLOCK_STATE_KEY,
+                )
             elif timeout_event is not None:
                 inactivity_status = "failed" if self._onboarding_exit_is_failure() else "completed"
                 await self._update_task_run_status(inactivity_status, timed_out_inactivity=True)
