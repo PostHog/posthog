@@ -55,7 +55,7 @@ export function AccountPropertyValue({ property }: AccountPropertyValueProps): J
         )
     }
     if (definition.display_type === 'date' || definition.display_type === 'datetime') {
-        const parsed = dayjs(raw)
+        const parsed = dayjs(definition.display_type === 'date' ? raw.slice(0, 10) : raw)
         if (!parsed.isValid()) {
             return <span className="text-sm font-medium truncate">{raw}</span>
         }
