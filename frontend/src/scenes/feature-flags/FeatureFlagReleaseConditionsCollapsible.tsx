@@ -87,6 +87,7 @@ import {
     isDistinctIdFilter,
     withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
+import { FlagDependencyEstimateCaveat } from './FlagDependencyEstimateCaveat'
 import { MatchingActorsLink } from './MatchingActorsLink'
 import { getPropertySelectErrorMessages, PropertySelectError } from './propertySelectErrorMessages'
 
@@ -761,6 +762,10 @@ const ConditionContent = ({
                                                                 </b>{' '}
                                                                 - <b className="tabular-nums">{rolloutPct}%</b>
                                                             </span>
+                                                            <FlagDependencyEstimateCaveat
+                                                                properties={group.properties}
+                                                                targetName={resolvedTargetName}
+                                                            />
                                                             <MatchingActorsLink
                                                                 properties={group.properties}
                                                                 resolvedGroupTypeIndex={resolvedGroupTypeIndex}
