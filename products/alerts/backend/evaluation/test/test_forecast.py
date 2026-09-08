@@ -507,6 +507,27 @@ def test_scheduled_forecast_capacity_is_inconclusive_without_extracting() -> Non
             {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
             "cumulative",
         ),
+        (
+            "calendar heatmap",
+            "day",
+            "CalendarHeatmap",
+            {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
+            "calendar heatmap, box plot, or slope graph",
+        ),
+        (
+            "box plot",
+            "day",
+            "BoxPlot",
+            {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
+            "calendar heatmap, box plot, or slope graph",
+        ),
+        (
+            "slope graph",
+            "day",
+            "SlopeGraph",
+            {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
+            "calendar heatmap, box plot, or slope graph",
+        ),
     ]
 )
 def test_forecast_validation_rejects_ambiguous_query_semantics(
