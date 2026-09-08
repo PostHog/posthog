@@ -17,7 +17,7 @@ Query the canonical `$`-prefixed event name. Servers instrumented with the `@pos
 | recent agent intents                                                | `posthog:query-mcp-tool-sample-intents`      |
 | distinct descriptions seen                                          | `posthog:query-mcp-tool-descriptions`        |
 
-And `posthog:query-mcp-harness-breakdown` for the cross-tool harness cut (see below).
+**To pick a tool, start with `posthog:query-mcp-tools`** — one row per tool with calls, errors, error rate, p50/p95/p99 latency, users, sessions, and first/last seen. Every parameter is optional, so a bare call ranks the whole project by volume; narrow with `dateRange`, `categories`, or `search`, and order with `sortColumn`/`sortDirection`. Use it to find the exact `toolName` the per-tool tools need. And `posthog:query-mcp-harness-breakdown` for the cross-tool harness cut (see below).
 
 **Sessions have typed tools too.** A session is one agent run — the `$mcp_tool_call` events sharing a `$session_id`:
 
@@ -35,7 +35,7 @@ Three things to know before using them:
 
 And two tools cover what SQL can't express at all: `posthog:mcp-analytics-intent-clusters-retrieve` and `posthog:mcp-analytics-intent-clusters-recompute` (embedding-based intent clustering).
 
-**HogQL is the path for everything else** — cross-tool rankings (the tool-quality matrix), custom breakdowns, errored-session filtering, effective tool names within a session — query them with `execute-sql`. It is also the fallback when the `mcp-analytics` flag is off: every typed tool above is gated behind it, `execute-sql` is not.
+**HogQL is the path for everything else** — custom breakdowns, errored-session filtering, effective tool names within a session — query them with `execute-sql`. It is also the fallback when the `mcp-analytics` flag is off: every typed tool above is gated behind it, `execute-sql` is not.
 
 ## Key properties
 
@@ -112,7 +112,7 @@ WHERE event = '$mcp_tool_call'
     AND timestamp >= now() - INTERVAL 7 DAY
 ```
 
-**Tool-quality matrix** (error rate + latency percentiles + reach, one row per tool) — this cross-tool ranking has no typed tool; once you've picked a tool, drill into it with `posthog:query-mcp-tool-stats`, `posthog:query-mcp-tool-failures`, or `posthog:query-mcp-tool-daily-stats`:
+**Tool-quality matrix** (error rate + latency percentiles + reach, one row per tool) — `posthog:query-mcp-tools` returns this ranking already, so reach for the SQL below only for a cut it does not cover; once you've picked a tool, drill into it with `posthog:query-mcp-tool-stats`, `posthog:query-mcp-tool-failures`, or `posthog:query-mcp-tool-daily-stats`:
 
 ```sql
 SELECT

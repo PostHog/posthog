@@ -24,10 +24,14 @@ messages by harness), and `posthog:query-mcp-tool-daily-stats` (day-by-day trend
 takes a `toolName` + `dateRange`, runs the same query runner as the tool-detail
 UI, and is gated behind the `mcp-analytics` flag — no hand-written SQL needed.
 
-**HogQL via `posthog:execute-sql` is the path for cross-tool questions** — the
-"which tool errors most" ranking below has no typed tool, so rank with SQL, then
-drill into the worst tool with `posthog:query-mcp-tool-stats` and
-`posthog:query-mcp-tool-failures`. The full
+**To rank tools, start with `posthog:query-mcp-tools`** — one row per tool with
+calls, errors, error rate, latency percentiles, users, and sessions. Every
+parameter is optional, and `sortColumn: 'error_rate_pct'` gives the "which tool
+errors most" ranking directly. Then drill into the worst tool with
+`posthog:query-mcp-tool-stats` and `posthog:query-mcp-tool-failures`.
+
+**HogQL via `posthog:execute-sql` is the path for cross-tool cuts that tool does
+not cover** — a volume floor on the ranking below is one of them. The full
 property schema and the canonical query recipes live in the shared MCP data
 reference:
 [`products/posthog_ai/skills/querying-posthog-data/references/models-mcp.md`](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md).

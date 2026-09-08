@@ -19,39 +19,38 @@ skill — that answers what they choose.
 
 Every per-tool tool here is gated behind the `mcp-analytics` flag, takes a
 `toolName` (the effective tool name — resolved server-side, so pass the name the
-agent actually invokes — **except `posthog:query-mcp-tool-failures`**, which
-matches `$exception` events and so takes the raw registered `$mcp_tool_name`)
-plus a `dateRange`, and runs the same query runner the tool-detail UI uses. So
-results match the UI, and you never hand-write the HogQL.
+agent actually invokes) plus a `dateRange`, and runs the same query runner the
+tool-detail UI uses. So results match the UI, and you never hand-write the HogQL.
 
 ## Suggested questions
 
 Lead with these when the user is unsure what to ask:
 
-| Ask the user…                                     | Answered by                                                                                     |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| "Which tools fail most, or are slowest?"          | `exploring-mcp-tool-quality` (ranks all tools), then `posthog:query-mcp-tool-stats` to drill in |
-| "How is tool X doing overall?"                    | `posthog:query-mcp-tool-stats` — calls, errors, p50/p95, users, sessions, intents               |
-| "How has tool X trended?"                         | `posthog:query-mcp-tool-daily-stats` — day-by-day series                                        |
-| "Why is tool X failing?"                          | `posthog:query-mcp-tool-failures` — top error messages, by harness (raw tool name)              |
-| "Who uses tool X the most?"                       | `posthog:query-mcp-tool-top-users` — top callers (incl. person email/name)                      |
-| "What gets called right before/after tool X?"     | `posthog:query-mcp-tool-neighbors` (`neighborDirection: before`/`after`)                        |
-| "What are agents trying to do with tool X?"       | `posthog:query-mcp-tool-sample-intents` — recent agent intents                                  |
-| "What description is tool X registered with?"     | `posthog:query-mcp-tool-descriptions` — distinct descriptions seen                              |
-| "Which harnesses use my MCP, how reliably?"       | `posthog:query-mcp-harness-breakdown` — calls/errors/sessions per client                        |
-| "What are agents trying to do, across all tools?" | `exploring-mcp-intent-clusters` — semantic goal clusters                                        |
-| "Who is connecting, and how active are they?"     | `posthog:mcp-analytics-sessions-list` — one row per session, with client and person             |
-| "What did this one session do?"                   | `exploring-mcp-sessions` — a single agent run's tool sequence                                   |
+| Ask the user…                                     | Answered by                                                                                    |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| "Which tools fail most, or are slowest?"          | `posthog:query-mcp-tools` — every tool ranked, then `posthog:query-mcp-tool-stats` to drill in |
+| "How is tool X doing overall?"                    | `posthog:query-mcp-tool-stats` — calls, errors, p50/p95, users, sessions, intents              |
+| "How has tool X trended?"                         | `posthog:query-mcp-tool-daily-stats` — day-by-day series                                       |
+| "Why is tool X failing?"                          | `posthog:query-mcp-tool-failures` — top error messages, by harness                             |
+| "Who uses tool X the most?"                       | `posthog:query-mcp-tool-top-users` — top callers (incl. person email/name)                     |
+| "What gets called right before/after tool X?"     | `posthog:query-mcp-tool-neighbors` (`neighborDirection: before`/`after`)                       |
+| "What are agents trying to do with tool X?"       | `posthog:query-mcp-tool-sample-intents` — recent agent intents                                 |
+| "What description is tool X registered with?"     | `posthog:query-mcp-tool-descriptions` — distinct descriptions seen                             |
+| "Which harnesses use my MCP, how reliably?"       | `posthog:query-mcp-harness-breakdown` — calls/errors/sessions per client                       |
+| "What are agents trying to do, across all tools?" | `exploring-mcp-intent-clusters` — semantic goal clusters                                       |
+| "Who is connecting, and how active are they?"     | `posthog:mcp-analytics-sessions-list` — one row per session, with client and person            |
+| "What did this one session do?"                   | `exploring-mcp-sessions` — a single agent run's tool sequence                                  |
 
 ## Finding the tool name
 
 The per-tool tools need a `toolName`. If the user named a tool, pass it. If they
-asked a broad "which tool…" question, start with `exploring-mcp-tool-quality` to
-rank the tools, pick the one that stands out, then drill in with the per-tool
-tools above. The name to pass is the **effective** tool name (the inner tool for
-single-exec wrapper calls) — the same string the tool-quality ranking returns.
-The one exception is `posthog:query-mcp-tool-failures`, which matches `$exception`
-events by the raw registered `$mcp_tool_name`, not the effective inner tool.
+asked a broad "which tool…" question, start with `posthog:query-mcp-tools`, which
+ranks every tool and needs no parameters, pick the one that stands out, then
+drill in with the per-tool tools above. The name to pass is the **effective**
+tool name (the inner tool for single-exec wrapper calls) — the same string the tool-quality ranking returns.
+Every per-tool tool takes that name, `posthog:query-mcp-tool-failures` included:
+it reads the errored `$mcp_tool_call` events, so it resolves the name the same way
+the ranking does.
 
 ## How to use a per-tool tool
 
@@ -79,13 +78,14 @@ Then offer a natural follow-up from the menu — e.g. after
 | Tools called before/after one tool | `posthog:query-mcp-tool-neighbors`          |
 | One tool's recent agent intents    | `posthog:query-mcp-tool-sample-intents`     |
 | One tool's registered descriptions | `posthog:query-mcp-tool-descriptions`       |
+| Every tool ranked, one row each    | `posthog:query-mcp-tools`                   |
 | Usage split by client harness      | `posthog:query-mcp-harness-breakdown`       |
 | List sessions                      | `posthog:mcp-analytics-sessions-list`       |
 | One session's tool calls           | `posthog:mcp-analytics-sessions-tool-calls` |
 
 **Not covered — use `posthog:execute-sql`:**
 
-- Cross-tool rankings (the tool-quality matrix — "which tool errors most?")
+- Cross-tool rankings that `posthog:query-mcp-tools` cannot express (a call-volume floor, a custom predicate)
 - Errored-session filtering (the session list has no error filter or error count)
 - Effective tool names inside a session (`posthog:mcp-analytics-sessions-tool-calls`
   returns the raw `$mcp_tool_name`, not the inner tool of a wrapper call)
