@@ -41,12 +41,63 @@ def test_claim_selects_the_first_persisted_experiment_when_an_earlier_code_recom
         citations=[],
     )
 
-    artifact = claim_prepared_artifact(PreparedArtifactClaimInput(team_id=team.id, run_id=run.id, actor_id=456))
+    claim_input = PreparedArtifactClaimInput(team_id=team.id, run_id=run.id, actor_id=456)
+    artifact = claim_prepared_artifact(claim_input)
+    replay = claim_prepared_artifact(claim_input)
 
     assert artifact is not None
     assert artifact.recommendation_id == experiment.id
     assert artifact.kind == "experiment_draft"
     assert artifact.status == "preparing"
+    assert replay == artifact
+
+
+@pytest.mark.django_db
+def test_claim_replays_an_experiment_when_earlier_code_authority_is_restored(team, monkeypatch) -> None:
+    """A durable experiment claim survives a later authorization change for another recommendation."""
+    run = ProactiveRecommendationRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        subscription_id=123,
+        delivery_id=uuid4(),
+        actor_id=456,
+        snapshot_hash="a" * 64,
+        artifact_config_hash="b" * 64,
+        repository_binding={
+            "repository": "posthog/posthog",
+            "base_sha": "c" * 40,
+            "base_branch": "master",
+            "github_integration_id": 123,
+            "github_user_integration_id": str(uuid4()),
+            "github_installation_id": "456",
+            "grant_version": "current",
+        },
+        status=ProactiveRecommendationRun.Status.COMPLETED,
+    )
+    ProactiveRecommendation.objects.for_team(team.id).create(
+        team_id=team.id,
+        run=run,
+        semantic_key="code-first",
+        recommendation={"kind": "product_change"},
+        citations=[],
+    )
+    experiment = ProactiveRecommendation.objects.for_team(team.id).create(
+        team_id=team.id,
+        run=run,
+        semantic_key="experiment-second",
+        recommendation={"kind": "experiment"},
+        citations=[],
+    )
+    has_authority = False
+    monkeypatch.setattr(artifacts, "revalidate_staged_repository_binding", lambda **_kwargs: has_authority)
+    claim_input = PreparedArtifactClaimInput(team_id=team.id, run_id=run.id, actor_id=456)
+
+    first = claim_prepared_artifact(claim_input)
+    has_authority = True
+    replay = claim_prepared_artifact(claim_input)
+
+    assert first is not None
+    assert first.recommendation_id == experiment.id
+    assert replay == first
 
 
 @pytest.mark.django_db

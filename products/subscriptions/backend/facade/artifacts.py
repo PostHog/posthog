@@ -68,12 +68,18 @@ def claim_prepared_artifact(input: PreparedArtifactClaimInput) -> PreparedArtifa
         if run.actor_id != input.actor_id:
             raise ValueError("artifact actor does not match its recommendation run")
 
-        eligible = _select_eligible_artifact(run=run)
-        artifact = ProactivePreparedArtifact.objects.for_team(input.team_id).filter(run_id=run.id).first()
+        artifact = (
+            ProactivePreparedArtifact.objects.for_team(input.team_id)
+            .select_related("recommendation")
+            .filter(run_id=run.id)
+            .first()
+        )
         if artifact is not None:
-            if eligible is None or not _matches_replay(artifact=artifact, eligible=eligible, run=run):
+            if not _matches_durable_replay(artifact=artifact, run=run):
                 raise ValueError("artifact replay does not match its durable claim")
             return _artifact_dto(artifact)
+
+        eligible = _select_eligible_artifact(run=run)
         if eligible is None:
             return None
 
@@ -238,17 +244,42 @@ def _recommendation_kind(payload: object) -> str | None:
     return kind if isinstance(kind, str) else None
 
 
-def _matches_replay(
-    *, artifact: ProactivePreparedArtifact, eligible: _EligibleArtifact, run: ProactiveRecommendationRun
-) -> bool:
-    return (
-        artifact.team_id == run.team_id
-        and artifact.run_id == run.id
-        and artifact.recommendation_id == eligible.recommendation.id
-        and artifact.kind == eligible.kind
-        and artifact.artifact_config_hash == run.artifact_config_hash
-        and artifact.input_hash == eligible.input_hash
-    )
+def _matches_durable_replay(*, artifact: ProactivePreparedArtifact, run: ProactiveRecommendationRun) -> bool:
+    recommendation = artifact.recommendation
+    if (
+        run.status != ProactiveRecommendationRun.Status.COMPLETED
+        or not _is_sha256(run.artifact_config_hash)
+        or artifact.team_id != run.team_id
+        or artifact.run_id != run.id
+        or recommendation.team_id != run.team_id
+        or recommendation.run_id != run.id
+        or artifact.artifact_config_hash != run.artifact_config_hash
+    ):
+        return False
+    recommendation_kind = _recommendation_kind(recommendation.recommendation)
+    if artifact.kind == ProactivePreparedArtifact.Kind.EXPERIMENT_DRAFT and recommendation_kind == "experiment":
+        eligible = _eligible_artifact(
+            run=run,
+            recommendation=recommendation,
+            kind=ProactivePreparedArtifact.Kind.EXPERIMENT_DRAFT,
+            binding=None,
+        )
+    elif artifact.kind == ProactivePreparedArtifact.Kind.DRAFT_PR and recommendation_kind in {
+        "product_change",
+        "instrumentation",
+    }:
+        binding = _valid_repository_binding(run.repository_binding)
+        if binding is None:
+            return False
+        eligible = _eligible_artifact(
+            run=run,
+            recommendation=recommendation,
+            kind=ProactivePreparedArtifact.Kind.DRAFT_PR,
+            binding=binding.canonical_payload,
+        )
+    else:
+        return False
+    return artifact.input_hash == eligible.input_hash
 
 
 def _artifact_dto(artifact: ProactivePreparedArtifact) -> PreparedArtifactDTO:
