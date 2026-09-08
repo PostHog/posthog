@@ -164,8 +164,8 @@ async fn test_process_batch_with_read_pool_writes_new_rows(db: PgPool) {
     );
 }
 
-// The stored last_seen_at advances past the floored value as soon as one pod writes
-// the definition, so every later sighting in the same period is a no-op upsert.
+// One pod's write advances last_seen_at past the floored value, so every later
+// sighting in the same period is a no-op upsert.
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn test_filter_drops_event_definitions_seen_this_period(db: PgPool) {
     seed(&db, vec![Update::Event(event_def("$pageview"))]).await;

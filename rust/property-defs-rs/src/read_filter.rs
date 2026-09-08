@@ -21,11 +21,10 @@ use crate::{
 // moments ago may look absent on the replica, so it stays in the batch and the
 // writer's ON CONFLICT no-ops it.
 
-/// Drops event-definition rows the upsert could not usefully change: the stored
-/// `last_seen_at` already sits at or past the incoming floored value, so the
-/// write would only move the timestamp inside the period the dedup cache treats
-/// as one sighting. The unique index covers the probe (COALESCE project key,
-/// name), one index descent per row.
+/// Drops event-definition rows whose stored `last_seen_at` already sits at or past
+/// the incoming floored value, so the write removed could only have moved the
+/// timestamp inside one dedup period. The unique index covers the probe (COALESCE
+/// project key, name), one index descent per row.
 pub async fn filter_event_definitions(
     pool: &PgPool,
     batch: &mut EventDefinitionsBatch,

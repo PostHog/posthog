@@ -167,8 +167,7 @@ pub struct EventDefinitionsBatch {
     pub names: Vec<String>,
     pub team_ids: Vec<i32>,
     pub project_ids: Vec<i64>,
-    // The floored sighting time that keys the dedup cache. The write binds a fresh
-    // timestamp instead, but the read filter compares against this value.
+    // What the read filter compares against. The write binds a fresh timestamp instead.
     pub last_seen_ats: Vec<DateTime<Utc>>,
 
     pub cached: Vec<Update>,
@@ -234,7 +233,6 @@ impl EventDefinitionsBatch {
         self.retain_rows(&keep)
     }
 
-    // Keeps only the rows whose mask entry is true; returns how many were dropped.
     pub fn retain_rows(&mut self, keep: &[bool]) -> usize {
         let removed = keep.iter().filter(|k| !**k).count();
         if removed == 0 {
