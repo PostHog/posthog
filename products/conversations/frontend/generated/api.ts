@@ -323,7 +323,7 @@ export const getConversationsTicketsBulkArchiveCreateUrl = (projectId: string) =
  *
  * Archiving is a soft delete: the tickets leave the ticket list and the unread count,
  * keep their status, assignee and SLA, and stay readable by direct link or through the
- * `archived` filter. Nothing is destroyed, and every change lands in the ticket's
+ * `archived` filter. Nothing is destroyed, and every change goes into the ticket's
  * activity log.
  *
  * Team scoping, object-level access and no-op skipping match `bulk_update_status`:
