@@ -261,10 +261,10 @@ export interface teamLogicActions {
         errorObject?: any
     }
     refreshCurrentTeamSuccess: (
-        currentTeam: TeamPublicType | null,
+        currentTeam: TeamPublicType | TeamType | null,
         payload?: any
     ) => {
-        currentTeam: TeamPublicType | null
+        currentTeam: TeamPublicType | TeamType | null
         payload?: any
     }
     resetToken: () => any
@@ -388,9 +388,6 @@ export const teamLogic = kea<teamLogicType>([
                     }
                 },
                 refreshCurrentTeam: async () => {
-                    if (!isUserLoggedIn()) {
-                        return values.currentTeam
-                    }
                     try {
                         const team = await api.get('api/environments/@current')
                         return team?.id === values.currentTeam?.id ? team : values.currentTeam

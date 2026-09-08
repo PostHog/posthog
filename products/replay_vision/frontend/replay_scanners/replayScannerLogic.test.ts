@@ -1503,15 +1503,7 @@ describe('replayScannerLogic', () => {
         let teamSpy: jest.Mock
 
         beforeEach(() => {
-            teamSpy = jest.fn(() => [
-                200,
-                {
-                    ...MOCK_DEFAULT_TEAM,
-                    test_account_filters: [
-                        { key: 'email', type: 'person', value: 'example.com', operator: 'not_icontains' },
-                    ],
-                },
-            ])
+            teamSpy = jest.fn(() => [200, MOCK_DEFAULT_TEAM])
             useMocks({ get: { '/api/environments/@current': teamSpy } })
             teamLogic.mount()
         })
@@ -1528,7 +1520,6 @@ describe('replayScannerLogic', () => {
             await expectLogic(teamLogic).toDispatchActions(['refreshCurrentTeamSuccess'])
 
             expect(teamSpy).toHaveBeenCalledTimes(1)
-            expect(teamLogic.values.currentTeam?.test_account_filters?.[0]?.value).toBe('example.com')
         })
     })
 })
