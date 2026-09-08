@@ -69,6 +69,7 @@ class TestCustomBotRulesAPI(ClickhouseTestMixin, APIBaseTest):
             ("unknown matcher", {"key": "$raw_user_agent", "matcher": "startswith", "pattern": "AcmeBot"}),
             ("cidr on a non-ip property", {"key": "$raw_user_agent", "matcher": "cidr", "pattern": "192.0.2.0/24"}),
             ("regex clickhouse cannot run", {"key": "$raw_user_agent", "matcher": "regex", "pattern": "(?=lookahead)"}),
+            ("blank category", {"key": "$raw_user_agent", "matcher": "contains", "pattern": "AcmeBot", "category": ""}),
         ]
     )
     def test_rejects_unusable_rules(self, _name: str, body: dict) -> None:

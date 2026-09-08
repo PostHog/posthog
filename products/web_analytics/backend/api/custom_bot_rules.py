@@ -43,7 +43,7 @@ class CustomBotRuleSerializer(serializers.Serializer):
     )
     category = serializers.CharField(
         required=False,
-        allow_blank=True,
+        allow_blank=False,
         help_text="Reported by the `Traffic category` property. Defaults to 'custom'. A built-in category such as ai_crawler or search_crawler relabels the traffic type too.",
     )
 
