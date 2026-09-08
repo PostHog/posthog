@@ -263,26 +263,44 @@ pub async fn process_replay_events(
 ) -> Result<(), CaptureError> {
     let event_count = events.len() as u64;
 
-    let abort = match process_replay_events_inner(
-        outputs,
-        restriction_service,
-        replay_overflow_limiter,
-        events,
-        context,
-    )
-    .await
-    {
-        // The batch collapses into one message carrying one distinct_id, so a
-        // truncation is always exactly one modified id: `count` is 1 and the
-        // sample is never an arbitrary pick among several.
-        Ok(truncated_sample) => {
-            if truncated_sample.is_some() {
+    let batches = split_by_session(events);
+    if batches.len() > 1 {
+        counter!("capture_replay_mixed_session_requests").increment(1);
+    }
+
+    let outcome = async {
+        let mut processed = Vec::with_capacity(batches.len());
+        let mut truncated = Vec::new();
+        for batch in batches {
+            let (event, truncated_sample) = process_replay_events_inner(
+                restriction_service.clone(),
+                replay_overflow_limiter.clone(),
+                batch,
+                context,
+            )
+            .await?;
+            processed.extend(event);
+            truncated.extend(truncated_sample);
+        }
+        if !processed.is_empty() {
+            histogram!("capture_event_batch_size").record(processed.len() as f64);
+            outputs.publish(processed).await?;
+            debug_or_info!(context.chatty_debug_enabled, context=?context, "sent recordings CapturedEvent");
+        }
+        Ok::<_, ReplayAbort>(truncated)
+    }
+    .await;
+
+    let abort = match outcome {
+        Ok(truncated) => {
+            if !truncated.is_empty() {
+                let count = truncated.len() as u64;
                 emit_distinct_id_truncated_warning(
                     ingestion_warning_emitter.as_deref(),
                     &request_context(context),
                     CAPTURE_REPLAY,
-                    truncated_sample,
-                    1,
+                    truncated.into_iter().next(),
+                    count,
                 );
             }
             return Ok(());
@@ -344,17 +362,34 @@ impl ReplayAbort {
     }
 }
 
-/// Returns the truncated-distinct_id sample when the ingested id was cut down to
-/// the 200-char cap, for the caller to warn about. `None` means nothing was
-/// modified, including when the request was dropped by an event restriction and
-/// so ingested nothing to warn about.
+/// Splits a request into runs of consecutive events that share a `$session_id`.
+/// An event without one stays with the run before it.
+fn split_by_session(events: Vec<RawRecording>) -> Vec<Vec<RawRecording>> {
+    let mut batches: Vec<Vec<RawRecording>> = Vec::new();
+    for event in events {
+        match batches.last_mut() {
+            Some(batch)
+                if event.properties.session_id.is_none()
+                    || event.properties.session_id == batch[0].properties.session_id =>
+            {
+                batch.push(event)
+            }
+            _ => batches.push(vec![event]),
+        }
+    }
+    batches
+}
+
+/// Builds the `$snapshot_items` event for one session's snapshots. The event is
+/// `None` when an event restriction dropped it. The second value is the
+/// truncated-distinct_id sample when the ingested id was cut down to the
+/// 200-char cap, for the caller to warn about.
 async fn process_replay_events_inner(
-    outputs: Arc<OutputRegistry>,
     restriction_service: Option<EventRestrictionService>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     events: Vec<RawRecording>,
     context: &ProcessingContext,
-) -> Result<Option<(String, usize, Uuid)>, ReplayAbort> {
+) -> Result<(Option<ProcessedEvent>, Option<(String, usize, Uuid)>), ReplayAbort> {
     let chatty_debug_enabled = context.chatty_debug_enabled;
 
     Span::current().record("request_id", &context.request_id);
@@ -441,7 +476,7 @@ async fn process_replay_events_inner(
 
         if applied.should_drop() {
             report_dropped_events("event_restriction_drop", 1);
-            return Ok(None);
+            return Ok((None, None));
         }
 
         applied
@@ -600,15 +635,7 @@ async fn process_replay_events_inner(
         historical_migration: context.historical_migration,
     };
 
-    // One `$snapshot_items` event per call.
-    histogram!("capture_event_batch_size").record(1.0);
-    outputs
-        .publish(vec![ProcessedEvent { metadata, event }])
-        .await?;
-
-    debug_or_info!(chatty_debug_enabled, context=?context, "sent recordings CapturedEvent");
-
-    Ok(truncated_sample)
+    Ok((Some(ProcessedEvent { metadata, event }), truncated_sample))
 }
 
 /// Asynchronously serialize snapshot data by offloading to blocking thread pool
@@ -1318,6 +1345,137 @@ mod tests {
             captured[0].metadata.overflow_reason,
             Some(OverflowReason::ReplayLimited)
         );
+    }
+
+    fn recording_for_session(session_id: Option<&str>, item: usize) -> RawRecording {
+        let mut properties = json!({"$snapshot_data": [{"type": 1, "item": item}]});
+        if let Some(session_id) = session_id {
+            properties["$session_id"] = json!(session_id);
+        }
+        recording_with_properties(properties)
+    }
+
+    fn published_sessions(captured: &[ProcessedEvent]) -> (Vec<(String, usize)>, Vec<usize>) {
+        let mut sessions = Vec::new();
+        let mut items = Vec::new();
+        for processed in captured {
+            let data: Value = serde_json::from_str(&processed.event.data).unwrap();
+            let snapshot_items = data["properties"]["$snapshot_items"].as_array().unwrap();
+            sessions.push((
+                data["properties"]["$session_id"]
+                    .as_str()
+                    .unwrap()
+                    .to_string(),
+                snapshot_items.len(),
+            ));
+            items.extend(
+                snapshot_items
+                    .iter()
+                    .map(|i| i["item"].as_u64().unwrap() as usize),
+            );
+        }
+        (sessions, items)
+    }
+
+    #[rstest]
+    #[case::one_session(vec![Some("a"), Some("a")], vec![("a", 2)])]
+    #[case::two_sessions(vec![Some("a"), Some("a"), Some("b")], vec![("a", 2), ("b", 1)])]
+    #[case::absent_id_stays_with_the_session_before_it(
+        vec![Some("a"), None, Some("b")],
+        vec![("a", 2), ("b", 1)]
+    )]
+    #[case::interleaved(
+        vec![Some("a"), Some("b"), Some("a")],
+        vec![("a", 1), ("b", 1), ("a", 1)]
+    )]
+    #[tokio::test]
+    async fn a_request_publishes_one_message_per_session(
+        #[case] session_ids: Vec<Option<&str>>,
+        #[case] expected: Vec<(&str, usize)>,
+    ) {
+        let events_captured = Arc::new(Mutex::new(Vec::new()));
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
+            events: events_captured.clone(),
+        }));
+        let recordings = session_ids
+            .iter()
+            .enumerate()
+            .map(|(item, session_id)| recording_for_session(*session_id, item))
+            .collect();
+
+        process_replay_events(
+            outputs,
+            None,
+            None,
+            None,
+            recordings,
+            &create_test_context(),
+        )
+        .await
+        .unwrap();
+
+        let captured = events_captured.lock().unwrap();
+        let (sessions, items) = published_sessions(&captured);
+        let expected: Vec<(String, usize)> = expected
+            .into_iter()
+            .map(|(session_id, count)| (session_id.to_string(), count))
+            .collect();
+        assert_eq!(sessions, expected);
+        assert_eq!(items, (0..session_ids.len()).collect::<Vec<_>>());
+    }
+
+    #[tokio::test]
+    async fn a_bad_later_session_publishes_nothing_from_the_request() {
+        let events_captured = Arc::new(Mutex::new(Vec::new()));
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
+            events: events_captured.clone(),
+        }));
+        let good = recording_for_session(Some("a"), 0);
+        let bad = recording_with_properties(json!({"$session_id": "b"}));
+
+        let result = process_replay_events(
+            outputs,
+            None,
+            None,
+            None,
+            vec![good, bad],
+            &create_test_context(),
+        )
+        .await;
+
+        assert!(matches!(result, Err(CaptureError::MissingSnapshotData)));
+        assert!(events_captured.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn overflow_is_decided_per_session_in_a_mixed_request() {
+        let events_captured = Arc::new(Mutex::new(Vec::new()));
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
+            events: events_captured.clone(),
+        }));
+        let limiter = build_replay_limiter(vec!["b".to_string()]).await;
+        let recordings = vec![
+            recording_for_session(Some("a"), 0),
+            recording_for_session(Some("b"), 1),
+        ];
+
+        process_replay_events(
+            outputs,
+            None,
+            Some(limiter),
+            None,
+            recordings,
+            &create_test_context(),
+        )
+        .await
+        .unwrap();
+
+        let captured = events_captured.lock().unwrap();
+        let reasons: Vec<_> = captured
+            .iter()
+            .map(|e| e.metadata.overflow_reason.clone())
+            .collect();
+        assert_eq!(reasons, vec![None, Some(OverflowReason::ReplayLimited)]);
     }
 
     // ============ replay overflow histogram tests ============
