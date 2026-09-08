@@ -111,7 +111,13 @@ export const resolveProviderAliases = (provider: string): string => {
  * @param model - The model name for the resolved cost
  * @returns The resolved model cost, or undefined if no valid cost is found
  */
-const TIERED_SERVICE_TIERS = new Set(['flex', 'priority'])
+// Tier-key suffixes per served service tier, in probe order. Naming is per-provider:
+// google-ai-studio-priority and xai-priority are literal, while openai-fast and
+// anthropic-fast are those providers' names for their priority tier.
+const SERVICE_TIER_KEY_SUFFIXES: Record<string, string[]> = {
+    flex: ['-flex'],
+    priority: ['-priority', '-fast'],
+}
 
 export const resolveModelCostForProvider = (
     providerCosts: ModelCostByProvider,
@@ -123,20 +129,15 @@ export const resolveModelCostForProvider = (
         return undefined
     }
 
-    // A served tier resolves by its own provider key, as a direct check: the cascade below
-    // falls back to the `default` key, which can carry promotional pricing. Tier-key naming
-    // is per-provider, so probe the literal name first (google-ai-studio-priority), then
-    // "fast", the name OpenAI and Anthropic use for their priority tier.
-    if (provider && typeof serviceTier === 'string' && TIERED_SERVICE_TIERS.has(serviceTier)) {
+    // A served tier resolves by its own provider key, as direct checks: the cascade below
+    // falls back to the `default` key, which can carry promotional pricing.
+    const tierSuffixes = typeof serviceTier === 'string' ? SERVICE_TIER_KEY_SUFFIXES[serviceTier] : undefined
+    if (provider && tierSuffixes) {
         const canonical = resolveProviderAliases(provider)
-        const tierKeys = [`${canonical}-${serviceTier}`]
-        if (serviceTier === 'priority') {
-            tierKeys.push(`${canonical}-fast`)
-        }
-        for (const tierKey of tierKeys) {
-            const tierCost = providerCosts[tierKey]
+        for (const suffix of tierSuffixes) {
+            const tierCost = providerCosts[canonical + suffix]
             if (tierCost) {
-                return { model, provider: tierKey, cost: tierCost }
+                return { model, provider: canonical + suffix, cost: tierCost }
             }
         }
     }
