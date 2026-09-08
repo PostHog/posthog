@@ -72,13 +72,16 @@ function IneligibleBanner({ check }: { check: DataWarehouseSavedQueryIncremental
     )
 }
 
-function TooLongBanner(): JSX.Element {
+// The cap applies to the eligibility check, not to the saved config, so a view that is already
+// incremental keeps running that way. Only the view without one is refreshed in full.
+function TooLongBanner({ incrementalEnabled }: { incrementalEnabled: boolean }): JSX.Element {
+    const limit = warehouseSavedQueriesCheckIncrementalCreateBodyQueryMax.toLocaleString()
     return (
         <LemonBanner type="info" className="mt-2">
             <span className="text-xs">
-                This query is too long to check for incremental refresh, so it is always refreshed in full. Shorten it
-                to {warehouseSavedQueriesCheckIncrementalCreateBodyQueryMax.toLocaleString()} characters or fewer to set
-                up incremental refresh.
+                {incrementalEnabled
+                    ? `This query is too long to check for incremental refresh, so its refresh settings cannot be changed here. Shorten it to ${limit} characters or fewer to change them.`
+                    : `This query is too long to check for incremental refresh, so it is always refreshed in full. Shorten it to ${limit} characters or fewer to set up incremental refresh.`}
             </span>
         </LemonBanner>
     )
@@ -210,7 +213,9 @@ export function IncrementalConfigOptions({
     onChange,
 }: IncrementalConfigOptionsProps): JSX.Element | null {
     if (queryTooLongToCheck) {
-        return <TooLongBanner />
+        // The draft mirrors the saved config here: the radio never renders in this state, so the
+        // user cannot have changed it.
+        return <TooLongBanner incrementalEnabled={draft.enabled} />
     }
 
     if (!check) {
