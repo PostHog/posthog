@@ -10,6 +10,7 @@ import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.instagram import (
+    _ACCOUNT_ID_NOT_NUMERIC_ERROR,
     AUTH_ERROR_PREFIX,
     MAX_REQUESTS_PER_SYNC,
     MAX_RETRY_ATTEMPTS,
@@ -851,7 +852,7 @@ class TestValidateCredentials:
             is_valid, message = validate_credentials("tok", "v23.0", LOGGER, instagram_account_id=account_id)
 
         assert is_valid is False
-        assert message is not None and "not a valid Instagram account" in message
+        assert message == _ACCOUNT_ID_NOT_NUMERIC_ERROR
         assert session.requested_urls == []
 
 

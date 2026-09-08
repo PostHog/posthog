@@ -1305,15 +1305,20 @@ Last paragraph`)
         expect(result.mergedMarkdown).toEqual(localMarkdown)
     })
 
-    it('normalizes the first rendered row into a notebook title', () => {
+    it('normalizes the first rendered row into a notebook title and places the autofocus caret there', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: `Notebook name\n\nBody line`, onChange }))
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: `Notebook name\n\nBody line`, onChange, autoFocus: true })
+        )
         const title = container.querySelector('h1.MarkdownNotebook__text-block') as HTMLElement
         const body = container.querySelector('p.MarkdownNotebook__text-block') as HTMLElement
 
         expect(title).toBeInstanceOf(HTMLElement)
         expect(title.textContent).toEqual('Notebook name')
         expect(body.textContent).toEqual('Body line')
+        expect(title.contains(window.getSelection()?.anchorNode ?? null)).toBe(true)
+        expect(window.getSelection()?.isCollapsed).toBe(true)
+        expect(window.getSelection()?.anchorOffset).toBe(0)
 
         title.textContent = 'Updated name'
         fireEvent.input(title)
@@ -3745,7 +3750,9 @@ ${queryMarkdown}`)
         fireEvent.keyDown(editableTextBlock, { key: 'Enter' })
 
         expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')).toBeNull()
-        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...`)
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n**You:** Add a summary here\n\nThinking...`
+        )
         const aiRequest = onAskAI.mock.calls[0][0]
 
         expect(aiRequest).toEqual(
@@ -3754,10 +3761,10 @@ ${queryMarkdown}`)
                 query: expect.stringContaining('User request:\nAdd a summary here'),
                 source: 'slash',
                 responseNodeId: expect.any(String),
-                responseNodeIndex: 1,
+                responseNodeIndex: 2,
                 responseMarker: 'Thinking...',
-                markdown: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...`,
-                markdownWithResponse: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...`,
+                markdown: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n**You:** Add a summary here\n\nThinking...`,
+                markdownWithResponse: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n**You:** Add a summary here\n\nThinking...`,
                 selectedMarkdown: undefined,
             })
         )
@@ -4037,10 +4044,12 @@ Current AI paragraph`),
                 source: 'slash',
             })
         )
-        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...`)
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n**You:** Summarize this notebook\n\nThinking...`
+        )
     })
 
-    it('keeps the named question above the AI response when enabled', () => {
+    it('keeps the named question above the AI response by default and persists bookmark changes', () => {
         const onAskAI = jest.fn()
         const onChange = jest.fn()
         const { container } = render(
@@ -4057,24 +4066,22 @@ Current AI paragraph`),
         ) as HTMLButtonElement
 
         expect(keepQuestionButton).toBeInstanceOf(HTMLButtonElement)
-        expect(keepQuestionButton.getAttribute('aria-pressed')).toEqual('false')
+        expect(keepQuestionButton.getAttribute('aria-pressed')).toEqual('true')
+        expect(keepQuestionButton.classList.contains('LemonButton--active')).toBe(true)
+        expect(onChange).not.toHaveBeenCalled()
 
         fireEvent.click(keepQuestionButton)
 
+        expect(keepQuestionButton.getAttribute('aria-pressed')).toEqual('false')
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="What is PostHog?" keepQuestion={false} />`
+        )
+
+        fireEvent.click(keepQuestionButton)
         expect(keepQuestionButton.getAttribute('aria-pressed')).toEqual('true')
-        expect(keepQuestionButton.classList.contains('LemonButton--active')).toBe(true)
         expect(onChange).toHaveBeenLastCalledWith(
             `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="What is PostHog?" keepQuestion />`
         )
-
-        fireEvent.click(keepQuestionButton)
-
-        expect(keepQuestionButton.getAttribute('aria-pressed')).toEqual('false')
-        expect(onChange).toHaveBeenLastCalledWith(
-            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="What is PostHog?" />`
-        )
-
-        fireEvent.click(keepQuestionButton)
         fireEvent.click(container.querySelector('[aria-label="Send prompt"]') as HTMLButtonElement)
 
         const markdownWithResponse = `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n**Avery:** What is PostHog?\n\nThinking...`
@@ -4088,18 +4095,21 @@ Current AI paragraph`),
         )
     })
 
-    it('submits a persisted Ask AI prompt from the prompt textarea', () => {
+    it('submits a persisted Ask AI prompt without retaining the question when explicitly disabled', () => {
         const onAskAI = jest.fn()
         const onChange = jest.fn()
         const { container } = render(
             createElement(MarkdownNotebook, {
-                value: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="we" />`,
+                value: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="we" keepQuestion={false} />`,
                 onAskAI,
                 onChange,
                 createAIConversationId: () => TEST_AI_CONVERSATION_ID,
             })
         )
         const promptBlock = getAIPromptInput(container)
+        expect(
+            container.querySelector('[data-attr="markdown-notebook-ai-keep-question"]')?.getAttribute('aria-pressed')
+        ).toEqual('false')
 
         updateAIPromptInput(promptBlock, 'What happened here?')
         fireEvent.keyDown(promptBlock, { key: 'Enter' })
@@ -5886,9 +5896,11 @@ First paragraph
         expect(aiRequest.selectedRefId).toEqual(selectedRefId)
         expect(aiRequest.selectedMarkdown).toContain('# First paragraph\n\nSecond')
         expect(aiRequest.markdown).toContain('<ref id=')
-        expect(aiRequest.markdown).toContain('</ref> paragraph\n\nThinking...')
+        expect(aiRequest.markdown).toContain('</ref> paragraph\n\n**You:** Explain what this means\n\nThinking...')
         expect(aiRequest.responseMarker).toEqual('Thinking...')
-        expect(aiRequest.markdownWithResponse).toContain('</ref> paragraph\n\nThinking...')
+        expect(aiRequest.markdownWithResponse).toContain(
+            '</ref> paragraph\n\n**You:** Explain what this means\n\nThinking...'
+        )
     })
 
     it('opens a selection Ask AI prompt when another Ask AI prompt is already open', () => {
@@ -6385,7 +6397,7 @@ Second paragraph`,
         fireEvent.keyDown(aiPromptBlock, { key: 'Enter' })
 
         expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeNull()
-        expect(getBodyTextBlock(container, 1).textContent).toEqual('Thinking...')
+        expect(getBodyTextBlock(container, 2).textContent).toEqual('Thinking...')
     })
 
     it('syncs text edits when native input is dispatched from the root editable surface', () => {
@@ -6600,7 +6612,7 @@ second line
 
         expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')).toBeNull()
         expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeNull()
-        expect(getBodyTextBlock(container).textContent).toEqual('Thinking...')
+        expect(getBodyTextBlock(container, 1).textContent).toEqual('Thinking...')
         expect(onAskAI).toHaveBeenCalledWith(
             expect.objectContaining({
                 conversationId: TEST_AI_CONVERSATION_ID,
