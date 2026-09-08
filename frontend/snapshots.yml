@@ -2033,9 +2033,9 @@ snapshots:
     components-search--product-recents-and-starred--light:
         hash: v1.k794b7964.419cabcff30a22d68b283cf59562b74ca2d4910552fc4240e95b856303622508.0xCO-YA2i8xkqSjPXRWXjmLuVEiiP11XfIC6v9y77yU
     components-search--searching--dark:
-        hash: v1.k794b7964.0e06879e25784ab8baf33a0c5dcafa9594d1214c529ed1a0d4edcc64de71e848.acBWuTFeGQNg4HWk4KP4fxvj_nIIy1sGj8-j-9Y95U8
+        hash: v1.k794b7964.5d20a057f1b889c1d59cdfa49b54a3e89b91963cbee7f1fd288329d4f7ed1a10.s2FVUEYglLo0AxHCVr_IiUgI-tXpjNyDcbcp2JyuwYc
     components-search--searching--light:
-        hash: v1.k794b7964.4f003a1303f6d43e7fd41113fa84ad2325e1f06dec63b86fd11eec318101b20b.YAJd9pl9u_wr88-1YZClQ651pgzCpVutniyzKfNsqfI
+        hash: v1.k794b7964.63afc23a6c49bdb56fee0edd18ed0cf565c94163320bb8faa762e025eb4618d5.eM5g4I0s072e_f1q96pZZVQhD1FtxoWbX7yfVXRbFgQ
     components-sentencelist--full-sentence--dark:
         hash: v1.k794b7964.7e8e5dd2e09d246cc3668f362f2391fe67618bd1143aa393832297f5dc30e558.yptEWKc5RAUY613Fwd5cQ0VIinMvpdoI6cuKgagAGxk
     components-sentencelist--full-sentence--light:
@@ -8925,9 +8925,9 @@ snapshots:
     scenes-app-settings-project--settings-project-danger-zone--light:
         hash: v1.k794b7964.e9dd56463ef139c825e0ecd5c14ed5ec67f1d5afb9d2387e9019a8cb7c2cf16b.t1vg2Vgm16aslvFWPUJ5p6aqRj3GbUZ4XS8OgEMk0nM
     scenes-app-settings-project--settings-project-details--dark:
-        hash: v1.k794b7964.cf1fc23aa5d5f8063b067b068eed72dc6f6fa6638840c1223d9b63a2eaa8f6bf.3L_zGX_JbstMqwhvsYQyZPsCJc2lU8O-lxm-DMklP9w
+        hash: v1.k794b7964.9e4c0fa97180b9e0e9c6cce7883b915dcb1902dd4e97478aecde4207dfbe4337.hsdKx4WWEcGzpoDCAH8Vma7unhKy3r17UlUOo7qDW54
     scenes-app-settings-project--settings-project-details--light:
-        hash: v1.k794b7964.18db4f056202d3a55f1c53692497d96bd7b709ff582707dcacae7080b487c1f1.liWFj-mqCpcucn8gpFi_PEQ0CGKRQFuQNznAK8HVpPQ
+        hash: v1.k794b7964.94541ee8f38ab36220af89c8309ef9554e1edacd448a2ae91f90a75d8ab18758.6AABcIST3SYDFltBjoea5WqMBTh-7qybH8ZvZKzpWVY
     scenes-app-settings-project--settings-project-integrations--dark:
         hash: v1.k794b7964.1aa226e2340f780cab3be2c4c58df4aa306c192093f889275b54db44761ed25e.4fAT0IldZHoHUB5OJKtr1MU7DN0n0t-8eEPKH-Mrzm8
     scenes-app-settings-project--settings-project-integrations--light:
