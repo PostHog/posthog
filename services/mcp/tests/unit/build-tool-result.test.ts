@@ -68,7 +68,7 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
             distinctId: 'test-distinct-id',
         })
 
-        // The model should see the formatted table — not a JSON dump, and no
+        // The model should see the formatted table, not a JSON dump, and no
         // render note: this caller is not a UI-app host, so nothing renders a
         // chart and the model may re-present the data.
         expect(payload.content).toEqual([{ type: 'text', text: FORMATTED_TABLE }])

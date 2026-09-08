@@ -17,9 +17,9 @@ const { bridgeInstances, createMockAppBridge } = vi.hoisted(() => {
     close = vi.fn().mockResolvedValue(undefined);
   }
   const bridgeInstances: MockAppBridge[] = [];
-  // Named function, not an inline arrow — `new AppBridge()` needs a real
-  // constructor, and an autofixer would otherwise rewrite an inline one
-  // back into a non-constructible arrow function.
+  // Named function, not an inline arrow, because `new AppBridge()` needs a real
+  // constructor and an autofixer would otherwise rewrite an inline one back
+  // into a non-constructible arrow function.
   function createMockAppBridge() {
     const instance = new MockAppBridge();
     bridgeInstances.push(instance);
@@ -132,7 +132,7 @@ describe("useAppBridge", () => {
     expect(bridgeInstances).toHaveLength(1);
     const firstBridge = bridgeInstances[0];
 
-    // Queued before the app's own handshake completes — not yet initialized,
+    // Queued before the app's own handshake completes (not yet initialized),
     // so this only reaches `pendingRef`, not `sendToolResult`.
     act(() => {
       result.current.sendResultOnce("tc-1", { content: [] });
@@ -186,8 +186,8 @@ describe("useAppBridge", () => {
 
   it("sends an already-completed tool call's result once the app initializes", async () => {
     // A row that only ever renders once its result is known (e.g. a chart pulled out of a
-    // collapsed tool-call group) mounts with `rawOutput` already set on the very first render —
-    // nothing else has queued a result yet when the app finishes its own handshake.
+    // collapsed tool-call group) mounts with `rawOutput` already set on the very first render,
+    // so nothing else has queued a result yet when the app finishes its own handshake.
     renderHook((props) => useAppBridge(props), {
       initialProps: baseArgs({
         toolCall: makeToolCall({ rawOutput: { content: [] } }),

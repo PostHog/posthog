@@ -222,12 +222,11 @@ function isThoughtItem(item: ConversationItem): boolean {
 }
 
 /**
- * A tool call whose resolved result carries a UI-app resource — one that mounts an interactive
- * chart via `McpAppHost`. Checked on the *result*, not the tool's name or MCP-ness: Codex calls
- * every underlying tool through one inline-exec wrapper (`POSTHOG_EXEC_TOOL_KEY`), so a name-based
- * "is this MCP" check would match every one of a session's tool calls, not just the one that
- * renders a chart. Before the call resolves there is nothing to check yet, so this reads false
- * until the result carries a resource URI — which is also the earliest point a chart could exist.
+ * A tool call whose resolved result carries a UI-app resource that mounts an interactive
+ * chart via `McpAppHost`. Checked on the *result*, not the tool's name or MCP-ness, because
+ * Codex calls every underlying tool through one inline-exec wrapper (`POSTHOG_EXEC_TOOL_KEY`);
+ * a name-based "is this MCP" check would match every tool call in a session, not just the one
+ * that renders a chart.
  */
 function hasUiAppResult(item: ConversationItem): boolean {
   if (item.type !== "session_update") return false;

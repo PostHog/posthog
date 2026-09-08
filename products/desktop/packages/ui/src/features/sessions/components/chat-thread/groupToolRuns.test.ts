@@ -125,7 +125,7 @@ describe("groupToolRuns", () => {
   it("keeps a chart-rendering tool call out of the chip so its UI app never hides behind it", () => {
     // Reproduces the bug: a tool call whose result renders a chart, sitting between other tool
     // calls, used to fold into the group, which collapses to "Thinking…" while a later tool in
-    // the run is still live — hiding the already-rendered chart.
+    // the run is still live, hiding the already-rendered chart.
     const chartCall = toolItem("chart", { toolCallId: "chart" });
     chartCall.turnContext.toolCalls.set("chart", {
       toolCallId: "chart",

@@ -562,11 +562,9 @@ function mapItem(
       status: mapStatus(item.status),
       ...(content ? { content } : {}),
       ...(meta ? { _meta: meta } : {}),
-      // Carries the raw MCP CallToolResult (content, structuredContent, _meta.ui)
-      // so the desktop MCP Apps host can render UI resources, not just text.
-      // Codex models absent MCP result optionals as nullable and serializes
-      // them as explicit nulls; strip those, because the app-side schema
-      // rejects them and drops the whole result.
+      // Carries the raw MCP CallToolResult so the desktop MCP Apps host can render
+      // UI resources, not just text. See omitNullCallToolResultFields for why the
+      // nulls Codex serializes need stripping first.
       ...(item.type === "mcpToolCall" && item.result !== undefined
         ? { rawOutput: omitNullCallToolResultFields(item.result) }
         : {}),
