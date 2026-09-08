@@ -70,6 +70,19 @@ class TestWizardCiTokenCommand(BaseTest):
         assert not OAuthAccessToken.objects.filter(token=first).exists()
         assert OAuthAccessToken.objects.filter(token=second).exists()
 
+    def test_a_refused_mint_leaves_the_previous_token_alive(self) -> None:
+        self._create_wizard_app(["project:read", "llm_gateway:read"])
+        first = self._run().strip().splitlines()[-1]
+
+        with patch(
+            "posthog.management.commands.wizard_ci_token.create_wizard_oauth_access_token_for_user",
+            side_effect=RuntimeError("mint refused"),
+        ):
+            with pytest.raises(CommandError, match="mint refused"):
+                self._run()
+
+        assert OAuthAccessToken.objects.filter(token=first).exists()
+
     def test_the_lifetime_is_bounded(self) -> None:
         self._create_wizard_app(["project:read", "llm_gateway:read"])
         for days in ("0", "91"):

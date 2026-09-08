@@ -631,6 +631,8 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int, *, scopes: lis
 
     if scopes is None:
         return _mint_oauth_access_token(user, team_id, app=app, scopes=sorted(ceiling))
+    if not scopes:
+        raise RuntimeError("Refusing to mint a wizard token with no scopes.")
     outside = sorted(set(scopes) - set(ceiling))
     if outside:
         raise RuntimeError(f"Wizard app cannot grant {', '.join(outside)}.")

@@ -74,18 +74,29 @@ class Command(BaseCommand):
         if GATEWAY_CREDENTIAL_REQUIRED_SCOPE not in (resolve_ceiling(app.ceiling_scopes) or ()):
             raise CommandError(f"wizard app {app.client_id} cannot grant {GATEWAY_CREDENTIAL_REQUIRED_SCOPE}")
 
-        superseded = OAuthAccessToken.objects.filter(
-            user=user, application=app, scoped_teams=[team.id], scope=GATEWAY_CREDENTIAL_REQUIRED_SCOPE
-        ).exclude(expires__lte=timezone.now())
-        revoked = superseded.count()
-        superseded.delete()
-
         try:
             token = create_wizard_oauth_access_token_for_user(user, team.id, scopes=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE])
         except (WizardIdentityBlockedError, RuntimeError) as e:
             raise CommandError(str(e)) from e
+
+        # save(), not queryset update(): the gateway's credential blob is
+        # projected on post_save, which an update() does not fire, so the
+        # gateway would keep serving the mint helper's six-hour expiry.
+        row = OAuthAccessToken.objects.get(token=token)
         expires = timezone.now() + timedelta(days=days)
-        OAuthAccessToken.objects.filter(token=token).update(expires=expires)
+        row.expires = expires
+        row.save(update_fields=["expires"])
+
+        # After the mint, so a refusal leaves the working credential in place.
+        superseded = (
+            OAuthAccessToken.objects.filter(
+                user=user, application=app, scoped_teams=[team.id], scope=GATEWAY_CREDENTIAL_REQUIRED_SCOPE
+            )
+            .exclude(expires__lte=timezone.now())
+            .exclude(pk=row.pk)
+        )
+        revoked = superseded.count()
+        superseded.delete()
 
         logger.info(
             "wizard_ci_token: issued",
