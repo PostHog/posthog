@@ -65,7 +65,13 @@ import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-export function GitHubConnectPanel() {
+interface GitHubConnectPanelProps {
+  connectButtonVariant?: "outline" | "primary";
+}
+
+export function GitHubConnectPanel({
+  connectButtonVariant = "primary",
+}: GitHubConnectPanelProps) {
   const queryClient = useQueryClient();
   const currentProjectId = useAuthStateValue((state) => state.currentProjectId);
   const { projects, projectsWithGithub, isLoading } =
@@ -475,7 +481,7 @@ export function GitHubConnectPanel() {
           </Button>
         ) : isApprovedNotLinked ? (
           <Button
-            variant="primary"
+            variant={connectButtonVariant}
             size="lg"
             className="w-full"
             loading={isConnecting}
@@ -488,7 +494,7 @@ export function GitHubConnectPanel() {
           teamConnectFlow && canTakeAction ? (
             <Button
               size="lg"
-              variant="primary"
+              variant={connectButtonVariant}
               onClick={() => initiateConnect(teamConnectFlow)}
               className="w-full"
             >
@@ -499,7 +505,7 @@ export function GitHubConnectPanel() {
             <div className="flex w-full flex-col gap-2">
               <Button
                 size="lg"
-                variant="primary"
+                variant={connectButtonVariant}
                 onClick={() => {
                   const { isRetry, shouldReset } = deriveConnectButtonState({
                     isConnecting,
