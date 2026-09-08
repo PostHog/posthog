@@ -29,6 +29,7 @@ type Diagnostic struct {
 type Result struct {
 	Valid          bool         `json:"valid"`
 	Diagnostics    []Diagnostic `json:"diagnostics"`
+	TableNames     []string     `json:"tableNames"`
 	DurationMicros int64        `json:"durationMicros"`
 }
 
@@ -46,7 +47,7 @@ func Validate(schema *catalog.Catalog, query string) Result {
 	if err != nil {
 		return result([]Diagnostic{{
 			Code: "syntax_error", Message: err.Error(), Start: 0, End: len(query),
-		}}, started)
+		}}, nil, started)
 	}
 
 	tablesByName := make(map[string]catalog.Table, len(schema.Tables))
@@ -55,6 +56,8 @@ func Validate(schema *catalog.Catalog, query string) Result {
 	}
 
 	var diagnostics []Diagnostic
+	var referencedTableNames []string
+	seenTableNames := map[string]bool{}
 	bindings := map[string]tableBinding{}
 	ignoredIdents := map[*clickhouse.Ident]bool{}
 	for _, statement := range statements {
@@ -67,6 +70,11 @@ func Validate(schema *catalog.Catalog, query string) Result {
 				}
 				if original, exists := originalTableNames[strings.ToLower(name)]; exists {
 					name = original
+				}
+				lowerName := strings.ToLower(name)
+				if !seenTableNames[lowerName] {
+					referencedTableNames = append(referencedTableNames, name)
+					seenTableNames[lowerName] = true
 				}
 				table, exists := tablesByName[strings.ToLower(name)]
 				if !exists {
@@ -135,7 +143,7 @@ func Validate(schema *catalog.Catalog, query string) Result {
 			})
 		}
 	}
-	return result(diagnostics, started)
+	return result(diagnostics, referencedTableNames, started)
 }
 
 func validateProperty(diagnostics *[]Diagnostic, seen map[string]bool, properties []catalog.Property, ident *clickhouse.Ident) {
@@ -310,9 +318,15 @@ func levenshtein(left, right string) int {
 	return previous[len(rightRunes)]
 }
 
-func result(diagnostics []Diagnostic, started time.Time) Result {
+func result(diagnostics []Diagnostic, tableNames []string, started time.Time) Result {
 	if diagnostics == nil {
 		diagnostics = []Diagnostic{}
 	}
-	return Result{Valid: len(diagnostics) == 0, Diagnostics: diagnostics, DurationMicros: time.Since(started).Microseconds()}
+	if tableNames == nil {
+		tableNames = []string{}
+	}
+	return Result{
+		Valid: len(diagnostics) == 0, Diagnostics: diagnostics, TableNames: tableNames,
+		DurationMicros: time.Since(started).Microseconds(),
+	}
 }

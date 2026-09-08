@@ -55,7 +55,7 @@ type catalogUpdate struct {
 
 func main() {
 	listenAddress := env("LISTEN_ADDR", "127.0.0.1:8091")
-	maxCatalogs, err := positiveIntEnv("MAX_CATALOGS", 256)
+	maxCatalogs, err := positiveIntEnv("MAX_CATALOGS", 1024)
 	if err != nil {
 		fatalConfiguration(err)
 	}

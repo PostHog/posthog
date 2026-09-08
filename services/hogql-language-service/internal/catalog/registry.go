@@ -24,6 +24,7 @@ type Registry struct {
 type registryEntry struct {
 	catalog    *Catalog
 	revision   string
+	createdAt  time.Time
 	lastAccess time.Time
 }
 
@@ -59,7 +60,7 @@ func (r *Registry) Put(authorization serviceauth.Authorization, revision string,
 	if _, exists := r.entries[authorization]; !exists && len(r.entries) >= r.maxEntries {
 		r.removeLeastRecentlyUsed()
 	}
-	r.entries[authorization] = registryEntry{catalog: value, revision: revision, lastAccess: now}
+	r.entries[authorization] = registryEntry{catalog: value, revision: revision, createdAt: now, lastAccess: now}
 	return nil
 }
 
@@ -103,7 +104,7 @@ func (r *Registry) Stats() RegistryStats {
 
 func (r *Registry) removeExpired(now time.Time) {
 	for authorization, entry := range r.entries {
-		if now.Sub(entry.lastAccess) >= r.ttl {
+		if now.Sub(entry.createdAt) >= r.ttl {
 			delete(r.entries, authorization)
 		}
 	}

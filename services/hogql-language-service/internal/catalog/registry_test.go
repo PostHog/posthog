@@ -59,3 +59,21 @@ func TestRegistryExpiresAndEvictsLeastRecentlyUsedCatalogs(t *testing.T) {
 		t.Fatalf("expired catalogs remain: %#v", stats)
 	}
 }
+
+func TestRegistryExpiresActiveCatalogFromPublicationTime(t *testing.T) {
+	now := time.Unix(100, 0)
+	registry := newRegistry(1, time.Minute, func() time.Time { return now })
+	scope := serviceauth.Authorization{TeamID: 1, UserID: 10}
+	value := &Catalog{Tables: map[string]Table{}, Properties: map[string][]Property{}}
+	if err := registry.Put(scope, "1", value); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(45 * time.Second)
+	if _, _, ok := registry.Get(scope); !ok {
+		t.Fatal("catalog expired before its publication TTL")
+	}
+	now = now.Add(16 * time.Second)
+	if _, _, ok := registry.Get(scope); ok {
+		t.Fatal("catalog access extended its publication TTL")
+	}
+}
