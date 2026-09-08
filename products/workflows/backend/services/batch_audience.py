@@ -1,6 +1,7 @@
 from typing import Optional
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -28,6 +29,7 @@ def get_batch_audience_person_ids(
     group_type_index: Optional[GroupTypeIndex] = None,
     cursor: Optional[str] = None,
     dedupe_key: Optional[str] = None,
+    settings: Optional[HogQLGlobalSettings] = None,
 ) -> list[str]:
     """
     Enumerate one page of a batch workflow's audience (person UUIDs, cursor-paginated).
@@ -45,7 +47,7 @@ def get_batch_audience_person_ids(
         select_query = _build_audience_person_query(team, cleaned_filter, cursor=cursor, dedupe_key=dedupe_key)
 
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
-        response = execute_hogql_query(query=select_query, team=team)
+        response = execute_hogql_query(query=select_query, team=team, settings=settings)
 
     return [str(row[0]) for row in response.results] if response.results else []
 
@@ -54,6 +56,7 @@ def get_batch_audience_count(
     team: Team,
     filters: dict,
     dedupe_key: str,
+    settings: Optional[HogQLGlobalSettings] = None,
 ) -> int:
     """
     Count how many sends a batch workflow would produce with dedup applied — i.e. the
@@ -87,7 +90,7 @@ def get_batch_audience_count(
         )
 
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
-        response = execute_hogql_query(query=select_query, team=team)
+        response = execute_hogql_query(query=select_query, team=team, settings=settings)
 
     return response.results[0][0] if response.results else 0
 

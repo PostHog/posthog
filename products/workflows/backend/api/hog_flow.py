@@ -151,6 +151,11 @@ from products.workflows.backend.services.account_audience import (
     is_account_audience,
     parse_account_audience_filters,
 )
+from products.workflows.backend.services.audience_v2 import (
+    bounded_memory_settings,
+    get_person_audience_count_v2,
+    use_audience_query_v2,
+)
 from products.workflows.backend.services.batch_audience import (
     PERSON_BATCH_SIZE as WORKFLOWS_PERSON_BATCH_SIZE,
     SUPPORTED_DEDUPE_KEYS,
@@ -4519,11 +4524,15 @@ class HogFlowViewSet(
         # echoed back so the frontend labels the count from the response instead of
         # guessing whether the dedup actually ran.
         applied_dedupe_key = None
+        audience_v2 = group_type_index is None and use_audience_query_v2(self.team)
         if dedupe_key is not None and group_type_index is None:
             total = self.team.persons_seen_so_far
-            affected = min(get_batch_audience_count(self.team, filters, dedupe_key), total)
+            count_settings = bounded_memory_settings() if audience_v2 else None
+            affected = min(get_batch_audience_count(self.team, filters, dedupe_key, settings=count_settings), total)
             blast_radius = BlastRadiusResult(affected=affected, total=total)
             applied_dedupe_key = dedupe_key
+        elif audience_v2:
+            blast_radius = get_person_audience_count_v2(self.team, filters)
         else:
             blast_radius = get_user_blast_radius(self.team, filters, group_type_index)
 
@@ -5303,7 +5312,10 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             reject_flag_conditions_in_audience(team, filters)
-            result = get_user_blast_radius(team, filters, group_type_index)
+            if group_type_index is None and use_audience_query_v2(team):
+                result = get_person_audience_count_v2(team, filters)
+            else:
+                result = get_user_blast_radius(team, filters, group_type_index)
             return Response(
                 BlastRadiusSerializer(
                     {
@@ -5348,8 +5360,11 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             reject_flag_conditions_in_audience(team, filters)
+            enumeration_settings = (
+                bounded_memory_settings() if group_type_index is None and use_audience_query_v2(team) else None
+            )
             users_affected = get_batch_audience_person_ids(
-                team, filters, group_type_index, cursor, dedupe_key=dedupe_key
+                team, filters, group_type_index, cursor, dedupe_key=dedupe_key, settings=enumeration_settings
             )
             return Response(
                 InternalBlastRadiusPersonsSerializer(

@@ -183,3 +183,28 @@ At 180k docs CURRENT peak*mem was 96 MiB; at 360k it was 174 MiB — memory grow
 | Candidate-bounded                  | 88     | 210k      | **30 MiB** | **11 MiB** |
 
 ~18x fewer bytes, ~84x less memory, ~6.6x faster — far larger than the pruned-content case above, and on every axis (the extra DISTINCT scan reads only `document_id` + `metadata`, so total bytes still collapses because `content` is now read for one report's docs, not the team's). Lesson: the candidate-bound win scales with how much per-document data the post-filter throws away — biggest when the dedup buffers a wide column (`content`/`embedding`) that downstream actually needs.
+
+## 2026-09-08: person-dedup blast radius — in-order aggregation bounds the memory, sampling wins the preview
+
+**Context.** Workflows/flags blast radius counts persons matching filters via the `persons` lazy table: `count(DISTINCT persons.id)` compiles to an argMax dedup (`GROUP BY id HAVING argMax(is_deleted, version) = 0`) over the `person` ReplacingMergeTree (`ORDER BY (team_id, id)`). On a team with tens of millions of persons the hash GROUP BY exceeds the query memory limit; `max_bytes_before_external_group_by=0` (the HogQL default) forbids spilling. The `id IN (where_optimization)` prefilter shipped earlier only helps selective filters.
+
+**Measured on the Test Cluster (team 2 snapshot, ~87M persons, median of 3 from `system.query_log`):**
+
+| Shape (full-team dedup count)     | dur_ms | peak_mem  |
+| --------------------------------- | ------ | --------- |
+| Hash GROUP BY (current)           | 801    | 18.56 GiB |
+| `optimize_aggregation_in_order=1` | 9,100  | 604 MiB   |
+| Hash + 4 GiB external group by    | 3,234  | 5.69 GiB  |
+| 1-in-64 sampled dedup + hash      | 92     | 245 MiB   |
+
+Sampled estimate error vs exact at 87M persons: 0.037%.
+
+**Findings.**
+
+- `AggregatingInOrderTransform` engages for `GROUP BY id` with `team_id` fixed by WHERE (constant sort-key prefix), including under an `id IN (subquery)` predicate — verified via `EXPLAIN PIPELINE`. Memory drops ~31x; wall time rises ~11x because the sorted streams funnel through a single-threaded `FinishAggregatingInOrderTransform 60 → 1`. Read bytes are identical, so the slowdown is pipeline shape, not I/O.
+- The `id IN (...)` prefilter set itself costs O(matched ids) (~1 GiB at 5.7M matched rows) and in-order aggregation does not remove it — truly broad audiences on giant teams eventually need precalculated evaluations.
+- Sampling on `cityHash64(id) % N = 0` keeps the argMax dedup exact within the sample (id is the group key, so all version rows of a person land in one bucket) and keeps the fast parallel hash path. For preview counts this dominates every exact variant.
+- `WhereClauseExtractor` fails safe to "no prefilter" on `ArithmeticOperation` nodes, so a sampling predicate must be built as `modulo(cityHash64(id), N)` calls, not the `%` operator, or the pushdown into the raw person scan silently disappears.
+- `count(DISTINCT persons.id)` on the persons lazy table is redundant: rows are already one per person after the dedup, and the uniqExact state costs GBs at 10^8 ids. Use `count()`.
+
+**Applied in `products/workflows/backend/services/audience_v2.py`** (flag `workflows-audience-query-v2`): sampled adaptive preview counts (exact rerun below 1,000 sampled matches), exact enumeration/dedupe queries under `optimize_aggregation_in_order=1` + 4 GiB spill.
