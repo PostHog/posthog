@@ -2,8 +2,8 @@ from django.test import SimpleTestCase
 
 from posthog.celery import app
 
-# Celery keys tasks by this string, not by import path. A later split of tasks.py
-# that drops a pin would leave queued messages and Beat entries unresolved.
+# Celery keys tasks by this string, not by import path. Dropping a pin or skipping
+# a submodule import would leave queued messages and Beat entries unresolved.
 EXPECTED_TASK_NAMES = {
     "products.conversations.backend.tasks.process_supporthog_event",
     "products.conversations.backend.tasks.process_supporthog_interactivity",

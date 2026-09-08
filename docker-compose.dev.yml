@@ -26,6 +26,7 @@ services:
             - 'capture:host-gateway'
             - 'capture-ai:host-gateway'
             - 'capture-logs:host-gateway'
+            - 'capture-apm-metrics:host-gateway'
             - 'replay-capture:host-gateway'
             - 'feature-flags:host-gateway'
             - 'hypercache-server:host-gateway'
@@ -62,7 +63,12 @@ services:
                     @capture-logs {
                         path /i/v1/logs
                         path /i/v1/traces
+                    }
+
+                    @capture-apm-metrics {
                         path /i/v1/metrics
+                        path /i/v1/prometheus/write
+                        path /i/v1/prometheus/write/*
                     }
 
                     @flags {
@@ -102,6 +108,10 @@ services:
 
                     handle @capture-logs {
                         reverse_proxy capture-logs:4320
+                    }
+
+                    handle @capture-apm-metrics {
+                        reverse_proxy capture-apm-metrics:4321
                     }
 
                     handle @replay-capture {

@@ -45,6 +45,8 @@ export interface TaskRunErrorResponseApi {
     type?: string
     /** Machine-readable error code */
     code?: string
+    /** After confirmed warm startup nondelivery, echo this token in X-PostHog-Warm-Retry to retry the same run and message within 60 seconds. */
+    retry_token?: string
     /** Why PostHog Desktop access was denied, when applicable.
      *
      * * `startup_plan` - startup_plan
@@ -1331,6 +1333,12 @@ export interface OnboardingSessionApi {
 
 export interface OnboardingSessionTestApi {
     /**
+     * Optional LLM model identifier for the test session. Omit to use the plan default.
+     * @maxLength 255
+     * @nullable
+     */
+    model?: string | null
+    /**
      * Company domain to research. Blank simulates a personal email address.
      * @maxLength 253
      */
@@ -2562,6 +2570,17 @@ export const InitialPermissionModeEnumApi = {
 } as const
 
 /**
+ * * `posthog-gateway` - posthog-gateway
+ * * `own-subscription` - own-subscription
+ */
+export type ClaudeModelAccessEnumApi = (typeof ClaudeModelAccessEnumApi)[keyof typeof ClaudeModelAccessEnumApi]
+
+export const ClaudeModelAccessEnumApi = {
+    PosthogGateway: 'posthog-gateway',
+    OwnSubscription: 'own-subscription',
+} as const
+
+/**
  * Request body for creating a new task run
  */
 export interface ClaudeTaskRunCreateSchemaApi {
@@ -2661,6 +2680,11 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * @nullable
      */
     benjamin_enabled?: boolean | null
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    claude_model_access?: ClaudeModelAccessEnumApi | null
 }
 
 /**
@@ -2787,6 +2811,11 @@ export interface CodexTaskRunCreateSchemaApi {
      * @nullable
      */
     benjamin_enabled?: boolean | null
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    claude_model_access?: ClaudeModelAccessEnumApi | null
 }
 
 export interface TaskRunResumeRequestSchemaApi {
@@ -3158,6 +3187,11 @@ export interface TaskRunBootstrapCreateRequestApi {
      * @nullable
      */
     benjamin_enabled?: boolean | null
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    claude_model_access?: ClaudeModelAccessEnumApi | null
 }
 
 /**
@@ -3716,6 +3750,7 @@ export const JsonrpcEnumApi = {
  * * `permission_response` - permission_response
  * * `set_config_option` - set_config_option
  * * `mcp_response` - mcp_response
+ * * `credential_response` - credential_response
  * * `pi/rpc` - pi/rpc
  * * `queue_get` - queue_get
  * * `queue_clear` - queue_clear
@@ -3731,6 +3766,7 @@ export const TaskRunCommandRequestMethodEnumApi = {
     PermissionResponse: 'permission_response',
     SetConfigOption: 'set_config_option',
     McpResponse: 'mcp_response',
+    CredentialResponse: 'credential_response',
     PiRpc: 'pi/rpc',
     QueueGet: 'queue_get',
     QueueClear: 'queue_clear',
@@ -3753,6 +3789,7 @@ export interface TaskRunCommandRequestApi {
      * * `permission_response` - permission_response
      * * `set_config_option` - set_config_option
      * * `mcp_response` - mcp_response
+     * * `credential_response` - credential_response
      * * `pi/rpc` - pi/rpc
      * * `queue_get` - queue_get
      * * `queue_clear` - queue_clear
@@ -4504,6 +4541,7 @@ export interface RepositoryReadinessResponseApi {
  * * `pull_request` - pull_request
  * * `artifact` - artifact
  * * `channel` - channel
+ * * `canvas` - canvas
  */
 export type TaskSearchResultKindEnumApi = (typeof TaskSearchResultKindEnumApi)[keyof typeof TaskSearchResultKindEnumApi]
 
@@ -4512,7 +4550,50 @@ export const TaskSearchResultKindEnumApi = {
     PullRequest: 'pull_request',
     Artifact: 'artifact',
     Channel: 'channel',
+    Canvas: 'canvas',
 } as const
+
+/**
+ * * `not_started` - Not Started
+ * * `queued` - Queued
+ * * `in_progress` - In Progress
+ * * `completed` - Completed
+ * * `failed` - Failed
+ * * `cancelled` - Cancelled
+ */
+export type TaskRunStatusEnumApi = (typeof TaskRunStatusEnumApi)[keyof typeof TaskRunStatusEnumApi]
+
+export const TaskRunStatusEnumApi = {
+    NotStarted: 'not_started',
+    Queued: 'queued',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
+
+/**
+ * * `local` - Local
+ * * `cloud` - Cloud
+ */
+export type TaskRunEnvironmentEnumApi = (typeof TaskRunEnvironmentEnumApi)[keyof typeof TaskRunEnvironmentEnumApi]
+
+export const TaskRunEnvironmentEnumApi = {
+    Local: 'local',
+    Cloud: 'cloud',
+} as const
+
+export interface TaskRunSummaryApi {
+    /** ID of the latest run. */
+    id: string
+    status: TaskRunStatusEnumApi | null
+    environment: TaskRunEnvironmentEnumApi | null
+    /** Execution mode of the latest run.
+     *
+     * * `interactive` - interactive
+     * * `background` - background */
+    mode: TaskExecutionModeEnumApi
+}
 
 export interface TaskSearchResultApi {
     /** Search document identifier. */
@@ -4522,7 +4603,8 @@ export interface TaskSearchResultApi {
      * * `task` - task
      * * `pull_request` - pull_request
      * * `artifact` - artifact
-     * * `channel` - channel */
+     * * `channel` - channel
+     * * `canvas` - canvas */
     kind: TaskSearchResultKindEnumApi
     /** Primary result label. */
     title: string
@@ -4543,6 +4625,17 @@ export interface TaskSearchResultApi {
      * @nullable
      */
     channel_id: string | null
+    /** Who created the containing task, when the match has one. */
+    created_by: TaskUserBasicInfoApi | null
+    /**
+     * What created the containing task, for example 'slack'.
+     * @nullable
+     */
+    origin_product: string | null
+    /** Status of the containing task's most recent run. */
+    latest_run: TaskRunSummaryApi | null
+    /** When the matched resource last changed. */
+    updated_at: string
     /** Resource-specific navigation metadata. */
     metadata: unknown
 }
@@ -4725,48 +4818,6 @@ export interface TaskSummariesRequestApi {
      * @maxItems 5000
      */
     ids: string[]
-}
-
-/**
- * * `not_started` - Not Started
- * * `queued` - Queued
- * * `in_progress` - In Progress
- * * `completed` - Completed
- * * `failed` - Failed
- * * `cancelled` - Cancelled
- */
-export type TaskRunStatusEnumApi = (typeof TaskRunStatusEnumApi)[keyof typeof TaskRunStatusEnumApi]
-
-export const TaskRunStatusEnumApi = {
-    NotStarted: 'not_started',
-    Queued: 'queued',
-    InProgress: 'in_progress',
-    Completed: 'completed',
-    Failed: 'failed',
-    Cancelled: 'cancelled',
-} as const
-
-/**
- * * `local` - Local
- * * `cloud` - Cloud
- */
-export type TaskRunEnvironmentEnumApi = (typeof TaskRunEnvironmentEnumApi)[keyof typeof TaskRunEnvironmentEnumApi]
-
-export const TaskRunEnvironmentEnumApi = {
-    Local: 'local',
-    Cloud: 'cloud',
-} as const
-
-export interface TaskRunSummaryApi {
-    /** ID of the latest run. */
-    id: string
-    status: TaskRunStatusEnumApi | null
-    environment: TaskRunEnvironmentEnumApi | null
-    /** Execution mode of the latest run.
-     *
-     * * `interactive` - interactive
-     * * `background` - background */
-    mode: TaskExecutionModeEnumApi
 }
 
 /**
