@@ -17,6 +17,7 @@ export default defineConfig({
     // pick up unrelated *.spec.ts files (e.g. Jest unit tests under products/).
     testDir: '..',
     testMatch: ['playwright/e2e/**/*.spec.ts', 'products/*/frontend/e2e/**/*.spec.ts'],
+    testIgnore: ['**/*.ai.spec.ts'],
     /*
         Maximum time one test can run for. 
         Shorter timeout in local dev since it's annoying to wait 90 seconds for a test to run.

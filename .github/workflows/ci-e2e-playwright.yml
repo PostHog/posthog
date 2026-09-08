@@ -19,6 +19,11 @@ on:
                 required: false
                 type: string
                 default: ''
+            ai_repeat_each:
+                description: 'Repetitions of each AI case (use 10 with zero retries for stability validation).'
+                required: false
+                type: string
+                default: '1'
     push:
         branches:
             - master
@@ -93,6 +98,7 @@ jobs:
         outputs:
             # Debounce can veto a PR run whose SHA has already been superseded (see below).
             shouldRun: ${{ steps.decide.outputs.shouldRun == 'true' && steps.debounce.outputs.superseded != 'true' }}
+            aiShouldRun: ${{ (github.event_name != 'pull_request' || steps.changes.outputs.ai == 'true') && steps.debounce.outputs.superseded != 'true' && steps.baseline_push.outputs.result != 'true' }}
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
             schema_migrations_key: ${{ steps.schema-key.outputs.migrations_key }}
@@ -133,6 +139,46 @@ jobs:
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
+                      ai:
+                        - 'products/*/frontend/**'
+                        - products/posthog_ai/**
+                        - products/tasks/**
+                        - products/product_analytics/backend/**
+                        - 'products/*/skills/**'
+                        - products/desktop/packages/agent/**
+                        - products/desktop/packages/agent-shadow/**
+                        - products/desktop/packages/harness/**
+                        - products/desktop/packages/shared/**
+                        - products/desktop/packages/git/**
+                        - products/desktop/packages/enricher/**
+                        - products/desktop/patches/**
+                        - products/desktop/scripts/**
+                        - products/desktop/package.json
+                        - products/desktop/pnpm-lock.yaml
+                        - products/desktop/pnpm-workspace.yaml
+                        - products/desktop/.npmrc
+                        - services/mcp/**
+                        - services/agent-proxy/**
+                        - common/**
+                        - frontend/**
+                        - posthog/**
+                        - ee/**
+                        - playwright/**
+                        - .dockerignore
+                        - .flox/**
+                        - .codex/**
+                        - bin/**
+                        - docker/**
+                        - docker-compose*.yml
+                        - package.json
+                        - pnpm-lock.yaml
+                        - pnpm-workspace.yaml
+                        - pyproject.toml
+                        - uv.lock
+                        - hogli.yaml
+                        - .github/workflows/ci-e2e-playwright.yml
+                        - '!**/*.md'
+                        - '!**/*.mdx'
                       shouldRun:
                         # Any change that could affect E2E behavior triggers a run.
                         - playwright/**
@@ -264,7 +310,7 @@ jobs:
                   echo "oldest_supported=$oldest_supported" >> $GITHUB_OUTPUT
 
             - name: Fetch base branch for merge-base computation
-              if: steps.decide.outputs.shouldRun == 'true' && github.event_name == 'pull_request'
+              if: (steps.decide.outputs.shouldRun == 'true' || steps.changes.outputs.ai == 'true') && github.event_name == 'pull_request'
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               # Scoped, blob-less, no-tags — matches ci-backend / ci-dagster.
@@ -282,16 +328,16 @@ jobs:
               # what saves the cache), so replaying it here too bought nothing. A cache
               # miss falls through to a full migrate, so an absent/wrong key is never a
               # correctness risk.
-              if: steps.decide.outputs.shouldRun == 'true' && (github.event_name == 'pull_request' || github.event_name == 'push')
+              if: steps.decide.outputs.shouldRun == 'true' || steps.changes.outputs.ai == 'true'
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
-                  IS_PUSH: ${{ github.event_name == 'push' }}
+                  IS_DIRECT_CHECKOUT: ${{ github.event_name != 'pull_request' }}
                   # Manual cache-bust knob — keep in sync with SCHEMA_CACHE_EPOCH in
                   # ci-backend.yml, which saves these caches on master pushes.
                   SCHEMA_CACHE_EPOCH: v2
               run: |
-                  if [ "$IS_PUSH" = "true" ]; then
-                      # Pushed commit is checked out directly — no merge commit, no base ref.
+                  if [ "$IS_DIRECT_CHECKOUT" = "true" ]; then
+                      # Pushes and manual runs check out a commit directly, without a PR merge base.
                       # The per-SHA key points at this same push's cache (saved concurrently
                       # by ci-backend, so racy); rely on the stable migration-set key below.
                       REF=HEAD
@@ -495,6 +541,90 @@ jobs:
                   name: playwright-spec-selection
                   path: /tmp/spec-selection.json
                   if-no-files-found: ignore
+
+    ai-playwright:
+        name: AI Playwright E2E tests
+        needs: [changes]
+        if: ${{ !cancelled() && needs.changes.outputs.aiShouldRun == 'true' }}
+        runs-on: depot-ubuntu-24.04-8
+        timeout-minutes: 90
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+                  persist-credentials: false
+
+            - name: Check checkout supports the AI suite
+              id: tooling
+              run: |
+                  if [[ -f products/posthog_ai/frontend/e2e/ci.py && -x .codex/with-flox ]]; then
+                      echo "available=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "::notice::AI E2E tooling is absent on this older checkout; skipping the AI suite."
+                  fi
+
+            - name: Install Flox
+              if: steps.tooling.outputs.available == 'true'
+              uses: flox/install-flox-action@c94e7e1ab56ae14fe98bae4fd84384fd135f0c2a # v2.4.0
+              with:
+                  use-cache: false
+
+            - name: Restore sandbox image
+              if: steps.tooling.outputs.available == 'true'
+              id: image-cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: /tmp/ai-e2e-image-cache
+                  key: ai-e2e-image-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.dockerignore', 'products/desktop/package.json', 'products/desktop/pnpm-lock.yaml', 'products/desktop/pnpm-workspace.yaml', 'products/desktop/.npmrc', 'products/desktop/patches/**', 'products/desktop/scripts/rimraf.mjs', 'products/desktop/packages/agent/**', 'products/desktop/packages/agent-shadow/**', 'products/desktop/packages/harness/**', 'products/desktop/packages/shared/**', 'products/desktop/packages/git/**', 'products/desktop/packages/enricher/**', 'products/tasks/backend/sandbox/images/**', 'products/tasks/backend/logic/services/docker_sandbox.py', 'products/posthog_ai/skills/**', 'products/posthog_ai/frontend/e2e/image.py') }}
+
+            - name: Prepare development environment
+              if: steps.tooling.outputs.available == 'true'
+              run: |
+                  echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
+                  .codex/with-flox --prepare true
+
+            - name: Restore matching database schema
+              if: steps.tooling.outputs.available == 'true' && needs.changes.outputs.schema_migrations_key != ''
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  key: ${{ needs.changes.outputs.schema_migrations_key }}
+
+            - name: Run isolated AI suite
+              if: steps.tooling.outputs.available == 'true'
+              env:
+                  AI_RETRIES: ${{ inputs.playwright_retries || '1' }}
+                  AI_REPETITIONS: ${{ inputs.ai_repeat_each || '1' }}
+              run: |
+                  .codex/with-flox env CI=true python -m products.posthog_ai.frontend.e2e.ci \
+                      --retries "$AI_RETRIES" --repeat-each "$AI_REPETITIONS" --image-cache /tmp/ai-e2e-image-cache
+
+            - name: Save sandbox image
+              if: success() && github.ref == 'refs/heads/master' && steps.image-cache.outputs.cache-hit != 'true' && steps.tooling.outputs.available == 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: /tmp/ai-e2e-image-cache
+                  key: ${{ steps.image-cache.outputs.cache-primary-key }}
+
+            - name: Upload AI traces, logs, fixtures, timings, and provenance
+              if: always() && steps.tooling.outputs.available == 'true'
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: ai-playwright-results
+                  path: products/posthog_ai/frontend/e2e/artifacts/
+                  retention-days: 14
+                  if-no-files-found: warn
+
+            - name: Report AI test results to Trunk
+              if: ${{ !cancelled() && steps.tooling.outputs.available == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
+              continue-on-error: true
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: products/posthog_ai/frontend/e2e/artifacts/*/junit.xml
+                  org-slug: posthog-inc
+                  cli-version: '0.13.7'
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
 
     playwright:
         name: Playwright E2E tests
@@ -1334,7 +1464,7 @@ jobs:
 
     # Collate test + VR completion status for the required check
     playwright_tests:
-        needs: [changes, playwright, vr-complete]
+        needs: [changes, playwright, ai-playwright, vr-complete]
         name: Playwright tests pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -1348,6 +1478,10 @@ jobs:
                   # suite, so its failure costs runner time but never coverage.
                   if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
                     echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.ai-playwright.result }}" != "success" && "${{ needs.ai-playwright.result }}" != "skipped" ]]; then
+                    echo "AI Playwright tests or preparation failed."
                     exit 1
                   fi
                   if [[ "${{ needs.playwright.result }}" != "success" && "${{ needs.playwright.result }}" != "skipped" ]]; then

@@ -22,9 +22,9 @@ COPY local-workspace /local-workspace
 
 RUN --mount=type=cache,id=posthog-sandbox-local-pnpm,target=/pnpm/store,sharing=locked \
     cd /local-workspace && \
+    npm --prefix node_modules/node-pty run install && \
     pnpm --filter @posthog/agent... build && \
-    cd /local-workspace/packages/agent && \
-    pnpm pack --pack-destination /tmp && \
-    cd /scripts && \
-    pnpm install /tmp/posthog-agent-*.tgz --store-dir=/pnpm/store --fetch-timeout=600000 --config.dangerouslyAllowAllBuilds=true && \
-    rm -rf /tmp/posthog-agent-*.tgz /local-workspace
+    rm -rf /scripts/node_modules && \
+    mkdir -p /scripts/node_modules/@posthog /scripts/node_modules/.bin && \
+    ln -s /local-workspace/packages/agent /scripts/node_modules/@posthog/agent && \
+    ln -s ../@posthog/agent/dist/server/bin.js /scripts/node_modules/.bin/agent-server
