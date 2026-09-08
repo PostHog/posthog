@@ -17,7 +17,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { v4 as uuidv4 } from 'uuid'
 
 import api from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import { ApiError, CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE } from 'lib/api-error'
 import { isEmptyProperty, isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils/objects'
@@ -26,6 +26,7 @@ import { isValidSemverValue } from 'lib/utils/semver'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { groupsModel } from '~/models/groupsModel'
+import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
 import {
     AnyPropertyFilter,
     FeatureFlagEvaluationRuntime,
@@ -48,12 +49,8 @@ export function isDistinctIdFilter(property: AnyPropertyFilter): boolean {
     return property.type === PropertyFilterType.Person && property.key === 'distinct_id'
 }
 
-// Keep in sync with the backend `ClickHouseQueryMemoryLimitExceeded.default_code` (posthog/exceptions.py).
-const CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_exceeded'
-
-// What we keep from a failed blast-radius request so the UI can explain it, instead of a bare
-// boolean that collapses a 400 with a good explanation, a 513 out-of-memory, and a 504 timeout
-// into one generic line.
+// What we keep from a failed blast-radius request so the UI can pick a message and decide whether
+// a retry is worth offering.
 export interface BlastRadiusError {
     status?: number
     code?: string | null
@@ -67,26 +64,27 @@ export function toBlastRadiusError(error: unknown): BlastRadiusError {
     return {}
 }
 
-// A retry only helps when the failure was transient (a timeout or a server-side blip). A 4xx
-// means the request itself is the problem, and a per-query memory limit will exhaust memory the
-// same way next time — so we don't offer a retry the server has already told us is futile.
+// A retry only helps when the failure was transient — a timeout, a rate limit (429), or a
+// server-side blip. A 512 (too-slow estimate) or a per-query memory limit will fail the same way
+// next time, and any other 4xx means the request itself is the problem.
 export function isBlastRadiusErrorRetryable(error: BlastRadiusError): boolean {
+    if (error.status === 429) {
+        return true
+    }
     if (error.status !== undefined && error.status >= 400 && error.status < 500) {
         return false
     }
-    if (error.code === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE) {
+    if (error.status === 512 || error.code === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE) {
         return false
     }
     return true
 }
 
-// The backend sends actionable copy for bad input (400) and memory-limit failures (513); show it
-// verbatim. Other failures are opaque server faults, so we fall back to a generic line.
-export function blastRadiusErrorMessage(error: BlastRadiusError, pluralName: string): string {
-    if (error.detail && (error.status === 400 || error.code === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE)) {
-        return error.detail
-    }
-    return `Couldn't estimate how many ${pluralName} match.`
+// The backend sends actionable copy for bad input, a too-slow estimate, and memory-limit
+// failures; show it verbatim. Other failures are opaque server faults, so we fall back to a
+// generic line.
+export function getBlastRadiusErrorMessage(error: BlastRadiusError, pluralName: string): string {
+    return extractValidationError(error) ?? `Couldn't estimate how many ${pluralName} match.`
 }
 
 // Gates the release-condition save on the same rules the backend enforces, so a bad value is
@@ -176,7 +174,7 @@ export interface featureFlagReleaseConditionsLogicValues {
     currentProjectId: number | null // projectLogic
     affectedCounts: Record<string, number | undefined>
     aggregationTargetName: (conditionGroupTypeIndex?: number | null | undefined) => string
-    blastRadiusErrors: Record<string, BlastRadiusError>
+    blastRadiusErrors: Record<string, BlastRadiusError | undefined>
     computeBlastRadiusPercentage: (rolloutPercentage: any, sortKey: any) => any
     distinctIdNameCache: Record<string, string>
     distinctIds: string[]
@@ -665,7 +663,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         // caught error so the UI can explain why (and decide whether a retry is worth offering)
         // instead of just distinguishing failure from the still-loading (undefined) state.
         blastRadiusErrors: [
-            {} as Record<string, BlastRadiusError>,
+            {} as Record<string, BlastRadiusError | undefined>,
             {
                 setBlastRadiusError: (state, { sortKey, error }) => ({
                     ...state,

@@ -2,7 +2,6 @@ import { expectLogic } from 'kea-test-utils'
 import { v4 as uuidv4 } from 'uuid'
 
 import api from 'lib/api'
-import { ApiError } from 'lib/api-error'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { useMocks } from '~/mocks/jest'
@@ -19,8 +18,8 @@ import {
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
 import {
-    blastRadiusErrorMessage,
     featureFlagReleaseConditionsLogic,
+    getBlastRadiusErrorMessage,
     isBlastRadiusErrorRetryable,
     withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
@@ -106,41 +105,44 @@ describe('the feature flag release conditions logic', () => {
         })
 
         it('captures the API error so the UI can explain the failure', async () => {
-            // A 513 out-of-memory carries a stable code and actionable copy the UI surfaces verbatim.
-            const memoryError = new ApiError('boom', 513, undefined, {
+            // Routed through a mocked HTTP response, not a hand-built ApiError, to exercise the
+            // real ApiError.fromResponse mapping.
+            useMocks({
+                post: {
+                    '/api/projects/:team/feature_flags/user_blast_radius': () => [
+                        513,
+                        {
+                            code: 'clickhouse_memory_limit_exceeded',
+                            detail: 'This query ran out of memory before it could finish.',
+                        },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.calculateBlastRadiusForCondition(
+                    'X',
+                    [
+                        {
+                            key: 'aloha',
+                            value: 'aloha',
+                            type: PropertyFilterType.Person,
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                    null
+                )
+            }).toFinishAllListeners()
+
+            // The caught error is kept (status/code/detail), not masked as -1, which the render
+            // path can't tell apart from the still-loading (undefined) state.
+            expect(logic.values.blastRadiusErrors.X).toEqual({
+                status: 513,
                 code: 'clickhouse_memory_limit_exceeded',
                 detail: 'This query ran out of memory before it could finish.',
             })
-            const createSpy = jest.spyOn(api, 'create').mockRejectedValue(memoryError)
-
-            try {
-                await expectLogic(logic, () => {
-                    logic.actions.calculateBlastRadiusForCondition(
-                        'X',
-                        [
-                            {
-                                key: 'aloha',
-                                value: 'aloha',
-                                type: PropertyFilterType.Person,
-                                operator: PropertyOperator.Exact,
-                            },
-                        ],
-                        null
-                    )
-                }).toFinishAllListeners()
-
-                // The caught error is kept (status/code/detail), not masked as -1, which the render
-                // path can't tell apart from the still-loading (undefined) state.
-                expect(logic.values.blastRadiusErrors.X).toEqual({
-                    status: 513,
-                    code: 'clickhouse_memory_limit_exceeded',
-                    detail: 'This query ran out of memory before it could finish.',
-                })
-                expect(logic.values.affectedCounts.X).toBeUndefined()
-                expect(logic.values.totalCounts.X).toBeUndefined()
-            } finally {
-                createSpy.mockRestore()
-            }
+            expect(logic.values.affectedCounts.X).toBeUndefined()
+            expect(logic.values.totalCounts.X).toBeUndefined()
         })
 
         it('clears the error state once a recalculation succeeds', async () => {
@@ -177,8 +179,10 @@ describe('the feature flag release conditions logic', () => {
         it.each([
             ['a transient timeout is retryable', { status: 504 }, true],
             ['a server fault is retryable', { status: 500 }, true],
+            ['a rate-limited request is retryable', { status: 429 }, true],
             ['a bad request is not retryable', { status: 400 }, false],
             ['an unauthorized request is not retryable', { status: 401 }, false],
+            ['a too-slow estimate is not retryable', { status: 512 }, false],
             [
                 'a per-query memory limit is not retryable',
                 { status: 513, code: 'clickhouse_memory_limit_exceeded' },
@@ -196,6 +200,11 @@ describe('the feature flag release conditions logic', () => {
                 'These filters are invalid.',
             ],
             [
+                'shows the backend detail for a too-slow estimate',
+                { status: 512, detail: 'Estimated query execution time is too long.' },
+                'Estimated query execution time is too long.',
+            ],
+            [
                 'shows the backend detail for a memory limit',
                 { status: 513, code: 'clickhouse_memory_limit_exceeded', detail: 'Ran out of memory.' },
                 'Ran out of memory.',
@@ -203,7 +212,7 @@ describe('the feature flag release conditions logic', () => {
             ['falls back to a generic line for a timeout', { status: 504, detail: 'Gateway timeout.' }, generic],
             ['falls back to a generic line when there is no detail', { status: 500 }, generic],
         ])('%s', (_name, error, expected) => {
-            expect(blastRadiusErrorMessage(error, 'users')).toBe(expected)
+            expect(getBlastRadiusErrorMessage(error, 'users')).toBe(expected)
         })
 
         it('loads when editing a flag with multiple conditions', async () => {

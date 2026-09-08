@@ -339,7 +339,7 @@ interface ConditionProps {
     totalGroups: number
     affectedCounts: Record<string, number | undefined>
     totalCounts: Record<string, number | undefined>
-    blastRadiusErrors: Record<string, BlastRadiusError>
+    blastRadiusErrors: Record<string, BlastRadiusError | undefined>
     calculateBlastRadiusForCondition: (
         sortKey: string,
         properties: AnyPropertyFilter[] | undefined,
@@ -507,6 +507,7 @@ const ConditionContent = ({
         ),
         true
     ).singular
+    const blastRadiusError = group.sort_key ? blastRadiusErrors[group.sort_key] : undefined
 
     return (
         <div
@@ -678,17 +679,17 @@ const ConditionContent = ({
                                                 data-attr="rollout-percentage"
                                             />
                                         </div>
-                                        {group.sort_key && blastRadiusErrors[group.sort_key] ? (
+                                        {blastRadiusError ? (
                                             <div
                                                 role="status"
                                                 className="text-xs text-muted mt-2 flex items-start gap-2"
                                             >
                                                 <IconErrorOutline className="text-danger text-sm shrink-0 mt-0.5" />
                                                 <BlastRadiusErrorMessage
-                                                    error={blastRadiusErrors[group.sort_key]}
+                                                    error={blastRadiusError}
                                                     pluralName={resolvedTargetName}
                                                 />
-                                                {isBlastRadiusErrorRetryable(blastRadiusErrors[group.sort_key]) && (
+                                                {isBlastRadiusErrorRetryable(blastRadiusError) && (
                                                     <LemonButton
                                                         type="secondary"
                                                         size="xsmall"

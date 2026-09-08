@@ -9,6 +9,7 @@ import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE } from 'lib/api-error'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
@@ -24,7 +25,7 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import posthog from 'lib/posthog-typed'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
-import { isTrustedPostHogUrl } from 'lib/utils/trustedUrl'
+import { renderDetailWithLinks } from 'lib/utils/renderDetailWithLinks'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic, insightOverridesPresent } from 'scenes/insights/insightLogic'
@@ -57,16 +58,9 @@ import { sampleDataStateLogic } from './sampleDataStateLogic'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
 
-// Matches ClickHouseQueryMemoryLimitExceeded.default_code on the backend. Keep the two in sync.
-const CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_exceeded'
-
 const MEMORY_LIMIT_AI_PROMPT = autoRunMaxPrompt(
     "This insight ran out of memory before it could finish. Help me work out why it's scanning so much data and how to fix it: a shorter date range, narrower filters, or materializing the data."
 )
-
-// Stop the capture before trailing sentence punctuation so a URL ending a sentence (".", ")") keeps
-// a clean href. No `g` flag needed: split() finds all matches and interleaves the captured URLs.
-const DETAIL_URL_REGEX = /(https?:\/\/[^\s]*[^\s.,;:!?)\]}'"])/
 
 export function InsightEmptyState({
     heading,
@@ -559,20 +553,7 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
     )
 }
 
-// Render embedded URLs (e.g. backend docs links) as clickable links. Only PostHog-host URLs are
-// linkified — error detail can echo user-controlled text.
-export function renderDetailWithLinks(detail: string): (string | JSX.Element)[] {
-    // Splitting on a capturing group interleaves text and URL matches, so odd indexes are the URLs
-    return detail.split(DETAIL_URL_REGEX).map((part, index) =>
-        index % 2 === 1 && isTrustedPostHogUrl(part) ? (
-            <Link key={index} to={part} target="_blank">
-                {part}
-            </Link>
-        ) : (
-            part
-        )
-    )
-}
+export { renderDetailWithLinks } from 'lib/utils/renderDetailWithLinks'
 
 /** Kind of the query that errored, unwrapping InsightVizNode/DataTableNode wrappers to the source query. */
 function queryKindForReporting(query: Record<string, any> | Node | null | undefined): string | null {
