@@ -522,35 +522,43 @@ jobs:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
 
-            - name: Compute schema cache key from merge-base
+            - name: Compute schema cache key
               id: schema-key
-              if: github.event_name == 'pull_request'
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  IS_PR: ${{ github.event_name == 'pull_request' }}
               run: |
-                  # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
-                  # The fetch-depth:1000 checkout + base-ref fetch above ensure the
-                  # full ancestry needed to find the divergence point is available.
-                  MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
-                  if [ -z "$MERGE_BASE" ]; then
-                      echo "key=" >> $GITHUB_OUTPUT
-                      echo "migrations_key=" >> $GITHUB_OUTPUT
-                      echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
-                      exit 0
+                  if [ "$IS_PR" = "true" ]; then
+                      # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
+                      # The fetch-depth:1000 checkout + base-ref fetch above ensure the
+                      # full ancestry needed to find the divergence point is available.
+                      MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                      if [ -z "$MERGE_BASE" ]; then
+                          echo "key=" >> $GITHUB_OUTPUT
+                          echo "migrations_key=" >> $GITHUB_OUTPUT
+                          echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
+                          exit 0
+                      fi
+                      # Routing decides which app labels reach the dump, and the prime step below
+                      # creates their tables from the checked-out models, so these inputs belong in
+                      # the key. A PR that edits any of them matches no master dump, the merge-base
+                      # one included: drop both keys and let migrations run from scratch.
+                      DB_ROUTING_BASE=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                      DB_ROUTING_HEAD=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                      if [ "$DB_ROUTING_BASE" != "$DB_ROUTING_HEAD" ]; then
+                          echo "key=" >> $GITHUB_OUTPUT
+                          echo "migrations_key=" >> $GITHUB_OUTPUT
+                          echo "::notice::db routing config or router differs from the merge base, so the schema cache is skipped"
+                          exit 0
+                      fi
+                      echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                      REF="$MERGE_BASE"
+                  else
+                      # The scheduled lane checks master out directly: no merge commit, no base
+                      # ref. Its per-SHA key would name a cache ci-backend saves on the same
+                      # commit, so it relies on the stable migration-set key below.
+                      REF=HEAD
                   fi
-                  # Routing decides which app labels reach the dump, and the prime step below
-                  # replays them from the checked-out copy, so these inputs belong in the key. A PR
-                  # that edits any of them matches no master dump, the merge-base one included:
-                  # drop both keys and let migrations run from scratch.
-                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
-                  DB_ROUTING_HEAD=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
-                  if [ "$DB_ROUTING" != "$DB_ROUTING_HEAD" ]; then
-                      echo "key=" >> $GITHUB_OUTPUT
-                      echo "migrations_key=" >> $GITHUB_OUTPUT
-                      echo "::notice::db routing config or router differs from the merge base, so the schema cache is skipped"
-                      exit 0
-                  fi
-                  echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
                   # Last-resort restore prefix: matches the newest saved dump of any
                   # migration set, for the window where both exact keys miss. Gated on
                   # checkout age (a day) because a re-run of an old run keeps its original
@@ -562,11 +570,12 @@ jobs:
                       echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
                   fi
                   # Shared migration-set key. Must match ci-backend.yml's save-side computation byte for byte or it never hits.
-                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
+                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$REF" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
                       | LC_ALL=C sort) || true
-                  PG_IMAGE=$(git show "${MERGE_BASE}:docker-compose.base.yml" 2>/dev/null \
+                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' "$REF" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                  PG_IMAGE=$(git show "${REF}:docker-compose.base.yml" 2>/dev/null \
                       | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
                   if [ -z "$MIG_FILES" ]; then
                       echo "migrations_key=" >> $GITHUB_OUTPUT
@@ -577,7 +586,7 @@ jobs:
                   fi
 
             - name: Restore schema cache from master
-              if: ${{ github.event_name == 'pull_request' && steps.schema-key.outputs.key != '' }}
+              if: steps.schema-key.outputs.migrations_key != '' || steps.schema-key.outputs.key != ''
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -595,7 +604,6 @@ jobs:
               # No-op on cache miss; manage.py migrate below falls back to a full migrate.
               # MCP integration tests hit the live posthog DB, not test_posthog — that's
               # the only deviation from ci-backend.yml's equivalent step.
-              if: ${{ github.event_name == 'pull_request' }}
               env:
                   TARGET_DB: posthog
               run: |
@@ -613,20 +621,48 @@ jobs:
                   # ProductDBRouter and routes the apps in products/db_routing.yaml to
                   # separate databases: their tables are absent from the dump, but
                   # django_migrations still records their migrations as applied. This job
-                  # configures no product DBs, so those apps live on the default DB —
-                  # drop their migration records so migrate below replays them from 0001
-                  # and actually creates the tables.
-                  APPS=$(python - <<'EOF'
-                  import yaml
-                  with open("products/db_routing.yaml") as f:
-                      routes = yaml.safe_load(f)["routes"]
-                  print(",".join(sorted({"'%s'" % r["app_label"] for r in routes})))
-                  EOF
+                  # configures no product DBs, so those apps live on the default DB, and
+                  # their tables have to be built here.
+                  #
+                  # Build them from the models, the way Django's own product test databases
+                  # are built (see the MIGRATE: False note in posthog/settings/data_stores.py).
+                  # Replaying the migrations instead leaves migrate with a non-empty plan, and
+                  # any non-empty plan walks state_forwards over the whole migration graph —
+                  # minutes of work for tables that syncdb creates in seconds.
+                  python manage.py shell -c '
+                  from django.apps import apps
+                  from django.core.management.commands.migrate import Command as Migrate
+                  from django.db import connection
+                  from django.db.migrations.loader import MigrationLoader
+                  from django.db.migrations.recorder import MigrationRecorder
+                  from posthog.product_db_router import get_product_db_routes
+
+                  tables = set(connection.introspection.table_names())
+                  routed = {route.app_label for route in get_product_db_routes()}
+                  # Only apps the dump left without any table. An app whose tables the dump
+                  # does carry is already consistent with its migration records, so migrate
+                  # applies whatever the branch adds to it in the normal way.
+                  missing = sorted(
+                      label
+                      for label in routed
+                      if not tables.intersection(
+                          model._meta.db_table for model in apps.get_app_config(label).get_models()
+                      )
                   )
-                  if [ -n "$APPS" ]; then
-                      docker compose -f docker-compose.dev.yml exec -T db psql -U posthog posthog \
-                        -c "DELETE FROM django_migrations WHERE app IN ($APPS);"
-                  fi
+                  if missing:
+                      print("Creating tables from models for: %s" % ", ".join(missing))
+                      command = Migrate()
+                      command.verbosity = 1
+                      command.sync_apps(connection, missing)
+                      # The tables now match the models, so record every migration of those
+                      # apps as applied. Their data migrations are skipped, which CI can
+                      # afford: the tables it just created are empty.
+                      loader = MigrationLoader(connection)
+                      recorder = MigrationRecorder(connection)
+                      for app, name in loader.disk_migrations:
+                          if app in missing and (app, name) not in loader.applied_migrations:
+                              recorder.record_applied(app, name)
+                  '
 
             - name: Run migrations
               run: |
