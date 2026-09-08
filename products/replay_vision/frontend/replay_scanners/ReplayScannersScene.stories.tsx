@@ -946,6 +946,14 @@ export const ScannerEditorGoalOverviewExperiment: StoryObj = {
                             operator: 'icontains',
                         },
                     ],
+                    events: [
+                        {
+                            id: 'replay_vision_scanner_creation_started',
+                            name: 'replay_vision_scanner_creation_started',
+                            type: 'events',
+                            order: 0,
+                        },
+                    ],
                 } as RecordingsQuery,
                 experiment_targeting: { experiment_id: 11, variant: 'test' },
             }

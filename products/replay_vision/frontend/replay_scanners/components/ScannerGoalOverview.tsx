@@ -11,11 +11,20 @@ import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
+import { cohortsModel } from '~/models/cohortsModel'
+import { PropertyFilterType } from '~/types'
+
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ScannerEditorStep, scannerStepUrlWithParams } from '../scannerEditorSceneLogic'
-import { OBSERVATION_CREDITS_BY_MODEL, SCANNER_TYPE_TAG_TYPE, modelName, scannerTypeLabel } from '../types'
+import {
+    OBSERVATION_CREDITS_BY_MODEL,
+    SCANNER_TYPE_TAG_TYPE,
+    modelName,
+    type ReplayScanner,
+    scannerTypeLabel,
+} from '../types'
 
 /** Why the draft chose this model, doubling as the guidance on when each tier fits. Keyed by the
  * concrete model id so a retired model just falls through to the generic line. */
@@ -44,7 +53,7 @@ function activityFilterLabel(mode: string): string {
     return 'All recordings'
 }
 
-/** One label:value row in the sampling and budget block. */
+/** One label:value row in the eligible-recordings and sampling blocks. */
 function StatRow({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
     return (
         <>
@@ -100,6 +109,65 @@ function OverviewSection({
     )
 }
 
+/** One kind of filter on the drafted scanner, with the values it holds. */
+export interface EligibleFilterGroup {
+    label: string
+    values: string[]
+}
+
+/** What the drafted scanner watches, grouped by the kind of filter each value came from.
+ *
+ * Each kind narrows differently. An experiment picks the people, a page picks where they went, an
+ * event or an action picks what they did, and a cohort picks who they are. They also combine, so a
+ * flat row of values leaves the reader to guess which value is which kind. The label is also the
+ * only thing that makes an action or a cohort readable: neither value says what it is.
+ */
+export function eligibleFilterGroups(
+    scanner: ReplayScanner,
+    { experimentName, cohortNames }: { experimentName?: string; cohortNames?: Record<string, string> } = {}
+): EligibleFilterGroup[] {
+    const groups: EligibleFilterGroup[] = []
+    const targeting = scanner.experiment_targeting
+    if (targeting?.experiment_id) {
+        // The experiment loads separately, so name the variant either way rather than waiting for it.
+        const variant = targeting.variant ? `${targeting.variant} variant` : 'all variants'
+        groups.push({
+            label: 'Experiment',
+            values: [`${experimentName ?? `Experiment ${targeting.experiment_id}`} (${variant})`],
+        })
+    }
+
+    const properties = scanner.query?.properties ?? []
+    // Read by key, not by position: the properties list can hold a cohort alongside the pages, and
+    // taking whichever came first would render a cohort id as a page.
+    const pageProperty = properties.find((property) => 'key' in property && property.key === 'visited_page')
+    const pageValues =
+        pageProperty && 'value' in pageProperty && Array.isArray(pageProperty.value) ? pageProperty.value : []
+    if (pageValues.length > 0) {
+        groups.push({ label: pluralize(pageValues.length, 'Page', 'Pages', false), values: pageValues.map(String) })
+    }
+
+    const events = (scanner.query && 'events' in scanner.query ? scanner.query.events : null) ?? []
+    const eventValues = events.map((event) => String(event.name ?? event.id)).filter(Boolean)
+    if (eventValues.length > 0) {
+        groups.push({ label: pluralize(eventValues.length, 'Event', 'Events', false), values: eventValues })
+    }
+
+    const actions = (scanner.query && 'actions' in scanner.query ? scanner.query.actions : null) ?? []
+    const actionValues = actions.map((action) => String(action.name ?? action.id)).filter(Boolean)
+    if (actionValues.length > 0) {
+        groups.push({ label: pluralize(actionValues.length, 'Action', 'Actions', false), values: actionValues })
+    }
+
+    const cohortValues = properties
+        .filter((property) => property.type === PropertyFilterType.Cohort)
+        .map((property) => String(cohortNames?.[String(property.value)] ?? `Cohort ${property.value}`))
+    if (cohortValues.length > 0) {
+        groups.push({ label: pluralize(cohortValues.length, 'Cohort', 'Cohorts', false), values: cohortValues })
+    }
+    return groups
+}
+
 /** The landing step after a goal-based draft: the whole drafted config, ordered by comprehension,
  * with each section deep-linking into the wizard step that edits it. */
 export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.Element {
@@ -114,6 +182,8 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
         isScannerSubmitting,
         experimentContext,
     } = useValues(logic)
+    // Names the drafted cohort, which the query carries only by id.
+    const { cohortsById } = useValues(cohortsModel)
     const { submitScanner, loadScannerEstimate } = useActions(logic)
 
     useEffect(() => {
@@ -125,30 +195,12 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
-    // Found by key, not by position: the drafted query can carry a cohort property too, and reading
-    // whichever came first would render a cohort id as a page.
-    const pageProperty = scanner.query?.properties?.find(
-        (property) => 'key' in property && property.key === 'visited_page'
-    )
-    const pageValues =
-        pageProperty && 'value' in pageProperty && Array.isArray(pageProperty.value) && pageProperty.value.length > 0
-            ? pageProperty.value
-            : null
-
-    // Targeting narrows who is watched rather than where, and it lives outside the query, so it
-    // needs a snack of its own or the drafted filter reads as every visitor of those pages.
-    const targeting = scanner.experiment_targeting
-    // The experiment loads separately, so name the variant either way rather than waiting for it.
-    const experimentLabel = targeting?.experiment_id
-        ? `${experimentContext?.experiment.name ?? 'Experiment participants'} (${
-              targeting.variant ? `${targeting.variant} variant` : 'all variants'
-          })`
-        : null
-
-    const eventValues =
-        scanner.query && 'events' in scanner.query && Array.isArray(scanner.query.events)
-            ? scanner.query.events.map((e) => String(e.name ?? e.id)).filter(Boolean)
-            : []
+    const filterGroups = eligibleFilterGroups(scanner, {
+        experimentName: experimentContext?.experiment.name,
+        cohortNames: Object.fromEntries(
+            Object.entries(cohortsById).map(([id, cohort]) => [id, cohort?.name ?? `Cohort ${id}`])
+        ),
+    })
 
     // The draft is still generating: show the page's shape so the wait reads as progress.
     if (goalDraftLoading) {
@@ -208,14 +260,16 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
             </OverviewSection>
 
             <OverviewSection label="Eligible recordings" editStep="triggers" scannerId={scannerId}>
-                {experimentLabel || pageValues || eventValues.length > 0 ? (
-                    <div className="flex flex-wrap gap-1">
-                        {experimentLabel ? <LemonSnack>{experimentLabel}</LemonSnack> : null}
-                        {(pageValues ?? []).map((page) => (
-                            <LemonSnack key={`page-${String(page)}`}>{String(page)}</LemonSnack>
-                        ))}
-                        {eventValues.map((event) => (
-                            <LemonSnack key={`event-${event}`}>{event}</LemonSnack>
+                {filterGroups.length > 0 ? (
+                    <div className="grid grid-cols-[auto_1fr] items-start gap-x-3 gap-y-1 text-sm">
+                        {filterGroups.map((group) => (
+                            <StatRow key={group.label} label={group.label}>
+                                <span className="flex flex-wrap gap-1">
+                                    {group.values.map((value) => (
+                                        <LemonSnack key={value}>{value}</LemonSnack>
+                                    ))}
+                                </span>
+                            </StatRow>
                         ))}
                     </div>
                 ) : (
