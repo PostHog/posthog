@@ -86,16 +86,28 @@ export function markExecPayload(payload: ToolResultPayload): ToolResultPayload {
 export const STRUCTURED_CONTENT_ONLY_TEXT = "Full result is in this response's structuredContent field."
 
 /**
+ * Footer appended for inline-exec UI-app hosts (see `includeUiResponseMeta`): the
+ * host renders the result as an interactive view, and the model would otherwise
+ * re-present the same data in its reply — a second chart under the first. The
+ * system prompt already carries this rule, but a note that arrives with the data
+ * governs the reply that immediately follows, where the prompt rule proved too
+ * far away for some models to honor.
+ */
+export const UI_APP_RENDER_NOTE =
+    'The user already sees this result as an interactive view in the conversation. State your conclusion in text and do not repeat this data in your reply.'
+
+/**
  * Estimate output tokens from what the client actually receives — the serialized
  * TOON/JSON/formatted string, not the raw handler object. TOON is materially
  * smaller than JSON for tabular results, so measuring the raw object would
  * over-count. `structuredContent` is normally excluded because it duplicates the
  * text for UI tools; when the text is only the `STRUCTURED_CONTENT_ONLY_TEXT`
- * pointer it duplicates nothing, so the structured payload is what gets counted.
+ * pointer (possibly followed by the UI render note) it duplicates nothing, so
+ * the structured payload is what gets counted.
  */
 export function estimateResponseTokens(response: ToolResultPayload): number {
     const text = response.content.map((part) => part.text).join('')
-    if (response.structuredContent && text === STRUCTURED_CONTENT_ONLY_TEXT) {
+    if (response.structuredContent && text.startsWith(STRUCTURED_CONTENT_ONLY_TEXT)) {
         return estimateTokens(response.structuredContent)
     }
     return estimateTokens(text)
@@ -196,12 +208,21 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
     // responses carry `getToolRecoveryHint`. Skipped when the caller asked for
     // raw JSON (the text must stay machine-parseable) and when the text is only
     // the structuredContent pointer (the model reads the structured field, and
-    // `estimateResponseTokens` keys off the exact pointer string).
+    // `estimateResponseTokens` keys off the pointer prefix).
     if (!isStringResult && !useJson && !structuredContentOnly && !isPrepareConfirmedActionResult(handlerResult)) {
         const discoveryHint = getDiscoveryHint({ toolName, handlerResult })
         if (discoveryHint) {
             text = `${text}\n\n${discoveryHint}`
         }
+    }
+
+    // The client renders this result as an interactive view, so tell the model
+    // at the point of use. Only inline-exec UI hosts reach here (they are the
+    // only callers that set `includeUiResponseMeta`); a CLI client sees no view
+    // and its model may legitimately re-present the data. JSON output stays
+    // machine-parseable with no footer.
+    if (includeUiResponseMeta && resourceUri && !useJson) {
+        text = `${text}\n\n${UI_APP_RENDER_NOTE}`
     }
 
     const payload: ToolResultPayload = {
