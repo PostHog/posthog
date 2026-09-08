@@ -22,15 +22,12 @@ describe("scoutWriteScopes", () => {
   it.each([
     ["no grant", [], []],
     ["one grant", ["llm_skill:write"], ["Skills"]],
-    // A scope the allowlist dropped has no switch, so naming it would promise a control the
-    // person cannot reach.
     ["a scope the picker no longer offers", ["cohort:write"], []],
   ])("labels %s", (_name, scopes, labels) => {
     expect(scoutWriteScopeLabels(scopes)).toEqual(labels);
   });
 
   it("drops a stale scope from the scopes it offers", () => {
-    // Sending a stale scope back would get the whole update rejected, leaving no way to clear it.
     expect(
       offeredScoutWriteScopes(["cohort:write", "warehouse_table:write"]),
     ).toEqual(["warehouse_table:write"]);

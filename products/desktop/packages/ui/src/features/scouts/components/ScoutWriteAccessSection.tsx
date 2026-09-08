@@ -3,7 +3,7 @@ import type { ScoutConfig } from "@posthog/api-client/posthog-client";
 import {
   offeredScoutWriteScopes,
   SCOUT_ALWAYS_GRANTED_ROWS,
-  SCOUT_WRITE_SCOPE_ROWS,
+  SCOUT_WRITE_SCOPE_GROUPS,
   sameScoutWriteScopes,
   scoutWriteScopeLabels,
 } from "@posthog/core/scouts/scoutWriteScopes";
@@ -12,15 +12,9 @@ import { useState } from "react";
 import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
 
 /**
- * What one agent may write in the project, as the config's `write_scopes`.
- *
- * The only control in this form that does not save on change. Widening what an unattended agent
- * can change in the project should take a deliberate save, not a stray click, so the switches
- * stage a draft and the save button commits it.
- *
- * The switches stay live for everyone. Only the person the agent's runs act as or a project admin
- * may save, and the client cannot resolve the former, so the API refuses and its message names
- * who can.
+ * What one agent may write in the project. The only control in this form that does not save on
+ * change: widening what an unattended agent changes should take a deliberate save. The switches
+ * stay live for everyone, because the client cannot tell who may save; the API refuses the rest.
  */
 export function ScoutWriteAccessSection({
   config,
@@ -30,20 +24,17 @@ export function ScoutWriteAccessSection({
   onUpdate: (configId: string, updates: ScoutConfigUpdate) => void;
 }) {
   const saved = config.write_scopes ?? [];
-  // Null until something is toggled, so the saved grant stays the truth — including after a
-  // rejected save, which must leave the rows where the server has them.
+  // Null until something is toggled, so a rejected save leaves the rows where the server has them.
   const [draft, setDraft] = useState<string[] | null>(null);
   const selected = draft ?? saved;
+  const granted = new Set(selected);
   const changed = !sameScoutWriteScopes(selected, saved);
   const heldLabels = scoutWriteScopeLabels(saved);
-  const groups = [...new Set(SCOUT_WRITE_SCOPE_ROWS.map((row) => row.group))];
 
-  const toggleScope = (scope: string, granted: boolean) => {
-    // A stored scope with no row here would ride along into the save and get the whole update
-    // rejected by the API, with no switch to clear it. The token already drops it at mint time.
+  const toggleScope = (scope: string, grant: boolean) => {
     const held = offeredScoutWriteScopes(selected);
     setDraft(
-      granted ? [...held, scope] : held.filter((offered) => offered !== scope),
+      grant ? [...held, scope] : held.filter((offered) => offered !== scope),
     );
   };
 
@@ -69,34 +60,30 @@ export function ScoutWriteAccessSection({
         ) : null}
       </div>
 
-      {groups.map((group) => (
+      {[...SCOUT_WRITE_SCOPE_GROUPS].map(([group, rows]) => (
         <div key={group} className="flex flex-col gap-2">
           <span className="font-medium text-[11px] text-gray-10 uppercase tracking-wide">
             {group}
           </span>
-          {SCOUT_WRITE_SCOPE_ROWS.filter((row) => row.group === group).map(
-            (row) => (
-              <div
-                key={row.scope}
-                className="flex items-start justify-between gap-3"
-              >
-                <span className="flex min-w-0 flex-col">
-                  <span className="text-[12.5px] text-gray-12">
-                    {row.label}
-                  </span>
-                  <span className="text-[11.5px] text-gray-10">
-                    {row.description}
-                  </span>
+          {rows.map((row) => (
+            <div
+              key={row.scope}
+              className="flex items-start justify-between gap-3"
+            >
+              <span className="flex min-w-0 flex-col">
+                <span className="text-[12.5px] text-gray-12">{row.label}</span>
+                <span className="text-[11.5px] text-gray-10">
+                  {row.description}
                 </span>
-                <Switch
-                  size="sm"
-                  checked={selected.includes(row.scope)}
-                  onCheckedChange={(checked) => toggleScope(row.scope, checked)}
-                  aria-label={`Let this agent write ${row.label.toLowerCase()}`}
-                />
-              </div>
-            ),
-          )}
+              </span>
+              <Switch
+                size="sm"
+                checked={granted.has(row.scope)}
+                onCheckedChange={(checked) => toggleScope(row.scope, checked)}
+                aria-label={`Let this agent write ${row.label.toLowerCase()}`}
+              />
+            </div>
+          ))}
         </div>
       ))}
 

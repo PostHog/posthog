@@ -15,7 +15,6 @@ export interface ScoutConfigUpdate {
   run_interval_minutes?: number;
   run_cron_schedule?: string | null;
   auto_pause_exempt?: boolean;
-  /** The complete grant to hold; `[]` leaves the scout read-only. */
   write_scopes?: string[];
 }
 
@@ -28,18 +27,11 @@ const CONFIG_SETTINGS = [
   "write_scopes",
 ] as const;
 
-/**
- * A setting's value, safe to ship. A grant goes as its size: the count answers whether people
- * widen or narrow write access, and the event schema stays scalar like the cloud client's.
- */
+// A grant goes as its size, and undefined becomes null so serialization cannot drop the key.
 function trackedValue(
   value: boolean | number | string | string[] | null | undefined,
 ): boolean | number | string | null {
-  if (Array.isArray(value)) return value.length;
-  // Explicit null, not undefined: an optional setting like `auto_pause_exempt` has no prior value
-  // on an older backend, and undefined would drop the key on serialization and split the two
-  // clients' event shape.
-  return value ?? null;
+  return Array.isArray(value) ? value.length : (value ?? null);
 }
 
 function trackConfigChange(

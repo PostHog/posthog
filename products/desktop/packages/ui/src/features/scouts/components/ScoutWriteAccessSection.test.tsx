@@ -26,7 +26,6 @@ function renderSection(config: Partial<ScoutConfig>) {
   return onUpdate;
 }
 
-/** The summary above the switches, which is what a person reads before opening anything. */
 function heldSummary(): string {
   return (
     document.querySelector('[data-attr="scout-write-access-held"]')
@@ -37,8 +36,7 @@ function heldSummary(): string {
 describe("ScoutWriteAccessSection", () => {
   it.each([
     ["a live agent", true],
-    // A dry run never holds the grant, so a summary that reads the same as a live agent's would
-    // promise writes the next run cannot make.
+    // A dry run holds no grant, so a live-looking summary promises writes the next run cannot make.
     ["a dry-run agent", false],
   ])("names what the agent holds, for %s", (_name, emit) => {
     renderSection({ emit, write_scopes: ["llm_skill:write"] });
@@ -50,14 +48,11 @@ describe("ScoutWriteAccessSection", () => {
 
   it.each([
     ["a read-only agent", []],
-    // A stored scope the allowlist dropped has no switch, so the save must not resend it or the
-    // API rejects the whole update and the person has no way to clear it.
+    // A stored scope with no switch must not be resent: the API rejects the whole update.
     ["an agent holding a scope the picker no longer offers", ["cohort:write"]],
   ])(
     "stages a grant and saves only on the save button, for %s",
     (_name, stored) => {
-      // The whole reason this section has a save button: a stray click must not widen what an
-      // unattended agent can change in the project.
       const onUpdate = renderSection({ write_scopes: stored });
 
       fireEvent.click(

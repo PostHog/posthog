@@ -1,20 +1,13 @@
-/** One row in the write access picker. `scope` is the string the API stores and the token carries. */
 export interface ScoutWriteScopeRow {
   scope: string;
-  /** Heading the row sits under. Purely a label: the API stores a flat list of scopes. */
   group: "Analytics" | "Monitoring" | "Agents and skills" | "Data";
   label: string;
   description: string;
 }
 
 /**
- * The scopes a person may grant one agent, mirroring `SCOUT_GRANTABLE_WRITE_SCOPES` in
- * `posthog/temporal/oauth.py`. A scope the backend drops from the allowlist can still sit on an
- * old config: the picker shows nothing for it and drops it from the next save, because the API
- * would reject it. A scope added there needs a row here to be offered.
- *
- * Descriptions say what the scope reaches, because each one covers update and delete of every
- * object of its kind in the project, not only the ones the agent made.
+ * Mirrors `SCOUT_GRANTABLE_WRITE_SCOPES` in `posthog/temporal/oauth.py`: a scope added there needs
+ * a row here to be offered, and its description has to say what it reaches project-wide.
  */
 export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
   {
@@ -65,7 +58,6 @@ export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
   },
 ];
 
-/** What every agent can write, whatever its grant. Shown so the picker is the whole picture. */
 export const SCOUT_ALWAYS_GRANTED_ROWS: {
   label: string;
   description: string;
@@ -77,7 +69,6 @@ export const SCOUT_ALWAYS_GRANTED_ROWS: {
   },
 ];
 
-/** Short labels for the scopes an agent holds, for a header or a row summary. */
 export function scoutWriteScopeLabels(
   scopes: readonly string[] | undefined,
 ): string[] {
@@ -86,17 +77,34 @@ export function scoutWriteScopeLabels(
   ).map((row) => row.label);
 }
 
-/** The scopes the picker offers a row for, in row order. Anything else stored on a config is stale. */
+// A dropped scope can still sit on an old config, and resending one gets the update rejected.
 export function offeredScoutWriteScopes(scopes: readonly string[]): string[] {
   return SCOUT_WRITE_SCOPE_ROWS.filter((row) => scopes.includes(row.scope)).map(
     (row) => row.scope,
   );
 }
 
-/** True when the two grants hold the same scopes, whatever order they are stored in. */
 export function sameScoutWriteScopes(
   a: readonly string[],
   b: readonly string[],
 ): boolean {
   return [...a].sort().join() === [...b].sort().join();
 }
+
+function groupRows(): Map<ScoutWriteScopeRow["group"], ScoutWriteScopeRow[]> {
+  const groups = new Map<ScoutWriteScopeRow["group"], ScoutWriteScopeRow[]>();
+  for (const row of SCOUT_WRITE_SCOPE_ROWS) {
+    const rows = groups.get(row.group);
+    if (rows) {
+      rows.push(row);
+    } else {
+      groups.set(row.group, [row]);
+    }
+  }
+  return groups;
+}
+
+export const SCOUT_WRITE_SCOPE_GROUPS: ReadonlyMap<
+  ScoutWriteScopeRow["group"],
+  ScoutWriteScopeRow[]
+> = groupRows();
