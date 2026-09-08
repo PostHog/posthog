@@ -1471,6 +1471,7 @@ describe('dashboardLogic', () => {
                     .toFinishAllListeners()
                     .toMatchValues({
                         dashboardMode: DashboardMode.Edit,
+                        dashboardEditing: { filters: true, layout: false },
                         layoutEditMode: false,
                     })
             })
@@ -1484,6 +1485,7 @@ describe('dashboardLogic', () => {
                     .toFinishAllListeners()
                     .toMatchValues({
                         dashboardMode: DashboardMode.Edit,
+                        dashboardEditing: { filters: true, layout: true },
                         layoutEditMode: true,
                     })
             })

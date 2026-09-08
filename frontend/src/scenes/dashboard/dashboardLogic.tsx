@@ -226,6 +226,11 @@ export interface DashboardSettings {
 
 export type DashboardSettingsState = 'unsavedChanges' | 'saved'
 
+export interface DashboardEditing {
+    filters: boolean
+    layout: boolean
+}
+
 type DashboardEditSaveScope = 'colors' | 'layout'
 
 function parseDashboardTileId(tileId: string | undefined): DashboardTileIdOrNew {
@@ -313,6 +318,7 @@ export interface dashboardLogicValues {
     currentLayoutSize: 'sm' | 'xs'
     dashboard: DashboardType<QueryBasedInsightModel> | null
     dashboardCustomizeMenuOpen: boolean
+    dashboardEditing: DashboardEditing | null
     dashboardFailedToLoad: boolean
     dashboardFiltersSaving: boolean
     dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>
@@ -808,6 +814,13 @@ export interface dashboardLogicActions {
     setDashboardCustomizeMenuOpen: (open: boolean) => {
         open: boolean
     }
+    setDashboardEditing: (
+        editing: DashboardEditing | null,
+        source: DashboardEventSource
+    ) => {
+        editing: DashboardEditing | null
+        source: DashboardEventSource
+    }
     setDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => {
         layoutCompaction: DashboardGridCompaction
     }
@@ -1083,6 +1096,8 @@ export interface dashboardLogicMeta {
         ) => void | Promise<void>
     }
     __keaTypeGenInternalSelectorTypes: {
+        filterEditModeActive: (dashboardEditing: DashboardEditing | null) => boolean
+        layoutEditMode: (dashboardEditing: DashboardEditing | null) => boolean
         shouldUseStreaming: (featureFlags: FeatureFlagsSet) => boolean
         canAutoPreview: (insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]) => boolean
         hasUrlFilters: (
@@ -1487,6 +1502,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
         /** Set the dashboard mode, see DashboardMode for details. */
         setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource) => ({ mode, source }),
+        setDashboardEditing: (editing: DashboardEditing | null, source: DashboardEventSource) => ({ editing, source }),
         /** Exit edit mode, prompting to confirm if there are unsaved changes. */
         cancelLayoutEdit: true,
         /** Make it easier to handle organizing the layout when theres lots of tiles by zooming out */
@@ -2353,31 +2369,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setDashboardMode: (_, { mode }) => mode,
             },
         ],
-        filterEditModeActive: [
-            false,
+        dashboardEditing: [
+            null as DashboardEditing | null,
             {
-                setDashboardMode: (state, { mode, source }) => {
-                    if (
-                        source !== DashboardEventSource.DashboardFilters &&
-                        source !== DashboardEventSource.DashboardVariableOverride
-                    ) {
-                        return state
-                    }
-                    return mode === DashboardMode.Edit
-                },
-            },
-        ],
-        layoutEditMode: [
-            false,
-            {
+                setDashboardEditing: (_, { editing }) => editing,
                 setDashboardMode: (_, { mode, source }) => {
                     if (mode !== DashboardMode.Edit) {
-                        return false
+                        return null
                     }
-                    if (isLayoutEditEventSource(source)) {
-                        return true
+                    return {
+                        filters: true,
+                        layout: isLayoutEditEventSource(source),
                     }
-                    return false
                 },
             },
         ],
@@ -2666,6 +2669,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
     })),
     selectors(() => ({
+        filterEditModeActive: [
+            (s) => [s.dashboardEditing],
+            (dashboardEditing: DashboardEditing | null): boolean => dashboardEditing?.filters === true,
+        ],
+        layoutEditMode: [
+            (s) => [s.dashboardEditing],
+            (dashboardEditing: DashboardEditing | null): boolean => dashboardEditing?.layout === true,
+        ],
         shouldUseStreaming: [
             (s) => [s.featureFlags],
             (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean => {
