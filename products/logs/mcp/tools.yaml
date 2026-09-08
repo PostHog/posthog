@@ -411,6 +411,9 @@ tools:
     logs-has-logs-retrieve:
         operation: logs_has_logs_retrieve
         enabled: false
+    logs-impact-create:
+        operation: logs_impact_create
+        enabled: false
     logs-metric-rules-create:
         operation: logs_metric_rules_create
         enabled: false
