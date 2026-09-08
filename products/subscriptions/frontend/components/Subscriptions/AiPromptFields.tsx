@@ -244,12 +244,12 @@ export function AiPromptFields({
                                         children: (
                                             <div className="flex min-w-0 w-full items-start justify-between gap-2 py-1">
                                                 <div className="min-w-0">
-                                                    <div className="font-semibold">Advanced options</div>
+                                                    <div className="font-semibold">Advanced delivery options</div>
                                                     <div className="text-secondary text-sm font-normal">
                                                         Choose optional content included in each delivery.
                                                     </div>
                                                 </div>
-                                                <div className="shrink-0 text-secondary text-sm font-normal">
+                                                <div className="shrink-0 text-tertiary text-xs font-normal">
                                                     {displaySummary}
                                                 </div>
                                             </div>
