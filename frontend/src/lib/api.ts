@@ -10,6 +10,7 @@ import posthog from 'posthog-js'
 import { ApiError, BROWSER_FETCH_FAILURE_MESSAGES, NetworkError, type NetworkFailureReason } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { CSRF_COOKIE_NAME, isRecoverableCsrfRejection, promptReloadForCsrf, refreshCsrfToken } from 'lib/csrf'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
 import { objectClean } from 'lib/utils/objects'
@@ -332,8 +333,6 @@ export class RecordingDeletedError extends Error {
         this.name = 'RecordingDeletedError'
     }
 }
-
-const CSRF_COOKIE_NAME = 'posthog_csrftoken'
 
 export function getCookie(name: string): string | null {
     let cookieValue: string | null = null
@@ -7277,7 +7276,7 @@ const api = {
             method,
             headers: {
                 ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
-                'X-CSRFToken': getCookie('posthog_csrftoken') || '',
+                'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                 ...tracingHeaders(),
                 ...objectClean(headers ?? {}),
             },
@@ -7571,6 +7570,20 @@ async function handleFetch(
         if (refreshed) {
             return await handleFetch(url, method, fetcher, true)
         }
+    }
+
+    // A tab open longer than its CSRF cookie keeps a working session but loses its token, and only a
+    // document render used to set a new one — so every request failed until the person opened a new
+    // tab, including the reads that Activity and logs send over POST. Fetch a token and repeat the
+    // request once; the fetcher reads the cookie when it runs, so it picks the new one up. Skipped
+    // in OAuth mode, where requests are authorized by a bearer token and carry no CSRF token at all.
+    if (response.status === 403 && !isOAuthMode() && (await isRecoverableCsrfRejection(response))) {
+        if (!isRetry && (await refreshCsrfToken())) {
+            return await handleFetch(url, method, fetcher, true)
+        }
+        // Either no token could be fetched, or the repeated request was rejected too. Both leave the
+        // person where they started, so offer the one thing that still works.
+        promptReloadForCsrf()
     }
 
     if (!response.ok) {

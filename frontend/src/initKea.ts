@@ -8,7 +8,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { isAccessDeniedError, shouldReportApiFailure } from 'lib/api-error'
+import { isAccessDeniedError, isCsrfTokenError, shouldReportApiFailure } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
@@ -161,6 +161,10 @@ export function initKea({
                     // with this code is form validation (e.g. inviting an outside-domain email)
                     // and must keep the generic error toast.
                     const isVerifiedDomainError = error.code === 'verified_domain_required' && error.status === 403
+                    // api.ts already reissued the token and repeated the request, so reaching here
+                    // means the reload prompt is up. Raw "CSRF Failed" copy next to it tells the
+                    // person nothing they can act on.
+                    const isCsrfError = isCsrfTokenError(error)
                     const isFeatureFlagDuplicateKey =
                         error.code === 'unique' &&
                         error.attr === 'key' &&
@@ -181,7 +185,8 @@ export function initKea({
                         isTwoFactorError ||
                         isSensitiveActionError ||
                         isVerifiedDomainError ||
-                        isFeatureFlagDuplicateKey
+                        isFeatureFlagDuplicateKey ||
+                        isCsrfError
                     ) {
                         // These are handled by their own dedicated toasts elsewhere.
                         errorMessage = null

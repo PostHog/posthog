@@ -23,13 +23,14 @@ import structlog
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import authentication
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.request import Request
 from webauthn.helpers import base64url_to_bytes
 from zxcvbn import zxcvbn
 
 from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication
 from posthog.constants import AvailableFeature
+from posthog.csrf import DRF_CSRF_FAILURE_PREFIX, csrf_failure_code
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.helpers.verified_domain_enforcement import enforce_verified_domain
 from posthog.internal_api_secret import usable_internal_api_secrets
@@ -186,6 +187,22 @@ class SessionAuthentication(authentication.SessionAuthentication):
 
     def authenticate_header(self, request):
         return "Session"
+
+    def enforce_csrf(self, request):
+        """Attach a stable code to CSRF rejections. REST Framework raises a plain `PermissionDenied`,
+        which reaches the client as `permission_denied` — indistinguishable from "you have no access
+        to this resource", so the app renders an access-denied scene for what is really an expired
+        token. The code says which of the two happened, and whether a fresh token can fix it. The
+        wording is left exactly as it was, so nothing a person reads changes."""
+        try:
+            super().enforce_csrf(request)
+        except PermissionDenied as e:
+            # REST Framework wraps Django's rejection reason as `CSRF Failed: <reason>`, and the
+            # classification reads the reason itself. The detail is re-passed as a plain string
+            # because an `ErrorDetail` carries the code it was built with, which would win over this
+            # one and leave the rejection reported as `permission_denied`.
+            detail = str(e.detail)
+            raise PermissionDenied(detail=detail, code=csrf_failure_code(detail.removeprefix(DRF_CSRF_FAILURE_PREFIX)))
 
 
 class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):

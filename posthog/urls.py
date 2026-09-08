@@ -42,6 +42,7 @@ from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
 from posthog.constants import PERMITTED_FORUM_DOMAINS
+from posthog.csrf import csrf_token_view
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
@@ -519,6 +520,7 @@ urlpatterns = [
     # ee
     *ee_urlpatterns,
     # api
+    opt_slash_path("api/csrf_token", csrf_token_view),
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
     opt_slash_path("api/revoke_leaked_key", leaked_key.PublicLeakedKeyReport.as_view()),

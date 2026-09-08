@@ -1,7 +1,10 @@
 import * as fetchEventSourceModule from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api, { ApiConfig, ApiError, ApiRequest, NetworkError } from 'lib/api'
+import { resetCsrfRecoveryForTests } from 'lib/csrf'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -483,6 +486,118 @@ describe('API helper', () => {
 
             expect(error).toBeInstanceOf(ApiError)
             expect(error).not.toBeInstanceOf(NetworkError)
+        })
+    })
+
+    describe('CSRF token recovery', () => {
+        const rejection = (code: string): any => {
+            const body = { type: 'authentication_error', code, detail: 'CSRF Failed: CSRF cookie not set.' }
+            const response: any = {
+                ok: false,
+                status: 403,
+                statusText: '',
+                headers: new Headers(),
+                json: () => Promise.resolve(body),
+            }
+            response.clone = (): any => ({ ...response, clone: response.clone })
+            return response
+        }
+
+        const success = (): any => ({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve('{}'),
+        })
+
+        /** Stands in for the token endpoint: the cookie appears, exactly as its Set-Cookie would do. */
+        const issueToken = (token: string): any => {
+            document.cookie = `posthog_csrftoken=${token}`
+            return { ok: true, status: 204 }
+        }
+
+        const csrfTokenRequests = (): any[] =>
+            fakeFetch.mock.calls.filter(([url]: [string]) => url === '/api/csrf_token/')
+
+        const sentTokens = (): (string | undefined)[] =>
+            fakeFetch.mock.calls
+                .filter(([url]: [string]) => url !== '/api/csrf_token/')
+                .map(([, options]: [string, any]) => options?.headers?.['X-CSRFToken'])
+
+        beforeEach(() => {
+            resetCsrfRecoveryForTests()
+            document.cookie = 'posthog_csrftoken=stale'
+            jest.spyOn(lemonToast, 'error').mockReturnValue('' as any)
+        })
+
+        it('reissues the token and repeats the rejected request', async () => {
+            // The bug this closes: a tab outliving its CSRF cookie kept a working session and lost
+            // every request, so the app's own retry buttons repeated a request with no token.
+            fakeFetch
+                .mockImplementationOnce(() => Promise.resolve(rejection('csrf_token_invalid')))
+                .mockImplementationOnce(() => Promise.resolve(issueToken('fresh')))
+                .mockImplementationOnce(() => Promise.resolve(success()))
+
+            await expect(api.create('api/environments/2/query/', { kind: 'EventsQuery' })).resolves.toEqual({})
+            expect(sentTokens()).toEqual(['stale', 'fresh'])
+        })
+
+        it('asks for one token when a burst of concurrent requests is rejected together', async () => {
+            // A scene renders its panels at once, so their requests fail together. Per-request
+            // token fetches would race, and the last cookie to land is the one every retry uses.
+            fakeFetch.mockImplementation((url: string) =>
+                Promise.resolve(
+                    url === '/api/csrf_token/'
+                        ? issueToken('fresh')
+                        : document.cookie.includes('fresh')
+                          ? success()
+                          : rejection('csrf_token_invalid')
+                )
+            )
+
+            await Promise.all([
+                api.create('api/environments/2/logs/facet_values/'),
+                api.create('api/environments/2/logs/facet_values/'),
+                api.create('api/environments/2/logs/facet_values/'),
+            ])
+
+            expect(csrfTokenRequests()).toHaveLength(1)
+        })
+
+        it.each(['permission_denied', 'csrf_origin_rejected'])('leaves a 403 %s alone', async (code) => {
+            // Only a stale token is recoverable. Retrying an access-denied 403, or one from an
+            // instance whose trusted origins reject its own frontend, doubles every such request.
+            fakeFetch.mockImplementation(() => Promise.resolve(rejection(code)))
+
+            await expect(api.create('api/environments/2/query/')).rejects.toMatchObject({ status: 403 })
+            expect(csrfTokenRequests()).toHaveLength(0)
+            expect(sentTokens()).toEqual(['stale'])
+        })
+
+        it('offers a reload when no token could be issued', async () => {
+            // Without this the person is back where they started, which is the dead end the whole
+            // path exists to avoid: nothing in the app can set the cookie except a document render.
+            fakeFetch.mockImplementation((url: string) =>
+                url === '/api/csrf_token/'
+                    ? Promise.resolve({ ok: false, status: 500 })
+                    : Promise.resolve(rejection('csrf_token_invalid'))
+            )
+
+            await expect(api.create('api/environments/2/query/')).rejects.toMatchObject({ status: 403 })
+            expect(lemonToast.error).toHaveBeenCalledWith(
+                expect.stringContaining('Reload the page'),
+                expect.objectContaining({ button: expect.objectContaining({ label: 'Reload page' }) })
+            )
+        })
+
+        it('repeats the request once, then gives up', async () => {
+            // A token that keeps being rejected must not turn one request into an endless loop.
+            fakeFetch.mockImplementation((url: string) =>
+                Promise.resolve(url === '/api/csrf_token/' ? issueToken('fresh') : rejection('csrf_token_invalid'))
+            )
+
+            await expect(api.create('api/environments/2/query/')).rejects.toMatchObject({ status: 403 })
+            expect(sentTokens()).toEqual(['stale', 'fresh'])
+            expect(lemonToast.error).toHaveBeenCalled()
         })
     })
 
