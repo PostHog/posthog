@@ -36,13 +36,25 @@ describe('workflowsLogic', () => {
         cleanup()
     })
 
-    function clickNextPage(): void {
+    function renderPagination(): HTMLElement {
         const { container } = render(
             <Provider>
                 <WorkflowsPagination />
             </Provider>
         )
-        const buttons = container.querySelectorAll<HTMLButtonElement>('.PaginationControl button')
+        return container
+    }
+
+    async function loadFrom(path: string): Promise<void> {
+        router.actions.push(path)
+        // The table loads on mount, so the count the control needs is in place before the first click.
+        await expectLogic(logic, () => {
+            logic.actions.loadWorkflows()
+        }).toDispatchActions(['loadWorkflowsSuccess'])
+    }
+
+    function clickNextPage(): void {
+        const buttons = renderPagination().querySelectorAll<HTMLButtonElement>('.PaginationControl button')
         fireEvent.click(buttons[buttons.length - 1])
     }
 
@@ -50,11 +62,7 @@ describe('workflowsLogic', () => {
         ['the bare list path', urls.workflows()],
         ['the tab path the scene writes', urls.workflows('workflows')],
     ])('pages forward from %s', async (_name, path) => {
-        router.actions.push(path)
-        // The table loads on mount, so the count the control needs is in place before the first click.
-        await expectLogic(logic, () => {
-            logic.actions.loadWorkflows()
-        }).toDispatchActions(['loadWorkflowsSuccess'])
+        await loadFrom(path)
 
         clickNextPage()
 
@@ -65,6 +73,21 @@ describe('workflowsLogic', () => {
         expect(router.values.searchParams['page']).toBe(2)
         // Paging is a navigation step, so Back has to return to the previous page instead of leaving the list.
         expect(router.values.lastMethod).toBe('PUSH')
+    })
+
+    it('offers no next page when there are no workflows', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/': () => [200, { results: [], count: 0 }],
+            },
+        })
+        await loadFrom(urls.workflows())
+
+        const enabledButtons = renderPagination().querySelectorAll(
+            '.PaginationControl button:not([aria-disabled="true"])'
+        )
+
+        expect(enabledButtons).toHaveLength(0)
     })
 
     it.each([
