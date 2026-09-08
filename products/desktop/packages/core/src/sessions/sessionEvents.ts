@@ -347,6 +347,64 @@ export function collapseSupersededToolCallUpdates(
   return collapsed;
 }
 
+/**
+ * How far back {@link thinSupersededToolCallUpdates} scans for a tool call's
+ * previous snapshot. The active call's last snapshot sits at or near the end of
+ * the log, so a bounded scan finds it without an index; a snapshot further back
+ * stays unthinned, which only costs memory, never correctness.
+ */
+const SUPERSEDED_SCAN_WINDOW = 400;
+
+/** Keys that make an update recognizable as a tool_call_update. Never thinned. */
+const STRUCTURAL_UPDATE_KEYS = new Set(["sessionUpdate", "toolCallId"]);
+
+/**
+ * Reclaim the bulk of superseded live snapshots before `incoming` is appended
+ * after `existing`. Agents re-send the full accumulated tool output on every
+ * update (see {@link collapseSupersededToolCallUpdates}), so a resident live
+ * transcript otherwise retains every growing snapshot for the length of the
+ * run, which is quadratic in the tool's output.
+ *
+ * For each incoming tool_call_update, the previous snapshot for the same
+ * toolCallId is thinned in place: a key is deleted only when the incoming
+ * update carries that key, because the reducer's shallow merge (later fields
+ * win) then never reads the deleted value again, on the live fold and on a
+ * full replay alike. Keys the incoming update does not re-send are kept, for
+ * the same reason the collapse merges instead of dropping.
+ *
+ * Mutation happens inside the event's (shallowly frozen) wrapper on purpose:
+ * `createAppendOnlyTracker` detects history rewrites by wrapper identity, so
+ * replacing the event object would force a full transcript refold on every
+ * streamed update.
+ */
+export function thinSupersededToolCallUpdates(
+  existing: readonly AcpMessage[],
+  incoming: readonly AcpMessage[],
+): void {
+  for (const event of incoming) {
+    const update = toolCallUpdateOf(event);
+    if (!update) continue;
+    const previous = findLatestToolCallUpdate(existing, update.toolCallId);
+    if (!previous || previous === update || Object.isFrozen(previous)) continue;
+    for (const key of Object.keys(previous)) {
+      if (STRUCTURAL_UPDATE_KEYS.has(key)) continue;
+      if (key in update) delete previous[key];
+    }
+  }
+}
+
+function findLatestToolCallUpdate(
+  events: readonly AcpMessage[],
+  toolCallId: string,
+): (Record<string, unknown> & { toolCallId: string }) | undefined {
+  const floor = Math.max(0, events.length - SUPERSEDED_SCAN_WINDOW);
+  for (let i = events.length - 1; i >= floor; i--) {
+    const update = toolCallUpdateOf(events[i]);
+    if (update?.toolCallId === toolCallId) return update;
+  }
+  return undefined;
+}
+
 export function convertStoredEntriesToEvents(
   entries: StoredLogEntry[],
   taskDescription?: string,
