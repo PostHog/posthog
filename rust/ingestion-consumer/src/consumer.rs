@@ -837,7 +837,8 @@ impl IngestionConsumer {
             let Some(taken) = self.topic_offset_ledger.take_frontier(topic_partition) else {
                 continue;
             };
-            self.commit_sentinel.on_frontier(topic_partition, taken);
+            self.commit_sentinel
+                .advance_frontier(topic_partition, taken);
             advanced += 1;
         }
 

@@ -34,8 +34,8 @@ impl CommitPacer {
         }
     }
 
-    /// The consumer took a partition's frontier from the ledger.
-    pub fn on_frontier(&self, topic_partition: &TopicPartition, taken: TakenFrontier) {
+    /// Replace the partition's pending offset; frontiers only move forward.
+    pub fn advance_frontier(&self, topic_partition: &TopicPartition, taken: TakenFrontier) {
         self.state
             .lock()
             .unwrap()
@@ -108,7 +108,7 @@ mod tests {
     #[test]
     fn the_first_take_with_a_pending_frontier_hands_it_out() {
         let pacer = CommitPacer::new(INTERVAL);
-        pacer.on_frontier(&tp(0), taken(0, 10));
+        pacer.advance_frontier(&tp(0), taken(0, 10));
 
         let offsets = pacer.take_due(Instant::now()).expect("due");
         assert_eq!(offsets, HashMap::from([(tp(0), Offset(10))]));
@@ -117,9 +117,9 @@ mod tests {
     #[test]
     fn the_latest_frontier_per_partition_is_what_goes_out() {
         let pacer = CommitPacer::new(INTERVAL);
-        pacer.on_frontier(&tp(0), taken(0, 10));
-        pacer.on_frontier(&tp(1), taken(0, 20));
-        pacer.on_frontier(&tp(0), taken(10, 12));
+        pacer.advance_frontier(&tp(0), taken(0, 10));
+        pacer.advance_frontier(&tp(1), taken(0, 20));
+        pacer.advance_frontier(&tp(0), taken(10, 12));
 
         let offsets = pacer.take_due(Instant::now()).expect("due");
         assert_eq!(
@@ -132,9 +132,9 @@ mod tests {
     fn a_take_inside_the_interval_hands_out_nothing_and_keeps_the_frontier() {
         let pacer = CommitPacer::new(INTERVAL);
         let start = Instant::now();
-        pacer.on_frontier(&tp(0), taken(0, 10));
+        pacer.advance_frontier(&tp(0), taken(0, 10));
         pacer.take_due(start).expect("due");
-        pacer.on_frontier(&tp(1), taken(0, 20));
+        pacer.advance_frontier(&tp(1), taken(0, 20));
 
         assert!(pacer.take_due(start + INTERVAL / 2).is_none());
         assert_eq!(
@@ -149,7 +149,7 @@ mod tests {
         let start = Instant::now();
 
         assert!(pacer.take_due(start).is_none());
-        pacer.on_frontier(&tp(0), taken(0, 10));
+        pacer.advance_frontier(&tp(0), taken(0, 10));
 
         assert!(pacer.take_due(start + Duration::from_millis(1)).is_some());
     }
@@ -158,9 +158,9 @@ mod tests {
     fn a_drain_ignores_the_interval() {
         let pacer = CommitPacer::new(INTERVAL);
         let start = Instant::now();
-        pacer.on_frontier(&tp(0), taken(0, 10));
+        pacer.advance_frontier(&tp(0), taken(0, 10));
         pacer.take_due(start).expect("due");
-        pacer.on_frontier(&tp(1), taken(0, 20));
+        pacer.advance_frontier(&tp(1), taken(0, 20));
 
         assert_eq!(pacer.drain(), HashMap::from([(tp(1), Offset(20))]));
         assert!(pacer.drain().is_empty(), "a drain leaves nothing behind");
@@ -169,8 +169,8 @@ mod tests {
     #[test]
     fn a_forgotten_partition_is_not_committed() {
         let pacer = CommitPacer::new(INTERVAL);
-        pacer.on_frontier(&tp(0), taken(0, 10));
-        pacer.on_frontier(&tp(1), taken(0, 20));
+        pacer.advance_frontier(&tp(0), taken(0, 10));
+        pacer.advance_frontier(&tp(1), taken(0, 20));
 
         pacer.forget_partitions(&[tp(0)]);
 

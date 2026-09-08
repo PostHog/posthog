@@ -116,10 +116,10 @@ impl CommitSentinel {
     /// Check the span a taken frontier covers as it is handed over, so a
     /// violation is attributed to the work that caused it, then pass the
     /// frontier on. Consecutive takes on a partition must chain.
-    pub fn on_frontier(&self, topic_partition: &TopicPartition, taken: TakenFrontier) {
+    pub fn advance_frontier(&self, topic_partition: &TopicPartition, taken: TakenFrontier) {
         let span = OffsetSpan::of_take(&taken);
         self.check_commit([(topic_partition, &span)]);
-        self.inner.on_frontier(topic_partition, taken);
+        self.inner.advance_frontier(topic_partition, taken);
     }
 
     /// Partitions leaving the assignment: drop their baselines, and whatever
@@ -312,14 +312,14 @@ mod tests {
         let sentinel = sentinel();
         // Base 0, frontier 10: the commit covers 0..=9. Base 10, frontier 15
         // starts where that left off.
-        sentinel.on_frontier(&tp(0), taken(0, 10));
-        sentinel.on_frontier(&tp(0), taken(10, 15));
+        sentinel.advance_frontier(&tp(0), taken(0, 10));
+        sentinel.advance_frontier(&tp(0), taken(10, 15));
         assert!(sentinel
             .check_commit(&spans(&[("events", 0, 15, 20)]))
             .is_empty());
 
         // A take that starts past the last frontier skipped offsets.
-        sentinel.on_frontier(&tp(0), taken(30, 35));
+        sentinel.advance_frontier(&tp(0), taken(30, 35));
         let violations = sentinel.check_commit(&spans(&[("events", 0, 40, 41)]));
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].prev_committed, 35);
