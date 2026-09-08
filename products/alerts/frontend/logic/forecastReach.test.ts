@@ -1,7 +1,10 @@
 import { dayjs } from 'lib/dayjs'
 
+import { ChartDisplayType } from '~/types'
+
 import {
     clampHorizon,
+    displaySupportsForecast,
     forecastTargetDateError,
     intervalSupportsForecast,
     maxHorizonForInterval,
@@ -74,5 +77,22 @@ describe('forecast prerequisites', () => {
     it('requires extra hourly history', () => {
         expect(minForecastPoints('hour')).toBe(48)
         expect(minForecastPoints('day')).toBe(14)
+    })
+})
+
+describe('displaySupportsForecast', () => {
+    it.each([
+        ['a line graph', ChartDisplayType.ActionsLineGraph, true],
+        ['an area graph', ChartDisplayType.ActionsAreaGraph, true],
+        ['a bar chart', ChartDisplayType.ActionsBar, true],
+        // Both keep the insight's interval, so the time-series check alone lets them through.
+        ['a box plot', ChartDisplayType.BoxPlot, false],
+        ['a slope graph', ChartDisplayType.SlopeGraph, false],
+    ])('%s', (_name, display, expected) => {
+        expect(displaySupportsForecast(display)).toBe(expected)
+    })
+
+    it('allows an insight with no display set', () => {
+        expect(displaySupportsForecast(null)).toBe(true)
     })
 })

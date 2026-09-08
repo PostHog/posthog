@@ -46,7 +46,7 @@ import { alertFormLogic, canCheckOngoingInterval, insightAlertKindForQuery } fro
 import { alertLogic } from '../logic/alertLogic'
 import { alertNotificationLogic } from '../logic/alertNotificationLogic'
 import { isNextPlannedEvaluationStale } from '../logic/alertSchedulingStale'
-import { intervalSupportsForecast } from '../logic/forecastReach'
+import { displaySupportsForecast, intervalSupportsForecast } from '../logic/forecastReach'
 import { insightAlertsLogic } from '../logic/insightAlertsLogic'
 import { alertModeOf, supportsAnomalyDetection, supportsForecast, supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
@@ -133,6 +133,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     const trendsLogic = trendsDataLogic(insightLogicProps)
     const {
         alertSeries,
+        display: trendDisplay,
         isNonTimeSeriesDisplay,
         isBreakdownValid,
         formulaNodes,
@@ -361,6 +362,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             supportsForecast={
                 forecastAlertsEnabled &&
                 !isNonTimeSeriesDisplay &&
+                displaySupportsForecast(trendDisplay) &&
                 !isBreakdownValid &&
                 intervalSupportsForecast(trendInterval) &&
                 supportsForecast(alertForm.config)

@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { IntervalType } from '~/types'
+import { ChartDisplayType, IntervalType } from '~/types'
 
 import { INSIGHT_INTERVAL_DURATION_MINUTES } from './alertIntervalHelpers'
 
@@ -12,6 +12,18 @@ const SUPPORTED_FORECAST_INTERVALS: ReadonlySet<IntervalType> = new Set(['hour',
 
 export function intervalSupportsForecast(interval: IntervalType | null | undefined): boolean {
     return interval == null || SUPPORTED_FORECAST_INTERVALS.has(interval)
+}
+
+/** Both displays keep the insight's interval, so they read as a time series, but neither returns
+ * one to fit: the box plot returns a distribution per bucket, and the slope keeps only the first
+ * and last bucket. */
+const UNFORECASTABLE_DISPLAYS: ReadonlySet<ChartDisplayType> = new Set([
+    ChartDisplayType.BoxPlot,
+    ChartDisplayType.SlopeGraph,
+])
+
+export function displaySupportsForecast(display: ChartDisplayType | null | undefined): boolean {
+    return display == null || !UNFORECASTABLE_DISPLAYS.has(display)
 }
 
 export function maxHorizonForInterval(interval: IntervalType | null | undefined): number {
