@@ -174,7 +174,6 @@ export const FEATURE_FLAGS = {
     SETTINGS_PERSONS_ON_EVENTS_HIDDEN: 'settings-persons-on-events-hidden', // owner: #team-platform-features, see `SettingsMap.tsx`
     SUPPORT_MESSAGE_OVERRIDE: 'support-message-override', // owner: #team-support, see `SidePanelSupport.tsx`
     THEME_OVERRIDE: 'theme', // owner: @aprilfools, see `themeLogic.ts`
-    USAGE_SPEND_DASHBOARDS: 'usage-spend-dashboards', // owner: #team-billing, see `Billing.tsx`, needed to exclude orgs with more than 100 teams
 
     // Holidays overrides, will be around forever
     CHRISTMAS_OVERRIDE: 'christmas-override', // owner: #team-growth, overrides the checks for Christmas to return true when this is enabled

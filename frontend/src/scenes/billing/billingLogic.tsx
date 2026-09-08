@@ -1106,16 +1106,10 @@ export const billingLogic = kea<billingLogicType>([
                 canViewUsageAndSpend && !canAccessBilling,
         ],
         billingEntryUrl: [
-            (s) => [s.canAccessBilling, s.canOnlyViewUsageAndSpend, s.featureFlags],
-            (
-                canAccessBilling: boolean,
-                canOnlyViewUsageAndSpend: boolean,
-                featureFlags: FeatureFlagsSet
-            ): string | null => {
+            (s) => [s.canAccessBilling, s.canOnlyViewUsageAndSpend],
+            (canAccessBilling: boolean, canOnlyViewUsageAndSpend: boolean): string | null => {
                 if (canAccessBilling) {
-                    return featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
-                        ? urls.organizationBillingSection('overview')
-                        : urls.organizationBilling()
+                    return urls.organizationBillingSection('overview')
                 }
                 if (canOnlyViewUsageAndSpend) {
                     return urls.organizationBillingSection('usage')
