@@ -1,9 +1,10 @@
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
+from posthog.utils import ensure_utc
 
 from products.ai_observability.backend.ai_event_lookup import fetch_generation_event
 
@@ -11,8 +12,7 @@ from products.ai_observability.backend.ai_event_lookup import fetch_generation_e
 def as_utc_datetime(value: str | datetime) -> datetime:
     """Read a ClickHouse event timestamp, which reaches us as a naive datetime on a direct call
     and as an ISO string once Temporal has serialized it through a payload."""
-    parsed = value if isinstance(value, datetime) else datetime.fromisoformat(value)
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+    return ensure_utc(value if isinstance(value, datetime) else datetime.fromisoformat(value))
 
 
 @frozen
@@ -70,9 +70,6 @@ def hydrate_event_reference(event_data: dict[str, Any]) -> dict[str, Any]:
     large generation cannot cross the workflow boundary at all. A backfill dispatcher therefore
     ships the uuid, plus the timestamp and trace id that turn the read into a point lookup on the
     ai_events sort key, and every activity that needs the body reads it here.
-
-    Lives in this module rather than next to the activities because both the activities module and
-    the LLM judge module call it, and the activities module already imports the judge.
     """
     if "properties" in event_data:
         return event_data

@@ -65,6 +65,35 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
+    def _create_generations(self, *specs: tuple[int, str, timedelta]) -> None:
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "distinct_id": f"d-{trace_id}",
+                    "team": self.team,
+                    "timestamp": BASE + offset,
+                    "event_uuid": _generation_uuid(index),
+                    "properties": {"$ai_trace_id": trace_id, "$ai_session_id": f"s-{trace_id}"},
+                }
+                for index, trace_id, offset in specs
+            ]
+        )
+
+    def _walk(self, *, limit: int, **overrides: Any) -> list[Any]:
+        walked: list[Any] = []
+        cursor_timestamp: datetime | None = None
+        cursor_unit_id = ""
+        while True:
+            page = self._fetch(
+                cursor_timestamp=cursor_timestamp, cursor_unit_id=cursor_unit_id, limit=limit, **overrides
+            )
+            walked.extend(page.candidates)
+            if page.exhausted:
+                break
+            cursor_timestamp, cursor_unit_id = page.next_cursor_timestamp, page.next_cursor_unit_id
+        return walked
+
     def _count(self, **overrides: Any) -> int:
         kwargs: dict[str, Any] = {
             "team": self.team,
@@ -179,31 +208,13 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
         assert page2.exhausted is True
 
     def test_a_page_break_on_tied_timestamps_neither_drops_nor_repeats_a_unit(self) -> None:
-        tied = _generation_uuid(6)
-        bulk_create_ai_events(
-            [
-                {
-                    "event": "$ai_generation",
-                    "distinct_id": "d-t5",
-                    "team": self.team,
-                    "timestamp": BASE + timedelta(hours=1),
-                    "event_uuid": tied,
-                    "properties": {"$ai_trace_id": "t5", "$ai_session_id": "s-t5"},
-                }
-            ]
-        )
+        self._create_generations((6, "t5", timedelta(hours=1)))
+
         # limit=2 puts the break inside the pair sharing BASE + 1h, so paging depends on the
         # unit_id tiebreak rather than on the timestamp alone.
-        walked: list[str] = []
-        cursor_timestamp: datetime | None = None
-        cursor_unit_id = ""
-        while True:
-            page = self._fetch(cursor_timestamp=cursor_timestamp, cursor_unit_id=cursor_unit_id, limit=2)
-            walked.extend(c.unit_id for c in page.candidates)
-            if page.exhausted:
-                break
-            cursor_timestamp, cursor_unit_id = page.next_cursor_timestamp, page.next_cursor_unit_id
+        walked = [candidate.unit_id for candidate in self._walk(limit=2)]
 
+        tied = _generation_uuid(6)
         assert walked == [
             self.uuids["g4"],
             tied,
@@ -227,18 +238,7 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
         assert generation.trace_id == "t3"
 
     def test_candidate_without_a_web_session_reports_none(self) -> None:
-        bulk_create_ai_events(
-            [
-                {
-                    "event": "$ai_generation",
-                    "distinct_id": "d-t4",
-                    "team": self.team,
-                    "timestamp": BASE + timedelta(hours=3),
-                    "event_uuid": _generation_uuid(5),
-                    "properties": {"$ai_trace_id": "t4", "$ai_session_id": "s-t4"},
-                }
-            ]
-        )
+        self._create_generations((5, "t4", timedelta(hours=3)))
         page = self._fetch(target="trace", limit=1)
         assert page.candidates[0].unit_id == "t4"
         assert page.candidates[0].session_id is None
@@ -267,31 +267,9 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
         assert "ai_events.input" in (executed[0].clickhouse or "")
 
     def test_a_unit_spanning_the_cursor_is_returned_once_at_its_first_generation(self) -> None:
-        bulk_create_ai_events(
-            [
-                {
-                    "event": "$ai_generation",
-                    "distinct_id": "d-t6",
-                    "team": self.team,
-                    "timestamp": BASE + offset,
-                    "event_uuid": _generation_uuid(index),
-                    "properties": {"$ai_trace_id": "t6", "$ai_session_id": "s-t6"},
-                }
-                for index, offset in ((7, timedelta(minutes=30)), (8, timedelta(hours=3)))
-            ]
-        )
+        self._create_generations((7, "t6", timedelta(minutes=30)), (8, "t6", timedelta(hours=3)))
 
-        walked: list[tuple[str, datetime]] = []
-        cursor_timestamp: datetime | None = None
-        cursor_unit_id = ""
-        while True:
-            page = self._fetch(
-                target="trace", cursor_timestamp=cursor_timestamp, cursor_unit_id=cursor_unit_id, limit=1
-            )
-            walked.extend((c.unit_id, c.unit_timestamp) for c in page.candidates)
-            if page.exhausted:
-                break
-            cursor_timestamp, cursor_unit_id = page.next_cursor_timestamp, page.next_cursor_unit_id
+        walked = [(candidate.unit_id, candidate.unit_timestamp) for candidate in self._walk(target="trace", limit=1)]
 
         # t6 spans the cursor: its later generation sits above every cursor the walk passes, and
         # the unit must still surface once, at the timestamp of its first generation.

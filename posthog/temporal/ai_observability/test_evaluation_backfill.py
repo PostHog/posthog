@@ -306,43 +306,38 @@ class TestEvaluationBackfillWorkflow:
 
 
 @pytest.mark.parametrize(
-    "target,evaluation_type,rerun_existing,expected_name,expected_id",
+    "target,evaluation_type,rerun_existing,unit_id,expected_name,expected_id",
     [
-        ("generation", "hog", False, "run-evaluation", "llma-hog-eval-E-U-ingestion"),
-        ("generation", "llm_judge", True, "run-evaluation", "llma-llm-eval-E-U-backfill-B"),
-        ("trace", "hog", False, "run-aggregate-evaluation", "llma-trace-eval-E-U"),
-        ("session", "hog", False, "run-aggregate-evaluation", "llma-session-eval-E-U"),
-        ("trace", "hog", True, "run-aggregate-evaluation", "llma-trace-eval-E-U-backfill-B"),
+        ("generation", "hog", False, "U", "run-evaluation", "llma-hog-eval-E-U-ingestion"),
+        ("generation", "llm_judge", True, "U", "run-evaluation", "llma-llm-eval-E-U-backfill-B"),
+        ("trace", "hog", False, "U", "run-aggregate-evaluation", "llma-trace-eval-E-U"),
+        ("session", "hog", False, "U", "run-aggregate-evaluation", "llma-session-eval-E-U"),
+        ("trace", "hog", True, "U", "run-aggregate-evaluation", "llma-trace-eval-E-U-backfill-B"),
+        # 32 hex characters is the md5 the Node scheduler falls back to past 128 characters;
+        # without the same fallback a backfill child would not collide with the live path's id.
+        (
+            "trace",
+            "hog",
+            False,
+            "t" * 129,
+            "run-aggregate-evaluation",
+            "llma-trace-eval-E-4670e99bfd94a7cdfa2de20b9a018676",
+        ),
     ],
 )
 def test_child_workflow_ids_match_live_scheduler_unless_rerun(
-    target, evaluation_type, rerun_existing, expected_name, expected_id
+    target, evaluation_type, rerun_existing, unit_id, expected_name, expected_id
 ) -> None:
     name, workflow_id = child_workflow_name_and_id(
         evaluation_id="E",
         evaluation_type=evaluation_type,
         target=target,
-        unit_id="U",
+        unit_id=unit_id,
         backfill_id="B",
         rerun_existing=rerun_existing,
     )
 
     assert (name, workflow_id) == (expected_name, expected_id)
-
-
-def test_long_unit_ids_are_hashed_like_the_live_scheduler() -> None:
-    # 32 hex characters is the md5 the Node scheduler falls back to past 128 characters; without
-    # the same fallback a backfill child would not collide with the live path's workflow id.
-    _, workflow_id = child_workflow_name_and_id(
-        evaluation_id="E",
-        evaluation_type="hog",
-        target="trace",
-        unit_id="t" * 129,
-        backfill_id="B",
-        rerun_existing=False,
-    )
-
-    assert workflow_id == "llma-trace-eval-E-4670e99bfd94a7cdfa2de20b9a018676"
 
 
 def test_backfill_verdict_timestamps_are_stable_and_stay_inside_the_unit_second() -> None:
@@ -387,6 +382,12 @@ def backfill_data():
     return {"team": team, "evaluation": evaluation, "backfill": backfill}
 
 
+def _update_backfill(backfill_data, **fields) -> None:
+    EvaluationBackfill.objects.for_team(backfill_data["team"].id).filter(pk=backfill_data["backfill"].id).update(
+        **fields
+    )
+
+
 def _activity_inputs(backfill_data) -> EvaluationBackfillInputs:
     return EvaluationBackfillInputs(backfill_id=str(backfill_data["backfill"].id), team_id=backfill_data["team"].id)
 
@@ -415,9 +416,7 @@ class TestEvaluationBackfillActivities:
         if status is None:
             inputs = EvaluationBackfillInputs(backfill_id=str(uuid.uuid4()), team_id=backfill_data["team"].id)
         else:
-            EvaluationBackfill.objects.for_team(backfill_data["team"].id).filter(
-                pk=backfill_data["backfill"].id
-            ).update(status=status)
+            _update_backfill(backfill_data, status=status)
 
         result = async_to_sync(prepare_evaluation_backfill_tick_activity)(inputs)
 
@@ -464,9 +463,7 @@ class TestEvaluationBackfillActivities:
         )
 
     def test_find_serializes_candidates_and_cursor(self, backfill_data) -> None:
-        EvaluationBackfill.objects.for_team(backfill_data["team"].id).filter(pk=backfill_data["backfill"].id).update(
-            cursor_timestamp=UNIT_TIMESTAMP + timedelta(hours=1), cursor_unit_id="u0"
-        )
+        _update_backfill(backfill_data, cursor_timestamp=UNIT_TIMESTAMP + timedelta(hours=1), cursor_unit_id="u0")
         page = CandidatePage(
             candidates=[
                 BackfillCandidate(
@@ -533,9 +530,7 @@ class TestEvaluationBackfillActivities:
         assert backfill_data["backfill"].finished_at is not None
 
     def test_advance_loses_to_concurrent_cancel(self, backfill_data) -> None:
-        EvaluationBackfill.objects.for_team(backfill_data["team"].id).filter(pk=backfill_data["backfill"].id).update(
-            status=EvaluationBackfillStatus.CANCELLED
-        )
+        _update_backfill(backfill_data, status=EvaluationBackfillStatus.CANCELLED)
 
         result = async_to_sync(advance_evaluation_backfill_cursor_activity)(_advance(backfill_data))
 

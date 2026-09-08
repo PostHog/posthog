@@ -112,6 +112,23 @@ def test_terminal_user_error_result_from_application_error_uses_key_details_for_
     assert result["model"] == "missing-model"
 
 
+HYDRATE_FETCH = "posthog.temporal.ai_observability.evaluation_event_io.fetch_generation_event"
+THIN_REFERENCE = {"uuid": "g1", "team_id": 1, "timestamp": "2024-01-01T10:00:00+00:00"}
+
+
+def _local_evaluation(**overrides: Any) -> dict[str, Any]:
+    return {
+        "id": "eval-1",
+        "name": "Local eval",
+        "evaluation_type": "hog",
+        "evaluation_config": {"source": "return true"},
+        "output_type": "boolean",
+        "output_config": {},
+        "team_id": 1,
+        **overrides,
+    }
+
+
 def create_mock_event_data(team_id: int, **overrides: Any) -> dict[str, Any]:
     """Helper to create mock event data for tests"""
     defaults = {
@@ -791,6 +808,7 @@ class TestRunEvaluationWorkflow:
             with pytest.raises(ApplicationError) as exc:
                 await fetch_generation_event_activity(inputs)
             assert exc.value.type == "generation_not_found"
+            assert exc.value.non_retryable is True
             return
 
         event = await fetch_generation_event_activity(inputs)
@@ -804,18 +822,6 @@ class TestRunEvaluationWorkflow:
         assert datetime.fromisoformat(event["timestamp"]).tzinfo is not None
         assert isinstance(event["properties"], dict)
         json.dumps(event)
-
-    @pytest.mark.asyncio
-    async def test_fetch_generation_event_activity_raises_non_retryable_on_a_miss(self):
-        with patch(
-            "posthog.temporal.ai_observability.evaluation_workflow_activities.fetch_generation_event",
-            return_value=None,
-        ):
-            with pytest.raises(ApplicationError) as exc:
-                await fetch_generation_event_activity(FetchGenerationEventInputs(team_id=1, event_uuid="missing"))
-
-        assert exc.value.type == "generation_not_found"
-        assert exc.value.non_retryable is True
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -841,15 +847,7 @@ class TestRunEvaluationWorkflow:
             calls.append("local")
             seen_inputs.append(inputs)
             return LocalEvaluationOutcome(
-                evaluation={
-                    "id": inputs.evaluation_id,
-                    "name": "Hog eval",
-                    "evaluation_type": "hog",
-                    "evaluation_config": {},
-                    "output_type": "boolean",
-                    "output_config": {},
-                    "team_id": 1,
-                },
+                evaluation=_local_evaluation(id=inputs.evaluation_id, evaluation_config={}),
                 result={"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False},
                 emitted=True,
             )
@@ -881,15 +879,7 @@ class TestRunEvaluationWorkflow:
     )
     async def test_run_local_evaluation_activity_hydrates_a_thin_reference(self, evaluation_type: str):
         full_event = create_mock_event_data(team_id=1, uuid="g1")
-        evaluation = {
-            "id": "eval-1",
-            "name": "Local eval",
-            "evaluation_type": evaluation_type,
-            "evaluation_config": {"source": "return true"},
-            "output_type": "boolean",
-            "output_config": {},
-            "team_id": 1,
-        }
+        evaluation = _local_evaluation(evaluation_type=evaluation_type)
         graded: list[dict[str, Any]] = []
 
         async def fake_run(_evaluation: dict[str, Any], event_data: dict[str, Any]) -> EvaluationActivityResult:
@@ -899,19 +889,14 @@ class TestRunEvaluationWorkflow:
         module = "posthog.temporal.ai_observability.evaluation_workflow_activities"
         with (
             patch(f"{module}.fetch_evaluation", return_value=evaluation),
-            patch(
-                "posthog.temporal.ai_observability.evaluation_event_io.fetch_generation_event",
-                return_value=full_event,
-            ) as mock_fetch,
+            patch(HYDRATE_FETCH, return_value=full_event) as mock_fetch,
             patch(f"{module}.run_hog_eval_for_event", side_effect=fake_run),
             patch(f"{module}.run_sentiment_eval", side_effect=fake_run),
             patch(f"{module}.emit_generation_evaluation_event", new_callable=AsyncMock) as mock_emit,
         ):
             outcome = await run_local_evaluation_activity(
                 RunLocalEvaluationInputs(
-                    evaluation_id="eval-1",
-                    event_data={"uuid": "g1", "team_id": 1, "timestamp": "2024-01-01T10:00:00+00:00"},
-                    start_time=datetime.now(UTC),
+                    evaluation_id="eval-1", event_data=dict(THIN_REFERENCE), start_time=datetime.now(UTC)
                 )
             )
 
@@ -925,25 +910,15 @@ class TestRunEvaluationWorkflow:
     async def test_the_generation_emit_activity_hydrates_a_thin_reference(self):
         full_event = create_mock_event_data(team_id=1, uuid="g1")
         with (
-            patch(
-                "posthog.temporal.ai_observability.evaluation_event_io.fetch_generation_event",
-                return_value=full_event,
-            ) as mock_fetch,
+            patch(HYDRATE_FETCH, return_value=full_event) as mock_fetch,
             patch(
                 "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_for_team"
             ) as mock_capture,
         ):
             await emit_evaluation_event_activity(
                 EmitEvaluationEventInputs(
-                    evaluation={
-                        "id": "eval-1",
-                        "name": "Judge",
-                        "evaluation_type": "llm_judge",
-                        "output_type": "boolean",
-                        "output_config": {},
-                        "team_id": 1,
-                    },
-                    event_data={"uuid": "g1", "team_id": 1, "timestamp": "2024-01-01T10:00:00+00:00"},
+                    evaluation=_local_evaluation(evaluation_type="llm_judge"),
+                    event_data=dict(THIN_REFERENCE),
                     result={"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False},
                     start_time=datetime.now(UTC),
                 )
@@ -955,10 +930,7 @@ class TestRunEvaluationWorkflow:
     def test_the_llm_judge_activity_hydrates_a_thin_reference(self):
         full_event = create_mock_event_data(team_id=1, uuid="g1")
         with (
-            patch(
-                "posthog.temporal.ai_observability.evaluation_event_io.fetch_generation_event",
-                return_value=full_event,
-            ) as mock_fetch,
+            patch(HYDRATE_FETCH, return_value=full_event) as mock_fetch,
             patch(
                 "posthog.temporal.ai_observability.evaluation_llm_judge.extract_event_io",
                 side_effect=AssertionError("stop after hydration"),
@@ -967,15 +939,10 @@ class TestRunEvaluationWorkflow:
             with pytest.raises(AssertionError, match="stop after hydration"):
                 _execute_llm_judge_activity(
                     ExecuteLLMJudgeInputs(
-                        evaluation={
-                            "id": "eval-1",
-                            "evaluation_type": "llm_judge",
-                            "evaluation_config": {"prompt": "grade it"},
-                            "output_type": "boolean",
-                            "output_config": {},
-                            "team_id": 1,
-                        },
-                        event_data={"uuid": "g1", "team_id": 1, "timestamp": "2024-01-01T10:00:00+00:00"},
+                        evaluation=_local_evaluation(
+                            evaluation_type="llm_judge", evaluation_config={"prompt": "grade it"}
+                        ),
+                        event_data=dict(THIN_REFERENCE),
                     )
                 )
 

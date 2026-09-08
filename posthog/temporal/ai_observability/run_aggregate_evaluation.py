@@ -387,16 +387,15 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunAggregateEvaluationInputs) -> WorkflowResult:
-        window_start = temporalio.workflow.now()
-
         # A historical unit is settled by definition, so a backfill skips the settle wait and
         # aggregates from the anchor, its first matching generation. Live starts carry no anchor,
         # so old histories never take this branch and it needs no patch marker.
-        if inputs.anchor_timestamp is not None:
-            is_backfill = True
-            window_start = as_utc_datetime(inputs.anchor_timestamp)
-        else:
-            is_backfill = False
+        is_backfill = inputs.anchor_timestamp is not None
+        window_start = (
+            as_utc_datetime(inputs.anchor_timestamp)
+            if inputs.anchor_timestamp is not None
+            else temporalio.workflow.now()
+        )
 
         # Fail loudly rather than falling through to the trace path, which would grade `trace_id`
         # and emit a trace-shaped verdict under a session evaluation's name. Unreachable from the
@@ -415,7 +414,7 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
         window_end: str | None = None
         if is_backfill:
             window_end = (
-                window_start + timedelta(seconds=plan.max_age_seconds) + timedelta(seconds=INGESTION_LAG_MARGIN_SECONDS)
+                window_start + timedelta(seconds=plan.max_age_seconds + INGESTION_LAG_MARGIN_SECONDS)
             ).isoformat()
 
         if plan.strategy == "inactivity" and not is_backfill:

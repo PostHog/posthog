@@ -26,7 +26,6 @@ from posthog.temporal.ai_observability.evaluation_types import EvaluationActivit
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome
 from posthog.temporal.ai_observability.team_capture import capture_internal_for_team
 
-from products.ai_observability.backend.ai_event_lookup import fetch_generation_event
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
@@ -43,11 +42,9 @@ def backfill_verdict_timestamp(
     """Spread a backfilled verdict inside the second its unit sits in.
 
     The Kafka deduplicator keys a row on (timestamp, distinct_id, team_id, event), so backfilled
-    `$ai_evaluation` events that share a timestamp collide and all but one are dropped: a unit
-    re-run under a second backfill, two evaluations grading one unit, or two units of one backfill
-    landing in the same tick. Hashing all three ids keeps the offset stable across activity
-    retries, so a retried emit still collapses into the original. Ingestion keeps millisecond
-    precision, so the effective spread is about 1000 buckets, not a million.
+    `$ai_evaluation` events that share a timestamp collide and all but one are dropped. Hashing all
+    three ids keeps the offset stable across activity retries, so a retried emit still collapses
+    into the original. Ingestion keeps millisecond precision, so the spread is about 1000 buckets.
     """
     digest = hashlib.sha256(f"{evaluation_id}:{backfill_id}:{unit_id}".encode()).digest()
     return unit_timestamp + timedelta(microseconds=int.from_bytes(digest[:8], "big") % 1_000_000)
@@ -115,20 +112,15 @@ class FetchGenerationEventInputs:
 
 @temporalio.activity.defn
 async def fetch_generation_event_activity(inputs: FetchGenerationEventInputs) -> dict[str, Any]:
-    """Load the full generation for a caller that only holds its uuid.
-
-    A backfill dispatcher can start thousands of these, so it ships uuids rather than pushing
-    event bodies through Temporal payloads, plus the trace id and timestamp that bound the read.
-    """
-    event = await database_sync_to_async(fetch_generation_event, thread_sensitive=False)(
-        inputs.team_id,
-        inputs.event_uuid,
-        as_utc_datetime(inputs.timestamp) if inputs.timestamp else None,
-        inputs.trace_id,
+    """Load the full generation for a caller that only holds its uuid."""
+    return await database_sync_to_async(hydrate_event_reference, thread_sensitive=False)(
+        {
+            "team_id": inputs.team_id,
+            "uuid": inputs.event_uuid,
+            "timestamp": inputs.timestamp,
+            "trace_id": inputs.trace_id,
+        }
     )
-    if event is None:
-        raise ApplicationError("Generation not found", type="generation_not_found", non_retryable=True)
-    return event
 
 
 @temporalio.activity.defn

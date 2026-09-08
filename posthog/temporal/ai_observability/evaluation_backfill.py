@@ -43,18 +43,17 @@ BACKFILL_TICK_INTERVAL = timedelta(seconds=60)
 # before the judge even starts.
 CHILD_EXECUTION_TIMEOUT = timedelta(hours=3)
 
+ACTIVITY_TIMEOUT = timedelta(seconds=30)
 ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
-# The fail activity is the last thing standing between an exhausted retry and a row stuck at
-# RUNNING, which blocks every later backfill through the one-active constraint, so it retries
-# harder than an ordinary tick activity.
+# A row stuck at RUNNING blocks every later backfill through the one-active constraint, so the
+# activity that clears it retries harder than an ordinary tick activity.
 FAIL_BACKFILL_RETRY_POLICY = RetryPolicy(maximum_attempts=5)
 # One page of candidates crosses the activity boundary as a Temporal payload, which the server
 # caps at about 2 MiB, and each candidate carries user-controlled ids. A misconfigured setting
 # must not push a page past that limit or make the walk stop dispatching at all.
 MIN_BACKFILL_BATCH_SIZE = 1
 MAX_BACKFILL_BATCH_SIZE = 1000
-# A tick that keeps failing would otherwise leave the row RUNNING and the loop spinning
-# forever, so the backfill gives up and cancels itself.
+# A tick that keeps failing would otherwise leave the row RUNNING and the loop spinning forever.
 BACKFILL_MAX_CONSECUTIVE_FAILURES = 5
 
 
@@ -195,7 +194,7 @@ def _prepare_backfill_tick(inputs: EvaluationBackfillInputs) -> PrepareTickOutpu
     # Three ways an evaluation can no longer produce a run, all ending the backfill. An unknown
     # evaluation type has no workflow id prefix, so cancelling here keeps that failure in an
     # activity rather than raising a KeyError inside workflow code. A disabled evaluation ends the
-    # backfill too, because no event would tell the loop the evaluation came back, so holding the
+    # backfill too, because nothing would tell the loop the evaluation came back, so holding the
     # cursor would leave the row RUNNING and the workflow ticking forever.
     if evaluation.deleted or not evaluation.enabled or evaluation.evaluation_type not in EVALUATION_WORKFLOW_PREFIXES:
         cancel_backfill(inputs.team_id, inputs.backfill_id)
@@ -277,31 +276,22 @@ def _advance_backfill_cursor(inputs: AdvanceCursorInputs) -> AdvanceCursorOutput
     expected_timestamp = (
         datetime.fromisoformat(inputs.expected_cursor_timestamp) if inputs.expected_cursor_timestamp else None
     )
+    row = EvaluationBackfill.objects.for_team(inputs.team_id).filter(pk=inputs.backfill_id)
     # Matching the starting cursor makes this idempotent: Temporal retries an activity whose
     # result was lost after it committed, and a second blind increment would inflate progress.
     # Filtering on RUNNING lets a concurrent cancel win over the advance.
-    updated = (
-        EvaluationBackfill.objects.for_team(inputs.team_id)
-        .filter(
-            pk=inputs.backfill_id,
-            status=EvaluationBackfillStatus.RUNNING,
-            cursor_timestamp=expected_timestamp,
-            cursor_unit_id=inputs.expected_cursor_unit_id,
-        )
-        .update(**updates)
-    )
+    updated = row.filter(
+        status=EvaluationBackfillStatus.RUNNING,
+        cursor_timestamp=expected_timestamp,
+        cursor_unit_id=inputs.expected_cursor_unit_id,
+    ).update(**updates)
     if updated:
         return AdvanceCursorOutput(finished=inputs.exhausted)
     # Zero rows has two causes that end differently. If the row is no longer RUNNING, someone
     # cancelled or completed it and the loop stops. If it is still RUNNING, an earlier attempt of
     # this same advance already committed and only its result was lost, so the loop must carry on
     # from the stored cursor instead of stalling with the window half walked.
-    status = (
-        EvaluationBackfill.objects.for_team(inputs.team_id)
-        .filter(pk=inputs.backfill_id)
-        .values_list("status", flat=True)
-        .first()
-    )
+    status = row.values_list("status", flat=True).first()
     return AdvanceCursorOutput(finished=status != EvaluationBackfillStatus.RUNNING)
 
 
@@ -320,7 +310,7 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
             tick = await temporalio.workflow.execute_activity(
                 prepare_evaluation_backfill_tick_activity,
                 inputs,
-                start_to_close_timeout=timedelta(seconds=30),
+                start_to_close_timeout=ACTIVITY_TIMEOUT,
                 retry_policy=ACTIVITY_RETRY_POLICY,
             )
             if tick.action == TickAction.FINISHED:
@@ -358,7 +348,7 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
                 skipped_delta=skipped,
                 exhausted=found.exhausted,
             ),
-            start_to_close_timeout=timedelta(seconds=30),
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
             retry_policy=ACTIVITY_RETRY_POLICY,
         )
         return advance.finished
@@ -376,7 +366,7 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
             await temporalio.workflow.execute_activity(
                 fail_evaluation_backfill_activity,
                 inputs,
-                start_to_close_timeout=timedelta(seconds=30),
+                start_to_close_timeout=ACTIVITY_TIMEOUT,
                 retry_policy=FAIL_BACKFILL_RETRY_POLICY,
             )
             return

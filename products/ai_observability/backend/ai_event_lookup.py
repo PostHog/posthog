@@ -1,10 +1,11 @@
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from posthog.clickhouse.client import query_with_columns
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.ai.ai_table_resolver import AIEventsExpiredError, AIEventsNotFoundError
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, HEAVY_COLUMN_TO_PROPERTY, merge_heavy_properties
+from posthog.utils import ensure_utc
 
 
 def _query_ai_event(team_id: int, where_clauses: list[str], params: dict[str, object]) -> dict[str, Any] | None:
@@ -39,16 +40,14 @@ def _query_ai_event(team_id: int, where_clauses: list[str], params: dict[str, ob
     # Merge heavy columns back into properties for the evaluation workflow.
     heavy_columns = {col: event_data.pop(col, "") for col in HEAVY_COLUMN_TO_PROPERTY}
     event_data["properties"] = merge_heavy_properties(event_data["properties"], heavy_columns)
-    # ClickHouse hands back native UUID and datetime values, which no JSON payload can hold. A
-    # caller that starts a workflow with this dict used to get them stringified by Temporal's
-    # converter; an activity that reads the event itself does not. Normalizing here gives every
-    # consumer the same shape the live path receives from ingestion.
+    # ClickHouse hands back native UUID and datetime values, which no JSON payload can hold. Only
+    # a caller that starts a workflow gets them stringified by Temporal's converter, so normalizing
+    # here gives an activity that reads the event itself the same shape the live path receives.
     event_data["uuid"] = str(event_data["uuid"])
     if event_data.get("person_id") is not None:
         event_data["person_id"] = str(event_data["person_id"])
-    timestamp = event_data["timestamp"]
-    if isinstance(timestamp, datetime):
-        event_data["timestamp"] = (timestamp if timestamp.tzinfo else timestamp.replace(tzinfo=UTC)).isoformat()
+    if isinstance(event_data["timestamp"], datetime):
+        event_data["timestamp"] = ensure_utc(event_data["timestamp"]).isoformat()
     return event_data
 
 
@@ -85,8 +84,8 @@ def fetch_generation_event(
 ) -> dict[str, Any] | None:
     """Look a generation up by identity, returning None on a miss.
 
-    No classification probe, unlike `fetch_ai_event`: a backfill runs this once per unit, and a
-    caller with only a uuid can do nothing different about an expired event than a missing one.
+    No classification probe, unlike `fetch_ai_event`: a caller with only a uuid can do nothing
+    different about an expired event than about a missing one.
     """
     where_clauses = ["team_id = %(team_id)s", "uuid = %(event_id)s"]
     params: dict[str, object] = {"team_id": team_id, "event_id": event_uuid.replace("-", "")}
