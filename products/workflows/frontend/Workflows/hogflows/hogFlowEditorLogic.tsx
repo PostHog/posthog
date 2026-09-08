@@ -2530,7 +2530,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
 
             showDropzones: () => {
-                const { nodes, edges, isMovingNode, movingNodeId } = values
+                const { nodes, edges, isMovingNode, movingNodeId, nodeHeight } = values
 
                 const dropzoneNodes: DropzoneNode[] = []
 
@@ -2559,7 +2559,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                         const [, labelX, labelY] = getSmartStepPath({
                             sourceX: sourceNode.position.x + (sourceHandle?.x || 0),
-                            sourceY: sourceNode.position.y + (sourceHandle?.y || 0),
+                            // A source handle sits on the node's bottom edge, so its stored y is
+                            // only the height the handle table was built at. Metrics mode makes
+                            // the node taller, so read the height the node carries now.
+                            sourceY: sourceNode.position.y + (sourceNode.height ?? nodeHeight),
                             targetX: targetNode.position.x + (targetHandle?.x || 0),
                             targetY: targetNode.position.y + (targetHandle?.y || 0),
                             edges,

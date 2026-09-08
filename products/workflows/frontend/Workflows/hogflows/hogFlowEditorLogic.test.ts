@@ -1,8 +1,16 @@
+import { Position } from '@xyflow/react'
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
 import { computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
+import {
+    BOTTOM_HANDLE_POSITION,
+    NODE_HEIGHT,
+    NODE_METRICS_SUMMARY_HEIGHT,
+    TOP_HANDLE_POSITION,
+} from './react_flow_utils/constants'
+import { StepViewNodeHandle } from './steps/types'
 import { HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 
 type Edge = HogFlow['edges'][0]
@@ -580,7 +588,7 @@ describe('hogFlowEditorLogic', () => {
         })
     })
 
-    describe('showDropzones branch-join placement', () => {
+    describe('showDropzones placement', () => {
         const makeNode = (id: string): HogFlowActionNode =>
             ({
                 id,
@@ -646,6 +654,37 @@ describe('hogFlowEditorLogic', () => {
             logic.actions.setEdges(edges)
             logic.actions.showDropzones()
             expect(branchJoinDropzones()).toEqual(expected)
+        })
+
+        // The handle table stores every bottom handle at NODE_HEIGHT, so a node that the layout
+        // made taller contradicts its own stored handle. A dropzone placed off the stored handle
+        // then sits away from the edge it belongs to.
+        it.each([
+            { name: 'build mode', height: NODE_HEIGHT },
+            { name: 'metrics mode', height: NODE_HEIGHT + NODE_METRICS_SUMMARY_HEIGHT },
+        ])('centers an edge dropzone on the edge midpoint in $name', ({ height }) => {
+            const withGeometry = (id: string, y: number, handle: StepViewNodeHandle): HogFlowActionNode =>
+                ({ ...makeNode(id), position: { x: 0, y }, height, handles: [handle] }) as HogFlowActionNode
+            const source = withGeometry('trigger', 0, {
+                id: 'continue_trigger',
+                type: 'source',
+                position: Position.Bottom,
+                ...BOTTOM_HANDLE_POSITION,
+            })
+            const target = withGeometry('exit', 200, {
+                id: 'target_exit',
+                type: 'target',
+                position: Position.Top,
+                ...TOP_HANDLE_POSITION,
+            })
+
+            logic.actions.setNodesRaw([source, target])
+            logic.actions.setEdges([makeEdge('trigger', 'exit', 'continue')])
+            logic.actions.showDropzones()
+
+            const [dropzone] = logic.values.dropzoneNodes
+            const sourceBottom = source.position.y + height
+            expect(dropzone.position.y + NODE_HEIGHT / 2).toBe((sourceBottom + target.position.y) / 2)
         })
     })
 })
