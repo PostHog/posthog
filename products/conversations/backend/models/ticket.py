@@ -1,10 +1,14 @@
 from typing import TYPE_CHECKING
 
-from django.db import models, transaction
+from django.db import connection, models, transaction
 
 from posthog.models.utils import UUIDTModel
 
 from .constants import Channel, ChannelDetail, Priority, Status
+
+# Two-arg lock namespace for ticket_number allocation. Keep this value stable:
+# mixed-version allocators only serialize if they use the same pair.
+_TICKET_NUMBER_LOCK_NAMESPACE = 0x0C0F_5E71
 
 if TYPE_CHECKING:
     from posthog.models import Person
@@ -12,10 +16,7 @@ if TYPE_CHECKING:
 
 class TicketManager(models.Manager):
     def create_with_number(self, **kwargs):
-        """
-        Create a ticket with an auto-incrementing ticket_number.
-        Uses SELECT FOR UPDATE on Team row to serialize ticket creation per team.
-        """
+        """Create a ticket with the next ticket_number for its team."""
         from posthog.models import Team
 
         team = kwargs.get("team")
@@ -23,7 +24,14 @@ class TicketManager(models.Manager):
             raise ValueError("team is required")
 
         with transaction.atomic():
-            # Lock team row to serialize ticket creation for this team
+            # Advisory lock first so every allocator shares one mutex. The Team
+            # row lock stays so processes that only lock Team still serialize.
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(%s, %s)",
+                    [_TICKET_NUMBER_LOCK_NAMESPACE, team.id],
+                )
+            # nosemgrep: hot-parent-row-select-for-update -- keep Team lock until every allocator takes the advisory lock first
             Team.objects.select_for_update().get(id=team.id)
 
             max_num = self.filter(team=team).aggregate(models.Max("ticket_number"))["ticket_number__max"] or 0
