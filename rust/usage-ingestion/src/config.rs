@@ -1,9 +1,13 @@
+use std::str::FromStr;
 use std::time::Duration;
 
 use common_kafka::config::KafkaConfig;
+use common_kafka_consumer::config::ConsumerConfigBuilder;
 use envconfig::Envconfig;
+use rdkafka::ClientConfig;
 
 use crate::counters::CounterConfig;
+use crate::kafka::KafkaBatchConfig;
 
 /// WarpStream's recommended librdkafka producer settings.
 /// <https://docs.warpstream.com/warpstream/kafka/configure-kafka-client/tuning-for-performance>
@@ -16,8 +20,32 @@ const METADATA_REFRESH_INTERVAL_MS: u32 = 60_000;
 
 const _: () = assert!(MESSAGE_MAX_BYTES > BATCH_SIZE);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransportMode {
+    Grpc,
+    Kafka,
+    Both,
+}
+
+impl FromStr for TransportMode {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_lowercase().as_str() {
+            "grpc" => Ok(Self::Grpc),
+            "kafka" => Ok(Self::Kafka),
+            "both" => Ok(Self::Both),
+            other => Err(format!(
+                "unknown usage ingestion transport {other:?}; expected grpc, kafka, or both"
+            )),
+        }
+    }
+}
+
 #[derive(Envconfig, Clone)]
 pub struct Config {
+    #[envconfig(from = "USAGE_INGESTION_MODE", default = "grpc")]
+    pub transport_mode: TransportMode,
     #[envconfig(from = "USAGE_INGESTION_GRPC_ADDRESS", default = "0.0.0.0:7143")]
     pub grpc_address: String,
     #[envconfig(from = "USAGE_INGESTION_METRICS_ADDRESS", default = "0.0.0.0:7144")]
@@ -28,6 +56,81 @@ pub struct Config {
     pub kafka_hosts: String,
     #[envconfig(from = "KAFKA_TLS", default = "false")]
     pub kafka_tls: bool,
+    /// Empty uses `KAFKA_HOSTS`, which keeps the single-cluster local setup simple.
+    #[envconfig(from = "USAGE_INGESTION_KAFKA_INPUT_HOSTS", default = "")]
+    pub kafka_input_hosts: String,
+    /// Unset follows `KAFKA_TLS`; production can override it when input and output differ.
+    #[envconfig(from = "USAGE_INGESTION_KAFKA_INPUT_TLS")]
+    pub kafka_input_tls: Option<bool>,
+    #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_INPUT_TOPIC",
+        default = "usage_ingestion"
+    )]
+    pub kafka_input_topic: String,
+    #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_DEAD_LETTER_TOPIC",
+        default = "usage_ingestion_dlq"
+    )]
+    pub kafka_dead_letter_topic: String,
+    #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_DEAD_LETTER_MESSAGE_TIMEOUT_MS",
+        default = "20000"
+    )]
+    pub kafka_dead_letter_message_timeout_ms: u32,
+    #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_CONSUMER_GROUP",
+        default = "usage-ingestion"
+    )]
+    pub kafka_consumer_group: String,
+    #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_CONSUMER_CLIENT_ID",
+        default = "usage-ingestion-consumer"
+    )]
+    pub kafka_consumer_client_id: String,
+    #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_CONSUMER_TOPIC_METADATA_REFRESH_INTERVAL_MS",
+        default = "60000"
+    )]
+    pub kafka_consumer_topic_metadata_refresh_interval_ms: u32,
+    #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_CONSUMER_FETCH_MAX_BYTES",
+        default = "50242880"
+    )]
+    pub kafka_consumer_fetch_max_bytes: u32,
+    #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES",
+        default = "50242880"
+    )]
+    pub kafka_consumer_max_partition_fetch_bytes: u32,
+    #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_CONSUMER_FETCH_WAIT_MAX_MS",
+        default = "10000"
+    )]
+    pub kafka_consumer_fetch_wait_max_ms: u32,
+    #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_CONSUMER_SOCKET_SEND_BUFFER_BYTES",
+        default = "0"
+    )]
+    pub kafka_consumer_socket_send_buffer_bytes: u32,
+    #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_CONSUMER_SOCKET_RECEIVE_BUFFER_BYTES",
+        default = "0"
+    )]
+    pub kafka_consumer_socket_receive_buffer_bytes: u32,
+    #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_CONSUMER_RETRY_BACKOFF_MAX_MS",
+        default = "60000"
+    )]
+    pub kafka_consumer_retry_backoff_max_ms: u32,
+    #[envconfig(from = "USAGE_INGESTION_KAFKA_CONSUMER_BATCH_SIZE", default = "100")]
+    pub kafka_consumer_batch_size: usize,
+    #[envconfig(
+        from = "USAGE_INGESTION_KAFKA_CONSUMER_BATCH_TIMEOUT_MS",
+        default = "10"
+    )]
+    pub kafka_consumer_batch_timeout_ms: u64,
+    #[envconfig(from = "USAGE_INGESTION_KAFKA_CONSUMER_CONCURRENCY", default = "16")]
+    pub kafka_consumer_concurrency: usize,
     /// Only "none", "gzip", "snappy" and "lz4" work. "zstd" needs an rdkafka feature the
     /// workspace does not enable, so librdkafka refuses it when it builds the producer.
     #[envconfig(from = "KAFKA_COMPRESSION_CODEC", default = "lz4")]
@@ -78,6 +181,27 @@ impl Config {
         if self.redis_flush_concurrency == 0 {
             return Err("USAGE_INGESTION_REDIS_FLUSH_CONCURRENCY must be positive".to_string());
         }
+        if self.kafka_consumer_batch_size == 0 {
+            return Err("USAGE_INGESTION_KAFKA_CONSUMER_BATCH_SIZE must be positive".to_string());
+        }
+        if self.kafka_consumer_batch_timeout_ms == 0 {
+            return Err(
+                "USAGE_INGESTION_KAFKA_CONSUMER_BATCH_TIMEOUT_MS must be positive".to_string(),
+            );
+        }
+        if self.kafka_consumer_concurrency == 0 {
+            return Err("USAGE_INGESTION_KAFKA_CONSUMER_CONCURRENCY must be positive".to_string());
+        }
+        if self.kafka_consumer_retry_backoff_max_ms == 0 {
+            return Err(
+                "USAGE_INGESTION_KAFKA_CONSUMER_RETRY_BACKOFF_MAX_MS must be positive".to_string(),
+            );
+        }
+        if self.kafka_dead_letter_message_timeout_ms == 0 {
+            return Err(
+                "USAGE_INGESTION_KAFKA_DEAD_LETTER_MESSAGE_TIMEOUT_MS must be positive".to_string(),
+            );
+        }
         // A few seconds would make every producer spend its time reconnecting.
         if self.grpc_max_connection_age_secs > 0 && self.grpc_max_connection_age_secs < 10 {
             return Err(
@@ -125,6 +249,52 @@ impl Config {
             ..Default::default()
         }
     }
+
+    pub fn kafka_consumer_config(&self) -> ClientConfig {
+        let hosts = if self.kafka_input_hosts.is_empty() {
+            &self.kafka_hosts
+        } else {
+            &self.kafka_input_hosts
+        };
+        ConsumerConfigBuilder::for_batch_consumer(hosts, &self.kafka_consumer_group)
+            .with_tls(self.kafka_input_tls.unwrap_or(self.kafka_tls))
+            .with_offset_reset("earliest")
+            .with_sticky_partition_assignment(None, false)
+            .with_topic_metadata_refresh_interval_ms(
+                self.kafka_consumer_topic_metadata_refresh_interval_ms,
+            )
+            .with_fetch_max_bytes(self.kafka_consumer_fetch_max_bytes)
+            .with_max_partition_fetch_bytes(self.kafka_consumer_max_partition_fetch_bytes)
+            .with_fetch_wait_max_ms(self.kafka_consumer_fetch_wait_max_ms)
+            .set("client.id", &self.kafka_consumer_client_id)
+            .set(
+                "socket.send.buffer.bytes",
+                &self.kafka_consumer_socket_send_buffer_bytes.to_string(),
+            )
+            .set(
+                "socket.receive.buffer.bytes",
+                &self.kafka_consumer_socket_receive_buffer_bytes.to_string(),
+            )
+            .set(
+                "retry.backoff.max.ms",
+                &self.kafka_consumer_retry_backoff_max_ms.to_string(),
+            )
+            .set("statistics.interval.ms", "10000")
+            .set("allow.auto.create.topics", "false")
+            .set(
+                "message.timeout.ms",
+                &self.kafka_dead_letter_message_timeout_ms.to_string(),
+            )
+            .build()
+    }
+
+    pub fn kafka_batch_config(&self) -> KafkaBatchConfig {
+        KafkaBatchConfig {
+            max_messages: self.kafka_consumer_batch_size,
+            max_wait: Duration::from_millis(self.kafka_consumer_batch_timeout_ms),
+            concurrency: self.kafka_consumer_concurrency,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -133,11 +303,29 @@ mod tests {
 
     fn config() -> Config {
         Config {
+            transport_mode: TransportMode::Grpc,
             grpc_address: "0.0.0.0:7143".to_string(),
             metrics_address: "0.0.0.0:7144".to_string(),
             database_url: "postgres://localhost/test".to_string(),
             kafka_hosts: "localhost:9092".to_string(),
             kafka_tls: false,
+            kafka_input_hosts: String::new(),
+            kafka_input_tls: None,
+            kafka_input_topic: "usage_ingestion".to_string(),
+            kafka_dead_letter_topic: "usage_ingestion_dlq".to_string(),
+            kafka_dead_letter_message_timeout_ms: 20_000,
+            kafka_consumer_group: "usage-ingestion".to_string(),
+            kafka_consumer_client_id: "usage-ingestion-consumer".to_string(),
+            kafka_consumer_topic_metadata_refresh_interval_ms: 60_000,
+            kafka_consumer_fetch_max_bytes: 50_242_880,
+            kafka_consumer_max_partition_fetch_bytes: 50_242_880,
+            kafka_consumer_fetch_wait_max_ms: 10_000,
+            kafka_consumer_socket_send_buffer_bytes: 0,
+            kafka_consumer_socket_receive_buffer_bytes: 0,
+            kafka_consumer_retry_backoff_max_ms: 60_000,
+            kafka_consumer_batch_size: 100,
+            kafka_consumer_batch_timeout_ms: 10,
+            kafka_consumer_concurrency: 16,
             kafka_compression_codec: "lz4".to_string(),
             kafka_producer_linger_ms: 100,
             max_batch_size: 500,
@@ -148,6 +336,11 @@ mod tests {
             topic: "clickhouse_billing_usage_records".to_string(),
             grpc_max_connection_age_secs: 60,
         }
+    }
+
+    #[test]
+    fn both_transport_mode_parses() {
+        assert_eq!("both".parse(), Ok(TransportMode::Both));
     }
 
     #[test]
@@ -191,7 +384,45 @@ mod tests {
     }
 
     #[test]
-    fn redis_counter_configuration_requires_positive_values() {
+    fn the_input_consumer_can_use_a_different_cluster() {
+        let config = Config {
+            kafka_input_hosts: "ingestion:9092".to_string(),
+            kafka_input_tls: Some(true),
+            ..config()
+        };
+
+        let kafka = config.kafka_consumer_config();
+
+        assert_eq!(kafka.get("metadata.broker.list"), Some("ingestion:9092"));
+        assert_eq!(kafka.get("security.protocol"), Some("ssl"));
+        assert_eq!(kafka.get("enable.auto.commit"), Some("false"));
+        assert_eq!(
+            kafka.get("partition.assignment.strategy"),
+            Some("cooperative-sticky")
+        );
+        assert_eq!(kafka.get("client.id"), Some("usage-ingestion-consumer"));
+        assert_eq!(
+            kafka.get("topic.metadata.refresh.interval.ms"),
+            Some("60000")
+        );
+        assert_eq!(kafka.get("fetch.max.bytes"), Some("50242880"));
+        assert_eq!(kafka.get("max.partition.fetch.bytes"), Some("50242880"));
+        assert_eq!(kafka.get("fetch.wait.max.ms"), Some("10000"));
+        assert_eq!(kafka.get("socket.send.buffer.bytes"), Some("0"));
+        assert_eq!(kafka.get("socket.receive.buffer.bytes"), Some("0"));
+        assert_eq!(kafka.get("retry.backoff.max.ms"), Some("60000"));
+        assert_eq!(kafka.get("statistics.interval.ms"), Some("10000"));
+        assert_eq!(kafka.get("allow.auto.create.topics"), Some("false"));
+        assert_eq!(kafka.get("message.timeout.ms"), Some("20000"));
+
+        let batch = config.kafka_batch_config();
+        assert_eq!(batch.max_messages, 100);
+        assert_eq!(batch.max_wait, Duration::from_millis(10));
+        assert_eq!(batch.concurrency, 16);
+    }
+
+    #[test]
+    fn configuration_requires_positive_values() {
         for (config, expected) in [
             (
                 Config {
@@ -206,6 +437,13 @@ mod tests {
                     ..config()
                 },
                 "USAGE_INGESTION_REDIS_FLUSH_CONCURRENCY must be positive",
+            ),
+            (
+                Config {
+                    kafka_dead_letter_message_timeout_ms: 0,
+                    ..config()
+                },
+                "USAGE_INGESTION_KAFKA_DEAD_LETTER_MESSAGE_TIMEOUT_MS must be positive",
             ),
         ] {
             assert_eq!(config.validate(), Err(expected.to_string()));

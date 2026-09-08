@@ -4,7 +4,7 @@ mod common;
 
 use std::time::{Duration, Instant};
 
-use common::{clickhouse, clickhouse_url, table, Service};
+use common::{clickhouse, clickhouse_url, table, KafkaService, Service};
 use usage_ingestion_proto::usage_ingestion::v1::{BillingUsageRecord, IngestBillingUsageRequest};
 use uuid::Uuid;
 
@@ -93,4 +93,38 @@ async fn retried_record_with_original_timestamp_deduplicates() {
     assert_eq!(canonical[0], "2024-06-15 00:00:00.000000");
 
     service.stop().await;
+}
+
+#[tokio::test]
+#[ignore = "requires a local Kafka and ClickHouse with migration 0303; run with --ignored"]
+async fn kafka_input_is_processed_into_clickhouse() {
+    let clickhouse_url = clickhouse_url();
+    let table = table();
+    let organization_id = Uuid::new_v4();
+    let service = KafkaService::start(500, organization_id).await;
+    let record_id = Uuid::new_v4().to_string();
+
+    service
+        .publish(IngestBillingUsageRequest {
+            records: vec![record(&record_id, FIRST_EVENT_TIMESTAMP_MS)],
+        })
+        .await;
+
+    let http = reqwest::Client::new();
+    let query = format!(
+        "SELECT toString(organization_id) FROM {table} WHERE record_id = '{record_id}' FORMAT TSV"
+    );
+    let deadline = Instant::now() + Duration::from_secs(120);
+    loop {
+        if clickhouse(&http, &clickhouse_url, &query).await.trim() == organization_id.to_string() {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the Kafka input record never reached ClickHouse"
+        );
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+
+    service.stop();
 }

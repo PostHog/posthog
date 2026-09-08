@@ -609,6 +609,7 @@ services:
                     log_entries \
                     clickhouse_property_values \
                     clickhouse_tophog \
+                    usage_ingestion \
                     clickhouse_billing_usage_records"
                 for topic in $$TOPICS; do
                     if rpk topic create "$$topic" --brokers kafka:9092 -p 1 -r 1 2>&1; then
@@ -725,6 +726,7 @@ services:
             valkey-cluster:
                 condition: service_healthy
         environment:
+            USAGE_INGESTION_MODE: both
             USAGE_INGESTION_REDIS_URL: 'redis://valkey-cluster:6390'
         # Keeps a bare `up` from building an image that is not published yet.
         profiles:
