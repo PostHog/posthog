@@ -1297,7 +1297,7 @@ def list_custom_property_definitions(
     ``has_workflow_reference`` is included for every caller. ``references`` carries only workflow
     metadata the caller can read. ``exclude_group_targets`` hides group-target definitions from callers
     without ``group`` read authorization."""
-    queryset = CustomPropertyDefinition.objects.filter(team_id=team_id).select_related("source").order_by("name")
+    queryset = CustomPropertyDefinition.objects.for_team(team_id).select_related("source").order_by("name")
     if exclude_group_targets:
         queryset = queryset.exclude(target_type=TargetType.GROUP.value)
     total_count = queryset.count()
@@ -1324,14 +1324,14 @@ def list_custom_property_definitions(
 
 
 def get_custom_property_definition_target_type(team_id: int, definition_id: str) -> str | None:
-    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    definition = _get_custom_property_definition(team_id, definition_id)
     return definition.target_type if definition is not None else None
 
 
 def get_custom_property_definition(
     team_id: int, definition_id: str, *, user_access_control: "UserAccessControl"
 ) -> contracts.CustomPropertyDefinitionView | None:
-    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    definition = _get_custom_property_definition(team_id, definition_id)
     if definition is None:
         return None
     workflow_references_by_definition_id = _custom_property_references_by_definition_id(
@@ -1372,7 +1372,7 @@ def create_custom_property_definition(
     was_impersonated: bool,
 ) -> contracts.CustomPropertyDefinitionView:
     try:
-        definition = CustomPropertyDefinition.objects.create(
+        definition = CustomPropertyDefinition.objects.for_team(team_id).create(
             team_id=team_id,
             created_by=user,
             name=name,
@@ -1426,11 +1426,11 @@ def update_custom_property_definition(
 ) -> contracts.CustomPropertyDefinitionView | None:
     """Apply ``fields`` (only the keys the caller sent) to a team-scoped definition. Returns the
     updated view, or None when no definition matches the id for this team (→ 404)."""
-    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    definition = _get_custom_property_definition(team_id, definition_id)
     if definition is None:
         return None
     _assert_canonical_fields_unchanged(definition, fields)
-    previous = CustomPropertyDefinition.objects.get(pk=definition.pk)
+    previous = CustomPropertyDefinition.objects.for_team(team_id).get(pk=definition.pk)
     for attr, value in fields.items():
         setattr(definition, attr, value)
     # Re-coerce against the effective display type: a PATCH that only flips the type to a
@@ -1492,7 +1492,7 @@ def delete_custom_property_definition(
     was_impersonated: bool,
 ) -> bool:
     """Delete a team-scoped definition. Returns False when none matched (→ 404)."""
-    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    definition = _get_custom_property_definition(team_id, definition_id)
     if definition is None:
         return False
     _log_activity_swallowing(
@@ -2239,7 +2239,7 @@ def create_custom_property_source(
     column_descriptions: dict | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> contracts.CustomPropertySourceView:
-    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    definition = _get_custom_property_definition(team_id, definition_id)
     if definition is None:
         raise CustomPropertySourceValidationError("Custom property definition not found for this team.")
 
@@ -4303,6 +4303,13 @@ def _get_team_scoped(model, team_id: int, pk: str | UUID):
         return None
 
 
+def _get_custom_property_definition(team_id: int, definition_id: str | UUID) -> CustomPropertyDefinition | None:
+    try:
+        return CustomPropertyDefinition.objects.for_team(team_id).get(pk=definition_id)
+    except (CustomPropertyDefinition.DoesNotExist, ValidationError, ValueError):
+        return None
+
+
 def _get_object_or_raise(queryset, pk: str, model):
     """Fetch by pk from an already-scoped queryset, raising ``model.DoesNotExist`` for
     absent/malformed ids (the view maps that to 404)."""
@@ -4372,7 +4379,7 @@ def set_custom_property_value(
     *,
     actor: "User | None" = None,
 ) -> contracts.CustomPropertyValue:
-    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    definition = _get_custom_property_definition(team_id, definition_id)
     if definition is not None and definition.name in CANONICAL_DISPLAY_TYPE_BY_NAME:
         raise CanonicalCustomPropertyReadOnlyError(
             "This custom property is managed by PostHog and can't be edited manually."
@@ -4399,7 +4406,7 @@ def clear_custom_property_value(
     *,
     actor: "User | None" = None,
 ) -> None:
-    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    definition = _get_custom_property_definition(team_id, definition_id)
     if definition is not None and definition.name in CANONICAL_DISPLAY_TYPE_BY_NAME:
         raise CanonicalCustomPropertyReadOnlyError(
             "This custom property is managed by PostHog and can't be edited manually."
