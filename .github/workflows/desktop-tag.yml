@@ -34,6 +34,7 @@ jobs:
         permissions:
             contents: write
             actions: write
+            checks: read
             pull-requests: write
             issues: write
         runs-on: depot-ubuntu-24.04
@@ -125,9 +126,9 @@ jobs:
                   gh workflow run desktop-tag.yml -f quiet_retries="$NEXT"
                   echo "proceed=false" >> "$GITHUB_OUTPUT"
 
-            # A release is cut from master, and the merge queue does not run the desktop
-            # suites on its batches, so the master push run is the only signal that the
-            # tree being tagged still boots.
+            # A release is cut from master. The merge queue tests a batch branch, not the
+            # master commit, so the master push run is the only per-commit signal that
+            # the tree being tagged still boots.
             - name: Find the last desktop commit
               id: desktop-head
               if: steps.quiet.outputs.proceed != 'false' && steps.labeler.outputs.authorized != 'false' && github.event.inputs.ignore_master_ci != 'true'
