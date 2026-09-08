@@ -29,29 +29,17 @@ No sync problems, no "baseline service went down", no mystery diffs from someone
 
 ### Retention
 
-A daily Celery task, `sweep visual review retention`, deletes what no page can still show.
+A daily Celery task, `sweep visual review retention`, deletes data that can no longer be used.
+The windows and the reasons behind them are constants in `backend/logic/retention.py`.
 
-Runs go by age, per branch.
-A run counts as a PR branch only when it has a PR number, because we do not record a repo's real default branch and a run without a PR number is default-branch history:
-
-- A superseded run on a PR branch goes after 30 days, which is a grace period for people who open an old link.
-- A superseded run on the default branch or any run without a PR number goes after 180 days, because the baseline overview reads 90 days and the snapshot history page is unbounded.
-- The latest run of a group on the default branch is never deleted.
-- A PR branch with no run of any type in 90 days is finished, so its latest runs go too.
-  They go after the superseded runs of the same group, because every superseded run points at the latest one.
-  That pass keeps the newest completed full run of a run type on any branch, because a repo that only runs on PR branches has no other row left that names the baseline hashes committed to it, and a partial run names only part of them.
-
-Artifacts go by reference, never by age.
-Content addressing means one upload backs every later run that renders the same pixels, so an artifact's age says nothing about whether it is in use.
-An artifact goes when no surviving snapshot points at it as its current, baseline, or diff image, no snapshot of the same repo names its hash, no other artifact points at it as a thumbnail, and it is more than 7 days old.
-The hash check matters because a snapshot names its images by hash at run creation and gets its artifact links later.
-The grace period covers the gap before anything names a new artifact, which is where a diff or thumbnail image sits between the write and the link.
-
-Run registration and the artifact delete take the same per-repo lock for the length of their transaction, so a run that was just told an artifact exists cannot lose it before the run commits.
-The sweep deletes the row first and the object second, and the row delete repeats the reference checks, so a reference taken in between keeps the row.
-An Artifact row is what makes the CLI skip an upload, so a row that outlives its object breaks every later run that renders the same pixels.
-A failed object delete leaks an object, which costs storage and nothing else.
-Each invocation is capped by rows and by a time budget, so a large backlog catches up over several days instead of in one long transaction.
+- Superseded runs on PR branches go after 30 days, on the default branch after 180 days.
+  A run without a PR number counts as default-branch history, because we do not record a repo's real default branch.
+- A PR branch with no run in 90 days loses its latest runs too, except the repo's newest completed full run per run type, which is the last row naming the committed baseline hashes.
+- Artifacts go by reference, never by age: content addressing means one upload backs every later run with the same pixels.
+  An artifact goes when no snapshot of the repo points at it or names its hash, no artifact uses it as a thumbnail, and it is over 7 days old.
+- Rows go before objects, and run registration and the delete share a per-repo lock, so a run is never told an artifact exists that the sweep then removes.
+  An artifact row is what makes the CLI skip an upload, so a row without its object is the one state to avoid; a leaked object only costs storage.
+- Each invocation is capped by rows and by a time budget, so a backlog drains over days.
 
 ## The flow
 
