@@ -48,7 +48,8 @@ Decay, suspension drops, admin recomputes, and the backfill stay silent.
 
 1. Merge and deploy with both modes `off`. The daily sweep starts computing and storing tiers immediately.
 2. Run `python manage.py backfill_workflows_email_sending_tiers` per region, read the printed distribution, then re-run with `--apply`. This lands established senders on their earned tier in one step.
-3. Set both modes to `shadow` via charts. Nothing is delayed; would-be delays log and count in `cdp_team_email_cap_delayed_total{mode="shadow"}`. Watch that against real traffic.
+3. Set both modes to `shadow` via charts. Nothing is delayed; would-be delays log and count in `cdp_team_email_cap_delayed_total{mode="shadow",bucket=~"hour|day"}`. Watch that against real traffic.
+   Keep the `bucket` filter on. The same counter has an `error` bucket for a cap check that failed, where the outcome is unknown, so an unfiltered total reads those faults as cap impact.
 4. Set both modes to `enforce`. Enforcement applies to every team at once; the Reputation tab's allowance card appears at this point.
    Never set the Django mode to `enforce` on a deployment whose email worker does not carry the send-time caps: the batch audience cap alone can be sidestepped by editing a workflow while a batch is queued, and the send-time buckets are what bound that.
 5. To back out, set the modes back to `off`; the tiers keep computing and nothing else changes.
