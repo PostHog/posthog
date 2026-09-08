@@ -951,12 +951,12 @@ class DockerSandbox(SandboxBase):
         if allowed_domains is not None:
             return (
                 f"cd /scripts && {initialize_env_file} && "
-                f"({build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &)"
+                f"({build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} & echo $! > /tmp/agent-server.pid)"
             )
         else:
-            return f"cd /scripts && {initialize_env_file} && (nohup {server_cmd} > /tmp/agent-server.log 2>&1 &)"
+            return f"cd /scripts && {initialize_env_file} && (nohup {server_cmd} > /tmp/agent-server.log 2>&1 & echo $! > /tmp/agent-server.pid)"
 
-    def _launch_and_check(self, command: str) -> bool:
+    def _launch_and_check(self, command: str, *, max_attempts: int = 20) -> bool:
         """Execute the agent-server command and wait for the health check.
 
         Returns True if the server started successfully, False otherwise.
@@ -965,7 +965,7 @@ class DockerSandbox(SandboxBase):
         if result.exit_code != 0:
             logger.warning(f"Agent-server process failed to launch in sandbox {self.id}: {result.stderr}")
             return False
-        return self._wait_for_health_check(max_attempts=20)
+        return self._wait_for_health_check(max_attempts=max_attempts)
 
     def _install_gh_guard(self) -> None:
         """Install the gh PATH shim at runtime so it's present regardless of image age.
@@ -1102,7 +1102,9 @@ class DockerSandbox(SandboxBase):
                 )
             return
 
-        if self._launch_and_check(command):
+        if self._launch_and_check(
+            command, **({"max_attempts": 480} if claude_model_access == "own-subscription" else {})
+        ):
             logger.info(f"Agent-server started on port {self._host_port}")
             return
 
@@ -1147,7 +1149,9 @@ class DockerSandbox(SandboxBase):
                 posthog_exec_permission_regex=exec_permission_regex,
                 claude_model_access=claude_model_access,
             )
-            if self._launch_and_check(command):
+            if self._launch_and_check(
+                command, **({"max_attempts": 480} if claude_model_access == "own-subscription" else {})
+            ):
                 logger.info(f"Agent-server started on port {self._host_port} (without --baseBranch)")
                 return
 
@@ -1162,8 +1166,10 @@ class DockerSandbox(SandboxBase):
             capture=False,
         )
 
-    def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None:
-        if self._wait_for_health_check(max_attempts=240):
+    def wait_for_agent_server_ready(
+        self, allowed_domains: list[str] | None = None, *, claude_model_access: str | None = None
+    ) -> None:
+        if self._wait_for_health_check(max_attempts=480 if claude_model_access == "own-subscription" else 240):
             logger.info(f"Agent-server ready on port {self._host_port}")
             return
         log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
@@ -1230,7 +1236,9 @@ class DockerSandbox(SandboxBase):
     def _wait_for_health_check(self, max_attempts: int = 60, poll_interval: float = 0.5) -> bool:
         """Poll health endpoint until server is ready (single remote call)."""
 
-        return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval)
+        return wait_for_health_check(
+            self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval, pid_file="/tmp/agent-server.pid"
+        )
 
     def read_agent_server_session_init_ms(self) -> int | None:
         return self._read_health_session_init_ms(AGENT_SERVER_PORT)

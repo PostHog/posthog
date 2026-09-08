@@ -756,7 +756,14 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                     origin_product=ctx.origin_product,
                     runtime=runtime,
                 ) as health_timer:
-                    sandbox.wait_for_agent_server_ready(params.agentsh_domains)
+                    sandbox.wait_for_agent_server_ready(
+                        params.agentsh_domains,
+                        **(
+                            {"claude_model_access": ctx.claude_model_access}
+                            if ctx.claude_model_access == "own-subscription"
+                            else {}
+                        ),
+                    )
                 invoke_ms = invoke_timer.elapsed_ms
                 health_poll_ms = health_timer.elapsed_ms
             _record_agent_server_launch(sandbox, ctx, params)
@@ -881,7 +888,14 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                         origin_product=ctx.origin_product,
                         runtime=runtime,
                     ) as health_timer:
-                        sandbox.wait_for_agent_server_ready(agentsh_domains)
+                        sandbox.wait_for_agent_server_ready(
+                            agentsh_domains,
+                            **(
+                                {"claude_model_access": ctx.claude_model_access}
+                                if ctx.claude_model_access == "own-subscription"
+                                else {}
+                            ),
+                        )
                 else:
                     logger.warning(
                         "agent_server_readiness_retry_recovery",
@@ -913,7 +927,14 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                         origin_product=ctx.origin_product,
                         runtime=runtime,
                     ) as health_timer:
-                        sandbox.wait_for_agent_server_ready(agentsh_domains)
+                        sandbox.wait_for_agent_server_ready(
+                            agentsh_domains,
+                            **(
+                                {"claude_model_access": ctx.claude_model_access}
+                                if ctx.claude_model_access == "own-subscription"
+                                else {}
+                            ),
+                        )
                     _record_agent_server_launch(sandbox, ctx, params)
         except Exception:
             if attempt > 1:

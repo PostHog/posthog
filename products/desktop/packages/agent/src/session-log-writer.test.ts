@@ -57,6 +57,7 @@ describe("SessionLogWriter", () => {
           jsonrpc: "2.0",
           method: "session/new",
           params: {
+            output: "sk-ant-oat01-fake-test-token",
             mcpServers: [
               {
                 name: "posthog",
@@ -73,7 +74,11 @@ describe("SessionLogWriter", () => {
 
       const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
       expect(JSON.stringify(entries)).not.toContain("protocol-secret");
+      expect(JSON.stringify(entries)).not.toContain(
+        "sk-ant-oat01-fake-test-token",
+      );
       expect(entries[0].notification.params).toEqual({
+        output: "[REDACTED]",
         mcpServers: [
           {
             name: "posthog",

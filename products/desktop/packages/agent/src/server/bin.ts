@@ -7,6 +7,7 @@ import { isSupportedReasoningEffort } from "../adapters/reasoning-effort";
 import { DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE } from "../posthog-exec-permission";
 import { AgentServer } from "./agent-server";
 import { launcherToProcessMs } from "./boot-phases";
+import { CredentialRelayError } from "./credential-relay";
 import { PiAgentServer } from "./pi-agent-server";
 import {
   claudeCodeConfigSchema,
@@ -334,7 +335,13 @@ program
     process.on("uncaughtException", handleFatalError);
     process.on("unhandledRejection", handleFatalError);
 
-    await server.start();
+    try {
+      await server.start();
+    } catch (error) {
+      if (error instanceof CredentialRelayError && error.code === "cancelled")
+        return;
+      await handleFatalError(error);
+    }
   });
 
 program.parse();

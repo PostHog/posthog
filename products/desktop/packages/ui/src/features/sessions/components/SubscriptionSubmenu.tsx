@@ -63,9 +63,11 @@ export function SubscriptionSubmenu({
   const cloudTask = workspaceMode === "cloud";
   const cloudAvailable = adapter === "claude" && subscription.cloudFlagEnabled;
   if (
-    !subscription.flagEnabled &&
-    !cloudAvailable &&
-    !subscription.cloudSubscriptionOn
+    cloudTask
+      ? !subscription.flagEnabled &&
+        !cloudAvailable &&
+        !subscription.cloudSubscriptionOn
+      : !subscription.flagEnabled
   ) {
     return null;
   }

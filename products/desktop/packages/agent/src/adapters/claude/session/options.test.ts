@@ -620,9 +620,18 @@ describe("buildSessionOptions", () => {
       expect(options.fallbackModel).toBeUndefined();
     });
 
-    it("sets the relayed OAuth token over any ambient value", () => {
-      const env = buildSessionOptions({
+    it("keeps the relayed OAuth token out of the environment", async () => {
+      const options = buildSessionOptions({
         ...makeParams(),
+        userProvidedOptions: {
+          settings: {
+            env: {
+              ANTHROPIC_BASE_URL: "https://example.com",
+              CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0",
+              CLAUDE_CODE_REMOTE: "1",
+            },
+          },
+        },
         machineAuth: { oauthToken: "sk-ant-oat01-fake-test-token" },
         gatewayEnv: {
           anthropicBaseUrl: "https://gateway.example.com",
@@ -632,9 +641,11 @@ describe("buildSessionOptions", () => {
           anthropicCustomHeaders: "x-posthog-property-task_id: task-abc",
           posthogProjectId: "42",
         },
-      }).env;
+      });
+      const env = options.env;
 
-      expect(env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("sk-ant-oat01-fake-test-token");
+      expect(env?.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+      expect(env?.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe("0");
       for (const key of STRIPPED_KEYS) {
         expect(env?.[key]).toBeUndefined();
       }
@@ -644,6 +655,42 @@ describe("buildSessionOptions", () => {
         expect(value).not.toContain("x-posthog-");
         expect(key).not.toMatch(/X-PostHog/i);
       }
+      expect(options.settings).toMatchObject({
+        env: {
+          ANTHROPIC_BASE_URL: "https://api.anthropic.com",
+          CLAUDE_CODE_OAUTH_TOKEN: "",
+          CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR: "3",
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0",
+          CLAUDE_CODE_REMOTE: "",
+        },
+      });
+      expect(options.spawnClaudeCodeProcess).toBeTypeOf("function");
+      expect(JSON.stringify(options)).not.toContain(
+        "sk-ant-oat01-fake-test-token",
+      );
+      const child = options.spawnClaudeCodeProcess?.({
+        command: process.execPath,
+        args: [
+          "-e",
+          'const fs = require("node:fs"); const token = fs.readFileSync("/dev/fd/3", "utf8"); process.stdout.write(JSON.stringify({ received: token === "sk-ant-oat01-fake-test-token", inEnvironment: Object.values(process.env).includes(token), remaining: fs.readFileSync("/dev/fd/3", "utf8") }));',
+        ],
+        cwd: os.tmpdir(),
+        env: options.env ?? {},
+        signal: new AbortController().signal,
+      });
+      expect(child).toBeDefined();
+      if (!child) throw new Error("Claude process did not start.");
+      let output = "";
+      const exited = new Promise<number | null>((resolve) => {
+        child.on("exit", resolve);
+      });
+      for await (const chunk of child.stdout) output += chunk.toString();
+      expect(await exited).toBe(0);
+      expect(JSON.parse(output)).toEqual({
+        received: true,
+        inEnvironment: false,
+        remaining: "",
+      });
     });
   });
 

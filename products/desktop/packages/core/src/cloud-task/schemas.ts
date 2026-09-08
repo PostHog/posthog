@@ -40,8 +40,9 @@ export const watchInput = z.object({
 
 export type WatchInput = z.infer<typeof watchInput>;
 
-export const designateClaudeSubscriptionInput = watchInput.omit({
-  resumeFromEntryCount: true,
+export const designateClaudeSubscriptionInput = watchInput.pick({
+  taskId: true,
+  runId: true,
 });
 export type DesignateClaudeSubscriptionInput = z.infer<
   typeof designateClaudeSubscriptionInput

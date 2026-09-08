@@ -119,18 +119,19 @@ import type {
   TaskRunStateField,
 } from "../types";
 import { resourceLink } from "../utils/acp-content";
-import { withTimeout } from "../utils/common";
+import { withAbort, withTimeout } from "../utils/common";
 import { createEventIdSource } from "../utils/event-id";
 import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
 import { resolveGithubToken } from "../utils/github-token";
 import { Logger } from "../utils/logger";
+import { redactClaudeTokens } from "../utils/redact-claude-tokens";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
 import { AgentBootTracker } from "./boot-phases";
 import {
   normalizeCloudPromptContent,
   promptBlocksToText,
 } from "./cloud-prompt";
-import { CredentialRelay } from "./credential-relay";
+import { CredentialRelay, CredentialRelayError } from "./credential-relay";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
 import { type McpRelayResponse, McpRelayServer } from "./mcp-relay-server";
@@ -271,9 +272,7 @@ interface BuiltPrompt {
 
 export const PREWARMED_RESUME_IDLE_CAPABILITY = "prewarmedResumeIdle";
 export const CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE =
-  "This task is set to use your Claude plan, but the token did not arrive from PostHog Desktop. " +
-  "Open PostHog Desktop, check Settings > Claude subscription, and run the task again. " +
-  'To use PostHog credits instead, turn off "Use your Claude plan for cloud tasks".';
+  "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.";
 
 function hiddenTextBlock(text: string): ContentBlock {
   return {
@@ -500,6 +499,11 @@ export class AgentServer {
   // often arrives while newSession() is still awaited (this.session is still null),
   // causing a second session to be created and duplicate Slack messages to be sent.
   private initializationPromise: Promise<void> | null = null;
+  private readonly shutdownController = new AbortController();
+  private initializingConnection: ReturnType<
+    typeof createAcpConnection
+  > | null = null;
+  private initializationFailureCode: string | undefined;
   private initializingSseController: SseController | null = null;
   private initializingTelemetry: OtelRunTelemetry | undefined;
   private pendingEvents: Record<string, unknown>[] = [];
@@ -715,6 +719,7 @@ export class AgentServer {
         status: "ok",
         hasSession: !!this.session,
         readiness: boot.state,
+        failureCode: this.initializationFailureCode,
         bootMs: this.sessionReadyBootMs,
         sessionInitMs: this.sessionInitMs,
         boot,
@@ -755,9 +760,9 @@ export class AgentServer {
         }
       };
 
+      let sseController: SseController | null = null;
       const stream = new ReadableStream({
         start: async (controller) => {
-          let sseController: SseController | null = null;
           const encoder = new TextEncoder();
           const detachCurrentSseController = (): void => {
             if (sseController) {
@@ -815,10 +820,7 @@ export class AgentServer {
         cancel: () => {
           clearKeepalive();
           this.logger.debug("SSE connection closed");
-          this.initializingSseController = null;
-          if (this.session?.sseController) {
-            this.session.sseController = null;
-          }
+          if (sseController) this.detachSseController(sseController);
         },
       });
 
@@ -1061,22 +1063,35 @@ export class AgentServer {
     return this.resumeState?.nativeGoal;
   }
 
+  private async cleanupInitializingConnection(): Promise<void> {
+    const connection = this.initializingConnection;
+    this.initializingConnection = null;
+    await withTimeout(connection?.cleanup() ?? Promise.resolve(), 5_000);
+  }
+
   async stop(): Promise<void> {
     this.logger.debug("Stopping agent server...");
+    this.shutdownController.abort(new CredentialRelayError("cancelled"));
     this.credentialRelay.stop();
-    await this.initializationPromise?.catch(() => undefined);
-
-    if (this.session) {
-      await this.cleanupSession({ completeEventStream: true });
-    } else {
-      await this.eventStreamSender?.stop({ complete: false });
-    }
-
-    if (this.server) {
-      this.server.close();
+    try {
+      await withTimeout(
+        Promise.allSettled([
+          this.cleanupInitializingConnection(),
+          this.initializationPromise,
+        ]),
+        5_000,
+      );
+      await withTimeout(
+        this.session
+          ? this.cleanupSession({ completeEventStream: true })
+          : (this.eventStreamSender?.stop({ complete: false }) ??
+              Promise.resolve()),
+        5_000,
+      );
+    } finally {
+      this.server?.close();
       this.server = null;
     }
-
     this.logger.debug("Agent server stopped");
   }
 
@@ -1089,7 +1104,14 @@ export class AgentServer {
    * run from a process-level handler with no session context.
    */
   async reportFatalError(error: unknown): Promise<void> {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (error instanceof CredentialRelayError && error.code === "cancelled")
+      return;
+    const errorMessage =
+      error instanceof CredentialRelayError
+        ? CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE
+        : error instanceof Error
+          ? error.message
+          : String(error);
     this.logger.error("Fatal agent-server error; marking run failed", error);
 
     try {
@@ -1148,6 +1170,8 @@ export class AgentServer {
   private async reportClaudeSubscriptionTokenMissing(
     reason: string,
   ): Promise<void> {
+    this.initializationFailureCode = "claude_credential_unavailable";
+    this.logger.warn("claude_credential_unavailable");
     try {
       this.broadcastEvent({
         type: "notification",
@@ -1712,10 +1736,25 @@ export class AgentServer {
     }
   }
 
+  private async measureInitialization<T>(
+    phase: Parameters<AgentBootTracker["measure"]>[0],
+    work: () => Promise<T>,
+  ): Promise<T> {
+    this.shutdownController.signal.throwIfAborted();
+    const result = await withAbort(
+      this.bootTracker.measure(phase, work),
+      this.shutdownController.signal,
+    );
+    if (result.result === "aborted")
+      throw new CredentialRelayError("cancelled");
+    return result.value;
+  }
+
   private async initializeSession(
     payload: JwtPayload,
     sseController: SseController | null,
   ): Promise<void> {
+    this.shutdownController.signal.throwIfAborted();
     if (sseController) {
       this.initializingSseController = sseController;
       const events = this.pendingEvents;
@@ -1752,7 +1791,11 @@ export class AgentServer {
     try {
       await this.initializationPromise;
     } catch (error) {
+      if (this.shutdownController.signal.aborted) throw error;
       this.bootTracker.markFailed();
+      if (error instanceof CredentialRelayError) {
+        this.initializationFailureCode = "claude_credential_unavailable";
+      }
       const telemetry = this.initializingTelemetry;
       telemetry?.append(payload.run_id, {
         type: "notification",
@@ -1778,6 +1821,7 @@ export class AgentServer {
       await telemetry?.shutdown();
       throw error;
     } finally {
+      await this.cleanupInitializingConnection();
       this.initializingTelemetry = undefined;
       this.initializationPromise = null;
       this.initializingSseController = null;
@@ -1836,7 +1880,7 @@ export class AgentServer {
       name: process.env.HOSTNAME || "cloud-sandbox",
     };
 
-    const [preTaskRun, preTask] = await this.bootTracker.measure(
+    const [preTaskRun, preTask] = await this.measureInitialization(
       "context_fetch",
       () =>
         Promise.all([
@@ -1970,6 +2014,7 @@ export class AgentServer {
           "claude_subscription_token",
         );
       } catch (error) {
+        if (this.shutdownController.signal.aborted) throw error;
         const reason = error instanceof Error ? error.message : String(error);
         this.logger.warn("Claude subscription token relay failed", { reason });
         await this.reportClaudeSubscriptionTokenMissing(reason);
@@ -1977,6 +2022,7 @@ export class AgentServer {
       }
     }
 
+    this.shutdownController.signal.throwIfAborted();
     const acpConnection = createAcpConnection({
       adapter: runtimeAdapter,
       taskRunId: payload.run_id,
@@ -2031,7 +2077,7 @@ export class AgentServer {
       },
     });
 
-    // The connection's wire taps broadcast all ACP messages via SSE (mimics local transport)
+    this.initializingConnection = acpConnection;
     this.adapterEmittedTurnComplete = false;
     const clientStream = ndJsonStream(
       acpConnection.clientStreams.writable as WritableStream<Uint8Array>,
@@ -2043,7 +2089,7 @@ export class AgentServer {
       clientStream,
     );
 
-    const initializeResult = await this.bootTracker.measure(
+    const initializeResult = await this.measureInitialization(
       "acp_initialize",
       () =>
         clientConnection.initialize({
@@ -2106,7 +2152,7 @@ export class AgentServer {
       ...this.buildClaudeCodeSessionMeta(runtimeAdapter),
     };
 
-    await this.bootTracker.measure("repository_ready", () =>
+    await this.measureInitialization("repository_ready", () =>
       this.waitForRepoReady(),
     );
     const existingPrCheckoutPromise =
@@ -2124,7 +2170,7 @@ export class AgentServer {
     let effectiveSessionMeta: typeof sessionMeta & {
       nativeGoal?: NonNullable<ResumeState["nativeGoal"]>;
     } = sessionMeta;
-    const [nativeResume, sessionMcpServers] = await this.bootTracker.measure(
+    const [nativeResume, sessionMcpServers] = await this.measureInitialization(
       "session_dependencies",
       async () => {
         try {
@@ -2160,7 +2206,7 @@ export class AgentServer {
       },
     );
 
-    const acpSessionId = await this.bootTracker.measure(
+    const acpSessionId = await this.measureInitialization(
       "session_create",
       async () => {
         let sessionId: string | null = null;
@@ -2214,6 +2260,8 @@ export class AgentServer {
     this.evaluatedPrUrls.clear();
     this.prAttributionChain = Promise.resolve();
 
+    this.shutdownController.signal.throwIfAborted();
+    this.initializingConnection = null;
     this.session = {
       payload,
       acpSessionId,
@@ -5837,6 +5885,7 @@ ${commonInstructions}
   }
 
   private broadcastEvent(event: Record<string, unknown>): void {
+    event = redactClaudeTokens(event) as Record<string, unknown>;
     this.eventStreamSender?.enqueue(event);
 
     const controller =

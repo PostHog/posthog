@@ -346,7 +346,7 @@ export interface SettingChangedProperties {
 
 export interface CloudCredentialRelayProperties {
   credential: "claude_subscription_token";
-  outcome: "sent" | "no_token" | "expired";
+  outcome: "sent" | "no_token" | "expired" | "rejected";
 }
 
 export interface CustomSoundAddedProperties {

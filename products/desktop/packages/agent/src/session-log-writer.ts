@@ -6,6 +6,7 @@ import type { PostHogAPIClient } from "./posthog-api";
 import type { StoredNotification } from "./types";
 import { isEmptyContentBlock } from "./utils/acp-content";
 import { Logger } from "./utils/logger";
+import { redactClaudeTokens } from "./utils/redact-claude-tokens";
 
 /**
  * Session context for a registered session.
@@ -80,7 +81,7 @@ function redactAuthorizationHeaders(value: unknown): unknown {
     return value.map(redactAuthorizationHeaders);
   }
   if (value === null || typeof value !== "object") {
-    return value;
+    return redactClaudeTokens(value);
   }
 
   const record = value as Record<string, unknown>;

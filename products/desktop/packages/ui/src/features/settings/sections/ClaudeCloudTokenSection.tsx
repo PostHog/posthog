@@ -1,13 +1,13 @@
 import { useServiceOptional } from "@posthog/di/react";
 import { Button, Input, Switch } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
+import { setClaudeCloudSubscriptionOn as setCloudSubscriptionOn } from "@posthog/ui/features/settings/adapterSubscription";
 import {
   CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
   type ClaudeSubscriptionTokenSettings,
   claudeSubscriptionTokenQueryKey,
   isValidClaudeSetupToken,
 } from "@posthog/ui/features/settings/claudeSubscriptionTokenSettings";
-import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -39,9 +39,6 @@ export function ClaudeCloudTokenSection({
   );
   const [confirmRemoval, setConfirmRemoval] = useState(false);
   const [replacingToken, setReplacingToken] = useState(false);
-  const setCloudSubscriptionOn = useSettingsStore(
-    (state) => state.setClaudeCloudSubscriptionOn,
-  );
 
   if (!tokenStore) return null;
 
@@ -99,11 +96,6 @@ export function ClaudeCloudTokenSection({
           onCheckedChange={(checked) => {
             const next = checked === true;
             if (next === cloudSubscriptionOn) return;
-            track(ANALYTICS_EVENTS.SETTING_CHANGED, {
-              setting_name: "claude_cloud_subscription_on",
-              new_value: next,
-              old_value: cloudSubscriptionOn,
-            });
             setCloudSubscriptionOn(next);
           }}
         />

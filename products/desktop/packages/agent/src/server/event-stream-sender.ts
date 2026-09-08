@@ -102,7 +102,7 @@ export class TaskRunEventStreamSender {
     config.logger.info("Event ingest target resolved", {
       ingestUrl: this.ingestUrl,
       routedToProxy: usingProxy,
-      persistentUpload: config.keepProxyStreamOpen === true,
+      persistentUpload: config.keepProxyStreamOpen ?? !usingProxy,
     });
     this.maxBufferedEvents =
       config.maxBufferedEvents ?? DEFAULT_MAX_BUFFERED_EVENTS;
@@ -115,7 +115,7 @@ export class TaskRunEventStreamSender {
       config.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.stopTimeoutMs = config.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS;
     this.streamWindowMs = config.streamWindowMs ?? DEFAULT_STREAM_WINDOW_MS;
-    this.keepProxyStreamOpen = config.keepProxyStreamOpen ?? false;
+    this.keepProxyStreamOpen = config.keepProxyStreamOpen ?? !usingProxy;
     this.createStreamingUpload =
       config.createStreamingUpload ?? createNodeStreamingUpload;
   }

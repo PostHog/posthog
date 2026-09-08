@@ -113,6 +113,18 @@ export function applyModelAccess(
   registerAdapterSubscription(adapter, { access: next, connected });
 }
 
+export function setClaudeCloudSubscriptionOn(next: boolean): void {
+  const state = useSettingsStore.getState();
+  const previous = state.claudeCloudSubscriptionOn;
+  if (previous === next) return;
+  state.setClaudeCloudSubscriptionOn(next);
+  track(ANALYTICS_EVENTS.SETTING_CHANGED, {
+    setting_name: "claude_cloud_subscription_on",
+    old_value: previous,
+    new_value: next,
+  });
+}
+
 export async function registerSubscriptionAtBoot(
   adapter: Adapter,
   fetchStatus: () => Promise<SubscriptionStatus>,
@@ -166,9 +178,6 @@ export function useAdapterSubscription(adapter: Adapter): AdapterSubscription {
   const cloudSubscriptionOn = useSettingsStore(
     (state) => state.claudeCloudSubscriptionOn,
   );
-  const setCloudSubscriptionOn = useSettingsStore(
-    (state) => state.setClaudeCloudSubscriptionOn,
-  );
   const flagEnabled = useFeatureFlag(spec.flag) || import.meta.env.DEV;
   const modelAccess = useSettingsStore(spec.readAccess);
   const { localWorkspaces } = useHostCapabilities();
@@ -193,7 +202,7 @@ export function useAdapterSubscription(adapter: Adapter): AdapterSubscription {
     cloudFlagEnabled:
       adapter === "claude" && localWorkspaces && cloudFlagEnabled,
     cloudSubscriptionOn: adapter === "claude" && cloudSubscriptionOn,
-    setCloudSubscriptionOn,
+    setCloudSubscriptionOn: setClaudeCloudSubscriptionOn,
     flagEnabled,
     subscriptionOn,
     status,

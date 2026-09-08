@@ -303,3 +303,13 @@ Pi hides subscription billing. Desktop omits the subscription choice from Pi req
 The API and worker reject direct Pi subscription requests before sandbox startup.
 Continuation inherits that choice; subscription runs skip prewarming because a warm Claude process has already selected its credentials.
 Sandbox compute still uses PostHog credits.
+
+Claude tokens go only to the signed-in PostHog server and project. Token requests cannot follow redirects.
+Desktop checks for a token before all Claude cloud starts and resumes, including Inbox actions.
+If delivery fails after a new run starts, Desktop cancels that run. It releases unused warm runs when the billing choice changes.
+The native Claude process reads the token from a private pipe. The token is absent from its environment and command arguments.
+The pipe is empty after Claude reads it. Child processes do not receive the token. Tool shells also clear credential variables.
+Explicit Claude settings fix the Anthropic endpoint and credential handling. Repository settings cannot replace those values.
+Logs and event streams remove Claude token strings. These controls do not protect against a compromised process with access to Claude's memory.
+
+Direct event uploads stay open by default. Local development closes each batch because local proxies can buffer an open request.

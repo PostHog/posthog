@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { Writable } from "node:stream";
 import type {
   CanUseTool,
   McpServerConfig,
@@ -42,6 +43,7 @@ import {
 } from "../hooks";
 import {
   applyMachineClaudeAuth,
+  MACHINE_AUTH_STRIPPED_KEYS,
   type MachineClaudeAuth,
 } from "../machine-auth";
 import { type CodeExecutionMode, toSdkPermissionMode } from "../tools";
@@ -479,19 +481,42 @@ function getAbortController(
 
 function buildSpawnWrapper(
   sessionId: string,
-  onProcessSpawned: (info: ProcessSpawnedInfo) => void,
+  onProcessSpawned?: (info: ProcessSpawnedInfo) => void,
   onProcessExited?: (pid: number) => void,
   logger?: Logger,
+  oauthToken?: string,
 ): (options: SpawnOptions) => SpawnedProcess {
   return (spawnOpts: SpawnOptions): SpawnedProcess => {
-    const child = spawn(spawnOpts.command, spawnOpts.args, {
+    const command = oauthToken ? "/bin/bash" : spawnOpts.command;
+    const args = oauthToken
+      ? [
+          "-p",
+          "-c",
+          'exec "$@" 3< <(/bin/cat <&3)',
+          "--",
+          spawnOpts.command,
+          ...spawnOpts.args,
+        ]
+      : spawnOpts.args;
+    const child = spawn(command, args, {
       cwd: spawnOpts.cwd,
-      env: spawnOpts.env as NodeJS.ProcessEnv,
-      stdio: ["pipe", "pipe", "pipe"],
+      env: {
+        ...spawnOpts.env,
+        ...(oauthToken ? { CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR: "3" } : {}),
+      },
+      stdio: oauthToken
+        ? ["pipe", "pipe", "pipe", "pipe"]
+        : ["pipe", "pipe", "pipe"],
     });
 
+    if (oauthToken) {
+      const tokenPipe = child.stdio[3] as Writable;
+      tokenPipe.on("error", () => child.kill("SIGTERM"));
+      tokenPipe.end(oauthToken);
+    }
+
     if (child.pid) {
-      onProcessSpawned({
+      onProcessSpawned?.({
         pid: child.pid,
         command: `${spawnOpts.command} ${spawnOpts.args.join(" ")}`,
         sessionId,
@@ -667,15 +692,42 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     abortController: getAbortController(
       params.userProvidedOptions?.abortController,
     ),
-    ...(params.onProcessSpawned && {
+    ...((params.onProcessSpawned || params.machineAuth?.oauthToken) && {
       spawnClaudeCodeProcess: buildSpawnWrapper(
         params.sessionId,
         params.onProcessSpawned,
         params.onProcessExited,
         params.logger,
+        params.machineAuth?.oauthToken,
       ),
     }),
   };
+
+  if (params.machineAuth?.oauthToken) {
+    if (typeof options.settings === "string")
+      throw new Error("Cloud subscription settings must be an object.");
+    const extraSettings = options.extraArgs?.settings;
+    const inlineSettings: Settings = extraSettings
+      ? JSON.parse(extraSettings)
+      : {};
+    if (options.extraArgs) delete options.extraArgs.settings;
+    options.settings = {
+      ...inlineSettings,
+      ...options.settings,
+      env: {
+        ...inlineSettings.env,
+        ...options.settings?.env,
+        ...Object.fromEntries(
+          MACHINE_AUTH_STRIPPED_KEYS.map((key) => [key, ""]),
+        ),
+        ANTHROPIC_BASE_URL: "https://api.anthropic.com",
+        CLAUDE_CODE_OAUTH_TOKEN: "",
+        CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR: "3",
+        CLAUDE_CODE_REMOTE: "",
+        CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0",
+      },
+    };
+  }
 
   if (claudeCodeExecutable) {
     options.pathToClaudeCodeExecutable = claudeCodeExecutable;

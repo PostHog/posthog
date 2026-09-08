@@ -2,6 +2,19 @@ import { randomUUID } from "node:crypto";
 
 export const CREDENTIAL_RELAY_TIMEOUT_MS = 120_000;
 
+export class CredentialRelayError extends Error {
+  constructor(readonly code: "cancelled" | "timeout" | "no_token") {
+    super(
+      code === "cancelled"
+        ? "Session is shutting down."
+        : code === "timeout"
+          ? "The credential request timed out waiting for PostHog Desktop."
+          : "PostHog Desktop could not provide the Claude token.",
+    );
+    this.name = "CredentialRelayError";
+  }
+}
+
 export interface CredentialRelayConfig {
   emitEvent: (event: Record<string, unknown>) => void;
   timeoutMs?: number;
@@ -22,7 +35,7 @@ export class CredentialRelay {
 
   request(credential: string): Promise<string> {
     if (this.stopped) {
-      return Promise.reject(new Error("Session is shutting down."));
+      return Promise.reject(new CredentialRelayError("cancelled"));
     }
     const requestId = randomUUID();
     const timeoutMs = this.config.timeoutMs ?? CREDENTIAL_RELAY_TIMEOUT_MS;
@@ -31,11 +44,7 @@ export class CredentialRelay {
     const tokenPromise = new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
-        reject(
-          new Error(
-            "The credential request timed out waiting for PostHog Desktop.",
-          ),
-        );
+        reject(new CredentialRelayError("timeout"));
       }, timeoutMs);
       timer.unref?.();
       this.pending.set(requestId, { resolve, reject, timer });
@@ -62,13 +71,11 @@ export class CredentialRelay {
     clearTimeout(pending.timer);
     this.completedRequestId = params.requestId;
     if (params.error) {
-      pending.reject(
-        new Error("PostHog Desktop could not provide the Claude token."),
-      );
+      pending.reject(new CredentialRelayError("no_token"));
     } else if (params.token) {
       pending.resolve(params.token);
     } else {
-      pending.reject(new Error("The credential response had no token."));
+      pending.reject(new CredentialRelayError("no_token"));
     }
     return true;
   }
@@ -78,7 +85,7 @@ export class CredentialRelay {
     this.completedRequestId = null;
     for (const [requestId, pending] of this.pending) {
       clearTimeout(pending.timer);
-      pending.reject(new Error("Session is shutting down."));
+      pending.reject(new CredentialRelayError("cancelled"));
       this.pending.delete(requestId);
     }
   }

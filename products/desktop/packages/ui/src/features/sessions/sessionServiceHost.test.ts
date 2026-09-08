@@ -338,6 +338,9 @@ vi.mock("@posthog/di/container", () => ({
         workspace: mockTrpcWorkspace,
         logs: mockTrpcLogs,
         cloudTask: mockTrpcCloudTask,
+        claudeSubscriptionToken: {
+          has: { query: vi.fn().mockResolvedValue(true) },
+        },
         fs: mockTrpcFs,
         skills: mockTrpcSkills,
       };
@@ -7690,6 +7693,7 @@ describe("SessionService", () => {
     it.each(["posthog-gateway", "own-subscription"])(
       "resumes when the active workflow has already ended using %s",
       async (claudeModelAccess) => {
+        mockFeatureFlags.isEnabled.mockReturnValue(true);
         const service = getSessionService();
         mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
           createMockSession({
@@ -7755,8 +7759,6 @@ describe("SessionService", () => {
           ).toHaveBeenCalledWith({
             taskId: "task-123",
             runId: "run-456",
-            apiHost: "https://api.anthropic.com",
-            teamId: 123,
           });
           expect(
             mockTrpcCloudTask.designateClaudeSubscription.mutate.mock

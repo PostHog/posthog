@@ -2256,6 +2256,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "provider",
         "model",
         "reasoning_effort",
+        "claude_model_access",
         "rtk_effective",
         "benjamin_effective",
         "usage_metrics_recorded",
@@ -3958,7 +3959,8 @@ def signal_task_run_user_message(
     if run.is_terminal or (run.state or {}).get("cancel_requested_at"):
         if not run.is_terminal or (
             SandboxSession.objects.for_team(team_id)
-            .filter(task_run=run, ended_at__isnull=True, ttl_expires_at__gt=django_timezone.now())
+            .filter(task_run=run, ended_at__isnull=True)
+            .filter(Q(sandbox_backend="hogland") | Q(ttl_expires_at__gt=django_timezone.now()))
             .exists()
         ):
             raise RuntimeError("Task run is still stopping. Try again shortly.")
@@ -7138,7 +7140,16 @@ def run_task(
     if claude_model_access is None and previous_state is not None:
         claude_model_access = previous_state.claude_model_access
 
-    warm_run = _idling_warm_run_for_task(task) if claude_model_access != "own-subscription" else None
+    warm_run = _idling_warm_run_for_task(task)
+    if warm_run is not None and claude_model_access == "own-subscription":
+        from products.tasks.backend.facade.cancellation import cancel_task_run
+
+        outcome, _ = cancel_task_run(
+            warm_run.id, task.id, task.team_id, source="subscription_start", only_if_awaiting_first_message=True
+        )
+        if outcome == "unavailable":
+            raise RuntimeError("Could not stop the unused warm task. Try again.")
+        warm_run = None
     if warm_run is not None:
         _warm_retry_message_id(warm_retry_token, warm_run)
         warm_state = warm_run.state or {}

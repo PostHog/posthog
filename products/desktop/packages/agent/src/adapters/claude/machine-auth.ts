@@ -46,7 +46,9 @@ export function applyMachineClaudeAuth(
     delete env[key];
   }
   if (auth.oauthToken) {
-    env.CLAUDE_CODE_OAUTH_TOKEN = auth.oauthToken;
+    delete env.CLAUDE_CODE_OAUTH_TOKEN;
+    delete env.CLAUDE_CODE_REMOTE;
+    env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = "0";
   }
   if (auth.configDir) {
     env.CLAUDE_CONFIG_DIR = auth.configDir;
@@ -59,7 +61,11 @@ export function machineClaudeAuthShellEnv(auth: MachineClaudeAuth): {
   set: Record<string, string>;
   unset: string[];
 } {
-  const unset: string[] = [...MACHINE_AUTH_STRIPPED_KEYS];
+  const unset: string[] = [
+    ...MACHINE_AUTH_STRIPPED_KEYS,
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR",
+  ];
   if (auth.configDir) {
     return { set: { CLAUDE_CONFIG_DIR: auth.configDir }, unset };
   }

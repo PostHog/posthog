@@ -4069,6 +4069,7 @@ export class PostHogAPIClient {
     taskId: string,
     runId: string,
     reason?: string,
+    onlyIfAwaitingFirstMessage = false,
   ): Promise<{ status?: string }> {
     const teamId = await this.getTeamId();
     const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/cancel/`;
@@ -4077,7 +4078,12 @@ export class PostHogAPIClient {
       url: new URL(`${this.api.baseUrl}${path}`),
       path,
       overrides: {
-        body: JSON.stringify(reason ? { reason } : {}),
+        body: JSON.stringify({
+          ...(reason ? { reason } : {}),
+          ...(onlyIfAwaitingFirstMessage
+            ? { only_if_awaiting_first_message: true }
+            : {}),
+        }),
       },
     });
     return (await response.json().catch(() => ({}))) as { status?: string };

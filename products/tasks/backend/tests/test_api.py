@@ -5577,6 +5577,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             status=TaskRun.Status.IN_PROGRESS,
             state={
                 "github_credential_source": "caller_token",
+                "claude_model_access": "own-subscription",
                 "pr_authorship_mode": "user",
                 "sandbox_id": "sb-real",
                 "sandbox_cpu_cores": 2,
@@ -5632,6 +5633,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             {
                 "state": {
                     "github_credential_source": "server_integration",
+                    "claude_model_access": "posthog-gateway",
                     "pr_authorship_mode": "bot",
                     "sandbox_id": "sb-attacker",
                     "sandbox_cpu_cores": 128,
@@ -5690,6 +5692,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         run.refresh_from_db()
+        assert run.state["claude_model_access"] == "own-subscription"
         assert run.state["github_credential_source"] == "caller_token"
         assert run.state["pr_authorship_mode"] == "user"
         assert "dev_stack_preview" not in run.state
@@ -5740,6 +5743,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             {
                 "state": {},
                 "state_remove_keys": [
+                    "claude_model_access",
                     "github_credential_source",
                     "agent_otel_telemetry_enabled",
                     "stream_presence_gated",
@@ -5777,6 +5781,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         run.refresh_from_db()
+        assert run.state["claude_model_access"] == "own-subscription"
         assert run.state["github_credential_source"] == "caller_token"  # protected key survives removal
         assert run.state["agent_otel_telemetry_enabled"] is False  # protected key survives removal
         assert run.state["stream_presence_gated"] is True  # protected key survives removal
@@ -11107,6 +11112,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             ("workflow_missing", TaskRun.Status.IN_PROGRESS, False, 409),
             ("stopping", TaskRun.Status.IN_PROGRESS, True, 502),
             ("cleanup_pending", TaskRun.Status.CANCELLED, True, 502),
+            ("hogland_cleanup_pending", TaskRun.Status.CANCELLED, True, 502),
             ("cancelled", TaskRun.Status.CANCELLED, False, 409),
             ("completed", TaskRun.Status.COMPLETED, False, 409),
             ("failed", TaskRun.Status.FAILED, False, 409),
@@ -11128,6 +11134,11 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             self._open_sandbox_session(run)
         if not stopping and not run.is_terminal:
             mock_signal_followup.side_effect = RPCError("workflow missing", RPCStatusCode.NOT_FOUND, b"")
+
+        if _name == "hogland_cleanup_pending":
+            SandboxSession.objects.for_team(self.team.pk).filter(task_run=run).update(
+                sandbox_backend="hogland", ttl_expires_at=django_timezone.now() - timedelta(minutes=1)
+            )
 
         response = self.client.post(
             self._command_url(task, run),

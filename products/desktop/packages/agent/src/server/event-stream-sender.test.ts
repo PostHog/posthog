@@ -226,6 +226,7 @@ describe("TaskRunEventStreamSender", () => {
       const sender = createSender({
         flushDelayMs: 0,
         eventIngestBaseUrl,
+        keepProxyStreamOpen: false,
       });
 
       sender.enqueue({

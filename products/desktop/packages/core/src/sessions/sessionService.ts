@@ -329,6 +329,7 @@ export interface SessionTrpc {
     onSessionIdleKilled: TrpcSubscription;
   };
   workspace: { verify: TrpcQuery };
+  claudeSubscriptionToken: { has: TrpcQuery };
   cloudTask: {
     watch: TrpcMutation;
     unwatch: TrpcMutation;
@@ -504,6 +505,8 @@ export interface SessionServiceDeps {
     bedrockGatewayVariant?: BedrockGatewayVariant;
     codexModelAccess?: ModelAccess;
     claudeModelAccess?: ModelAccess;
+    claudeCloudSubscriptionOn?: boolean;
+    claudeCloudSubscriptionEnabled?: boolean;
   };
   usageLimit: { show: (...args: any[]) => any };
   readonly addDirectoryDialog: { open: boolean };
@@ -5308,6 +5311,9 @@ export class SessionService {
       });
 
       runtimeOptions = getCloudRuntimeOptions(session, previousRun);
+      if (previousState.claude_model_access === "own-subscription") {
+        await this.resolveClaudeCloudModelAccess("own-subscription");
+      }
 
       try {
         this.markTaskCreationInFlight(session.taskId);
@@ -5338,10 +5344,17 @@ export class SessionService {
           previousState.claude_model_access === "own-subscription" &&
           updatedTask.latest_run?.id
         ) {
-          await this.designateClaudeSubscription(
-            session.taskId,
-            updatedTask.latest_run.id,
-          );
+          try {
+            await this.designateClaudeSubscription(
+              session.taskId,
+              updatedTask.latest_run.id,
+            );
+          } catch (error) {
+            await authCredentials.client
+              .cancelTaskRun(session.taskId, updatedTask.latest_run.id)
+              .catch(() => undefined);
+            throw error;
+          }
         }
       } catch (error) {
         // Only the resume call gates on authorship: non-creators of a channeled
@@ -6473,22 +6486,36 @@ export class SessionService {
     });
   }
 
+  async resolveClaudeCloudModelAccess(
+    requested?: ModelAccess,
+  ): Promise<ModelAccess> {
+    const access =
+      requested ??
+      (this.d.settings.claudeCloudSubscriptionOn
+        ? "own-subscription"
+        : "posthog-gateway");
+    if (access === "own-subscription") {
+      if (!this.d.settings.claudeCloudSubscriptionEnabled) {
+        throw new Error(
+          "Claude plan billing is unavailable for cloud tasks. Try again later.",
+        );
+      }
+      if (!(await this.d.trpc.claudeSubscriptionToken.has.query())) {
+        throw new Error(
+          "Save a Claude token in Settings > Harness before you start or resume this task.",
+        );
+      }
+    }
+    return access;
+  }
+
   async designateClaudeSubscription(
     taskId: string,
     runId: string,
   ): Promise<void> {
-    const authStatus = await this.getAuthCredentialsStatus();
-    if (authStatus.kind !== "ready") {
-      throw new Error(
-        "Sign in to PostHog Desktop before starting a task with your Claude plan.",
-      );
-    }
-    const { apiHost, projectId: teamId } = authStatus.auth;
     await this.d.trpc.cloudTask.designateClaudeSubscription.mutate({
       taskId,
       runId,
-      apiHost,
-      teamId,
     });
   }
 
@@ -8654,6 +8681,28 @@ export class SessionService {
         // Pending resume messages can never be sent to a settled run.
         this.clearTerminalCloudPromptState(taskRunId);
         this.stopCloudTaskWatch(update.taskId);
+      }
+    }
+    if (update.kind === "logs" || update.kind === "snapshot") {
+      for (const entry of update.newEntries) {
+        if (entry.type !== "notification") continue;
+        const notification = entry.notification as {
+          method?: string;
+          params?: { initializationPhase?: string; message?: string };
+        };
+        if (
+          notification.method === POSTHOG_NOTIFICATIONS.INITIALIZATION_FAILED &&
+          notification.params?.initializationPhase === "credential_relay"
+        ) {
+          this.d.store.updateSession(taskRunId, {
+            status: "error",
+            errorTitle: "Claude token unavailable",
+            errorMessage:
+              "Open Desktop and check your Claude token in Settings > Harness. Then start the task again.",
+            errorRetryable: false,
+            isPromptPending: false,
+          });
+        }
       }
     }
   }

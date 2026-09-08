@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from django.conf import settings
 
 from products.tasks.backend.constants import POSTHOG_EXEC_PERMISSION_REGEX, SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
-from products.tasks.backend.exceptions import SandboxExecutionError
+from products.tasks.backend.exceptions import ProcessTaskFatalError, SandboxExecutionError
 from products.tasks.backend.logic.services.agentsh import (
     AGENTSH_DAEMON_PORT,
     BASH_ENV_SCRIPT,
@@ -76,8 +76,8 @@ def _session_init_probe_hosts() -> list[str]:
     return hosts
 
 
-def _start_and_wait_command(command: str) -> str:
-    health_command = build_health_check_command(AGENT_SERVER_PORT, AGENT_SERVER_HEALTH_MAX_ATTEMPTS)
+def _start_and_wait_command(command: str, max_attempts: int = AGENT_SERVER_HEALTH_MAX_ATTEMPTS) -> str:
+    health_command = build_health_check_command(AGENT_SERVER_PORT, max_attempts, pid_file="/tmp/agent-server.pid")
     return (
         f"{command}; launch_status=$?; "
         'if [ "$launch_status" -ne 0 ]; then exit "$launch_status"; fi; '
@@ -216,12 +216,12 @@ class AgentServerLaunchMixin(SandboxBase):
         if allowed_domains is not None:
             return (
                 f"cd /scripts && {launch_started_prefix}{initialize_env_file} && "
-                f"({build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &)"
+                f"({build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} & echo $! > /tmp/agent-server.pid)"
             )
         else:
             return (
                 f"cd /scripts && {launch_started_prefix}{initialize_env_file} && "
-                f"(nohup {server_cmd} > /tmp/agent-server.log 2>&1 &)"
+                f"(nohup {server_cmd} > /tmp/agent-server.log 2>&1 & echo $! > /tmp/agent-server.pid)"
             )
 
     def _termination_failure_reason(self) -> str:
@@ -389,8 +389,9 @@ class AgentServerLaunchMixin(SandboxBase):
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
-        execute_command = _start_and_wait_command(command) if wait_for_health else command
-        timeout_seconds = 30 + health_check_timeout_seconds(AGENT_SERVER_HEALTH_MAX_ATTEMPTS) if wait_for_health else 30
+        max_attempts = AGENT_SERVER_HEALTH_MAX_ATTEMPTS + (240 if claude_model_access == "own-subscription" else 0)
+        execute_command = _start_and_wait_command(command, max_attempts) if wait_for_health else command
+        timeout_seconds = 30 + health_check_timeout_seconds(max_attempts) if wait_for_health else 30
         start_time = time.perf_counter()
         launch_result = self.execute(execute_command, timeout_seconds=timeout_seconds)
         start_and_health_ms = int((time.perf_counter() - start_time) * 1000)
@@ -398,6 +399,16 @@ class AgentServerLaunchMixin(SandboxBase):
             health_duration_ms = _health_duration_ms(launch_result.stdout)
             if wait_for_health and health_duration_ms is not None:
                 diagnostics = self._diagnose_startup_failure(allowed_domains)
+                if (
+                    "claude_credential_unavailable" in launch_result.stdout
+                    or "claude_credential_unavailable" in diagnostics.get("log", "")
+                ):
+                    raise ProcessTaskFatalError(
+                        "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.",
+                        {"task_id": task_id, "run_id": run_id},
+                        RuntimeError("Claude token unavailable"),
+                        capture=False,
+                    )
                 raise SandboxExecutionError(
                     "Agent-server failed to start",
                     {
@@ -426,8 +437,11 @@ class AgentServerLaunchMixin(SandboxBase):
             return _health_duration_ms(launch_result.stdout)
         return None
 
-    def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None:
-        if self._wait_for_health_check():
+    def wait_for_agent_server_ready(
+        self, allowed_domains: list[str] | None = None, *, claude_model_access: str | None = None
+    ) -> None:
+        max_attempts = AGENT_SERVER_HEALTH_MAX_ATTEMPTS + (240 if claude_model_access == "own-subscription" else 0)
+        if self._wait_for_health_check(max_attempts=max_attempts):
             if allowed_domains is not None and not self._agentsh_daemon_is_healthy():
                 raise SandboxExecutionError(
                     "Failed to verify agentsh network enforcement",
@@ -522,7 +536,9 @@ class AgentServerLaunchMixin(SandboxBase):
         self, max_attempts: int = AGENT_SERVER_HEALTH_MAX_ATTEMPTS, poll_interval: float = 0.5
     ) -> bool:
         """Poll health endpoint until server is ready (single remote call)."""
-        return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval)
+        return wait_for_health_check(
+            self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval, pid_file="/tmp/agent-server.pid"
+        )
 
     def _agent_server_is_healthy(self) -> bool:
         return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts=1, poll_interval=0.0)

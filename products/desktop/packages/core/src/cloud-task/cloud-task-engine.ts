@@ -554,7 +554,9 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     });
   }
 
-  private credentialRunKey(input: DesignateClaudeSubscriptionInput): string {
+  private credentialRunKey(
+    input: Pick<WatchInput, "apiHost" | "teamId" | "taskId" | "runId">,
+  ): string {
     return JSON.stringify([
       input.apiHost.replace(/\/$/, ""),
       input.teamId,
@@ -563,8 +565,14 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     ]);
   }
 
-  designateClaudeSubscription(input: DesignateClaudeSubscriptionInput): void {
-    this.claudeSubscriptionRuns.add(this.credentialRunKey(input));
+  async designateClaudeSubscription(
+    input: DesignateClaudeSubscriptionInput,
+  ): Promise<void> {
+    const context = await this.auth.getCloudContext();
+    if (!context) throw new Error("Sign in before using your Claude plan.");
+    this.claudeSubscriptionRuns.add(
+      this.credentialRunKey({ ...input, ...context }),
+    );
     if (this.claudeSubscriptionRuns.size > MAX_HANDLED_RELAY_REQUEST_IDS) {
       const oldest = this.claudeSubscriptionRuns.values().next().value;
       if (oldest !== undefined) this.claudeSubscriptionRuns.delete(oldest);
@@ -668,10 +676,30 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     )
       return;
     const expiresAt = Date.parse(data.expiresAt);
-    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return;
+    if (!Number.isFinite(expiresAt)) return;
+    const finish = (
+      outcome: "sent" | "no_token" | "expired" | "rejected",
+    ): void => {
+      this.markRelayRequestHandled(requestKey);
+      this.analytics.track(ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY, {
+        credential: data.credential,
+        outcome,
+      });
+      if (outcome === "expired" || outcome === "rejected") {
+        this.log.warn("Claude token delivery failed", { outcome });
+      }
+    };
+    if (expiresAt <= Date.now()) {
+      finish("expired");
+      return;
+    }
     const deadline = Math.min(expiresAt, Date.now() + 120_000);
     this.credentialRequestsInFlight.add(requestKey);
     try {
+      if (!(await this.credentialDestination(watcher))) {
+        finish("rejected");
+        return;
+      }
       let token: string | null = null;
       try {
         token = (await this.claudeSubscriptionTokenStore?.get()) ?? null;
@@ -690,19 +718,16 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
           deadline,
         );
         if (result !== "retry") {
-          this.markRelayRequestHandled(requestKey);
-          if (result === "sent") {
-            this.analytics.track(ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY, {
-              credential: data.credential,
-              outcome: token ? "sent" : "no_token",
-            });
-          }
+          finish(
+            result === "sent" ? (token ? "sent" : "no_token") : "rejected",
+          );
           return;
         }
         const delay = Math.min(1_000, deadline - Date.now());
         if (delay > 0)
           await new Promise((resolve) => setTimeout(resolve, delay));
       }
+      if (Date.now() >= deadline) finish("expired");
     } finally {
       this.credentialRequestsInFlight.delete(requestKey);
     }
@@ -715,28 +740,28 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     deadline: number,
   ): Promise<"sent" | "rejected" | "retry"> {
     try {
-      const response = await this.auth.authenticatedFetch(
-        `${watcher.apiHost}/api/projects/${watcher.teamId}/tasks/${watcher.taskId}/runs/${watcher.runId}/command/`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: data.requestId,
-            method: "credential_response",
-            params: {
-              requestId: data.requestId,
-              credential: data.credential,
-              ...(token ? { token } : { error: "no_token" }),
-            },
-          }),
-          signal: AbortSignal.timeout(
-            Math.max(1, Math.min(10_000, deadline - Date.now())),
-          ),
-        },
-      );
+      const destination = await this.credentialDestination(watcher);
+      if (!destination) return "rejected";
+      const response = await this.auth.authenticatedFetch(destination, {
+        method: "POST",
+        redirect: "error",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: data.requestId,
+          method: "credential_response",
+          params: {
+            requestId: data.requestId,
+            credential: data.credential,
+            ...(token ? { token } : { error: "no_token" }),
+          },
+        }),
+        signal: AbortSignal.timeout(
+          Math.max(1, Math.min(10_000, deadline - Date.now())),
+        ),
+      });
       if (!response.ok) {
-        return [400, 408, 429, 502, 503, 504].includes(response.status)
+        return [408, 429, 500, 502, 503, 504].includes(response.status)
           ? "retry"
           : "rejected";
       }
@@ -750,6 +775,28 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     } catch {
       return "retry";
     }
+  }
+
+  private async credentialDestination(
+    watcher: WatcherState,
+  ): Promise<string | null> {
+    const context = await this.auth.getCloudContext();
+    if (
+      !context ||
+      this.credentialRunKey({ ...watcher, ...context }) !==
+        this.credentialRunKey(watcher)
+    )
+      return null;
+    const base = new URL(context.apiHost);
+    if (
+      base.protocol !== "https:" &&
+      !(
+        base.protocol === "http:" &&
+        ["localhost", "127.0.0.1", "[::1]"].includes(base.hostname)
+      )
+    )
+      return null;
+    return `${base.origin}/api/projects/${context.teamId}/tasks/${encodeURIComponent(watcher.taskId)}/runs/${encodeURIComponent(watcher.runId)}/command/`;
   }
 
   private relayRequestExpired(expiresAt: number): boolean {
