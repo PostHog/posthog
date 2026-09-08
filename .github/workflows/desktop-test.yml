@@ -36,6 +36,7 @@ jobs:
         outputs:
             # On master pushes the filter step is skipped and everything runs.
             code: ${{ steps.filter.outputs.code || 'true' }}
+            bundled_agent_config: ${{ steps.filter.outputs.bundled_agent_config }}
             workflow: ${{ steps.filter.outputs.workflow || 'true' }}
             packages: ${{ steps.filter.outputs.packages }}
         steps:
@@ -61,7 +62,6 @@ jobs:
                       code:
                         - "products/desktop/**"
                         - "!products/desktop/**/*.md"
-                        - "products/desktop/packages/harness/src/extensions/orchestration/bundled-agents/**"
                         - "!products/desktop/docs/**"
                         - "!products/desktop/.vscode/**"
                         - "!products/desktop/.claude/**"
@@ -69,6 +69,8 @@ jobs:
                         - "!products/desktop/LICENSE"
                         - "!products/desktop/.gitignore"
                         - "!products/desktop/.env.example"
+                      bundled_agent_config:
+                        - "products/desktop/packages/harness/src/extensions/orchestration/bundled-agents/**"
                       workflow:
                         - ".github/workflows/desktop-test.yml"
                       packages:
@@ -77,7 +79,7 @@ jobs:
     unit-test:
         needs: changes
         # Fail closed: if change detection itself failed, run instead of skipping.
-        if: ${{ !cancelled() && github.event_name != 'merge_group' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true') }}
+        if: ${{ !cancelled() && github.event_name != 'merge_group' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.bundled_agent_config == 'true' || needs.changes.outputs.workflow == 'true') }}
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         permissions:
@@ -144,7 +146,7 @@ jobs:
             github.event_name != 'merge_group' &&
             !(github.event.pull_request.head.repo.full_name == github.repository &&
             startsWith(github.head_ref, 'trunk-merge/')) &&
-            (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true')
+            (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.bundled_agent_config == 'true' || needs.changes.outputs.workflow == 'true')
         runs-on: depot-macos-26
         timeout-minutes: 45
         permissions:
