@@ -454,6 +454,18 @@ export class LogsIngestionConsumer {
     }
 
     /**
+     * Logs only. `TracesIngestionConsumer` reads the same team settings, but a trace record has no
+     * `body`, so `json_parse_logs` would decode and re-encode every span batch to parse nothing.
+     * Returns a derived object; the team cache entry is left untouched.
+     */
+    private logsSettingsForSource(logsSettings: LogsSettings): LogsSettings {
+        if (this.appSource === 'logs') {
+            return logsSettings
+        }
+        return { ...logsSettings, json_parse_logs: false }
+    }
+
+    /**
      * Builds the hog log transformation hook for a message, or undefined when the team
      * is not gated in or has no enabled transformation_log functions (the existence
      * check is an in-process cache hit, preserving the no-decode passthrough).
@@ -894,7 +906,7 @@ export class LogsIngestionConsumer {
                         const team = await this.retryOnDependencyUnavailable(() =>
                             this.deps.teamManager.getTeam(message.teamId)
                         )
-                        const logsSettings = team?.logs_settings || {}
+                        const logsSettings = this.logsSettingsForSource(team?.logs_settings || {})
 
                         // Extract settings with defaults
                         const jsonParse = logsSettings.json_parse_logs ?? false

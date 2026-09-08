@@ -2205,6 +2205,30 @@ describe('LogsIngestionConsumer', () => {
             expect(tracesConsumer['isPatternMaskingEnabledForTeam'](team.id)).toEqual(false)
         })
 
+        it('skips the JSON stage even when json_parse_logs is on, because a trace record has no body', async () => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_team SET logs_settings = $1 WHERE id = $2`,
+                [JSON.stringify({ json_parse_logs: true }), team.id],
+                'updateTeamLogsSettings'
+            )
+            hub.teamManager['lazyLoader'].markForRefresh(String(team.id))
+            const tracesConsumer = createTracesIngestionConsumer()
+            await tracesConsumer.start()
+            try {
+                const messages = await createKafkaMessages([createLogMessage()], { token: team.api_token })
+                await waitForBackgroundTasks(tracesConsumer.processKafkaBatch(messages))
+
+                const produced = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)
+                expect(produced).toHaveLength(1)
+                // Byte-identical: the buffer was forwarded without a decode and re-encode.
+                expect(produced[0].value).toEqual(messages[0].value)
+                expect(produced[0].headers['json-parse']).toEqual('false')
+            } finally {
+                await tracesConsumer.stop()
+            }
+        })
+
         it('meters usage as traces, not logs', async () => {
             const tracesConsumer = createTracesIngestionConsumer()
             tracesConsumer['queueUsageMetric'](team.id, 'bytes_ingested', 500)
