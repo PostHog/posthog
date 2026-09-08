@@ -82,6 +82,39 @@ export namespace Schemas {
         | "count_pageviews"
         | "uniq_urls"
         | "uniq_page_screen_autocaptures";
+    export type CustomBotField =
+        | "$raw_user_agent"
+        | "$ip"
+        | "$lib"
+        | "$host"
+        | "$pathname"
+        | "$current_url"
+        | "$browser"
+        | "$os"
+        | "$browser_language"
+        | "$screen_width"
+        | "$screen_height"
+        | "$geoip_country_code"
+        | "$referrer"
+        | "$referring_domain";
+    export type CustomBotMatcher = "contains" | "regex" | "cidr";
+    export type CustomBotDefinition = {
+        category?: (string | null) | undefined;
+        id: string;
+        /**
+         * The event property this rule reads.
+         */
+        key: CustomBotField;
+        matcher: CustomBotMatcher;
+        /**
+         * Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches.
+         */
+        name: string;
+        /**
+         * Matched against the property named by `key`.
+         */
+        pattern: string;
+    };
     export type FilterLogicalOperator = "AND" | "OR";
     export type CustomChannelField =
         | "utm_source"
@@ -152,6 +185,7 @@ export namespace Schemas {
         bounceRateDurationSeconds: number | null;
         bounceRatePageViewMode: BounceRatePageViewMode | null;
         convertToProjectTimezone: boolean | null;
+        customBotDefinitions: Array<CustomBotDefinition> | null;
         customChannelTypeRules: Array<CustomChannelRule> | null;
         dataWarehouseEventsModifiers: Array<DataWarehouseEventsModifier> | null;
         debug: boolean | null;
@@ -8580,7 +8614,7 @@ export namespace Schemas {
                     }
                   | {
                         /**
-                         * Hog source code. Must return true (pass), false (fail), or null for N/A.
+                         * Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
                          */
                         source: string;
                     }
@@ -8608,6 +8642,10 @@ export namespace Schemas {
                    * Whether the evaluation can return N/A for non-applicable generations.
                    */
                   allows_na: boolean;
+                  /**
+                   * Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.
+                   */
+                  true_is_failure: boolean;
               }>
             | undefined;
         /**
@@ -11258,6 +11296,9 @@ export namespace Schemas {
      * * `Medusa` - Medusa
      * * `Membrain` - Membrain
      * * `RecallAI` - RecallAI
+     * * `Tenjin` - Tenjin
+     * * `Folk` - Folk
+     * * `Cybersource` - Cybersource
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -12588,7 +12629,10 @@ export namespace Schemas {
         | "Strato"
         | "Medusa"
         | "Membrain"
-        | "RecallAI";
+        | "RecallAI"
+        | "Tenjin"
+        | "Folk"
+        | "Cybersource";
     /**
      * * `web` - web
      * * `api` - api
@@ -13928,6 +13972,9 @@ export namespace Schemas {
          * * `Medusa` - Medusa
          * * `Membrain` - Membrain
          * * `RecallAI` - RecallAI
+         * * `Tenjin` - Tenjin
+         * * `Folk` - Folk
+         * * `Cybersource` - Cybersource
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -14231,11 +14278,11 @@ export namespace Schemas {
          */
         effectively_full_rollout: boolean;
         /**
-         * True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. When true, `max_rollout_percentage` is a percentage within the targeted segment, not of the whole user base.
+         * True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. This says nothing about which condition produced `max_rollout_percentage`: the two fields are computed independently over the whole condition list.
          */
         has_targeting_conditions: boolean;
         /**
-         * Highest rollout percentage (0-100) across the flag's release conditions, treating a missing percentage as 100. Null when the flag has no release conditions. Interpret together with `has_targeting_conditions`.
+         * Highest rollout percentage (0-100) across the flag's release conditions, treating a missing percentage as 100. Null when the flag has no release conditions. The maximum can come from an untargeted condition even when `has_targeting_conditions` is true, so it cannot be attributed to a targeted condition or read as a share of a targeted segment.
          */
         max_rollout_percentage: number | null;
         /**
@@ -14252,6 +14299,10 @@ export namespace Schemas {
          * Human-readable explanation of the status
          */
         reason: string;
+        /**
+         * True when `reason` already describes the flag's rollout, which happens when the status was reached from the configuration rather than from evaluation data. A caller that narrates the rollout separately should stay quiet rather than repeat it.
+         */
+        reason_states_rollout: boolean;
         /**
          * Summary of the flag's rollout configuration, for determining whether it is fully rolled out.
          */
@@ -16005,6 +16056,10 @@ export namespace Schemas {
         log_url?: (string | null) | undefined;
         error_message: string | null;
         output: Record<string, unknown> | null;
+        /**
+         * Latest summary for this task, including a summary inherited from an earlier run.
+         */
+        task_summary: string | null;
         state: Record<string, unknown>;
         artifacts: Array<TaskRunArtifactResponse>;
         /**
@@ -16208,6 +16263,7 @@ export namespace Schemas {
          * * `background` - background
          */
         mode: TaskExecutionModeEnum;
+        task_summary?: (string | null) | undefined;
     };
     /**
      * Summary response for a task — reads from a frozen ``TaskSummaryDTO``.
@@ -17634,7 +17690,10 @@ export namespace Schemas {
             | { source: string }
             | Partial<{ source: "user_messages" }>;
         output_type: OutputTypeEnum;
-        output_config: Partial<{ allows_na: boolean }>;
+        output_config: Partial<{
+            allows_na: boolean;
+            true_is_failure: boolean;
+        }>;
         conditions: Array<EvaluationCondition>;
         target: EvaluationTargetEnum;
         target_config:
@@ -18836,6 +18895,7 @@ export namespace Schemas {
         pending_user_artifact_ids: Array<string>;
         auto_publish: boolean | null;
         channel: string | null;
+        signal_report_discussion_question: string;
         naming_source: string;
         sandbox_environment_id: string | null;
         custom_image_id: string | null;
@@ -18923,6 +18983,9 @@ export namespace Schemas {
      * * `1` - Monday
      */
     export type WeekStartDayEnum = 0 | 1;
+    export type TeamFeatureFlagPolicyConfig = Partial<{
+        require_tags: boolean;
+    }>;
     export type TeamRevenueAnalyticsConfig = Partial<{
         base_currency: BaseCurrencyEnum;
         events: unknown;
@@ -19032,6 +19095,7 @@ export namespace Schemas {
         feature_flag_confirmation_message?: (string | null) | undefined;
         default_evaluation_contexts_enabled?: (boolean | null) | undefined;
         require_evaluation_contexts?: (boolean | null) | undefined;
+        feature_flag_policy_config?: TeamFeatureFlagPolicyConfig | undefined;
         capture_dead_clicks?: (boolean | null) | undefined;
         default_data_theme?: (number | null) | undefined;
         revenue_analytics_config?: TeamRevenueAnalyticsConfig | undefined;

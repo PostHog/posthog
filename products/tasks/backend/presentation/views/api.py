@@ -175,6 +175,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunRelayMessageResponseSerializer,
     TaskRunSessionLogsQuerySerializer,
     TaskRunSetOutputRequestSerializer,
+    TaskRunSetSummaryRequestSerializer,
     TaskRunStartRequestSerializer,
     TaskRunUpdateSerializer,
     TaskSearchQuerySerializer,
@@ -1778,6 +1779,34 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
 
         run = tasks_facade.set_task_run_output(pk, task_id, self.team_id, output=output_data)
+        if run is None:
+            raise NotFound()
+        return Response(TaskRunDetailSerializer(run).data)
+
+    @validated_request(
+        request_serializer=TaskRunSetSummaryRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with updated task summary"),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Set task run summary",
+        description="Replace the running summary for a task run.",
+        strict_request_validation=True,
+    )
+    @action(
+        detail=True,
+        methods=["patch"],
+        url_path="set_summary",
+        required_scopes=["task:write"],
+    )
+    def set_summary(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        run = tasks_facade.set_task_run_summary(
+            pk,
+            task_id,
+            self.team_id,
+            summary=request.validated_data["summary"],
+        )
         if run is None:
             raise NotFound()
         return Response(TaskRunDetailSerializer(run).data)

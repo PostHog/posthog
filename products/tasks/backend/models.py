@@ -71,6 +71,8 @@ MCP_BUILT_IN_AGENT_STATE_KEY = "mcp_builtin_agent_key"
 MCP_CREDENTIAL_OWNER_STATE_KEY = "mcp_credential_owner_id"
 MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY = "mcp_gateway_server_ids"
 TASK_OWNERSHIP_VERSION_STATE_KEY = "task_ownership_version"
+TASK_RUN_SUMMARY_STATE_KEY = "task_summary"
+PRIOR_RUN_SUMMARY_STATE_KEY = "prior_run_summary"
 
 # Stage `Task.create_run` stamps on a person-started signals run, so it resolves a mintable
 # gateway product. Keyed by origin value.
@@ -774,18 +776,11 @@ class Task(DeletedMetaFields, models.Model):
 
             resume_from_run_id = (extra_state or {}).get("resume_from_run_id")
             if resume_from_run_id is not None:
-                resume_source = (
-                    TaskRun.objects.filter(id=resume_from_run_id, task_id=task.id).only("state", "output").first()
-                )
+                resume_source = TaskRun.objects.filter(id=resume_from_run_id, task_id=task.id).only("state").first()
                 if resume_source is None or not resume_source.matches_task_ownership(task):
                     raise TaskOwnershipChangedError("The resume source belongs to a previous task owner")
-                # Hand the successor whatever account of the task its source left behind, so the
-                # agent extends it instead of starting one over. The agent-server puts it in the
-                # session prompt.
-                source_output = resume_source.output if isinstance(resume_source.output, dict) else {}
-                prior_summary = source_output.get("summary")
-                if isinstance(prior_summary, str) and prior_summary.strip():
-                    state.setdefault("prior_run_summary", prior_summary)
+                if resume_source.task_summary:
+                    state.setdefault(PRIOR_RUN_SUMMARY_STATE_KEY, resume_source.task_summary)
 
             # Pin the stream-routing decision once so every reader/writer agrees for this run's life.
             state.setdefault("use_dedicated_stream", dedicated_stream)
@@ -2283,6 +2278,15 @@ class TaskRun(models.Model):
         super().save(*args, **kwargs)
 
     @property
+    def task_summary(self) -> str | None:
+        state = self.state if isinstance(self.state, dict) else {}
+        for key in (TASK_RUN_SUMMARY_STATE_KEY, PRIOR_RUN_SUMMARY_STATE_KEY):
+            summary = state.get(key)
+            if isinstance(summary, str) and summary.strip():
+                return summary.strip()
+        return None
+
+    @property
     def mode(self) -> str:
         """Get the execution mode from state. Defaults to 'background'."""
         return (self.state or {}).get("mode", "background")
@@ -2889,6 +2893,7 @@ class TaskRun(models.Model):
             "status": self.status,
             "stage": self.stage,
             "output": self.output,
+            "task_summary": self.task_summary,
             "branch": self.branch,
             "error_message": self.error_message,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,

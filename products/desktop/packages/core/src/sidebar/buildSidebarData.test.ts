@@ -281,36 +281,41 @@ describe("readRunMode", () => {
   });
 });
 
-// A row's hover has to say something on a run that reported nothing through the tool, or
-// the hover would be empty on every task until agents adopt it.
 describe("readTaskSummary", () => {
   it.each([
-    [
-      "the agent's summary",
-      { summary: "Fixing the funnel" },
-      "Fixing the funnel",
-    ],
-    [
-      "the closing message when there is no summary",
-      { final_message: "Opened the PR" },
-      "Opened the PR",
-    ],
-    [
-      "the summary over the closing message",
-      { summary: "Fixing the funnel", final_message: "Opened the PR" },
-      "Fixing the funnel",
-    ],
-    ["nothing at all", {}, null],
-    ["a blank summary", { summary: "  ", final_message: "" }, null],
-    ["output that is absent", undefined, null],
-  ])("reads %s", (_case, output, expected) => {
-    expect(readTaskSummary(output)).toBe(expected);
+    ["the agent's summary", "Fixing the funnel", "Fixing the funnel"],
+    ["a summary with whitespace", "  Fixing the funnel  ", "Fixing the funnel"],
+    ["a blank summary", "  ", null],
+    ["an absent summary", undefined, null],
+  ])("reads %s", (_case, summary, expected) => {
+    expect(readTaskSummary(summary)).toBe(expected);
   });
 
-  it("truncates a long closing message rather than putting a report in a hover", () => {
-    const result = readTaskSummary({ final_message: "x".repeat(600) });
+  it("prefers a live summary over the task-list summary", () => {
+    const task = narrowFullTask({
+      id: "task-1",
+      title: "Review a pull request",
+      created_at: "2026-09-02T09:00:00Z",
+      updated_at: "2026-09-02T09:00:00Z",
+      latest_run: {
+        id: "run-1",
+        status: "in_progress",
+        environment: "cloud",
+        task_summary: "Reading the code",
+      },
+    });
 
-    expect(result).toBe(`${"x".repeat(400)}\u2026`);
+    const result = deriveTaskData(task, {
+      session: { cloudTaskSummary: "Writing the fix" },
+      workspace: undefined,
+      timestamp: undefined,
+      pinnedIds: new Set(),
+      suspendedIds: new Set(),
+      slackTaskIds: new Set(),
+      slackThreadUrlByTaskId: new Map(),
+    });
+
+    expect(result.summary).toBe("Writing the fix");
   });
 });
 

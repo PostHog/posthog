@@ -104,6 +104,10 @@ import {
   resumeFromLog,
 } from "../resume";
 import { SessionLogWriter } from "../session-log-writer";
+import {
+  buildPriorTaskSummaryContext,
+  buildTaskSummaryInstructions,
+} from "../task-summary";
 import type {
   AgentMode,
   DeviceInfo,
@@ -437,8 +441,8 @@ export class AgentServer {
   private suppressAdapterTurnComplete = false;
   private runUsage = new RunUsageAccumulator();
   private detectedPrUrl: string | null = null;
-  /** Summary the run this session resumes from left behind, if any. */
   private priorRunSummary: string | null = null;
+  private taskSummarySupported = false;
   private slackArtifactDelivery: SlackArtifactDelivery | null = null;
   private slackChartDelivery = false;
   private slackReplyContext = false;
@@ -1792,9 +1796,10 @@ export class AgentServer {
     // Unconditional so a re-init on the same instance drops a stale PR URL.
     this.detectedPrUrl = prUrl;
 
-    // Same reason: a re-init must not carry another run's summary into this session.
-    this.priorRunSummary =
-      getTaskRunStateString(preTaskRun, "prior_run_summary") ?? null;
+    this.taskSummarySupported = preTaskRun
+      ? Object.hasOwn(preTaskRun, "task_summary")
+      : false;
+    this.priorRunSummary = preTaskRun?.task_summary ?? null;
 
     const slackThreadUrl = getTaskRunStateString(
       preTaskRun,
@@ -1958,6 +1963,7 @@ export class AgentServer {
       permissionMode: initialPermissionMode,
       ...(channelMode && { channelMode: true }),
       posthogExecPermissionRegex: this.posthogExecPermissionRegexSource,
+      taskSummarySupported: this.taskSummarySupported,
       ...(preTask?.origin_product && {
         taskOriginProduct: preTask.origin_product,
       }),
@@ -2442,6 +2448,16 @@ export class AgentServer {
         initialPrompt = [{ type: "text", text: initialPromptOverride }];
       } else if (task.description && !prewarmed) {
         initialPrompt = [{ type: "text", text: task.description }];
+      }
+
+      if (this.priorRunSummary && initialPrompt.length > 0) {
+        initialPrompt = [
+          {
+            type: "text",
+            text: buildPriorTaskSummaryContext(this.priorRunSummary),
+          },
+          ...initialPrompt,
+        ];
       }
 
       if (initialPrompt.length === 0) {
@@ -4171,22 +4187,6 @@ You do not have GitHub access in this session.
 - Do not guess file contents. Do not start a change that you cannot deliver.`;
   }
 
-  /**
-   * The running task summary: how to keep it, plus whatever the previous run left. Without the
-   * nudge the tool description alone does not get called often enough to be worth reading.
-   */
-  private buildTaskSummaryInstructions(): string {
-    if (!this.config.taskId) return "";
-    const carried = this.priorRunSummary
-      ? `
-The last run left this summary. Extend it rather than starting over, and correct it where it is now wrong:
-${this.priorRunSummary}`
-      : "";
-    return `
-## Keeping the task summary
-Somebody who has not read this run needs to know what the task is about. Call the \`task_summary_update\` tool to replace the task's summary: when the goal changes, when you abandon a route, roughly every ten turns, and before you end a turn. Each call overwrites the previous summary, so write the current state and drop what stopped mattering. Keep it cheap — a few sentences.${carried}`;
-  }
-
   private buildCloudSystemPrompt(
     prUrl?: string | null,
     slackThreadUrl?: string | null,
@@ -4325,7 +4325,10 @@ Optimize for the fewest shell round trips.
 When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
 
     // Closes out every branch below, so a new section is added once rather than five times.
-    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildGithubAccessInstructions(hasGithubToken)}${buildStoreSkillsInstructions(this.storeSkillsInstalledCount)}${this.buildTaskSummaryInstructions()}`;
+    const taskSummaryInstructions = this.taskSummarySupported
+      ? `\n${buildTaskSummaryInstructions()}`
+      : "";
+    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildGithubAccessInstructions(hasGithubToken)}${buildStoreSkillsInstructions(this.storeSkillsInstalledCount)}${taskSummaryInstructions}`;
 
     const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;

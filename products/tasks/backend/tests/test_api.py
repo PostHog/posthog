@@ -5145,6 +5145,7 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
                 "status": valid_run.status,
                 "environment": valid_run.environment,
                 "mode": "background",
+                "task_summary": None,
             },
         )
 
@@ -5181,11 +5182,27 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
                 "status": run.status,
                 "environment": run.environment,
                 "mode": expected_mode,
+                "task_summary": None,
             }
             if run
             else None
         )
         self.assertEqual(payload["latest_run"], expected_run)
+
+    def test_summaries_returns_the_latest_inherited_task_summary(self):
+        task = self.create_task("Task")
+        TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"prior_run_summary": "Resolving review comments"},
+        )
+
+        response = self.post_summaries([str(task.id)])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        [payload] = response.json()["results"]
+        self.assertEqual(payload["latest_run"]["task_summary"], "Resolving review comments")
 
     def test_summaries_paginates_large_id_sets(self):
         tasks = [self.create_task(f"Task {i}") for i in range(3)]
@@ -5284,6 +5301,29 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(denied.status_code, status.HTTP_404_NOT_FOUND)
         other_run.refresh_from_db()
         self.assertIsNone(other_run.stage)
+
+    def test_task_bound_sandbox_can_set_and_read_a_summary(self):
+        owner = self.create_organization_user("summary-owner")
+        task = self.create_task(created_by=owner)
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"prior_run_summary": "Reading the existing code"},
+        )
+        client = self._sandbox_oauth_client(task.id)
+
+        initial = client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
+        updated = client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_summary/",
+            {"summary": "Writing the fix"},
+            format="json",
+        )
+
+        self.assertEqual(initial.status_code, status.HTTP_200_OK)
+        self.assertEqual(initial.json()["task_summary"], "Reading the existing code")
+        self.assertEqual(updated.status_code, status.HTTP_200_OK)
+        self.assertEqual(updated.json()["task_summary"], "Writing the fix")
 
     def test_unbound_sandbox_scope_does_not_bypass_task_visibility(self):
         owner = self.create_organization_user("sandbox-owner")
@@ -5588,6 +5628,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "analysis_target_repository": "posthog/posthog",
                 "analysis_target_custom_image_id": "img-real",
                 "analysis_target_custom_image_name": "real-image",
+                "task_summary": "Current summary",
+                "prior_run_summary": "Prior summary",
             },
         )
 
@@ -5656,6 +5698,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "analysis_target_repository": "attacker/attacker",
                     "analysis_target_custom_image_id": "img-attacker",
                     "analysis_target_custom_image_name": "attacker-image",
+                    "task_summary": "Forged summary",
+                    "prior_run_summary": "Forged prior summary",
                     "dev_stack_preview": {"port": 8080, "sandbox_id": "sb-real"},
                     "scratch": "ok",
                 }
@@ -5706,6 +5750,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["analysis_target_repository"] == "posthog/posthog"  # cannot forge attribution
         assert run.state["analysis_target_custom_image_id"] == "img-real"
         assert run.state["analysis_target_custom_image_name"] == "real-image"
+        assert run.state["task_summary"] == "Current summary"
+        assert run.state["prior_run_summary"] == "Prior summary"
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
@@ -5744,6 +5790,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "analysis_target_repository",
                     "analysis_target_custom_image_id",
                     "analysis_target_custom_image_name",
+                    "task_summary",
+                    "prior_run_summary",
                     "scratch",
                 ],
             },
@@ -5784,6 +5832,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["analysis_target_repository"] == "posthog/posthog"  # protected key survives removal
         assert run.state["analysis_target_custom_image_id"] == "img-real"
         assert run.state["analysis_target_custom_image_name"] == "real-image"
+        assert run.state["task_summary"] == "Current summary"
+        assert run.state["prior_run_summary"] == "Prior summary"
         assert "scratch" not in run.state  # non-protected key removed
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
@@ -6192,46 +6242,57 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("over_the_cap", "x" * (tasks_facade.TASK_RUN_SUMMARY_MAX_CHARS + 1), "character limit"),
-            ("not_a_string", {"state": "halfway"}, "must be a string"),
+            ("over_the_cap", "x" * (tasks_facade.TASK_RUN_SUMMARY_MAX_CHARS + 1)),
+            ("not_a_string", {"state": "halfway"}),
         ]
     )
-    def test_set_output_rejects_an_unusable_summary(self, _name, summary, expected_error):
+    def test_set_summary_rejects_an_unusable_summary(self, _name, summary):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
         response = self.client.patch(
-            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/",
-            {"output": {"summary": summary}},
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_summary/",
+            {"summary": summary},
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(expected_error, response.json()["error"])
         run.refresh_from_db()
-        self.assertFalse(run.output)
+        self.assertIsNone(run.task_summary)
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
-    def test_summary_write_leaves_a_structured_output_run_running(self, mock_signal_workflow_completion):
-        # A structured-output task completes on any output write and validates it against the
-        # schema, so a progress summary would otherwise end the run it was reporting on.
+    def test_task_summary_does_not_collide_with_structured_summary_output(self, mock_signal_workflow_completion):
         task = self.create_task()
-        task.json_schema = {"type": "object", "required": ["verdict"]}
+        task.json_schema = {
+            "type": "object",
+            "properties": {"summary": {"type": "string"}},
+            "required": ["summary"],
+            "additionalProperties": False,
+        }
         task.save(update_fields=["json_schema"])
-        run = TaskRun.objects.create(
-            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, output={"final_message": "Still going"}
-        )
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
-        response = self.client.patch(
-            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/",
-            {"output": {"summary": "Reading the schema"}},
+        summary_response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_summary/",
+            {"summary": "Reading the schema"},
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(summary_response.status_code, status.HTTP_200_OK)
         mock_signal_workflow_completion.assert_not_called()
         run.refresh_from_db()
-        self.assertEqual(run.output, {"final_message": "Still going", "summary": "Reading the schema"})
+        self.assertFalse(run.output)
+
+        output_response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/",
+            {"output": {"summary": "Final result"}},
+            format="json",
+        )
+
+        self.assertEqual(output_response.status_code, status.HTTP_200_OK)
+        mock_signal_workflow_completion.assert_called_once()
+        run.refresh_from_db()
+        self.assertEqual(run.output, {"summary": "Final result"})
 
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_set_output_publishes_stream_state_event(self, mock_publish_stream_state_event):

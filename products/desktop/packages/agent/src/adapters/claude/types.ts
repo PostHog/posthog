@@ -257,6 +257,7 @@ export type NewSessionMeta = {
    */
   channelMode?: boolean;
   taskOriginProduct?: string;
+  taskSummarySupported?: boolean;
   /** Workflow-action opt-in: exposes the `finish` tool to a workflow-origin run. */
   endRunWhenDone?: boolean;
   /**

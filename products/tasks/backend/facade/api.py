@@ -90,7 +90,9 @@ from products.tasks.backend.logic.services.network_policy import (
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     MCP_CREDENTIAL_OWNER_STATE_KEY,
+    PRIOR_RUN_SUMMARY_STATE_KEY,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
+    TASK_RUN_SUMMARY_STATE_KEY,
     Channel,
     ChannelContextGeneration,
     ChannelFeedMessage,
@@ -263,6 +265,7 @@ __all__ = [
     "send_cancel",
     "select_repository_for_message",
     "set_task_run_output",
+    "set_task_run_summary",
     "set_task_title",
     "slack_actor_state_updates",
     "signal_report_queryset",
@@ -500,6 +503,7 @@ def _task_run_detail_to_dto(run: TaskRun, *, include_agent_state: bool = False) 
         log_url=_task_run_log_url(run),
         error_message=run.error_message,
         output=run.output,
+        task_summary=run.task_summary,
         state=_public_task_run_state(run.state, include_agent_keys=include_agent_state),
         artifacts=run.artifacts or [],
         created_at=run.created_at,
@@ -2164,6 +2168,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "pr_authorship_mode",
         "repositories",
         "verified_pr_urls",
+        TASK_RUN_SUMMARY_STATE_KEY,
+        PRIOR_RUN_SUMMARY_STATE_KEY,
         "sandbox_id",
         # Sandbox connection state is written only by the provisioning activity. A PATCHable
         # sandbox_backend/sandbox_url would let a task controller point the account-wide hogland
@@ -2812,46 +2818,18 @@ def update_task_run(
     return _task_run_detail_to_dto(run)
 
 
-# The cap is the point of the summary, not a safety margin: what the agent has to leave out to fit
-# is what stopped mattering, and the result is read in a sidebar hover rather than opened.
 TASK_RUN_SUMMARY_MAX_CHARS = 1500
 
 
-def _is_summary_only_output(output: dict) -> bool:
-    """Is this a ``task_summary_update`` write — the agent's running summary and nothing else?
-
-    A structured-output task completes its run on any output write and validates the write against
-    the task's json_schema. A summary is progress bookkeeping, so it must do neither.
-    """
-    return set(output) == {"summary"}
-
-
-def _validate_output_summary(output: dict) -> str | None:
-    summary = output.get("summary")
-    if summary is None:
-        return None
-    if not isinstance(summary, str):
-        return "Output validation error: summary must be a string."
-    if len(summary) > TASK_RUN_SUMMARY_MAX_CHARS:
-        return (
-            f"Output validation error: summary is {len(summary)} characters, over the "
-            f"{TASK_RUN_SUMMARY_MAX_CHARS} character limit. Cut it down and write it again."
-        )
-    return None
-
-
 def validate_set_output(run_id: str | UUID, task_id: str | UUID, team_id: int, *, output: dict) -> str | None:
-    """Validate output against the summary cap and the task's json_schema. Returns an error or ``None``."""
+    """Validate output against the task's json_schema. Returns an error message or ``None``."""
     import jsonschema  # noqa: PLC0415 — only needed when a json_schema is set
 
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    summary_error = _validate_output_summary(output)
-    if summary_error is not None:
-        return summary_error
     task = run.task
-    if task.json_schema and not _is_summary_only_output(output):
+    if task.json_schema:
         try:
             jsonschema.validate(instance=output, schema=task.json_schema)
         except jsonschema.ValidationError as e:
@@ -2874,13 +2852,25 @@ def set_task_run_output(
     run.output = _apply_caller_output(existing, output, merged)
     run.save(update_fields=["output", "updated_at"])
     _refresh_self_driving_quota_for_pr(run, existing.get("pr_url"))
-    if task.json_schema and not _is_summary_only_output(output):
+    if task.json_schema:
         signal_workflow_completion(run.id, TaskRun.Status.COMPLETED, None)
     run.publish_stream_state_event()
     _post_slack_update_for_pr(run)
     _send_wizard_pr_ready_email_for_pr(run)
     if merged.get("pr_url"):
         post_pr_created_thread_update(run, merged["pr_url"])
+    return _task_run_detail_to_dto(run)
+
+
+def set_task_run_summary(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, summary: str
+) -> contracts.TaskRunDetailDTO | None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    run.state = TaskRun.update_state_atomic(run.id, updates={TASK_RUN_SUMMARY_STATE_KEY: summary})
+    run.refresh_from_db()
+    run.publish_stream_state_event()
     return _task_run_detail_to_dto(run)
 
 
@@ -5657,7 +5647,14 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
                 default=Value("background"),
                 output_field=CharField(),
             ),
-            _data=JSONObject(id="id", status="status", environment="environment", mode="_mode"),
+            _data=JSONObject(
+                id="id",
+                status="status",
+                environment="environment",
+                mode="_mode",
+                task_summary="state__task_summary",
+                prior_run_summary="state__prior_run_summary",
+            )
         )
     )
     tasks = (
@@ -5675,6 +5672,7 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
                 status=raw.get("status"),
                 environment=raw.get("environment"),
                 mode=raw.get("mode", "background"),
+                task_summary=raw.get("task_summary") or raw.get("prior_run_summary"),
             )
             if isinstance(raw, dict)
             else None
