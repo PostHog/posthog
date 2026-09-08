@@ -253,15 +253,11 @@ class VerifiedDomainEnforcementPermission(BasePermission):
         if not isinstance(request.user, User):
             return True
 
-        # Root viewsets (organizations, projects, environments) carry no parent URL kwargs, and the
-        # mixin's `organization` falls back to the user's current organization there, which is not
-        # the request's target. Gate on the fetched object below instead. Views deriving their
-        # target from the current team (`param_derived_from_user_current_team`) are the exception:
-        # for those the current team is the target by construction.
-        if not view.parent_query_kwargs and not view.param_derived_from_user_current_team:
+        # Root viewsets resolve no single target from the URL; gate on the fetched object below.
+        if not view_targets_one_organization(view):
             return True
 
-        organization = self._target_organization(view)
+        organization = url_target_organization(view)
         if organization is None:
             return True
         return self._admits(request, organization)
@@ -294,26 +290,119 @@ class VerifiedDomainEnforcementPermission(BasePermission):
 
         return True
 
-    def _target_organization(self, view) -> Optional[Organization]:
-        # Same resolution as `get_organization_from_view`, but the team's FK first: routing loads
-        # the team with `select_related("organization")` and `TeamMemberAccessPermission` has
-        # already resolved it, whereas `view.organization` would issue its own PK query on
-        # team-scoped views.
-        try:
-            organization = view.team.organization
-            if isinstance(organization, Organization):
-                return organization
-        except (KeyError, AttributeError, AssertionError, Team.DoesNotExist):
-            pass
 
-        try:
-            organization = view.organization
-            if isinstance(organization, Organization):
-                return organization
-        except (KeyError, AttributeError, AssertionError):
-            pass
+def url_target_organization(view) -> Optional[Organization]:
+    """The organization the request URL points at, or None when the view resolves no target.
 
-        return None
+    Same resolution as `get_organization_from_view`, but the team's FK first: routing loads the
+    team with `select_related("organization")` and `TeamMemberAccessPermission` has already
+    resolved it, whereas `view.organization` would issue its own PK query on team-scoped views.
+    """
+    try:
+        organization = view.team.organization
+        if isinstance(organization, Organization):
+            return organization
+    except (KeyError, AttributeError, AssertionError, Team.DoesNotExist):
+        pass
+
+    try:
+        organization = view.organization
+        if isinstance(organization, Organization):
+            return organization
+    except (KeyError, AttributeError, AssertionError):
+        pass
+
+    return None
+
+
+def view_targets_one_organization(view) -> bool:
+    """Whether the view acts on one organization that the URL identifies.
+
+    Root viewsets (organizations, projects, environments) carry no parent URL kwargs, and the
+    mixin's `organization` falls back to the user's current organization there, which is not the
+    request's target. Views deriving their target from the current team
+    (`param_derived_from_user_current_team`) are the exception: for those the current team is the
+    target by construction.
+    """
+    return bool(view.parent_query_kwargs or view.param_derived_from_user_current_team)
+
+
+ORGANIZATION_PENDING_DELETION_ERROR = (
+    "This organization is scheduled for deletion. API access is blocked. Contact support if you need it restored."
+)
+
+
+def organization_deactivated_error(reason: Optional[str]) -> str:
+    # `Organization.DeactivationReason` values are already written for the person reading them,
+    # and the same strings render on the deactivated page in the app.
+    detail = f"This organization is deactivated. {reason.strip()}" if reason else "This organization is deactivated."
+    return f"{detail} API access stays blocked until it's restored. Contact support if you think this is a mistake."
+
+
+class ActiveOrganizationPermission(BasePermission):
+    """
+    Deny token-authenticated requests that target a deactivated organization.
+
+    `ActiveOrganizationMiddleware` redirects the browser away from a deactivated organization, but
+    it skips every `/api` path, so API keys kept full read and write access. Appended to every
+    `TeamAndOrgViewSetMixin` view in `get_permissions`, so it holds regardless of a view's own
+    `authentication_classes`.
+
+    Session auth passes through. The middleware already covers the browser, and a member of a
+    deactivated organization still has to reach the app to see why and to pay an unpaid balance.
+
+    A null `is_active` counts as deactivated. The column is nullable because the field was added
+    with `null=True`, and treating an unknown state as deactivated fails closed.
+
+    Checked against the URL-resolved organization, never `user.current_organization`, because the
+    current organization is a UI preference the API doesn't validate.
+    """
+
+    # Billing stays reachable, otherwise a machine integration can't read the state that explains
+    # why every other request is refused.
+    EXEMPT_SCOPE_OBJECTS = frozenset({"billing"})
+
+    def has_permission(self, request: Request, view) -> bool:
+        if not self._applies(request, view):
+            return True
+
+        # Root viewsets resolve no single target from the URL; gate on the fetched object below.
+        if not view_targets_one_organization(view):
+            return True
+
+        organization = url_target_organization(view)
+        if organization is None:
+            return True
+        return self._admits(organization)
+
+    def has_object_permission(self, request: Request, view, object: Model) -> bool:
+        if not self._applies(request, view):
+            return True
+        if isinstance(object, Organization):
+            return self._admits(object)
+        if isinstance(object, Team | Project):
+            return self._admits(object.organization)
+        return True
+
+    def _applies(self, request: Request, view) -> bool:
+        if getattr(view, "scope_object", None) in self.EXEMPT_SCOPE_OBJECTS:
+            return False
+        # `get_authenticator_scopes` returns None for session auth and for every other non-token
+        # authenticator, which is exactly the set this permission lets through.
+        return get_authenticator_scopes(getattr(request, "successful_authenticator", None)) is not None
+
+    def _admits(self, organization: Organization) -> bool:
+        if organization.is_pending_deletion:
+            raise PermissionDenied(
+                detail=ORGANIZATION_PENDING_DELETION_ERROR,
+                code="organization_pending_deletion",
+            )
+        if not organization.is_active:
+            raise PermissionDenied(
+                detail=organization_deactivated_error(organization.is_not_active_reason),
+                code="organization_deactivated",
+            )
+        return True
 
 
 def is_authenticated_via_team_secret_token(request: Request) -> bool:

@@ -33,6 +33,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import (
     AccessControlPermission,
+    ActiveOrganizationPermission,
     APIScopePermission,
     MCPAccessPermission,
     OrganizationMemberPermissions,
@@ -257,9 +258,15 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except NotImplementedError:
             pass
         else:
-            # Domain enforcement and the MCP cap are tenant boundaries, not authorization
-            # levels. Views that shape their own permission chain cannot remove them.
-            return [*dangerously_defined, VerifiedDomainEnforcementPermission(), MCPAccessPermission()]
+            # Domain enforcement, the MCP cap and the organization-active check are tenant
+            # boundaries, not authorization levels. Views that shape their own permission chain
+            # cannot remove them.
+            return [
+                *dangerously_defined,
+                VerifiedDomainEnforcementPermission(),
+                MCPAccessPermission(),
+                ActiveOrganizationPermission(),
+            ]
 
         if isinstance(self.request.successful_authenticator, InternalAPIAuthentication):
             return [IsAuthenticated()]
@@ -288,6 +295,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         # its message must not disclose another organization's security settings.
         permission_classes.append(VerifiedDomainEnforcementPermission)
         permission_classes.append(MCPAccessPermission)
+        # Last of the tenant boundaries: a non-member must get the generic membership denial
+        # rather than learn that an organization they can't reach is deactivated.
+        permission_classes.append(ActiveOrganizationPermission)
 
         permission_classes.extend(self.permission_classes)
         return [permission() for permission in permission_classes]

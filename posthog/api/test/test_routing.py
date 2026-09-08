@@ -22,9 +22,11 @@ from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry, TeamAndOr
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
 from posthog.models.scoping import get_current_team_id
 from posthog.models.team.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.permissions import APIScopePermission
 from posthog.products import product_app_names
 
@@ -217,6 +219,60 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         assert (
             str(e.value) == "Method get_object is protected and should not be overridden. Use safely_get_object instead"
         )
+
+
+@override_settings(ROOT_URLCONF=__name__)
+class TestDeactivatedOrganizationBlocksTokens(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test key",
+            user=self.user,
+            secure_value=hash_key_value(self.key_value),
+            scopes=["*"],
+        )
+        Annotation.objects.create(team=self.team, organization=self.organization)
+
+    def _get_with_key(self):
+        return self.client.get(
+            f"/api/scoped_environments/{self.team.id}/scoped_foos/",
+            HTTP_AUTHORIZATION=f"Bearer {self.key_value}",
+        )
+
+    def _deactivate(self, reason=None):
+        self.organization.is_active = False
+        self.organization.is_not_active_reason = reason
+        self.organization.save(update_fields=["is_active", "is_not_active_reason"])
+
+    def test_personal_api_key_is_refused_once_the_organization_is_deactivated(self):
+        self.assertEqual(self._get_with_key().status_code, 200)
+
+        self._deactivate(reason="Access revoked due to unpaid balance.")
+
+        response = self._get_with_key()
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], "organization_deactivated")
+        self.assertIn("Access revoked due to unpaid balance.", response.json()["detail"])
+
+    def test_session_auth_still_reaches_a_deactivated_organization(self):
+        self._deactivate()
+
+        response = self.client.get(f"/api/scoped_environments/{self.team.id}/scoped_foos/")
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_a_key_still_reaches_an_active_organization_of_the_same_user(self):
+        # The block reads the organization in the URL, not user.current_organization.
+        self._deactivate()
+        _, _, other_team = Organization.objects.bootstrap(user=self.user)
+
+        response = self.client.get(
+            f"/api/scoped_environments/{other_team.id}/scoped_foos/",
+            HTTP_AUTHORIZATION=f"Bearer {self.key_value}",
+        )
+
+        self.assertEqual(response.status_code, 200)
 
 
 @override_settings(ROOT_URLCONF=__name__)
