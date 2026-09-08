@@ -1,7 +1,12 @@
 import type { HogQLVariable } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { dashboardFiltersEqual, getDashboardFilterChanges, getDashboardVariableChanges } from './dashboardChanges'
+import {
+    dashboardFiltersEqual,
+    dashboardVariableValuesEqual,
+    getDashboardFilterChanges,
+    getDashboardVariableChanges,
+} from './dashboardChanges'
 
 describe('getDashboardFilterChanges', () => {
     it('lists new, changed, and removed property filters with their values', () => {
@@ -222,14 +227,14 @@ describe('dashboardFiltersEqual', () => {
 })
 
 describe('getDashboardVariableChanges', () => {
-    it('lists each SQL variable change against its saved or default value', () => {
-        const variable = (variableId: string, value: string): HogQLVariable => ({
-            code_name: variableId,
-            variableId,
-            value,
-            isNull: false,
-        })
+    const variable = (variableId: string, value: string | null, isNull = false): HogQLVariable => ({
+        code_name: variableId,
+        variableId,
+        value,
+        isNull,
+    })
 
+    it('lists each SQL variable change against its saved or default value', () => {
         expect(
             getDashboardVariableChanges(
                 { saved: variable('saved', 'before') },
@@ -247,6 +252,40 @@ describe('getDashboardVariableChanges', () => {
             { label: 'saved', previousValue: ['before'], value: ['after'], status: 'changed' },
             { label: 'first', previousValue: ['default one'], value: ['one'], status: 'changed' },
             { label: 'second', previousValue: ['default two'], value: ['two'], status: 'changed' },
+        ])
+    })
+
+    it('treats an omitted isNull value as false', () => {
+        expect(dashboardVariableValuesEqual({ value: 'value' }, { value: 'value', isNull: false })).toBe(true)
+        expect(
+            getDashboardVariableChanges(
+                { variable: { code_name: 'variable', variableId: 'variable', value: 'value' } },
+                { variable: variable('variable', 'value') },
+                {}
+            )
+        ).toEqual([])
+    })
+
+    it('reports SQL null as a distinct variable value', () => {
+        expect(dashboardVariableValuesEqual({ value: null, isNull: true }, { value: null, isNull: false })).toBe(false)
+        expect(
+            getDashboardVariableChanges(
+                { variable: variable('variable', null) },
+                { variable: variable('variable', null, true) },
+                {}
+            )
+        ).toEqual([{ label: 'variable', previousValue: [], value: ['null'], status: 'changed' }])
+    })
+
+    it('reports removing a saved variable override when its default differs', () => {
+        expect(
+            getDashboardVariableChanges(
+                { variable: variable('variable', 'saved override') },
+                {},
+                { variable: variable('variable', 'default value') }
+            )
+        ).toEqual([
+            { label: 'variable', previousValue: ['saved override'], value: ['default value'], status: 'changed' },
         ])
     })
 })
