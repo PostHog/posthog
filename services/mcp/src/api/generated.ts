@@ -127,7 +127,7 @@ export namespace Schemas {
 
     export interface AccessControlResourceDefault {
       /**
-         * The stored default level for this resource type. Null when the built-in default applies.
+         * The stored default level for this resource type. Null when the PostHog default applies.
          * @nullable
          */
       access_level: string | null;
@@ -234,7 +234,7 @@ export namespace Schemas {
     export interface ResolvedAccess {
       /** The access level that applies. */
       access_level: string;
-      /** How the level was derived: a rule on the object, its parent object, the resource, the parent resource, the built-in default, or one of the bypasses (org admin, creator, organization membership).
+      /** How the level was derived: a rule on the object, its parent object, the resource, the parent resource, the PostHog default, an organization admin's or a creator's full access, or organization membership when the object is the organization itself.
        *
        * * `object` - object
        * * `parent_object` - parent_object
@@ -245,7 +245,7 @@ export namespace Schemas {
        * * `creator` - creator
        * * `org_membership` - org_membership */
       source: ResolvedAccessSourceEnum;
-      /** Whose rule decided: a member's own, a role's, or the default for everyone. Null when no rule did.
+      /** Whose rule decided: a member's own, a role's, or the default for everyone in the project. Null when no rule did.
        *
        * * `member` - member
        * * `role` - role
@@ -271,11 +271,11 @@ export namespace Schemas {
          */
       access_level: string | null;
       /**
-         * The level that is enforced for the subject after defaults, roles and bypasses are resolved. Null when nothing resolves, for example a resource the organization is not entitled to.
+         * The level that is enforced for the subject after defaults, roles and bypasses are resolved. Null when nothing resolves for this scope.
          * @nullable
          */
       effective_access_level: string | null;
-      /** The level the subject falls back to without a rule of its own, with the rule that supplies it. Read `source` and `source_subject` to tell a role rule from the project default or an org-admin bypass. */
+      /** The level the subject falls back to without a rule of its own, with the rule that supplies it. Read `source` and `source_subject` to tell a role rule from the project default, or an organization admin's full access. */
       inherited_access: ResolvedAccess | null;
       /** The lowest level this scope allows. */
       minimum: string;
@@ -321,7 +321,7 @@ export namespace Schemas {
       organization_membership_id: string;
       /** The member's identity. */
       user: AccessControlMemberUser;
-      /** The member's organization level: 1 member, 8 admin, 15 owner. Admins and owners bypass every rule.
+      /** The member's organization level: 1 member, 8 admin, 15 owner. Admins and owners have full access to everything.
        *
        * * `1` - member
        * * `8` - administrator

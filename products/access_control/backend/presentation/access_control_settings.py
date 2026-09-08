@@ -325,7 +325,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
     @extend_schema(
         description="Every organization member's access in this project. For the project and for each resource type, "
         "the response gives the member's own rule and the level that is enforced. It also says where the enforced "
-        "level comes from: the member's rule, a role's rule, the project default, or the org admin bypass. Pass "
+        "level comes from: the member's rule, a role's rule, the project default, or full access as an organization admin. Pass "
         "`member_id` for one member.",
         parameters=[
             OpenApiParameter(
@@ -521,30 +521,30 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         return Response(AccessControlPropertyRulesResponseSerializer({"results": results}).data)
 
     @extend_schema(
-        description="Object rules that apply to everyone without a rule of their own on that object.",
+        description="Object rules that apply to everyone in the project without a rule of their own on that object.",
         responses={200: AccessControlObjectRulesResponseSerializer},
         extensions=_SCHEMA_EXTENSIONS,
     )
     @action(methods=["GET"], detail=True, url_path="access_control_default_objects")
     def access_control_default_objects(self, request: Request, *args, **kwargs) -> Response:
-        """Object-level access rules that apply to everyone without a rule of their own."""
+        """Object-level access rules that apply to everyone in the project without a rule of their own."""
         team = cast(Team, self.team)  # type: ignore
         return self._object_rules_response(team)
 
     @extend_schema(
-        description="Property rules that apply to everyone without a rule of their own on that property.",
+        description="Property rules that apply to everyone in the project without a rule of their own on that property.",
         responses={200: AccessControlPropertyRulesResponseSerializer},
         extensions=_SCHEMA_EXTENSIONS,
     )
     @action(methods=["GET"], detail=True, url_path="access_control_default_properties")
     def access_control_default_properties(self, request: Request, *args, **kwargs) -> Response:
-        """Property restrictions that apply to everyone without a rule of their own."""
+        """Property restrictions that apply to everyone in the project without a rule of their own."""
         team = cast(Team, self.team)  # type: ignore
         return self._property_rules_response(team)
 
     @extend_schema(
-        description="Object rules configured for one member: the dashboards, insights, notebooks and other single "
-        "objects the member is granted or denied, regardless of the resource-level rules.",
+        description="Object rules configured for a member: the single objects, for example a dashboard or a notebook, "
+        "the member is granted or denied, regardless of the resource-level rules.",
         parameters=[_MEMBER_ID_PARAM],
         responses={200: AccessControlObjectRulesResponseSerializer},
         extensions=_SCHEMA_EXTENSIONS,
@@ -557,7 +557,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         return self._object_rules_response(team, membership=membership)
 
     @extend_schema(
-        description="Property rules configured for one member: the person and event properties the member can "
+        description="Property rules configured for a member: the person and event properties the member can "
         "read, read and write, or not see.",
         parameters=[_MEMBER_ID_PARAM],
         responses={200: AccessControlPropertyRulesResponseSerializer},
@@ -571,7 +571,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         return self._property_rules_response(team, organization_member=membership)
 
     @extend_schema(
-        description="Object rules configured for one role: the single objects the role's members are granted or "
+        description="Object rules configured for a role: the single objects the role's members are granted or "
         "denied, regardless of the resource-level rules.",
         parameters=[_ROLE_ID_PARAM],
         responses={200: AccessControlObjectRulesResponseSerializer},
@@ -585,7 +585,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         return self._object_rules_response(team, role=role)
 
     @extend_schema(
-        description="Property rules configured for one role: the person and event properties the role's members "
+        description="Property rules configured for a role: the person and event properties the role's members "
         "can read, read and write, or not see.",
         parameters=[_ROLE_ID_PARAM],
         responses={200: AccessControlPropertyRulesResponseSerializer},

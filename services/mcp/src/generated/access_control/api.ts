@@ -9,7 +9,7 @@
 import * as zod from 'zod'
 
 /**
- * Object rules that apply to everyone without a rule of their own on that object.
+ * Object rules that apply to everyone in the project without a rule of their own on that object.
  */
 export const organizationsProjectsAccessControlDefaultObjectsRetrievePathIdMin = -2147483648
 export const organizationsProjectsAccessControlDefaultObjectsRetrievePathIdMax = 2147483647
@@ -28,7 +28,7 @@ export const OrganizationsProjectsAccessControlDefaultObjectsRetrieveParams = ()
 })
 
 /**
- * Property rules that apply to everyone without a rule of their own on that property.
+ * Property rules that apply to everyone in the project without a rule of their own on that property.
  */
 export const organizationsProjectsAccessControlDefaultPropertiesRetrievePathIdMin = -2147483648
 export const organizationsProjectsAccessControlDefaultPropertiesRetrievePathIdMax = 2147483647
@@ -66,7 +66,7 @@ export const OrganizationsProjectsAccessControlDefaultsRetrieveParams = () => zo
 })
 
 /**
- * Object rules configured for one member: the dashboards, insights, notebooks and other single objects the member is granted or denied, regardless of the resource-level rules.
+ * Object rules configured for a member: the single objects, for example a dashboard or a notebook, the member is granted or denied, regardless of the resource-level rules.
  */
 export const organizationsProjectsAccessControlMemberObjectsRetrievePathIdMin = -2147483648
 export const organizationsProjectsAccessControlMemberObjectsRetrievePathIdMax = 2147483647
@@ -91,7 +91,7 @@ export const OrganizationsProjectsAccessControlMemberObjectsRetrieveQueryParams 
 })
 
 /**
- * Property rules configured for one member: the person and event properties the member can read, read and write, or not see.
+ * Property rules configured for a member: the person and event properties the member can read, read and write, or not see.
  */
 export const organizationsProjectsAccessControlMemberPropertiesRetrievePathIdMin = -2147483648
 export const organizationsProjectsAccessControlMemberPropertiesRetrievePathIdMax = 2147483647
@@ -116,7 +116,7 @@ export const OrganizationsProjectsAccessControlMemberPropertiesRetrieveQueryPara
 })
 
 /**
- * Every organization member's access in this project. For the project and for each resource type, the response gives the member's own rule and the level that is enforced. It also says where the enforced level comes from: the member's rule, a role's rule, the project default, or the org admin bypass. Pass `member_id` for one member.
+ * Every organization member's access in this project. For the project and for each resource type, the response gives the member's own rule and the level that is enforced. It also says where the enforced level comes from: the member's rule, a role's rule, the project default, or full access as an organization admin. Pass `member_id` for one member.
  */
 export const organizationsProjectsAccessControlMembersRetrievePathIdMin = -2147483648
 export const organizationsProjectsAccessControlMembersRetrievePathIdMax = 2147483647
@@ -139,7 +139,7 @@ export const OrganizationsProjectsAccessControlMembersRetrieveQueryParams = () =
 })
 
 /**
- * Object rules configured for one role: the single objects the role's members are granted or denied, regardless of the resource-level rules.
+ * Object rules configured for a role: the single objects the role's members are granted or denied, regardless of the resource-level rules.
  */
 export const organizationsProjectsAccessControlRoleObjectsRetrievePathIdMin = -2147483648
 export const organizationsProjectsAccessControlRoleObjectsRetrievePathIdMax = 2147483647
@@ -162,7 +162,7 @@ export const OrganizationsProjectsAccessControlRoleObjectsRetrieveQueryParams = 
 })
 
 /**
- * Property rules configured for one role: the person and event properties the role's members can read, read and write, or not see.
+ * Property rules configured for a role: the person and event properties the role's members can read, read and write, or not see.
  */
 export const organizationsProjectsAccessControlRolePropertiesRetrievePathIdMin = -2147483648
 export const organizationsProjectsAccessControlRolePropertiesRetrievePathIdMax = 2147483647

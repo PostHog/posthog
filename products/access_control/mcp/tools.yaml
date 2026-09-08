@@ -21,8 +21,8 @@ tools:
             idempotent: true
         title: List the project's object-level default rules
         description: >
-            Rules on single objects (for example a dashboard, a notebook or a warehouse table) that apply to everyone
-            without a rule of their own on that object. Each rule names the object and the level it sets.
+            Rules on single objects (for example a dashboard, a notebook or a warehouse table) that apply to everyone in
+            the project without a rule of their own on that object. Each rule names the object and the level it sets.
         param_overrides:
             id:
                 description: |
@@ -41,7 +41,7 @@ tools:
             idempotent: true
         title: List the project's property default rules
         description: >
-            Property rules that apply to everyone without a rule of their own on that property: which person and event
+            Property rules that apply to everyone in the project without a rule of their own on that property: which person and event
             properties are hidden (`none`), read-only (`read`), or open (`read_write`). Every property is `read_write`
             unless a rule says otherwise.
         param_overrides:
@@ -89,11 +89,12 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: List one member's object-level rules
+        title: List a member's object-level rules
         description: >
-            The one-off rules configured for one member on single objects, for example a dashboard, a notebook or a
+            The rules configured for a member on single objects, for example a dashboard, a notebook or a
             warehouse table they are given access to, or blocked from, regardless of their tool-level access. Only the
-            member's own rules are returned. An empty list means no member-specific object rules, not no access.
+            member's own rules are returned. An empty list means the member has no object rules of their own. Their
+            tool-level access still applies.
         agent_note: >
             The member's tool-level access is on access-control-members-list. Object rules from the member's roles are
             on access-control-role-objects-list, one call per role from role-members-list.
@@ -116,14 +117,14 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: List one member's property rules
+        title: List a member's property rules
         description: >
-            The property rules configured for one member: which person and event properties they cannot see (`none`),
+            The property rules configured for a member: which person and event properties they cannot see (`none`),
             can only read (`read`), or can read and write (`read_write`). Every property is `read_write` unless a rule
             says otherwise. Only the member's own rules are returned.
         agent_note: >
             Property rules from the member's roles are on access-control-role-properties-list, one call per role from
-            role-members-list. Rules for everyone are on access-control-default-properties-list.
+            role-members-list. Rules for everyone in the project are on access-control-default-properties-list.
         param_overrides:
             id:
                 description: |
@@ -155,7 +156,7 @@ tools:
             (dashboards, insights, feature flags, and so on). Per entry, `access_level` is the member's own stored rule
             (null when none), `effective_access_level` is what is enforced, and `inherited_access` says where that
             level comes from when it is not the member's own rule: `source_subject` is `role` or `default`, and
-            `source` is `org_admin` when the member's organization level bypasses every rule. Pass `member_id` (an
+            `source` is `org_admin` when the member is an organization admin with full access to everything. Pass `member_id` (an
             `organization_membership_id`, from this tool or org-members-list) for one member. The
             checking-member-access skill explains how the levels combine.
         agent_note: >
@@ -181,9 +182,9 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: List one role's object-level rules
+        title: List a role's object-level rules
         description: >
-            The rules configured for one role on single objects, for example a dashboard, a notebook or a warehouse
+            The rules configured for a role on single objects, for example a dashboard, a notebook or a warehouse
             table the role's members are given access to, or blocked from, regardless of their tool-level access.
         param_overrides:
             id:
@@ -204,9 +205,9 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: List one role's property rules
+        title: List a role's property rules
         description: >
-            The property rules configured for one role: which person and event properties the role's members cannot see
+            The property rules configured for a role: which person and event properties the role's members cannot see
             (`none`), can only read (`read`), or can read and write (`read_write`).
         param_overrides:
             id:

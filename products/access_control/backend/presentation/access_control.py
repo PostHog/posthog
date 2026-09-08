@@ -81,12 +81,13 @@ class ResolvedAccessSerializer(serializers.Serializer):
     source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
         choices=ResolvedAccessSource.choices,
         help_text="How the level was derived: a rule on the object, its parent object, the resource, the parent "
-        "resource, the built-in default, or one of the bypasses (org admin, creator, organization membership).",
+        "resource, the PostHog default, an organization admin's or a creator's full access, or organization "
+        "membership when the object is the organization itself.",
     )
     source_subject = serializers.ChoiceField(
         choices=ResolvedAccessSourceSubject.choices,
         allow_null=True,
-        help_text="Whose rule decided: a member's own, a role's, or the default for everyone. Null when no rule did.",
+        help_text="Whose rule decided: a member's own, a role's, or the default for everyone in the project. Null when no rule did.",
     )
     source_resource = serializers.CharField(help_text="The resource the deciding rule belongs to.")
     source_resource_id = serializers.CharField(

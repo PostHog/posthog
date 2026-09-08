@@ -189,7 +189,7 @@ const accessControlMemberPropertiesList = (): ToolBase<
         })
         return withAgentNote(
             await withPostHogUrl(context, result, '/settings/environment-access-control'),
-            "Property rules from the member's roles are on access-control-role-properties-list, one call per role from role-members-list. Rules for everyone are on access-control-default-properties-list.\n"
+            "Property rules from the member's roles are on access-control-role-properties-list, one call per role from role-members-list. Rules for everyone in the project are on access-control-default-properties-list.\n"
         )
     },
 })

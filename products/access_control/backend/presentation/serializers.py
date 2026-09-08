@@ -139,12 +139,12 @@ class SubjectAccessEntrySerializer(serializers.Serializer):
     effective_access_level = serializers.CharField(
         allow_null=True,
         help_text="The level that is enforced for the subject after defaults, roles and bypasses are resolved. "
-        "Null when nothing resolves, for example a resource the organization is not entitled to.",
+        "Null when nothing resolves for this scope.",
     )
     inherited_access = ResolvedAccessSerializer(
         allow_null=True,
         help_text="The level the subject falls back to without a rule of its own, with the rule that supplies it. "
-        "Read `source` and `source_subject` to tell a role rule from the project default or an org-admin bypass.",
+        "Read `source` and `source_subject` to tell a role rule from the project default, or an organization admin's full access.",
     )
     minimum = serializers.CharField(help_text="The lowest level this scope allows.")
     maximum = serializers.CharField(help_text="The highest level this scope allows.")
@@ -166,7 +166,7 @@ class AccessControlMemberAccessSerializer(serializers.Serializer):
     user = AccessControlMemberUserSerializer(help_text="The member's identity.")
     organization_level = serializers.ChoiceField(
         choices=OrganizationMembership.Level.choices,
-        help_text="The member's organization level: 1 member, 8 admin, 15 owner. Admins and owners bypass every rule.",
+        help_text="The member's organization level: 1 member, 8 admin, 15 owner. Admins and owners have full access to everything.",
     )
     project = SubjectAccessEntrySerializer(help_text="Access to the project itself.")
     resources = serializers.DictField(
@@ -210,7 +210,7 @@ class AccessControlRolesResponseSerializer(_AccessControlSettingsResponseSeriali
 class AccessControlResourceDefaultSerializer(serializers.Serializer):
     access_level = serializers.CharField(
         allow_null=True,
-        help_text="The stored default level for this resource type. Null when the built-in default applies.",
+        help_text="The stored default level for this resource type. Null when the PostHog default applies.",
     )
     minimum = serializers.CharField(help_text="The lowest level this resource type allows.")
     maximum = serializers.CharField(help_text="The highest level this resource type allows.")

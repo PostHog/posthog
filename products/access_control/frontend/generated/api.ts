@@ -32,7 +32,7 @@ export const getOrganizationsProjectsAccessControlDefaultObjectsRetrieveUrl = (o
 }
 
 /**
- * Object rules that apply to everyone without a rule of their own on that object.
+ * Object rules that apply to everyone in the project without a rule of their own on that object.
  */
 export const organizationsProjectsAccessControlDefaultObjectsRetrieve = async (
     organizationId: string,
@@ -56,7 +56,7 @@ export const getOrganizationsProjectsAccessControlDefaultPropertiesRetrieveUrl =
 }
 
 /**
- * Property rules that apply to everyone without a rule of their own on that property.
+ * Property rules that apply to everyone in the project without a rule of their own on that property.
  */
 export const organizationsProjectsAccessControlDefaultPropertiesRetrieve = async (
     organizationId: string,
@@ -114,7 +114,7 @@ export const getOrganizationsProjectsAccessControlMemberObjectsRetrieveUrl = (
 }
 
 /**
- * Object rules configured for one member: the dashboards, insights, notebooks and other single objects the member is granted or denied, regardless of the resource-level rules.
+ * Object rules configured for a member: the single objects, for example a dashboard or a notebook, the member is granted or denied, regardless of the resource-level rules.
  */
 export const organizationsProjectsAccessControlMemberObjectsRetrieve = async (
     organizationId: string,
@@ -152,7 +152,7 @@ export const getOrganizationsProjectsAccessControlMemberPropertiesRetrieveUrl = 
 }
 
 /**
- * Property rules configured for one member: the person and event properties the member can read, read and write, or not see.
+ * Property rules configured for a member: the person and event properties the member can read, read and write, or not see.
  */
 export const organizationsProjectsAccessControlMemberPropertiesRetrieve = async (
     organizationId: string,
@@ -190,7 +190,7 @@ export const getOrganizationsProjectsAccessControlMembersRetrieveUrl = (
 }
 
 /**
- * Every organization member's access in this project. For the project and for each resource type, the response gives the member's own rule and the level that is enforced. It also says where the enforced level comes from: the member's rule, a role's rule, the project default, or the org admin bypass. Pass `member_id` for one member.
+ * Every organization member's access in this project. For the project and for each resource type, the response gives the member's own rule and the level that is enforced. It also says where the enforced level comes from: the member's rule, a role's rule, the project default, or full access as an organization admin. Pass `member_id` for one member.
  */
 export const organizationsProjectsAccessControlMembersRetrieve = async (
     organizationId: string,
@@ -228,7 +228,7 @@ export const getOrganizationsProjectsAccessControlRoleObjectsRetrieveUrl = (
 }
 
 /**
- * Object rules configured for one role: the single objects the role's members are granted or denied, regardless of the resource-level rules.
+ * Object rules configured for a role: the single objects the role's members are granted or denied, regardless of the resource-level rules.
  */
 export const organizationsProjectsAccessControlRoleObjectsRetrieve = async (
     organizationId: string,
@@ -266,7 +266,7 @@ export const getOrganizationsProjectsAccessControlRolePropertiesRetrieveUrl = (
 }
 
 /**
- * Property rules configured for one role: the person and event properties the role's members can read, read and write, or not see.
+ * Property rules configured for a role: the person and event properties the role's members can read, read and write, or not see.
  */
 export const organizationsProjectsAccessControlRolePropertiesRetrieve = async (
     organizationId: string,
