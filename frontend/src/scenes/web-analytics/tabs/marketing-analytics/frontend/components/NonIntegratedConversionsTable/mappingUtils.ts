@@ -291,3 +291,23 @@ export function getAutoMatchedCampaigns(
 
     return matches
 }
+
+export enum MappableColumn {
+    Source = 'source',
+    Campaign = 'campaign',
+}
+
+// The backend substitutes this label when traffic carries no utm_source or utm_campaign, so it
+// names an absence rather than a value someone tagged. Saving a mapping for it would rewrite every
+// untagged session as that ad platform. Keep it in step with ORGANIC_SOURCE / ORGANIC_CAMPAIGN.
+const ORGANIC_LABEL = 'organic'
+
+export function getMappableColumn(columnName: string): MappableColumn | null {
+    const normalized = columnName.toLowerCase()
+    return Object.values(MappableColumn).find((column) => column === normalized) ?? null
+}
+
+export function isMappableValue(value: unknown): boolean {
+    const utmValue = extractStringValue(value)
+    return !!utmValue && utmValue.toLowerCase() !== ORGANIC_LABEL
+}
