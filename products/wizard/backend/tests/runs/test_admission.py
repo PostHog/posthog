@@ -18,6 +18,7 @@ from products.wizard.backend.facade.errors import (
 from products.wizard.backend.logic.programs import program_to_mapping
 from products.wizard.backend.logic.registry.config import POSTHOG_INTEGRATION_PROGRAM
 from products.wizard.backend.logic.runs.admission import enforce_cloud_run_creation_policy
+from products.wizard.backend.logic.runs.config import CLOUD_RUN_DAILY_LIMIT, CLOUD_RUN_HOURLY_LIMIT
 from products.wizard.backend.models import WizardRun
 
 
@@ -46,7 +47,9 @@ def test_cloud_admission_rejects_an_active_run(team, user) -> None:
 
 @pytest.mark.django_db
 def test_cloud_admission_limits_hourly_runs(team, user) -> None:
-    _create_cloud_run(team.id, user.id, WizardRunStatus.COMPLETED, timedelta(minutes=10))
+    for _ in range(CLOUD_RUN_HOURLY_LIMIT - 1):
+        _create_cloud_run(team.id, user.id, WizardRunStatus.COMPLETED, timedelta(minutes=10))
+    enforce_cloud_run_creation_policy(team.id, user.id)
     _create_cloud_run(team.id, user.id, WizardRunStatus.FAILED, timedelta(minutes=20))
 
     with pytest.raises(WizardRunHourlyLimitError):
@@ -55,8 +58,10 @@ def test_cloud_admission_limits_hourly_runs(team, user) -> None:
 
 @pytest.mark.django_db
 def test_cloud_admission_limits_daily_runs(team, user) -> None:
-    for hours in (2, 3, 4, 5, 6):
-        _create_cloud_run(team.id, user.id, WizardRunStatus.COMPLETED, timedelta(hours=hours))
+    for _ in range(CLOUD_RUN_DAILY_LIMIT - 1):
+        _create_cloud_run(team.id, user.id, WizardRunStatus.COMPLETED, timedelta(hours=2))
+    enforce_cloud_run_creation_policy(team.id, user.id)
+    _create_cloud_run(team.id, user.id, WizardRunStatus.COMPLETED, timedelta(hours=2))
 
     with pytest.raises(WizardRunDailyLimitError):
         enforce_cloud_run_creation_policy(team.id, user.id)

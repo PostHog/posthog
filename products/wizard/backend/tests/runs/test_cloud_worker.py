@@ -384,7 +384,7 @@ def test_git_repository_handoff_captures_diff_and_publishes_pull_request(
         integration_id=request.github_integration_id,
         repository=request.repository,
         head_branch=branch,
-        title="Set up PostHog",
+        title="Instrument application with PostHog",
         body="# Setup report\n\nAll done.",
         source="wizard",
     )

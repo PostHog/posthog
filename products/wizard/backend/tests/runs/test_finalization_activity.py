@@ -7,7 +7,7 @@ from temporalio.testing import ActivityEnvironment
 from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.contracts import CreateWizardRunInput, GitRepositoryWorkspace, LocalFolderWorkspace
 from products.wizard.backend.facade.enums import WizardRunEnvironment, WizardRunErrorCode, WizardRunStatus
-from products.wizard.backend.temporal.activities.lifecycle import finalize_run
+from products.wizard.backend.temporal.activities.lifecycle import finalize_run, transition_cloud_run
 from products.wizard.backend.temporal.contracts import WizardRunFinalizationActivityInput
 
 
@@ -96,14 +96,16 @@ def test_finalize_run_preserves_user_cancellation(
     wizard_facade.update_run_status(team.id, run.id, WizardRunStatus.RUNNING)
     wizard_facade.update_run_status(team.id, run.id, WizardRunStatus.CANCELLED)
 
-    input = WizardRunFinalizationActivityInput(
-        team_id=team.id,
-        run_id=run.id,
-        status=finalizer_status,
-        error_code=finalizer_error_code,
-    )
-
-    async_to_sync(_run_activity)(input)
+    if finalizer_status == WizardRunStatus.COMPLETED:
+        transition_cloud_run(team.id, run.id, finalizer_status, error_code=finalizer_error_code)
+    else:
+        input = WizardRunFinalizationActivityInput(
+            team_id=team.id,
+            run_id=run.id,
+            status=finalizer_status,
+            error_code=finalizer_error_code,
+        )
+        async_to_sync(_run_activity)(input)
 
     persisted = wizard_facade.get_run(team.id, run.id)
     assert persisted.status == WizardRunStatus.CANCELLED
