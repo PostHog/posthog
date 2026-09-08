@@ -93,7 +93,7 @@ class HeadGrade:
     # nothing the inbox could not do by sorting on age.
     recency_auc: float | None
 
-    def metrics(self) -> dict[str, float | None]:
+    def metrics(self) -> dict[str, int | float | None]:
         return {
             "rows": self.rows,
             "positives": self.positives,
