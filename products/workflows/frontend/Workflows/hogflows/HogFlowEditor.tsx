@@ -142,7 +142,9 @@ export function HogFlowEditor({ isTreeView }: { isTreeView: boolean }): JSX.Elem
         <BindLogic logic={hogFlowEditorLogic} props={logicProps}>
             <HogFlowBranchSelectionProvider>
                 {isTreeView ? (
-                    <HogFlowTreeEditorContent />
+                    <ReactFlowProvider>
+                        <HogFlowTreeEditorContent />
+                    </ReactFlowProvider>
                 ) : (
                     <ReactFlowProvider>
                         <HogFlowGraphEditor />
