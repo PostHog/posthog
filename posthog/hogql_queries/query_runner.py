@@ -214,6 +214,12 @@ API_QUERIES_BUDGET_LIMITED_COUNTER = Counter(
     labelnames=["outcome"],  # observed | enforced
 )
 
+API_QUERIES_BUDGET_BALANCE_HISTOGRAM = Histogram(
+    "posthog_api_queries_budget_balance_bytes",
+    "Balance of the team's hourly api queries read budget at each admission check. Negative is debt.",
+    buckets=[-1e11, -1e10, -1e9, -1e8, 0, 1e8, 1e9, 1e10, 1e11, 1e12],
+)
+
 
 def _contains_user_hogql_label() -> str:
     # Read the tag set by `tag_contains_user_hogql()` at HogQL parse sites; lets
@@ -2537,7 +2543,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         then an exhausted budget is a 429. The query that crosses the line still runs in full,
         since the budget is debited after the query and the next request is the one refused."""
         status = get_api_queries_budget_status(self.team)
-        if status is None or status.remaining_bytes > 0:
+        if status is None:
+            return
+        API_QUERIES_BUDGET_BALANCE_HISTOGRAM.observe(status.remaining_bytes)
+        if status.remaining_bytes > 0:
             return
         enforced = _api_queries_budget_enforcement_enabled(self.team)
         outcome = "enforced" if enforced else "observed"

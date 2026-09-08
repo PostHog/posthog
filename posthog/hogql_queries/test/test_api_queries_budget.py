@@ -11,7 +11,11 @@ from posthog.schema import HogQLQuery
 from posthog.api_queries_budget import budget_spec_for, debit, refill_and_read
 from posthog.exceptions import APIQueriesBudgetExceeded
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
-from posthog.hogql_queries.query_runner import API_QUERIES_BUDGET_LIMITED_COUNTER, get_api_queries_budget_status
+from posthog.hogql_queries.query_runner import (
+    API_QUERIES_BUDGET_BALANCE_HISTOGRAM,
+    API_QUERIES_BUDGET_LIMITED_COUNTER,
+    get_api_queries_budget_status,
+)
 
 
 @override_settings(API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR=3600, API_QUERIES_BUDGET_CAPACITY_HOURS=1)
@@ -62,9 +66,11 @@ class TestApiQueriesBudgetEnforcement(BaseTest):
     def test_under_budget_admits_without_touching_the_counter_even_when_enforced(self):
         refill_and_read(str(self.team.pk), budget_spec_for(self.organization))
         before = API_QUERIES_BUDGET_LIMITED_COUNTER.labels(outcome="enforced")._value.get()
+        checks_before = sum(bucket.get() for bucket in API_QUERIES_BUDGET_BALANCE_HISTOGRAM._buckets)
         with patch("posthog.hogql_queries.query_runner._api_queries_budget_enforcement_enabled", return_value=True):
             self._runner()._enforce_api_queries_budget()
         assert API_QUERIES_BUDGET_LIMITED_COUNTER.labels(outcome="enforced")._value.get() == before
+        assert sum(bucket.get() for bucket in API_QUERIES_BUDGET_BALANCE_HISTOGRAM._buckets) == checks_before + 1
 
     def test_flag_service_error_fails_open_to_observe(self):
         self._drain()
