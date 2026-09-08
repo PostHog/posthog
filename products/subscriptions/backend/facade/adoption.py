@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from django.utils import timezone
+
 from products.experiments.backend.facade import get_pulse_experiment_lifecycle
 from products.subscriptions.backend.models import ProactivePreparedArtifact
 from products.tasks.backend.facade.draft_publication import get_draft_publication_lifecycle
@@ -27,13 +29,14 @@ def reconcile_prepared_artifact(*, team_id: int, artifact_id: UUID) -> None:
 
 
 def _reconcile_draft_pr(*, artifact: ProactivePreparedArtifact) -> None:
-    if artifact.task_publication_id is None:
+    binding = _draft_publication_binding(artifact=artifact)
+    if binding is None:
         return
 
     lifecycle = get_draft_publication_lifecycle(
         team_id=artifact.team_id,
-        caller_id=artifact.run.delivery_id,
-        publication_id=artifact.task_publication_id,
+        caller_id=binding.caller_id,
+        publication_id=binding.publication_id,
     )
     candidate = ProactivePreparedArtifact.objects.for_team(artifact.team_id).filter(
         id=artifact.id,
@@ -49,10 +52,14 @@ def _reconcile_draft_pr(*, artifact: ProactivePreparedArtifact) -> None:
             status=ProactivePreparedArtifact.Status.ADOPTED,
             adoption_source=ProactivePreparedArtifact.AdoptionSource.DRAFT_PR_MERGED,
             adopted_at=lifecycle.merged_at,
+            updated_at=timezone.now(),
         )
-    elif lifecycle.remote_state == "open":
+    elif binding.is_own_publication and lifecycle.remote_state == "open":
         candidate.filter(status=ProactivePreparedArtifact.Status.PREPARING).update(
             status=ProactivePreparedArtifact.Status.PREPARED,
+            url=lifecycle.pr_url,
+            prepared_at=timezone.now(),
+            updated_at=timezone.now(),
         )
 
 
@@ -76,4 +83,42 @@ def _reconcile_experiment_draft(*, artifact: ProactivePreparedArtifact) -> None:
         status=ProactivePreparedArtifact.Status.ADOPTED,
         adoption_source=ProactivePreparedArtifact.AdoptionSource.EXPERIMENT_ACTIVATED,
         adopted_at=lifecycle.start_date,
+        updated_at=timezone.now(),
+    )
+
+
+class _DraftPublicationBinding:
+    def __init__(self, *, publication_id: UUID, caller_id: UUID, is_own_publication: bool) -> None:
+        self.publication_id = publication_id
+        self.caller_id = caller_id
+        self.is_own_publication = is_own_publication
+
+
+def _draft_publication_binding(*, artifact: ProactivePreparedArtifact) -> _DraftPublicationBinding | None:
+    if artifact.task_publication_id is not None:
+        return _DraftPublicationBinding(
+            publication_id=artifact.task_publication_id,
+            caller_id=artifact.run.delivery_id,
+            is_own_publication=True,
+        )
+    if artifact.prior_artifact_id is None:
+        return None
+
+    prior = (
+        ProactivePreparedArtifact.objects.for_team(artifact.team_id)
+        .select_related("run")
+        .filter(
+            id=artifact.prior_artifact_id,
+            kind=ProactivePreparedArtifact.Kind.DRAFT_PR,
+            task_publication_id__isnull=False,
+        )
+        .first()
+    )
+    if prior is None or prior.id == artifact.id or prior.created_at >= artifact.created_at:
+        return None
+    assert prior.task_publication_id is not None
+    return _DraftPublicationBinding(
+        publication_id=prior.task_publication_id,
+        caller_id=prior.run.delivery_id,
+        is_own_publication=False,
     )

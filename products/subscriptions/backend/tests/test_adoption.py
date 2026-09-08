@@ -43,6 +43,7 @@ def create_artifact(
     status: str = ProactivePreparedArtifact.Status.PREPARING,
     task_publication_id: UUID | None = None,
     experiment_id: int | None = None,
+    prior_artifact: ProactivePreparedArtifact | None = None,
 ) -> ProactivePreparedArtifact:
     run = ProactiveRecommendationRun.objects.for_team(team.id).create(
         team_id=team.id,
@@ -70,6 +71,7 @@ def create_artifact(
         input_hash="d" * 64,
         task_publication_id=task_publication_id,
         experiment_id=experiment_id,
+        prior_artifact=prior_artifact,
     )
 
 
@@ -108,16 +110,17 @@ def test_artifact_adoption_source_rejects_unknown_value(team) -> None:
 
 @pytest.mark.django_db
 def test_reconcile_preparing_pr_promotes_an_authoritatively_open_pr(team, monkeypatch) -> None:
+    publication_id = uuid4()
     artifact = create_artifact(
         team,
         kind=ProactivePreparedArtifact.Kind.DRAFT_PR,
-        task_publication_id=uuid4(),
+        task_publication_id=publication_id,
     )
     monkeypatch.setattr(
         adoption,
         "get_draft_publication_lifecycle",
         lambda **_kwargs: DraftPublicationLifecycleResult(
-            publication_id=artifact.task_publication_id,
+            publication_id=publication_id,
             local_status="published",
             remote_state="open",
             pr_number=1,
@@ -129,17 +132,20 @@ def test_reconcile_preparing_pr_promotes_an_authoritatively_open_pr(team, monkey
 
     artifact.refresh_from_db()
     assert artifact.status == ProactivePreparedArtifact.Status.PREPARED
+    assert artifact.url == "https://github.com/example/repository/pull/1"
+    assert artifact.prepared_at is not None
     assert artifact.adoption_source is None
     assert artifact.adopted_at is None
 
 
 @pytest.mark.django_db
 def test_reconcile_merged_pr_preserves_the_first_authoritative_timestamp(team, monkeypatch) -> None:
+    publication_id = uuid4()
     artifact = create_artifact(
         team,
         kind=ProactivePreparedArtifact.Kind.DRAFT_PR,
         status=ProactivePreparedArtifact.Status.PREPARED,
-        task_publication_id=uuid4(),
+        task_publication_id=publication_id,
     )
     merged_at = timezone.now() - timedelta(hours=1)
 
@@ -147,7 +153,7 @@ def test_reconcile_merged_pr_preserves_the_first_authoritative_timestamp(team, m
         adoption,
         "get_draft_publication_lifecycle",
         lambda **_kwargs: DraftPublicationLifecycleResult(
-            publication_id=artifact.task_publication_id,
+            publication_id=publication_id,
             local_status="published",
             remote_state="merged",
             pr_number=1,
@@ -162,7 +168,7 @@ def test_reconcile_merged_pr_preserves_the_first_authoritative_timestamp(team, m
         adoption,
         "get_draft_publication_lifecycle",
         lambda **_kwargs: DraftPublicationLifecycleResult(
-            publication_id=artifact.task_publication_id,
+            publication_id=publication_id,
             local_status="published",
             remote_state="merged",
             pr_number=1,
@@ -205,6 +211,78 @@ def test_reconcile_activated_experiment_records_start_date_as_adoption_timestamp
 
 
 @pytest.mark.django_db
+def test_reconcile_linked_prior_pr_adopts_from_the_prior_exact_lifecycle(team, monkeypatch) -> None:
+    prior = create_artifact(
+        team,
+        kind=ProactivePreparedArtifact.Kind.DRAFT_PR,
+        status=ProactivePreparedArtifact.Status.PREPARED,
+        task_publication_id=uuid4(),
+    )
+    linked = create_artifact(
+        team,
+        kind=ProactivePreparedArtifact.Kind.DRAFT_PR,
+        status=ProactivePreparedArtifact.Status.PREPARED,
+        prior_artifact=prior,
+    )
+    merged_at = timezone.now() - timedelta(minutes=5)
+
+    def lifecycle(*, team_id: int, caller_id: UUID, publication_id: UUID) -> DraftPublicationLifecycleResult:
+        assert team_id == team.id
+        assert caller_id == prior.run.delivery_id
+        assert publication_id == prior.task_publication_id
+        return DraftPublicationLifecycleResult(
+            publication_id=publication_id,
+            local_status="published",
+            remote_state="merged",
+            pr_number=1,
+            pr_url="https://github.com/example/repository/pull/1",
+            merged_at=merged_at,
+        )
+
+    monkeypatch.setattr(adoption, "get_draft_publication_lifecycle", lifecycle)
+
+    adoption.reconcile_prepared_artifact(team_id=team.id, artifact_id=linked.id)
+
+    linked.refresh_from_db()
+    assert linked.status == ProactivePreparedArtifact.Status.ADOPTED
+    assert linked.adoption_source == ProactivePreparedArtifact.AdoptionSource.DRAFT_PR_MERGED
+    assert linked.adopted_at == merged_at
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("relation", ["cross_team", "self"])
+def test_reconcile_corrupt_prior_pr_relation_confers_no_authority(team, monkeypatch, relation) -> None:
+    linked = create_artifact(
+        team,
+        kind=ProactivePreparedArtifact.Kind.DRAFT_PR,
+        status=ProactivePreparedArtifact.Status.PREPARED,
+    )
+    if relation == "cross_team":
+        other_team = Team.objects.create(organization=team.organization, name="Other team")
+        prior = create_artifact(
+            other_team,
+            kind=ProactivePreparedArtifact.Kind.DRAFT_PR,
+            status=ProactivePreparedArtifact.Status.PREPARED,
+            task_publication_id=uuid4(),
+        )
+        prior_id = prior.id
+    else:
+        prior_id = linked.id
+    ProactivePreparedArtifact.objects.for_team(team.id).filter(id=linked.id).update(prior_artifact_id=prior_id)
+    monkeypatch.setattr(
+        adoption,
+        "get_draft_publication_lifecycle",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("corrupt relation must not read lifecycle")),
+    )
+
+    adoption.reconcile_prepared_artifact(team_id=team.id, artifact_id=linked.id)
+
+    linked.refresh_from_db()
+    assert linked.status == ProactivePreparedArtifact.Status.PREPARED
+    assert linked.adopted_at is None
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     ("remote_state", "merged_at"),
     [
@@ -214,17 +292,18 @@ def test_reconcile_activated_experiment_records_start_date_as_adoption_timestamp
     ],
 )
 def test_reconcile_non_adoption_pr_lifecycle_is_a_noop(team, monkeypatch, remote_state, merged_at) -> None:
+    publication_id = uuid4()
     artifact = create_artifact(
         team,
         kind=ProactivePreparedArtifact.Kind.DRAFT_PR,
         status=ProactivePreparedArtifact.Status.PREPARED,
-        task_publication_id=uuid4(),
+        task_publication_id=publication_id,
     )
     monkeypatch.setattr(
         adoption,
         "get_draft_publication_lifecycle",
         lambda **_kwargs: DraftPublicationLifecycleResult(
-            publication_id=artifact.task_publication_id,
+            publication_id=publication_id,
             local_status="published",
             remote_state=remote_state,
             pr_number=1,
@@ -242,7 +321,7 @@ def test_reconcile_non_adoption_pr_lifecycle_is_a_noop(team, monkeypatch, remote
 
 
 @pytest.mark.django_db
-def test_reconciliation_task_has_a_bounded_stable_cross_team_batch(team, monkeypatch) -> None:
+def test_reconciliation_task_rotates_a_bounded_cross_team_batch(team, monkeypatch) -> None:
     other_team = Team.objects.create(organization=team.organization, name="Other team")
     created: list[ProactivePreparedArtifact] = []
     for index in range(adoption_reconciliation._ADOPTION_RECONCILIATION_BATCH_SIZE + 1):
@@ -253,7 +332,8 @@ def test_reconciliation_task_has_a_bounded_stable_cross_team_batch(team, monkeyp
             experiment_id=index + 1,
         )
         ProactivePreparedArtifact.objects.for_team(owner.id).filter(id=artifact.id).update(
-            created_at=timezone.now() + timedelta(seconds=index)
+            updated_at=timezone.now()
+            - timedelta(seconds=adoption_reconciliation._ADOPTION_RECONCILIATION_BATCH_SIZE - index)
         )
         created.append(artifact)
 
@@ -269,14 +349,20 @@ def test_reconciliation_task_has_a_bounded_stable_cross_team_batch(team, monkeyp
     assert seen == [(artifact.team_id, artifact.id) for artifact in created[:-1]]
     assert {team_id for team_id, _artifact_id in seen} == {team.id, other_team.id}
 
+    seen.clear()
+    subscription_tasks.reconcile_proactive_artifact_adoptions.run()
+
+    assert seen[0] == (created[-1].team_id, created[-1].id)
+
 
 @pytest.mark.django_db
 def test_reconciliation_task_continues_after_one_artifact_failure(team, monkeypatch) -> None:
     first = create_artifact(team, status=ProactivePreparedArtifact.Status.PREPARED, experiment_id=1)
     second = create_artifact(team, status=ProactivePreparedArtifact.Status.PREPARED, experiment_id=2)
-    ProactivePreparedArtifact.objects.for_team(team.id).filter(id=first.id).update(created_at=timezone.now())
+    first_updated_at = timezone.now() - timedelta(minutes=2)
+    ProactivePreparedArtifact.objects.for_team(team.id).filter(id=first.id).update(updated_at=first_updated_at)
     ProactivePreparedArtifact.objects.for_team(team.id).filter(id=second.id).update(
-        created_at=timezone.now() + timedelta(seconds=1)
+        updated_at=first_updated_at + timedelta(seconds=1)
     )
     seen: list[UUID] = []
 
@@ -291,3 +377,5 @@ def test_reconciliation_task_continues_after_one_artifact_failure(team, monkeypa
     adoption_reconciliation.reconcile_proactive_artifact_adoptions_batch()
 
     assert seen == [second.id]
+    first.refresh_from_db()
+    assert first.updated_at > first_updated_at
