@@ -14,6 +14,8 @@ from posthog.clickhouse.client import sync_execute
 from posthog.helpers.batch_iterators import FunctionBatchIterator
 from posthog.models import Person, Team
 from posthog.models.person.util import get_person_by_id
+from posthog.personhog_client.fake_client import get_active_fake
+from posthog.personhog_client.proto import CONSISTENCY_LEVEL_STRONG
 from posthog.tasks.calculate_cohort import calculate_cohort_from_list
 from posthog.test.persons import add_cohort_members, create_person
 
@@ -553,6 +555,8 @@ class TestCohort(BaseTest):
             {"team_id": self.team.id, "cohort_id": cohort.pk},
         )
         assert {str(row[0]) for row in ch_rows} == {str(p.uuid) for p in persons}
+        for call in get_active_fake().assert_called("list_cohort_member_ids"):
+            assert call.request.read_options.consistency == CONSISTENCY_LEVEL_STRONG
 
     def test_insert_users_list_by_id_uuid_pairs_skip_validation(self):
         persons = [create_person(team=self.team) for _ in range(5)]

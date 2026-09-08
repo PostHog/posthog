@@ -1229,7 +1229,7 @@ def insert_cohort_people_into_ch(cohort: Cohort, *, team_id: int) -> int:
 
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, cohort_id=cohort.pk, team_id=team_id)
 
-    person_ids = list_cohort_member_ids(team_id, cohort.pk)
+    person_ids = list_cohort_member_ids(team_id, cohort.pk, consistency="strong")
     written = 0
     for i in range(0, len(person_ids), DEFAULT_COHORT_INSERT_BATCH_SIZE):
         batch = person_ids[i : i + DEFAULT_COHORT_INSERT_BATCH_SIZE]
@@ -1296,7 +1296,8 @@ def is_person_in_cohort(team_id: int, person_id: int, cohort_id: int) -> bool:
 _LIST_COHORT_MEMBER_IDS_PAGE_SIZE = 10_000
 
 
-def _list_cohort_member_ids_via_personhog(cohort_id: int) -> list[int]:
+def _list_cohort_member_ids_via_personhog(cohort_id: int, consistency: ReadConsistency) -> list[int]:
+    from posthog.personhog_client import consistency_to_read_options
     from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.proto import ListCohortMemberIdsRequest
 
@@ -1304,11 +1305,17 @@ def _list_cohort_member_ids_via_personhog(cohort_id: int) -> list[int]:
     if client is None:
         raise RuntimeError("personhog client not configured")
 
+    read_options = consistency_to_read_options(consistency)
     all_ids: list[int] = []
     cursor = 0
     while True:
         resp = client.list_cohort_member_ids(
-            ListCohortMemberIdsRequest(cohort_id=cohort_id, cursor=cursor, limit=_LIST_COHORT_MEMBER_IDS_PAGE_SIZE)
+            ListCohortMemberIdsRequest(
+                cohort_id=cohort_id,
+                cursor=cursor,
+                limit=_LIST_COHORT_MEMBER_IDS_PAGE_SIZE,
+                read_options=read_options,
+            )
         )
         all_ids.extend(resp.person_ids)
         if resp.next_cursor == 0:
@@ -1317,8 +1324,12 @@ def _list_cohort_member_ids_via_personhog(cohort_id: int) -> list[int]:
     return all_ids
 
 
-def list_cohort_member_ids(team_id: int, cohort_id: int) -> list[int]:
-    """Return all person IDs belonging to a static cohort via personhog."""
+def list_cohort_member_ids(team_id: int, cohort_id: int, *, consistency: ReadConsistency = "eventual") -> list[int]:
+    """Return all person IDs belonging to a static cohort via personhog.
+
+    Use ``consistency="strong"`` when the caller writes the returned membership somewhere
+    else, so a removal that Postgres already committed cannot come back from a replica.
+    """
     from posthog.personhog_client.client import personhog_call
 
     from products.cohorts.backend.models.cohort import Cohort
@@ -1331,7 +1342,7 @@ def list_cohort_member_ids(team_id: int, cohort_id: int) -> list[int]:
 
     return personhog_call(
         "list_cohort_member_ids",
-        lambda: _list_cohort_member_ids_via_personhog(cohort_id),
+        lambda: _list_cohort_member_ids_via_personhog(cohort_id, consistency),
     )
 
 

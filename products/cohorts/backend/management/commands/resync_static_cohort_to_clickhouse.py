@@ -5,6 +5,10 @@ count, the membership check and flag evaluation. ClickHouse ``person_static_coho
 ``IN COHORT``. A member that reached only Postgres is therefore in the cohort everywhere except
 HogQL, which returns false for it with no error.
 
+The repair reads Postgres membership once, then writes it. A removal that lands during the run
+can therefore reach ClickHouse before the row that this command writes for that member. Run the
+removal again to clear it, because the removal always deletes the ClickHouse row.
+
     manage.py resync_static_cohort_to_clickhouse --team-id 2 --cohort-id 433564
     manage.py resync_static_cohort_to_clickhouse --team-id 2 --cohort-id 433564 --dry-run
 """
