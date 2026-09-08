@@ -67,6 +67,15 @@ class TicketTagsMatch(models.TextChoices):
 
 
 TICKET_TAGS_MATCH_CHOICES = list(TicketTagsMatch.values)
+
+
+class TicketArchivedFilter(models.TextChoices):
+    HIDE = "hide", "hide"
+    ONLY = "only", "only"
+    ALL = "all", "all"
+
+
+TICKET_ARCHIVED_FILTER_CHOICES = list(TicketArchivedFilter.values)
 # Tuple pairs, not bare ints: drf-spectacular's override loader only accepts strings
 # in plain value lists and crashes on anything else.
 TICKET_SORT_ORDER_CHOICES = [(1, 1), (-1, -1)]
@@ -205,6 +214,12 @@ class TicketViewFiltersSerializer(serializers.Serializer):
         child=serializers.CharField(),
         required=False,
         help_text="Tickets carrying any of these tags are excluded.",
+    )
+    archived = serializers.ChoiceField(
+        choices=TICKET_ARCHIVED_FILTER_CHOICES,
+        required=False,
+        help_text="Which side of the archive to return. 'hide' (the default when omitted) returns only "
+        "live tickets, 'only' returns only archived ones, 'all' returns both.",
     )
     dateFrom = serializers.CharField(
         required=False,
@@ -361,6 +376,10 @@ def query_params_to_view_filters(params: Mapping[str, str]) -> dict[str, Any]:
         if tags:
             filters["tagsExclude"] = tags
 
+    archived_param = params.get("archived")
+    if archived_param and archived_param in TICKET_ARCHIVED_FILTER_CHOICES:
+        filters["archived"] = archived_param
+
     search = params.get("search")
     if search and len(search) <= MAX_SEARCH_LENGTH:
         filters["search"] = search
@@ -470,11 +489,23 @@ def _apply_search(queryset: QuerySet, search: str, team: Team) -> QuerySet:
     )
 
 
-def apply_ticket_filters(queryset: QuerySet, filters: Mapping[str, Any], *, team: Team, user: User | None) -> QuerySet:
+def apply_ticket_filters(
+    queryset: QuerySet,
+    filters: Mapping[str, Any],
+    *,
+    team: Team,
+    user: User | None,
+    archive_scope: bool = True,
+) -> QuerySet:
     """Apply a canonical TicketViewFilters mapping to a Ticket queryset and order it.
 
     `filters` must already be validated/normalized, either by TicketViewFiltersSerializer
     (saved-view path) or by query_params_to_view_filters (flat-param path).
+
+    `archive_scope` belongs to listing only, the same way object-level access filtering does
+    (see routing._filter_queryset_by_access_level). Pass False when looking one ticket up by
+    id: hiding archived rows there would 404 an archived ticket and leave no way to restore
+    it, which is the opposite of a soft delete.
     """
     statuses = filters.get("status") or []
     if statuses:
@@ -533,6 +564,16 @@ def apply_ticket_filters(queryset: QuerySet, filters: Mapping[str, Any], *, team
     tags_exclude = [str(tag) for tag in filters.get("tagsExclude") or []][:MAX_TAG_FILTER_VALUES]
     if tags_exclude:
         queryset = queryset.exclude(tagged_items__tag__name__in=tags_exclude)
+
+    # Archiving is the product's soft delete, so it is subtractive by default rather than an
+    # opt-in filter: a caller that has never heard of the archive still gets a list without
+    # it, which is the whole point of archiving a ticket.
+    if archive_scope:
+        archived = filters.get("archived") or TicketArchivedFilter.HIDE
+        if archived == TicketArchivedFilter.HIDE:
+            queryset = queryset.filter(archived_at__isnull=True)
+        elif archived == TicketArchivedFilter.ONLY:
+            queryset = queryset.filter(archived_at__isnull=False)
 
     date_from = filters.get("dateFrom")
     if date_from and date_from != "all":

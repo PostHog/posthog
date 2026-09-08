@@ -119,6 +119,54 @@ describe('ticketActivityDescriber', () => {
         expect(text).toContain('reopened')
     })
 
+    it('names the person who archived a ticket, which is what makes archiving safe', () => {
+        const result = ticketActivityDescriber(
+            ticketLogItem({
+                user: { email: 'max@posthog.com', first_name: 'Max', last_name: 'AI' },
+                detail: {
+                    merge: null,
+                    trigger: null,
+                    name: 'Ticket #2043',
+                    changes: [
+                        {
+                            type: ActivityScope.TICKET,
+                            action: 'changed',
+                            field: 'archived_at',
+                            before: null,
+                            after: '2026-06-25T10:00:00Z',
+                        },
+                    ],
+                },
+            })
+        )
+        const text = getTextContent(result)
+        expect(text).toContain('Max AI')
+        expect(text).toContain('archived this ticket')
+    })
+
+    it('describes clearing the archive stamp as a restore', () => {
+        const result = ticketActivityDescriber(
+            ticketLogItem({
+                user: { email: 'max@posthog.com', first_name: 'Max', last_name: 'AI' },
+                detail: {
+                    merge: null,
+                    trigger: null,
+                    name: 'Ticket #2043',
+                    changes: [
+                        {
+                            type: ActivityScope.TICKET,
+                            action: 'changed',
+                            field: 'archived_at',
+                            before: '2026-06-25T10:00:00Z',
+                            after: null,
+                        },
+                    ],
+                },
+            })
+        )
+        expect(getTextContent(result)).toContain('restored this ticket from the archive')
+    })
+
     it('describes a system snooze-expiry with no status change as "snooze expired" (not reopened)', () => {
         const result = ticketActivityDescriber(
             ticketLogItem({

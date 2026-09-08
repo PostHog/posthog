@@ -1,1 +1,1 @@
-0066_squash_2026_09_07_schema_addons
+0067_ticket_archived_at

@@ -184,6 +184,75 @@ describe('supportTicketsSceneLogic', () => {
         })
     })
 
+    describe('archive scope', () => {
+        let logic: ReturnType<typeof supportTicketsSceneLogic.build>
+        let lastArchivedParam: string | null = null
+
+        beforeEach(() => {
+            lastArchivedParam = null
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/conversations/tickets/': ({ request }) => {
+                        lastArchivedParam = new URL(request.url).searchParams.get('archived')
+                        return [200, { count: 0, results: [] }]
+                    },
+                },
+            })
+            initKeaTests()
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic?.unmount()
+        })
+
+        it('asks for the archive only when told to, and shares the scope in the URL', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            // Hiding the archive is the server's default, so the request stays silent about it.
+            expect(lastArchivedParam).toBeNull()
+            expect(router.values.searchParams.archived).toBeUndefined()
+
+            await expectLogic(logic, () => {
+                logic.actions.setArchivedFilter('only')
+            }).toFinishAllListeners()
+
+            expect(lastArchivedParam).toBe('only')
+            expect(router.values.searchParams.archived).toBe('only')
+        })
+
+        it('applies the scope from a shared link', async () => {
+            router.actions.push(urls.supportTickets(), { archived: 'all' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.archivedFilter).toBe('all')
+            expect(lastArchivedParam).toBe('all')
+        })
+
+        it('takes the scope from a saved view, so a team can keep an archive view', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.applyView(makeSavedView('archived-view', { archived: 'only' }))
+            }).toFinishAllListeners()
+
+            expect(logic.values.archivedFilter).toBe('only')
+            expect(lastArchivedParam).toBe('only')
+        })
+
+        it('drops back to hiding the archive when the filters are cleared', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setArchivedFilter('only')
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.resetFilters()
+            }).toFinishAllListeners()
+
+            expect(logic.values.archivedFilter).toBe('hide')
+            expect(lastArchivedParam).toBeNull()
+        })
+    })
+
     describe('URL sync', () => {
         let logic: ReturnType<typeof supportTicketsSceneLogic.build>
 

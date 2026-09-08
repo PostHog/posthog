@@ -347,12 +347,15 @@ def list_account_tickets(
 
     ``organization_id`` is the customer's group key (a customer-analytics account's
     ``external_id``). An empty key matches nothing — never every ticket for the team.
+
+    Archived tickets are left out: archiving is the product's soft delete, so an archived
+    ticket is off every list, this account's history included.
     """
     if not organization_id:
         return []
     tickets = list(
         user_access_control.filter_queryset_by_access_level(
-            Ticket.objects.filter(team_id=team_id, organization_id=organization_id)
+            Ticket.objects.filter(team_id=team_id, organization_id=organization_id, archived_at__isnull=True)
         ).order_by(F("last_message_at").desc(nulls_last=True))[:limit]
     )
     latest_comments = {

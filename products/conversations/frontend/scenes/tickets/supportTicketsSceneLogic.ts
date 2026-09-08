@@ -31,6 +31,7 @@ import type {
     AssigneeFilterEntry,
     SavedTicketView,
     Ticket,
+    TicketArchivedFilter,
     TicketChannel,
     TicketPriority,
     TicketSlaState,
@@ -54,6 +55,7 @@ const DEFAULT_TICKET_FILTERS: TicketViewFilters = {
     tags: [],
     tagsMatch: 'any',
     tagsExclude: [],
+    archived: 'hide',
     sorting: { columnKey: 'updated_at', order: -1 },
     search: '',
 }
@@ -73,6 +75,7 @@ const FILTER_URL_PARAM_KEYS = [
     'tags',
     'tags_match',
     'tags_exclude',
+    'archived',
     'order_by',
 ] as const
 
@@ -149,6 +152,9 @@ function filtersToUrlParams(filters: TicketViewFilters): Record<string, any> {
     if (filters.tagsExclude?.length) {
         params.tags_exclude = filters.tagsExclude
     }
+    if (filters.archived && filters.archived !== 'hide') {
+        params.archived = filters.archived
+    }
     const orderBy = sortingToOrderBy(filters.sorting)
     if (orderBy !== DEFAULT_ORDER_BY) {
         params.order_by = orderBy
@@ -170,6 +176,7 @@ function urlParamsToFilters(searchParams: Record<string, any>): TicketViewFilter
         tags: toStringArray(searchParams.tags),
         tagsMatch: searchParams.tags_match === 'all' ? 'all' : 'any',
         tagsExclude: toStringArray(searchParams.tags_exclude),
+        archived: (searchParams.archived as TicketArchivedFilter) ?? 'hide',
         search: '',
         sorting: searchParams.order_by ? orderByToSorting(String(searchParams.order_by)) : { ...DEFAULT_SORTING },
     }
@@ -199,6 +206,7 @@ export interface supportTicketsSceneLogicValues {
     activeView: SavedTicketView | null
     aiEnabled: boolean
     aiTriageResultFilter: AITriageFilterValue[]
+    archivedFilter: TicketArchivedFilter
     assigneeFilter: AssigneeFilterEntry[]
     assigneeFilterEntries: AssigneeFilterEntry[]
     breadcrumbs: Breadcrumb[]
@@ -241,6 +249,13 @@ export interface supportTicketsSceneLogicActions {
     applyViewFilters: (filters: TicketViewFilters) => {
         filters: TicketViewFilters
     }
+    bulkArchive: (
+        ids: string[],
+        archived: boolean
+    ) => {
+        archived: boolean
+        ids: string[]
+    }
     bulkUpdateStatus: (
         ids: string[],
         status: TicketStatus
@@ -271,6 +286,9 @@ export interface supportTicketsSceneLogicActions {
     }
     setAiTriageResultFilter: (results: AITriageFilterValue[]) => {
         results: AITriageFilterValue[]
+    }
+    setArchivedFilter: (archived: TicketArchivedFilter) => {
+        archived: TicketArchivedFilter
     }
     setAssigneeFilter: (assignees: AssigneeFilterEntry[]) => {
         assignees: AssigneeFilterEntry[]
@@ -355,6 +373,7 @@ export interface supportTicketsSceneLogicMeta {
             assigneeFilterEntries: AssigneeFilterEntry[],
             tagsFilter: string[],
             tagsExcludeFilter: string[],
+            archivedFilter: TicketArchivedFilter,
             dateFrom: string | null,
             dateTo: string | null
         ) => boolean
@@ -368,6 +387,7 @@ export interface supportTicketsSceneLogicMeta {
             tagsFilter: string[],
             tagsMatch: TicketTagsMatch,
             tagsExcludeFilter: string[],
+            archivedFilter: TicketArchivedFilter,
             dateFrom: string | null,
             dateTo: string | null,
             sorting: Sorting | null,
@@ -397,6 +417,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         setTagsFilter: (tags: string[]) => ({ tags }),
         setTagsMatch: (match: TicketTagsMatch) => ({ match }),
         setTagsExcludeFilter: (tags: string[]) => ({ tags }),
+        setArchivedFilter: (archived: TicketArchivedFilter) => ({ archived }),
         setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setSorting: (sorting: Sorting | null) => ({ sorting }),
         setSearchQuery: (query: string) => ({ query }),
@@ -415,6 +436,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         clearFiltersKeepingSearch: true,
         setDateRangeBeforeView: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         bulkUpdateStatus: (ids: string[], status: TicketStatus) => ({ ids, status }),
+        bulkArchive: (ids: string[], archived: boolean) => ({ ids, archived }),
         setBulkUpdating: (updating: boolean) => ({ updating }),
         setSelectedTicketIds: (ids: string[]) => ({ ids }),
         clearSelectedTickets: true,
@@ -517,6 +539,14 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             {
                 setTagsExcludeFilter: (_, { tags }) => tags,
                 applyViewFilters: (state, { filters }) => filters.tagsExclude ?? state,
+            },
+        ],
+        archivedFilter: [
+            'hide' as TicketArchivedFilter,
+            { persist: true },
+            {
+                setArchivedFilter: (_, { archived }) => archived,
+                applyViewFilters: (state, { filters }) => filters.archived ?? state,
             },
         ],
         searchQuery: [
@@ -639,6 +669,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 s.assigneeFilterEntries,
                 s.tagsFilter,
                 s.tagsExcludeFilter,
+                s.archivedFilter,
                 s.dateFrom,
                 s.dateTo,
             ],
@@ -651,6 +682,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 assignee: AssigneeFilterEntry[],
                 tags: string[],
                 tagsExclude: string[],
+                archived: TicketArchivedFilter,
                 dateFrom: string | null,
                 dateTo: string | null
             ): boolean =>
@@ -662,6 +694,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 assignee.length > 0 ||
                 tags.length > 0 ||
                 tagsExclude.length > 0 ||
+                archived !== 'hide' ||
                 dateFrom !== null ||
                 dateTo !== null,
         ],
@@ -676,6 +709,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 s.tagsFilter,
                 s.tagsMatch,
                 s.tagsExcludeFilter,
+                s.archivedFilter,
                 s.dateFrom,
                 s.dateTo,
                 s.sorting,
@@ -691,6 +725,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 tags: string[],
                 tagsMatch: TicketTagsMatch,
                 tagsExclude: string[],
+                archived: TicketArchivedFilter,
                 dateFrom: string | null,
                 dateTo: string | null,
                 sorting: Sorting | null,
@@ -705,6 +740,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 tags,
                 tagsMatch,
                 tagsExclude,
+                archived,
                 dateFrom,
                 dateTo,
                 sorting,
@@ -744,6 +780,11 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             }
             if (values.tagsExcludeFilter.length > 0) {
                 params.tags_exclude = JSON.stringify(values.tagsExcludeFilter)
+            }
+            // Omitted on 'hide': that is the server's default, so a shorter request means the
+            // same thing and the URL stays free of the setting nobody chose.
+            if (values.archivedFilter !== 'hide') {
+                params.archived = values.archivedFilter
             }
             if (values.searchQuery) {
                 params.search = values.searchQuery
@@ -837,6 +878,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             actions.clearActiveView()
             actions.setCurrentPage(1)
         },
+        setArchivedFilter: () => {
+            actions.clearActiveView()
+            actions.setCurrentPage(1)
+        },
         setDateRange: () => {
             actions.clearActiveView()
             actions.setCurrentPage(1)
@@ -914,6 +959,20 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 actions.setBulkUpdating(false)
             }
         },
+        bulkArchive: async ({ ids, archived }) => {
+            actions.setBulkUpdating(true)
+            try {
+                const result = await api.conversationsTickets.bulkArchive(ids, archived)
+                const verb = archived ? 'Archived' : 'Restored'
+                lemonToast.success(`${verb} ${result.updated} ticket${result.updated === 1 ? '' : 's'}`)
+                actions.clearSelectedTickets()
+                actions.loadTickets()
+            } catch {
+                lemonToast.error(archived ? 'Failed to archive tickets' : 'Failed to restore tickets')
+            } finally {
+                actions.setBulkUpdating(false)
+            }
+        },
     })),
     actionToUrl(({ values, props, cache }) => {
         const buildUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] | undefined => {
@@ -954,6 +1013,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             setTagsFilter: buildUrl,
             setTagsMatch: buildUrl,
             setTagsExcludeFilter: buildUrl,
+            setArchivedFilter: buildUrl,
             setSorting: buildUrl,
             setSearchQuery: buildUrl,
             applyViewFilters: buildUrl,

@@ -128,6 +128,14 @@ const ticketActionsMapping: Record<
             ],
         }
     },
+    archived_at: function onArchivedAt(change) {
+        // Archiving is the product's soft delete, so the entry has to read as the deliberate
+        // act it was — and be the record of who did it, which is the point of allowing it.
+        const after = change?.after as string | null
+        return {
+            description: [after ? <>archived this ticket</> : <>restored this ticket from the archive</>],
+        }
+    },
     tag: function onTag(change) {
         const tagName = (change?.after || change?.before) as string
         if (change?.action === 'created') {

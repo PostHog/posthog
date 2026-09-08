@@ -3,12 +3,14 @@ import { useMountedLogic, useValues } from 'kea'
 import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
 import {
     type AITriageFilterValue,
+    type TicketArchivedFilter,
     type TicketChannel,
     type TicketPriority,
     type TicketSlaState,
     type TicketStatus,
     type TicketTagsMatch,
     aiTriageFilterOptions,
+    archivedOptions,
     channelOptions,
     priorityMultiselectOptions,
     slaOptions,
@@ -24,6 +26,7 @@ export type AppliedTicketFilter =
     | { key: string; kind: 'ai'; value: AITriageFilterValue; label: string }
     | { key: string; kind: 'tag'; value: string; label: string }
     | { key: string; kind: 'tag-exclude'; value: string; label: string }
+    | { key: string; kind: 'archived'; label: string }
     | { key: string; kind: 'assignee'; entry: AssigneeFilterEntry }
 
 export interface AppliedTicketFiltersState {
@@ -36,6 +39,7 @@ export interface AppliedTicketFiltersState {
     tagsFilter: string[]
     tagsMatch: TicketTagsMatch
     tagsExcludeFilter: string[]
+    archivedFilter: TicketArchivedFilter
 }
 
 export function listAppliedTicketFilters(state: AppliedTicketFiltersState): AppliedTicketFilter[] {
@@ -81,6 +85,13 @@ export function listAppliedTicketFilters(state: AppliedTicketFiltersState): Appl
         })
     }
 
+    // Only a deliberate choice shows as a chip: 'hide' is the default, not a filter.
+    if (state.archivedFilter !== 'hide') {
+        const label =
+            archivedOptions.find((option) => option.value === state.archivedFilter)?.label ?? state.archivedFilter
+        chips.push({ key: `archived:${state.archivedFilter}`, kind: 'archived', label })
+    }
+
     for (const entry of state.assigneeFilterEntries) {
         chips.push({ key: assigneeChipKey(entry), kind: 'assignee', entry })
     }
@@ -100,6 +111,7 @@ export function useAppliedTicketFilters(): AppliedTicketFilter[] {
         tagsFilter,
         tagsMatch,
         tagsExcludeFilter,
+        archivedFilter,
     } = useValues(logic)
 
     return listAppliedTicketFilters({
@@ -112,6 +124,7 @@ export function useAppliedTicketFilters(): AppliedTicketFilter[] {
         tagsFilter,
         tagsMatch,
         tagsExcludeFilter,
+        archivedFilter,
     })
 }
 

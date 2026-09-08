@@ -16,10 +16,12 @@ import { tagsModel } from '~/models/tagsModel'
 
 import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
 import {
+    type TicketArchivedFilter,
     type TicketChannel,
     type TicketSlaState,
     type TicketTagsMatch,
     aiTriageFilterOptions,
+    archivedOptions,
     channelOptions,
     priorityMultiselectOptions,
     slaOptions,
@@ -61,6 +63,7 @@ function TicketFiltersDropdownOverlay(): JSX.Element {
         tagsFilter,
         tagsMatch,
         tagsExcludeFilter,
+        archivedFilter,
         aiEnabled,
     } = useValues(logic)
     const {
@@ -73,6 +76,7 @@ function TicketFiltersDropdownOverlay(): JSX.Element {
         setTagsFilter,
         setTagsMatch,
         setTagsExcludeFilter,
+        setArchivedFilter,
     } = useActions(logic)
     const { tags: tagsAvailable } = useValues(tagsModel)
     const tagOptions = tagsAvailable?.map((t: string) => ({ key: t, label: t })) || []
@@ -166,6 +170,18 @@ function TicketFiltersDropdownOverlay(): JSX.Element {
             <div className="flex flex-col gap-1">
                 <LemonLabel>Assignee</LemonLabel>
                 <AssigneeMultiSelect value={assigneeFilterEntries} onChange={setAssigneeFilter} />
+            </div>
+            {/* Last, because the default is right for almost every list — this is where you come
+                looking for a ticket someone archived. */}
+            <div className="flex flex-col gap-1">
+                <LemonLabel>Archived</LemonLabel>
+                <LemonSelect<TicketArchivedFilter>
+                    size="small"
+                    fullWidth
+                    value={archivedFilter}
+                    onChange={(value) => setArchivedFilter(value ?? 'hide')}
+                    options={archivedOptions}
+                />
             </div>
         </div>
     )

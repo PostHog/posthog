@@ -7051,6 +7051,7 @@ const api = {
                 sla?: string
                 assignee?: string
                 tags?: string
+                archived?: string
                 distinct_ids?: string
                 emails?: string
                 search?: string
@@ -7091,6 +7092,11 @@ const api = {
             return await new ApiRequest().conversationsTicket(ticketId).delete()
         },
 
+        /** Archive (soft delete) or restore one ticket. The server records the timestamp. */
+        async setArchived(ticketId: string, archived: boolean): Promise<any> {
+            return await new ApiRequest().conversationsTicket(ticketId).update({ data: { archived } })
+        },
+
         async unreadCount(): Promise<{ count: number }> {
             return await new ApiRequest().conversationsTickets().withAction('unread_count').get()
         },
@@ -7111,6 +7117,13 @@ const api = {
                 .conversationsTickets()
                 .withAction('bulk_update_status')
                 .create({ data: { ids, status: ticketStatus } })
+        },
+
+        async bulkArchive(ids: string[], archived: boolean): Promise<{ updated: number; ids: string[] }> {
+            return await new ApiRequest()
+                .conversationsTickets()
+                .withAction('bulk_archive')
+                .create({ data: { ids, archived } })
         },
 
         async submitAiFeedback(

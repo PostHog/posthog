@@ -236,6 +236,7 @@ export interface supportTicketSceneLogicValues {
     availableTags: string[] // tagsModel
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     user: UserType | null // userLogic
+    archiving: boolean
     assignee: TicketAssignee
     breadcrumbs: Breadcrumb[]
     chatMessages: ChatMessage[]
@@ -255,6 +256,7 @@ export interface supportTicketSceneLogicValues {
     hasMoreMessages: boolean
     hasPendingWork: boolean
     hasUnsavedChanges: boolean
+    isArchived: boolean
     knowledgeGaps: KnowledgeGapSuggestion[]
     knowledgeGapsLoading: boolean
     latestAiMessage: ChatMessage | null
@@ -440,6 +442,12 @@ export interface supportTicketSceneLogicActions {
         richContent: Record<string, unknown> | null
         statusAfterSend: TicketStatus | undefined
     }
+    setArchived: (archived: boolean) => {
+        archived: boolean
+    }
+    setArchiving: (archiving: boolean) => {
+        archiving: boolean
+    }
     setAssignee: (assignee: TicketAssignee) => {
         assignee: TicketAssignee
     }
@@ -484,6 +492,9 @@ export interface supportTicketSceneLogicActions {
     }
     setTicket: (ticket: Ticket | null) => {
         ticket: Ticket | null
+    }
+    setTicketArchivedAt: (archivedAt: string | null) => {
+        archivedAt: string | null
     }
     setTicketLoading: (loading: boolean) => {
         loading: boolean
@@ -545,6 +556,7 @@ export interface supportTicketSceneLogicMeta {
             ticket: Ticket | null,
             unsavedTicketChanges: string[]
         ) => boolean
+        isArchived: (ticket: Ticket | null) => boolean
         hasPendingWork: (hasUnsavedChanges: boolean, editingMessageId: string | null) => boolean
         chatMessages: (messages: CommentType[], ticket: Ticket | null, featureFlags: FeatureFlagsSet) => ChatMessage[]
         eventsQuery: (ticket: Ticket | null) => DataTableNode | null
@@ -588,6 +600,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         incrementUnreadCustomerCount: true,
         updateTicket: true,
         setTicketUpdating: (updating: boolean) => ({ updating }),
+        setArchived: (archived: boolean) => ({ archived }),
+        setArchiving: (archiving: boolean) => ({ archiving }),
+        setTicketArchivedAt: (archivedAt: string | null) => ({ archivedAt }),
 
         loadMessages: true,
         setMessages: (messages: CommentType[]) => ({ messages }),
@@ -795,6 +810,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 setTicket: (_, { ticket }) => ticket,
                 incrementUnreadCustomerCount: (state) =>
                     state ? { ...state, unread_customer_count: state.unread_customer_count + 1 } : state,
+                // Patches only the archive stamp rather than replacing the ticket: setTicket
+                // re-seeds the sidebar's form reducers from the server, which would throw away
+                // edits the user hasn't saved yet.
+                setTicketArchivedAt: (state, { archivedAt }) => (state ? { ...state, archived_at: archivedAt } : state),
+            },
+        ],
+        archiving: [
+            false,
+            {
+                setArchived: () => true,
+                setArchiving: (_, { archiving }) => archiving,
             },
         ],
         ticketUpdating: [
@@ -1076,6 +1102,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 return status !== ticket.status || unsavedTicketChanges.length > 0
             },
         ],
+        isArchived: [(s) => [s.ticket], (ticket: Ticket | null): boolean => !!ticket?.archived_at],
         hasPendingWork: [
             (s) => [s.hasUnsavedChanges, s.editingMessageId],
             (hasUnsavedChanges: boolean, editingMessageId: string | null): boolean =>
@@ -1299,6 +1326,24 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 if (cache.ticketUpdateRequest === request) {
                     cache.ticketUpdateRequest = null
                 }
+            }
+        },
+        setArchived: async ({ archived }) => {
+            const ticketId = values.ticket?.id
+            if (props.id === 'new' || !ticketId) {
+                actions.setArchiving(false)
+                return
+            }
+            try {
+                const updated = await api.conversationsTickets.setArchived(ticketId, archived)
+                actions.setTicketArchivedAt(updated?.archived_at ?? null)
+                lemonToast.success(archived ? 'Ticket archived' : 'Ticket restored')
+                // The ticket has just left (or rejoined) the list behind this page.
+                actions.loadTickets()
+            } catch {
+                lemonToast.error(archived ? 'Failed to archive ticket' : 'Failed to restore ticket')
+            } finally {
+                actions.setArchiving(false)
             }
         },
         // Refetches the whole discussion rather than checking a count first. A count only moves when a
