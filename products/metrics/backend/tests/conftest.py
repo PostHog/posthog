@@ -1,7 +1,7 @@
 from collections.abc import Iterator
-from unittest.mock import patch
 
 import pytest
+from unittest.mock import patch
 
 from products.metrics.backend.facade.contracts import METRICS_FUNDAMENTALS_FEATURE_FLAG
 
