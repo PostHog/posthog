@@ -4,6 +4,7 @@ import { combineUrl, router } from 'kea-router'
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
+import type { CaptureOptions } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -19,10 +20,12 @@ import { inboxSceneLogic, mergeSignalRuns } from './inboxSceneLogic'
 import { reportListLogic, sectionListLogicProps } from './logics/reportListLogic'
 import { SignalReport, SignalScoutRunSummary } from './types'
 
+function openedCalls(spy: jest.SpyInstance): any[][] {
+    return spy.mock.calls.filter((call) => call[0] === 'Inbox report opened')
+}
+
 function openedEvents(spy: jest.SpyInstance): Record<string, any>[] {
-    return spy.mock.calls
-        .filter((call) => call[0] === 'Inbox report opened')
-        .map((call) => call[1] as Record<string, any>)
+    return openedCalls(spy).map((call) => call[1] as Record<string, any>)
 }
 
 function waitForOpenRankRetry(): Promise<void> {
@@ -303,8 +306,10 @@ describe('inboxSceneLogic routing', () => {
         expect(openMethod).toBe(expected)
     })
 
-    // A rank read at open time is null on a cold load, and joins to no impression row.
-    it('holds `Inbox report opened` until the list answers, then reports the rank', async () => {
+    // A rank read at open time is null on a cold load, and joins to no impression row. The event is
+    // then captured after the wait, so it also has to carry the moment the report opened: a scroll
+    // or an action taken during the wait would otherwise read earlier than the open.
+    it('holds `Inbox report opened` until the list answers, then reports the rank and the open time', async () => {
         const report = { id: 'r1', title: 'Crash on login' } as SignalReport
         useMocks({
             get: {
@@ -323,12 +328,17 @@ describe('inboxSceneLogic routing', () => {
         listLogic.actions.loadReports()
 
         logic.actions.setSelectedReportId('r1')
+        const beforeOpen = Date.now()
         logic.actions.loadSelectedReportSuccess(report)
+        const afterOpen = Date.now()
         expect(openedEvents(captureSpy)).toHaveLength(0)
 
         await waitForOpenRankRetry()
 
         expect(openedEvents(captureSpy)[0]).toMatchObject({ rank: 1, list_size: 1 })
+        const stampedAt = (openedCalls(captureSpy)[0][2] as CaptureOptions | undefined)?.timestamp?.getTime()
+        expect(stampedAt).toBeGreaterThanOrEqual(beforeOpen)
+        expect(stampedAt).toBeLessThanOrEqual(afterOpen)
         captureSpy.mockRestore()
         listLogic.unmount()
     })
@@ -398,7 +408,8 @@ describe('inboxSceneLogic routing', () => {
             ['Inbox report opened', 'Inbox report closed'].includes(name as string)
         )
         expect(inboxCalls.map(([name]) => name)).toEqual(['Inbox report opened', 'Inbox report closed'])
-        expect(inboxCalls[0][2]).toEqual({ send_instantly: true })
+        // The open also carries its own `timestamp`, so match the option that bypasses the queue.
+        expect(inboxCalls[0][2]).toMatchObject({ send_instantly: true })
         expect(inboxCalls[1][2]).toEqual({ send_instantly: true })
         captureSpy.mockRestore()
     })

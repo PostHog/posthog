@@ -305,7 +305,11 @@ function captureOpenWhenRanked(
                 listSize: resolved.listSize,
                 section: resolved.section,
             },
-            options
+            // The wait puts the capture up to `OPEN_RANK_WAIT_MS` after the report opened, and
+            // posthog-js stamps an event at the capture moment. Without the override, a scroll or an
+            // action taken in the detail pane during the wait reads earlier than the open that
+            // started it. The caller's options win, so the unload flush keeps `send_instantly`.
+            { timestamp: new Date(tracking.openedAt), ...options }
         )
     }
     // The first read sees the list as the person left it, so a rank found there is the rank they
