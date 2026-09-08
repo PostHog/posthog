@@ -575,6 +575,116 @@ describe("AgentServer HTTP Mode", () => {
       });
     }, 30000);
 
+    it.each([
+      {
+        label: "uses a valid run-state system prompt",
+        systemPrompt: {
+          type: "preset",
+          preset: "claude_code",
+          append: "Run-state system prompt.",
+        },
+        includesRunStatePrompt: true,
+      },
+      {
+        label: "ignores an invalid run-state system prompt",
+        systemPrompt: {
+          type: "preset",
+          preset: "unknown",
+          append: "Run-state system prompt.",
+        },
+        includesRunStatePrompt: false,
+      },
+    ])(
+      "$label",
+      async ({ systemPrompt, includesRunStatePrompt }) => {
+        mswServer.use(
+          http.get(
+            "http://localhost:8000/api/projects/:projectId/tasks/:taskId/runs/:runId/",
+            () =>
+              HttpResponse.json(
+                createTaskRun({
+                  id: "test-run-id",
+                  task: "test-task-id",
+                  state: { systemPrompt },
+                }),
+              ),
+          ),
+        );
+
+        const testServer = createServer() as unknown as {
+          start(): Promise<void>;
+          session: {
+            sessionMeta: { systemPrompt: string | { append: string } };
+          } | null;
+        };
+        await testServer.start();
+
+        const systemPromptValue = testServer.session?.sessionMeta.systemPrompt;
+        const prompt =
+          typeof systemPromptValue === "string"
+            ? systemPromptValue
+            : systemPromptValue?.append;
+
+        expect(prompt?.includes("Run-state system prompt.")).toBe(
+          includesRunStatePrompt,
+        );
+        if (includesRunStatePrompt) {
+          expect(
+            prompt?.indexOf("Operate as an expert product engineer."),
+          ).toBeLessThan(prompt?.indexOf("Run-state system prompt.") ?? -1);
+          expect(prompt?.indexOf("Run-state system prompt.")).toBeLessThan(
+            prompt?.indexOf("# Cloud Task Execution") ?? -1,
+          );
+        }
+      },
+      30000,
+    );
+
+    it("keeps the run-state system prompt after a transient run fetch failure", async () => {
+      let attempts = 0;
+      mswServer.use(
+        http.get(
+          "http://localhost:8000/api/projects/:projectId/tasks/:taskId/runs/:runId/",
+          () => {
+            attempts += 1;
+            if (attempts === 1) {
+              return new HttpResponse(null, { status: 503 });
+            }
+            return HttpResponse.json(
+              createTaskRun({
+                id: "test-run-id",
+                task: "test-task-id",
+                state: {
+                  systemPrompt: {
+                    type: "preset",
+                    preset: "claude_code",
+                    append: "Run-state system prompt.",
+                  },
+                },
+              }),
+            );
+          },
+        ),
+      );
+
+      const testServer = createServer() as unknown as {
+        start(): Promise<void>;
+        session: {
+          sessionMeta: { systemPrompt: string | { append: string } };
+        } | null;
+      };
+      await testServer.start();
+
+      const systemPromptValue = testServer.session?.sessionMeta.systemPrompt;
+      const prompt =
+        typeof systemPromptValue === "string"
+          ? systemPromptValue
+          : systemPromptValue?.append;
+
+      expect(attempts).toBeGreaterThan(1);
+      expect(prompt).toContain("Run-state system prompt.");
+    }, 30000);
+
     it("enables repository tools for a repository-less cloud session", async () => {
       await mkdir("/tmp/workspace", { recursive: true });
       mswServer.use(
@@ -768,86 +878,92 @@ describe("AgentServer HTTP Mode", () => {
       );
     });
 
-    it("writes terminal failure status before completing event ingest", async () => {
-      const order: string[] = [];
-      const testServer = new AgentServer({
-        port,
-        jwtPublicKey: TEST_PUBLIC_KEY,
-        repositoryPath: repo.path,
-        apiUrl: "http://localhost:8000",
-        apiKey: "test-api-key",
-        projectId: 1,
-        mode: "interactive",
-        taskId: "test-task-id",
-        runId: "test-run-id",
-        resolveRtkSavings: async () => null,
-      }) as unknown as {
-        eventStreamSender: {
-          enqueue: (event: Record<string, unknown>) => void;
-          stop: () => Promise<void>;
-        };
-        posthogAPI: {
-          updateTaskRun: (
-            taskId: string,
-            runId: string,
-            payload: Record<string, unknown>,
-          ) => Promise<unknown>;
-        };
-        signalTaskComplete(
-          payload: JwtPayload,
-          stopReason: string,
-          errorMessage?: string,
-          options?: { errorCategory?: string },
-        ): Promise<void>;
-      };
-      testServer.eventStreamSender = {
-        enqueue: vi.fn(() => {
-          order.push("enqueue");
-        }),
-        stop: vi.fn(async () => {
-          order.push("stop");
-        }),
-      };
-      testServer.posthogAPI = {
-        updateTaskRun: vi.fn(async () => {
-          order.push("update");
-          return {};
-        }),
-      };
-
-      await testServer.signalTaskComplete(
-        {
-          run_id: "run-1",
-          task_id: "task-1",
-          team_id: 1,
-          user_id: 1,
-          distinct_id: "distinct-id",
+    it.each([
+      ["boom", "boom"],
+      ["Failure: sk-ant-oat01-fake-test-token", "Failure: [REDACTED]"],
+    ])(
+      "redacts terminal failure status before completing event ingest",
+      async (message, expected) => {
+        const order: string[] = [];
+        const testServer = new AgentServer({
+          port,
+          jwtPublicKey: TEST_PUBLIC_KEY,
+          repositoryPath: repo.path,
+          apiUrl: "http://localhost:8000",
+          apiKey: "test-api-key",
+          projectId: 1,
           mode: "interactive",
-        },
-        "error",
-        "boom",
-        { errorCategory: "agent_error" },
-      );
-
-      expect(order).toEqual(["enqueue", "update", "stop"]);
-      expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: "notification",
-          notification: expect.objectContaining({
-            method: "_posthog/error",
-            params: expect.objectContaining({ error: "boom" }),
+          taskId: "test-task-id",
+          runId: "test-run-id",
+          resolveRtkSavings: async () => null,
+        }) as unknown as {
+          eventStreamSender: {
+            enqueue: (event: Record<string, unknown>) => void;
+            stop: () => Promise<void>;
+          };
+          posthogAPI: {
+            updateTaskRun: (
+              taskId: string,
+              runId: string,
+              payload: Record<string, unknown>,
+            ) => Promise<unknown>;
+          };
+          signalTaskComplete(
+            payload: JwtPayload,
+            stopReason: string,
+            errorMessage?: string,
+            options?: { errorCategory?: string },
+          ): Promise<void>;
+        };
+        testServer.eventStreamSender = {
+          enqueue: vi.fn(() => {
+            order.push("enqueue");
           }),
-        }),
-      );
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
-        "task-1",
-        "run-1",
-        {
-          status: "failed",
-          error_message: "agent_error: boom",
-        },
-      );
-    });
+          stop: vi.fn(async () => {
+            order.push("stop");
+          }),
+        };
+        testServer.posthogAPI = {
+          updateTaskRun: vi.fn(async () => {
+            order.push("update");
+            return {};
+          }),
+        };
+
+        await testServer.signalTaskComplete(
+          {
+            run_id: "run-1",
+            task_id: "task-1",
+            team_id: 1,
+            user_id: 1,
+            distinct_id: "distinct-id",
+            mode: "interactive",
+          },
+          "error",
+          message,
+          { errorCategory: "agent_error" },
+        );
+
+        expect(order).toEqual(["enqueue", "update", "stop"]);
+        expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "notification",
+            notification: expect.objectContaining({
+              method: "_posthog/error",
+              params: expect.objectContaining({ error: expected }),
+            }),
+          }),
+        );
+        expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+          "task-1",
+          "run-1",
+          {
+            status: "failed",
+            error_message: `agent_error: ${expected}`,
+          },
+        );
+      },
+    );
 
     it("writes the terminal error to the session log before the final flush", async () => {
       // The Django drain reads the terminal `_posthog/error` from the S3 log,
@@ -3152,6 +3268,164 @@ describe("AgentServer HTTP Mode", () => {
   });
 
   describe("POST /command", () => {
+    it("keeps cancelled initialization work pending until it settles", async () => {
+      const s = createServer() as unknown as {
+        shutdownController: AbortController;
+        measureInitialization(
+          phase: "session_create",
+          work: () => Promise<void>,
+        ): Promise<void>;
+      };
+      let finish = () => {};
+      const work = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      const settled = vi.fn();
+      const initialization = s.measureInitialization(
+        "session_create",
+        () => work,
+      );
+      const observed = initialization.then(settled, settled);
+      s.shutdownController.abort(new Error("cancelled"));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(settled).not.toHaveBeenCalled();
+      finish();
+      await observed;
+      expect(settled).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "cancelled" }),
+      );
+    });
+
+    it.each(["token", "no_token", "cancel", "reconnect"])(
+      "handles %s during subscription initialization",
+      async (outcome) => {
+        const s = createServer({ claudeModelAccess: "own-subscription" });
+        const { app } = s as unknown as {
+          app: { fetch(request: Request): Promise<Response> | Response };
+        };
+        const authorization = `Bearer ${createToken()}`;
+        const response = await app.fetch(
+          new Request("http://localhost/events", {
+            headers: { Authorization: authorization },
+          }),
+        );
+        if (!response.body) throw new Error("Expected an event stream");
+        let reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffered = "";
+        const nextEvent = async (): Promise<Record<string, unknown>> => {
+          for (;;) {
+            const end = buffered.indexOf("\n\n");
+            if (end >= 0) {
+              const frame = buffered.slice(0, end);
+              buffered = buffered.slice(end + 2);
+              if (frame.startsWith("data: ")) return JSON.parse(frame.slice(6));
+            } else {
+              const chunk = await reader.read();
+              if (chunk.done)
+                throw new Error("Event stream ended before initialization");
+              buffered += decoder.decode(chunk.value, { stream: true });
+            }
+          }
+        };
+        try {
+          let event = await nextEvent();
+          while (event.type !== "credential_request") event = await nextEvent();
+          const health = await app.fetch(
+            new Request("http://localhost/health"),
+          );
+          expect((await health.json()).hasSession).toBe(false);
+          if (outcome === "cancel") {
+            await s.stop();
+            const stopped = await app.fetch(
+              new Request("http://localhost/health"),
+            );
+            expect((await stopped.json()).failureCode).toBeUndefined();
+            expect(JSON.stringify(appendLogCalls)).not.toContain(
+              "credential_relay",
+            );
+            return;
+          }
+          if (outcome === "reconnect") {
+            const replacement = await app.fetch(
+              new Request("http://localhost/events", {
+                headers: { Authorization: authorization },
+              }),
+            );
+            await reader.cancel();
+            if (!replacement.body) throw new Error("Expected an event stream");
+            reader = replacement.body.getReader();
+            buffered = "";
+          }
+          const body = JSON.stringify({
+            jsonrpc: "2.0",
+            id: "credential-reply",
+            method: "credential_response",
+            params: {
+              requestId: event.requestId,
+              credential: "claude_subscription_token",
+              ...(outcome === "no_token"
+                ? { error: "no_token" }
+                : { token: "sk-ant-oat01-fake-test-token" }),
+            },
+          });
+          for (const overrides of [
+            { task_id: "other-task" },
+            { run_id: "other-run" },
+            { team_id: 2 },
+          ]) {
+            const denied = await app.fetch(
+              new Request("http://localhost/command", {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${createToken(overrides)}`,
+                  "Content-Type": "application/json",
+                },
+                body,
+              }),
+            );
+            expect(denied.status).toBe(400);
+          }
+          for (let attempt = 0; attempt < 2; attempt++) {
+            const reply = await app.fetch(
+              new Request("http://localhost/command", {
+                method: "POST",
+                headers: {
+                  Authorization: authorization,
+                  "Content-Type": "application/json",
+                },
+                body,
+              }),
+            );
+            expect(await reply.json()).toEqual({
+              jsonrpc: "2.0",
+              id: "credential-reply",
+              result: { resolved: true },
+            });
+          }
+          if (outcome === "no_token") {
+            await vi.waitFor(async () => {
+              const failed = await app.fetch(
+                new Request("http://localhost/health"),
+              );
+              expect((await failed.json()).failureCode).toBe(
+                "claude_credential_unavailable",
+              );
+            });
+            return;
+          }
+          while (event.type !== "connected") event = await nextEvent();
+          const ready = await app.fetch(new Request("http://localhost/health"));
+          expect((await ready.json()).hasSession).toBe(true);
+          expect(JSON.stringify(appendLogCalls)).not.toContain(
+            "sk-ant-oat01-fake-test-token",
+          );
+        } finally {
+          await reader.cancel().catch(() => undefined);
+        }
+      },
+    );
+
     it("returns 401 without authorization", async () => {
       await createServer().start();
 

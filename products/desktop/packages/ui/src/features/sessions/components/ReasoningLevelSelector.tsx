@@ -228,7 +228,7 @@ export function ReasoningLevelSelector({
           <DropdownMenuTrigger
             render={
               <Button type="button" variant="default" size="sm">
-                <Spinner size={12} />
+                <Spinner size="sm" aria-hidden="true" />
                 Loading...
               </Button>
             }
@@ -241,7 +241,7 @@ export function ReasoningLevelSelector({
             className="min-w-[230px]"
           >
             <DropdownMenuItem disabled>
-              <Spinner size={12} />
+              <Spinner size="sm" />
               Loading models...
             </DropdownMenuItem>
             {showHarnessSubmenu && adapter && (
