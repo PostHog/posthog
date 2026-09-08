@@ -247,6 +247,10 @@ class ResolvedTemplate:
     notes: str
 
 
+def _target_digest(target_event: str) -> str:
+    return hashlib.sha256(target_event.encode()).hexdigest()[:6]
+
+
 def _safe_target_name(target_event: str) -> str:
     raw = target_event.lstrip("$")
     safe = _UNSAFE_PROPERTY_CHARS.sub("_", raw.lower()).strip("_") or "target"
@@ -254,8 +258,7 @@ def _safe_target_name(target_event: str) -> str:
         return safe
     # Normalization is lossy ("Checkout Started" and "checkout_started" collapse to one name),
     # so a stable digest of the original keeps two such targets on separate person properties.
-    digest = hashlib.sha1(target_event.encode()).hexdigest()[:6]
-    return f"{safe}_{digest}"
+    return f"{safe}_{_target_digest(target_event)}"
 
 
 def _output_person_property(prefix: str, target_event: str, horizon_days: int) -> str:
@@ -265,7 +268,7 @@ def _output_person_property(prefix: str, target_event: str, horizon_days: int) -
     name = f"{prefix}_{_safe_target_name(target_event)}"
     room = _PIPELINE_FIELD_MAX_LENGTH - len(suffix)
     if len(name) > room:
-        digest = hashlib.sha1(target_event.encode()).hexdigest()[:6]
+        digest = _target_digest(target_event)
         name = f"{name[: room - len(digest) - 1].rstrip('_')}_{digest}"
     return f"{name}{suffix}"
 
