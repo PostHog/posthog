@@ -63,9 +63,9 @@
       "expected": "valid"
     },
     {
-      "path": "fixtures/config/valid/reserved_json_value.json",
+      "path": "fixtures/config/valid/reserved_object_value.json",
       "kind": "fixture",
-      "fixture_id": "config.valid.reserved_json_value",
+      "fixture_id": "config.valid.reserved_object_value",
       "expected": "valid"
     },
     {

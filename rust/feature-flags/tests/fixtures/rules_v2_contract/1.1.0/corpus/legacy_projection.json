@@ -6,7 +6,7 @@
     "flags_v2": {
       "endpoint": "/flags",
       "selected_by": "v=2 or higher, or /decide with v=4 or higher",
-      "shape": "flags map of detailed results with reason and metadata; errorsWhileComputingFlags at the top level"
+      "shape": "flags map of evaluation details with reason and metadata; errorsWhileComputingFlags at the top level"
     },
     "flags_v1": {
       "endpoint": "/flags",
