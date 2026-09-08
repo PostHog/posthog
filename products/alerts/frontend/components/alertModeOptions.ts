@@ -5,18 +5,21 @@ export interface AlertModeOption {
     label: string
     description: string
     'data-attr': string
+    disabledReason?: string
 }
 
 interface AlertModeOptionsInput {
     supportsAnomalyDetection: boolean
     supportsForecast: boolean
     showAnomalyGuidance: boolean
+    forecastDisabledReason?: string
 }
 
 export function alertModeOptions({
     supportsAnomalyDetection,
     supportsForecast,
     showAnomalyGuidance,
+    forecastDisabledReason,
 }: AlertModeOptionsInput): AlertModeOption[] {
     const options: AlertModeOption[] = [
         {
@@ -42,6 +45,7 @@ export function alertModeOptions({
             label: 'Forecast',
             description: 'Alert on where this metric is heading, using its trend and weekly pattern.',
             'data-attr': 'alertForm-mode-forecast',
+            disabledReason: forecastDisabledReason,
         })
     }
     return options

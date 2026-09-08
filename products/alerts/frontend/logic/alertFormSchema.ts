@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import { dayjs, dayjsNowInTimezone } from 'lib/dayjs'
 
-import { AlertConditionType, ForecastConditionType, InsightsThresholdBounds } from '~/queries/schema/schema-general'
+import { AlertConditionType, ForecastConditionType } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
 
 import type { AlertType } from '../types'
@@ -23,7 +23,9 @@ function isFiniteThresholdBound(value: number | null | undefined): value is numb
 
 /** Whether the pair of bounds is impossible to satisfy: every value sits outside one of them, so
  * the comparator reports a breach on the very first point. */
-export function hasInvertedThresholdBounds(bounds: InsightsThresholdBounds | null | undefined): boolean {
+export function hasInvertedThresholdBounds(
+    bounds: { lower?: number | null; upper?: number | null } | null | undefined
+): boolean {
     return isFiniteThresholdBound(bounds?.lower) && isFiniteThresholdBound(bounds?.upper) && bounds.lower > bounds.upper
 }
 

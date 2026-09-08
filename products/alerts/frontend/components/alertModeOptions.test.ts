@@ -31,4 +31,16 @@ describe('alertModeOptions', () => {
         }).find((option) => option.value === 'forecast')
         expect(forecast?.description).not.toContain('threshold')
     })
+
+    it('keeps an unavailable existing forecast visible but prevents selecting it again', () => {
+        const disabledReason = 'Forecast alerts are no longer enabled for this project.'
+        const forecast = alertModeOptions({
+            supportsAnomalyDetection: false,
+            supportsForecast: true,
+            showAnomalyGuidance: false,
+            forecastDisabledReason: disabledReason,
+        }).find((option) => option.value === 'forecast')
+
+        expect(forecast?.disabledReason).toBe(disabledReason)
+    })
 })

@@ -339,6 +339,10 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         typeof alertFormValidationErrors.calculation_interval === 'string'
             ? alertFormValidationErrors.calculation_interval
             : undefined
+    const forecastDisabledReason =
+        alertMode === 'forecast' && !forecastAlertsEnabled
+            ? 'Forecast alerts are no longer enabled for this project. This alert will keep running. Disable it to stop it, or switch to another alert mode before editing.'
+            : undefined
 
     const definitionNode = (
         <AlertDefinitionSection
@@ -367,6 +371,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                 intervalSupportsForecast(trendInterval) &&
                 supportsForecast(alertForm.config)
             }
+            forecastDisabledReason={forecastDisabledReason}
             insightInterval={trendInterval}
             projectTimezone={projectTimezone}
             showAnomalyGuidance={creatingNewAlert && anomalyAlertGuidanceEnabled}

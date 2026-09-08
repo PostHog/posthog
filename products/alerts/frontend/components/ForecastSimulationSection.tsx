@@ -37,6 +37,7 @@ interface ForecastSimulationSectionProps {
     projectTimezone: string
     forecastSimulationResultLoading: boolean
     simulationDateFrom: string | null
+    disabledReason?: string
     onSimulateForecast: () => void
     onSetSimulationDateFrom: (value: string) => void
 }
@@ -47,6 +48,7 @@ export function ForecastSimulationSection({
     projectTimezone,
     forecastSimulationResultLoading,
     simulationDateFrom,
+    disabledReason: forecastEditingDisabledReason,
     onSimulateForecast,
     onSetSimulationDateFrom,
 }: ForecastSimulationSectionProps): JSX.Element {
@@ -63,7 +65,8 @@ export function ForecastSimulationSection({
         forecastConfig?.condition === ForecastConditionType.FUTURE_BREACH
             ? breachThresholdError(alertForm.threshold?.configuration?.bounds)
             : null
-    const disabledReason = targetValueError ?? targetDateError ?? thresholdError ?? undefined
+    const disabledReason =
+        forecastEditingDisabledReason ?? targetValueError ?? targetDateError ?? thresholdError ?? undefined
     const rangeOptions = usableSimulationRanges(
         getSimulationRangeOptions(alertForm.calculation_interval),
         insightInterval
@@ -74,18 +77,21 @@ export function ForecastSimulationSection({
             <div className="flex items-center gap-1.5">
                 <h4 className="m-0">Forecast preview</h4>
                 <Tooltip
-                    title="Runs the configured forecast over the selected history. It does not change what the alert evaluates."
+                    title="Uses at least the selected history. The forecast automatically reaches further back when its look-ahead needs more training data. This does not change what the alert evaluates."
                     delayMs={0}
                 >
                     <IconInfo className="text-muted size-3.5" />
                 </Tooltip>
             </div>
+            <span className="text-secondary text-xs">Minimum history</span>
             <LemonSelect
                 size="small"
+                aria-label="Minimum forecast history"
                 data-attr="alertForm-simulate-forecast-range"
                 value={range}
                 onChange={onSetSimulationDateFrom}
                 options={rangeOptions}
+                disabledReason={forecastEditingDisabledReason}
             />
             <LemonButton
                 type="secondary"

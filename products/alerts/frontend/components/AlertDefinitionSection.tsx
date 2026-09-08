@@ -75,6 +75,7 @@ export interface AlertDefinitionSectionProps {
     hogql: HogQLDefinitionProps
     supportsAnomalyDetection: boolean
     supportsForecast: boolean
+    forecastDisabledReason?: string
     insightInterval: IntervalType | null | undefined
     projectTimezone: string
     showAnomalyGuidance?: boolean
@@ -104,6 +105,7 @@ export function AlertDefinitionSection({
     hogql,
     supportsAnomalyDetection,
     supportsForecast,
+    forecastDisabledReason,
     insightInterval,
     projectTimezone,
     showAnomalyGuidance = false,
@@ -132,6 +134,7 @@ export function AlertDefinitionSection({
         thresholdBoundsFormError,
         isNonTimeSeriesDisplay,
         supportsRelativeConditions: supportsRelativeConditions && alertMode === 'threshold',
+        disabledReason: forecastUsesThresholdBounds ? forecastDisabledReason : undefined,
         onSetAlertFormValue,
     }
     let definitionFields: JSX.Element | null = null
@@ -175,6 +178,9 @@ export function AlertDefinitionSection({
             {trends.isBreakdownValid && isTrendsAlertConfig(alertForm.config) && (
                 <LemonBanner type="warning">{breakdownDisabledReason(alertMode)}</LemonBanner>
             )}
+            {alertMode === 'forecast' && forecastDisabledReason ? (
+                <LemonBanner type="warning">{forecastDisabledReason}</LemonBanner>
+            ) : null}
             <div
                 className={
                     twoColumnLayout ? 'grid items-start gap-6 md:grid-cols-[minmax(0,55%)_minmax(0,1fr)]' : 'space-y-3'
@@ -217,6 +223,7 @@ export function AlertDefinitionSection({
                                 supportsAnomalyDetection,
                                 supportsForecast: supportsForecast || alertMode === 'forecast',
                                 showAnomalyGuidance,
+                                forecastDisabledReason,
                             })}
                         />
                     )}
@@ -227,6 +234,7 @@ export function AlertDefinitionSection({
                         <ForecastSelector
                             insightInterval={insightInterval}
                             projectTimezone={projectTimezone}
+                            disabledReason={forecastDisabledReason}
                             value={alertForm.forecast_config ?? null}
                             onChange={(config) => {
                                 onSetAlertFormValue('forecast_config', config)
@@ -276,6 +284,7 @@ export function AlertDefinitionSection({
                             projectTimezone={projectTimezone}
                             forecastSimulationResultLoading={forecastSimulationResultLoading}
                             simulationDateFrom={simulationDateFrom}
+                            disabledReason={forecastDisabledReason}
                             onSimulateForecast={onSimulateForecast}
                             onSetSimulationDateFrom={onSetSimulationDateFrom}
                         />

@@ -20,6 +20,7 @@ export interface ThresholdRowRenderProps {
     thresholdBoundsFormError?: string
     isNonTimeSeriesDisplay: boolean
     supportsRelativeConditions: boolean
+    disabledReason?: string
     onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
 }
 
@@ -28,6 +29,7 @@ export function ThresholdDefinitionRow({
     thresholdBoundsFormError,
     isNonTimeSeriesDisplay,
     supportsRelativeConditions,
+    disabledReason,
     onSetAlertFormValue,
 }: ThresholdRowRenderProps): JSX.Element {
     const isFunnelAlert = isFunnelsAlertConfig(alertForm.config)
@@ -49,6 +51,7 @@ export function ThresholdDefinitionRow({
                                     className="w-40"
                                     data-attr="alertForm-condition"
                                     value={value}
+                                    disabledReason={disabledReason}
                                     onChange={(newType) => {
                                         onChange(newType)
                                         const configuration = alertForm.threshold.configuration
@@ -93,6 +96,7 @@ export function ThresholdDefinitionRow({
                                 ? fractionToPercentInput(alertForm.threshold.configuration.bounds?.lower)
                                 : alertForm.threshold.configuration.bounds?.lower
                         }
+                        disabledReason={disabledReason}
                         onChange={(value) =>
                             onSetAlertFormValue('threshold', {
                                 configuration: {
@@ -119,6 +123,7 @@ export function ThresholdDefinitionRow({
                                 ? fractionToPercentInput(alertForm.threshold.configuration.bounds?.upper)
                                 : alertForm.threshold.configuration.bounds?.upper
                         }
+                        disabledReason={disabledReason}
                         onChange={(value) =>
                             onSetAlertFormValue('threshold', {
                                 configuration: {
@@ -137,6 +142,7 @@ export function ThresholdDefinitionRow({
                     <Group name={['threshold', 'configuration']}>
                         <LemonField name="type">
                             <LemonSegmentedButton
+                                disabledReason={disabledReason}
                                 options={[
                                     { value: InsightThresholdType.PERCENTAGE, label: '%', tooltip: 'Percent' },
                                     { value: InsightThresholdType.ABSOLUTE, label: '#', tooltip: 'Absolute number' },

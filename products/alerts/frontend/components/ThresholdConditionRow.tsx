@@ -22,6 +22,7 @@ export interface ThresholdConditionRowProps {
     /** Whether relative conditions (increase/decrease by) are pickable. False for steps funnels;
      *  true for trends, HogQL last/first row, and trends funnels. */
     supportsRelativeConditions: boolean
+    disabledReason?: string
     onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
 }
 
@@ -60,12 +61,13 @@ export function ThresholdConditionRow({
     thresholdBoundsFormError,
     isNonTimeSeriesDisplay,
     supportsRelativeConditions,
+    disabledReason: editingDisabledReason,
     onSetAlertFormValue,
 }: ThresholdConditionRowProps): JSX.Element {
     const isFunnelAlert = isFunnelsAlertConfig(alertForm.config)
     const isAnyRowHogQL =
         !!alertForm.config && alertForm.config.type === 'HogQLAlertConfig' && alertForm.config.evaluation === 'any_row'
-    const disabledReason = relativeConditionDisabledReason(isNonTimeSeriesDisplay, isAnyRowHogQL)
+    const relativeDisabledReason = relativeConditionDisabledReason(isNonTimeSeriesDisplay, isAnyRowHogQL)
     const isRelative = alertForm.condition?.type !== AlertConditionType.ABSOLUTE_VALUE
 
     return (
@@ -80,6 +82,7 @@ export function ThresholdConditionRow({
                                 className="w-40 shrink-0"
                                 data-attr="alertForm-condition"
                                 value={value}
+                                disabledReason={editingDisabledReason}
                                 onChange={(newType) => {
                                     onChange(newType)
                                     const configuration = alertForm.threshold.configuration
@@ -97,7 +100,7 @@ export function ThresholdConditionRow({
                                 }}
                                 options={
                                     supportsRelativeConditions
-                                        ? CONDITION_OPTIONS(disabledReason)
+                                        ? CONDITION_OPTIONS(relativeDisabledReason)
                                         : CONDITION_OPTIONS(undefined).filter(
                                               (o) => o.value === AlertConditionType.ABSOLUTE_VALUE
                                           )
@@ -110,6 +113,7 @@ export function ThresholdConditionRow({
                     <LemonSegmentedButton
                         size="small"
                         value={alertForm.threshold.configuration.type}
+                        disabledReason={editingDisabledReason}
                         options={UNIT_OPTIONS}
                         onChange={(newType) =>
                             onSetAlertFormValue('threshold', {
@@ -138,6 +142,7 @@ export function ThresholdConditionRow({
                                     ? fractionToPercentInput(alertForm.threshold.configuration.bounds?.lower)
                                     : alertForm.threshold.configuration.bounds?.lower
                             }
+                            disabledReason={editingDisabledReason}
                             onChange={(value) =>
                                 onSetAlertFormValue('threshold', {
                                     configuration: {
@@ -169,6 +174,7 @@ export function ThresholdConditionRow({
                                     ? fractionToPercentInput(alertForm.threshold.configuration.bounds?.upper)
                                     : alertForm.threshold.configuration.bounds?.upper
                             }
+                            disabledReason={editingDisabledReason}
                             onChange={(value) =>
                                 onSetAlertFormValue('threshold', {
                                     configuration: {

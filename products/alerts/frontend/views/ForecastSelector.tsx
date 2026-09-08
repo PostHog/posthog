@@ -51,18 +51,16 @@ export function withConditionDefaults(
     insightInterval?: IntervalType | null
 ): ForecastConfig {
     if (condition === ForecastConditionType.FUTURE_BREACH) {
-        return clampHorizon(
-            {
-                type: 'ForecastConfig',
-                engine: config.engine,
-                condition,
-                horizon:
-                    config.condition === ForecastConditionType.FUTURE_BREACH
-                        ? (config.horizon ?? DEFAULT_HORIZON)
-                        : DEFAULT_HORIZON,
-            },
-            insightInterval
-        )
+        const nextConfig: FutureBreachForecastConfig = {
+            type: 'ForecastConfig',
+            engine: config.engine,
+            condition,
+            horizon:
+                config.condition === ForecastConditionType.FUTURE_BREACH
+                    ? (config.horizon ?? DEFAULT_HORIZON)
+                    : DEFAULT_HORIZON,
+        }
+        return clampHorizon(nextConfig, insightInterval)
     }
     return {
         type: 'ForecastConfig',
@@ -107,6 +105,7 @@ interface ForecastSelectorProps {
     onChange: (config: ForecastConfig) => void
     insightInterval: IntervalType | null | undefined
     projectTimezone?: string
+    disabledReason?: string
 }
 
 export function ForecastSelector({
@@ -114,6 +113,7 @@ export function ForecastSelector({
     onChange,
     insightInterval,
     projectTimezone,
+    disabledReason,
 }: ForecastSelectorProps): JSX.Element {
     const config = value ?? getDefaultForecastConfig(insightInterval)
     const today = projectTimezone ? dayjsNowInTimezone(projectTimezone) : dayjs()
@@ -138,12 +138,14 @@ export function ForecastSelector({
                         label: 'Upcoming threshold breach',
                         description: 'Alert if the point forecast crosses a less-than or more-than threshold soon.',
                         'data-attr': 'alertForm-forecast-condition-future-breach',
+                        disabledReason,
                     },
                     {
                         value: ForecastConditionType.TARGET_BY_DATE,
                         label: 'Target by date',
                         description: 'Alert if the value forecast for a chosen date is on the wrong side of a target.',
                         'data-attr': 'alertForm-forecast-condition-target-by-date',
+                        disabledReason,
                     },
                 ]}
             />
@@ -159,6 +161,7 @@ export function ForecastSelector({
                         min={1}
                         max={maxHorizon}
                         value={config.horizon ?? DEFAULT_HORIZON}
+                        disabledReason={disabledReason}
                         onChange={(horizon) => onChange(withEnteredHorizon(config, horizon, insightInterval))}
                     />
                     <span>{unit}</span>
@@ -170,6 +173,7 @@ export function ForecastSelector({
                     insightInterval={insightInterval}
                     today={today}
                     projectTimezone={projectTimezone}
+                    disabledReason={disabledReason}
                     onChange={onChange}
                 />
             )}
@@ -182,12 +186,14 @@ function TargetByDateFields({
     insightInterval,
     today,
     projectTimezone,
+    disabledReason,
     onChange,
 }: {
     config: Extract<ForecastConfig, { condition: ForecastConditionType.TARGET_BY_DATE }>
     insightInterval: IntervalType | null | undefined
     today: dayjs.Dayjs
     projectTimezone?: string
+    disabledReason?: string
     onChange: (config: ForecastConfig) => void
 }): JSX.Element {
     const targetValueError = forecastTargetValueError(config.target)
@@ -200,6 +206,7 @@ function TargetByDateFields({
                 <LemonSelect
                     data-attr="alertForm-forecast-target-direction"
                     value={config.target_direction}
+                    disabledReason={disabledReason}
                     onChange={(target_direction) => onChange({ ...config, target_direction })}
                     options={[
                         { label: 'at least', value: ForecastTargetDirection.AT_LEAST },
@@ -216,6 +223,7 @@ function TargetByDateFields({
                     aria-label="Target value"
                     status={targetValueError ? 'danger' : undefined}
                     value={Number.isFinite(config.target) ? config.target : undefined}
+                    disabledReason={disabledReason}
                     onChange={(target) => onChange({ ...config, target: target ?? Number.NaN })}
                 />
                 <span className="whitespace-nowrap">on</span>
@@ -224,7 +232,11 @@ function TargetByDateFields({
                     // Without the project timezone the calendar draws its past/future boundary from
                     // the browser, so it can offer a date the project-timezone validation rejects.
                     selectionPeriodTimezone={projectTimezone}
-                    buttonProps={{ fullWidth: false, 'data-attr': 'alertForm-forecast-target-date' }}
+                    buttonProps={{
+                        fullWidth: false,
+                        'data-attr': 'alertForm-forecast-target-date',
+                        disabledReason,
+                    }}
                     value={config.target_date ? dayjs(config.target_date) : null}
                     onChange={(date) =>
                         onChange({

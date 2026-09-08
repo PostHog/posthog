@@ -55,4 +55,23 @@ describe('ForecastSimulationSection', () => {
     ] as const)('allows the preview with %s', (_name, bounds) => {
         expect(previewButton(bounds)?.getAttribute('aria-disabled')).toBe('false')
     })
+
+    it('blocks preview when forecast editing is unavailable', () => {
+        const { container } = render(
+            <ForecastSimulationSection
+                alertForm={breachAlert({ upper: 100 })}
+                insightInterval="day"
+                projectTimezone="UTC"
+                forecastSimulationResultLoading={false}
+                simulationDateFrom={null}
+                disabledReason="Forecast alerts are no longer enabled for this project."
+                onSimulateForecast={jest.fn()}
+                onSetSimulationDateFrom={jest.fn()}
+            />
+        )
+
+        expect(
+            container.querySelector('[data-attr="alertForm-simulate-forecast"]')?.getAttribute('aria-disabled')
+        ).toBe('true')
+    })
 })
