@@ -72,7 +72,7 @@ from products.exports.backend.temporal.subscriptions.types import (
 
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor, QueryStatusError
 from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolRetryableError, MaxToolTransientError
 
 logger = structlog.get_logger(__name__)
 
@@ -81,7 +81,7 @@ logger = structlog.get_logger(__name__)
 # single slow upstream from soaking it.
 _SYNTHESIS_LLM_TIMEOUT_SECONDS = 90.0
 _HOGQL_STEP_TIMEOUT_SECONDS = 60.0
-_HOGQL_ASYNC_QUERY_POLL_TIMEOUT_SECONDS = 50.0
+_HOGQL_ASYNC_QUERY_POLL_TIMEOUT_SECONDS = 55.0
 # Backstop length cap on a single step's formatted results before they enter the synthesis prompt.
 # The executor already truncates; this is defense-in-depth against a giant value.
 _QUERY_RESULT_MAX_CHARS = 50_000
@@ -150,6 +150,8 @@ def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairD
     for current in iter_exception_chain(exc):
         if isinstance(current, MaxToolRetryableError):
             has_retryable_error = True
+        if isinstance(current, MaxToolTransientError):
+            has_self_recoverable_error = True
         if isinstance(current, QueryStatusError):
             if current.error_retryable:
                 has_self_recoverable_error = True
@@ -168,7 +170,9 @@ def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairD
             category = classify_query_error(current)
             if category is not QueryErrorCategory.ERROR:
                 categories.add(category)
-            elif not isinstance(current, (MaxToolRetryableError, QueryStatusError, *CH_TRANSIENT_ERRORS)):
+            elif not isinstance(
+                current, (MaxToolRetryableError, MaxToolTransientError, QueryStatusError, *CH_TRANSIENT_ERRORS)
+            ):
                 has_unclassified_error = True
             if isinstance(current, InternalCHQueryError) and category is QueryErrorCategory.USER_ERROR:
                 has_clickhouse_user_error = True

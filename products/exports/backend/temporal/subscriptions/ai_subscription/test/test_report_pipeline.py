@@ -39,6 +39,8 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.charts impo
     ValidatedChart,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
+    _HOGQL_ASYNC_QUERY_POLL_TIMEOUT_SECONDS,
+    _HOGQL_STEP_TIMEOUT_SECONDS,
     _MAX_CONCURRENT_STEPS,
     QUERY_FAILED_PREFIX,
     AiReportStageError,
@@ -68,7 +70,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
 from products.exports.backend.temporal.subscriptions.types import safe_error_message, safe_query_error_details
 
 from ee.hogai.context.insight.query_executor import FormattedQueryResult, _query_status_error
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolRetryableError, MaxToolTransientError
 
 _RP = "products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline"
 _SG = "products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator"
@@ -716,6 +718,21 @@ def test_query_repair_decision_names_its_fields() -> None:
 
     assert decision.repair_hint is None
     assert decision.invalidates_plan is True
+
+
+def test_query_repair_decision_preserves_transient_tool_error_without_typed_cause() -> None:
+    decision = _query_repair_hint_and_plan_invalidation(MaxToolTransientError("temporary failure"))
+
+    assert decision.repair_hint is None
+    assert decision.invalidates_plan is False
+    assert decision.retry_unchanged is True
+
+
+def test_async_polling_keeps_only_a_small_status_classification_margin() -> None:
+    margin_seconds = _HOGQL_STEP_TIMEOUT_SECONDS - _HOGQL_ASYNC_QUERY_POLL_TIMEOUT_SECONDS
+
+    assert _HOGQL_ASYNC_QUERY_POLL_TIMEOUT_SECONDS > 50
+    assert 0 < margin_seconds <= 5
 
 
 def test_query_repair_decision_treats_remembered_bytes_limit_as_performance_failure() -> None:

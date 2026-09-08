@@ -6,7 +6,7 @@ from parameterized import parameterized
 from posthog.schema import AssistantTrendsEventsNode, AssistantTrendsQuery
 
 from ee.hogai.context.insight.context import InsightContext
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolRetryableError, MaxToolTransientError
 
 
 class TestInsightContext(BaseTest):
@@ -142,6 +142,19 @@ class TestInsightContext(BaseTest):
             await context.execute_and_format()
 
         self.assertIn("Error executing query: Query failed", str(exc.exception))
+
+    @patch("ee.hogai.context.insight.context.execute_and_format_query")
+    async def test_execute_and_format_preserves_transient_error(self, mock_execute):
+        transient_error = MaxToolTransientError("Query temporarily unavailable")
+        mock_execute.side_effect = transient_error
+
+        query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
+        context = InsightContext(team=self.team, query=query, user=self.user)
+
+        with self.assertRaises(MaxToolTransientError) as exc:
+            await context.execute_and_format()
+
+        self.assertIs(exc.exception, transient_error)
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_execute_and_format_returns_exception_when_flag_set(self, mock_execute):

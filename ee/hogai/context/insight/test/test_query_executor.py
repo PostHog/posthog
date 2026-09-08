@@ -53,7 +53,7 @@ from ee.hogai.context.insight.query_executor import (
     get_example_prompt,
     is_supported_query,
 )
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.utils.query import validate_assistant_query
 
 
@@ -389,11 +389,12 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         for error in errors:
             mock_process_query.side_effect = error
             with self.subTest(error=type(error).__name__):
-                with self.assertRaises(MaxToolRetryableError) as context:
+                with self.assertRaises(MaxToolTransientError) as context:
                     await self.query_runner.aexecute_query(query)
 
                 self.assertIs(context.exception.__cause__, error)
                 self.assertNotIn("private", str(context.exception))
+                self.assertEqual(context.exception.retry_strategy, "once")
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_truncates_long_error(self, mock_process_query):
@@ -506,7 +507,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         query = AssistantTrendsQuery(series=[])
 
         with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
-            with self.assertRaises(MaxToolRetryableError) as context:
+            with self.assertRaises(MaxToolTransientError) as context:
                 await self.query_runner.aexecute_query(query, async_query_timeout_seconds=0)
 
         self.assertIsInstance(context.exception.__cause__, QueryStatusError)
@@ -577,7 +578,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         query = AssistantTrendsQuery(series=[])
 
         with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
-            with self.assertRaises(MaxToolRetryableError) as context:
+            with self.assertRaises(MaxToolTransientError) as context:
                 await self.query_runner.arun_and_format_query(query)
 
         self.assertIsInstance(context.exception.__context__, QueryStatusError)

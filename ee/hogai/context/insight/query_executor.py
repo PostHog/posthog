@@ -70,7 +70,7 @@ from ee.hogai.context.insight.format import (
     get_boxplot_results,
     is_boxplot_query,
 )
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AnyPydanticModelQuery
@@ -529,7 +529,10 @@ class AssistantQueryExecutor:
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} Transient query failure after {elapsed:.3f}s")
             # Internal ClickHouse messages can contain storage details, so keep the wrapper generic.
-            raise MaxToolRetryableError("Query temporarily unavailable. Please try again.") from err
+            raise MaxToolTransientError("Query temporarily unavailable. Please try again.") from err
+        except QueryStatusError as err:
+            error_type = MaxToolTransientError if err.error_retryable else MaxToolRetryableError
+            raise error_type(str(err)) from err
         except (
             APIException,
             ExposedHogQLError,
