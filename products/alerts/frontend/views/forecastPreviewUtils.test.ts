@@ -104,7 +104,14 @@ describe('forecastGoalLines', () => {
 
     it('carries the target of a target-by-date alert', () => {
         expect(forecastGoalLines(null, targetConfig)).toEqual([
-            { value: 1000, label: 'Target 1,000', labelPosition: 'start' },
+            {
+                value: 1000,
+                label: 'Target 1,000',
+                labelPosition: 'start',
+                // A themed variable, not a fixed color: the chart's default goal line is invisible
+                // on the dark surface.
+                color: 'var(--color-graph-axis-label)',
+            },
         ])
     })
 

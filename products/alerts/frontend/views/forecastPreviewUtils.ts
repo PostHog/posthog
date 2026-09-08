@@ -94,6 +94,9 @@ export function forecastGoalLines(
             value: forecastConfig.target,
             label: `Target ${humanFriendlyNumber(forecastConfig.target)}`,
             labelPosition: 'start',
+            // The chart's own default for a goal line is a translucent black, which all but
+            // disappears on the dark surface. The axis-label token stays legible in both themes.
+            color: 'var(--color-graph-axis-label)',
         })
     }
     return lines
