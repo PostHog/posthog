@@ -19,7 +19,10 @@ by the sibling ``organization_members`` module.
 """
 
 import json
+from datetime import timedelta
 from typing import Any
+
+from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
@@ -1386,6 +1389,23 @@ class CalendarSyncTriggerResponseSerializer(serializers.Serializer):
         choices=[("started", "started"), ("already_running", "already_running")],
         help_text="'started' (a sync run began) or 'already_running' (a sync for this calendar was already in flight, so this was a no-op).",
     )
+
+
+class CalendarSyncBackfillSerializer(serializers.Serializer):
+    integration_id = serializers.IntegerField(help_text="Id of the Google account integration to backfill.")
+    start_date = serializers.DateField(help_text="First UTC date to include. Must be within the last 365 days.")
+    end_date = serializers.DateField(help_text="Final UTC date to include. Cannot be after today.")
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        today = timezone.now().date()
+        earliest_date = today - timedelta(days=365)
+        if attrs["start_date"] < earliest_date:
+            raise serializers.ValidationError({"start_date": "Start date must be within the last 365 days."})
+        if attrs["end_date"] > today:
+            raise serializers.ValidationError({"end_date": "End date cannot be after today."})
+        if attrs["start_date"] > attrs["end_date"]:
+            raise serializers.ValidationError({"end_date": "End date must be on or after the start date."})
+        return attrs
 
 
 class MeetingParticipantSerializer(DataclassSerializer):
