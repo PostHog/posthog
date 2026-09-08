@@ -373,13 +373,14 @@ def _migration_removed_from_state(
 
                 # Check if both model and field match (case-insensitive)
                 removed_model_name = getattr(state_op, "model_name", "")
-                removed_field_name = getattr(state_op, "name", "")
+                removed_field_name = getattr(state_op, "name", "").lower()
 
-                if (
-                    removed_model_name.lower() == model_name.lower()
-                    and field_name
-                    and removed_field_name.lower() == field_name.lower()
-                ):
+                if not field_name or removed_model_name.lower() != model_name.lower():
+                    continue
+
+                # A ForeignKey's column carries an "_id" suffix the state operation never sees, so
+                # the SQL column and the removed field name only match once it is accounted for.
+                if field_name.lower() in (removed_field_name, f"{removed_field_name}_id"):
                     return True
 
     return False
