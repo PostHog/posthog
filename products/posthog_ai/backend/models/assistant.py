@@ -27,9 +27,6 @@ class Conversation(UUIDTModel, DeletedMetaFields):
     TITLE_MAX_LENGTH = 250
 
     class Meta:
-        indexes = [
-            models.Index(fields=["updated_at"]),
-        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "slack_thread_key"],
@@ -131,7 +128,6 @@ class Conversation(UUIDTModel, DeletedMetaFields):
         max_length=16,
         choices=AgentRuntime.choices,
         default=AgentRuntime.LANGGRAPH,
-        db_index=True,
         help_text="Runtime that owns this conversation for its whole life. Stamped at create time from the phai-sandbox-mode flag; never re-evaluated.",
     )
     task = models.ForeignKey(
