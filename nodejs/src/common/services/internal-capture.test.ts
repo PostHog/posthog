@@ -3,6 +3,7 @@ import { mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 import { DateTime } from 'luxon'
 
 import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
 
 import { InternalCaptureService } from './internal-capture'
 
@@ -22,12 +23,15 @@ describe('InternalCaptureService', () => {
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
     })
     it('should capture an event', async () => {
-        const res = await service.capture({
-            team_token: 'token',
-            event: 'event-name',
-            distinct_id: 'distinct-id',
-            properties: {},
-        })
+        const res = await service.capture(
+            {
+                team_token: 'token',
+                event: 'event-name',
+                distinct_id: 'distinct-id',
+                properties: {},
+            },
+            'test'
+        )
         expect(res.status).toBe(200)
         expect(mockInternalFetch.mock.calls).toMatchInlineSnapshot(
             `
@@ -48,16 +52,19 @@ describe('InternalCaptureService', () => {
     })
 
     it('should allow some overrides', async () => {
-        await service.capture({
-            team_token: 'token',
-            event: 'event-name',
-            timestamp: '2025-03-03T03:03:03.000Z',
-            distinct_id: 'distinct-id',
-            properties: {
-                capture_internal: false,
-                foo: 'bar',
+        await service.capture(
+            {
+                team_token: 'token',
+                event: 'event-name',
+                timestamp: '2025-03-03T03:03:03.000Z',
+                distinct_id: 'distinct-id',
+                properties: {
+                    capture_internal: false,
+                    foo: 'bar',
+                },
             },
-        })
+            'test'
+        )
         expect(parseJSON(mockInternalFetch.mock.calls[0][1].body)).toMatchInlineSnapshot(`
             {
               "api_key": "token",
@@ -71,5 +78,41 @@ describe('InternalCaptureService', () => {
               "timestamp": "2025-03-03T03:03:03.000Z",
             }
         `)
+    })
+
+    // A suppressed remote-origin failure leaves this log as the only per-failure record, and pino
+    // drops name, message, and stack from a raw error under a key it does not serialize.
+    it('logs the failure with the error name, message, and stack', async () => {
+        const loggerErrorSpy = jest.spyOn(logger, 'error').mockImplementation(() => {})
+        mockInternalFetch.mockRejectedValue(
+            Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })
+        )
+
+        await expect(
+            service.capture({ team_token: 'token', event: 'event-name', distinct_id: 'distinct-id' }, 'caller-name')
+        ).rejects.toThrow()
+
+        expect(loggerErrorSpy).toHaveBeenCalledWith('Error capturing internal event', {
+            error: {
+                name: 'TimeoutError',
+                message: 'The operation was aborted due to timeout',
+                stack: expect.any(String),
+            },
+            caller: 'caller-name',
+        })
+        loggerErrorSpy.mockRestore()
+    })
+
+    it('wraps a failure with the caller and the target url', async () => {
+        mockInternalFetch.mockRejectedValue(new Error('connect ECONNREFUSED'))
+
+        await expect(
+            service.capture({ team_token: 'token', event: 'event-name', distinct_id: 'distinct-id' }, 'caller-name')
+        ).rejects.toMatchObject({
+            name: 'InternalCaptureError',
+            caller: 'caller-name',
+            url: 'http://localhost:8010/capture',
+            message: 'Internal capture from caller-name to http://localhost:8010/capture failed: connect ECONNREFUSED',
+        })
     })
 })
