@@ -1029,6 +1029,10 @@ class TaskRunErrorResponseSerializer(serializers.Serializer):
     error = serializers.CharField(required=False, help_text="Human-readable error message")
     type = serializers.CharField(required=False, help_text="Machine-readable error type")
     code = serializers.CharField(required=False, help_text="Machine-readable error code")
+    retry_token = serializers.CharField(
+        required=False,
+        help_text="After confirmed warm startup nondelivery, echo this token in X-PostHog-Warm-Retry to retry the same run and message within 60 seconds.",
+    )
     reason = serializers.ChoiceField(
         choices=DESKTOP_ACCESS_REASON_CHOICES,
         required=False,
