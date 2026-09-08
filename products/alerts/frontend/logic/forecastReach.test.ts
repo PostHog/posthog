@@ -14,13 +14,21 @@ import {
 } from './forecastReach'
 
 describe('maxHorizonForInterval', () => {
+    // The backend refuses a horizon reaching past 92 days, counting a month as 30.4 days, so
+    // 13 weeks (91) and 3 months (91.2) are the last values it accepts.
     it.each([
         ['hour' as const, 250],
         ['day' as const, 92],
-        ['week' as const, 14],
-        ['month' as const, 4],
+        ['week' as const, 13],
+        ['month' as const, 3],
     ])('caps a %s insight at %i intervals', (interval, expected) => {
         expect(maxHorizonForInterval(interval)).toBe(expected)
+    })
+
+    const BACKEND_INTERVAL_DAYS = { hour: 1 / 24, day: 1, week: 7, month: 30.4 } as const
+
+    it.each(['hour', 'day', 'week', 'month'] as const)('stays inside the backend reach for %s', (interval) => {
+        expect(maxHorizonForInterval(interval) * BACKEND_INTERVAL_DAYS[interval]).toBeLessThanOrEqual(92)
     })
 
     it('treats a missing interval as daily', () => {
@@ -50,7 +58,7 @@ describe('forecastTargetDateError', () => {
 
 describe('clampHorizon', () => {
     it.each([
-        ['pulls a horizon down to the cap', 100, 'week', 14],
+        ['pulls a horizon down to the cap', 100, 'week', 13],
         ['leaves a horizon inside the cap', 7, 'day', 7],
         ['raises a horizon below one', 0, 'day', 1],
         ['rounds a fractional horizon up to a whole interval', 1.5, 'day', 2],

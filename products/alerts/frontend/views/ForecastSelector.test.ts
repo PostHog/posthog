@@ -52,11 +52,29 @@ describe('withConditionDefaults', () => {
             horizon: 7,
         })
     })
+
+    it('keeps the restored horizon inside the cap of a coarse insight', () => {
+        const next = withConditionDefaults(
+            {
+                type: 'ForecastConfig',
+                engine: ForecastEngineType.PROPHET,
+                condition: ForecastConditionType.TARGET_BY_DATE,
+                target: 100,
+                target_direction: ForecastTargetDirection.AT_LEAST,
+                target_date: '2026-10-01',
+            },
+            ForecastConditionType.FUTURE_BREACH,
+            dayjs('2026-09-07'),
+            'month'
+        )
+
+        expect(next).toHaveProperty('horizon', 3)
+    })
 })
 
 describe('getDefaultForecastConfig', () => {
     it.each([
-        ['clamps the seeded horizon to a monthly cap', 'month', 4],
+        ['clamps the seeded horizon to a monthly cap', 'month', 3],
         ['leaves the seeded horizon alone where it fits', 'day', 7],
     ] as const)('%s', (_name, interval, expected) => {
         const config = getDefaultForecastConfig(interval)

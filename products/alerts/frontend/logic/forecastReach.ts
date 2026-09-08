@@ -26,9 +26,19 @@ export function displaySupportsForecast(display: ChartDisplayType | null | undef
     return display == null || !UNFORECASTABLE_DISPLAYS.has(display)
 }
 
+/** Days per interval as the backend counts them, from `_INTERVAL_DAYS` in
+ * products/alerts/backend/forecasting/engine.py. A month is 30.4 days there, so the cap has to use
+ * the same lengths and round down, or the backend refuses the horizon this editor offers. */
+const FORECAST_INTERVAL_DAYS: Partial<Record<IntervalType, number>> = {
+    hour: 1 / 24,
+    day: 1,
+    week: 7,
+    month: 30.4,
+}
+
 export function maxHorizonForInterval(interval: IntervalType | null | undefined): number {
-    const minutes = INSIGHT_INTERVAL_DURATION_MINUTES[interval ?? 'day']
-    return Math.min(MAX_FORECAST_OUTPUT_POINTS, Math.ceil((MAX_FORECAST_REACH_DAYS * MINUTES_PER_DAY) / minutes))
+    const days = FORECAST_INTERVAL_DAYS[interval ?? 'day'] ?? 1
+    return Math.min(MAX_FORECAST_OUTPUT_POINTS, Math.floor(MAX_FORECAST_REACH_DAYS / days))
 }
 
 export function clampHorizon<T extends { horizon?: number | null }>(

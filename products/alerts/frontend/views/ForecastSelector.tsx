@@ -34,18 +34,22 @@ const DEFAULT_TARGET_DAYS = 90
 export function withConditionDefaults(
     config: ForecastConfig,
     condition: ForecastConditionType,
-    today: dayjs.Dayjs = dayjs()
+    today: dayjs.Dayjs = dayjs(),
+    insightInterval?: IntervalType | null
 ): ForecastConfig {
     if (condition === ForecastConditionType.FUTURE_BREACH) {
-        return {
-            type: 'ForecastConfig',
-            engine: config.engine,
-            condition,
-            horizon:
-                config.condition === ForecastConditionType.FUTURE_BREACH
-                    ? (config.horizon ?? DEFAULT_HORIZON)
-                    : DEFAULT_HORIZON,
-        }
+        return clampHorizon(
+            {
+                type: 'ForecastConfig',
+                engine: config.engine,
+                condition,
+                horizon:
+                    config.condition === ForecastConditionType.FUTURE_BREACH
+                        ? (config.horizon ?? DEFAULT_HORIZON)
+                        : DEFAULT_HORIZON,
+            },
+            insightInterval
+        )
     }
     return {
         type: 'ForecastConfig',
@@ -109,7 +113,7 @@ export function ForecastSelector({
                 radioPosition="top"
                 value={config.condition}
                 onChange={(condition: ForecastConditionType) =>
-                    onChange(withConditionDefaults(config, condition, today))
+                    onChange(withConditionDefaults(config, condition, today, insightInterval))
                 }
                 options={[
                     {
