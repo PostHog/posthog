@@ -13,6 +13,7 @@ import type {
     PaginatedSubscriptionListApi,
     PatchedSubscriptionWriteApi,
     ProactiveConfigurationOptionsApi,
+    ProactiveHistoryEntryApi,
     PulseResearchRequestApi,
     PulseResearchResponseApi,
     SubscriptionApi,
@@ -146,6 +147,25 @@ export const subscriptionsDestroy = async (projectId: string, id: number, option
     return apiMutator<unknown>(getSubscriptionsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSubscriptionsPulseHistoryListUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/subscriptions/${id}/pulse-history/`
+}
+
+/**
+ * Read-only recommendations and outcome comparisons for one AI prompt subscription. Requires viewer access to the subscription and its query data.
+ * @summary List proactive subscription history
+ */
+export const subscriptionsPulseHistoryList = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProactiveHistoryEntryApi[]> => {
+    return apiMutator<ProactiveHistoryEntryApi[]>(getSubscriptionsPulseHistoryListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

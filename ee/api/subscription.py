@@ -76,7 +76,11 @@ from products.exports.backend.temporal.subscriptions.types import (
 )
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
-from products.subscriptions.backend.facade.proactive import get_proactive_config, update_proactive_config
+from products.subscriptions.backend.facade.proactive import (
+    get_proactive_config,
+    list_proactive_history,
+    update_proactive_config,
+)
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
@@ -1439,6 +1443,111 @@ class SubscriptionSerializer(SubscriptionWriteSerializer):
         return self._context_representation(obj)
 
 
+class ProactiveHistoryCitationSerializer(serializers.Serializer):
+    title = serializers.CharField(help_text="Short title for evidence supporting this recommendation.")
+    url = serializers.URLField(
+        allow_null=True,
+        help_text="Safe external evidence URL when one was available.",
+    )
+
+
+class ProactiveHistoryArtifactSerializer(serializers.Serializer):
+    kind = serializers.CharField(help_text="Prepared artifact kind, such as a draft pull request or experiment draft.")
+    status = serializers.CharField(
+        help_text="Artifact state: preparing, prepared, adopted, or failed. Adopted means the external change took effect."
+    )
+    url = serializers.URLField(
+        allow_null=True,
+        help_text="Artifact destination when it is safe to link, such as the draft pull request or experiment.",
+    )
+    prepared_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="Time this artifact became ready for review or use.",
+    )
+    adopted_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="Time this artifact was adopted, when it has taken effect.",
+    )
+
+
+class ProactiveHistoryOutcomeSerializer(serializers.Serializer):
+    status = serializers.CharField(
+        help_text="Outcome state: pending, improved, regressed, inconclusive, or unavailable."
+    )
+    metric_name = serializers.CharField(
+        allow_null=True,
+        help_text="Frozen metric name used for the one-time outcome comparison.",
+    )
+    expected_metric_movement = serializers.CharField(
+        allow_null=True,
+        help_text="Expected metric movement captured with the recommendation.",
+    )
+    direction = serializers.ChoiceField(
+        choices=["increase", "decrease"],
+        allow_null=True,
+        help_text="Expected direction for the metric movement.",
+    )
+    baseline_value = serializers.DecimalField(
+        max_digits=30,
+        decimal_places=10,
+        allow_null=True,
+        help_text="Metric total in the frozen baseline window.",
+    )
+    observed_value = serializers.DecimalField(
+        max_digits=30,
+        decimal_places=10,
+        allow_null=True,
+        help_text="Metric total in the observed window after adoption.",
+    )
+    delta = serializers.DecimalField(
+        max_digits=30,
+        decimal_places=10,
+        allow_null=True,
+        help_text="Absolute difference between observed and baseline metric totals.",
+    )
+    baseline_from = serializers.DateField(
+        allow_null=True,
+        help_text="First inclusive calendar date in the baseline window.",
+    )
+    baseline_to = serializers.DateField(
+        allow_null=True,
+        help_text="Last inclusive calendar date in the baseline window.",
+    )
+    observed_from = serializers.DateTimeField(
+        allow_null=True,
+        help_text="Start of the observed UTC calendar window after adoption.",
+    )
+    observed_to = serializers.DateTimeField(
+        allow_null=True,
+        help_text="End of the observed UTC calendar window after adoption.",
+    )
+    due_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="Time the one-time outcome readout becomes available when it is pending.",
+    )
+
+
+class ProactiveHistoryEntrySerializer(serializers.Serializer):
+    delivery_id = serializers.UUIDField(help_text="Delivery that generated this recommendation.")
+    recommendation_title = serializers.CharField(help_text="Recommendation title captured at delivery time.")
+    why_now = serializers.CharField(
+        allow_null=True,
+        help_text="Concise reason this recommendation was generated for that delivery.",
+    )
+    citations = ProactiveHistoryCitationSerializer(
+        many=True,
+        help_text="Up to three supporting evidence citations.",
+    )
+    artifact = ProactiveHistoryArtifactSerializer(
+        allow_null=True,
+        help_text="Prepared artifact, when the recommendation created one.",
+    )
+    outcome = ProactiveHistoryOutcomeSerializer(
+        allow_null=True,
+        help_text="One-time outcome result after an artifact was adopted, when available.",
+    )
+
+
 def _blocked_target_ids(
     user_access_control: UserAccessControl, queryset: QuerySet, resource: APIScopeObject
 ) -> QuerySet:
@@ -1783,6 +1892,32 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 "You do not have viewer access to this subscription. Ask an organization admin to update your access."
             )
         return subscription
+
+    @extend_schema(
+        extensions={"x-product": "subscriptions"},
+        summary="List proactive subscription history",
+        description=(
+            "Read-only recommendations and outcome comparisons for one AI prompt subscription. "
+            "Requires viewer access to the subscription and its query data."
+        ),
+        responses={200: ProactiveHistoryEntrySerializer(many=True)},
+    )
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path="pulse-history",
+        pagination_class=None,
+        filter_backends=[],
+        required_scopes=["subscription:read", "query:read"],
+    )
+    def pulse_history(self, request, **kwargs):
+        subscription = self.get_object()
+        if subscription.resource_type != Subscription.ResourceType.AI_PROMPT:
+            return Response([])
+        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+            raise exceptions.PermissionDenied("You need query access to view proactive subscription history.")
+        history = list_proactive_history(team_id=self.team_id, subscription_id=subscription.id)
+        return Response(ProactiveHistoryEntrySerializer(history, many=True).data)
 
     @extend_schema(
         extensions={"x-product": "subscriptions"},

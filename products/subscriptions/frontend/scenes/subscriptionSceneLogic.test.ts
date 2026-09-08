@@ -4,6 +4,9 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -130,6 +133,42 @@ describe('subscriptionSceneLogic', () => {
         expect(deliveriesRequestUrls).toHaveLength(1)
         logic.unmount()
     })
+
+    it.each([
+        { pulseEnabled: false, subscription: MOCK_AI_SUBSCRIPTION, expectedRequests: 0 },
+        { pulseEnabled: true, subscription: MOCK_SUBSCRIPTION, expectedRequests: 0 },
+        { pulseEnabled: true, subscription: MOCK_AI_SUBSCRIPTION, expectedRequests: 1 },
+    ])(
+        'loads Pulse history only for an AI subscription while Pulse is enabled',
+        async ({ pulseEnabled, subscription, expectedRequests }) => {
+            let pulseHistoryRequests = 0
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_TEAM_ID}/subscriptions/${subscription.id}/`]: [200, subscription],
+                    [`/api/projects/${MOCK_TEAM_ID}/subscriptions/${subscription.id}/deliveries/`]: [
+                        200,
+                        { results: [], next: null, previous: null },
+                    ],
+                    [`/api/projects/${MOCK_TEAM_ID}/subscriptions/${subscription.id}/pulse-history/`]: () => {
+                        pulseHistoryRequests += 1
+                        return [200, []]
+                    },
+                },
+            })
+            initKeaTests()
+            featureFlagLogic.actions.setFeatureFlags(pulseEnabled ? [FEATURE_FLAGS.PULSE] : [], {
+                [FEATURE_FLAGS.PULSE]: pulseEnabled,
+            })
+
+            const logic = subscriptionSceneLogic({ id: String(subscription.id) })
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(pulseHistoryRequests).toBe(expectedRequests)
+            expect(logic.values.showPulseHistory).toBe(false)
+            logic.unmount()
+        }
+    )
 
     it.each([
         [403, true],
