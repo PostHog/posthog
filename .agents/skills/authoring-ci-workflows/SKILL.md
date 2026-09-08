@@ -135,6 +135,14 @@ if: >
 Measured on a self-cancelled run ([evidence](https://github.com/PostHog/posthog/actions/runs/33513529687)): the bare `!cancelled()` gate recorded `cancelled`, the OR-ed gate ran and recorded `failure`.
 Only superseded runs then report `cancelled`, and every real failure keeps a `failure` conclusion.
 
+**A failure-rate metric keyed on a gate job must exclude `cancelled`.**
+Only `success` and a decisive failure are a verdict, so a denominator that counts `cancelled` measures push behavior, not test health.
+Find those rows through the _run's_ conclusion, not the gate job's.
+The gate job's own conclusion changed on 2026-09-04: a superseded gate recorded `failure` before that date and records `cancelled` after it.
+A metric that drops the superseded rows from the numerator and the denominator stays comparable across that date.
+One that filters on the gate job's conclusion alone does not.
+Reuse the canonical predicates instead of writing a new denominator: `CONCLUSIVE_RUN_CONDITION` in `products/engineering_analytics/backend/logic/queries/_workflow_filters.py`, and `computeHealthSummary` in `products/engineering_analytics/frontend/lib/runHealth.ts`.
+
 Four rules for the gate body:
 
 1. **Allowlist every dependency, never denylist.** Assert `success`/`skipped` and fail everything else.
