@@ -56,7 +56,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.assertLessEqual(
             {
                 "name": "#XXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxX",
-                "slug": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-YYYY",
+                "slug": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-yyyy",
             }.items(),
             response.json().items(),
         )

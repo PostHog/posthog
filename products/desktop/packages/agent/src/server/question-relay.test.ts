@@ -984,7 +984,7 @@ describe("Question relay", () => {
       expect(updateTaskRunSpy).not.toHaveBeenCalled();
     });
 
-    it("surfaces the shared provider failure message once upstream retries are exhausted", async () => {
+    it("stores the classified cause once upstream retries are exhausted", async () => {
       vi.spyOn(server.posthogAPI, "getTask").mockResolvedValue({
         id: "test-task-id",
         title: "t",
@@ -1031,7 +1031,7 @@ describe("Question relay", () => {
         "test-run-id",
         {
           status: "failed",
-          error_message: UPSTREAM_PROVIDER_FAILURE_MESSAGE,
+          error_message: `upstream_connection_error: ${UPSTREAM_PROVIDER_FAILURE_MESSAGE}`,
         },
       );
     });
