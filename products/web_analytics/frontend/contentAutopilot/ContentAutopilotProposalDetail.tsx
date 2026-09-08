@@ -18,10 +18,10 @@ export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
         selectedProposal,
         selectedProposalId,
         proposedMarkdown,
-        proposalDetailLoading,
         proposalHasUnsavedChanges,
         proposalMutationLoading,
         exportedProposalLoading,
+        proposalActionReasons,
     } = useValues(contentAutopilotLogic)
     const { selectProposal, setProposedMarkdown, saveProposal, rejectProposal, regenerateProposal, exportProposal } =
         useActions(contentAutopilotLogic)
@@ -68,22 +68,6 @@ export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
         })
     }
 
-    const deliveryBlocked = !selectedProposal.validation_report.passed
-        ? 'Fix the blocked checks before exporting'
-        : selectedProposal.lifecycle_status !== 'ready_for_review'
-          ? 'Only a proposal ready for review can be exported'
-          : undefined
-    const deliveryMutationLoading = exportedProposalLoading
-    const deliveryDisabledReason =
-        deliveryBlocked ??
-        (proposalHasUnsavedChanges ? 'Save or discard your changes before exporting' : undefined) ??
-        (proposalMutationLoading ? 'Wait for proposal changes to finish' : undefined)
-    const reviewDisabledReason = deliveryMutationLoading
-        ? 'Wait for the export to finish'
-        : proposalHasUnsavedChanges
-          ? 'Save or discard your changes first'
-          : undefined
-
     return (
         <LemonModal
             isOpen
@@ -99,7 +83,7 @@ export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
                             status="danger"
                             onClick={confirmReject}
                             loading={proposalMutationLoading}
-                            disabledReason={reviewDisabledReason}
+                            disabledReason={proposalActionReasons.reject}
                         >
                             Reject
                         </LemonButton>
@@ -107,7 +91,7 @@ export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
                             type="secondary"
                             onClick={() => regenerateProposal(selectedProposal.id)}
                             loading={proposalMutationLoading}
-                            disabledReason={reviewDisabledReason}
+                            disabledReason={proposalActionReasons.regenerate}
                         >
                             Regenerate
                         </LemonButton>
@@ -117,7 +101,7 @@ export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
                             type="secondary"
                             onClick={() => exportProposal(selectedProposal.id)}
                             loading={exportedProposalLoading}
-                            disabledReason={deliveryDisabledReason}
+                            disabledReason={proposalActionReasons.exportMarkdown}
                         >
                             Export Markdown
                         </LemonButton>
@@ -177,15 +161,7 @@ export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
                             size="small"
                             onClick={() => saveProposal(selectedProposal.id)}
                             loading={proposalMutationLoading}
-                            disabledReason={
-                                proposalDetailLoading
-                                    ? 'Wait for the proposal to load'
-                                    : deliveryMutationLoading
-                                      ? 'Wait for the export to finish'
-                                      : !proposalHasUnsavedChanges
-                                        ? 'No unsaved changes'
-                                        : undefined
-                            }
+                            disabledReason={proposalActionReasons.save}
                         >
                             Save changes
                         </LemonButton>

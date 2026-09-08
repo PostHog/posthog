@@ -17,8 +17,17 @@ import type {
 
 export type ContentAutopilotOnboardingStep = 'site' | 'sources'
 export type ContentAutopilotWorkspaceResource = 'profiles' | 'runs' | 'proposals'
+export type ContentAutopilotProfileResource = 'runs' | 'proposals'
 export type ContentAutopilotWorkspaceErrors = Partial<Record<ContentAutopilotWorkspaceResource, string>>
 export type ContentAutopilotWorkspaceSettled = Record<ContentAutopilotWorkspaceResource, boolean>
+export type ContentAutopilotProfileDataSettled = Record<ContentAutopilotProfileResource, boolean>
+
+export interface ContentAutopilotProposalActionReasons {
+    reject?: string
+    regenerate?: string
+    save?: string
+    exportMarkdown?: string
+}
 
 export interface ContentAutopilotProfileDraft {
     name: string
@@ -44,6 +53,28 @@ const EMPTY_WORKSPACE_SETTLED: ContentAutopilotWorkspaceSettled = {
     profiles: false,
     runs: false,
     proposals: false,
+}
+const EMPTY_PROFILE_DATA_SETTLED: ContentAutopilotProfileDataSettled = {
+    runs: false,
+    proposals: false,
+}
+
+interface PaginatedResults<T> {
+    count: number
+    results: T[]
+}
+
+const fetchAllPages = async <T>(
+    loadPage: (offset: number, limit: number) => Promise<PaginatedResults<T>>
+): Promise<T[]> => {
+    const collected: T[] = []
+    for (;;) {
+        const page = await loadPage(collected.length, WORKSPACE_PAGE_LIMIT)
+        collected.push(...page.results)
+        if (page.results.length === 0 || collected.length >= page.count) {
+            return collected
+        }
+    }
 }
 
 const withoutWorkspaceError = (
@@ -95,7 +126,10 @@ export interface contentAutopilotLogicValues {
     onboardingStep: ContentAutopilotOnboardingStep
     pageImprovementProposals: ContentAutopilotProposalListApi[]
     profile: ContentAutopilotSiteProfileApi | null
+    profileDataLoaded: boolean
+    profileDataSettled: ContentAutopilotProfileDataSettled
     profileDraft: ContentAutopilotProfileDraft
+    proposalActionReasons: ContentAutopilotProposalActionReasons
     proposalDetail: ContentAutopilotProposalApi | null
     proposalDetailLoading: boolean
     proposalHasUnsavedChanges: boolean
@@ -390,6 +424,14 @@ export interface contentAutopilotLogicMeta {
             siteProposals: ContentAutopilotProposalListApi[]
         ) => ContentAutopilotProposalListApi[]
         workspaceInitialized: (workspaceSettled: ContentAutopilotWorkspaceSettled) => boolean
+        profileDataLoaded: (profileDataSettled: any) => boolean
+        proposalActionReasons: (
+            selectedProposal: ContentAutopilotProposalApi | null,
+            proposalHasUnsavedChanges: boolean,
+            proposalDetailLoading: boolean,
+            proposalMutationLoading: boolean,
+            exportedProposalLoading: boolean
+        ) => ContentAutopilotProposalActionReasons
         workspaceError: (workspaceErrors: Partial<Record<ContentAutopilotWorkspaceResource, string>>) => string | null
     }
 }
@@ -474,6 +516,16 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                 loadProposalsFailure: (state) => ({ ...state, proposals: true }),
             },
         ],
+        profileDataSettled: [
+            EMPTY_PROFILE_DATA_SETTLED,
+            {
+                selectProfile: () => EMPTY_PROFILE_DATA_SETTLED,
+                loadRunsSuccess: (state) => ({ ...state, runs: true }),
+                loadRunsFailure: (state) => ({ ...state, runs: true }),
+                loadProposalsSuccess: (state) => ({ ...state, proposals: true }),
+                loadProposalsFailure: (state) => ({ ...state, proposals: true }),
+            },
+        ],
         workspaceErrors: [
             {} as ContentAutopilotWorkspaceErrors,
             {
@@ -501,12 +553,14 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             [] as ContentAutopilotSiteProfileApi[],
             {
                 loadSiteProfiles: async (_, breakpoint) => {
-                    const response = await webAnalyticsApi.webAnalyticsContentAutopilotProfilesList(
-                        String(values.currentTeamIdStrict),
-                        { limit: WORKSPACE_PAGE_LIMIT }
+                    const profiles = await fetchAllPages((offset, limit) =>
+                        webAnalyticsApi.webAnalyticsContentAutopilotProfilesList(String(values.currentTeamIdStrict), {
+                            limit,
+                            offset,
+                        })
                     )
                     breakpoint()
-                    return response.results
+                    return profiles
                 },
             },
         ],
@@ -514,15 +568,19 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             [] as ContentAutopilotRunApi[],
             {
                 loadRuns: async (_, breakpoint) => {
-                    if (!values.profile) {
+                    const profile = values.profile
+                    if (!profile) {
                         return []
                     }
-                    const response = await webAnalyticsApi.webAnalyticsContentAutopilotRunsList(
-                        String(values.currentTeamIdStrict),
-                        { limit: WORKSPACE_PAGE_LIMIT, profile_id: values.profile.id }
+                    const runs = await fetchAllPages((offset, limit) =>
+                        webAnalyticsApi.webAnalyticsContentAutopilotRunsList(String(values.currentTeamIdStrict), {
+                            limit,
+                            offset,
+                            profile_id: profile.id,
+                        })
                     )
                     breakpoint()
-                    return response.results
+                    return runs
                 },
             },
         ],
@@ -530,15 +588,19 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             [] as ContentAutopilotProposalListApi[],
             {
                 loadProposals: async (_, breakpoint) => {
-                    if (!values.profile) {
+                    const profile = values.profile
+                    if (!profile) {
                         return []
                     }
-                    const response = await webAnalyticsApi.webAnalyticsContentAutopilotProposalsList(
-                        String(values.currentTeamIdStrict),
-                        { limit: WORKSPACE_PAGE_LIMIT, profile_id: values.profile.id }
+                    const proposals = await fetchAllPages((offset, limit) =>
+                        webAnalyticsApi.webAnalyticsContentAutopilotProposalsList(String(values.currentTeamIdStrict), {
+                            limit,
+                            offset,
+                            profile_id: profile.id,
+                        })
                     )
                     breakpoint()
-                    return response.results
+                    return proposals
                 },
             },
         ],
@@ -673,6 +735,10 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             },
         ],
     })),
+    reducers({
+        runs: [[] as ContentAutopilotRunApi[], { selectProfile: () => [] }],
+        proposals: [[] as ContentAutopilotProposalListApi[], { selectProfile: () => [] }],
+    }),
     selectors({
         profile: [
             (selectors) => [selectors.siteProfiles, selectors.selectedProfileId],
@@ -720,6 +786,58 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             (workspaceSettled: ContentAutopilotWorkspaceSettled): boolean =>
                 Object.values(workspaceSettled).every(Boolean),
         ],
+        profileDataLoaded: [
+            (selectors) => [selectors.profileDataSettled],
+            (profileDataSettled: ContentAutopilotProfileDataSettled): boolean =>
+                Object.values(profileDataSettled).every(Boolean),
+        ],
+        proposalActionReasons: [
+            (selectors) => [
+                selectors.selectedProposal,
+                selectors.proposalHasUnsavedChanges,
+                selectors.proposalDetailLoading,
+                selectors.proposalMutationLoading,
+                selectors.exportedProposalLoading,
+            ],
+            (
+                selectedProposal: ContentAutopilotProposalApi | null,
+                proposalHasUnsavedChanges: boolean,
+                proposalDetailLoading: boolean,
+                proposalMutationLoading: boolean,
+                exportedProposalLoading: boolean
+            ): ContentAutopilotProposalActionReasons => {
+                if (!selectedProposal) {
+                    return {}
+                }
+                const readyForReview = selectedProposal.lifecycle_status === 'ready_for_review'
+                const exportInFlight = exportedProposalLoading ? 'Wait for the export to finish' : undefined
+                const unsavedChanges = proposalHasUnsavedChanges ? 'Save or discard your changes first' : undefined
+                return {
+                    reject:
+                        (!readyForReview ? 'Only a proposal ready for review can be rejected' : undefined) ??
+                        exportInFlight ??
+                        unsavedChanges,
+                    regenerate:
+                        (!readyForReview && selectedProposal.lifecycle_status !== 'failed'
+                            ? 'Only proposals ready for review or failed can be regenerated'
+                            : undefined) ??
+                        exportInFlight ??
+                        unsavedChanges,
+                    save:
+                        (!readyForReview ? 'Only a proposal ready for review can be edited' : undefined) ??
+                        (proposalDetailLoading ? 'Wait for the proposal to load' : undefined) ??
+                        exportInFlight ??
+                        (!proposalHasUnsavedChanges ? 'No unsaved changes' : undefined),
+                    exportMarkdown:
+                        (!selectedProposal.validation_report.passed
+                            ? 'Fix the blocked checks before exporting'
+                            : undefined) ??
+                        (!readyForReview ? 'Only a proposal ready for review can be exported' : undefined) ??
+                        (proposalHasUnsavedChanges ? 'Save or discard your changes before exporting' : undefined) ??
+                        (proposalMutationLoading ? 'Wait for proposal changes to finish' : undefined),
+                }
+            },
+        ],
         workspaceError: [
             (selectors) => [selectors.workspaceErrors],
             (workspaceErrors: ContentAutopilotWorkspaceErrors): string | null =>
@@ -744,10 +862,6 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                 actions.resetProfileDraft(draftFromProfile(profile))
             }
             actions.selectProposal(null)
-            if (values.workspaceInitialized) {
-                actions.loadRunsSuccess([])
-                actions.loadProposalsSuccess([])
-            }
             actions.loadRuns()
             actions.loadProposals()
         },

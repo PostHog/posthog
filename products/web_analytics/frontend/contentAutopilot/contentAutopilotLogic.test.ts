@@ -127,9 +127,17 @@ describe('contentAutopilotLogic', () => {
         const mountedLogic = await mountWorkspace()
         const projectId = String(MOCK_DEFAULT_TEAM.id)
 
-        expect(mockProfilesList).toHaveBeenCalledWith(projectId, { limit: 100 })
-        expect(mockRunsList).toHaveBeenCalledWith(projectId, { limit: 100, profile_id: EXAMPLE_PROFILE.id })
-        expect(mockProposalsList).toHaveBeenCalledWith(projectId, { limit: 100, profile_id: EXAMPLE_PROFILE.id })
+        expect(mockProfilesList).toHaveBeenCalledWith(projectId, { limit: 100, offset: 0 })
+        expect(mockRunsList).toHaveBeenCalledWith(projectId, {
+            limit: 100,
+            offset: 0,
+            profile_id: EXAMPLE_PROFILE.id,
+        })
+        expect(mockProposalsList).toHaveBeenCalledWith(projectId, {
+            limit: 100,
+            offset: 0,
+            profile_id: EXAMPLE_PROFILE.id,
+        })
 
         await expectLogic(mountedLogic, () => mountedLogic.actions.startRun()).toFinishAllListeners()
 
@@ -161,21 +169,55 @@ describe('contentAutopilotLogic', () => {
         mockProfilesList.mockResolvedValue(paginated([EXAMPLE_PROFILE, EXAMPLE_SECOND_PROFILE]))
         const mountedLogic = await mountWorkspace()
         mountedLogic.actions.selectProposal(EXAMPLE_PROPOSAL.id)
+        const pendingProposals = deferred<ReturnType<typeof paginated<ContentAutopilotProposalListApi>>>()
+        mockProposalsList.mockImplementationOnce(() => pendingProposals.promise)
 
-        await expectLogic(mountedLogic, () =>
-            mountedLogic.actions.selectProfile(EXAMPLE_SECOND_PROFILE.id)
-        ).toFinishAllListeners()
+        mountedLogic.actions.selectProfile(EXAMPLE_SECOND_PROFILE.id)
 
+        expect(mountedLogic.values.profileDataLoaded).toBe(false)
+        expect(mountedLogic.values.siteRuns).toEqual([])
+        expect(mountedLogic.values.siteProposals).toEqual([])
+
+        pendingProposals.resolve(paginated([EXAMPLE_PROPOSAL_LIST]))
+        await expectLogic(mountedLogic).toFinishAllListeners()
+
+        expect(mountedLogic.values.profileDataLoaded).toBe(true)
         expect(mountedLogic.values.profile?.id).toBe(EXAMPLE_SECOND_PROFILE.id)
         expect(mountedLogic.values.profileDraft.domain).toBe(EXAMPLE_SECOND_PROFILE.domain)
         expect(mountedLogic.values.selectedProposal).toBeNull()
         expect(mockRunsList).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
             limit: 100,
+            offset: 0,
             profile_id: EXAMPLE_SECOND_PROFILE.id,
         })
         expect(mockProposalsList).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
             limit: 100,
+            offset: 0,
             profile_id: EXAMPLE_SECOND_PROFILE.id,
+        })
+    })
+
+    it('loads every page of a site history longer than one request', async () => {
+        const olderProposal = { ...EXAMPLE_PROPOSAL_LIST, id: '00000000-0000-4000-8000-000000000203' }
+        mockProposalsList
+            .mockResolvedValueOnce({
+                count: 2,
+                next: 'http://localhost/next',
+                previous: null,
+                results: [EXAMPLE_PROPOSAL_LIST],
+            })
+            .mockResolvedValueOnce({ count: 2, next: null, previous: null, results: [olderProposal] })
+
+        const mountedLogic = await mountWorkspace()
+
+        expect(mountedLogic.values.siteProposals.map(({ id }) => id)).toEqual([
+            EXAMPLE_PROPOSAL_LIST.id,
+            olderProposal.id,
+        ])
+        expect(mockProposalsList).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            limit: 100,
+            offset: 1,
+            profile_id: EXAMPLE_PROFILE.id,
         })
     })
 
@@ -291,6 +333,55 @@ describe('contentAutopilotLogic', () => {
         expect(mockProposalsList).toHaveBeenCalledTimes(1)
         expect(mountedLogic.values.selectedProposalId).toBeNull()
     })
+
+    it.each([
+        ['ready_for_review' as const, undefined, undefined, 'No unsaved changes', undefined],
+        [
+            'failed' as const,
+            'Only a proposal ready for review can be rejected',
+            undefined,
+            'Only a proposal ready for review can be edited',
+            'Only a proposal ready for review can be exported',
+        ],
+        [
+            'rejected' as const,
+            'Only a proposal ready for review can be rejected',
+            'Only proposals ready for review or failed can be regenerated',
+            'Only a proposal ready for review can be edited',
+            'Only a proposal ready for review can be exported',
+        ],
+        [
+            'generating' as const,
+            'Only a proposal ready for review can be rejected',
+            'Only proposals ready for review or failed can be regenerated',
+            'Only a proposal ready for review can be edited',
+            'Only a proposal ready for review can be exported',
+        ],
+        [
+            'exported' as const,
+            'Only a proposal ready for review can be rejected',
+            'Only proposals ready for review or failed can be regenerated',
+            'Only a proposal ready for review can be edited',
+            'Only a proposal ready for review can be exported',
+        ],
+    ])(
+        'only offers the proposal actions a %s proposal accepts',
+        async (lifecycleStatus, reject, regenerate, save, exportMarkdown) => {
+            mockProposalsRetrieve.mockResolvedValue({ ...EXAMPLE_PROPOSAL, lifecycle_status: lifecycleStatus })
+            const mountedLogic = await mountWorkspace()
+
+            await expectLogic(mountedLogic, () =>
+                mountedLogic.actions.selectProposal(EXAMPLE_PROPOSAL.id)
+            ).toFinishAllListeners()
+
+            expect(mountedLogic.values.proposalActionReasons).toEqual({
+                reject,
+                regenerate,
+                save,
+                exportMarkdown,
+            })
+        }
+    )
 
     it('does not deliver Markdown that has not been saved', async () => {
         const mountedLogic = await mountWorkspace()

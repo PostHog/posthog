@@ -33,12 +33,17 @@ export const ContentAutopilot = (): JSX.Element => {
         workspaceError,
         workspaceErrors,
         workspaceInitialized,
+        profileDataLoaded,
     } = useValues(contentAutopilotLogic)
     const { beginOnboarding, startRun, cancelRun, selectProfile, selectProposal, loadWorkspace } =
         useActions(contentAutopilotLogic)
     const loading = siteProfilesLoading || runsLoading || proposalsLoading
     const lastRun = siteRuns[0]
-    const runDisabledReason = activeRun ? 'A content run is already in progress for this site' : undefined
+    const runDisabledReason = !profileDataLoaded
+        ? 'Wait for this site to finish loading'
+        : activeRun
+          ? 'A content run is already in progress for this site'
+          : undefined
     const confirmCancelRun = (): void => {
         if (!activeRun) {
             return
@@ -118,62 +123,71 @@ export const ContentAutopilot = (): JSX.Element => {
                         </LemonBanner>
                     ) : null}
 
-                    {activeRun ? (
-                        <LemonCard hoverEffect={false} className="p-4 flex items-center justify-between gap-3">
-                            <div>
-                                <div className="flex items-center gap-2">
-                                    <h3 className="m-0">Researching content opportunities</h3>
-                                    <LemonTag type="completion">{activeRun.run_status}</LemonTag>
-                                </div>
-                                <p className="m-0 mt-1 text-muted">
-                                    PostHog is analyzing current data, ranking opportunities, and validating drafts.
-                                </p>
-                            </div>
-                            <LemonButton
-                                type="secondary"
-                                status="danger"
-                                onClick={confirmCancelRun}
-                                loading={runMutationLoading}
-                            >
-                                Cancel run
-                            </LemonButton>
-                        </LemonCard>
-                    ) : lastRun?.run_status === 'failed' ? (
-                        <LemonBanner type="error">
-                            The latest run failed.{' '}
-                            {lastRun.errors.map(({ message }) => message).join(' ') || 'Start another run to retry.'}
-                        </LemonBanner>
-                    ) : null}
-
-                    {newContentProposals.length === 0 && pageImprovementProposals.length === 0 ? (
-                        <LemonCard hoverEffect={false} className="p-8 text-center">
-                            <h2>No proposals yet</h2>
-                            <p className="text-muted max-w-xl mx-auto">
-                                Start a run to research one new article and up to five focused page improvements.
-                            </p>
-                            <LemonButton
-                                type="primary"
-                                onClick={startRun}
-                                loading={runMutationLoading}
-                                disabledReason={runDisabledReason}
-                            >
-                                Create content
-                            </LemonButton>
-                        </LemonCard>
+                    {!profileDataLoaded ? (
+                        <LemonSkeleton className="h-72 w-full" />
                     ) : (
                         <>
-                            <ContentAutopilotProposalSection
-                                title="New content"
-                                description="Original articles for topics people search for that do not have a dedicated page."
-                                proposals={newContentProposals}
-                                onReview={selectProposal}
-                            />
-                            <ContentAutopilotProposalSection
-                                title="Page improvements"
-                                description="Focused metadata, linking, and content changes."
-                                proposals={pageImprovementProposals}
-                                onReview={selectProposal}
-                            />
+                            {activeRun ? (
+                                <LemonCard hoverEffect={false} className="p-4 flex items-center justify-between gap-3">
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <h3 className="m-0">Researching content opportunities</h3>
+                                            <LemonTag type="completion">{activeRun.run_status}</LemonTag>
+                                        </div>
+                                        <p className="m-0 mt-1 text-muted">
+                                            PostHog is analyzing current data, ranking opportunities, and validating
+                                            drafts.
+                                        </p>
+                                    </div>
+                                    <LemonButton
+                                        type="secondary"
+                                        status="danger"
+                                        onClick={confirmCancelRun}
+                                        loading={runMutationLoading}
+                                    >
+                                        Cancel run
+                                    </LemonButton>
+                                </LemonCard>
+                            ) : lastRun?.run_status === 'failed' ? (
+                                <LemonBanner type="error">
+                                    The latest run failed.{' '}
+                                    {lastRun.errors.map(({ message }) => message).join(' ') ||
+                                        'Start another run to retry.'}
+                                </LemonBanner>
+                            ) : null}
+
+                            {newContentProposals.length === 0 && pageImprovementProposals.length === 0 ? (
+                                <LemonCard hoverEffect={false} className="p-8 text-center">
+                                    <h2>No proposals yet</h2>
+                                    <p className="text-muted max-w-xl mx-auto">
+                                        Start a run to research one new article and up to five focused page
+                                        improvements.
+                                    </p>
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={startRun}
+                                        loading={runMutationLoading}
+                                        disabledReason={runDisabledReason}
+                                    >
+                                        Create content
+                                    </LemonButton>
+                                </LemonCard>
+                            ) : (
+                                <>
+                                    <ContentAutopilotProposalSection
+                                        title="New content"
+                                        description="Original articles for topics people search for that do not have a dedicated page."
+                                        proposals={newContentProposals}
+                                        onReview={selectProposal}
+                                    />
+                                    <ContentAutopilotProposalSection
+                                        title="Page improvements"
+                                        description="Focused metadata, linking, and content changes."
+                                        proposals={pageImprovementProposals}
+                                        onReview={selectProposal}
+                                    />
+                                </>
+                            )}
                         </>
                     )}
 

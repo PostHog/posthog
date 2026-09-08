@@ -1709,6 +1709,11 @@
         "params": [],
         "scope": "project"
     },
+    "webAnalyticsContentAutopilot": {
+        "template": "/web/content-autopilot",
+        "params": [],
+        "scope": "project"
+    },
     "webAnalyticsHealth": {
         "template": "/web/health",
         "params": [],
