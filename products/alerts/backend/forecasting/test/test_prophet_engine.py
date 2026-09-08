@@ -30,6 +30,10 @@ def _daily_dates(n: int) -> list[str]:
     return [(start + datetime.timedelta(days=i)).isoformat() for i in range(n)]
 
 
+def _weekly_dates(n: int, start: datetime.date) -> list[str]:
+    return [(start + datetime.timedelta(weeks=i)).isoformat() for i in range(n)]
+
+
 class TestProphetEngine:
     def test_registry_returns_prophet_engine(self):
         engine = get_forecast_engine({"type": "ForecastConfig", "engine": "prophet"})
@@ -61,6 +65,26 @@ class TestProphetEngine:
                 "outcome": "success",
                 "output_points": 7,
             }
+        ]
+
+    @parameterized.expand(
+        [
+            ("sunday_start_project", datetime.date(2026, 1, 4)),
+            ("monday_start_project", datetime.date(2026, 1, 5)),
+        ]
+    )
+    def test_weekly_forecast_keeps_the_week_start_of_the_history(self, _name, week_start):
+        engine = get_forecast_engine({"engine": "prophet"})
+        history = 20
+        result = engine.forecast(
+            _weekly_dates(history, week_start),
+            [float(100 + 2 * i) for i in range(history)],
+            horizon=4,
+            interval_width=0.95,
+            interval=IntervalType.WEEK,
+        )
+        assert [forecast_date[:10] for forecast_date in result.dates] == [
+            (week_start + datetime.timedelta(weeks=history + step)).isoformat() for step in range(4)
         ]
 
     @parameterized.expand(

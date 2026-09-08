@@ -23,7 +23,9 @@ logger = structlog.get_logger(__name__)
 _FREQ: dict[IntervalType, str] = {
     IntervalType.HOUR: "h",
     IntervalType.DAY: "D",
-    IntervalType.WEEK: "W",
+    # A fixed 7-day step keeps the week start that the history dates already carry. The pandas "W"
+    # alias re-anchors every future point to a Sunday, which misses the buckets of a Monday-start project.
+    IntervalType.WEEK: "7D",
     IntervalType.MONTH: "MS",
 }
 
