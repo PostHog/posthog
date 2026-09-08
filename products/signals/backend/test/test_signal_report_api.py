@@ -1373,6 +1373,37 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["dismissal_reason"] == "analysis_wrong"
 
+    def _repo_selection_artefact(self, report: SignalReport, *, repository: str | None, created_at=None):
+        art = SignalReportArtefact(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+            content=json.dumps({"repository": repository, "reason": "pick"}),
+        )
+        art.save()
+        if created_at is not None:
+            SignalReportArtefact.objects.filter(pk=art.pk).update(created_at=created_at)
+        return art
+
+    def test_list_surfaces_latest_repo_slug(self):
+        report = self._create_report()
+        self._repo_selection_artefact(report, repository="acme/old", created_at=timezone.now() - timedelta(days=1))
+        self._repo_selection_artefact(report, repository="acme/new")
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["repo_slug"] == "acme/new"
+
+    def test_list_repo_slug_null_without_selection(self):
+        report = self._create_report()
+        self._repo_selection_artefact(report, repository=None)
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["repo_slug"] is None
+
 
 class TestAssociatedTaskRunsForReports(APIBaseTest):
     """`SignalReport.associated_task_runs_for_reports` — the batched, page-wide counterpart of

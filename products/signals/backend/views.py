@@ -1541,6 +1541,13 @@ class SignalReportViewSet(
                 ),
                 to_attr="prefetched_dismissal_artefacts",
             ),
+            Prefetch(
+                "artefacts",
+                queryset=SignalReportArtefact.objects.filter(
+                    type=SignalReportArtefact.ArtefactType.REPO_SELECTION
+                ).order_by("-created_at"),
+                to_attr="prefetched_repo_selection_artefacts",
+            ),
         )
 
     def _annotate_is_suggested_reviewer(self, queryset):
@@ -2621,6 +2628,10 @@ class SignalReportViewSet(
                 )
                 if is_wrong_repo:
                     self._apply_wrong_repo_selection(report, corrected_repository)
+                    # The wrong-repo path just wrote a new repo_selection artefact; drop the
+                    # stale prefetch so a follow-up serializer reads the corrected/cleared slug.
+                    if hasattr(report, "prefetched_repo_selection_artefacts"):
+                        del report.prefetched_repo_selection_artefacts
                 # The dismissal prefetch may have been evaluated before this artefact
                 # existed; drop the stale cache so a follow-up serializer re-reads the
                 # just-written reason/note instead of the previous (or empty) dismissal.
