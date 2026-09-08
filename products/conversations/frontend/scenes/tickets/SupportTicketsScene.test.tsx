@@ -14,6 +14,7 @@ import { Ticket } from '../../types'
 import { ticketListBackTo } from '../ticket/SupportTicketScene'
 import { SupportTicketsTable, SupportTicketsTableFilters } from './SupportTicketsScene'
 import { supportTicketsSceneLogic } from './supportTicketsSceneLogic'
+import { ticketColumnsLogic } from './ticketColumnsLogic'
 
 const TICKET: Ticket = {
     id: 'ticket-1',
@@ -177,6 +178,8 @@ describe('SupportTicketsTableFilters', () => {
     let mockCount = 0
 
     beforeEach(() => {
+        // Filters and the column preference persist, so start each case from the defaults.
+        localStorage.clear()
         mockCount = 0
         useMocks({
             get: {
@@ -218,6 +221,26 @@ describe('SupportTicketsTableFilters', () => {
         )
 
         expect(await screen.findByText(expected)).toBeInTheDocument()
+    })
+
+    // Regression: the count of shown columns moved from the button's face into its tooltip, and
+    // an explicit aria-label then hid it again, so the name was the bare word "Columns".
+    it('keeps the count of shown columns in the accessible name', async () => {
+        render(
+            <Provider>
+                <SupportTicketsTableFilters />
+            </Provider>
+        )
+
+        // The dropdown owns this preference, so the render above mounts its logic.
+        act(() => {
+            ticketColumnsLogic.actions.toggleColumn('tags')
+        })
+
+        expect(document.querySelector('[data-attr="support-tickets-column-selector"]')).toHaveAttribute(
+            'aria-label',
+            expect.stringMatching(/^Columns \(\d+ of \d+ shown\)$/)
+        )
     })
 
     // The option rows carried their selected state in CSS alone, so a screen reader user could

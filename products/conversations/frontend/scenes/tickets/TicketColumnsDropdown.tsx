@@ -19,6 +19,9 @@ export function TicketColumnsDropdown({ aiEnabled, embedded = false }: TicketCol
     const offerable = offerableTicketColumns({ aiEnabled, embedded })
     const shownCount = offerable.filter((key) => visibleColumns.includes(key) || isTicketColumnMandatory(key)).length
     const allShown = shownCount === offerable.length
+    // The trigger is an icon, so this one label is both the tooltip and the accessible name.
+    // Hiding a column is otherwise invisible to a screen reader until the dropdown is open.
+    const label = allShown ? 'Columns' : `Columns (${shownCount} of ${offerable.length} shown)`
 
     return (
         <LemonDropdown
@@ -64,8 +67,8 @@ export function TicketColumnsDropdown({ aiEnabled, embedded = false }: TicketCol
                 size="small"
                 icon={<IconTuning />}
                 active={!allShown}
-                tooltip={allShown ? 'Columns' : `Columns (${shownCount} of ${offerable.length} shown)`}
-                aria-label="Columns"
+                tooltip={label}
+                aria-label={label}
                 data-attr="support-tickets-column-selector"
             />
         </LemonDropdown>
