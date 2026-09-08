@@ -86,6 +86,26 @@ describe('materializationJobsLogic', () => {
         expect(checkCalls).toBe(1)
     })
 
+    // Regression: a view whose SQL exceeds the check endpoint's body cap gets a 400. That used to
+    // surface as a "Load incremental check failed" toast on a healthy materialized view.
+    it('treats a rejected eligibility check as "no incremental option" instead of failing', async () => {
+        const mocks = apiMocks({ isMaterialized: true })
+        mocks.post = {
+            '/api/environments/:team_id/warehouse_saved_queries/check_incremental/': () => [
+                400,
+                { type: 'validation_error', detail: 'Ensure this field has no more than 65536 characters.' },
+            ],
+        }
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadIncrementalCheck', 'loadIncrementalCheckSuccess'])
+            .toNotHaveDispatchedActions(['loadIncrementalCheckFailure'])
+        expect(logic.values.incrementalCheck).toBeNull()
+    })
+
     it.each([
         ['the surface is an endpoint', { kind: 'endpoint' as const, flag: true }],
         ['the feature flag is off', { kind: 'view' as const, flag: false }],

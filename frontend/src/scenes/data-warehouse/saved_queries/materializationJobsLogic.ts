@@ -228,7 +228,13 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                     if (!sql) {
                         return null
                     }
-                    return await api.dataWarehouseSavedQueries.checkIncremental({ query: sql })
+                    // A view too long for the check (or any other rejection) is not the user's error.
+                    // Resolve to null so the panel just omits the incremental option instead of toasting.
+                    try {
+                        return await api.dataWarehouseSavedQueries.checkIncremental({ query: sql })
+                    } catch {
+                        return null
+                    }
                 },
             },
         ],
