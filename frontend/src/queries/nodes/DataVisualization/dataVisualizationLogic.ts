@@ -16,10 +16,12 @@ import {
 import type { BreakPointFunction } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import mergeObject from 'lodash.merge'
+import { z } from 'zod'
 
 import { dayjs } from 'lib/dayjs'
 import { RGBToHex, lightenDarkenColor } from 'lib/utils/colors'
 import { uuid } from 'lib/utils/dom'
+import { LocalStorageSlot, localStorageSlot } from 'lib/utils/localStorageSlot'
 import { compactNumber } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -149,6 +151,13 @@ const cloneOrDefaultSettings = (settings?: AxisSeriesSettings): AxisSeriesSettin
 
 const TRANSPOSED_FIELD_COLUMN_NAME = '__transpose_field__'
 const TRANSPOSED_ROW_COLUMN_PREFIX = '__transpose_row__'
+
+const pinnedColumnsSchema = z.array(z.string())
+
+// The dashboard suffix is stripped from the key so pinned columns persist across
+// dashboard and insight views
+const pinnedColumnsStorage = (logicKey: string): LocalStorageSlot<string[]> =>
+    localStorageSlot(`data-visualization-pinned-columns-${logicKey.split('/on-dashboard-')[0]}`, pinnedColumnsSchema)
 
 export const formatDataWithSettings = (
     data: number | string | null | object,
@@ -1342,16 +1351,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         pinnedColumns: [
-            [] as string[],
-            {
-                persist: true,
-                // strips the dashboard suffix from the key so pinned columns persist across
-                // dashboard and insight views
-                storageKey: `data-visualization-pinned-columns-${props.key.split('/on-dashboard-')[0]}`,
-            },
+            pinnedColumnsStorage(props.key).get() ?? [],
             {
                 _setQuery: (state, { node }) => {
-                    return node.tableSettings?.pinnedColumns ?? state
+                    const fromQuery = pinnedColumnsSchema.safeParse(node.tableSettings?.pinnedColumns)
+                    return fromQuery.success ? fromQuery.data : state
                 },
                 toggleColumnPin: (state, { columnName }) => {
                     if (state.includes(columnName)) {
@@ -1881,7 +1885,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
     }),
-    sharedListeners(({ values, actions }) => ({
+    sharedListeners(({ props, values, actions }) => ({
         axesChanged: () => {
             const yColumns =
                 values.selectedYAxis?.filter((n: SelectedYAxis | null): n is SelectedYAxis => Boolean(n)) ?? []
@@ -1916,11 +1920,14 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             }))
         },
         pinnedColumnsChanged: () => {
+            // The setter runs inside the reducer, where the store can not be read
+            const pinnedColumns = values.pinnedColumns
+            pinnedColumnsStorage(props.key).set(pinnedColumns)
             actions.setQuery((query) => ({
                 ...query,
                 tableSettings: {
                     ...query.tableSettings,
-                    pinnedColumns: values.pinnedColumns,
+                    pinnedColumns,
                 },
             }))
         },
