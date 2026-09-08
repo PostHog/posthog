@@ -1857,7 +1857,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             )
 
         request_filters = initial_data.get("filters")
-        if request_filters:
+        if request_filters is not None:
             instance.filters = self._validated_filters(request_filters)
 
         request_variables = initial_data.get("variables")

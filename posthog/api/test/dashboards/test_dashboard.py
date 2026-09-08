@@ -853,6 +853,19 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.filters, {})
 
+    def test_can_clear_dashboard_filters(self) -> None:
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="dashboard",
+            created_by=self.user,
+            filters={"date_from": "-7d"},
+        )
+
+        self.dashboard_api.update_dashboard(dashboard.pk, {"filters": {}})
+
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.filters, {})
+
     def test_cannot_update_dashboard_with_invalid_variables(self):
         dashboard = Dashboard.objects.create(
             team=self.team,
