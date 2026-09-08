@@ -11,7 +11,7 @@ import { Button, Spinner, Text } from "@posthog/quill";
 import type { ReactNode } from "react";
 import { useState } from "react";
 
-export type GithubConnectionStatus = "connected" | "unavailable" | "loading";
+type GithubConnectionStatus = "connected" | "unavailable" | "loading";
 
 interface GithubRepoSummaryProps {
   /** The GitHub org or user the installation belongs to. */

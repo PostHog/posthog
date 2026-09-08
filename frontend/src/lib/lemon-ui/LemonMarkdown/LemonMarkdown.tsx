@@ -74,6 +74,12 @@ export interface LemonMarkdownProps {
     disableImages?: boolean
     className?: string
     wrapCode?: boolean
+    /**
+     * If set, block code renders at most this many lines and the rest is cut. The copy button
+     * copies the visible lines only. Use where content can carry an unboundedly long code block
+     * (e.g. a stack trace) that would otherwise dominate the surrounding UI.
+     */
+    codeMaxLines?: number
     /** Whether to generate id attributes on heading elements for anchor linking. */
     generateHeadingIds?: boolean
     /**
@@ -127,6 +133,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     disableDocsRedirect = false,
     disableImages = false,
     wrapCode = false,
+    codeMaxLines,
     generateHeadingIds = false,
     renderMermaid,
     renderChartRef,
@@ -157,9 +164,12 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                         return <>{renderMermaid(value)}</>
                     }
                     const language = languageMatch ? getLanguage(languageMatch[1]) : Language.Text
+                    const lines = value.split('\n')
+                    const displayedValue =
+                        codeMaxLines && lines.length > codeMaxLines ? lines.slice(0, codeMaxLines).join('\n') : value
                     return (
                         <CodeSnippet language={language} wrap={wrapCode} compact>
-                            {value}
+                            {displayedValue}
                         </CodeSnippet>
                     )
                 }
@@ -274,6 +284,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
             disableImages,
             lowKeyHeadings,
             wrapCode,
+            codeMaxLines,
             generateHeadingIds,
             renderMermaid,
             renderChartRef,
@@ -316,6 +327,7 @@ function LemonMarkdownComponent({
     disableDocsRedirect = false,
     disableImages = false,
     wrapCode = false,
+    codeMaxLines,
     generateHeadingIds = false,
     renderMermaid,
     renderChartRef,
@@ -328,6 +340,7 @@ function LemonMarkdownComponent({
                 disableDocsRedirect={disableDocsRedirect}
                 disableImages={disableImages}
                 wrapCode={wrapCode}
+                codeMaxLines={codeMaxLines}
                 generateHeadingIds={generateHeadingIds}
                 renderMermaid={renderMermaid}
                 renderChartRef={renderChartRef}

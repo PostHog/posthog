@@ -1,0 +1,6 @@
+{
+    "id": "VA21",
+    "real": true,
+    "source": "fresh",
+    "reasoning": ".stamphog/review-guidance.md:8 tells the reviewer the stamphog label opted the PR in and 'whoever applied it considers the change ready. Weigh it as such.' reviewer.py:271 composes REVIEWER_SYSTEM from that guidance unconditionally; reviewer.py:311 uses it for every run, self-driving included. Inbox self-driving runs are created straight from the receiver with no label (tasks.py:1176-1234; no add-label call anywhere in the backend), flagged via activities.py:451 -> review_local.py:321. _format_self_driving (reviewer.py:694-702) negates only author familiarity, org membership, merged-PR history, and draft state; it never counters the label-confidence claim. So the approval-deciding LLM receives a false human-readiness signal on machine-authored PRs. Claim survives refutation."
+}

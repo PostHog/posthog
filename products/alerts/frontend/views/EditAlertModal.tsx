@@ -189,7 +189,6 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const projectTimezone = currentTeam?.timezone ?? 'UTC'
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
-    const investigationAgentEnabled = useFeatureFlag('ALERTS_INVESTIGATION_AGENT')
 
     const notificationLogic = alertNotificationLogic({ alertId })
     const { existingHogFunctions, pendingNotifications, testDeliveryResultLoading } = useValues(notificationLogic)
@@ -342,7 +341,6 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             supportsAnomalyDetection={!isNonTimeSeriesDisplay && supportsAnomalyDetection(alertForm.config)}
             showAnomalyGuidance={creatingNewAlert && anomalyAlertGuidanceEnabled}
             twoColumnLayout
-            investigationAgentEnabled={investigationAgentEnabled}
             simulationResult={simulationResult}
             simulationResultLoading={simulationResultLoading}
             simulationDateFrom={simulationDateFrom}
@@ -403,6 +401,16 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                 indexedResults?.[
                     alertForm.config?.type === 'TrendsAlertConfig' ? (alertForm.config.series_index ?? 0) : 0
                 ]?.labels ?? null
+            }
+            isBreakdown={isBreakdownValid && !isTrendsFunnel}
+            trendsBreakdownSeries={
+                isBreakdownValid && !isTrendsFunnel
+                    ? indexedResults?.map((series) => ({
+                          key: String(series.seriesIndex),
+                          label: String(series.breakdown_value ?? series.label),
+                          data: series.data,
+                      }))
+                    : undefined
             }
             funnelPreview={funnelAlertPreview}
             hogqlPreview={hogqlAlertPreview}

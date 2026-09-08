@@ -2,6 +2,7 @@ import io
 import json
 import pickle
 import dataclasses
+from collections.abc import Collection
 from typing import Any, cast
 
 import pytest
@@ -57,7 +58,8 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
-from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2
+from posthog.hogql.errors import ExposedHogQLError, QueryError, TableAccessDeniedError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -69,8 +71,13 @@ from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.schema_enums import SessionTableVersion
+from posthog.shared_link_user import SharedLinkUser
+from posthog.synthetic_user import SyntheticUser
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -888,7 +895,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     def test_database_with_warehouse_tables_and_saved_queries_n_plus_1(self, patch_execute):
         # +1 vs the pre-bulk-credential baseline: one bulk credential fetch replaces the per-row
         # credential joins (decrypt once per credential, not per table/view).
-        max_queries = FuzzyInt(7, 9)
+        max_queries = FuzzyInt(6, 8)
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="_accesskey", access_secret="_secret"
         )
@@ -946,7 +953,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         # initialization team query doesn't run; the extra query is the single bulk credential fetch
         # (credentials are decrypted once each here instead of re-decrypted per table/view row),
         # plus the saved-expressions fetch
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(6):
             modifiers = create_default_modifiers_for_team(
                 self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
             )
@@ -4114,8 +4121,13 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         captured: dict = {}
 
-        def spy(team, user, user_access_control=None):
-            result = _compute_system_table_access_decision(team, user, user_access_control)
+        def spy(
+            team: Team,
+            user: User | SyntheticUser | SharedLinkUser | None,
+            user_access_control: UserAccessControl | None = None,
+            allowed_system_tables: Collection[str] | None = None,
+        ) -> tuple[UserAccessControl | None, set[str]]:
+            result = _compute_system_table_access_decision(team, user, user_access_control, allowed_system_tables)
             captured["result"] = result
             return result
 
@@ -4136,8 +4148,13 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     def test_create_for_with_real_user_uses_user_rbac(self):
         captured: dict = {}
 
-        def spy(team, user, user_access_control=None):
-            result = _compute_system_table_access_decision(team, user, user_access_control)
+        def spy(
+            team: Team,
+            user: User | SyntheticUser | SharedLinkUser | None,
+            user_access_control: UserAccessControl | None = None,
+            allowed_system_tables: Collection[str] | None = None,
+        ) -> tuple[UserAccessControl | None, set[str]]:
+            result = _compute_system_table_access_decision(team, user, user_access_control, allowed_system_tables)
             captured["result"] = result
             return result
 
@@ -4150,6 +4167,65 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         user_access_control, _denied = captured["result"]
         # A real user gets per-user access control computed rather than the anonymous all-deny path.
         assert user_access_control is not None
+
+    def test_existing_saved_query_cannot_fill_denied_system_table_name(self) -> None:
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="system.accounts",
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+        )
+
+        database = Database.create_for(team=self.team)
+
+        with pytest.raises(TableAccessDeniedError):
+            database.get_table("system.accounts")
+
+    def test_userless_system_table_allowlist_is_exact(self) -> None:
+        database = Database.create_for(
+            team=self.team,
+            allowed_system_tables=frozenset({"accounts"}),
+        )
+
+        assert "system.accounts" in database.get_system_table_names()
+        assert "system.feature_flags" not in database.get_system_table_names()
+        with pytest.raises(TableAccessDeniedError):
+            database.get_table("system.feature_flags")
+
+    @parameterized.expand(
+        [
+            ("qualified", "system.accounts"),
+            ("unscoped", "_account_tagged_items"),
+            ("unknown", "not_a_system_table"),
+        ]
+    )
+    def test_system_table_allowlist_rejects_invalid_names(self, _name: str, table_name: str) -> None:
+        with pytest.raises(ValueError, match="exact bare names of scoped system tables"):
+            Database.create_for(
+                team=self.team,
+                allowed_system_tables=frozenset({table_name}),
+            )
+
+    def test_system_table_allowlist_rejects_real_users(self) -> None:
+        with pytest.raises(ValueError, match="restricted to userless database creation"):
+            Database.create_for(
+                team=self.team,
+                user=self.user,
+                allowed_system_tables=frozenset({"accounts"}),
+            )
+
+    def test_system_table_allowlist_does_not_override_cloud_entitlements(self) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        with self.is_cloud(True):
+            database = Database.create_for(
+                team=self.team,
+                allowed_system_tables=frozenset({"activity_logs"}),
+            )
+
+        assert "system.activity_logs" not in database.get_system_table_names()
+        with pytest.raises(TableAccessDeniedError):
+            database.get_table("system.activity_logs")
 
     @parameterized.expand(
         [
@@ -4181,3 +4257,27 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             database = Database.create_for(team=self.team, user=self.user)
 
         assert ("system.activity_logs" in database.get_system_table_names()) is expected_visible
+
+
+class TestCreateForPosthogTables(BaseTest):
+    def test_builds_without_postgres_and_applies_modifiers(self):
+        modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2)
+        with (
+            patch.object(Database, "_fetch_sources", side_effect=AssertionError("full database build")),
+            # One cached instance-setting read is fine; the full build issues a dozen queries.
+            self.assertNumQueries(FuzzyInt(0, 1)),
+        ):
+            database = Database.create_for_posthog_tables(self.team, modifiers=modifiers)
+
+        assert isinstance(database.get_table("raw_sessions"), RawSessionsTableV2)
+        assert "events" in database.get_posthog_table_names()
+        assert database.get_warehouse_table_names() == []
+
+    def test_removes_gated_system_tables(self):
+        database = Database.create_for_posthog_tables(self.team)
+
+        system_table_names = database.get_system_table_names()
+        assert "system.feature_flags" not in system_table_names
+        assert "system.activity_logs" not in system_table_names
+        with pytest.raises(TableAccessDeniedError):
+            database.get_table("system.activity_logs")

@@ -43,9 +43,11 @@ from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET
-from posthog.errors import QueryErrorCategory, classify_query_error
+from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import get_request_analytics_properties
 from posthog.helpers.impersonation import is_impersonated
+from posthog.hogql_queries.properties_timeline import PropertiesTimeline
+from posthog.hogql_queries.serialized_actors import get_serialized_people
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Filter, Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
@@ -69,8 +71,6 @@ from posthog.models.person.util import (
     get_persons_mapped_by_distinct_id,
 )
 from posthog.personhog_client.caller_tag import personhog_caller_tag
-from posthog.queries.actor_base_query import get_serialized_people
-from posthog.queries.properties_timeline import PropertiesTimeline
 from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateThrottle, UserOrEmailRateThrottle
 from posthog.renderers import SafeJSONRenderer
 from posthog.slo.context import JsonValue, SloSpec, slo_operation
@@ -1035,6 +1035,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return resp
 
             refresh = refresh_requested_by_client(request)
+            # The user rides along so HogQL property masking resolves their explicit
+            # grants instead of the team-default rules, matching /api/query.
             runner = PropertyValuesQueryRunner(
                 team=self.team,
                 query=PropertyValuesQuery(
@@ -1042,11 +1044,21 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     property_key=key,
                     search_value=value,
                 ),
+                user=user,
             )
             execution_mode = execution_mode_from_refresh(refresh)
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE and not refresh:
                 execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
-            result = runner.run(execution_mode, analytics_props=get_request_analytics_properties(request))
+            # Convert here rather than in the runner, so QueryRunner.run() sees the original
+            # ClickHouse error and can classify it and record it in the failure cache.
+            # The failure cache serves remembered failures as APIException subclasses with
+            # their own status codes, so they pass through uncaught. Matches /api/query.
+            try:
+                result = runner.run(
+                    execution_mode, user=user, analytics_props=get_request_analytics_properties(request)
+                )
+            except ExposedCHQueryError as e:
+                raise ValidationError(str(e), e.code_name)
             assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
             is_refreshing = (
                 isinstance(result, CachedPropertyValuesQueryResponse)
@@ -1280,7 +1292,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             person = get_person_by_pk_or_uuid(self.team_id, request.GET["person_id"], distinct_id_limit=0)
         if person is None:
             raise NotFound()
-        cohort_ids = get_all_cohort_ids_by_person_uuid(str(person.uuid), team.pk)
+        cohort_ids = get_all_cohort_ids_by_person_uuid(str(person.uuid), team)
 
         # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (IDs from team-scoped ClickHouse query)
         cohorts = Cohort.objects.filter(pk__in=cohort_ids, deleted=False)

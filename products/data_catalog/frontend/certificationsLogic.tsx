@@ -30,6 +30,7 @@ export const DEFAULT_CERTIFICATIONS_FILTERS: CertificationsFilters = {
 }
 
 export interface NewCertificationForm {
+    targetId: string
     targetName: string
     targetType: CertificationTargetType
     notes: string
@@ -37,6 +38,7 @@ export interface NewCertificationForm {
 }
 
 export const EMPTY_NEW_CERTIFICATION_FORM: NewCertificationForm = {
+    targetId: '',
     targetName: '',
     targetType: 'table',
     notes: '',
@@ -263,9 +265,13 @@ export const certificationsLogic = kea<certificationsLogicType>([
                 const form = values.newCertificationForm
                 try {
                     const created = await dataCatalogCertificationsCreate(projectId(), {
-                        ...(form.targetType === 'view'
-                            ? { view_name: form.targetName }
-                            : { table_name: form.targetName }),
+                        ...(form.targetId
+                            ? form.targetType === 'view'
+                                ? { saved_query_id: form.targetId }
+                                : { table_id: form.targetId }
+                            : form.targetType === 'view'
+                              ? { view_name: form.targetName }
+                              : { table_name: form.targetName }),
                         notes: form.notes || undefined,
                         proposed_status: form.proposedStatus,
                     })

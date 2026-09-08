@@ -37,7 +37,14 @@ from posthog.renderers import SafeJSONRenderer
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.api.metrics import llma_track_latency
 
-from ..marketplace.adapters import MARKETPLACE_NAME, PLUGIN_NAME, build_skill_bundle, load_skill_export
+from ..marketplace.adapters import (
+    MARKETPLACE_NAME,
+    PLUGIN_NAME,
+    SANDBOX_SKILLS_FEATURE_FLAG,
+    build_skill_bundle,
+    load_skill_export,
+    sandbox_skills_flag_distinct_id,
+)
 from ..marketplace.credentials import (
     build_codex_install_command,
     build_install_command,
@@ -77,6 +84,7 @@ from .skill_serializers import (
     LLMSkillMarketplaceIssueSerializer,
     LLMSkillPublishSerializer,
     LLMSkillPublishToCommunitySerializer,
+    LLMSkillRenameSerializer,
     LLMSkillResolveQuerySerializer,
     LLMSkillResolveResponseSerializer,
     LLMSkillSerializer,
@@ -87,6 +95,7 @@ from .skill_serializers import (
     validate_skill_name_value,
 )
 from .skill_services import (
+    LLMSkillDescriptionTooLongError,
     LLMSkillDuplicateNameConflictError,
     LLMSkillEditError,
     LLMSkillFileLimitError,
@@ -94,6 +103,7 @@ from .skill_services import (
     LLMSkillFilePathConflictError,
     LLMSkillNotFoundError,
     LLMSkillOwnerNotFoundError,
+    LLMSkillRenameNotAllowedError,
     LLMSkillVersionConflictError,
     LLMSkillVersionLimitError,
     archive_skill,
@@ -105,6 +115,7 @@ from .skill_services import (
     get_latest_skills_queryset,
     get_skill_by_name_from_db,
     publish_skill_version,
+    rename_skill,
     rename_skill_file,
     resolve_owner_users,
     resolve_skill_owners,
@@ -119,9 +130,6 @@ logger = structlog.get_logger(__name__)
 # Generous ceiling for an uploaded skill zip — per-skill content (body, 200 files × 1 MB) is
 # already bounded by create_skill, this just caps the upload before we read it into memory.
 MAX_IMPORT_ZIP_BYTES = 10_000_000
-
-
-SANDBOX_SKILLS_FEATURE_FLAG = "skills-store-in-sandbox"
 
 
 def _file_extension(path: str) -> str:
@@ -316,6 +324,12 @@ class ZipRenderer(BaseRenderer):
         return SafeJSONRenderer().render(data, "application/json", renderer_context)
 
 
+def _spec_problems_detail(lead: str, problems: list[str], next_step: str) -> str:
+    # Clients such as the app toast show only `detail`, so the specific problems must live there too.
+    sentences = ". ".join((problem[:1].upper() + problem[1:]).removesuffix(".") for problem in problems)
+    return f"{lead} {sentences}. {next_step}"
+
+
 _ZIP_ACTIONS = ("bundle", "export")
 # With two renderers on an action, drf-spectacular advertises DRF's ``?format=`` override as a query
 # parameter. Clients select the zip with ``Accept``; keep the generated types free of it.
@@ -425,6 +439,15 @@ class LLMSkillViewSet(
         if isinstance(err, LLMSkillFileLimitError):
             return Response(
                 {"detail": f"Skill has reached the maximum of {err.max_count} files."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if isinstance(err, LLMSkillDescriptionTooLongError):
+            return Response(
+                {
+                    "detail": (
+                        f"Shorten the skill description to {err.max_length} characters before creating a new version."
+                    )
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return None
@@ -680,6 +703,15 @@ class LLMSkillViewSet(
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except LLMSkillDescriptionTooLongError as err:
+            return Response(
+                {
+                    "detail": (
+                        f"Shorten the skill description to {err.max_length} characters before creating a new version."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except LLMSkillEditError as err:
             error_body: dict[str, Any] = {"detail": err.message}
             if err.edit_index is not None:
@@ -786,7 +818,14 @@ class LLMSkillViewSet(
         problems = validate_for_export(export)
         if problems:
             return Response(
-                {"detail": "Skill is not export-ready under the Agent Skills spec.", "problems": problems},
+                {
+                    "detail": _spec_problems_detail(
+                        "Couldn't download this skill because it doesn't meet the Agent Skills spec.",
+                        problems,
+                        "Edit the skill to fix this, then try again.",
+                    ),
+                    "problems": problems,
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -809,7 +848,7 @@ class LLMSkillViewSet(
         user = cast(User, request.user)
         flag_value = posthog_feature_flag_value(
             SANDBOX_SKILLS_FEATURE_FLAG,
-            user.distinct_id or str(user.uuid),
+            sandbox_skills_flag_distinct_id(user),
             organization_id=self.organization.id,
             team_id=self.team.id,
         )
@@ -882,7 +921,14 @@ class LLMSkillViewSet(
         problems = self._import_problems(skill_export)
         if problems:
             return Response(
-                {"detail": "Zip is not a valid, spec-compliant skill.", "problems": problems},
+                {
+                    "detail": _spec_problems_detail(
+                        "Couldn't import this zip because it doesn't meet the Agent Skills spec.",
+                        problems,
+                        "Fix the skill files, then try again.",
+                    ),
+                    "problems": problems,
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1120,6 +1166,15 @@ class LLMSkillViewSet(
                 {"attr": "new_name", "detail": "A skill with this name already exists."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except LLMSkillDescriptionTooLongError as err:
+            return Response(
+                {
+                    "detail": (
+                        f"Shorten the source skill description to {err.max_length} characters before duplicating it."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         props = {
             **_skill_analytics_props(new_skill),
@@ -1139,6 +1194,63 @@ class LLMSkillViewSet(
             request=request,
         )
         return Response(self._serialize_skill(new_skill), status=status.HTTP_201_CREATED)
+
+    @extend_schema(request=LLMSkillRenameSerializer, responses={200: LLMSkillSerializer})
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path=r"name/(?P<skill_name>[^/]+)/rename",
+        required_scopes=["llm_skill:write"],
+    )
+    @llma_track_latency("llma_skills_rename")
+    @monitor(feature=None, endpoint="llma_skills_rename", method="POST")
+    def rename(self, request: Request, skill_name: str = "", **kwargs) -> Response:
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        payload = LLMSkillRenameSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        new_name = payload.validated_data["new_name"]
+
+        try:
+            renamed_skill = rename_skill(self.team, skill_name=skill_name, new_name=new_name)
+        except LLMSkillNotFoundError:
+            return self._skill_not_found_response(skill_name)
+        except LLMSkillDuplicateNameConflictError:
+            raise serializers.ValidationError(
+                {"new_name": "A skill with this name already exists."},
+                code="unique",
+            )
+        except LLMSkillRenameNotAllowedError as err:
+            raise serializers.ValidationError(
+                {
+                    "new_name": (
+                        f"Names starting with '{err.prefix}' keep product settings under the skill name, "
+                        "so a skill can't be renamed into or out of them. Duplicate the skill instead."
+                    )
+                },
+                code="reserved_prefix",
+            )
+
+        props = {
+            **_skill_analytics_props(renamed_skill),
+            "previous_skill_name": skill_name,
+        }
+        logger.info(
+            "llma_skill_renamed",
+            team_id=self.team.id,
+            user_id=cast(User, request.user).id,
+            **props,
+        )
+        report_user_action(
+            cast(User, request.user),
+            "llma skill renamed",
+            props,
+            team=self.team,
+            request=request,
+        )
+        return Response(self._serialize_skill(renamed_skill))
 
     @extend_schema(request=LLMSkillPublishToCommunitySerializer, responses={201: CommunitySkillPublishResultSerializer})
     @action(
@@ -1186,6 +1298,7 @@ class LLMSkillViewSet(
                 license=skill.license or "",
                 compatibility=skill.compatibility or "",
                 author_handle=payload.validated_data.get("author_handle", ""),
+                metadata=skill.metadata,
             )
         except CommunitySkillPublishNotConfiguredError:
             # The fail-safe is otherwise silent, so an instance that meant to have publishing on
@@ -1303,6 +1416,7 @@ class LLMSkillViewSet(
             LLMSkillVersionConflictError,
             LLMSkillVersionLimitError,
             LLMSkillFileLimitError,
+            LLMSkillDescriptionTooLongError,
         ) as err:
             response = self._handle_skill_write_error(err, skill_name)
             if response is None:
@@ -1368,6 +1482,7 @@ class LLMSkillViewSet(
             LLMSkillVersionConflictError,
             LLMSkillVersionLimitError,
             LLMSkillFileLimitError,
+            LLMSkillDescriptionTooLongError,
         ) as err:
             response = self._handle_skill_write_error(err, skill_name)
             if response is None:
@@ -1430,6 +1545,7 @@ class LLMSkillViewSet(
             LLMSkillVersionConflictError,
             LLMSkillVersionLimitError,
             LLMSkillFileLimitError,
+            LLMSkillDescriptionTooLongError,
         ) as err:
             response = self._handle_skill_write_error(err, skill_name)
             if response is None:

@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { normalizeAxisLabel } from '@posthog/quill-charts'
 
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
+import { PIE_DISPLAY_TYPES } from 'lib/constants'
 import { LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
@@ -79,7 +80,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     const showFunnelLegendConfig = isTrendsFunnel && hasBreakdownFilter(breakdownFilter)
     const isBoxPlot = display === ChartDisplayType.BoxPlot
     const isCalendarHeatmap = display === ChartDisplayType.CalendarHeatmap
-    const isPie = display === ChartDisplayType.ActionsPie
+    const isPie = !!display && PIE_DISPLAY_TYPES.includes(display)
     // Percent stacking swaps the raw values out for percentages, so there is no unit left to pick.
     // A pie is the exception: it can show the value and the percentage together.
     const showsRawValues = !showPercentStackView || (isPie && !!showValuesOnSeries)
@@ -169,15 +170,16 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     }
 
     const items: LemonMenuItems = []
+    const displayItems = getDisplayItems()
 
     if (showSmoothing) {
         items.push({ title: 'Smoothing', items: [DisplayOptions.Smoothing] })
     }
 
-    if (showDisplaySection) {
+    if (showDisplaySection && displayItems.length > 0) {
         items.push({
             title: <SectionHeader dataAttr="options-display-section">Display</SectionHeader>,
-            items: getDisplayItems(),
+            items: displayItems,
         })
     }
 

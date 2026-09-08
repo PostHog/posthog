@@ -11,7 +11,7 @@ from posthog.temporal.proxy_service.cloudflare import (
     _parse_hostname,
     create_custom_hostname,
     parse_cloudflare_error_code,
-    update_custom_hostname_metadata,
+    update_cloudflare_proxy_root_redirect,
 )
 
 # Every status Cloudflare can send, which is a superset of what the enums name. Re-derive with:
@@ -119,18 +119,23 @@ class TestParseHostnameStatuses(SimpleTestCase):
         self.assertNotEqual(info.status, CustomHostnameStatus.ACTIVE)
 
 
-@override_settings(CLOUDFLARE_API_TOKEN="token", CLOUDFLARE_ZONE_ID="zone")
+@override_settings(
+    CLOUDFLARE_API_TOKEN="token",
+    CLOUDFLARE_ZONE_ID="zone",
+    CLOUDFLARE_ACCOUNT_ID="account",
+    CLOUDFLARE_PROXY_KV_NAMESPACE_ID="namespace",
+)
 class TestCreateCustomHostname(SimpleTestCase):
     @patch("posthog.temporal.proxy_service.cloudflare.requests.post")
-    def test_sets_minimum_tls_version_and_redirect_metadata(self, post_request):
+    def test_sets_minimum_tls_version(self, post_request):
         response = Mock()
         response.json.return_value = {
             "success": True,
-            "result": _hostname_payload(custom_metadata={"root_redirect_url": "https://example.com/"}),
+            "result": _hostname_payload(),
         }
         post_request.return_value = response
 
-        create_custom_hostname("p.example.com", "https://example.com/")
+        create_custom_hostname("p.example.com")
 
         post_request.assert_called_once_with(
             "https://api.cloudflare.com/client/v4/zones/zone/custom_hostnames",
@@ -142,32 +147,35 @@ class TestCreateCustomHostname(SimpleTestCase):
                     "type": "dv",
                     "settings": {"min_tls_version": "1.2"},
                 },
-                "custom_metadata": {"root_redirect_url": "https://example.com/"},
             },
             timeout=8.0,
         )
 
-    @patch("posthog.temporal.proxy_service.cloudflare.requests.patch")
-    def test_preserves_existing_metadata(self, patch_request):
-        hostname = _parse_hostname(_hostname_payload(custom_metadata={"existing": "value"}))
+    @parameterized.expand(
+        [
+            ("set", "https://example.com/", "put"),
+            ("clear", None, "delete"),
+        ]
+    )
+    @patch("posthog.temporal.proxy_service.cloudflare.requests.delete")
+    @patch("posthog.temporal.proxy_service.cloudflare.requests.put")
+    def test_updates_root_redirect_in_kv(self, _name, redirect_url, method, put_request, delete_request):
         response = Mock()
-        response.json.return_value = {
-            "success": True,
-            "result": _hostname_payload(
-                custom_metadata={"existing": "value", "root_redirect_url": "https://example.com/"}
-            ),
-        }
-        patch_request.return_value = response
+        response.json.return_value = {"success": True}
+        put_request.return_value = response
+        delete_request.return_value = response
 
-        updated = update_custom_hostname_metadata(hostname, {"root_redirect_url": "https://example.com/"})
+        update_cloudflare_proxy_root_redirect("p.example.com", redirect_url)
 
-        patch_request.assert_called_once_with(
-            "https://api.cloudflare.com/client/v4/zones/zone/custom_hostnames/abc123",
-            headers={"Authorization": "Bearer token", "Content-Type": "application/json"},
-            json={"custom_metadata": {"existing": "value", "root_redirect_url": "https://example.com/"}},
-            timeout=8.0,
+        request = put_request if method == "put" else delete_request
+        request.assert_called_once()
+        assert request.call_args.args[0] == (
+            "https://api.cloudflare.com/client/v4/accounts/account/storage/kv/namespaces/namespace/values/p.example.com"
         )
-        self.assertEqual(updated.custom_metadata["root_redirect_url"], "https://example.com/")
+        if method == "put":
+            assert request.call_args.kwargs["data"] == b"https://example.com/"
+        else:
+            assert put_request.call_count == 0
 
 
 class TestParseCloudflareErrorCode(SimpleTestCase):

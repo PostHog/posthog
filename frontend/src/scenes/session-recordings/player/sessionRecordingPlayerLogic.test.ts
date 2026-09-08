@@ -323,6 +323,22 @@ describe('sessionRecordingPlayerLogic', () => {
         })
     })
 
+    describe('end of recording', () => {
+        // Reaching the end pauses the player, and currentPlayerState only reports SKIP while playing,
+        // so the rewind control already replaces the "Skipping inactivity" overlay without touching the
+        // flag. The flag also drives playerSpeed, so it must survive end-of-recording: a rewind back into
+        // a trailing inactive stretch lands in the same segment, which does not recompute it, and clearing
+        // it there would make that dead time play at 1x.
+        it('keeps the inactivity-skip flag so a rewind into a trailing inactive stretch still skips', async () => {
+            logic.actions.setSkippingInactivity(true)
+            expect(logic.values.isSkippingInactivity).toBe(true)
+
+            await expectLogic(logic, () => logic.actions.setEndReached(true)).toMatchValues({
+                isSkippingInactivity: true,
+            })
+        })
+    })
+
     describe('terminal data failures', () => {
         // Give-up signals must surface as a player error even when partial data already loaded —
         // otherwise the affected range buffers forever with no error shown.
@@ -507,6 +523,32 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.currentTimestamp).toBeGreaterThanOrEqual(start)
             expect(logic.values.isBuffering).toBe(false)
         })
+
+        it('re-seeks a deep link only when the linked time changes or the same URL is pushed again', async () => {
+            logic.unmount()
+            router.actions.push('/replay/2', { t: 5 })
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                blobV2PollingDisabled: true,
+            })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['initializePlayerFromStart']).toFinishAllListeners()
+
+            const start = logic.values.sessionPlayerData.start?.valueOf() ?? 0
+            logic.actions.setCurrentTimestamp(start + 8000)
+
+            await expectLogic(logic, () => {
+                router.actions.push('/replay/2', { t: 5, inspectorSideBar: true })
+            }).toFinishAllListeners()
+            expect(logic.values.currentTimestamp).toBe(start + 8000)
+
+            await expectLogic(logic, () => {
+                router.actions.push('/replay/2', { t: 5, inspectorSideBar: true })
+            }).toFinishAllListeners()
+            expect(logic.values.currentTimestamp).toBe(start + 5000)
+        })
     })
 
     describe('seek renderability clamping', () => {
@@ -539,6 +581,9 @@ describe('sessionRecordingPlayerLogic', () => {
 
         const inc = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.IncrementalSnapshot)
         const fs = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.FullSnapshot)
+        const meta = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.Meta)
+        const idle = (timestamp: number): RecordingSnapshot =>
+            makeSnapshot(timestamp, EventType.Custom, 1, { tag: 'sessionIdle', payload: {} })
         // second-window events for the multi-window cases
         const w2inc = (timestamp: number): RecordingSnapshot =>
             makeSnapshot(timestamp, EventType.IncrementalSnapshot, 2)
@@ -927,6 +972,34 @@ describe('sessionRecordingPlayerLogic', () => {
                 expectedLeadingUnplayableMs: 0,
                 expectedHasLate: false,
             },
+            {
+                description:
+                    'does not flag an idle gap where only a backdated sessionIdle event precedes the full snapshot',
+                firstSourceSnapshots: [idle(START)],
+                secondSourceSnapshots: [fs(LATE_FS_TS), inc(LATE_FS_TS + 1000)],
+                expectedLeadingUnplayableMs: 0,
+                expectedHasLate: false,
+            },
+            {
+                // rrweb emits Meta and FullSnapshot together, so Meta alone means the FullSnapshot was dropped
+                description: 'flags a lost leading snapshot when only its Meta event survives',
+                firstSourceSnapshots: [meta(START)],
+                secondSourceSnapshots: [fs(LATE_FS_TS), inc(LATE_FS_TS + 1000)],
+                expectedLeadingUnplayableMs: LATE_FS_TS - START,
+                expectedHasLate: true,
+            },
+            {
+                description: 'flags a lost leading snapshot when the missing content is in a later window',
+                firstSourceSnapshots: [idle(START)],
+                secondSourceSnapshots: [
+                    w2inc(START + 61000),
+                    w2inc(START + 62000),
+                    w2fs(LATE_FS_TS),
+                    w2inc(LATE_FS_TS + 1000),
+                ],
+                expectedLeadingUnplayableMs: LATE_FS_TS - START,
+                expectedHasLate: true,
+            },
         ])(
             '$description',
             ({ firstSourceSnapshots, secondSourceSnapshots, expectedLeadingUnplayableMs, expectedHasLate }) => {
@@ -936,6 +1009,48 @@ describe('sessionRecordingPlayerLogic', () => {
                 expect(logic.values.hasLateFullSnapshot).toBe(expectedHasLate)
             }
         )
+
+        // Builds a stand-in replayer whose iframe document has (or lacks) a <head>. rrweb throws
+        // synchronously when it rebuilds a full snapshot on a document without a head, which is the
+        // WebKit failure this recovery path guards against.
+        const fakeReplayer = (head: HTMLElement | null): any => {
+            const throwWhenHeadless = (): void => {
+                if (!head) {
+                    throw new TypeError("null is not an object (evaluating 'doc.head.appendChild')")
+                }
+            }
+            return {
+                iframe: { contentDocument: { head } },
+                play: jest.fn(throwWhenHeadless),
+                pause: jest.fn(throwWhenHeadless),
+                getCurrentTime: jest.fn(() => 0),
+                setConfig: jest.fn(),
+                on: jest.fn(),
+                destroy: jest.fn(),
+                service: { state: { context: { events: [] } } },
+            }
+        }
+
+        it('re-inits the replayer instead of reporting a playback failure when the iframe has no head', async () => {
+            seedRecording([fs(START), inc(START + 1000), inc(START + 11000)], [])
+            logic.actions.setPause()
+
+            const captureSpy = jest.spyOn(posthog, 'captureException')
+            const tryInitReplayerSpy = jest.spyOn(logic.actions, 'tryInitReplayer')
+            captureSpy.mockClear()
+            tryInitReplayerSpy.mockClear()
+
+            await expectLogic(logic, () => {
+                logic.actions.setPlayer({ replayer: fakeReplayer(null), windowId: 1 })
+            }).toFinishAllListeners()
+
+            expect(tryInitReplayerSpy).toHaveBeenCalled()
+            expect(captureSpy).not.toHaveBeenCalledWith(
+                expect.anything(),
+                expect.objectContaining({ feature: 'session-recording-replayer-playback' })
+            )
+            expect(logic.values.playerError).not.toBe('replayerPlaybackFailure')
+        })
     })
 
     describe('delete session recording', () => {

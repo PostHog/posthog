@@ -1,13 +1,17 @@
+from datetime import timedelta
 from typing import Any
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import transaction
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, Throttled
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models import Integration, User
@@ -189,20 +193,40 @@ class TestWarmTaskSandbox(APIBaseTest):
             initial_permission_mode="plan",
         )
 
+    @parameterized.expand(
+        [
+            ("without_integration", False),
+            # The PostHog AI composer sends the team's integration even with no repo picked.
+            ("with_integration", True),
+        ]
+    )
     @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
     @patch("products.tasks.backend.facade.api.warm_task_sandbox")
-    def test_warm_endpoint_accepts_repo_less_request(self, mock_warm, _mock_warm_enabled):
+    def test_warm_endpoint_accepts_repo_less_request(self, _name, with_integration, mock_warm, _mock_warm_enabled):
         mock_warm.return_value = None
+        integration_id = self.integration.id if with_integration else None
 
         response = self.client.post(
             "/api/projects/@current/tasks/warm/",
-            {"repository": None, "github_integration": None, "branch": None},
+            {"repository": None, "github_integration": integration_id, "branch": None},
             format="json",
         )
 
         assert response.status_code == 200, response.content
         assert mock_warm.call_args.kwargs["repository"] is None
-        assert mock_warm.call_args.kwargs["github_integration_id"] is None
+        assert mock_warm.call_args.kwargs["github_integration_id"] == integration_id
+
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    @patch("products.tasks.backend.facade.api.warm_task_sandbox")
+    def test_warm_endpoint_rejects_repository_without_integration(self, mock_warm, _mock_warm_enabled):
+        response = self.client.post(
+            "/api/projects/@current/tasks/warm/",
+            {"repository": "posthog/posthog", "github_integration": None, "branch": "main"},
+            format="json",
+        )
+
+        assert response.status_code == 400, response.content
+        mock_warm.assert_not_called()
 
     @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
     def test_warm_endpoint_rejects_duplicate_repositories(self, _mock_warm_enabled):
@@ -245,7 +269,6 @@ class TestWarmTaskSandbox(APIBaseTest):
                 "gpt-5.4",
                 "bypassPermissions",
             ),
-            ("mode_without_a_runtime", None, None, "plan"),
         ]
     )
     @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
@@ -277,6 +300,29 @@ class TestWarmTaskSandbox(APIBaseTest):
         assert response.status_code == 400, response.content
         assert response.json()["attr"] == "initial_permission_mode"
         mock_warm.assert_not_called()
+
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    @patch("products.tasks.backend.facade.api.warm_task_sandbox")
+    def test_warm_endpoint_accepts_a_mode_without_a_runtime(self, mock_warm, _mock_warm_enabled):
+        # A composer whose selection is untouched states the launch mode but pins no runtime, leaving
+        # the triple to the stored default. Requiring the adapter alongside the mode would 400 every
+        # one of those warms, so no default-selection submit could ever land on a warm sandbox.
+        mock_warm.return_value = None
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/warm/",
+            {
+                "repository": "posthog/posthog",
+                "github_integration": self.integration.id,
+                "branch": "main",
+                "initial_permission_mode": "plan",
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200, response.content
+        assert mock_warm.call_args.kwargs["initial_permission_mode"] == "plan"
+        assert mock_warm.call_args.kwargs["runtime_adapter"] is None
 
     def test_provisions_selected_sandbox_environment_and_custom_image(self):
         sandbox_environment = SandboxEnvironment.objects.create(
@@ -326,17 +372,25 @@ class TestWarmTaskSandbox(APIBaseTest):
         assert task.description == ""
         assert task.runs.filter(id=result.run_id).exists()
 
-    def test_births_repo_less_draft_and_returns_warm_dto(self):
+    @parameterized.expand(
+        [
+            ("without_integration", False),
+            ("with_integration", True),
+        ]
+    )
+    def test_births_repo_less_draft_and_returns_warm_dto(self, _name, with_integration):
         def fake_warm(self_warmer, **kwargs):
             run = self_warmer.task.create_run(mode="interactive", extra_state={"await_user_message": True})
             return WarmResult(run=run, just_created=True)
 
+        integration_id = self.integration.id if with_integration else None
         with patch(f"{WARM_SRC}.warm", autospec=True, side_effect=fake_warm):
-            result = self._warm(repository=None, github_integration_id=None, branch=None)
+            result = self._warm(repository=None, github_integration_id=integration_id, branch=None)
 
         assert result is not None
         task = Task.objects.get(id=result.task_id)
         assert task.repository is None
+        assert task.github_integration_id == integration_id
 
     def test_births_multi_repository_draft(self):
         def fake_warm(self_warmer, **kwargs):
@@ -504,6 +558,7 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         created_by=None,
         extra_state: dict[str, Any] | None = None,
         origin_product=Task.OriginProduct.USER_CREATED,
+        github_integration: Integration | None = None,
     ) -> tuple[Task, TaskRun]:
         task = Task.objects.create(
             team=self.team,
@@ -513,7 +568,7 @@ class TestCreateTaskWarmReuse(APIBaseTest):
             created_by=created_by or self.user,
             repository=repository,
             repositories=repositories or ([repository] if repository else []),
-            github_integration=self.integration if repository else None,
+            github_integration=github_integration or (self.integration if repository else None),
         )
         run = task.create_run(
             mode="interactive",
@@ -579,9 +634,11 @@ class TestCreateTaskWarmReuse(APIBaseTest):
 
         assert Task.objects.filter(team=self.team, deleted=False).count() == 2
 
-    def test_reuses_matching_warm_task_and_activates_it_in_place(self):
+    def test_reuses_matching_warm_task_and_activates_it_in_place(self) -> None:
         warm_task, run = self._warm_run()
-        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as m_signal:
+        handle = MagicMock(signal=AsyncMock())
+        with patch("products.tasks.backend.temporal.client.sync_connect") as connect:
+            connect.return_value.get_workflow_handle.return_value = handle
             dto = self._create(auto_publish=True)
 
         assert str(dto.id) == str(warm_task.id)
@@ -590,13 +647,173 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         run.refresh_from_db()
         assert warm_task.description == "fix the bug"
         assert warm_task.title
-        m_signal.assert_called_once()
-        _, kwargs = m_signal.call_args
-        assert kwargs["content"] == "fix the bug"
+        assert handle.signal.await_count == 1
+        payloads = [call.kwargs["args"] for call in handle.signal.await_args_list]
+        assert payloads[0][0] == "fix the bug"
+        assert payloads[0][2]
+        assert all(payload == payloads[0] for payload in payloads)
+        assert all(call.args == (run.workflow_id,) for call in connect.return_value.get_workflow_handle.call_args_list)
         assert "await_user_message" not in run.state
+        assert run.state["warm_activated"] is True
         # The agent-server re-reads run state on the forwarded first message, so this
         # must be persisted for the warm run to honor the setting.
         assert run.state.get("auto_publish") is True
+
+    @parameterized.expand(
+        [
+            (endpoint, outcome)
+            for endpoint in ("create", "resume")
+            for outcome in (
+                "retry",
+                "retry_cancelled",
+                "retry_replaced",
+                "retry_invalid",
+                "retry_expired",
+                "retry_workflow_changed",
+                "cancelled",
+                "failed",
+                "deleted",
+                "task_deleted",
+                "not_awaiting",
+                "workflow_changed",
+                "cancelled_after_delivery",
+                "workflow_changed_after_delivery",
+            )
+        ]
+    )
+    def test_warm_activation_startup_through_endpoints(self, endpoint: str, outcome: str) -> None:
+        task, run = self._warm_run(extra_state={"initial_permission_mode": "default", "prewarmed": True})
+        artifact = _artifact_entry("startup-attachment")
+        payload: dict[str, Any] = {
+            "branch": "main",
+            "pending_user_message": "Inspect the example chart",
+            "pending_user_artifact_ids": [artifact["id"]],
+        }
+        if endpoint == "create":
+            url = "/api/projects/@current/tasks/"
+            payload.update(description="Inspect the example chart", repository="posthog/posthog")
+            run.artifacts = [artifact]
+            run.save(update_fields=["artifacts"])
+        else:
+            previous = TaskRun.objects.create(
+                task=task,
+                team=self.team,
+                status=TaskRun.Status.COMPLETED,
+                state={"pr_base_branch": "main", "initial_permission_mode": "default"},
+            )
+            TaskRun.objects.filter(id=previous.id).update(created_at=run.created_at - timedelta(seconds=1))
+            TaskRun.update_state_atomic(run.id, updates={"resume_from_run_id": str(previous.id)})
+            payload.update(mode="interactive", resume_from_run_id=str(previous.id))
+            url = f"/api/projects/@current/tasks/{task.id}/run/"
+            get_tasks_cache().set(
+                build_task_staged_artifact_cache_key(str(task.id), artifact["id"]), artifact, timeout=60
+            )
+
+        run_count = TaskRun.objects.filter(team=self.team).count()
+        savepoints = list(transaction.get_connection().savepoint_ids)
+        handle = MagicMock(signal=AsyncMock(side_effect=RPCError("workflow starting", RPCStatusCode.NOT_FOUND, b"")))
+
+        def get_handle(workflow_id: str) -> MagicMock:
+            assert workflow_id == run.workflow_id
+            assert transaction.get_connection().savepoint_ids == savepoints
+            if outcome in ("cancelled", "failed", "cancelled_after_delivery"):
+                TaskRun.objects.filter(id=run.id).update(status="failed" if outcome == "failed" else "cancelled")
+            elif outcome == "deleted":
+                TaskRun.objects.filter(id=run.id).delete()
+            elif outcome == "task_deleted":
+                Task.objects.filter(id=task.id).update(deleted=True)
+            elif outcome == "not_awaiting":
+                TaskRun.update_state_atomic(run.id, remove_keys=["await_user_message"])
+            elif outcome in ("workflow_changed", "workflow_changed_after_delivery"):
+                TaskRun.update_state_atomic(run.id, updates={"workflow_id": "replacement-workflow"})
+            if outcome.endswith("after_delivery"):
+                handle.signal.side_effect = None
+            return handle
+
+        with (
+            patch("products.tasks.backend.temporal.client.sync_connect") as connect,
+            patch(f"{FACADE}.time.sleep") as sleep,
+            patch("posthog.storage.object_storage.tag"),
+            patch(
+                "products.tasks.backend.logic.services.title_generator.generate_task_title",
+                return_value="Example chart",
+            ),
+        ):
+            connect.return_value.get_workflow_handle.side_effect = get_handle
+            response = self.client.post(url, payload, format="json")
+
+            assert Task.objects.filter(team=self.team).count() == 1
+            assert TaskRun.objects.filter(team=self.team).count() == run_count - (outcome == "deleted")
+            assert response.status_code == 503, response.content
+            error_body = response.json()
+            retry_token = error_body.pop("retry_token", None)
+            assert bool(retry_token) is outcome.startswith("retry")
+            assert error_body == {
+                "code": "warm_run_activation_unavailable",
+                "error": "Couldn't start this run yet. Please try again.",
+            }
+            handle.signal.assert_awaited_once()
+            assert handle.signal.call_args.kwargs["rpc_timeout"] == timedelta(seconds=10)
+            sleep.assert_not_called()
+
+            if outcome != "deleted":
+                run.refresh_from_db()
+                assert not run.state.get("warm_activated")
+                assert bool(run.state.get("await_user_message")) is (outcome != "not_awaiting")
+            if outcome.startswith("retry"):
+                first_message = handle.signal.call_args.kwargs["args"]
+                if outcome in ("retry_cancelled", "retry_replaced"):
+                    TaskRun.objects.filter(id=run.id).update(status=TaskRun.Status.CANCELLED)
+                if outcome == "retry_replaced":
+                    TaskRun.objects.create(task=task, team=self.team, state=run.state, branch=run.branch)
+                    run_count += 1
+                if outcome == "retry_invalid":
+                    retry_token += "invalid"
+                if outcome == "retry_workflow_changed":
+                    TaskRun.update_state_atomic(run.id, updates={"workflow_id": "replacement-workflow"})
+                with freeze_time(django_timezone.now() + timedelta(seconds=61 if outcome == "retry_expired" else 0)):
+                    retry = self.client.post(url, payload, format="json", HTTP_X_POSTHOG_WARM_RETRY=retry_token)
+                if outcome != "retry":
+                    assert retry.status_code == 503, retry.content
+                    assert "retry_token" not in retry.json()
+                    assert handle.signal.await_count == 1
+                    assert Task.objects.filter(team=self.team).count() == 1
+                    assert TaskRun.objects.filter(team=self.team).count() == run_count
+                    return
+                assert retry.status_code == 503, retry.content
+                assert retry.json()["retry_token"]
+                assert handle.signal.await_count == 2
+                handle.signal.side_effect = None
+                retry = self.client.post(url, payload, format="json", HTTP_X_POSTHOG_WARM_RETRY=retry_token)
+                assert retry.status_code == (201 if endpoint == "create" else 200), retry.content
+                assert retry.json()["latest_run"]["id"] == str(run.id)
+                assert handle.signal.await_count == 3
+                assert all(call.kwargs["args"] == first_message for call in handle.signal.await_args_list)
+                run.refresh_from_db()
+                assert [entry["id"] for entry in run.artifacts] == [artifact["id"]]
+                assert "await_user_message" not in run.state
+                assert run.state["warm_activated"] is True
+                assert Task.objects.filter(team=self.team).count() == 1
+                assert TaskRun.objects.filter(team=self.team).count() == run_count
+                sleep.assert_not_called()
+
+    @parameterized.expand([(False,), (None,), (RPCStatusCode.UNAVAILABLE,), (RPCStatusCode.DEADLINE_EXCEEDED,)])
+    def test_warm_activation_does_not_retry_unconfirmed_delivery(self, outcome: bool | None | RPCStatusCode) -> None:
+        _, run = self._warm_run()
+        expected_error: type[Exception]
+        with patch(f"{FACADE}.signal_task_run_user_message") as signal:
+            if isinstance(outcome, RPCStatusCode):
+                signal.side_effect = RPCError("transport failure", outcome, b"")
+                expected_error = RPCError
+            else:
+                signal.return_value = outcome
+                expected_error = facade.WarmRunActivationUnavailable
+            with self.assertRaises(expected_error):
+                self._create()
+        signal.assert_called_once()
+        run.refresh_from_db()
+        assert run.state["await_user_message"] is True
+        assert not run.state.get("warm_activated")
 
     def test_reuses_warm_task_with_new_reasoning_effort_and_attachments(self):
         warm_task, run = self._warm_run(
@@ -661,10 +878,19 @@ class TestCreateTaskWarmReuse(APIBaseTest):
 
         assert str(dto.id) != str(warm_task.id)
 
-    def test_reuses_matching_repo_less_warm_task(self):
-        warm_task, run = self._warm_run(repository=None, branch=None)
+    @parameterized.expand(
+        [
+            ("without_integration", False),
+            # The PostHog AI composer submits a repo-less task with the team's integration attached;
+            # the warm it booted seconds earlier carries the same pair and must be the run it lands on.
+            ("with_integration", True),
+        ]
+    )
+    def test_reuses_matching_repo_less_warm_task(self, _name, with_integration):
+        integration = self.integration if with_integration else None
+        warm_task, run = self._warm_run(repository=None, branch=None, github_integration=integration)
         with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
-            dto = self._create(repository=None, github_integration=None, branch=None)
+            dto = self._create(repository=None, github_integration=integration, branch=None)
 
         assert str(dto.id) == str(warm_task.id)
         run.refresh_from_db()

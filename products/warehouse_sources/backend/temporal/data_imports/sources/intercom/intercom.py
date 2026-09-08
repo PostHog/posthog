@@ -26,7 +26,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     Endpoint,
     EndpointResource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.row_transforms import coerce_fields_to_str
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.settings import (
     INTERCOM_ENDPOINTS,
@@ -303,10 +302,6 @@ def get_resource(
         "endpoint": endpoint,
         "table_format": "delta",
     }
-
-    if cfg.coerce_string_fields:
-        coerce_fields = cfg.coerce_string_fields
-        resource["data_map"] = lambda item: coerce_fields_to_str(item, coerce_fields)
 
     return resource
 
@@ -590,18 +585,10 @@ def _substream_items(
             # walk every conversation. `updated_at` is the only declared
             # cursor, so default to it for the parent search filter.
             incremental_field = "updated_at"
-        base = _conversation_parts_generator(session, incremental_field, db_incremental_field_last_value)
-    elif endpoint == "company_segments":
-        base = _company_segments_generator(session)
-    else:
-        raise ValueError(f"Unknown Intercom substream endpoint: {endpoint}")
-
-    # Substreams bypass the REST framework's `data_map`, so coerce type-flip
-    # fields here to keep every Arrow batch's schema consistent (see get_resource).
-    coerce_fields = INTERCOM_ENDPOINTS[endpoint].coerce_string_fields
-    if not coerce_fields:
-        return base
-    return (coerce_fields_to_str(item, coerce_fields) for item in base)
+        return _conversation_parts_generator(session, incremental_field, db_incremental_field_last_value)
+    if endpoint == "company_segments":
+        return _company_segments_generator(session)
+    raise ValueError(f"Unknown Intercom substream endpoint: {endpoint}")
 
 
 def validate_credentials(

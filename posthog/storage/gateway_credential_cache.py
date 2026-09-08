@@ -5,7 +5,8 @@ One blob per phs_ project secret key / pha_ OAuth token, keyed by the credential
 so the secret never sits in a Redis key. Public phc_ project tokens can't dispatch.
 
     Key: cache/team_tokens_hashed/<sha256$hex>/team_metadata/gateway_credential.json
-    Body: {team_id, project_token, scopes, billing_mode, revoked_at, overspend_allowance_usd?}
+    Body: {team_id, project_token, scopes, billing_mode, revoked_at,
+           overspend_allowance_usd?, tier?}
 
 The hash matches Django's hash_key_value(token, mode="sha256") = "sha256$"+hex, which the
 gateway derives identically. A credential holding llm_gateway:read attributes to its team
@@ -68,6 +69,13 @@ GATEWAY_CREDENTIAL_FIELDS = [
     "billing_mode",
     "revoked_at",
 ]
+
+# Tier (gateway-defined, internal/auth/gateway_credential.go) feeds the
+# rate-limit/shed bucket. Settings-driven rather than a Team column: a handful of
+# internal teams, and a settings change lands on the hourly reprojection with no
+# signal wiring.
+TIER_KEY = "tier"
+GATEWAY_KNOWN_TIERS = {"free", "pro", "enterprise"}
 
 # Overspend allowance wire contract (gateway-defined, internal/auth/gateway_credential.go):
 # fixed-point USD string, 6dp, present only when set. Out-of-range/malformed clamps to 0 there,
@@ -290,7 +298,38 @@ def _policy_for_credential(
     if allowance is not None:
         policy[OVERSPEND_ALLOWANCE_KEY] = format_overspend_allowance_usd(allowance)
 
+    # Absent means tier-unknown on the gateway, so ordinary teams' blobs stay
+    # byte-identical.
+    tier = _team_tier_overrides().get(str(team.id))
+    if tier is not None:
+        # isinstance first: an unhashable value from the JSON setting would raise on
+        # the membership test, inside a projection whose failure expires every blob.
+        if isinstance(tier, str) and tier in GATEWAY_KNOWN_TIERS:
+            policy[TIER_KEY] = tier
+        else:
+            # The gateway never sees the value, so this is the only signal a typo gets.
+            logger.warning("gateway_credential: unrecognized tier override, not projecting", team_id=team.id, tier=tier)
+
     return policy
+
+
+def _team_tier_overrides() -> dict[str, str]:
+    """Explicit team_id (string) -> tier map for the gateway's rate-limit bucket. A
+    non-mapping value degrades to no overrides rather than failing the projection.
+    """
+    raw = getattr(settings, "AI_GATEWAY_TEAM_TIER_OVERRIDES", {}) or {}
+    if not isinstance(raw, dict):
+        logger.warning("gateway_credential: tier overrides setting is not a mapping, ignoring")
+        return {}
+    return raw
+
+
+def oauth_credential_authorized(credential: OAuthAccessToken, team: Any) -> bool:
+    """Whether an OAuth credential is still authorized for team right now: the user
+    is active, a member, and still has project access. Callers outside the
+    projection need it because a token's scoped_teams is frozen at consent.
+    """
+    return _oauth_authorization_ok(credential, team, team.id, None)
 
 
 def _resolve_credential(hash_key: str) -> Credential | None:
