@@ -519,7 +519,7 @@ export function InsightMeta({
                                 </LemonButton>
                                 {tile && (
                                     <LemonButton onClick={setOverride} fullWidth>
-                                        Set override
+                                        Filter this tile
                                     </LemonButton>
                                 )}
                             </>
