@@ -28,7 +28,7 @@ class TestRepositoryAuthorization(TestCase):
         self.other_team = Team.objects.create(
             organization=self.organization, name="Other repository authorization team"
         )
-        self.user = User.objects.create_user(email="author@example.com", password="password")
+        self.user = User.objects.create_user(email="author@example.com", first_name="Author", password="password")
         OrganizationMembership.objects.create(organization=self.organization, user=self.user)
 
     @staticmethod
@@ -344,10 +344,8 @@ class TestRepositoryAuthorization(TestCase):
             nonlocal calls
             calls += 1
             if calls == 1:
-                personal.integration_id = "installation-2"
-                personal.save(update_fields=["integration_id", "updated_at"])
-                team_integration.integration_id = "installation-2"
-                team_integration.save(update_fields=["integration_id", "updated_at"])
+                UserIntegration.objects.filter(id=personal.id).update(integration_id="installation-2")
+                Integration.objects.filter(id=team_integration.id).update(integration_id="installation-2")
                 return {
                     "full_name": "owner/repository",
                     "private": True,
@@ -361,6 +359,8 @@ class TestRepositoryAuthorization(TestCase):
         mock_get.side_effect = live_response
 
         assert self._resolve() is None
+        personal.refresh_from_db()
+        team_integration.refresh_from_db()
         assert personal.integration_id == "installation-2"
         assert team_integration.integration_id == "installation-2"
         mock_get.assert_has_calls(
