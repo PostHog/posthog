@@ -51,7 +51,10 @@ function ForecastChart({
             color: 'rgba(99, 102, 241, 0.9)',
             stroke: {
                 partial: {
-                    fromIndex: Math.max(historyLength - 1, 0),
+                    // The renderer shares the boundary point, so it starts the dashed run one index
+                    // before `fromIndex`. The first forecast index therefore keeps every measured
+                    // segment solid and dashes the segment that bridges history and forecast.
+                    fromIndex: historyLength,
                     pattern: [6, 4],
                 },
             },
