@@ -3,6 +3,7 @@ import { Counter } from 'prom-client'
 
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { buildWorkflowStepDispatchKey } from '~/cdp/utils/workflow-step-dispatch-key'
+import { capWorkflowStepResult } from '~/cdp/utils/workflow-step-result'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import {
@@ -54,27 +55,10 @@ const parseAwaitRequest = (execResult: unknown): AwaitRequest | null => {
 
 const humanDuration = (duration: Duration): string => duration.rescale().toHuman()
 
-// Result strings are cut to fit under the executor's 5KB variables cap, which fails the step.
-const RESUME_RESULT_STRING_CAP = 1500
-const VARIABLES_BYTE_CAP = 5120
-const VARIABLES_HEADROOM_BYTES = 512
-
 const counterAwaitedStepStaleResume = new Counter({
     name: 'cdp_hogflow_awaited_step_stale_resume',
     help: 'A parked step received a wake keyed to an earlier visit of the same step and kept waiting.',
 })
-
-const resumeStringCap = (variables: Record<string, unknown>): number => {
-    const used = Buffer.byteLength(JSON.stringify(variables), 'utf8')
-    return Math.max(0, Math.min(RESUME_RESULT_STRING_CAP, VARIABLES_BYTE_CAP - VARIABLES_HEADROOM_BYTES - used))
-}
-
-const truncateStringValues = (obj: Record<string, unknown>, cap: number): Record<string, unknown> =>
-    Object.fromEntries(
-        Object.entries(obj)
-            .filter(([, value]) => !(typeof value === 'string' && cap === 0))
-            .map(([key, value]) => [key, typeof value === 'string' && value.length > cap ? value.slice(0, cap) : value])
-    )
 
 export class HogFunctionHandler implements ActionHandler {
     constructor(
@@ -226,9 +210,11 @@ export class HogFunctionHandler implements ActionHandler {
         if (resume?.key === awaiting.key) {
             delete currentAction.awaitingResume
             delete currentAction.resumeResult
-            const payload = truncateStringValues(
+            const payload = capWorkflowStepResult(
+                { ...awaiting.dispatch, status: resume.status },
                 resume.result ?? {},
-                resumeStringCap(result.invocation.state.variables ?? {})
+                result.invocation.state.variables ?? {},
+                action.output_variable
             )
             if (resume.status !== 'completed') {
                 const detail = typeof payload.error_message === 'string' ? `: ${payload.error_message}` : ''
@@ -242,7 +228,7 @@ export class HogFunctionHandler implements ActionHandler {
             })
             return {
                 nextAction: findContinueAction(invocation),
-                result: { ...awaiting.dispatch, status: resume.status, ...payload },
+                result: payload,
             }
         }
         if (resume) {

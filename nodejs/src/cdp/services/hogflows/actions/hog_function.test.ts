@@ -807,10 +807,8 @@ describe('HogFunctionHandler', () => {
                 expect(invocationResult.invocation.state.currentAction?.resumeResult).toBeUndefined()
             })
 
-            it.each([
-                ['cuts the summary to what fits', 4000, 608],
-                ['drops the summary when nothing fits', 4700, undefined],
-            ])('%s under the variable cap', async (_, usedBytes, expectedLength) => {
+            it.each([4000, 4700])('fits the resumed result with %s bytes of existing variables', async (usedBytes) => {
+                action.output_variable = { key: 'task_result' }
                 invocation.state.variables = { ticket_body: 'y'.repeat(usedBytes - '{"ticket_body":""}'.length) }
                 invocation.state.currentAction!.resumeResult = {
                     key: dispatchKey,
@@ -822,11 +820,9 @@ describe('HogFunctionHandler', () => {
 
                 const stored = handlerResult.result as Record<string, unknown>
                 expect(stored.pr_urls).toEqual(['u'])
-                if (expectedLength === undefined) {
-                    expect(stored).not.toHaveProperty('final_message')
-                } else {
-                    expect((stored.final_message as string).length).toBe(expectedLength)
-                }
+                expect(
+                    Buffer.byteLength(JSON.stringify({ ...invocation.state.variables, task_result: stored }))
+                ).toBeLessThanOrEqual(5120)
             })
 
             it('fails the step when the task did not complete', async () => {
