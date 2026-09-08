@@ -13,6 +13,7 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -21,6 +22,8 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AccessControlLevel, AccessControlResourceType, OrganizationMemberType } from '~/types'
 
 import { accountRelationshipsLogic } from 'products/customer_analytics/frontend/components/Accounts/accountRelationshipsLogic'
+import { ROLE_KEY_BY_NAME } from 'products/customer_analytics/frontend/components/Accounts/accountsColumnConfigLogic'
+import { AccountsEvents } from 'products/customer_analytics/frontend/components/Accounts/constants'
 import {
     ACCOUNTS_METRICS_DATA_NODE_KEY,
     ACCOUNTS_TABLE_DATA_NODE_KEY,
@@ -487,8 +490,30 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                         singleHolder: property.definition.is_single_holder !== false,
                     })
                 },
-                persistCustomPropertySuccess: refresh,
-                persistRelationshipSuccess: refresh,
+                persistCustomPropertySuccess: ({ savedPropertyKey }) => {
+                    const property = values.sidebarProperties.find((row) => row.key === savedPropertyKey)
+                    if (property?.kind === 'custom') {
+                        // The property name and value stay out because they can hold customer data.
+                        posthog.capture(AccountsEvents.CustomPropertyUpdated, {
+                            display_type: property.definition.display_type,
+                            workflow_reference: property.definition.has_workflow_reference,
+                        })
+                    }
+                    refresh()
+                },
+                persistRelationshipSuccess: ({ savedPropertyKey, payload }) => {
+                    const property = values.sidebarProperties.find((row) => row.key === savedPropertyKey)
+                    if (property?.kind === 'relationship') {
+                        const memberIds = payload?.memberIds ?? []
+                        posthog.capture(AccountsEvents.RoleAssigned, {
+                            role: ROLE_KEY_BY_NAME[property.definition.name] ?? property.definition.name,
+                            is_assigned: memberIds.length > 0,
+                            assigned_user_id: memberIds.length === 1 ? memberIds[0] : null,
+                            source: 'account_sidebar',
+                        })
+                    }
+                    refresh()
+                },
                 persistRelationshipFailure: refresh,
                 [accountSidebarConfigLogic({ projectId: props.projectId }).actionTypes.loadConfigSuccess]: () =>
                     actions.loadPropertyData(),
