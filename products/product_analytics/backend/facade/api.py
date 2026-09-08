@@ -19,7 +19,8 @@ from uuid import UUID
 from django.db.models import QuerySet
 
 from products.product_analytics.backend import logic
-from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
+from products.product_analytics.backend.facade.contracts import InsightVariableDefinition, SavedInsightIdentity
+from products.product_analytics.backend.facade.models import resolve_insight_by_id_or_short_id
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -41,6 +42,17 @@ def _to_variable_definition(variable: InsightVariable) -> InsightVariableDefinit
 def insight_variables_for_team(team_id: int) -> list[InsightVariableDefinition]:
     """Every saved query variable on the team's project, ordered by name."""
     return [_to_variable_definition(variable) for variable in logic.insight_variables_for_team(team_id)]
+
+
+def saved_insight_identity(*, team_id: int, reference: str | int) -> SavedInsightIdentity | None:
+    """Resolve one live saved insight without exposing its model across the product boundary."""
+
+    insight = resolve_insight_by_id_or_short_id(
+        Insight.objects.filter(team_id=team_id, saved=True, deleted=False), reference
+    )
+    if insight is None or insight.team_id != team_id or insight.deleted or not insight.saved:
+        return None
+    return SavedInsightIdentity(id=insight.id, short_id=insight.short_id, team_id=insight.team_id)
 
 
 def insight_variables_by_ids(team_id: int, ids: Collection[str | UUID]) -> list[InsightVariableDefinition]:

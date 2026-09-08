@@ -13,23 +13,15 @@ from pydantic import ValidationError
 
 from posthog.schema import ActionsNode, EventsNode, TrendsQuery
 
-from posthog.dataclasses import frozen
-
-from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
-from products.subscriptions.backend.facade.recommendations import Recommendation
+from products.product_analytics.backend.facade.api import saved_insight_identity
+from products.product_analytics.backend.facade.contracts import SavedInsightIdentity
+from products.subscriptions.backend.facade.contracts import Recommendation
 from products.tasks.backend.facade.staged_evidence import CompletedMCPCallEvidence
 
 _MEASUREMENT_VERSION = 1
 _ALLOWED_ARGUMENT_KEYS = {"insightId", "output_format"}
 _ALLOWED_OUTPUT_FORMATS = {"json", "optimized"}
-_MAX_DATE_SPAN = timedelta(days=7)
-
-
-@frozen
-class SavedInsightIdentity:
-    id: int
-    short_id: str
-    team_id: int
+_MAX_DATE_SPAN = timedelta(days=6)
 
 
 SavedInsightResolver = Callable[[int, str | int], SavedInsightIdentity | None]
@@ -55,7 +47,7 @@ def canonicalize_measurement(
     if result_identity is None or query_data is None or results is None:
         return None
 
-    resolver = resolve_insight or _resolve_saved_insight
+    resolver = resolve_insight or _saved_insight_resolver
     saved_insight = resolver(team_id, reference)
     if (
         saved_insight is None
@@ -160,6 +152,7 @@ def _canonical_query(query_data: Mapping[str, object]) -> tuple[dict[str, object
 
     dumped = query.model_dump(mode="json", by_alias=True, exclude_none=True)
     canonical = _strip_runtime_fields(dumped)
+    _set_explicit_total_math(canonical)
     return canonical, dates
 
 
@@ -167,12 +160,13 @@ def _supported_trends_filter(query: TrendsQuery) -> bool:
     trends_filter = query.trendsFilter
     if trends_filter is None:
         return True
-    display = trends_filter.display
+    display = str(getattr(trends_filter.display, "value", trends_filter.display))
     return (
         trends_filter.formula is None
         and trends_filter.formulas is None
         and trends_filter.formulaNodes is None
-        and str(getattr(display, "value", display)) != "ActionsLineGraphCumulative"
+        and display in {"None", "ActionsLineGraph"}
+        and (trends_filter.smoothingIntervals is None or trends_filter.smoothingIntervals <= 1)
     )
 
 
@@ -182,6 +176,7 @@ def _absolute_dates(query: TrendsQuery) -> tuple[str, str] | None:
         date_range is None
         or date_range.daysOfWeek
         or date_range.excludeIncompletePeriods
+        or date_range.explicitDate
         or not isinstance(date_range.date_from, str)
         or not isinstance(date_range.date_to, str)
     ):
@@ -201,7 +196,8 @@ def _absolute_dates(query: TrendsQuery) -> tuple[str, str] | None:
 def _supported_series(series: object) -> bool:
     if not isinstance(series, (EventsNode, ActionsNode)):
         return False
-    if str(getattr(series.math, "value", series.math)) != "total":
+    math_type = str(getattr(series.math, "value", series.math))
+    if math_type not in {"None", "total"}:
         return False
     if any(
         getattr(series, field) is not None
@@ -247,6 +243,13 @@ def _strip_runtime_fields(value: object) -> dict[str, object]:
     return cast(dict[str, object], stripped)
 
 
+def _set_explicit_total_math(query: dict[str, object]) -> None:
+    series = query.get("series")
+    if not isinstance(series, list) or len(series) != 1 or not isinstance(series[0], dict):
+        raise ValueError("validated TrendsQuery must have one series")
+    series[0]["math"] = "total"
+
+
 def _strip_runtime_value(value: object) -> object:
     if isinstance(value, dict):
         return {
@@ -266,10 +269,5 @@ def _compact_json(value: Mapping[str, object]) -> str | None:
         return None
 
 
-def _resolve_saved_insight(team_id: int, reference: str | int) -> SavedInsightIdentity | None:
-    insight = resolve_insight_by_id_or_short_id(
-        Insight.objects.filter(team_id=team_id, saved=True, deleted=False), reference
-    )
-    if insight is None or insight.team_id != team_id or insight.deleted or not insight.saved:
-        return None
-    return SavedInsightIdentity(id=insight.id, short_id=insight.short_id, team_id=insight.team_id)
+def _saved_insight_resolver(team_id: int, reference: str | int) -> SavedInsightIdentity | None:
+    return saved_insight_identity(team_id=team_id, reference=reference)

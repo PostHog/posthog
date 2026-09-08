@@ -10,6 +10,7 @@ from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
     insights_including_soft_deleted_for_team,
     record_insight_view,
+    saved_insight_identity,
 )
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -61,6 +62,17 @@ class TestRecordInsightView(BaseTest):
 
 
 class TestInsightReads(BaseTest):
+    def test_saved_insight_identity_excludes_deleted_and_other_team_insights(self) -> None:
+        live_insight = Insight.objects.create(team=self.team, name="Live", short_id="live-rate")
+        Insight.objects.create(team=self.team, name="Deleted", deleted=True, short_id="deleted-rate")
+        other_team = Team.objects.create(organization=self.organization)
+        Insight.objects.create(team=other_team, name="Other", short_id="other-rate")
+
+        assert saved_insight_identity(team_id=self.team.pk, reference="live-rate") is not None
+        assert saved_insight_identity(team_id=self.team.pk, reference="deleted-rate") is None
+        assert saved_insight_identity(team_id=self.team.pk, reference="other-rate") is None
+        assert saved_insight_identity(team_id=self.team.pk, reference=live_insight.pk) is not None
+
     def test_including_soft_deleted_insights_stays_scoped_to_the_team(self) -> None:
         deleted_insight = Insight.objects.create(team=self.team, name="Deleted", deleted=True)
         live_insight = Insight.objects.create(team=self.team, name="Live")

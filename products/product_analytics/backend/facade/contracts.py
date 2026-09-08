@@ -19,6 +19,15 @@ from pydantic.dataclasses import dataclass
 
 
 @dataclass(frozen=True)
+class SavedInsightIdentity:
+    """The stable identity of a live saved insight scoped to one team."""
+
+    id: int
+    short_id: str
+    team_id: int
+
+
+@dataclass(frozen=True)
 class InsightVariableDefinition:
     """A saved query variable, as callers outside product analytics read it.
 

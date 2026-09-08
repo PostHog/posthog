@@ -5,8 +5,9 @@ from collections.abc import Callable
 
 import pytest
 
+from products.product_analytics.backend.facade.contracts import SavedInsightIdentity
 from products.subscriptions.backend.facade.contracts import Recommendation
-from products.subscriptions.backend.facade.measurements import SavedInsightIdentity, canonicalize_measurement
+from products.subscriptions.backend.facade.measurements import canonicalize_measurement
 from products.tasks.backend.facade.staged_evidence import CompletedMCPCallEvidence
 
 _SAVED_INSIGHT = SavedInsightIdentity(id=42, short_id="signup-rate", team_id=17)
@@ -35,7 +36,7 @@ def _query(*, series: object | None = None, **overrides: object) -> dict[str, ob
         "kind": "TrendsQuery",
         "series": [series if series is not None else {"kind": "EventsNode", "event": "signed_up", "math": "total"}],
         "interval": "day",
-        "dateRange": {"date_from": "2026-09-01", "date_to": "2026-09-08"},
+        "dateRange": {"date_from": "2026-09-01", "date_to": "2026-09-07"},
     }
     query.update(overrides)
     return query
@@ -73,6 +74,8 @@ def _resolver(
     [
         ({"kind": "EventsNode", "event": "signed_up", "math": "total"}, 0, {"event": "signed_up"}),
         ({"kind": "ActionsNode", "id": 7, "math": "total"}, 3, {"id": 7}),
+        ({"kind": "EventsNode", "event": "signed_up"}, 0, {"event": "signed_up"}),
+        ({"kind": "ActionsNode", "id": 7}, 3, {"id": 7}),
     ],
 )
 def test_canonicalize_measurement_freezes_supported_total_baselines(
@@ -97,7 +100,7 @@ def test_canonicalize_measurement_freezes_supported_total_baselines(
     assert measurement["source_call_id"] == "mcp:insight"
     assert measurement["saved_insight"] == {"id": 42, "short_id": "signup-rate"}
     assert measurement["query"]["series"] == [{"kind": series["kind"], "math": "total", **expected_series}]
-    assert measurement["baseline"] == {"value": count, "date_from": "2026-09-01", "date_to": "2026-09-08"}
+    assert measurement["baseline"] == {"value": count, "date_from": "2026-09-01", "date_to": "2026-09-07"}
     assert measurement["metric"] == {
         "name": "Activation count",
         "expected_movement": "Increase activation",
@@ -200,12 +203,17 @@ def test_canonicalize_measurement_accepts_only_one_cited_unmodified_insight_call
         _query(interval="week"),
         _query(dateRange={"date_from": "-7d", "date_to": "2026-09-08"}),
         _query(dateRange={"date_from": "2026-09-08", "date_to": "2026-09-01"}),
-        _query(dateRange={"date_from": "2026-09-01", "date_to": "2026-09-09"}),
+        _query(dateRange={"date_from": "2026-09-01", "date_to": "2026-09-08"}),
+        _query(dateRange={"date_from": "2026-09-01", "date_to": "2026-09-07", "explicitDate": True}),
         _query(breakdownFilter={"breakdown": "browser"}),
         _query(compareFilter={"compare": True}),
         _query(trendsFilter={"formula": "A/B"}),
         _query(samplingFactor=0.1),
-        _query(trendsFilter={"cumulative": True}),
+        _query(trendsFilter={"display": "ActionsLineGraphCumulative"}),
+        _query(trendsFilter={"display": "BoldNumber"}),
+        _query(trendsFilter={"display": "ActionsTable"}),
+        _query(trendsFilter={"display": "ActionsBarValue"}),
+        _query(trendsFilter={"smoothingIntervals": 2}),
         _query(modifiers={"debug": True}),
     ],
 )
