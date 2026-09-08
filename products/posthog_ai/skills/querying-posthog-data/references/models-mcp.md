@@ -2,6 +2,10 @@
 
 Any MCP server instrumented with the `@posthog/mcp` SDK — and PostHog's own MCP server — emits a `$mcp_tool_call` event on the shared `events` table every time an agent invokes a tool. There is **no dedicated ClickHouse table** — all fields live as `$mcp_*` properties on `events`, queried directly with `posthog:execute-sql`. This is the data behind the MCP analytics dashboard, tool-quality, and tool-detail screens; every metric on those screens is reproducible as HogQL over this event.
 
+## Governed metric first
+
+For an MCP failure-rate headline, call `posthog:metric-list` before the typed tools or SQL recipes below and look for `mcp_tool_call_fail_pct`. Run an approved, non-drifted match with `posthog:data-catalog-metric-run` and report it as the canonical headline. Use the recipes below only for a requested tool, harness, or time breakdown after that run, and label the breakdown noncanonical. If no governed metric matches, state that the catalog has no match and label the derived rate noncanonical.
+
 Query the canonical `$`-prefixed event name. Servers instrumented with the `@posthog/mcp` SDK emit only `$mcp_tool_call` / `$mcp_initialize`; PostHog's own hosted server additionally dual-emits legacy un-prefixed `mcp_tool_call` / `mcp_initialize` aliases through a transition shim. Match the canonical name only — an `event IN ('mcp_tool_call', '$mcp_tool_call')` would double-count PostHog's own server.
 
 **For a single tool, prefer the typed tools.** Each takes a `toolName` plus a `dateRange`, runs the same query runner the tool-detail UI uses, and is gated behind the `mcp-analytics` flag, so results match the UI exactly and you don't re-derive the SQL below. `toolName` is the effective name (resolved server-side — the inner tool of a single-exec wrapper call) for all of them, including `posthog:query-mcp-tool-failures`:
@@ -98,7 +102,7 @@ The `coalesce(..., '[]')` is required: the property accessor is Nullable, and `J
 
 The SQL below is the fallback for cross-tool rankings and custom cuts. For a single tool's numbers, call the typed tool from the table above instead of re-deriving these.
 
-**Error rate of one tool** (single-tool headline numbers are `posthog:query-mcp-tool-stats`; use this for a custom predicate):
+**Error rate of one tool (noncanonical breakdown)** (single-tool numbers are `posthog:query-mcp-tool-stats`; use this for a custom predicate after the governed headline):
 
 ```sql
 SELECT
@@ -112,7 +116,7 @@ WHERE event = '$mcp_tool_call'
     AND timestamp >= now() - INTERVAL 7 DAY
 ```
 
-**Tool-quality matrix** (error rate + latency percentiles + reach, one row per tool) — this cross-tool ranking has no typed tool; once you've picked a tool, drill into it with `posthog:query-mcp-tool-stats`, `posthog:query-mcp-tool-failures`, or `posthog:query-mcp-tool-daily-stats`:
+**Tool-quality matrix (noncanonical breakdown)** (error rate + latency percentiles + reach, one row per tool) — this cross-tool ranking has no typed tool; once you've picked a tool, drill into it with `posthog:query-mcp-tool-stats`, `posthog:query-mcp-tool-failures`, or `posthog:query-mcp-tool-daily-stats`:
 
 ```sql
 SELECT
