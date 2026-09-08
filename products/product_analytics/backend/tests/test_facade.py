@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.utils.timezone import now
 
@@ -9,6 +10,7 @@ from posthog.models.team import Team
 from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
     insights_including_soft_deleted_for_team,
+    measure_saved_insight_trends,
     record_insight_view,
     saved_insight_identity,
 )
@@ -85,3 +87,72 @@ class TestInsightReads(BaseTest):
         )
 
         assert {insight.pk for insight in insights} == {deleted_insight.pk, live_insight.pk}
+
+
+class TestSavedInsightMeasurement(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.insight = Insight.objects.create(team=self.team, name="Signups", short_id="signup-rate")
+        self.query = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode", "event": "signed_up", "math": "total"}],
+            "interval": "day",
+        }
+
+    def _measure(self, **overrides):
+        arguments = {
+            "team_id": self.team.id,
+            "insight_id": self.insight.id,
+            "short_id": self.insight.short_id,
+            "last_modified_at": self.insight.last_modified_at,
+            "frozen_query": self.query,
+            "date_from": now(),
+            "date_to": now(),
+        }
+        arguments.update(overrides)
+        return measure_saved_insight_trends(**arguments)
+
+    @parameterized.expand([("wrong_team",), ("deleted",), ("authority_changed",)])
+    @patch("posthog.api.services.query.process_query_model")
+    def test_measurement_authority_failures_do_not_execute_a_query(self, failure: str, query) -> None:
+        if failure == "wrong_team":
+            team = Team.objects.create(organization=self.organization)
+            result = measure_saved_insight_trends(
+                team_id=team.id,
+                insight_id=self.insight.id,
+                short_id=self.insight.short_id,
+                last_modified_at=self.insight.last_modified_at,
+                frozen_query=self.query,
+                date_from=now(),
+                date_to=now(),
+            )
+        elif failure == "deleted":
+            self.insight.deleted = True
+            self.insight.save(update_fields=["deleted"])
+            result = self._measure()
+        else:
+            result = self._measure(last_modified_at=now())
+
+        assert result.status in {"insight_not_found", "insight_authority_changed"}
+        query.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("success", {"results": [{"count": 3}]}, "success"),
+            ("malformed", {"results": [{"count": 3}, {"count": 2}]}, "response_unsupported"),
+        ]
+    )
+    @patch("posthog.api.services.query.process_query_model")
+    def test_measurement_returns_only_one_finite_total(self, _name: str, response: dict, status: str, query) -> None:
+        query.return_value = response
+
+        result = self._measure()
+
+        assert result.status == status
+        if status == "success":
+            assert result.value == 3
+
+    @patch("posthog.api.services.query.process_query_model", side_effect=RuntimeError())
+    def test_measurement_hides_query_errors(self, query) -> None:
+        assert self._measure().status == "query_error"
+        query.assert_called_once()

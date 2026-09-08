@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
+from datetime import UTC, datetime
 
 import pytest
 
@@ -10,7 +11,12 @@ from products.subscriptions.backend.facade.contracts import Recommendation
 from products.subscriptions.backend.facade.measurements import canonicalize_measurement
 from products.tasks.backend.facade.staged_evidence import CompletedMCPCallEvidence
 
-_SAVED_INSIGHT = SavedInsightIdentity(id=42, short_id="signup-rate", team_id=17)
+_SAVED_INSIGHT = SavedInsightIdentity(
+    id=42,
+    short_id="signup-rate",
+    team_id=17,
+    last_modified_at=datetime(2026, 9, 8, 10, 30, tzinfo=UTC),
+)
 
 
 def _recommendation(*, measurement_call_id: str | None = "mcp:insight", direction: str = "increase") -> Recommendation:
@@ -98,7 +104,11 @@ def test_canonicalize_measurement_freezes_supported_total_baselines(
 
     assert measurement is not None
     assert measurement["source_call_id"] == "mcp:insight"
-    assert measurement["saved_insight"] == {"id": 42, "short_id": "signup-rate"}
+    assert measurement["saved_insight"] == {
+        "id": 42,
+        "short_id": "signup-rate",
+        "last_modified_at": "2026-09-08T10:30:00+00:00",
+    }
     assert measurement["query"]["series"] == [{"kind": series["kind"], "math": "total", **expected_series}]
     assert measurement["baseline"] == {"value": count, "date_from": "2026-09-01", "date_to": "2026-09-07"}
     assert measurement["metric"] == {
@@ -135,9 +145,13 @@ def test_canonicalize_measurement_has_stable_compact_canonical_form_and_hash() -
 @pytest.mark.parametrize(
     "identity",
     [
-        SavedInsightIdentity(id=42, short_id="signup-rate", team_id=18),
-        SavedInsightIdentity(id=43, short_id="signup-rate", team_id=17),
-        SavedInsightIdentity(id=42, short_id="other", team_id=17),
+        SavedInsightIdentity(
+            id=42, short_id="signup-rate", team_id=18, last_modified_at=_SAVED_INSIGHT.last_modified_at
+        ),
+        SavedInsightIdentity(
+            id=43, short_id="signup-rate", team_id=17, last_modified_at=_SAVED_INSIGHT.last_modified_at
+        ),
+        SavedInsightIdentity(id=42, short_id="other", team_id=17, last_modified_at=_SAVED_INSIGHT.last_modified_at),
         None,
     ],
 )

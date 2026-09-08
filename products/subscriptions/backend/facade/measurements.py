@@ -6,7 +6,9 @@ import json
 import math
 import hashlib
 from collections.abc import Callable, Mapping
-from datetime import date, timedelta
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from typing import cast
 
 from pydantic import ValidationError
@@ -66,7 +68,11 @@ def canonicalize_measurement(
     measurement: dict[str, object] = {
         "version": _MEASUREMENT_VERSION,
         "source_call_id": call.citation_id,
-        "saved_insight": {"id": saved_insight.id, "short_id": saved_insight.short_id},
+        "saved_insight": {
+            "id": saved_insight.id,
+            "short_id": saved_insight.short_id,
+            "last_modified_at": saved_insight.last_modified_at.isoformat(),
+        },
         "query": canonical_query,
         "baseline": {"value": baseline_value, "date_from": dates[0], "date_to": dates[1]},
         "metric": {
@@ -80,6 +86,112 @@ def canonicalize_measurement(
         return None
     measurement["hash"] = hashlib.sha256(compact.encode("utf-8")).hexdigest()
     return measurement
+
+
+@dataclass(frozen=True)
+class FrozenMeasurement:
+    saved_insight_id: int
+    saved_insight_short_id: str
+    saved_insight_last_modified_at: datetime
+    frozen_query: dict[str, object]
+    baseline_value: Decimal
+    baseline_from: date
+    baseline_to: date
+    metric_name: str
+    expected_metric_movement: str
+    direction: str
+
+
+def parse_frozen_measurement(value: object) -> FrozenMeasurement | None:
+    """Read the bounded Task 11 snapshot without introducing a second validator."""
+    if not isinstance(value, Mapping):
+        return None
+    saved_insight = value.get("saved_insight")
+    query = value.get("query")
+    baseline = value.get("baseline")
+    metric = value.get("metric")
+    if not all(isinstance(item, Mapping) for item in (saved_insight, query, baseline, metric)):
+        return None
+    insight_id = saved_insight.get("id")
+    short_id = saved_insight.get("short_id")
+    modified = saved_insight.get("last_modified_at")
+    if isinstance(insight_id, bool) or not isinstance(insight_id, int) or insight_id <= 0:
+        return None
+    if not isinstance(short_id, str) or not short_id or len(short_id) > 12 or not isinstance(modified, str):
+        return None
+    try:
+        last_modified_at = datetime.fromisoformat(modified)
+    except ValueError:
+        return None
+    if last_modified_at.tzinfo is None:
+        return None
+    frozen_query = dict(query)
+    if frozen_query.get("kind") != "TrendsQuery" or "dateRange" not in frozen_query:
+        return None
+    date_range = frozen_query.pop("dateRange")
+    if not isinstance(date_range, Mapping):
+        return None
+    baseline_from, baseline_to = _parse_baseline_dates(date_range)
+    baseline_value = _decimal_value(baseline.get("value"))
+    metric_name = metric.get("name")
+    expected_movement = metric.get("expected_movement")
+    direction = metric.get("direction")
+    if (
+        baseline_from is None
+        or baseline_to is None
+        or baseline_value is None
+        or not isinstance(metric_name, str)
+        or not metric_name
+        or len(metric_name) > 300
+        or not isinstance(expected_movement, str)
+        or len(expected_movement) > 1000
+        or direction not in {"increase", "decrease"}
+    ):
+        return None
+    return FrozenMeasurement(
+        saved_insight_id=insight_id,
+        saved_insight_short_id=short_id,
+        saved_insight_last_modified_at=last_modified_at,
+        frozen_query=frozen_query,
+        baseline_value=baseline_value,
+        baseline_from=baseline_from,
+        baseline_to=baseline_to,
+        metric_name=metric_name,
+        expected_metric_movement=expected_movement,
+        direction=direction,
+    )
+
+
+def _parse_baseline_dates(value: Mapping[str, object]) -> tuple[date | None, date | None]:
+    date_from = value.get("date_from")
+    date_to = value.get("date_to")
+    if not isinstance(date_from, str) or not isinstance(date_to, str):
+        return None, None
+    try:
+        parsed_from = date.fromisoformat(date_from)
+        parsed_to = date.fromisoformat(date_to)
+    except ValueError:
+        return None, None
+    if parsed_from.isoformat() != date_from or parsed_to.isoformat() != date_to or parsed_to < parsed_from:
+        return None, None
+    return parsed_from, parsed_to
+
+
+def _decimal_value(value: object) -> Decimal | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        decimal = Decimal(str(value))
+    except InvalidOperation:
+        return None
+    if (
+        not decimal.is_finite()
+        or decimal.as_tuple().exponent < -10
+        or len(decimal.as_tuple().digits) > 30
+        or decimal.adjusted() > 19
+    ):
+        return None
+    return decimal
 
 
 def _measurement_call(
