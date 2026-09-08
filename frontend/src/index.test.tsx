@@ -112,20 +112,30 @@ describe('app entry boot', () => {
         }
     )
 
-    it.each(['loaded', 'failed', 'absent'] as const)('boots when the stylesheet is %s', async (stylesheetState) => {
+    it.each(['loaded', 'absent'] as const)('boots when the stylesheet is %s', async (stylesheetState) => {
         if (stylesheetState === 'absent') {
             delete window.ESBUILD_CSS_READY
         }
         await loadEntry()
 
         await act(async () => {
-            if (stylesheetState === 'loaded' || stylesheetState === 'failed') {
-                stylesheet.resolve(stylesheetState === 'loaded')
+            if (stylesheetState === 'loaded') {
+                stylesheet.resolve(true)
             }
         })
 
         expect(document.querySelector('[data-attr="boot-test-app"]')).toBeInTheDocument()
         expect(bootApp).toHaveBeenCalledTimes(1)
+    })
+
+    it('offers a reload instead of an unstyled app when every stylesheet URL failed', async () => {
+        await loadEntry()
+
+        await act(async () => stylesheet.resolve(false))
+
+        expect(document.querySelector('[role="alert"]')).toHaveTextContent('PostHog failed to load its styles.')
+        expect(document.querySelector('[data-attr="boot-test-app"]')).not.toBeInTheDocument()
+        expect(bootApp).not.toHaveBeenCalled()
     })
 
     it('boots after five seconds if the stylesheet stays pending', async () => {

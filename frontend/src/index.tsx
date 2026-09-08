@@ -46,17 +46,20 @@ declare global {
     }
 }
 
-function renderApp(): void {
+function getAppRoot(): Root | null {
     const rootElement = document.getElementById('root')
     if (!rootElement) {
         console.error('Attempted, but could not render PostHog app because <div id="root" /> is not found.')
-        return
+        return null
     }
     // Vite 8 can serve this entry module twice after an HMR invalidation reaches it (the script
     // tag's bare URL plus a timestamped copy), and a second createRoot on an already-rooted
     // container crashes React. Reuse one root so a repeat execution re-renders instead.
-    const root = (window.__posthogAppRoot ??= createRoot(rootElement))
-    root.render(
+    return (window.__posthogAppRoot ??= createRoot(rootElement))
+}
+
+function renderApp(): void {
+    getAppRoot()?.render(
         <RootErrorBoundary>
             {/* Auto-reloads once on a chunk-load failure (stale deploy). Repeated or non-chunk
                 errors bubble to RootErrorBoundary, which reports them and shows the failure UI. */}
@@ -75,23 +78,44 @@ function renderApp(): void {
     )
 }
 
+function renderStylesheetFailure(): void {
+    getAppRoot()?.render(
+        <div className="Preloader" role="alert">
+            <div>
+                PostHog failed to load its styles.{' '}
+                <button onClick={() => window.location.reload()}>Reload the page</button> to try again.
+            </div>
+        </div>
+    )
+}
+
 // The boot stylesheet is attached by the loader script in the HTML, and this entry can finish
 // before the sheet arrives. Rendering then paints the app unstyled until the sheet lands, so wait
-// for it, but only briefly: a stylesheet the CDN refuses must not block the app (the loader has
-// its own fallback link for that case).
+// for it, but only briefly: a stylesheet that is merely slow must not hold the app back, and the
+// loader keeps working on it in the background.
 const CSS_READY_TIMEOUT_MS = 5000
-function whenBootStylesheetReady(): Promise<unknown> {
+function whenBootStylesheetReady(): Promise<boolean | undefined> {
     const cssReady = window.ESBUILD_CSS_READY
     if (!cssReady) {
-        return Promise.resolve()
+        return Promise.resolve(undefined)
     }
-    return Promise.race([cssReady, new Promise((resolve) => setTimeout(resolve, CSS_READY_TIMEOUT_MS))])
+    return Promise.race([cssReady, new Promise<undefined>((resolve) => setTimeout(resolve, CSS_READY_TIMEOUT_MS))])
 }
 
 function boot(): void {
     // Observe early failures until React mounts its boundaries, without replacing the rejected promise.
     void loadAppModules().catch(() => {})
-    void whenBootStylesheetReady().then(renderApp)
+    void whenBootStylesheetReady().then((applied) => {
+        // `false` means the loader ran out of stylesheet URLs, and it can only get there within the
+        // timeout when every one of them failed outright. The app has no styles of its own, so it
+        // would paint raw markup at natural size. Show a recoverable message instead. A sheet that
+        // only stalls leaves the promise pending, and the app renders as usual.
+        if (applied === false) {
+            renderStylesheetFailure()
+            return
+        }
+        renderApp()
+    })
 }
 
 // Render react only when DOM has loaded - javascript might be cached and loaded before the page is ready.
