@@ -17,7 +17,7 @@ use tracing::{error, info, warn};
 use crate::batcher::{make_batch_id, Batcher, BatcherOutputs};
 use crate::commit_monitor::spawn_commit_monitor;
 use crate::commit_pacer::ImmediateCommitPacer;
-use crate::commit_sentinel::CommitSentinel;
+use crate::commit_sentinel::{CommitSentinel, CommitViolation};
 use crate::config::Config;
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
 use crate::discovery::DiscoveryMode;
@@ -794,11 +794,14 @@ impl IngestionConsumer {
     }
 }
 
-/// How a poll settled: how many partitions the ledger accepted, and how many
-/// of those reached a frontier that was handed over for commit.
+/// How a poll settled: how many partitions the ledger accepted, how many of
+/// those reached a frontier that was handed over for commit, and what the
+/// sentinel found on the way. The sentinel has already counted and logged
+/// the violations; they are returned for tests.
 struct PollSettlement {
     settled: usize,
     advanced: usize,
+    violations: Vec<CommitViolation>,
 }
 
 /// Settle each partition's slice against the ledger and hand every frontier
@@ -811,6 +814,7 @@ fn settle_partitions(
     let mut settlement = PollSettlement {
         settled: 0,
         advanced: 0,
+        violations: Vec::new(),
     };
     for (topic_partition, partition) in partitions {
         // A rejected slice is not committed, and the commit sentinel
@@ -830,7 +834,9 @@ fn settle_partitions(
         let Some(taken) = ledger.take_frontier(topic_partition) else {
             continue;
         };
-        sentinel.advance_frontier(topic_partition, span, taken);
+        settlement
+            .violations
+            .extend(sentinel.advance_frontier(topic_partition, span, taken));
         settlement.advanced += 1;
     }
     settlement
@@ -1004,6 +1010,7 @@ fn emit_latest_processed_timestamp_metrics(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commit_sentinel::CommitViolationKind;
     use common_kafka_consumer::Offset as MessageOffset;
 
     fn poll(epoch: u64, partition: i32, first: i64, last: i64, count: u32) -> InFlightPoll {
@@ -1121,6 +1128,35 @@ mod tests {
         assert_eq!(
             sentinel.take_due(),
             Some(HashMap::from([(tp, MessageOffset(12))]))
+        );
+    }
+
+    #[test]
+    fn a_gap_in_what_kafka_delivered_fires_the_sentinel_and_still_commits() {
+        let ledger = TopicOffsetLedger::new();
+        let sentinel = CommitSentinel::new(ImmediateCommitPacer::new());
+        let tp = TopicPartition::new("test", 0);
+        let first = HashMap::from([(tp.clone(), charged(&ledger, &tp, 10, 11))]);
+        assert!(settle_partitions(&ledger, &sentinel, &first)
+            .violations
+            .is_empty());
+        assert_eq!(
+            sentinel.take_due(),
+            Some(HashMap::from([(tp.clone(), MessageOffset(12))]))
+        );
+
+        // Offsets 12 and 13 never arrived. The ledger walks the gap, so its
+        // take chains from 12; the sentinel must see what was delivered.
+        let second = HashMap::from([(tp.clone(), charged(&ledger, &tp, 14, 15))]);
+        let settlement = settle_partitions(&ledger, &sentinel, &second);
+
+        assert_eq!(settlement.violations.len(), 1);
+        assert_eq!(settlement.violations[0].kind, CommitViolationKind::Gap);
+        assert_eq!(settlement.violations[0].prev_committed, 12);
+        assert_eq!(settlement.violations[0].span.first, 14);
+        assert_eq!(
+            sentinel.take_due(),
+            Some(HashMap::from([(tp, MessageOffset(16))]))
         );
     }
 
