@@ -130,9 +130,9 @@ class CustomBotRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # Lock and reload the team so a concurrent create can neither drop the other's rule nor
         # slip past the cap through a stale read of `modifiers`.
         with transaction.atomic():
-            # nosemgrep: hot-parent-row-select-for-update -- the lock serializes the read-check-write of
-            # team.modifiers itself; there is no per-product config row for bot definitions to lock instead.
-            team = Team.objects.select_for_update().get(pk=self.team.pk)
+            # Locks the Team row because the read-check-write below mutates team.modifiers itself;
+            # there is no per-product config row for bot definitions to lock instead.
+            team = Team.objects.select_for_update().get(pk=self.team.pk)  # nosemgrep: hot-parent-row-select-for-update
             definitions = list((team.modifiers or {}).get("customBotDefinitions") or [])
             if len(definitions) >= MAX_CUSTOM_BOT_DEFINITIONS:
                 raise ValidationError(f"You can define at most {MAX_CUSTOM_BOT_DEFINITIONS} bots.")
@@ -150,9 +150,9 @@ class CustomBotRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         self._require_project_admin()
 
         with transaction.atomic():
-            # nosemgrep: hot-parent-row-select-for-update -- the lock serializes the read-check-write of
-            # team.modifiers itself; there is no per-product config row for bot definitions to lock instead.
-            team = Team.objects.select_for_update().get(pk=self.team.pk)
+            # Locks the Team row because the read-check-write below mutates team.modifiers itself;
+            # there is no per-product config row for bot definitions to lock instead.
+            team = Team.objects.select_for_update().get(pk=self.team.pk)  # nosemgrep: hot-parent-row-select-for-update
             definitions = list((team.modifiers or {}).get("customBotDefinitions") or [])
             remaining = [definition for definition in definitions if definition["id"] != pk]
             if len(remaining) == len(definitions):
