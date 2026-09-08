@@ -12,7 +12,6 @@ class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1224_columnconfiguration_properties"),
         ("replay_vision", "0013_replayscanner_estimated_at_and_more"),
-        ("workflows", "0008_teamworkflowsconfig"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

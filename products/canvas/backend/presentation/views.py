@@ -188,6 +188,7 @@ class CanvasAccessMixin(TeamAndOrgViewSetMixin):
     """Team, channel, and sandbox visibility rules shared by every canvas-like resource."""
 
     scope_object_read_actions: list[str] = []
+    _EDITOR_ACTIONS: set[str] = set()
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.filter(team_id=self.team_id, deleted=False)
@@ -206,7 +207,11 @@ class CanvasAccessMixin(TeamAndOrgViewSetMixin):
                 )
             else:
                 actor_canvas_q = Q(created_by_id=user.id) & tasks_facade.visible_channels_q(user.id, relation="channel")
-                can_use_visible_canvas = self.action in [*self.scope_object_read_actions, "set_state"]
+                can_use_visible_canvas = self.action in [
+                    *self.scope_object_read_actions,
+                    "set_state",
+                    *self._EDITOR_ACTIONS,
+                ]
                 queryset = queryset.filter(
                     public_canvas_q | actor_canvas_q if can_use_visible_canvas else actor_canvas_q
                 )
@@ -339,10 +344,15 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             return None
         return ["canvas:write", *entry.required_scopes]
 
-    _CREATOR_ONLY_ACTIONS = {
+    # Content writes. Every member who can see a canvas in a public space may
+    # publish a new version of it; a canvas in a personal space is only visible
+    # to its owner, so the creator rule is implied there. partial_update is in
+    # this set because a member must record their own generation task on the
+    # canvas; the other metadata fields stay creator-only (see partial_update).
+    _EDITOR_ACTIONS = {
         "partial_update",
-        "destroy",
         "publish",
+        "publish_current_version",
         "edit",
         "draft",
         "promote",
@@ -351,6 +361,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         "publish_layout",
         "patch_layout",
     }
+    _CREATOR_ONLY_ACTIONS = {"destroy"}
+    _NON_CREATOR_UPDATE_FIELDS = {"generation_task_id", "context"}
 
     @extend_schema(
         parameters=[
@@ -379,6 +391,12 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         queryset = super().safely_get_queryset(queryset).filter(source_policy=Canvas.SOURCE_POLICY_STANDARD)
         user = self._request_user()
         is_sandbox_authenticated = self._is_sandbox_authenticated(self.request)
+        if not is_sandbox_authenticated and self.action in self._EDITOR_ACTIONS:
+            if user is None:
+                return queryset.none()
+            queryset = queryset.filter(
+                Q(created_by_id=user.id) | tasks_facade.visible_channels_q(None, relation="channel")
+            )
         if not is_sandbox_authenticated and self.action in self._CREATOR_ONLY_ACTIONS:
             if user is None:
                 return queryset.none()
@@ -448,7 +466,12 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
     @extend_schema(
         operation_id="canvases_partial_update",
         request=CanvasUpdateSerializer,
-        responses={200: CanvasSerializer},
+        responses={
+            200: CanvasSerializer,
+            403: OpenApiResponse(
+                description="Only the canvas creator can change the name, description, space, or pin state."
+            ),
+        },
     )
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Update canvas metadata, including the space it belongs to."""
@@ -456,6 +479,13 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         payload = CanvasUpdateSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         data = payload.validated_data
+        requester = self._request_user()
+        is_creator = requester is not None and canvas.created_by_id == requester.id
+        if not is_creator and set(data) - self._NON_CREATOR_UPDATE_FIELDS:
+            return Response(
+                {"detail": "Only the canvas creator can rename, move, pin, or describe it."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         update_fields = ["updated_at"]
         changes: list[Change] = []
 
@@ -656,6 +686,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         request=CanvasSourcePublishSerializer,
         responses={
             200: CanvasSourcePublishResponseSerializer,
+            403: OpenApiResponse(description="Only the canvas creator can supply a name when publishing."),
             400: OpenApiResponse(
                 response=CanvasSourceInvalidSerializer,
                 description="The source project failed validation.",
@@ -696,6 +727,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         request=CanvasSourceEditSerializer,
         responses={
             200: CanvasSourcePublishResponseSerializer,
+            403: OpenApiResponse(description="Only the canvas creator can supply a name when editing."),
             400: OpenApiResponse(
                 response=CanvasSourceInvalidSerializer,
                 description="An edit targeted a missing file, or the edited project failed validation.",
@@ -763,11 +795,14 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         has_expected_version: bool,
         expected_version_id: str | None,
     ) -> Response:
+        user = self._request_user()
+        if name is not None and (user is None or canvas.created_by_id != user.id):
+            raise PermissionDenied("Only the canvas creator can rename it.")
+
         diagnostics = validate_source_project(project, kind=canvas.kind)
         if has_errors(diagnostics):
             return _invalid_response(diagnostics)
 
-        user = self._request_user()
         task_id = self._sandbox_task_id(request)
         try:
             canvas, version, _build, first_publish = build_service.publish_source_project(

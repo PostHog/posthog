@@ -27378,6 +27378,7 @@ class MarketingAnalyticsConfig(BaseModel):
     campaign_name_mappings: dict[str, dict[str, list[str]]] | None = None
     conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3] | None = None
     custom_source_mappings: dict[str, list[str]] | None = None
+    filter_test_accounts: bool | None = None
     sources_map: dict[str, SourceMap] | None = None
 
 
