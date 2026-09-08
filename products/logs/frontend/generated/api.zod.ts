@@ -531,10 +531,12 @@ export const LogsAnomaliesSeriesBandsCreateBody = /* @__PURE__ */ zod.object({
             'Window to chart. Defaults to the last 7 days. It may span at most 7 days and start at most 35 days ago, past which the volume rollup no longer reaches.'
         ),
     intervalMinutes: zod
-        .literal(60)
-        .describe('\* `60` - 60')
+        .union([zod.literal(5), zod.literal(15), zod.literal(30), zod.literal(60)])
+        .describe('\* `5` - 5\n\* `15` - 15\n\* `30` - 30\n\* `60` - 60')
         .default(logsAnomaliesSeriesBandsCreateBodyIntervalMinutesDefault)
-        .describe('Display grain in minutes for buckets and bands. Only hourly is supported today.\n\n\* `60` - 60'),
+        .describe(
+            'Display grain in minutes for buckets and bands. One of 5, 15, 30, 60. The window may hold at most 500 buckets per series at the chosen grain, so a finer grain needs a shorter window.\n\n\* `5` - 5\n\* `15` - 15\n\* `30` - 30\n\* `60` - 60'
+        ),
 })
 
 export const LogsCountCreateBody = /* @__PURE__ */ zod.object({
