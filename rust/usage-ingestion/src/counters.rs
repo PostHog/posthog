@@ -241,8 +241,8 @@ impl CounterStore for RedisCounterStore {
 
 pub fn counter_key(scope: &CounterScope, bucket: Bucket) -> String {
     let scope = match scope {
-        CounterScope::Team(team_id) => format!("team:{team_id}"),
-        CounterScope::Organization(organization_id) => format!("org:{organization_id}"),
+        CounterScope::Team(team_id) => format!("team={team_id}"),
+        CounterScope::Organization(organization_id) => format!("org={organization_id}"),
     };
     format!(
         "usage:v1:{{{scope}}}:{}:{}",
@@ -420,10 +420,17 @@ mod tests {
         assert!(team.entries.values().all(|quantity| *quantity == 5));
         assert_eq!(
             counter_key(&CounterScope::Team(42), Bucket::Hour(477_336)),
-            "usage:v1:{team:42}:h:477336"
+            "usage:v1:{team=42}:h:477336"
         );
-        assert!(counter_key(&CounterScope::Team(42), Bucket::Hour(477_336)).contains("{team:42}"));
-        assert!(counter_key(&CounterScope::Team(42), Bucket::Day(19_889)).contains("{team:42}"));
+        assert!(counter_key(&CounterScope::Team(42), Bucket::Hour(477_336)).contains("{team=42}"));
+        assert!(counter_key(&CounterScope::Team(42), Bucket::Day(19_889)).contains("{team=42}"));
+        assert_eq!(
+            counter_key(
+                &CounterScope::Organization(organization_id),
+                Bucket::Day(19_889)
+            ),
+            "usage:v1:{org=00000000-0000-0000-0000-000000000000}:d:19889"
+        );
     }
 
     #[test]

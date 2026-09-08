@@ -42,6 +42,7 @@ from products.tasks.backend.facade.contracts import (
     TaskUserBasicInfo,
     WizardCloudRunDTO,
 )
+from products.tasks.backend.facade.enums import CHANNEL_WRITE_TYPE_CHOICES
 from products.tasks.backend.facade.model_catalogue import ModelChoice
 from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
@@ -59,6 +60,7 @@ from products.tasks.backend.facade.run_config import (
     TaskArtifactType,
     get_model_access_error,
     get_reasoning_effort_error,
+    get_runtime_adapter_for_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -584,13 +586,6 @@ class TaskSerializer(DataclassSerializer):
 
 
 class TaskWriteSerializer(serializers.Serializer):
-    """Request body for creating or updating a task.
-
-    Field required/default semantics match the ``Task`` model. The view passes
-    ``validated_data`` (integration/report PK fields already resolved to instances) to the
-    facade ``create_task`` / ``update_task`` functions.
-    """
-
     title = serializers.CharField(
         max_length=255,
         required=False,
@@ -792,10 +787,18 @@ class TaskWriteSerializer(serializers.Serializer):
     def validate_channel(self, value):
         request = self.context.get("request")
         user = getattr(request, "user", None)
-        if value is not None and (value.deleted or value.channel_type not in {"public", "personal"}):
+        user_id = getattr(user, "id", None)
+        if value is None:
+            return value
+        if value.deleted or value.channel_type not in {"public", "personal", "private"}:
             raise serializers.ValidationError("Space not found")
-        if value is not None and value.channel_type == "personal" and value.created_by_id != getattr(user, "id", None):
+        if value.channel_type == "personal" and value.created_by_id != user_id:
             raise serializers.ValidationError("Private spaces can only be used by their owner")
+
+        if value.channel_type == "private" and not tasks_facade.channel_exists(
+            self.context["team"].id, value.id, user_id
+        ):
+            raise serializers.ValidationError("Space not found")
         return value
 
     def validate_github_integration(self, value):
@@ -1742,129 +1745,128 @@ class TaskRunAnalyzeResponseSerializer(serializers.Serializer):
     )
 
 
-class TaskAnalysisEvidenceSerializer(serializers.Serializer):
-    quote = serializers.CharField(
-        min_length=20, max_length=300, help_text="Verbatim span copied from the analysed run log."
-    )
-    evidence_type = serializers.ChoiceField(
-        choices=["transcript_quote", "command_output", "measured_count"],
-        help_text="What kind of log content the quote was taken from.",
-    )
+class TaskAnalysisGoalKind(models.TextChoices):
+    ORIENT = "orient", "orient"
+    EXPLORE = "explore", "explore"
+    GATHER = "gather", "gather"
+    PRODUCE = "produce", "produce"
+    VERIFY = "verify", "verify"
+    SETUP_ENV = "setup_env", "setup_env"
+    SHIP = "ship", "ship"
+    WAIT = "wait", "wait"
+    OPERATE = "operate", "operate"
+    DELIVER = "deliver", "deliver"
 
 
-class TaskAnalysisWastedEffortSerializer(serializers.Serializer):
-    tool_calls = serializers.IntegerField(
-        min_value=1, required=False, help_text="Wasted tool calls, counted from the log."
+class TaskAnalysisOutcome(models.TextChoices):
+    WORKED = "worked", "worked"
+    FAILED = "failed", "failed"
+    ABANDONED = "abandoned", "abandoned"
+    UNKNOWN = "unknown", "unknown"
+
+
+class TaskAnalysisBlockerKind(models.TextChoices):
+    MISSING_BINARY = "missing_binary", "missing_binary"
+    MISSING_PACKAGE = "missing_package", "missing_package"
+    SERVICE_DOWN = "service_down", "service_down"
+    MISSING_BUILD_ARTIFACT = "missing_build_artifact", "missing_build_artifact"
+    MISSING_CREDENTIAL = "missing_credential", "missing_credential"
+    MEMORY_LIMIT = "memory_limit", "memory_limit"
+    NETWORK = "network", "network"
+    SHALLOW_GIT = "shallow_git", "shallow_git"
+    TOOL_ERROR = "tool_error", "tool_error"
+    TOOL_SYNTAX = "tool_syntax", "tool_syntax"
+    API_ERROR = "api_error", "api_error"
+    MISSING_FLAG = "missing_flag", "missing_flag"
+    UNCLEAR_INSTRUCTIONS = "unclear_instructions", "unclear_instructions"
+    USER_REDIRECT = "user_redirect", "user_redirect"
+
+
+class TaskRunAnalysisActivityRequestSerializer(serializers.Serializer):
+    """One activity record from a task-run analysis: what the agent tried, how it went, and what blocked it."""
+
+    goal_kind = serializers.ChoiceField(
+        choices=TaskAnalysisGoalKind.choices, help_text="Which kind of work the agent did in this span."
+    )
+    goal = serializers.CharField(min_length=3, max_length=80, help_text="What the agent tried, in 3 to 8 words.")
+    outcome = serializers.ChoiceField(
+        choices=TaskAnalysisOutcome.choices, help_text="How the activity ended for the agent."
+    )
+    blocker_kind = serializers.ChoiceField(
+        choices=TaskAnalysisBlockerKind.choices,
+        required=False,
+        allow_null=True,
+        help_text="What stopped the agent, when something did. Omit for healthy work.",
+    )
+    blocker_name = serializers.CharField(
+        max_length=120,
+        required=False,
+        allow_null=True,
+        help_text="The exact binary, package, service, file, flag, or error the blocker names. Required with blocker_kind.",
+    )
+    repair = serializers.CharField(
+        max_length=300,
+        required=False,
+        allow_null=True,
+        help_text="The command or step that removed the blocker, when the agent found one. Requires blocker_kind.",
+    )
+    evidence = serializers.CharField(
+        min_length=10,
+        max_length=200,
+        help_text="One exact quote from the run log inside the activity's line range.",
+    )
+    start_line = serializers.IntegerField(min_value=1, help_text="First log line of the activity, 1-based.")
+    end_line = serializers.IntegerField(min_value=1, help_text="Last log line of the activity, 1-based.")
+    tool_calls = serializers.IntegerField(min_value=0, help_text="Distinct tool calls started inside the line range.")
+    failed_calls = serializers.IntegerField(
+        min_value=0, help_text="Tool calls started inside the line range that ended as failed."
     )
     seconds = serializers.IntegerField(
-        min_value=1, required=False, help_text="Wall-clock seconds across the wasted span."
+        min_value=0,
+        help_text="Wall-clock seconds from the last timestamp before the line range to the last timestamp inside it.",
     )
-    tokens = serializers.IntegerField(min_value=1, required=False, help_text="Token delta across the wasted span.")
-    output_bytes = serializers.IntegerField(
-        min_value=1, required=False, help_text="Sum of tool-output sizes across the wasted span."
+    idle_seconds = serializers.IntegerField(
+        min_value=0, help_text="Sum of the gaps longer than 4 minutes between those consecutive timestamps."
     )
-
-
-class TaskAnalysisSuggestedFixSerializer(serializers.Serializer):
-    change = serializers.CharField(min_length=50, max_length=400, help_text="The specific change to make.")
-    done_when = serializers.CharField(
-        min_length=30, max_length=200, help_text="A checkable condition confirming the fix worked."
-    )
-    setup_commands = serializers.ListField(
-        child=serializers.CharField(min_length=1, max_length=500),
-        max_length=10,
+    commands = serializers.ListField(
+        child=serializers.CharField(min_length=1, max_length=60),
+        max_length=24,
         required=False,
-        help_text="Single-line commands only; these may become image build steps.",
+        help_text="Command heads run in the activity, in order, adjacent duplicates removed.",
     )
-    required_services = serializers.ListField(
-        child=serializers.CharField(min_length=1, max_length=100),
-        max_length=10,
+    guidance_read = serializers.ListField(
+        child=serializers.CharField(min_length=1, max_length=200),
+        max_length=20,
         required=False,
-        help_text="Services the fix needs available.",
+        help_text="Skills, AGENTS.md files, templates, and wiki pages the agent read in the activity.",
     )
-    env_var_names = serializers.ListField(
-        child=serializers.CharField(min_length=1, max_length=100),
-        max_length=10,
-        required=False,
-        help_text="Environment variable names only, never values.",
-    )
-
-
-class TaskRunAnalysisInsightRequestSerializer(serializers.Serializer):
-    """One analysis finding. The shape the server stores, independent of what the tool sent."""
-
-    no_findings_reason = serializers.ChoiceField(
-        choices=["run_was_efficient", "too_short_to_judge", "insufficient_visibility"],
-        required=False,
-        help_text="Only for a run with zero findings; never combined with a finding.",
-    )
-    observation = serializers.CharField(
-        min_length=80, max_length=500, required=False, help_text="What happened, 1-3 sentences."
-    )
-    evidence = TaskAnalysisEvidenceSerializer(
-        many=True, required=False, help_text="Quotes from the analysed log backing the observation."
-    )
-    occurrence_count = serializers.IntegerField(min_value=1, required=False, help_text="How often this happened.")
-    category = serializers.ChoiceField(
-        choices=[
-            "environment_failure",
-            "missing_tool",
-            "verbose_output",
-            "redundant_work",
-            "missing_capability",
-            "instruction_gap",
-            "wasted_retry",
-            "other",
-        ],
-        required=False,
-        help_text="The kind of inefficiency observed.",
-    )
-    other_justification = serializers.CharField(
-        min_length=50, max_length=200, required=False, help_text="Required when category is 'other'."
-    )
-    wasted_effort = TaskAnalysisWastedEffortSerializer(
-        required=False, help_text="Effort measured from the log, never estimated."
-    )
-    recurrence = serializers.ChoiceField(
-        choices=["every_run_in_this_repo", "runs_touching_this_area", "one_off"],
-        required=False,
-        help_text="How widely this is expected to recur.",
-    )
-    confidence_basis = serializers.ChoiceField(
-        choices=["directly_observed", "inferred"], required=False, help_text="How the finding was established."
-    )
-    suggested_fix = TaskAnalysisSuggestedFixSerializer(required=False, help_text="The fix the finding argues for.")
 
     def validate(self, attrs: dict) -> dict:
-        if attrs.get("no_findings_reason"):
-            if len(attrs) > 1:
-                raise serializers.ValidationError("no_findings_reason cannot be combined with a finding.")
-            return attrs
-        missing = [
-            field
-            for field in ("observation", "evidence", "category", "recurrence", "confidence_basis", "suggested_fix")
-            if not attrs.get(field)
-        ]
-        if missing:
-            raise serializers.ValidationError(f"A finding requires {', '.join(missing)}.")
-        if len(attrs["evidence"]) > 3:
-            raise serializers.ValidationError("A finding carries at most 3 evidence quotes.")
-        if attrs["category"] == "other" and not attrs.get("other_justification"):
-            raise serializers.ValidationError("category 'other' requires other_justification.")
-        if attrs["category"] in _WASTED_EFFORT_REQUIRED_CATEGORIES and not attrs.get("wasted_effort"):
-            raise serializers.ValidationError(
-                f"category '{attrs['category']}' requires wasted_effort with at least one measured dimension."
-            )
+        if attrs["end_line"] < attrs["start_line"]:
+            raise serializers.ValidationError("end_line must be greater than or equal to start_line.")
+        if attrs["failed_calls"] > attrs["tool_calls"]:
+            raise serializers.ValidationError("failed_calls cannot exceed tool_calls.")
+        if attrs["idle_seconds"] > attrs["seconds"]:
+            raise serializers.ValidationError("idle_seconds cannot exceed seconds.")
+        blocker_kind = attrs.get("blocker_kind")
+        blocker_name = attrs.get("blocker_name")
+        if blocker_kind and not blocker_name:
+            raise serializers.ValidationError("blocker_kind requires blocker_name.")
+        if blocker_name and not blocker_kind:
+            raise serializers.ValidationError("blocker_name requires blocker_kind.")
+        if attrs.get("repair") and not blocker_kind:
+            raise serializers.ValidationError("repair requires blocker_kind.")
+        if blocker_name and not _contains_whole_term(attrs["evidence"], blocker_name):
+            raise serializers.ValidationError("evidence must contain blocker_name as a whole word.")
         return attrs
 
 
-_WASTED_EFFORT_REQUIRED_CATEGORIES = frozenset(
-    {"environment_failure", "missing_tool", "verbose_output", "redundant_work", "wasted_retry"}
-)
+def _contains_whole_term(text: str, term: str) -> bool:
+    return re.search(rf"(?<![A-Za-z0-9_]){re.escape(term)}(?![A-Za-z0-9_])", text, re.IGNORECASE) is not None
 
 
-class TaskRunAnalysisInsightResponseSerializer(serializers.Serializer):
-    insight_index = serializers.IntegerField(help_text="Zero-based position of the stored finding on the run.")
+class TaskRunAnalysisActivityResponseSerializer(serializers.Serializer):
+    activity_index = serializers.IntegerField(help_text="Zero-based position of the stored activity on the run.")
 
 
 class TaskRunPeersResponseSerializer(serializers.Serializer):
@@ -1912,6 +1914,11 @@ class TaskRunPeerMessageResponseSerializer(serializers.Serializer):
 TASK_SUMMARIES_MAX_IDS = 5000
 
 
+class TaskExecutionMode(models.TextChoices):
+    INTERACTIVE = "interactive", "interactive"
+    BACKGROUND = "background", "background"
+
+
 class TaskSummariesRequestSerializer(serializers.Serializer):
     ids = serializers.ListField(
         child=serializers.UUIDField(),
@@ -1928,6 +1935,10 @@ class TaskRunSummarySerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="ID of the latest run.")
     status = serializers.ChoiceField(choices=tasks_facade.TaskRunStatus.choices, allow_null=True)
     environment = serializers.ChoiceField(choices=tasks_facade.TaskRunEnvironment.choices, allow_null=True)
+    mode = serializers.ChoiceField(
+        choices=TaskExecutionMode.choices,
+        help_text="Execution mode of the latest run.",
+    )
 
 
 class TaskSummarySerializer(DataclassSerializer):
@@ -2056,13 +2067,21 @@ class TaskSearchQuerySerializer(serializers.Serializer):
 class TaskSearchResultSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Search document identifier.")
     kind = serializers.ChoiceField(
-        choices=["task", "pull_request", "artifact", "channel"], help_text="Type of matched resource."
+        choices=["task", "pull_request", "artifact", "channel", "canvas"], help_text="Type of matched resource."
     )
     title = serializers.CharField(help_text="Primary result label.")
     subtitle = serializers.CharField(allow_blank=True, help_text="Secondary result context.")
     task_id = serializers.UUIDField(allow_null=True, help_text="Containing task identifier, when applicable.")
     task_run_id = serializers.UUIDField(allow_null=True, help_text="Containing task run identifier, when applicable.")
     channel_id = serializers.UUIDField(allow_null=True, help_text="Containing space identifier, when applicable.")
+    created_by = TaskUserBasicInfoSerializer(
+        allow_null=True, help_text="Who created the containing task, when the match has one."
+    )
+    origin_product = serializers.CharField(
+        allow_null=True, allow_blank=True, help_text="What created the containing task, for example 'slack'."
+    )
+    latest_run = TaskRunSummarySerializer(allow_null=True, help_text="Status of the containing task's most recent run.")
+    updated_at = serializers.DateTimeField(help_text="When the matched resource last changed.")
     metadata = serializers.JSONField(help_text="Resource-specific navigation metadata.")
 
 
@@ -2108,6 +2127,14 @@ class OnboardingSessionTestResponseSerializer(OnboardingSessionSerializer):
 
 
 class OnboardingSessionTestSerializer(serializers.Serializer):
+    model = serializers.CharField(
+        required=False,
+        default=None,
+        allow_null=True,
+        allow_blank=False,
+        max_length=255,
+        help_text="Optional LLM model identifier for the test session. Omit to use the plan default.",
+    )
     company_domain = serializers.CharField(
         required=False,
         default="",
@@ -2145,6 +2172,14 @@ class OnboardingSessionTestSerializer(serializers.Serializer):
         default=False, help_text="Whether onboarding enabled any signal sources."
     )
 
+    def validate_model(self, value: str | None) -> str | None:
+        model_access_error = get_model_access_error(value, distinct_id=request_distinct_id(self.context))
+        if model_access_error is not None:
+            raise serializers.ValidationError(model_access_error)
+        if value is not None and get_runtime_adapter_for_model(value) is None:
+            raise serializers.ValidationError(f"'{value}' is not supported for onboarding test sessions.")
+        return value
+
 
 class TeachingCanvasSerializer(serializers.Serializer):
     canvas_id = serializers.UUIDField(help_text="The teaching canvas that was resolved or created.")
@@ -2173,27 +2208,54 @@ class ChannelDeleteConflictSerializer(serializers.Serializer):
     detail = serializers.CharField(help_text="Why the space cannot be deleted.")
 
 
-class ChannelWriteSerializer(serializers.Serializer):
-    """Request body for creating (resolve-or-create) or renaming a public channel."""
+CHANNEL_MEMBERS_MAX = 100
 
+
+class ChannelWriteSerializer(serializers.Serializer):
     name = serializers.CharField(
-        max_length=128, help_text="Channel name, rendered as #<name>. Normalized to lowercase-dashed."
+        max_length=128, help_text="Channel name, shown as #<name>. Uses lowercase letters and hyphens."
+    )
+    channel_type = serializers.ChoiceField(
+        choices=CHANNEL_WRITE_TYPE_CHOICES,
+        default="public",
+        help_text=(
+            "Use 'public' for access by all project members. Use 'private' for access by channel members only. "
+            "Defaults to 'public'. This endpoint cannot create personal #me spaces."
+        ),
+    )
+    member_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        default=list,
+        max_length=CHANNEL_MEMBERS_MAX,
+        help_text=(
+            "User IDs to add to a private channel. The requester is always a member. "
+            "The endpoint ignores this field for public channels and skips users without project access."
+        ),
     )
     star = serializers.BooleanField(
         required=False,
         default=True,
-        help_text=(
-            "Star the channel for the requester when this call creates it. "
-            "Ignored when the channel already exists, which leaves existing stars untouched."
-        ),
+        help_text=("Star a new channel for the requester. This field does not change stars on an existing channel."),
     )
 
     def validate_name(self, value: str) -> str:
-        # "general" resolves the team's general space here, so only the personal names are
-        # refused.
         if tasks_facade.is_personal_space_name(value):
             raise serializers.ValidationError("That name is reserved for private spaces. Pick another name.")
         return value
+
+
+class ChannelMembersWriteSerializer(serializers.Serializer):
+    user_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=True,
+        max_length=CHANNEL_MEMBERS_MAX,
+        help_text=(
+            "Required list of member user IDs. This list replaces the current members. "
+            "The creator remains a member. Send an empty list to remove all other members. "
+            "Each submitted user must have project access."
+        ),
+    )
 
 
 class ChannelUpdateSerializer(serializers.Serializer):
@@ -2220,6 +2282,14 @@ class ChannelUpdateSerializer(serializers.Serializer):
         min_value=1,
         max_value=365,
         help_text="Days of inactivity before tasks in this channel are archived. Accepts 1 through 365. Null disables automatic archiving.",
+    )
+    channel_type = serializers.ChoiceField(
+        choices=CHANNEL_WRITE_TYPE_CHOICES,
+        required=False,
+        help_text=(
+            "Switch a shared space between 'public' and 'private'. Making a space private keeps only the creator "
+            "and the requester as members. Making it public removes its member list. Personal #me spaces cannot change."
+        ),
     )
 
     def validate_name(self, value: str) -> str:
@@ -2943,11 +3013,6 @@ def get_relayed_imported_mcp_name_collision_error(attrs: dict) -> str | None:
         if server["name"].lower() in imported_names:
             return f"Relayed MCP server name '{server['name']}' collides with an imported MCP server name."
     return None
-
-
-class TaskExecutionMode(models.TextChoices):
-    INTERACTIVE = "interactive", "interactive"
-    BACKGROUND = "background", "background"
 
 
 class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpServersFieldMixin, serializers.Serializer):
