@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
@@ -26,6 +27,52 @@ func schema() *catalog.Catalog {
 		"session": {{Name: "$entry_current_url", ValueType: "String"}},
 		"group:0": {{Name: "industry", ValueType: "String"}},
 	}}
+}
+
+func TestValidateDoesNotShareBindingsAcrossStatements(t *testing.T) {
+	result := Validate(schema(), "SELECT person_id FROM warehouse_orders; SELECT person_id FROM warehouse_people")
+	if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "unknown_field" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestValidateDoesNotShareBindingsAcrossNestedQueries(t *testing.T) {
+	result := Validate(schema(), "SELECT person_id FROM warehouse_orders WHERE order_id IN (SELECT person_id FROM warehouse_people)")
+	if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "unknown_field" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestValidateNestedAliasShadowsOuterAlias(t *testing.T) {
+	result := Validate(schema(), "SELECT o.person_id FROM warehouse_orders AS o WHERE order_id IN (SELECT o.person_id FROM warehouse_people AS o)")
+	if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "unknown_field" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestValidateAllJoinedTables(t *testing.T) {
+	result := Validate(schema(), "SELECT o.order_id, p.person_id FROM warehouse_orders AS o JOIN warehouse_people AS p ON o.order_id = p.person_id")
+	if !result.Valid {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestValidateRejectsQueriesOutsideResourceLimits(t *testing.T) {
+	result := Validate(schema(), strings.Repeat("x", 64<<10+1))
+	if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "query_limit" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestValidateCapsDiagnostics(t *testing.T) {
+	fields := make([]string, 150)
+	for index := range fields {
+		fields[index] = "missing_" + strings.Repeat("x", index%10) + string(rune('a'+index%26))
+	}
+	result := Validate(schema(), "SELECT "+strings.Join(fields, ", ")+" FROM warehouse_orders")
+	if len(result.Diagnostics) != 25 {
+		t.Fatalf("diagnostics = %d", len(result.Diagnostics))
+	}
 }
 
 func TestValidateUnknownTableSuggestsVisibleMatch(t *testing.T) {
