@@ -536,6 +536,34 @@ describe('alertFormLogic', () => {
             )
         })
 
+        it('drops an earlier result when a later simulation fails', async () => {
+            const mockResponse = {
+                data: [1, 2, 3],
+                dates: ['2026-01-01', '2026-01-02', '2026-01-03'],
+                interval: 'day',
+                forecast_dates: ['2026-01-04'],
+                forecast_yhat: [4],
+                forecast_lower: [3],
+                forecast_upper: [5],
+                target_projection: null,
+            }
+            ;(alertsSimulateForecastCreate as jest.Mock).mockResolvedValueOnce(mockResponse)
+            const logic = mountForecastForm()
+
+            await expectLogic(logic, () => {
+                logic.actions.simulateForecast()
+            }).toFinishAllListeners()
+
+            expect(logic.values.forecastSimulationResult).toEqual(mockResponse)
+            ;(alertsSimulateForecastCreate as jest.Mock).mockRejectedValueOnce(new Error('Prophet failed'))
+
+            await expectLogic(logic, () => {
+                logic.actions.simulateForecast()
+            }).toFinishAllListeners()
+
+            expect(logic.values.forecastSimulationResult).toBeNull()
+        })
+
         it('clearSimulation resets the forecast simulation result', async () => {
             const mockResponse = {
                 data: [1, 2, 3],

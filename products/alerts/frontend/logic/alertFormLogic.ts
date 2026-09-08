@@ -539,6 +539,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
             null as ForecastSimulateResponseApi | null,
             {
                 clearSimulation: () => null,
+                // Drop the last chart when a run fails, so the failure toast isn't read against it.
+                simulateForecastFailure: () => null,
                 setAlertFormValue: (state, { name }) => (invalidatesForecastSimulation(name) ? null : state),
                 setAlertFormValues: (state, { values: changed }) =>
                     'forecast_config' in changed || 'threshold' in changed || 'config' in changed ? null : state,
