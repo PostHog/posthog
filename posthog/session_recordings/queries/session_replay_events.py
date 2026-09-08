@@ -13,6 +13,7 @@ from posthog.schema import HogQLQuery
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.session_recordings.models.metadata import ONGOING_SESSION_WINDOW_MINUTES, RecordingMetadata
 
@@ -120,14 +121,25 @@ def _filter_to_diagnostic_properties(properties: dict) -> dict:
     }
 
 
-def get_latest_session_event_properties(session_id: str, team: Team) -> Optional[dict]:
-    """The most recent event's recording-diagnostic properties for a session, for the capture diagnostics panel.
+@frozen
+class SessionCaptureDiagnostics:
+    """What the capture diagnostics panel reads for one session."""
+
+    properties: dict
+    # $recording_status is a per-event snapshot: posthog-js reports `disabled` until the
+    # lazily loaded recorder takes over. Every status the session reported lets the panel
+    # tell a session that never recorded apart from one that had not started recording yet.
+    recording_statuses: list[str]
+
+
+def get_session_capture_diagnostics(session_id: str, team: Team) -> Optional[SessionCaptureDiagnostics]:
+    """The latest event's recording-diagnostic properties plus every recording status the session reported.
 
     Bounded by a window derived from the UUIDv7 session id so the events sort key
     can prune the scan; misses (or ids that don't parse) fall back to a
     retention-wide window so a skewed client clock degrades to a slower lookup
     rather than missing diagnostics. Deliberate trade-off: when a session has
-    events both inside and outside the bounded window, the in-window latest wins
+    events both inside and outside the bounded window, the in-window result wins
     without consulting the fallback.
     """
     lower_bound = uuidv7_session_lower_bound(session_id)
@@ -135,31 +147,31 @@ def get_latest_session_event_properties(session_id: str, team: Team) -> Optional
         # lower_bound is embedded_start - slack; sessions last at most a day,
         # so embedded_start + 1d + slack closes the window symmetrically.
         upper_bound = lower_bound + 2 * SESSION_ID_CLOCK_SKEW_SLACK + timedelta(days=1)
-        properties = _latest_session_event_properties_between(session_id, team, lower_bound, upper_bound)
-        if properties is not None:
-            return properties
+        diagnostics = _session_capture_diagnostics_between(session_id, team, lower_bound, upper_bound)
+        if diagnostics is not None:
+            return diagnostics
     now = datetime.now(pytz.UTC)
-    return _latest_session_event_properties_between(
+    return _session_capture_diagnostics_between(
         session_id, team, now - CAPTURE_DIAGNOSTICS_FALLBACK_LOOKBACK, now + timedelta(days=1)
     )
 
 
-def _latest_session_event_properties_between(
+def _session_capture_diagnostics_between(
     session_id: str, team: Team, date_from: datetime, date_to: datetime
-) -> Optional[dict]:
+) -> Optional[SessionCaptureDiagnostics]:
     from posthog.hogql_queries.hogql_query_runner import (
         HogQLQueryRunner,  # noqa: PLC0415 — breaks a circular import, matching this file's other HogQLQueryRunner imports
     )
 
     query = HogQLQuery(
         query="""
-            SELECT properties
+            SELECT
+                argMax(properties, timestamp) AS latest_properties,
+                arraySort(groupUniqArray(properties.$recording_status)) AS recording_statuses
             FROM events
             WHERE $session_id = {session_id}
                 AND timestamp >= {date_from}
                 AND timestamp <= {date_to}
-            ORDER BY timestamp DESC
-            LIMIT 1
         """,
         values={"session_id": session_id, "date_from": date_from, "date_to": date_to},
     )
@@ -167,10 +179,13 @@ def _latest_session_event_properties_between(
     result = HogQLQueryRunner(team=team, query=query).calculate()
     if not result.results:
         return None
-    row = result.results[0][0]
+    row, statuses = result.results[0][0], result.results[0][1]
     if not row:
         return None
-    return _filter_to_diagnostic_properties(json.loads(row) if isinstance(row, str) else row)
+    return SessionCaptureDiagnostics(
+        properties=_filter_to_diagnostic_properties(json.loads(row) if isinstance(row, str) else row),
+        recording_statuses=[status for status in (statuses or []) if status],
+    )
 
 
 def seconds_until_midnight():

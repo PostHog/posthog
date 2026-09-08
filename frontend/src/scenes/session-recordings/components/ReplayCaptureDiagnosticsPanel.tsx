@@ -21,18 +21,26 @@ const TRIGGER_STATUS_EXPLANATIONS: Record<string, string> = {
 
 const RECORDING_STATUS_EXPLANATIONS: Record<string, string> = {
     active: 'The SDK is recording and producing snapshots.',
+    sampled: 'The session was sampled in for recording, so the SDK is capturing it.',
+    paused: 'Recording is paused because the page URL is on the blocked URLs list for this project.',
     buffering:
         'The SDK initialized but is waiting (for a trigger, duration, or remote config) before producing snapshots.',
-    disabled: 'Recording is turned off — either in project settings or via SDK config at runtime.',
-    sampled: 'This session was included by the configured replay sample rate — recording started.',
-    paused: 'Recording is temporarily paused for this session.',
+    lazy_loading: 'The SDK is loading the recorder file. Recording starts once that file takes over.',
+    awaiting_config: 'The SDK is waiting for fresh replay config from PostHog before it starts the recorder.',
+    pending_config: 'The SDK is waiting for fresh replay config from PostHog before it starts the recorder.',
+    missing_config: 'The SDK could not load replay config, so recording stays off until the page reloads.',
+    rrweb_error: 'The recorder started but reported an error, so it produced no snapshots.',
+    disabled:
+        'The recorder is not running. The SDK also reports this before the recorder loads, so on its own it does not mean replay is off.',
 }
 
 const START_REASON_EXPLANATIONS: Record<string, string> = {
     recording_initialized: 'Recording started as soon as the SDK initialized.',
-    sampling_override: 'Recording started because the session was included by the sampling rules.',
-    sampled_out: 'Recording was prevented because the session was excluded by sampling.',
-    linked_flag_match: 'Recording started because a linked feature flag matched.',
+    session_id_changed: 'Recording restarted because the session ID changed.',
+    sampled: 'Recording started because sampling included this session.',
+    sampling_overridden: 'Recording started because sampling was overridden for this session.',
+    linked_flag_matched: 'Recording started because a linked feature flag matched.',
+    linked_flag_overridden: 'Recording started because the linked flag requirement was overridden.',
 }
 
 const explainValue = (key: string, value: unknown): string | null => {
@@ -99,6 +107,11 @@ const BANNER_TYPE_BY_VERDICT: Record<DiagnosisVerdict, LemonBannerProps['type']>
     captured: 'success',
     ad_blocked: 'warning',
     disabled: 'warning',
+    url_blocked: 'info',
+    recorder_not_started: 'warning',
+    recorder_loading: 'info',
+    recorder_ran: 'info',
+    config_pending: 'info',
     trigger_pending: 'info',
     sampled_out: 'info',
     buffering_empty: 'info',
@@ -161,11 +174,11 @@ export function ReplayCaptureDiagnosticsPanel(props: ReplayCaptureDiagnosticsPan
 }
 
 function SessionIdDiagnosticsPanel({ sessionId }: { sessionId: string }): JSX.Element | null {
-    const { sessionEventProperties, sessionEventPropertiesLoading } = useValues(
+    const { sessionEventProperties, sessionRecordingStatuses, captureDiagnosticsLoading } = useValues(
         replayCaptureDiagnosticsPanelLogic({ sessionId })
     )
 
-    if (sessionEventPropertiesLoading) {
+    if (captureDiagnosticsLoading) {
         return (
             <div className="flex justify-center items-center p-4">
                 <Spinner />
@@ -178,5 +191,5 @@ function SessionIdDiagnosticsPanel({ sessionId }: { sessionId: string }): JSX.El
         return null
     }
 
-    return <DiagnosisContent diagnosis={diagnoseReplayCapture(sessionEventProperties)} />
+    return <DiagnosisContent diagnosis={diagnoseReplayCapture(sessionEventProperties, { sessionRecordingStatuses })} />
 }

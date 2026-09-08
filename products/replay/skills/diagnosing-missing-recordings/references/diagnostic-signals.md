@@ -13,30 +13,56 @@ New diagnostic properties may be added as the SDK evolves.
 
 ## Core signals
 
-| Property                          | Type    | Description                                                   |
-| --------------------------------- | ------- | ------------------------------------------------------------- |
-| `$has_recording`                  | boolean | Whether PostHog has a stored recording linked to this session |
-| `$recording_status`               | string  | Current SDK recording state                                   |
-| `$session_recording_start_reason` | string  | Why recording started (or didn't)                             |
+| Property                          | Type    | Description                                                        |
+| --------------------------------- | ------- | ------------------------------------------------------------------ |
+| `$has_recording`                  | boolean | Whether PostHog has a stored recording linked to this session      |
+| `$recording_status`               | string  | Current SDK recording state                                        |
+| `$session_recording_start_reason` | string  | Why recording started (or didn't). There is no `$recording_reason` |
 
 ### `$recording_status` values
 
-| Value       | Meaning                                                                                                    |
-| ----------- | ---------------------------------------------------------------------------------------------------------- |
-| `active`    | SDK is recording and producing snapshots                                                                   |
-| `buffering` | SDK initialized but waiting for a trigger, duration threshold, or remote config before producing snapshots |
-| `disabled`  | Recording is turned off — either in project settings or via SDK config at runtime                          |
-| `sampled`   | This session was included by the configured replay sample rate — recording started                         |
-| `paused`    | Recording is temporarily paused for this session                                                           |
+This is the SDK state at the moment one event was captured, not a verdict on the session.
+
+| Value             | Meaning                                                                                                    |
+| ----------------- | ---------------------------------------------------------------------------------------------------------- |
+| `active`          | SDK is recording and producing snapshots                                                                   |
+| `sampled`         | The session was sampled in for recording                                                                   |
+| `paused`          | Recording is suppressed because the page URL is on the project's blocked list                              |
+| `buffering`       | SDK initialized but waiting for a trigger, duration threshold, or remote config before producing snapshots |
+| `lazy_loading`    | SDK is loading the recorder file. Recording starts once that file takes over                               |
+| `awaiting_config` | SDK asked PostHog for fresh replay config and is waiting for it                                            |
+| `pending_config`  | Older SDKs' name for `awaiting_config`                                                                     |
+| `missing_config`  | The config request failed. Recording stays off until the page reloads                                      |
+| `rrweb_error`     | The recorder started and reported an error                                                                 |
+| `disabled`        | The recorder is not running. Also the SDK's value before the recorder loads                                |
+
+**`disabled` is the SDK's initial value.** posthog-js reports it from init until the lazily
+loaded recorder takes over, so the first events of every page load carry it, and a healthy
+project emits it in volume. Read it as "replay is off" only when the session reported
+nothing else and `$session_recording_remote_config.enabled` is `false`.
+
+`sampled` and `paused` are not the same signal as `$session_recording_start_reason`. A session
+excluded by sampling reports `disabled` as its status and writes no start reason at all. The
+status `sampled` means the opposite: the session was sampled in.
 
 ### `$session_recording_start_reason` values
 
-| Value                   | Meaning                                                                  |
-| ----------------------- | ------------------------------------------------------------------------ |
-| `recording_initialized` | Recording started as soon as the SDK initialized                         |
-| `sampling_override`     | Recording started because the session was included by the sampling rules |
-| `sampled_out`           | Recording was prevented because the session was excluded by sampling     |
-| `linked_flag_match`     | Recording started because a linked feature flag matched                  |
+Every value describes recording *starting*. The SDK writes this property from one place, which
+also fires `$recording_started`, so it can never describe a session that did not record.
+
+| Value                    | Meaning                                                            |
+| ------------------------ | ------------------------------------------------------------------ |
+| `recording_initialized`  | Recording started as soon as the SDK initialized                   |
+| `session_id_changed`     | Recording restarted because the session ID changed                 |
+| `sampled`                | Recording started because sampling included this session           |
+| `sampling_overridden`    | Recording started because sampling was overridden                  |
+| `linked_flag_matched`    | Recording started because a linked feature flag matched            |
+| `linked_flag_overridden` | Recording started because the linked flag requirement was overridden |
+
+There is no `sampled_out` value. When sampling drops a session the SDK only logs a console
+warning: it writes no start reason, and the status stays `disabled`. So a sampled-out session
+is not distinguishable here from one where the recorder never started. Use `$replay_sample_rate`
+to judge how likely sampling is.
 
 ## Trigger signals
 
@@ -72,12 +98,12 @@ These indicate whether configured recording triggers have fired.
 
 ## Configuration signals
 
-| Property                                           | Type   | Description                                                 |
-| -------------------------------------------------- | ------ | ----------------------------------------------------------- |
-| `$replay_sample_rate`                              | number | The sample rate configured at the time (0.0 to 1.0)         |
-| `$replay_minimum_duration`                         | number | Minimum session duration (ms) before recording is persisted |
-| `$session_recording_remote_config`                 | object | Remote configuration received from PostHog                  |
-| `$sdk_debug_replay_remote_trigger_matching_config` | object | Trigger matching configuration from remote config           |
+| Property                                           | Type   | Description                                                                                                          |
+| -------------------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------- |
+| `$replay_sample_rate`                              | number | The sample rate configured at the time (0.0 to 1.0)                                                                  |
+| `$replay_minimum_duration`                         | number | Minimum session duration (ms) before recording is persisted                                                          |
+| `$session_recording_remote_config`                 | object | Remote configuration received from PostHog. Its `enabled` field is the proof of whether replay is on for the project |
+| `$sdk_debug_replay_remote_trigger_matching_config` | object | Trigger matching configuration from remote config                                                                    |
 
 ## SDK metadata
 

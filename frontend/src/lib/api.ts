@@ -297,6 +297,12 @@ export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
     count: number
 }
 
+export interface CaptureDiagnosticsResponse {
+    properties: Record<string, any> | null
+    /** Every `$recording_status` the session reported, not only the one on the latest event. */
+    recording_statuses: string[]
+}
+
 export interface CountResponse {
     count: number
 }
@@ -4513,9 +4519,7 @@ const api = {
         async getMatchingEvents(params: string): Promise<MatchingEventsResponse> {
             return await new ApiRequest().recordingMatchingEvents().withQueryString(params).get()
         },
-        async getCaptureDiagnostics(
-            recordingId: SessionRecordingType['id']
-        ): Promise<{ properties: Record<string, any> | null }> {
+        async getCaptureDiagnostics(recordingId: SessionRecordingType['id']): Promise<CaptureDiagnosticsResponse> {
             return await new ApiRequest().recording(recordingId).withAction('capture_diagnostics').get()
         },
         async get(
