@@ -6760,7 +6760,7 @@
         }
     },
     "llma-prompt-list": {
-        "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full prompt content. Every result also includes `outline`, a flat list of markdown headings parsed from the prompt — use it as a lightweight table of contents, and pair with `content=none` to keep responses small.",
+        "description": "List all LLM prompts stored for the current team. Optionally filter by name. Pass `label` (e.g. 'production') to get each prompt at the version that label currently points to; prompts without that label are omitted. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full prompt content. Every result also includes `outline`, a flat list of markdown headings parsed from the prompt — use it as a lightweight table of contents, and pair with `content=none` to keep responses small.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List prompts",
@@ -10577,7 +10577,7 @@
         "feature_flag": "streamlit-apps"
     },
     "streamlit-apps-set-source": {
-        "description": "Create a new version of a Streamlit app from a single free-text app.py source string, and set it as the active version. This is the simplest way to ship code — no zip upload required. If the app is running, its sandbox is stopped; call streamlit-apps-start afterwards to serve the new version. Use posthog_apps.query(\"<HogQL>\") inside the app to read PostHog data as a pandas DataFrame. There is no way to add pip dependencies — only packages baked into the sandbox image are importable.",
+        "description": "Create a new version of a Streamlit app from free-text source, and set it as the active version. The source becomes the root app.py; optional extra text files (helper modules, CSV, JSON) go in `files` and binary files (Parquet, images) go base64-encoded in `assets`, so no zip upload is needed. If the app is running, its sandbox is stopped; call streamlit-apps-start afterwards to serve the new version. Use posthog_apps.query(\"<HogQL>\") inside the app to read PostHog data as a pandas DataFrame. There is no way to add pip dependencies — only packages baked into the sandbox image are importable.",
         "category": "Streamlit apps",
         "feature": "streamlit_apps",
         "summary": "Set Streamlit app source",

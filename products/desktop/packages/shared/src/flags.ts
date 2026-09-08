@@ -44,6 +44,8 @@ export const CODEX_OWN_SUBSCRIPTION_FLAG =
   featureFlagKeys.CODEX_OWN_SUBSCRIPTION_FLAG;
 export const CLAUDE_OWN_SUBSCRIPTION_FLAG =
   featureFlagKeys.CLAUDE_OWN_SUBSCRIPTION_FLAG;
+export const CLAUDE_OWN_SUBSCRIPTION_CLOUD_FLAG =
+  featureFlagKeys.CLAUDE_OWN_SUBSCRIPTION_CLOUD_FLAG;
 // Gates importing and relaying local MCP servers into cloud task runs.
 export const LOCAL_MCP_IMPORT_FLAG = featureFlagKeys.LOCAL_MCP_IMPORT_FLAG;
 /**
