@@ -84,7 +84,12 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
     RawErrorTrackingIssueFingerprintOverridesTable,
 )
 from posthog.hogql.database.schema.error_tracking_recent_issue_state import ErrorTrackingRecentIssueStateTable
-from posthog.hogql.database.schema.events import EVENTS_PERSON_DESCRIPTION, EVENTS_PERSON_ID_DESCRIPTION, EventsTable
+from posthog.hogql.database.schema.events import (
+    EVENTS_PERSON_DESCRIPTION,
+    EVENTS_PERSON_ID_DESCRIPTION,
+    EVENTS_PERSON_ID_NO_OVERRIDE_DESCRIPTION,
+    EventsTable,
+)
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.database.schema.experiment_exposures_preaggregated import ExperimentExposuresPreaggregatedTable
 from posthog.hogql.database.schema.experiment_metric_events_preaggregated import (
@@ -1864,7 +1869,7 @@ class Database(BaseModel):
 
                 elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
                     events_table.fields["person_id"] = UUIDDatabaseField(
-                        name="person_id", description=EVENTS_PERSON_ID_DESCRIPTION
+                        name="person_id", description=EVENTS_PERSON_ID_NO_OVERRIDE_DESCRIPTION
                     )
                     _use_person_properties_from_events(database)
 

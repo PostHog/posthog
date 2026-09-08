@@ -96,6 +96,15 @@ EVENTS_PERSON_ID_DESCRIPTION = (
     "identified distinct ids, so group by `person_id` for a full user history instead of joining `$identify` "
     "events."
 )
+# Used where the project reads the ingested `person_id` column without joining
+# `person_distinct_id_overrides`. That mode does not resolve merges at query time, so the shared
+# description above would promise a stitching guarantee the column cannot keep.
+EVENTS_PERSON_ID_NO_OVERRIDE_DESCRIPTION = (
+    "Person identifier stored on the event at ingestion. This project does not apply merge corrections at "
+    "query time, so events captured before a user identified keep the person they had then, until a "
+    "background job rewrites them. Group by `person_id` rather than `distinct_id`, and join "
+    "`person_distinct_id_overrides` on `distinct_id` when you need merges resolved."
+)
 
 
 class EventsTable(Table):

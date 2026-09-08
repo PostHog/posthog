@@ -47,6 +47,15 @@ It also misses merges that came from other sources, such as `$create_alias` or a
 Do not use `distinct_id` where you mean a user.
 Counting `DISTINCT distinct_id` counts devices and pre-identify sessions as separate users, so it reports more users than you have.
 
+## One exception
+
+A project can be set to read `events.person_id` straight from the event, without the merge correction.
+On such a project, events captured before a user identified keep the person they had at ingestion, until a background job rewrites them.
+One user can then appear under more than one `person_id`.
+The queries above are still the right shape there, because `distinct_id` splits the same user further.
+Read the `person_id` description in `system.information_schema.columns` to see which behavior a project has.
+To resolve the merges yourself, join `person_distinct_id_overrides` on `distinct_id`.
+
 ## Related columns
 
 - `person.properties.*` reaches the person behind the event.
