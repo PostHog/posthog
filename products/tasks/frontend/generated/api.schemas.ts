@@ -4556,6 +4556,11 @@ export interface TaskRunSummaryApi {
      * * `interactive` - interactive
      * * `background` - background */
     mode: TaskExecutionModeEnumApi
+    /**
+     * Latest summary for this task, including a summary inherited from an earlier run.
+     * @nullable
+     */
+    task_summary?: string | null
 }
 
 export interface TaskSearchResultApi {

@@ -3158,6 +3158,20 @@ export const TasksRunsSetOutputPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Replace the running summary for a task run.
+ * @summary Set task run summary
+ */
+export const tasksRunsSetSummaryPartialUpdateBodySummaryMax = 1500
+
+export const TasksRunsSetSummaryPartialUpdateBody = /* @__PURE__ */ zod.object({
+    summary: zod
+        .string()
+        .max(tasksRunsSetSummaryPartialUpdateBodySummaryMax)
+        .optional()
+        .describe('Complete running summary that replaces the prior summary.'),
+})
+
+/**
  * Start an existing cloud run after any initial run-scoped attachments have been uploaded.
  * @summary Start task run
  */

@@ -55,6 +55,7 @@ import type {
     PatchedSandboxCustomImageUpdateApi,
     PatchedSandboxEnvironmentWriteApi,
     PatchedTaskRunSetOutputRequestApi,
+    PatchedTaskRunSetSummaryRequestApi,
     PatchedTaskRunUpdateApi,
     PatchedTaskWriteApi,
     PinnedTaskIdsResponseApi,
@@ -2272,6 +2273,29 @@ export const tasksRunsSetOutputPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedTaskRunSetOutputRequestApi),
+    })
+}
+
+export const getTasksRunsSetSummaryPartialUpdateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/set_summary/`
+}
+
+/**
+ * Replace the running summary for a task run.
+ * @summary Set task run summary
+ */
+export const tasksRunsSetSummaryPartialUpdate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    patchedTaskRunSetSummaryRequestApi?: PatchedTaskRunSetSummaryRequestApi,
+    options?: RequestInit
+): Promise<TaskRunDetailDTOApi> => {
+    return apiMutator<TaskRunDetailDTOApi>(getTasksRunsSetSummaryPartialUpdateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTaskRunSetSummaryRequestApi),
     })
 }
 
