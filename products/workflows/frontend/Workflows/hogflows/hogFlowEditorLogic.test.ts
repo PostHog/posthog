@@ -1,4 +1,4 @@
-import { Position } from '@xyflow/react'
+import { NodeChange, Position } from '@xyflow/react'
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
@@ -569,23 +569,31 @@ describe('hogFlowEditorLogic', () => {
             expect(byId('branch')?.data.name).toBe('Renamed branch')
         })
 
-        it('stores a measured size without relaying out the graph', async () => {
+        it.each<{ name: string; change: NodeChange<HogFlowActionNode>; stored: Partial<HogFlowActionNode> }>([
+            {
+                // What ReactFlow's resize observer reports. A relayout here moves the nodes it
+                // just measured, and it then measures them again.
+                name: 'a measured size',
+                change: { id: 'branch', type: 'dimensions', dimensions: { width: 120, height: 44 }, resizing: false },
+                stored: { measured: { width: 120, height: 44 } },
+            },
+            {
+                // What a click on a step reports. A whole graph layout per click is the same
+                // waste, on the main thread, against the fit animation the click starts.
+                name: 'a selection',
+                change: { id: 'branch', type: 'select', selected: true },
+                stored: { selected: true },
+            },
+        ])('stores $name without relaying out the graph', async ({ change, stored }) => {
             await applyFlow(makeFlow())
             const positionsBefore = logic.values.nodes.map((node) => node.position)
 
-            // What ReactFlow's resize observer reports. A relayout here moves the nodes it just
-            // measured, and it then measures them again.
             await expectLogic(logic, () => {
-                logic.actions.onNodesChange([
-                    { id: 'branch', type: 'dimensions', dimensions: { width: 120, height: 44 }, resizing: false },
-                ])
+                logic.actions.onNodesChange([change])
             }).toNotHaveDispatchedActions(['setNodes'])
 
             expect(logic.values.nodes.map((node) => node.position)).toEqual(positionsBefore)
-            expect(logic.values.nodes.find((node) => node.id === 'branch')?.measured).toEqual({
-                width: 120,
-                height: 44,
-            })
+            expect(logic.values.nodes.find((node) => node.id === 'branch')).toMatchObject(stored)
         })
 
         it('keeps a measurement that arrives while the layout runs', async () => {

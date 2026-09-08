@@ -2355,8 +2355,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 const changedNodes = applyNodeChanges(changes, values.nodes)
                 // A dimension change is ReactFlow reporting what it measured. A relayout here
                 // moves the nodes it just measured, so it measures them again, which loops the
-                // resize observer. Keep the measurement and stop there.
-                if (changes.every((change) => change.type === 'dimensions')) {
+                // resize observer. A select change only flags a node, so it moves nothing either
+                // and a click must not cost a layout. Keep both changes and stop there.
+                if (changes.every((change) => change.type === 'dimensions' || change.type === 'select')) {
                     actions.setNodesRaw(reconcileById(values.nodes, changedNodes, (node) => node.id))
                     return
                 }
