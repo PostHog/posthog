@@ -273,9 +273,19 @@ These events use `TaskRun.capture_event()` so include all [TaskRun standard prop
 
 Tracked when a GitHub `pull_request.opened` webhook is received. Additional properties:
 
-| Property | Type  | Description   |
-| -------- | ----- | ------------- |
-| `pr_url` | `str` | GitHub PR URL |
+| Property                 | Type        | Description                                     |
+| ------------------------ | ----------- | ----------------------------------------------- |
+| `pr_url`                 | `str`       | GitHub PR URL                                   |
+| `pr_title`               | `str`       | PR title                                        |
+| `pr_body`                | `str`       | PR description, capped at 10,000 characters     |
+| `pr_body_truncated`      | `bool`      | Whether the cap removed part of the description |
+| `pr_labels`              | `list[str]` | Label names on the PR                           |
+| `pr_requested_reviewers` | `list[str]` | GitHub logins of the requested reviewers        |
+| `pr_is_draft`            | `bool`      | Whether the PR is a draft                       |
+
+The `pr_title`, `pr_body`, `pr_labels`, `pr_requested_reviewers`, and `pr_is_draft` properties
+carry a value only on task-authored PRs. An external PR's own words are customer business
+context, so those events get the same keys as `null`.
 
 ### `pr_merged`
 
