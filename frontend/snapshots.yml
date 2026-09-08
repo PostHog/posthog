@@ -5057,13 +5057,17 @@ snapshots:
     products-alerts-alert-history-chart--truncated-history--light:
         hash: v1.k794b7964.6faf0ddd9885a43d2275daec0a6c2710828a27351aa16d13a5f43c7f810935d4.1pBJ2EvJL0Ol3b_sXqQRGjLdfgJwj7pz2i4bahQa-wY
     products-alerts-alert-modal--create-wizard--dark:
-        hash: v1.k794b7964.e3efb1235db76f2fe8b3ccff465df9b84263211b8648d57a725cfcf3a92c08c9.mTtZUY5-gkDVf9yjhBIR_Cx1_5arKEIEJh-2g-cLQBQ
+        hash: v1.k794b7964.a9e957971c3dd6264a76f27b5383c18425d2ce2ad89e5b2f4d1de5cecffa5099.tGpjkNCzBRZL1CNUPh7hPVDGovK3GUOARBBJvqurjsY
     products-alerts-alert-modal--create-wizard--light:
         hash: v1.k794b7964.494bd726adc6e478744c5418538e1e5bc6e3afdffd7ffc6ee5db7f9447736ad8.XrOtsQ190MyCOe3g_QspkQn_2iNZXZmb0QaWh1xt-t8
     products-alerts-alert-modal--edit-alert--dark:
         hash: v1.k794b7964.3cd55fcc87ecb1b851983a961e588bbae90b5c140752065d120914a1749e03e6.RM0Hv7J0tRa7mhOLS38ZbTcxsyCQ8Xtsrf6dePw9z3I
     products-alerts-alert-modal--edit-alert--light:
         hash: v1.k794b7964.3addb07978a52a6bb1c5e4173e8b97482f38ef111fd2555fb0096fede11fe652.tAbNUUogl_o9J4KfOOQrXwcmE_acMb9mAMo5mouwIfU
+    products-alerts-alert-modal--edit-alert-with-llm-detector--dark:
+        hash: v1.k794b7964.24f426ced89ed25c990941e7d5f5cc048c68898cf49e47d13182b9635b51c37d.-Un5mHymAx1r2PLBzgkulYN-V7hBHYmDBcBnPnIpc8o
+    products-alerts-alert-modal--edit-alert-with-llm-detector--light:
+        hash: v1.k794b7964.9c3b516e5737a8d6d937e3a17864739ca431108bc51025b9ae13beef71b9c126.TL_Xd3guHZGS01iYtTrWCKeLcRfMdNrHUDKH4SXgKOM
     products-alerts-alert-modal--missing-alert--dark:
         hash: v1.k794b7964.9180de7bde4303208cc92881f51bfc618108d5e7204acef1114b80858661662d.gbwUGmvs26EJFVhIM-HqBuAIPreZL8pNqn2ZMVi992I
     products-alerts-alert-modal--missing-alert--light:
