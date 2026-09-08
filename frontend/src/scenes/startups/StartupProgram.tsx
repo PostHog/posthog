@@ -12,6 +12,10 @@ import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import {
+    STARTUP_PROGRAM_BILLING_LIMIT_MAX_BY_PRODUCT,
+    STARTUP_PROGRAM_CAPPED_PRODUCTS,
+} from 'scenes/billing/billingLimitConfig'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
@@ -71,7 +75,7 @@ export function StartupProgram(): JSX.Element {
         ycBatchOptions,
         currentStartupProgramLabel,
     } = useValues(startupProgramLogic)
-    const { billing, billingLoading, accountOwner } = useValues(billingLogic)
+    const { billing, billingLoading, accountOwner, canAccessBilling } = useValues(billingLogic)
     const { setStartupProgramValue } = useActions(startupProgramLogic)
 
     const currentProgramName = currentStartupProgramLabel === StartupProgramLabel.YC ? 'YC Program' : 'Startup Program'
@@ -369,12 +373,37 @@ export function StartupProgram(): JSX.Element {
                                 ) : (
                                     <div className="flex flex-col items-start gap-2">
                                         <p className="text-muted mb-2">
-                                            To be eligible for the startup program, you need to be on a paid plan.
+                                            To be eligible for the startup program, you need to be on a paid plan. We
+                                            ask for a payment method so we can charge any usage your credits don't
+                                            cover.
                                         </p>
                                         <p className="text-muted mb-2">
-                                            Don't worry - you'll only pay for what you use and can set billing limits as
-                                            low as $0 to control your spend.
+                                            You only pay for what you use. As soon as you subscribe,{' '}
+                                            {canAccessBilling ? (
+                                                <>
+                                                    you can{' '}
+                                                    <Link to={urls.organizationBillingSection('overview')}>
+                                                        set billing limits
+                                                    </Link>{' '}
+                                                    as low as $0 to control your spend.
+                                                </>
+                                            ) : (
+                                                'an organization owner can set billing limits as low as $0 to control your spend.'
+                                            )}
                                         </p>
+                                        <p className="text-muted mb-2">
+                                            Startup credits are shared across all products. These products also have a
+                                            monthly spend cap while you're in the program:
+                                        </p>
+                                        <ul className="text-muted mb-2 list-disc pl-6">
+                                            {STARTUP_PROGRAM_CAPPED_PRODUCTS.map(({ key, name }) => (
+                                                <li key={key}>
+                                                    {name}: up to $
+                                                    {STARTUP_PROGRAM_BILLING_LIMIT_MAX_BY_PRODUCT[key].toLocaleString()}{' '}
+                                                    per month
+                                                </li>
+                                            ))}
+                                        </ul>
                                         <p className="text-muted mb-2 italic">
                                             P.S. You still keep the monthly free allowance for every product!
                                         </p>
