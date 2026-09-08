@@ -15678,7 +15678,10 @@ export namespace Schemas {
          * When True, in-app callouts inviting members to enable AI training are shown.
          */
         is_ai_training_cta_shown: boolean | null;
-        is_hipaa: boolean | null;
+        /**
+         * Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed.
+         */
+        has_signed_baa: boolean;
         default_experiment_stats_method?:
             | (
                   | OrganizationDefaultExperimentStatsMethodEnum
