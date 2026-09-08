@@ -41,6 +41,7 @@ jobs:
         outputs:
             hog: ${{ steps.filter.outputs.hog || 'true' }}
             hogvm-rust: ${{ steps.filter.outputs.hogvm-rust || 'true' }}
+            hogvm-spec: ${{ steps.filter.outputs.hogvm-spec || 'false' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -76,6 +77,8 @@ jobs:
                         - 'common/hogvm/**'
                         - 'rust/common/hogvm/**'
                         - '.github/workflows/ci-hog.yml'
+                      hogvm-spec:
+                        - 'common/hogvm/spec/stl.json'
 
     # The Rust VM's cross-language gates (corpus parity vs the Node snapshots, the STL oracle,
     # the spec vectors, and the contract-table agreement) run here, next to the reference VMs
@@ -104,6 +107,69 @@ jobs:
             - name: Run the Rust VM parity gates
               working-directory: rust
               run: cargo test -p hogvm
+
+    # Advisory only: renders what a PR changes in the STL contract (spec/stl.json) as a job
+    # summary and a sticky PR comment, so reviewers see the cross-VM behavior change without
+    # reading the JSON diff. Never fails the PR.
+    hogvm-spec-report:
+        needs: changes
+        timeout-minutes: 5
+        name: HogVM spec change report
+        runs-on: ubuntu-24.04
+        if: github.event_name == 'pull_request' && needs.changes.outputs.hogvm-spec == 'true'
+        permissions:
+            contents: read
+            pull-requests: write
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: common/hogvm/spec
+                  sparse-checkout-cone-mode: false
+
+            - name: Fetch the base contract
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+              # A 404 means the contract does not exist on the base yet; report against an
+              # empty contract so a PR introducing it still gets a report.
+              run: |
+                  gh api -H "Accept: application/vnd.github.raw" \
+                    "repos/${{ github.repository }}/contents/common/hogvm/spec/stl.json?ref=${BASE_SHA}" \
+                    > "${RUNNER_TEMP}/base-stl.json" \
+                    || echo '{"functions": {}}' > "${RUNNER_TEMP}/base-stl.json"
+
+            - name: Render the report
+              id: render
+              run: |
+                  body="${RUNNER_TEMP}/spec-report.md"
+                  echo '<!-- hogvm-spec-report -->' > "$body"
+                  python3 common/hogvm/spec/report.py "${RUNNER_TEMP}/base-stl.json" common/hogvm/spec/stl.json >> "$body"
+                  # Only the marker line means the contract is unchanged (e.g. reformatting)
+                  if [ "$(wc -l < "$body")" -gt 1 ]; then
+                      cat "$body" >> "$GITHUB_STEP_SUMMARY"
+                      echo "body-path=$body" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: Upsert sticky PR comment
+              # Fork PRs only get a read-only token, so the upsert would fail there; fork
+              # contributors still get the report via the job summary above.
+              if: ${{ steps.render.outputs.body-path != '' && github.event.pull_request.head.repo.full_name == github.repository }}
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  BODY: ${{ steps.render.outputs.body-path }}
+              run: |
+                  set -uo pipefail
+                  jq -Rs '{body: .}' "$BODY" > "${RUNNER_TEMP}/spec-report-payload.json"
+                  marker="<!-- hogvm-spec-report -->"
+                  existing=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" --paginate \
+                    --jq ".[] | select(.body | startswith(\"${marker}\")) | .id" | head -n1 || true)
+                  if [ -n "$existing" ]; then
+                    gh api -X PATCH "repos/${{ github.repository }}/issues/comments/${existing}" --input "${RUNNER_TEMP}/spec-report-payload.json" >/dev/null
+                  else
+                    gh api -X POST "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" --input "${RUNNER_TEMP}/spec-report-payload.json" >/dev/null
+                  fi
 
     hog-tests:
         needs: changes
