@@ -449,6 +449,7 @@ pub async fn process_batch(
                         if let Some(rp) = &read_pool {
                             crate::read_filter::filter_event_properties(
                                 rp,
+                                &cache,
                                 &mut outbound,
                                 read_budget,
                             )
@@ -525,8 +526,13 @@ pub async fn process_batch(
         handles.push(tokio::spawn(async move {
             let mut event_props = event_props;
             if let Some(rp) = &read_pool {
-                crate::read_filter::filter_event_properties(rp, &mut event_props, read_budget)
-                    .await;
+                crate::read_filter::filter_event_properties(
+                    rp,
+                    &cache,
+                    &mut event_props,
+                    read_budget,
+                )
+                .await;
             }
             if event_props.is_empty() {
                 return Ok(());
