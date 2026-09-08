@@ -380,12 +380,8 @@ class TestTemplateResolverAlignment(BaseTest):
 
         self.assertEqual(set(resolved.variables.keys()), expected_vars)
         self.assertEqual(resolved.service_id, template["serviceId"])
-        # Discovery must run against the registrable domain, because the
-        # _domainconnect TXT record never lives at a subdomain.
         self.assertEqual(resolved.root_domain, "example.com")
         self.assertEqual(resolved.host, expected_host)
-        # The SES tokens and the MAIL FROM label are relative to the sender domain,
-        # so the root/host split must not change them.
         self.assertEqual(resolved.variables["verifyToken"], "verify-token-123")
         self.assertEqual(resolved.variables["dkim1"], "aaa")
         self.assertEqual(resolved.variables["mailFromSub"], "feedback")

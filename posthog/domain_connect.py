@@ -204,7 +204,6 @@ def get_available_providers() -> list[dict[str, str]]:
 
 
 # --- Context resolvers ---
-# Each resolver returns a DomainConnectContext for a specific use case.
 
 
 @frozen
