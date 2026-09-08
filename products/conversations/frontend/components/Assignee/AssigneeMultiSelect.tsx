@@ -53,6 +53,17 @@ export function AssigneeMultiSelect({
         value.length >= MAX_ASSIGNEE_FILTER_ENTRIES
             ? `You can select up to ${MAX_ASSIGNEE_FILTER_ENTRIES} assignees`
             : undefined
+    // Closing the dropdown clears the search, but a keyboard activation of the X removes the
+    // filter without the pointer press that dismisses the dropdown. The search lives in a logic
+    // shared with the other assignee pickers and with the org member list, so removal clears it
+    // here as well.
+    const removeFilter = onRemove
+        ? (): void => {
+              setSearch('')
+              setShowPopover(false)
+              onRemove()
+          }
+        : null
 
     return (
         <LemonDropdown
@@ -163,9 +174,9 @@ export function AssigneeMultiSelect({
                     value.length > 0
                         ? () => {
                               onChange([])
-                              onRemove?.()
+                              removeFilter?.()
                           }
-                        : (onRemove ?? null),
+                        : removeFilter,
                     value.length > 0 ? 'Clear assignee filter' : 'Remove filter'
                 )}
             >
