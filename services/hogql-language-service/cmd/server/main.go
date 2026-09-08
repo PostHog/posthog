@@ -63,7 +63,7 @@ func main() {
 	if err != nil {
 		fatalConfiguration(err)
 	}
-	maxCatalogBytes, err := positiveIntEnv("CATALOG_CACHE_MAX_BYTES", 1<<30)
+	maxCatalogBytes, err := positiveIntEnv("CATALOG_CACHE_MAX_BYTES", 8<<30)
 	if err != nil {
 		fatalConfiguration(err)
 	}

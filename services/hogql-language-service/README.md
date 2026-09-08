@@ -75,7 +75,7 @@ returns `404`; the service never falls back to another team or user.
 `DELETE /teams/{teamId}/users/{userId}/catalog` removes that entry.
 
 Catalogs expire `CATALOG_TTL` (default `30m`) after publication so active projects periodically refresh their schema.
-When `MAX_CATALOGS` (default `1024`) or `CATALOG_CACHE_MAX_BYTES` (default `1 GiB`) is reached, the least recently used
+When `MAX_CATALOGS` (default `1024`) or `CATALOG_CACHE_MAX_BYTES` (default `8 GiB`) is reached, the least recently used
 catalog is evicted. A catalog request is limited to `64 MiB`. Publishing a new revision replaces the old immutable
 catalog atomically.
 
