@@ -282,7 +282,6 @@ class TestSearch(APIBaseTest):
                 include_counts=False,
             )
 
-        # one count per entity, and nothing else — the total is summed from those counts
         assert len(ctx_with) - len(ctx_without) == len(ENTITY_MAP)
         assert len(ctx_without) == 1
 
@@ -301,7 +300,6 @@ class TestSearch(APIBaseTest):
                 include_counts=False,
             )
 
-        # a branch without a limit of its own selects and sorts every matching row in the project
         assert len(ctx) == 1
         assert ctx.captured_queries[0]["sql"].count("LIMIT") == len(entities) + 1
 

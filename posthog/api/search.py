@@ -198,7 +198,6 @@ def search_entities(
         )
         if include_counts:
             counts[entity_name] = klass_qs.count()
-        # `type` is constant in a branch, so this is the union order applied to that branch
         branch_order = "-rank" if query else F("_sort_name").asc(nulls_first=True)
         branches.append(klass_qs.order_by(branch_order))
     qs = qs.union(*branches)
@@ -228,10 +227,11 @@ def search_entities(
 def _limit_branches(qs: QuerySet[Any], size: int) -> None:
     """Gives every union branch the same row limit as the union itself.
 
-    Each branch carries the union order, so the union can only ever return a branch's first
-    `size` rows. Without the limit a branch selects and sorts every matching row in the project
-    and the outer limit throws almost all of it away. Django refuses `order_by()` on a union of
-    sliced querysets, so the limit goes onto the branch queries after the union is ordered.
+    Each branch carries the union order, and `type` is constant in a branch, so the union can
+    only ever return a branch's first `size` rows. Without the limit a branch selects and sorts
+    every matching row in the project and the outer limit throws almost all of it away. Django
+    refuses `order_by()` on a union of sliced querysets, so the limit goes onto the branch
+    queries after the union is ordered.
     """
     for branch_query in qs.query.combined_queries:
         branch_query.set_limits(high=size)
