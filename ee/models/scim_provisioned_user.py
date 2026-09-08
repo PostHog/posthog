@@ -87,7 +87,7 @@ class SCIMProvisionedUser(UUIDModel, UpdatedMetaFields):
     # in the endpoint URL, so provisioning records hang off it.
     identity_provider_config = models.ForeignKey(
         "posthog.IdentityProviderConfig",
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         related_name="scim_provisioned_users",
         null=True,
         blank=True,

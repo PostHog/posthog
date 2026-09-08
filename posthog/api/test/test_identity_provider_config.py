@@ -362,6 +362,7 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
         provisioned_user = SCIMProvisionedUser.objects.create(
             user=self.user,
             identity_provider_config=config,
+            organization_domain=domain,
             identity_provider="okta",
             username=self.user.email,
             active=True,
@@ -372,7 +373,10 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(IdentityProviderConfig.objects.filter(id=config.id).exists())
         self.assertFalse(LinkedIdentityProviderConfig.objects.filter(identity_provider_config=config).exists())
-        self.assertFalse(SCIMProvisionedUser.objects.filter(id=provisioned_user.id).exists())
+        provisioned_user.refresh_from_db()
+        self.assertIsNone(provisioned_user.identity_provider_config_id)
+        self.assertIsNone(provisioned_user.organization_domain_id)
+        self.assertTrue(SCIMProvisionedUser.objects.filter(id=provisioned_user.id).exists())
 
     def test_can_delete_a_config_once_no_domain_uses_it(self):
         self._make_admin()
