@@ -164,7 +164,9 @@ function ConceptWaitlistForm({
     const hasWaitlistSurvey = waitlistSurveysEnabled
 
     const recordIntent = (): void => {
-        if (config.productIntent) {
+        // submitConceptSurvey refuses impersonated sessions; skip the intent too so a
+        // rejected signup never records a false adoption signal.
+        if (config.productIntent && !window.IMPERSONATED_SESSION) {
             void addProductIntentForCrossSell({
                 from: ProductKey.EARLY_ACCESS_FEATURES,
                 to: config.productIntent,
