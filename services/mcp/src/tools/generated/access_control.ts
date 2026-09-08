@@ -3,6 +3,13 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/access_control/api'
+import {
+    withPostHogUrl,
+    withAgentNote,
+    omitResponseFields,
+    type WithPostHogUrl,
+    type WithAgentNote,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const AccessControlDefaultObjectsListSchema = () => {
@@ -17,7 +24,7 @@ const AccessControlDefaultObjectsListSchema = () => {
 
 const accessControlDefaultObjectsList = (): ToolBase<
     ReturnType<typeof AccessControlDefaultObjectsListSchema>,
-    Schemas.AccessControlObjectRulesResponse
+    WithPostHogUrl<Schemas.AccessControlObjectRulesResponse>
 > => ({
     name: 'access-control-default-objects-list',
     schema: AccessControlDefaultObjectsListSchema(),
@@ -31,7 +38,7 @@ const accessControlDefaultObjectsList = (): ToolBase<
             method: 'GET',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/access_control_default_objects/`,
         })
-        return result
+        return await withPostHogUrl(context, result, '/settings/environment-access-control')
     },
 })
 
@@ -47,7 +54,7 @@ const AccessControlDefaultPropertiesListSchema = () => {
 
 const accessControlDefaultPropertiesList = (): ToolBase<
     ReturnType<typeof AccessControlDefaultPropertiesListSchema>,
-    Schemas.AccessControlPropertyRulesResponse
+    WithPostHogUrl<Schemas.AccessControlPropertyRulesResponse>
 > => ({
     name: 'access-control-default-properties-list',
     schema: AccessControlDefaultPropertiesListSchema(),
@@ -61,7 +68,7 @@ const accessControlDefaultPropertiesList = (): ToolBase<
             method: 'GET',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/access_control_default_properties/`,
         })
-        return result
+        return await withPostHogUrl(context, result, '/settings/environment-access-control')
     },
 })
 
@@ -77,7 +84,7 @@ const AccessControlDefaultsGetSchema = () => {
 
 const accessControlDefaultsGet = (): ToolBase<
     ReturnType<typeof AccessControlDefaultsGetSchema>,
-    Schemas.AccessControlDefaultsResponse
+    WithAgentNote<Schemas.AccessControlDefaultsResponse>
 > => ({
     name: 'access-control-defaults-get',
     schema: AccessControlDefaultsGetSchema(),
@@ -91,7 +98,11 @@ const accessControlDefaultsGet = (): ToolBase<
             method: 'GET',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/access_control_defaults/`,
         })
-        return result
+        const filtered = omitResponseFields(result, ['can_edit']) as typeof result
+        return withAgentNote(
+            filtered,
+            'access-control-members-list or access-control-roles-list show who deviates from this baseline. access-control-default-objects-list and access-control-default-properties-list show defaults set on single objects or properties.\n'
+        )
     },
 })
 
@@ -114,7 +125,7 @@ const AccessControlMemberObjectsListSchema = () => {
 
 const accessControlMemberObjectsList = (): ToolBase<
     ReturnType<typeof AccessControlMemberObjectsListSchema>,
-    Schemas.AccessControlObjectRulesResponse
+    WithAgentNote<WithPostHogUrl<Schemas.AccessControlObjectRulesResponse>>
 > => ({
     name: 'access-control-member-objects-list',
     schema: AccessControlMemberObjectsListSchema(),
@@ -131,7 +142,10 @@ const accessControlMemberObjectsList = (): ToolBase<
                 member_id: params.member_id,
             },
         })
-        return result
+        return withAgentNote(
+            await withPostHogUrl(context, result, '/settings/environment-access-control'),
+            "The member's tool-level access is on access-control-members-list. Object rules from the member's roles are on access-control-role-objects-list, one call per role from role-members-list.\n"
+        )
     },
 })
 
@@ -156,7 +170,7 @@ const AccessControlMemberPropertiesListSchema = () => {
 
 const accessControlMemberPropertiesList = (): ToolBase<
     ReturnType<typeof AccessControlMemberPropertiesListSchema>,
-    Schemas.AccessControlPropertyRulesResponse
+    WithAgentNote<WithPostHogUrl<Schemas.AccessControlPropertyRulesResponse>>
 > => ({
     name: 'access-control-member-properties-list',
     schema: AccessControlMemberPropertiesListSchema(),
@@ -173,7 +187,10 @@ const accessControlMemberPropertiesList = (): ToolBase<
                 member_id: params.member_id,
             },
         })
-        return result
+        return withAgentNote(
+            await withPostHogUrl(context, result, '/settings/environment-access-control'),
+            "Property rules from the member's roles are on access-control-role-properties-list, one call per role from role-members-list. Rules for everyone are on access-control-default-properties-list.\n"
+        )
     },
 })
 
@@ -196,7 +213,7 @@ const AccessControlMembersListSchema = () => {
 
 const accessControlMembersList = (): ToolBase<
     ReturnType<typeof AccessControlMembersListSchema>,
-    Schemas.AccessControlMembersResponse
+    WithAgentNote<WithPostHogUrl<Schemas.AccessControlMembersResponse>>
 > => ({
     name: 'access-control-members-list',
     schema: AccessControlMembersListSchema(),
@@ -213,7 +230,21 @@ const accessControlMembersList = (): ToolBase<
                 member_id: params.member_id,
             },
         })
-        return result
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, [
+                    'project.minimum',
+                    'project.maximum',
+                    'resources.*.minimum',
+                    'resources.*.maximum',
+                ])
+            ),
+        } as typeof result
+        return withAgentNote(
+            await withPostHogUrl(context, filtered, '/settings/environment-access-control'),
+            'For one dashboard, insight, notebook or table, call access-control-member-objects-list; for a person or event property, access-control-member-properties-list. Rules a role sets on objects or properties are only on the role-objects and role-properties tools. Level bounds per tool are on access-control-defaults-get.\n'
+        )
     },
 })
 
@@ -236,7 +267,7 @@ const AccessControlRoleObjectsListSchema = () => {
 
 const accessControlRoleObjectsList = (): ToolBase<
     ReturnType<typeof AccessControlRoleObjectsListSchema>,
-    Schemas.AccessControlObjectRulesResponse
+    WithPostHogUrl<Schemas.AccessControlObjectRulesResponse>
 > => ({
     name: 'access-control-role-objects-list',
     schema: AccessControlRoleObjectsListSchema(),
@@ -253,7 +284,7 @@ const accessControlRoleObjectsList = (): ToolBase<
                 role_id: params.role_id,
             },
         })
-        return result
+        return await withPostHogUrl(context, result, '/settings/environment-access-control')
     },
 })
 
@@ -276,7 +307,7 @@ const AccessControlRolePropertiesListSchema = () => {
 
 const accessControlRolePropertiesList = (): ToolBase<
     ReturnType<typeof AccessControlRolePropertiesListSchema>,
-    Schemas.AccessControlPropertyRulesResponse
+    WithPostHogUrl<Schemas.AccessControlPropertyRulesResponse>
 > => ({
     name: 'access-control-role-properties-list',
     schema: AccessControlRolePropertiesListSchema(),
@@ -293,7 +324,7 @@ const accessControlRolePropertiesList = (): ToolBase<
                 role_id: params.role_id,
             },
         })
-        return result
+        return await withPostHogUrl(context, result, '/settings/environment-access-control')
     },
 })
 
@@ -316,7 +347,7 @@ const AccessControlRolesListSchema = () => {
 
 const accessControlRolesList = (): ToolBase<
     ReturnType<typeof AccessControlRolesListSchema>,
-    Schemas.AccessControlRolesResponse
+    WithAgentNote<WithPostHogUrl<Schemas.AccessControlRolesResponse>>
 > => ({
     name: 'access-control-roles-list',
     schema: AccessControlRolesListSchema(),
@@ -333,7 +364,21 @@ const accessControlRolesList = (): ToolBase<
                 role_id: params.role_id,
             },
         })
-        return result
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, [
+                    'project.minimum',
+                    'project.maximum',
+                    'resources.*.minimum',
+                    'resources.*.maximum',
+                ])
+            ),
+        } as typeof result
+        return withAgentNote(
+            await withPostHogUrl(context, filtered, '/settings/environment-access-control'),
+            "A member's enforced level already includes their roles, so for a person use access-control-members-list. For a role's rules on one object or property, call access-control-role-objects-list or access-control-role-properties-list. roles-list gives role ids and role-members-list gives who is in a role.\n"
+        )
     },
 })
 
