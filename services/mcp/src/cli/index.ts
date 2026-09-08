@@ -90,6 +90,7 @@ async function buildExec(config: CliConfig = resolveCliConfig()): Promise<BuiltE
     const virtualToolName = missingCapabilityToolName(getPostHogClient())
     const aiConsentGiven = await context.stateManager.getAiConsentGiven()
     const tools = getCliTools({ aiConsentGiven })
+    const reportMissingCapability = context.reportMissingCapability
     const execTool = createExecTool(
         tools,
         context,
@@ -102,11 +103,11 @@ async function buildExec(config: CliConfig = resolveCliConfig()): Promise<BuiltE
         [],
         {
             requireDestructiveConfirmation: true,
-            ...(virtualToolName && context.reportMissingCapability
+            ...(virtualToolName && reportMissingCapability
                 ? {
                       missingCapability: {
                           toolName: virtualToolName,
-                          report: (description: string) => void context.reportMissingCapability?.(description),
+                          report: (description: string) => void reportMissingCapability(description),
                       },
                   }
                 : {}),

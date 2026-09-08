@@ -471,7 +471,7 @@ export function trackAuthFailure(props: RequestProperties, failure: McpAuthFailu
  * resolved name. The base properties carry the client identity that the feed resolves into a
  * harness label, so a report without them shows as an unidentified client.
  */
-export async function trackMissingCapability(intent: string | undefined, state: ResolvedState): Promise<void> {
+export async function trackMissingCapability(intent: string, state: ResolvedState): Promise<void> {
     try {
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
@@ -482,7 +482,7 @@ export async function trackMissingCapability(intent: string | undefined, state: 
             distinctId: state.distinctId,
             groups,
             ...(sessionUuid ? { sessionId: sessionUuid } : {}),
-            ...(intent ? { context: intent } : {}),
+            context: intent,
             properties,
         })
     } catch {
