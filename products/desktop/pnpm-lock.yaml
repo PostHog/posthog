@@ -569,8 +569,8 @@ importers:
         specifier: ^3.0.2
         version: 3.0.3(react-native-svg@15.15.5(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6))(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6)
       posthog-react-native:
-        specifier: ^4.67.1
-        version: 4.67.1(604eb56a6918d5c695b6cd493ea29f1c)
+        specifier: ^4.67.3
+        version: 4.67.3(604eb56a6918d5c695b6cd493ea29f1c)
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -1449,8 +1449,8 @@ importers:
         specifier: ^11.17.0
         version: 11.17.0
       posthog-js:
-        specifier: ^1.428.1
-        version: 1.428.1(@types/react@19.2.17)(react@19.2.6)
+        specifier: ^1.428.3
+        version: 1.428.3(@types/react@19.2.17)(react@19.2.6)
       radix-themes-tw:
         specifier: 0.2.3
         version: 0.2.3
@@ -1745,8 +1745,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
       posthog-js:
-        specifier: ^1.428.1
-        version: 1.428.1(@types/react@19.2.17)(react@19.2.6)
+        specifier: ^1.428.3
+        version: 1.428.3(@types/react@19.2.17)(react@19.2.6)
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -6250,8 +6250,8 @@ packages:
       react:
         optional: true
 
-  '@posthog/browser-common@0.8.1':
-    resolution: {integrity: sha512-lbkGamYjj9BgBZjM8wtFrpXeOWux0OjdpjjxCEjVko1y5HRUcisfx0s74v/VmGy9jia9kynN/Q7kvqY4+Zc4aQ==}
+  '@posthog/browser-common@0.8.2':
+    resolution: {integrity: sha512-8g7+ijrx8bfWmpDjmP07e0ZmdRnJoFqZ6PCcMQvfBTUrr422GRXvQWpQn7yD028zIJHIIn/rUTipKgUC5UkWpw==}
 
   '@posthog/cli@0.16.2':
     resolution: {integrity: sha512-h8bpf9ffBUH/Z9IoyGV+wiI+vS8rIPorKT3eKQXuzuwawO0G7Qvy+hDd7HQ9YJjHByYZ77yPPQvrSs4WsqTUCg==}
@@ -13931,8 +13931,8 @@ packages:
     resolution: {integrity: sha512-g50586zr4bZmwFiTlflMu8E0bDTb5I5gertgwAKmsdUlTQIhZtunzUlD1WSzwcVWPoAVpsrA6vlfCD7oXvRwgg==}
     engines: {node: ^10 || ^12 || >=14}
 
-  posthog-js@1.428.1:
-    resolution: {integrity: sha512-lFdg5f7aB/3SB4vqLUHvRisJKflhduVpc/y6WGxNtc3HSHBXFFLvxiNoPJG9kqCqWHKlwczIKplFHr8H1I3L1w==}
+  posthog-js@1.428.3:
+    resolution: {integrity: sha512-39BloFeL5koaAC8FmbDFx1RQGUwZkqO46M2d1wCi2vVkmiv+TrjC37t5hT9QjAszAeGn7gXeBX7E+MgND5Tygw==}
     peerDependencies:
       '@types/react': ^19.2.15
       react: 19.2.6
@@ -13951,8 +13951,8 @@ packages:
       rxjs:
         optional: true
 
-  posthog-react-native@4.67.1:
-    resolution: {integrity: sha512-Gt86KAxKxUUkhlGIhr2JQdsnumMhy9KLEE5OKKEJRO2AWUfwmKbi6YetSrp+i/YpZW5S5j00z/PCkz4Ck5vHlQ==}
+  posthog-react-native@4.67.3:
+    resolution: {integrity: sha512-fJDwgWlYQyor6+hy3M1G1hEHyw1t9O2GMJZoLQmiOqDZS+YcEbyqrxbvSKOPsS+0WBlHEz+kIm2kJMt8stX3Tw==}
     hasBin: true
     peerDependencies:
       '@posthog/react-native-plugin': '>= 2.4.3'
@@ -20959,7 +20959,7 @@ snapshots:
     optionalDependencies:
       react: 19.2.6
 
-  '@posthog/browser-common@0.8.1':
+  '@posthog/browser-common@0.8.2':
     dependencies:
       '@posthog/core': 1.51.0
       '@posthog/types': 1.409.1
@@ -30031,9 +30031,9 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
-  posthog-js@1.428.1(@types/react@19.2.17)(react@19.2.6):
+  posthog-js@1.428.3(@types/react@19.2.17)(react@19.2.6):
     dependencies:
-      '@posthog/browser-common': 0.8.1
+      '@posthog/browser-common': 0.8.2
       '@posthog/core': 1.51.0
       '@posthog/types': 1.409.1
       core-js: 3.50.0
@@ -30055,9 +30055,9 @@ snapshots:
     optionalDependencies:
       rxjs: 7.8.2
 
-  posthog-react-native@4.67.1(604eb56a6918d5c695b6cd493ea29f1c):
+  posthog-react-native@4.67.3(604eb56a6918d5c695b6cd493ea29f1c):
     dependencies:
-      '@posthog/core': 1.50.6
+      '@posthog/core': 1.51.0
       '@posthog/types': 1.409.1
     optionalDependencies:
       '@posthog/react-native-plugin': 2.5.2(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6)
