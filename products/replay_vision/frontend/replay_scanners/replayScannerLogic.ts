@@ -2287,6 +2287,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             actions.loadObservations()
             actions.loadObservationStats()
         }
+        // Re-runs when the tab becomes visible again, picking up test account filters configured in another tab
+        cache.disposables.add(() => {
+            const team = teamLogic.findMounted()
+            if (cache.teamRefreshArmed && team && !team.values.currentTeamLoading) {
+                team.actions.refreshCurrentTeam()
+            }
+            cache.teamRefreshArmed = true
+            return () => {}
+        }, 'refreshTeamOnVisible')
     }),
 
     beforeUnmount(({ values, props, cache }) => {

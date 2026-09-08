@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -1492,6 +1492,43 @@ describe('replayScannerLogic', () => {
 
             expect(logic.values.scanner?.experiment_targeting).toBeFalsy()
             expect(logic.values.experimentContext).toBeNull()
+        })
+    })
+
+    describe('team refresh on tab visibility', () => {
+        const setHidden = (hidden: boolean): void => {
+            Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+            document.dispatchEvent(new Event('visibilitychange'))
+        }
+        let teamSpy: jest.Mock
+
+        beforeEach(() => {
+            teamSpy = jest.fn(() => [
+                200,
+                {
+                    ...MOCK_DEFAULT_TEAM,
+                    test_account_filters: [
+                        { key: 'email', type: 'person', value: 'example.com', operator: 'not_icontains' },
+                    ],
+                },
+            ])
+            useMocks({ get: { '/api/environments/@current': teamSpy } })
+            teamLogic.mount()
+        })
+
+        afterEach(() => {
+            setHidden(false)
+        })
+
+        it('refetches the team when the tab becomes visible again, not on mount', async () => {
+            expect(teamSpy).not.toHaveBeenCalled()
+
+            setHidden(true)
+            setHidden(false)
+            await expectLogic(teamLogic).toDispatchActions(['refreshCurrentTeamSuccess'])
+
+            expect(teamSpy).toHaveBeenCalledTimes(1)
+            expect(teamLogic.values.currentTeam?.test_account_filters?.[0]?.value).toBe('example.com')
         })
     })
 })
