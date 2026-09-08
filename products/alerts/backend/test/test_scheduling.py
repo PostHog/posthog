@@ -130,10 +130,70 @@ class TestScheduleStartTime:
 
     @parameterized.expand(
         [
-            (CalendarInterval.HOURLY, datetime(2026, 3, 18, 9, 30, tzinfo=UTC), datetime(2026, 3, 18, 10, 35, tzinfo=UTC)),
-            (CalendarInterval.HOURLY, datetime(2026, 3, 18, 9, 30, 1, tzinfo=UTC), datetime(2026, 3, 18, 10, 35, tzinfo=UTC)),
-            (CalendarInterval.EVERY_15_MINUTES, datetime(2026, 3, 18, 9, 30, tzinfo=UTC), datetime(2026, 3, 18, 9, 50, tzinfo=UTC)),
-            (CalendarInterval.EVERY_15_MINUTES, datetime(2026, 3, 18, 9, 30, 1, tzinfo=UTC), datetime(2026, 3, 18, 9, 50, tzinfo=UTC)),
+            (CalendarInterval.REAL_TIME, datetime(2026, 3, 18, 9, 35, tzinfo=UTC)),
+            (CalendarInterval.EVERY_15_MINUTES, datetime(2026, 3, 18, 9, 35, tzinfo=UTC)),
+            (CalendarInterval.HOURLY, datetime(2026, 3, 18, 9, 35, tzinfo=UTC)),
+            (CalendarInterval.DAILY, datetime(2026, 3, 18, 9, 35, tzinfo=UTC)),
+            (CalendarInterval.WEEKLY, datetime(2026, 3, 23, 9, 35, tzinfo=UTC)),
+            (CalendarInterval.MONTHLY, datetime(2026, 4, 1, 9, 35, tzinfo=UTC)),
+        ]
+    )
+    def test_next_check_uses_schedule_start_time_on_create(
+        self, interval: CalendarInterval, expected: datetime
+    ) -> None:
+        assert (
+            next_calendar_check_time(
+                interval,
+                now=datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+                tz_name="UTC",
+                next_check_at=None,
+                schedule_start_time={"time": "09:35"},
+            )
+            == expected
+        )
+
+    @parameterized.expand(
+        [
+            (
+                CalendarInterval.REAL_TIME,
+                datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+                datetime(2026, 3, 18, 9, 35, tzinfo=UTC),
+            ),
+            (
+                CalendarInterval.HOURLY,
+                datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+                datetime(2026, 3, 18, 10, 35, tzinfo=UTC),
+            ),
+            (
+                CalendarInterval.HOURLY,
+                datetime(2026, 3, 18, 9, 30, 1, tzinfo=UTC),
+                datetime(2026, 3, 18, 10, 35, tzinfo=UTC),
+            ),
+            (
+                CalendarInterval.EVERY_15_MINUTES,
+                datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+                datetime(2026, 3, 18, 9, 50, tzinfo=UTC),
+            ),
+            (
+                CalendarInterval.EVERY_15_MINUTES,
+                datetime(2026, 3, 18, 9, 30, 1, tzinfo=UTC),
+                datetime(2026, 3, 18, 9, 50, tzinfo=UTC),
+            ),
+            (
+                CalendarInterval.DAILY,
+                datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+                datetime(2026, 3, 18, 9, 35, tzinfo=UTC),
+            ),
+            (
+                CalendarInterval.WEEKLY,
+                datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+                datetime(2026, 3, 23, 9, 35, tzinfo=UTC),
+            ),
+            (
+                CalendarInterval.MONTHLY,
+                datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+                datetime(2026, 4, 1, 9, 35, tzinfo=UTC),
+            ),
         ]
     )
     def test_next_check_respects_the_cadence_after_an_anchor_edit(
