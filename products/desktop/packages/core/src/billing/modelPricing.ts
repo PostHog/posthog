@@ -8,7 +8,7 @@ import { isCustomModelOption } from "@posthog/shared";
  *
  * Sources, checked 2026-09-07:
  * - Anthropic (Opus, Sonnet, Haiku): platform.claude.com/docs/en/about-claude/pricing
- * - GPT-5.5: developers.openai.com/api/docs/pricing
+ * - GPT-5.4, GPT-5.5: developers.openai.com/api/docs/pricing
  * - Fable, GPT-5.6, GPT-6 Astra, Kimi K3, GLM, DeepSeek: the gateway's billing rates, what
  *   the user is actually charged (pinned in the file above). The drift test
  *   binds these rows to it.
@@ -27,7 +27,7 @@ export interface ModelCostInfo {
   approximate: boolean;
 }
 
-interface ModelPickerOptionBase {
+export interface ModelPickerOptionBase {
   value: string;
   name: string;
   _meta?: Record<string, unknown> | null;
@@ -42,9 +42,15 @@ export interface CustomModelPickerOption extends ModelPickerOptionBase {
   kind: "custom";
 }
 
+/** A gateway model this table has no price row for. It shows no cost chip. */
+export interface UnpricedModelPickerOption extends ModelPickerOptionBase {
+  kind: "unpriced";
+}
+
 export type ModelPickerOption =
   | PricedModelPickerOption
-  | CustomModelPickerOption;
+  | CustomModelPickerOption
+  | UnpricedModelPickerOption;
 
 /** The 1× anchor every multiplier is stated against. */
 export const MODEL_COST_BASELINE_NAME = "Claude Sonnet 5";
@@ -64,6 +70,7 @@ const LIST_PRICES: [family: string, price: ModelListPrice][] = [
   ["gpt-5.6-terra", { inputPerMtok: 2.5, outputPerMtok: 15 }],
   ["gpt-5.6-luna", { inputPerMtok: 1, outputPerMtok: 6 }],
   ["gpt-5.5", { inputPerMtok: 5, outputPerMtok: 30 }],
+  ["gpt-5.4", { inputPerMtok: 2.5, outputPerMtok: 15 }],
   ["kimi", { inputPerMtok: 3, outputPerMtok: 15 }],
   ["glm-5.3-flash", { inputPerMtok: 0.15, outputPerMtok: 0.5 }],
   ["glm", { inputPerMtok: 1.4, outputPerMtok: 4.4 }],
@@ -140,8 +147,10 @@ export function modelCostInfo(modelId: string): ModelCostInfo | null {
 }
 
 /**
- * Converts an ACP model into the picker contract. Gateway models require cost
- * data; only options explicitly marked as custom can omit it.
+ * Converts an ACP model into the picker contract. The pickers call this during
+ * render, so a model id this table does not know must cost the row its cost
+ * chip and nothing more: the harness names its own model ids, and a resumed
+ * session can carry an older one, so drift is expected.
  */
 export function toModelPickerOption(
   model: ModelPickerOptionBase,
@@ -151,7 +160,7 @@ export function toModelPickerOption(
   }
   const cost = modelCostInfo(model.value);
   if (!cost) {
-    throw new Error(`Missing pricing for gateway model: ${model.value}`);
+    return { ...model, kind: "unpriced" };
   }
   return { ...model, kind: "priced", cost };
 }
