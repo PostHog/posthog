@@ -136,6 +136,21 @@ export const AlertsCreateBody = () => zod.object({
             'Alert condition type. Determines how the value is evaluated: absolute_value, relative_increase, or relative_decrease.'
         ),
     enabled: zod.boolean().optional().describe('Whether the alert is actively being evaluated.'),
+    schedule_anchor: zod
+        .union([
+            zod.object({
+                time: zod
+                    .string()
+                    .describe(
+                        'Local project time in HH:MM format. The scheduler uses this time as the cadence anchor.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Local time for alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to use the default schedule.'
+        ),
     config: zod
         .union([
             zod
@@ -1443,6 +1458,21 @@ export const AlertsPartialUpdateBody = () => zod.object({
             'Alert condition type. Determines how the value is evaluated: absolute_value, relative_increase, or relative_decrease.'
         ),
     enabled: zod.boolean().optional().describe('Whether the alert is actively being evaluated.'),
+    schedule_anchor: zod
+        .union([
+            zod.object({
+                time: zod
+                    .string()
+                    .describe(
+                        'Local project time in HH:MM format. The scheduler uses this time as the cadence anchor.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Local time for alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to use the default schedule.'
+        ),
     config: zod
         .union([
             zod

@@ -35,6 +35,9 @@ const alertCreate = (): ToolBase<ReturnType<typeof AlertCreateSchema>, WithPostH
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
         }
+        if (params.schedule_anchor !== undefined) {
+            body['schedule_anchor'] = params.schedule_anchor
+        }
         if (params.config !== undefined) {
             body['config'] = params.config
         }
@@ -178,6 +181,9 @@ const alertUpdate = (): ToolBase<ReturnType<typeof AlertUpdateSchema>, WithPostH
         }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
+        }
+        if (params.schedule_anchor !== undefined) {
+            body['schedule_anchor'] = params.schedule_anchor
         }
         if (params.config !== undefined) {
             body['config'] = params.config
