@@ -131,7 +131,7 @@ def sync_gmail_backfill_batch(
     access_token = _get_fresh_access_token(integration)
     channel = _email_channel(integration)
     params = {
-        "q": f"{{in:inbox in:sent}} after:{int(start_at.timestamp())} before:{int(end_at.timestamp())}",
+        "q": f"{{in:inbox in:sent}} after:{int(start_at.timestamp()) - 1} before:{int(end_at.timestamp())}",
         "maxResults": BACKFILL_PAGE_SIZE,
     }
     if page_token:

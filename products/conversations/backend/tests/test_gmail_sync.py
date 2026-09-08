@@ -199,7 +199,7 @@ class TestGmailSync(BaseTest):
         first_list_params = mock_request.call_args_list[0].kwargs["params"]
         second_list_params = mock_request.call_args_list[2].kwargs["params"]
         assert first_list_params == {
-            "q": f"{{in:inbox in:sent}} after:{int(start_at.timestamp())} before:{int(end_at.timestamp())}",
+            "q": f"{{in:inbox in:sent}} after:{int(start_at.timestamp()) - 1} before:{int(end_at.timestamp())}",
             "maxResults": gmail_sync.BACKFILL_PAGE_SIZE,
         }
         assert second_list_params["pageToken"] == "page-2"
