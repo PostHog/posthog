@@ -2753,8 +2753,9 @@ def update_task_run(
             and run.task.origin_product == Task.OriginProduct.WORKFLOW
             and (run.state or {}).get("end_run_when_done")
         ):
-            run.output = {key: value for key, value in (run.output or {}).items() if key != "final_message"}
-            update_fields.add("output")
+            if isinstance(run.output, dict):
+                run.output = {key: value for key, value in run.output.items() if key != "final_message"}
+                update_fields.add("output")
         if new_status in _TERMINAL_TASK_RUN_STATUSES:
             if not run.completed_at:
                 run.completed_at = django_timezone.now()
