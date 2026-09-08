@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { NotebookType } from 'scenes/notebooks/types'
 
@@ -8,7 +10,7 @@ import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
 import mockNotebook from '../__mocks__/notebook-12345.json'
-import { migrate } from './migrate'
+import { migrate, NotebookLegacyMigration } from './migrate'
 
 describe('migrate()', () => {
     beforeEach(() => {
@@ -1069,5 +1071,59 @@ describe('migrate()', () => {
         }
 
         await expect(migrate(prevNotebook)).resolves.toEqual(nextNotebook)
+    })
+
+    // `migrate` runs on every notebook load, so a report on a load that repaired nothing, or one
+    // naming the wrong converter, would keep a dead converter alive or delete a load bearing one.
+    const legacyMigrationReports: [string, JSONContent[], NotebookLegacyMigration[] | null][] = [
+        ['nothing for content that holds no legacy shape', [{ type: 'paragraph' }], null],
+        [
+            'the trends converter for a legacy trends filter',
+            [
+                {
+                    type: 'ph-query',
+                    attrs: {
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.TrendsQuery,
+                                series: [],
+                                trendsFilter: { compare: true, show_values_on_series: true },
+                            },
+                        },
+                    },
+                },
+            ],
+            ['trends_filter'],
+        ],
+        [
+            'both converters for a stringified query that holds a legacy breakdown',
+            [
+                {
+                    type: 'ph-query',
+                    attrs: {
+                        query: '{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[],"breakdown":{"breakdown_type":"event","breakdown":"$browser"}}}',
+                    },
+                },
+            ],
+            ['breakdown_filter', 'query_string_to_object'],
+        ],
+    ]
+
+    it.each(legacyMigrationReports)('reports %s', async (_name, content, expectedMigrations) => {
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+
+        const notebook: NotebookType = {
+            ...mockNotebook,
+            user_access_level: AccessControlLevel.Editor,
+            content: { type: 'doc', content },
+        }
+
+        await migrate(notebook, { skipApiUpgrade: true })
+
+        const reported = captureSpy.mock.calls
+            .filter(([event]) => event === 'notebook_legacy_migration_applied')
+            .map(([, properties]) => (properties as any).migrations)
+        expect(reported).toEqual(expectedMigrations ? [expectedMigrations] : [])
     })
 })

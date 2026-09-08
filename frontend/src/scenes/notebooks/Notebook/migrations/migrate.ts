@@ -1,4 +1,5 @@
 import { JSONContent } from '@tiptap/core'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { isEmptyObject } from 'lib/utils/guards'
@@ -47,6 +48,21 @@ import { convertMarkdownTablesInContent } from './convertMarkdownTablesInContent
 // is filtered through the migrate function below that ensures integrity
 export const NOTEBOOKS_VERSION = '3'
 
+// The names `migrate` reports in `notebook_legacy_migration_applied`. A name that never gets
+// reported marks a converter, and a `filtersToQueryNode` export, that no stored notebook needs.
+export type NotebookLegacyMigration =
+    | 'insight_to_query_node'
+    | 'query_string_to_object'
+    | 'playlist_filters_to_universal_filters'
+    | 'trends_filter'
+    | 'funnels_filter'
+    | 'funnels_exclusion'
+    | 'retention_filter'
+    | 'paths_filter'
+    | 'stickiness_filter'
+    | 'lifecycle_filter'
+    | 'breakdown_filter'
+
 export interface MigrateOptions {
     /**
      * Skips the query migrate step which issues a POST request to the backend which will result
@@ -62,11 +78,22 @@ export async function migrate(notebook: NotebookType, options: MigrateOptions = 
         return notebook
     }
 
-    content = convertInsightToQueryNode(content)
-    content = convertInsightQueryStringsToObjects(content)
-    content = convertInsightQueriesToNewSchema(content)
-    content = convertPlaylistFiltersToUniversalFilters(content)
+    const applied = new Set<NotebookLegacyMigration>()
+
+    content = convertInsightToQueryNode(content, applied)
+    content = convertInsightQueryStringsToObjects(content, applied)
+    content = convertInsightQueriesToNewSchema(content, applied)
+    content = convertPlaylistFiltersToUniversalFilters(content, applied)
     content = convertMarkdownTablesInContent(content)
+
+    // Report before the upgrade request, so a failing request does not lose the measurement.
+    if (applied.size > 0) {
+        posthog.capture('notebook_legacy_migration_applied', {
+            migrations: Array.from(applied).sort(),
+            short_id: notebook.short_id,
+        })
+    }
+
     if (!options.skipApiUpgrade) {
         content = await upgradeQueryNode(content)
     }
@@ -74,7 +101,10 @@ export async function migrate(notebook: NotebookType, options: MigrateOptions = 
     return { ...notebook, content: { type: 'doc', content: content } }
 }
 
-function convertPlaylistFiltersToUniversalFilters(content: JSONContent[]): JSONContent[] {
+function convertPlaylistFiltersToUniversalFilters(
+    content: JSONContent[],
+    applied: Set<NotebookLegacyMigration>
+): JSONContent[] {
     return content.map((node) => {
         if (node.type != NotebookNodeType.RecordingPlaylist) {
             return node
@@ -89,6 +119,8 @@ function convertPlaylistFiltersToUniversalFilters(content: JSONContent[]): JSONC
         if (universalFilters) {
             return node
         }
+
+        applied.add('playlist_filters_to_universal_filters')
 
         const jsonFilters = typeof filters === 'string' ? JSON.parse(filters) : filters
         const jsonSimpleFilters = typeof simpleFilters === 'string' ? JSON.parse(simpleFilters) : simpleFilters
@@ -105,11 +137,13 @@ function convertPlaylistFiltersToUniversalFilters(content: JSONContent[]): JSONC
     })
 }
 
-function convertInsightToQueryNode(content: JSONContent[]): JSONContent[] {
+function convertInsightToQueryNode(content: JSONContent[], applied: Set<NotebookLegacyMigration>): JSONContent[] {
     return content.map((node) => {
         if (node.type != 'ph-insight') {
             return node
         }
+
+        applied.add('insight_to_query_node')
 
         return {
             ...node,
@@ -122,7 +156,10 @@ function convertInsightToQueryNode(content: JSONContent[]): JSONContent[] {
     })
 }
 
-function convertInsightQueryStringsToObjects(content: JSONContent[]): JSONContent[] {
+function convertInsightQueryStringsToObjects(
+    content: JSONContent[],
+    applied: Set<NotebookLegacyMigration>
+): JSONContent[] {
     return content.map((node) => {
         if (
             !(
@@ -134,6 +171,8 @@ function convertInsightQueryStringsToObjects(content: JSONContent[]): JSONConten
         ) {
             return node
         }
+
+        applied.add('query_string_to_object')
 
         let query
 
@@ -162,7 +201,10 @@ function convertInsightQueryStringsToObjects(content: JSONContent[]): JSONConten
     })
 }
 
-function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[] {
+function convertInsightQueriesToNewSchema(
+    content: JSONContent[],
+    applied: Set<NotebookLegacyMigration>
+): JSONContent[] {
     return content.map((node) => {
         if (
             !(
@@ -183,6 +225,8 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
          * Insight filters
          */
         if (query.kind === NodeKind.TrendsQuery && isLegacyTrendsFilter(query.trendsFilter as any)) {
+            applied.add('trends_filter')
+
             const compareFilter = compareFilterToQuery(query.trendsFilter as any)
             if (!isEmptyObject(compareFilter)) {
                 query.compareFilter = compareFilter
@@ -200,8 +244,10 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
 
         if (query.kind === NodeKind.FunnelsQuery) {
             if (isLegacyFunnelsFilter(query.funnelsFilter as any)) {
+                applied.add('funnels_filter')
                 query.funnelsFilter = funnelsFilterToQuery(query.funnelsFilter as any)
             } else if (isLegacyFunnelsExclusion(query.funnelsFilter as any)) {
+                applied.add('funnels_exclusion')
                 query.funnelsFilter = {
                     ...query.funnelsFilter,
                     exclusions: query.funnelsFilter!.exclusions!.map((entity) =>
@@ -212,14 +258,18 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
         }
 
         if (query.kind === NodeKind.RetentionQuery && isLegacyRetentionFilter(query.retentionFilter as any)) {
+            applied.add('retention_filter')
             query.retentionFilter = retentionFilterToQuery(query.retentionFilter as any)
         }
 
         if (query.kind === NodeKind.PathsQuery && isLegacyPathsFilter(query.pathsFilter as any)) {
+            applied.add('paths_filter')
             query.pathsFilter = pathsFilterToQuery(query.pathsFilter as any)
         }
 
         if (query.kind === NodeKind.StickinessQuery && isLegacyStickinessFilter(query.stickinessFilter as any)) {
+            applied.add('stickiness_filter')
+
             const compareFilter = compareFilterToQuery(query.stickinessFilter as any)
             if (!isEmptyObject(compareFilter)) {
                 query.compareFilter = compareFilter
@@ -236,6 +286,7 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
         }
 
         if (query.kind === NodeKind.LifecycleQuery && isLegacyLifecycleFilter(query.lifecycleFilter as any)) {
+            applied.add('lifecycle_filter')
             query.lifecycleFilter = lifecycleFilterToQuery(query.lifecycleFilter as any)
         }
 
@@ -243,6 +294,7 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
          * Breakdown
          */
         if ((query.kind === NodeKind.TrendsQuery || query.kind === NodeKind.FunnelsQuery) && 'breakdown' in query) {
+            applied.add('breakdown_filter')
             query.breakdownFilter = breakdownFilterToQuery(query.breakdown as any, query.kind === NodeKind.TrendsQuery)
             delete query.breakdown
         }
