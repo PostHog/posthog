@@ -55,7 +55,7 @@ from posthog.schema_enums import ChartDisplayType, ProductKey
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
-from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
+from products.cohorts.backend.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, Cohort, CohortOrEmpty
 from products.cohorts.backend.models.dependencies import get_cohort_dependents
 from products.cohorts.backend.models.sql import GET_COHORT_SIZE_SQL, RECALCULATE_COHORT_BY_ID
 
@@ -549,7 +549,7 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
 def format_static_cohort_query(cohort: Cohort, index: int, prepend: str) -> tuple[str, dict[str, Any]]:
     cohort_id = cohort.pk
     return (
-        f"SELECT person_id as id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %({prepend}_cohort_id_{index})s AND team_id = %(team_id)s",
+        f"SELECT DISTINCT person_id as id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %({prepend}_cohort_id_{index})s AND team_id = %(team_id)s",
         {f"{prepend}_cohort_id_{index}": cohort_id},
     )
 
@@ -609,9 +609,11 @@ def insert_static_cohort(person_uuids: Sequence[Optional[uuid.UUID]], cohort_id:
         name="insert_static_cohort",
         feature=Feature.COHORT,
     )
+    # `id` completes the table's sort key, so deriving it from the person UUID lets
+    # ReplacingMergeTree collapse a repeated insert of the same member on merge.
     persons = [
         {
-            "id": str(uuid.uuid4()),
+            "id": str(person_uuid),
             "person_id": str(person_uuid),
             "cohort_id": cohort_id,
             "team_id": team_id,
@@ -1208,6 +1210,37 @@ def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
     cohort._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=False, team_id=team_id)
 
 
+def insert_cohort_people_into_ch(cohort: Cohort, *, team_id: int) -> int:
+    """Refill ClickHouse person_static_cohort from a static cohort's Postgres membership.
+
+    The mirror of ``insert_cohort_people_into_pg``. Postgres membership backs the cohort count,
+    the membership check and flag evaluation, while ClickHouse backs HogQL ``IN COHORT``. A cohort
+    that lost its ClickHouse rows therefore matches nothing in HogQL, with no error. This repairs
+    that cohort. It writes every Postgres member, and ``insert_static_cohort`` derives the row id
+    from the person UUID, so ReplacingMergeTree collapses a repeat of a member that a deterministic
+    id already covers. A row written before the id became deterministic carries a random id, which
+    puts it under a different sort key, so it stays as one extra row for that member. Every reader
+    deduplicates and the cohort count comes from Postgres, so those extra rows cost storage and
+    scan width only.
+
+    Returns the number of member rows written to ClickHouse.
+    """
+    from posthog.models.person.util import get_person_uuids_by_ids
+
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, cohort_id=cohort.pk, team_id=team_id)
+
+    person_ids = list_cohort_member_ids(team_id, cohort.pk, consistency="strong")
+    written = 0
+    for i in range(0, len(person_ids), DEFAULT_COHORT_INSERT_BATCH_SIZE):
+        batch = person_ids[i : i + DEFAULT_COHORT_INSERT_BATCH_SIZE]
+        person_uuids = [uuid.UUID(u) for u in get_person_uuids_by_ids(team_id, batch)]
+        if not person_uuids:
+            continue
+        insert_static_cohort(person_uuids, cohort.pk, team_id=team_id)
+        written += len(person_uuids)
+    return written
+
+
 # ── Cohort membership operations (Postgres / personhog) ───────────────
 
 
@@ -1263,7 +1296,8 @@ def is_person_in_cohort(team_id: int, person_id: int, cohort_id: int) -> bool:
 _LIST_COHORT_MEMBER_IDS_PAGE_SIZE = 10_000
 
 
-def _list_cohort_member_ids_via_personhog(cohort_id: int) -> list[int]:
+def _list_cohort_member_ids_via_personhog(cohort_id: int, consistency: ReadConsistency) -> list[int]:
+    from posthog.personhog_client import consistency_to_read_options
     from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.proto import ListCohortMemberIdsRequest
 
@@ -1271,11 +1305,17 @@ def _list_cohort_member_ids_via_personhog(cohort_id: int) -> list[int]:
     if client is None:
         raise RuntimeError("personhog client not configured")
 
+    read_options = consistency_to_read_options(consistency)
     all_ids: list[int] = []
     cursor = 0
     while True:
         resp = client.list_cohort_member_ids(
-            ListCohortMemberIdsRequest(cohort_id=cohort_id, cursor=cursor, limit=_LIST_COHORT_MEMBER_IDS_PAGE_SIZE)
+            ListCohortMemberIdsRequest(
+                cohort_id=cohort_id,
+                cursor=cursor,
+                limit=_LIST_COHORT_MEMBER_IDS_PAGE_SIZE,
+                read_options=read_options,
+            )
         )
         all_ids.extend(resp.person_ids)
         if resp.next_cursor == 0:
@@ -1284,8 +1324,12 @@ def _list_cohort_member_ids_via_personhog(cohort_id: int) -> list[int]:
     return all_ids
 
 
-def list_cohort_member_ids(team_id: int, cohort_id: int) -> list[int]:
-    """Return all person IDs belonging to a static cohort via personhog."""
+def list_cohort_member_ids(team_id: int, cohort_id: int, *, consistency: ReadConsistency = "eventual") -> list[int]:
+    """Return all person IDs belonging to a static cohort via personhog.
+
+    Use ``consistency="strong"`` when the caller writes the returned membership somewhere
+    else, so a removal that Postgres already committed cannot come back from a replica.
+    """
     from posthog.personhog_client.client import personhog_call
 
     from products.cohorts.backend.models.cohort import Cohort
@@ -1298,7 +1342,7 @@ def list_cohort_member_ids(team_id: int, cohort_id: int) -> list[int]:
 
     return personhog_call(
         "list_cohort_member_ids",
-        lambda: _list_cohort_member_ids_via_personhog(cohort_id),
+        lambda: _list_cohort_member_ids_via_personhog(cohort_id, consistency),
     )
 
 

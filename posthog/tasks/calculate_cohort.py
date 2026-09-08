@@ -606,8 +606,8 @@ def calculate_cohort_from_list(
 
     # raise_on_error surfaces a batch insert failure instead of swallowing it, so a transient
     # capacity blip propagates and triggers the backed-off retry above. Retries are safe: the
-    # insert path dedupes members already in the cohort (ClickHouse excludes existing UUIDs, the
-    # InsertCohortMembers RPC dedupes on person id), so re-running the whole list adds no duplicates.
+    # InsertCohortMembers RPC dedupes on person id, and a repeated ClickHouse row collapses on
+    # merge because its id comes from the person UUID.
     try:
         if id_type == "distinct_id":
             batch_count = cohort.insert_users_by_list(
@@ -687,9 +687,9 @@ def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> N
         cohort.save(update_fields=["is_calculating"])
         cohort.refresh_from_db()
 
-        # The CH insert is idempotent: it excludes person_ids already in the cohort.
-        # This handles both the retry-after-OOM case (no duplicates) and the
-        # add-more-people-via-query case (only new people inserted).
+        # The CH insert is safe to repeat: a row for a member already in the cohort carries the
+        # same id, derived from the person UUID, so ReplacingMergeTree collapses it on merge. That
+        # covers both the retry-after-OOM case and the add-more-people-via-query case.
         insert_cohort_query_actors_into_ch(cohort, team=team)
         logger.info(
             "insert_cohort_from_query_ch_complete",

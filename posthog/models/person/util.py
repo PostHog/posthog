@@ -38,6 +38,7 @@ from posthog.personhog_client.proto import (
     GetPersonRequest,
     GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByUuidsRequest,
+    GetPersonsRequest,
     ReadOptions,
 )
 from posthog.settings import TEST
@@ -574,6 +575,36 @@ def get_person_ids_and_uuids_by_uuids(team_id: int, uuids: list[str], *, concurr
         "get_person_ids_and_uuids_by_uuids",
         personhog_fn,
     )
+
+
+def get_person_uuids_by_ids(team_id: int, person_ids: list[int]) -> list[str]:
+    """Return person UUIDs for the given person IDs; unknown IDs are omitted.
+
+    Field-masked, so it fetches no properties and no distinct IDs. For callers that hold
+    person IDs and need the UUID that ClickHouse keys on (e.g. cohort membership resync).
+    """
+    if not person_ids:
+        return []
+
+    operation = "get_person_uuids_by_ids"
+
+    def personhog_fn() -> list[str]:
+        client = _get_client()
+        uuids: list[str] = []
+        for i in range(0, len(person_ids), PERSONHOG_BATCH_SIZE):
+            batch = person_ids[i : i + PERSONHOG_BATCH_SIZE]
+            resp = client.get_persons(
+                GetPersonsRequest(team_id=team_id, person_ids=batch, read_options=_UUID_ONLY_READ_OPTIONS)
+            )
+            valid = [p for p in resp.persons if p.id and p.team_id == team_id]
+            mismatched = len([p for p in resp.persons if p.id]) - len(valid)
+            if mismatched:
+                PERSONHOG_TEAM_MISMATCH_TOTAL.labels(operation=operation, client_name=get_client_name()).inc(mismatched)
+                logger.warning("personhog_team_mismatch", operation=operation, team_id=team_id, dropped=mismatched)
+            uuids.extend(p.uuid for p in valid)
+        return uuids
+
+    return personhog_call(operation, personhog_fn)
 
 
 def get_person_uuids_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> list[str]:
