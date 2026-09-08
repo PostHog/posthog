@@ -216,6 +216,60 @@ export interface TaskRunSessionLogsResult {
   truncatedHeadCount: number;
 }
 
+interface RecordingExportRow {
+  id: number;
+  has_content?: boolean;
+  export_context?: {
+    start_offset_s?: number | null;
+    end_offset_s?: number | null;
+    timestamp?: number | null;
+    duration?: number | null;
+    video_duration_s?: number | null;
+    truncated?: boolean | null;
+    inactivity_periods?: Array<{
+      ts_from_s?: number | null;
+      ts_to_s?: number | null;
+      active?: boolean | null;
+      recording_ts_from_s?: number | null;
+      recording_ts_to_s?: number | null;
+    }> | null;
+  } | null;
+}
+
+/**
+ * One stretch of the session, and where it landed in the rendered clip. An
+ * idle stretch is dropped from the render, so it occupies no clip time and its
+ * two clip values are equal.
+ */
+export interface RecordingClipSegment {
+  /** Session time the stretch covers, in seconds from the session start. */
+  sessionFromSeconds: number;
+  sessionToSeconds: number | null;
+  /** Where the stretch sits in the rendered clip, in seconds. */
+  clipFromSeconds: number;
+  clipToSeconds: number;
+  active: boolean;
+}
+
+/** A rendered mp4 of a session recording. */
+export interface RecordingExport {
+  id: number;
+  /** Where the clip starts in the session, in seconds from the session start. */
+  startOffsetSeconds: number;
+  /** Where the clip ends in the session. Null when the render did not record it. */
+  endOffsetSeconds: number | null;
+  /** Rendered length of the clip. Null on a render that did not record it. */
+  clipDurationSeconds: number | null;
+  /** The render stopped early, so the clip can end before the session does. */
+  truncated: boolean;
+  /**
+   * Session time to clip time, stretch by stretch. The render drops the idle
+   * stretches of a session, so clip time runs behind session time by however
+   * much idle time came before it. Empty on a render that kept every stretch.
+   */
+  segments: RecordingClipSegment[];
+}
+
 type SessionLogsPage =
   | { ok: true; entries: StoredLogEntry[]; headers: Headers }
   | { ok: false; status: number; statusText: string };
@@ -3191,27 +3245,73 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskChannel[];
   }
 
-  // Resolve-or-create a public channel by name (idempotent server-side). `star`
-  // only applies when this call creates the channel; an existing one keeps the
-  // requester's star as it was.
+  // Create a channel. A public channel (default) is resolve-or-create by name
+  // (idempotent server-side). A private channel is always created fresh with the
+  // requester plus `memberIds` as its members. `star` only applies when this call
+  // creates the channel; an existing public one keeps the requester's star as it was.
   async resolveTaskChannel(
     name: string,
-    options: { star: boolean },
+    options: {
+      star: boolean;
+      channelType?: "public" | "private";
+      memberIds?: number[];
+    },
   ): Promise<TaskChannel> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/`;
+    const body: Record<string, unknown> = { name, star: options.star };
+    if (options.channelType === "private") {
+      body.channel_type = "private";
+      body.member_ids = options.memberIds ?? [];
+    }
     const response = await this.api.fetcher.fetch({
       method: "post",
       url: new URL(`${this.api.baseUrl}${urlPath}`),
       path: urlPath,
       overrides: {
-        body: JSON.stringify({ name, star: options.star }),
+        body: JSON.stringify(body),
       },
     });
     if (!response.ok) {
       throw new Error(`Failed to resolve task channel: ${response.statusText}`);
     }
     return (await response.json()) as TaskChannel;
+  }
+
+  // The members of a private channel. Public and personal channels have no
+  // members and read as an empty list.
+  async listTaskChannelMembers(id: string): Promise<UserBasic[]> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/members/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch space members: ${response.statusText}`);
+    }
+    return (await response.json()) as UserBasic[];
+  }
+
+  // Replace a private channel's member set. The creator is always kept, whatever
+  // `userIds` holds. Returns the updated members.
+  async setTaskChannelMembers(
+    id: string,
+    userIds: number[],
+  ): Promise<UserBasic[]> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/members/`;
+    const response = await this.api.fetcher.fetch({
+      method: "put",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify({ user_ids: userIds }) },
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to update space members: ${response.statusText}`);
+    }
+    return (await response.json()) as UserBasic[];
   }
 
   async renameTaskChannel(id: string, name: string): Promise<TaskChannel> {
@@ -3329,6 +3429,26 @@ export class PostHogAPIClient {
     if (!response.ok) {
       throw new Error(
         `Failed to update space repositories: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as TaskChannel;
+  }
+
+  async updateTaskChannelType(
+    id: string,
+    channelType: "public" | "private",
+  ): Promise<TaskChannel> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "patch",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify({ channel_type: channelType }) },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to update space visibility: ${response.statusText}`,
       );
     }
     return (await response.json()) as TaskChannel;
@@ -6694,11 +6814,66 @@ export class PostHogAPIClient {
     }
   }
 
-  /** Find an exported asset by session recording ID. */
-  async findExportBySessionRecordingId(
+  /**
+   * Read the clip window and the session-to-clip time map off an export row.
+   * The render drops the idle stretches of a session, so a caller cannot treat
+   * a session offset as a clip time.
+   */
+  private parseRecordingExport(row: RecordingExportRow): RecordingExport {
+    const context = row.export_context ?? {};
+    const startOffsetSeconds = context.start_offset_s ?? context.timestamp ?? 0;
+    const endOffsetSeconds =
+      context.end_offset_s ??
+      (context.duration != null ? startOffsetSeconds + context.duration : null);
+
+    const segments: RecordingClipSegment[] = [];
+    for (const period of context.inactivity_periods ?? []) {
+      if (period.ts_from_s == null || period.recording_ts_from_s == null) {
+        continue;
+      }
+      segments.push({
+        sessionFromSeconds: period.ts_from_s,
+        sessionToSeconds: period.ts_to_s ?? null,
+        clipFromSeconds: period.recording_ts_from_s,
+        clipToSeconds: period.recording_ts_to_s ?? period.recording_ts_from_s,
+        active: period.active !== false,
+      });
+    }
+    segments.sort((a, b) => a.sessionFromSeconds - b.sessionFromSeconds);
+
+    return {
+      id: row.id,
+      startOffsetSeconds,
+      endOffsetSeconds,
+      clipDurationSeconds: context.video_duration_s ?? null,
+      truncated: context.truncated === true,
+      segments,
+    };
+  }
+
+  /** Get one exported recording clip, with the window of the session it covers. */
+  async getRecordingExport(
+    projectId: number,
+    exportId: number,
+  ): Promise<RecordingExport | null> {
+    const urlPath = `/api/projects/${projectId}/exports/${exportId}/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) return null;
+    const row = (await response.json()) as RecordingExportRow;
+    if (row.has_content === false) return null;
+    return this.parseRecordingExport(row);
+  }
+
+  /** Find the rendered clip for a session recording, with the window it covers. */
+  async findRecordingExport(
     projectId: number,
     sessionRecordingId: string,
-  ): Promise<number | null> {
+  ): Promise<RecordingExport | null> {
     const urlPath = `/api/projects/${projectId}/exports/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
     url.searchParams.set("session_recording_id", sessionRecordingId);
@@ -6710,10 +6885,10 @@ export class PostHogAPIClient {
     });
     if (!response.ok) return null;
     const data = (await response.json()) as {
-      results?: Array<{ id: number; has_content: boolean }>;
+      results?: RecordingExportRow[];
     };
     const match = data.results?.find((e) => e.has_content);
-    return match?.id ?? null;
+    return match ? this.parseRecordingExport(match) : null;
   }
 
   /** Get the presigned content URL for an exported asset (e.g. rasterized recording). */

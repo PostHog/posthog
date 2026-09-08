@@ -125,7 +125,7 @@ export interface ProvisionedTaskChannels {
 export interface TaskChannel {
   id: string;
   name: string;
-  channel_type: "public" | "personal";
+  channel_type: "public" | "personal" | "private";
   starred: boolean;
   github_integration?: number | null;
   repositories?: string[];

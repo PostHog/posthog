@@ -21,12 +21,23 @@ import { ScoutsRoster } from './ScoutsRoster'
 const SUGGESTIONS_URL = '/api/projects/:id/signals/scout/suggestions/'
 
 /** The strip opens collapsed, so the stories open it unless one asks for the collapsed line. */
-function StripState({ collapsed, children }: { collapsed: boolean; children: React.ReactNode }): JSX.Element {
+function StripState({
+    collapsed,
+    refreshing,
+    children,
+}: {
+    collapsed: boolean
+    refreshing: boolean
+    children: React.ReactNode
+}): JSX.Element {
     const logic = useMountedLogic(scoutSuggestionsLogic)
     useEffect(() => {
         logic.actions.showStrip()
         logic.actions.setCollapsed(collapsed)
-    }, [logic, collapsed])
+        if (refreshing) {
+            logic.actions.requestRefresh()
+        }
+    }, [logic, collapsed, refreshing])
     return <>{children}</>
 }
 
@@ -46,7 +57,7 @@ const meta: Meta<typeof ScoutsRoster> = {
     },
     decorators: [
         (Story, { parameters }) => (
-            <StripState collapsed={parameters.stripCollapsed === true}>
+            <StripState collapsed={parameters.stripCollapsed === true} refreshing={parameters.stripRefreshing === true}>
                 <Story />
             </StripState>
         ),
@@ -57,6 +68,9 @@ const meta: Meta<typeof ScoutsRoster> = {
                 '/api/projects/:id/signals/scout/runs/findings/summary/': () => [200, null],
                 '/api/projects/:id/signals/scout/metadata/current/': () => [200, null],
                 '/api/projects/:id/signals/scout/scratchpad/': () => [200, []],
+            },
+            post: {
+                '/api/projects/:id/signals/scout/suggestions/refresh/': () => [200, { workflow_id: 'workflow-1' }],
             },
         }),
     ],
@@ -103,8 +117,19 @@ export const LastScanFailed: Story = {
     ],
 }
 
-// Every pick acted on or dismissed. The header line stays so Refresh is still reachable.
+// Every pick acted on or dismissed. No strip at all: an empty box helps nobody, and the scene
+// header's "Suggest a scout" button is what asks for a new batch.
 export const NothingLeft: Story = {
+    decorators: [
+        mswDecorator({
+            get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet({ items: [] })] },
+        }),
+    ],
+}
+
+// What the header button opens on a project with nothing to suggest: skeletons until the scan lands.
+export const Scanning: Story = {
+    parameters: { stripRefreshing: true },
     decorators: [
         mswDecorator({
             get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet({ items: [] })] },
