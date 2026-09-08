@@ -7,7 +7,9 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 
 pub use error::{StorageError, StorageResult};
-pub use types::{AttachOutcome, DistinctIdMapping, Person, PersonStub, StubOutcome};
+pub use types::{
+    AttachOutcome, DistinctIdMapping, DistinctIdPersonMapping, Person, PersonStub, StubOutcome,
+};
 
 pub const DB_QUERY_DURATION: &str = "personhog_identity_db_query_duration_ms";
 
@@ -33,6 +35,16 @@ pub trait IdentityStorage: Send + Sync {
         person_ids: &[i64],
         limit_per_person: Option<i64>,
     ) -> StorageResult<Vec<DistinctIdMapping>>;
+
+    /// Live mapping rows for the given distinct ids on the primary, joined
+    /// to the person's uuid for re-emission to ClickHouse. Mappings to
+    /// tombstoned persons are invisible; ids without a live mapping are
+    /// absent from the result.
+    async fn get_distinct_id_mappings(
+        &self,
+        team_id: i64,
+        distinct_ids: &[String],
+    ) -> StorageResult<Vec<DistinctIdPersonMapping>>;
 
     /// Create person stubs (uuidv5 from team_id:distinct_id, version 0, empty
     /// properties) plus their distinct id rows in one multi-row transaction.

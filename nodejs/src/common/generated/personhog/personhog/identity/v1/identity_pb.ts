@@ -13,7 +13,7 @@ import { file_personhog_types_v1_person } from '../../types/v1/person_pb'
 export const file_personhog_identity_v1_identity: GenFile =
     /*@__PURE__*/
     fileDesc(
-        'CiRwZXJzb25ob2cvaWRlbnRpdHkvdjEvaWRlbnRpdHkucHJvdG8SFXBlcnNvbmhvZy5pZGVudGl0eS52MSLOAQoWR2V0T3JDcmVhdGVQZXJzb25FbnRyeRIPCgd0ZWFtX2lkGAEgASgDEhMKC2Rpc3RpbmN0X2lkGAIgASgJEhoKEmV4dHJhX2Rpc3RpbmN0X2lkcxgDIAMoCRISCgpldmVudF9uYW1lGAQgASgJEhYKDnNldF9wcm9wZXJ0aWVzGAUgASgMEhsKE3NldF9vbmNlX3Byb3BlcnRpZXMYBiABKAwSEgoKY3JlYXRlZF9hdBgHIAEoAxIVCg1pc19pZGVudGlmaWVkGAggASgIImQKJEdldE9yQ3JlYXRlUGVyc29uQnlEaXN0aW5jdElkUmVxdWVzdBI8CgVlbnRyeRgBIAEoCzItLnBlcnNvbmhvZy5pZGVudGl0eS52MS5HZXRPckNyZWF0ZVBlcnNvbkVudHJ5ImQKJUdldE9yQ3JlYXRlUGVyc29uQnlEaXN0aW5jdElkUmVzcG9uc2USKgoGcGVyc29uGAEgASgLMhoucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvbhIPCgdjcmVhdGVkGAIgASgIImgKJkdldE9yQ3JlYXRlUGVyc29uc0J5RGlzdGluY3RJZHNSZXF1ZXN0Ej4KB2VudHJpZXMYASADKAsyLS5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0T3JDcmVhdGVQZXJzb25FbnRyeSKqAQoXR2V0T3JDcmVhdGVQZXJzb25SZXN1bHQSDwoHdGVhbV9pZBgBIAEoAxITCgtkaXN0aW5jdF9pZBgCIAEoCRIvCgZwZXJzb24YAyABKAsyGi5wZXJzb25ob2cudHlwZXMudjEuUGVyc29uSACIAQESDwoHY3JlYXRlZBgEIAEoCBISCgVlcnJvchgFIAEoCUgBiAEBQgkKB19wZXJzb25CCAoGX2Vycm9yImoKJ0dldE9yQ3JlYXRlUGVyc29uc0J5RGlzdGluY3RJZHNSZXNwb25zZRI/CgdyZXN1bHRzGAEgAygLMi4ucGVyc29uaG9nLmlkZW50aXR5LnYxLkdldE9yQ3JlYXRlUGVyc29uUmVzdWx0IjEKCVBlcnNvbktleRIPCgd0ZWFtX2lkGAEgASgDEhMKC2Rpc3RpbmN0X2lkGAIgASgJIlAKHkdldFBlcnNvbnNCeURpc3RpbmN0SWRzUmVxdWVzdBIuCgRrZXlzGAEgAygLMiAucGVyc29uaG9nLmlkZW50aXR5LnYxLlBlcnNvbktleSJ/ChtHZXRQZXJzb25CeURpc3RpbmN0SWRSZXN1bHQSDwoHdGVhbV9pZBgBIAEoAxITCgtkaXN0aW5jdF9pZBgCIAEoCRIvCgZwZXJzb24YAyABKAsyGi5wZXJzb25ob2cudHlwZXMudjEuUGVyc29uSACIAQFCCQoHX3BlcnNvbiJmCh9HZXRQZXJzb25zQnlEaXN0aW5jdElkc1Jlc3BvbnNlEkMKB3Jlc3VsdHMYASADKAsyMi5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0UGVyc29uQnlEaXN0aW5jdElkUmVzdWx0InoKH0dldERpc3RpbmN0SWRzRm9yUGVyc29uc1JlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxISCgpwZXJzb25faWRzGAIgAygDEh0KEGxpbWl0X3Blcl9wZXJzb24YAyABKANIAIgBAUITChFfbGltaXRfcGVyX3BlcnNvbiJmCiBHZXREaXN0aW5jdElkc0ZvclBlcnNvbnNSZXNwb25zZRJCChNwZXJzb25fZGlzdGluY3RfaWRzGAEgAygLMiUucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvbkRpc3RpbmN0SWRzIj0KC01lcmdlU291cmNlEhoKEnNvdXJjZV9kaXN0aW5jdF9pZBgBIAEoCRISCgpldmVudF91dWlkGAIgASgJIqsCChNNZXJnZVBlcnNvbnNSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSGgoSdGFyZ2V0X2Rpc3RpbmN0X2lkGAIgASgJEjMKB3NvdXJjZXMYAyADKAsyIi5wZXJzb25ob2cuaWRlbnRpdHkudjEuTWVyZ2VTb3VyY2USEQoJZXZlbnRfc2V0GAQgASgMEhYKDmV2ZW50X3NldF9vbmNlGAUgASgMEg0KBW9wX2lkGAYgASgJEiAKGGFsbG93X2lkZW50aWZpZWRfc291cmNlcxgHIAEoCBIXCgptb3ZlX2xpbWl0GAggASgDSACIAQESEgoKY3JlYXRlZF9hdBgJIAEoAxIaChJjcmVhdG9yX2V2ZW50X3V1aWQYCiABKAlCDQoLX21vdmVfbGltaXQisAEKEU1lcmdlU291cmNlUmVzdWx0EhoKEnNvdXJjZV9kaXN0aW5jdF9pZBgBIAEoCRI6CgdvdXRjb21lGAIgASgOMikucGVyc29uaG9nLmlkZW50aXR5LnYxLk1lcmdlU291cmNlT3V0Y29tZRIdChBzb3VyY2VfcGVyc29uX2lkGAMgASgDSACIAQESDwoHc2V0dGxlZBgEIAEoCEITChFfc291cmNlX3BlcnNvbl9pZCKgAQoUTWVyZ2VQZXJzb25zUmVzcG9uc2USDQoFb3BfaWQYASABKAkSMQoIc3Vydml2b3IYAiABKAsyGi5wZXJzb25ob2cudHlwZXMudjEuUGVyc29uSACIAQESOQoHcmVzdWx0cxgDIAMoCzIoLnBlcnNvbmhvZy5pZGVudGl0eS52MS5NZXJnZVNvdXJjZVJlc3VsdEILCglfc3Vydml2b3IqqgMKEk1lcmdlU291cmNlT3V0Y29tZRIkCiBNRVJHRV9TT1VSQ0VfT1VUQ09NRV9VTlNQRUNJRklFRBAAEh8KG01FUkdFX1NPVVJDRV9PVVRDT01FX01FUkdFRBABEikKJU1FUkdFX1NPVVJDRV9PVVRDT01FX05PT1BfU0FNRV9QRVJTT04QAhIhCh1NRVJHRV9TT1VSQ0VfT1VUQ09NRV9BVFRBQ0hFRBADEigKJE1FUkdFX1NPVVJDRV9PVVRDT01FX1NLSVBQRURfSUxMRUdBTBAEEjMKL01FUkdFX1NPVVJDRV9PVVRDT01FX1NLSVBQRURfQUxSRUFEWV9JREVOVElGSUVEEAUSKQolTUVSR0VfU09VUkNFX09VVENPTUVfU0tJUFBFRF9DT05GTElDVBAGEisKJ01FUkdFX1NPVVJDRV9PVVRDT01FX1NLSVBQRURfTU9WRV9MSU1JVBAHEh4KGk1FUkdFX1NPVVJDRV9PVVRDT01FX0VSUk9SEAgSKAokTUVSR0VfU09VUkNFX09VVENPTUVfU0tJUFBFRF9SRUZVU0VEEAky1QUKEVBlcnNvbkhvZ0lkZW50aXR5EpoBCh1HZXRPckNyZWF0ZVBlcnNvbkJ5RGlzdGluY3RJZBI7LnBlcnNvbmhvZy5pZGVudGl0eS52MS5HZXRPckNyZWF0ZVBlcnNvbkJ5RGlzdGluY3RJZFJlcXVlc3QaPC5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0T3JDcmVhdGVQZXJzb25CeURpc3RpbmN0SWRSZXNwb25zZRKgAQofR2V0T3JDcmVhdGVQZXJzb25zQnlEaXN0aW5jdElkcxI9LnBlcnNvbmhvZy5pZGVudGl0eS52MS5HZXRPckNyZWF0ZVBlcnNvbnNCeURpc3RpbmN0SWRzUmVxdWVzdBo+LnBlcnNvbmhvZy5pZGVudGl0eS52MS5HZXRPckNyZWF0ZVBlcnNvbnNCeURpc3RpbmN0SWRzUmVzcG9uc2USiAEKF0dldFBlcnNvbnNCeURpc3RpbmN0SWRzEjUucGVyc29uaG9nLmlkZW50aXR5LnYxLkdldFBlcnNvbnNCeURpc3RpbmN0SWRzUmVxdWVzdBo2LnBlcnNvbmhvZy5pZGVudGl0eS52MS5HZXRQZXJzb25zQnlEaXN0aW5jdElkc1Jlc3BvbnNlEosBChhHZXREaXN0aW5jdElkc0ZvclBlcnNvbnMSNi5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0RGlzdGluY3RJZHNGb3JQZXJzb25zUmVxdWVzdBo3LnBlcnNvbmhvZy5pZGVudGl0eS52MS5HZXREaXN0aW5jdElkc0ZvclBlcnNvbnNSZXNwb25zZRJnCgxNZXJnZVBlcnNvbnMSKi5wZXJzb25ob2cuaWRlbnRpdHkudjEuTWVyZ2VQZXJzb25zUmVxdWVzdBorLnBlcnNvbmhvZy5pZGVudGl0eS52MS5NZXJnZVBlcnNvbnNSZXNwb25zZWIGcHJvdG8z',
+        'CiRwZXJzb25ob2cvaWRlbnRpdHkvdjEvaWRlbnRpdHkucHJvdG8SFXBlcnNvbmhvZy5pZGVudGl0eS52MSLOAQoWR2V0T3JDcmVhdGVQZXJzb25FbnRyeRIPCgd0ZWFtX2lkGAEgASgDEhMKC2Rpc3RpbmN0X2lkGAIgASgJEhoKEmV4dHJhX2Rpc3RpbmN0X2lkcxgDIAMoCRISCgpldmVudF9uYW1lGAQgASgJEhYKDnNldF9wcm9wZXJ0aWVzGAUgASgMEhsKE3NldF9vbmNlX3Byb3BlcnRpZXMYBiABKAwSEgoKY3JlYXRlZF9hdBgHIAEoAxIVCg1pc19pZGVudGlmaWVkGAggASgIImQKJEdldE9yQ3JlYXRlUGVyc29uQnlEaXN0aW5jdElkUmVxdWVzdBI8CgVlbnRyeRgBIAEoCzItLnBlcnNvbmhvZy5pZGVudGl0eS52MS5HZXRPckNyZWF0ZVBlcnNvbkVudHJ5ImQKJUdldE9yQ3JlYXRlUGVyc29uQnlEaXN0aW5jdElkUmVzcG9uc2USKgoGcGVyc29uGAEgASgLMhoucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvbhIPCgdjcmVhdGVkGAIgASgIImgKJkdldE9yQ3JlYXRlUGVyc29uc0J5RGlzdGluY3RJZHNSZXF1ZXN0Ej4KB2VudHJpZXMYASADKAsyLS5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0T3JDcmVhdGVQZXJzb25FbnRyeSKqAQoXR2V0T3JDcmVhdGVQZXJzb25SZXN1bHQSDwoHdGVhbV9pZBgBIAEoAxITCgtkaXN0aW5jdF9pZBgCIAEoCRIvCgZwZXJzb24YAyABKAsyGi5wZXJzb25ob2cudHlwZXMudjEuUGVyc29uSACIAQESDwoHY3JlYXRlZBgEIAEoCBISCgVlcnJvchgFIAEoCUgBiAEBQgkKB19wZXJzb25CCAoGX2Vycm9yImoKJ0dldE9yQ3JlYXRlUGVyc29uc0J5RGlzdGluY3RJZHNSZXNwb25zZRI/CgdyZXN1bHRzGAEgAygLMi4ucGVyc29uaG9nLmlkZW50aXR5LnYxLkdldE9yQ3JlYXRlUGVyc29uUmVzdWx0IjEKCVBlcnNvbktleRIPCgd0ZWFtX2lkGAEgASgDEhMKC2Rpc3RpbmN0X2lkGAIgASgJIlAKHkdldFBlcnNvbnNCeURpc3RpbmN0SWRzUmVxdWVzdBIuCgRrZXlzGAEgAygLMiAucGVyc29uaG9nLmlkZW50aXR5LnYxLlBlcnNvbktleSJ/ChtHZXRQZXJzb25CeURpc3RpbmN0SWRSZXN1bHQSDwoHdGVhbV9pZBgBIAEoAxITCgtkaXN0aW5jdF9pZBgCIAEoCRIvCgZwZXJzb24YAyABKAsyGi5wZXJzb25ob2cudHlwZXMudjEuUGVyc29uSACIAQFCCQoHX3BlcnNvbiJmCh9HZXRQZXJzb25zQnlEaXN0aW5jdElkc1Jlc3BvbnNlEkMKB3Jlc3VsdHMYASADKAsyMi5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0UGVyc29uQnlEaXN0aW5jdElkUmVzdWx0IkUKHEdldERpc3RpbmN0SWRNYXBwaW5nc1JlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxIUCgxkaXN0aW5jdF9pZHMYAiADKAkiUQoURGlzdGluY3RJZE1hcHBpbmdSb3cSEwoLZGlzdGluY3RfaWQYASABKAkSEwoLcGVyc29uX3V1aWQYAiABKAkSDwoHdmVyc2lvbhgDIAEoAyJeCh1HZXREaXN0aW5jdElkTWFwcGluZ3NSZXNwb25zZRI9CghtYXBwaW5ncxgBIAMoCzIrLnBlcnNvbmhvZy5pZGVudGl0eS52MS5EaXN0aW5jdElkTWFwcGluZ1JvdyJ6Ch9HZXREaXN0aW5jdElkc0ZvclBlcnNvbnNSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSEgoKcGVyc29uX2lkcxgCIAMoAxIdChBsaW1pdF9wZXJfcGVyc29uGAMgASgDSACIAQFCEwoRX2xpbWl0X3Blcl9wZXJzb24iZgogR2V0RGlzdGluY3RJZHNGb3JQZXJzb25zUmVzcG9uc2USQgoTcGVyc29uX2Rpc3RpbmN0X2lkcxgBIAMoCzIlLnBlcnNvbmhvZy50eXBlcy52MS5QZXJzb25EaXN0aW5jdElkcyI9CgtNZXJnZVNvdXJjZRIaChJzb3VyY2VfZGlzdGluY3RfaWQYASABKAkSEgoKZXZlbnRfdXVpZBgCIAEoCSKrAgoTTWVyZ2VQZXJzb25zUmVxdWVzdBIPCgd0ZWFtX2lkGAEgASgDEhoKEnRhcmdldF9kaXN0aW5jdF9pZBgCIAEoCRIzCgdzb3VyY2VzGAMgAygLMiIucGVyc29uaG9nLmlkZW50aXR5LnYxLk1lcmdlU291cmNlEhEKCWV2ZW50X3NldBgEIAEoDBIWCg5ldmVudF9zZXRfb25jZRgFIAEoDBINCgVvcF9pZBgGIAEoCRIgChhhbGxvd19pZGVudGlmaWVkX3NvdXJjZXMYByABKAgSFwoKbW92ZV9saW1pdBgIIAEoA0gAiAEBEhIKCmNyZWF0ZWRfYXQYCSABKAMSGgoSY3JlYXRvcl9ldmVudF91dWlkGAogASgJQg0KC19tb3ZlX2xpbWl0IrABChFNZXJnZVNvdXJjZVJlc3VsdBIaChJzb3VyY2VfZGlzdGluY3RfaWQYASABKAkSOgoHb3V0Y29tZRgCIAEoDjIpLnBlcnNvbmhvZy5pZGVudGl0eS52MS5NZXJnZVNvdXJjZU91dGNvbWUSHQoQc291cmNlX3BlcnNvbl9pZBgDIAEoA0gAiAEBEg8KB3NldHRsZWQYBCABKAhCEwoRX3NvdXJjZV9wZXJzb25faWQioAEKFE1lcmdlUGVyc29uc1Jlc3BvbnNlEg0KBW9wX2lkGAEgASgJEjEKCHN1cnZpdm9yGAIgASgLMhoucGVyc29uaG9nLnR5cGVzLnYxLlBlcnNvbkgAiAEBEjkKB3Jlc3VsdHMYAyADKAsyKC5wZXJzb25ob2cuaWRlbnRpdHkudjEuTWVyZ2VTb3VyY2VSZXN1bHRCCwoJX3N1cnZpdm9yKqoDChJNZXJnZVNvdXJjZU91dGNvbWUSJAogTUVSR0VfU09VUkNFX09VVENPTUVfVU5TUEVDSUZJRUQQABIfChtNRVJHRV9TT1VSQ0VfT1VUQ09NRV9NRVJHRUQQARIpCiVNRVJHRV9TT1VSQ0VfT1VUQ09NRV9OT09QX1NBTUVfUEVSU09OEAISIQodTUVSR0VfU09VUkNFX09VVENPTUVfQVRUQUNIRUQQAxIoCiRNRVJHRV9TT1VSQ0VfT1VUQ09NRV9TS0lQUEVEX0lMTEVHQUwQBBIzCi9NRVJHRV9TT1VSQ0VfT1VUQ09NRV9TS0lQUEVEX0FMUkVBRFlfSURFTlRJRklFRBAFEikKJU1FUkdFX1NPVVJDRV9PVVRDT01FX1NLSVBQRURfQ09ORkxJQ1QQBhIrCidNRVJHRV9TT1VSQ0VfT1VUQ09NRV9TS0lQUEVEX01PVkVfTElNSVQQBxIeChpNRVJHRV9TT1VSQ0VfT1VUQ09NRV9FUlJPUhAIEigKJE1FUkdFX1NPVVJDRV9PVVRDT01FX1NLSVBQRURfUkVGVVNFRBAJMtoGChFQZXJzb25Ib2dJZGVudGl0eRKaAQodR2V0T3JDcmVhdGVQZXJzb25CeURpc3RpbmN0SWQSOy5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0T3JDcmVhdGVQZXJzb25CeURpc3RpbmN0SWRSZXF1ZXN0GjwucGVyc29uaG9nLmlkZW50aXR5LnYxLkdldE9yQ3JlYXRlUGVyc29uQnlEaXN0aW5jdElkUmVzcG9uc2USoAEKH0dldE9yQ3JlYXRlUGVyc29uc0J5RGlzdGluY3RJZHMSPS5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0T3JDcmVhdGVQZXJzb25zQnlEaXN0aW5jdElkc1JlcXVlc3QaPi5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0T3JDcmVhdGVQZXJzb25zQnlEaXN0aW5jdElkc1Jlc3BvbnNlEogBChdHZXRQZXJzb25zQnlEaXN0aW5jdElkcxI1LnBlcnNvbmhvZy5pZGVudGl0eS52MS5HZXRQZXJzb25zQnlEaXN0aW5jdElkc1JlcXVlc3QaNi5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0UGVyc29uc0J5RGlzdGluY3RJZHNSZXNwb25zZRKCAQoVR2V0RGlzdGluY3RJZE1hcHBpbmdzEjMucGVyc29uaG9nLmlkZW50aXR5LnYxLkdldERpc3RpbmN0SWRNYXBwaW5nc1JlcXVlc3QaNC5wZXJzb25ob2cuaWRlbnRpdHkudjEuR2V0RGlzdGluY3RJZE1hcHBpbmdzUmVzcG9uc2USiwEKGEdldERpc3RpbmN0SWRzRm9yUGVyc29ucxI2LnBlcnNvbmhvZy5pZGVudGl0eS52MS5HZXREaXN0aW5jdElkc0ZvclBlcnNvbnNSZXF1ZXN0GjcucGVyc29uaG9nLmlkZW50aXR5LnYxLkdldERpc3RpbmN0SWRzRm9yUGVyc29uc1Jlc3BvbnNlEmcKDE1lcmdlUGVyc29ucxIqLnBlcnNvbmhvZy5pZGVudGl0eS52MS5NZXJnZVBlcnNvbnNSZXF1ZXN0GisucGVyc29uaG9nLmlkZW50aXR5LnYxLk1lcmdlUGVyc29uc1Jlc3BvbnNlYgZwcm90bzM',
         [file_personhog_types_v1_person]
     )
 
@@ -330,6 +330,84 @@ export const GetPersonsByDistinctIdsResponseSchema: GenMessage<GetPersonsByDisti
     messageDesc(file_personhog_identity_v1_identity, 9)
 
 /**
+ * @generated from message personhog.identity.v1.GetDistinctIdMappingsRequest
+ */
+export type GetDistinctIdMappingsRequest = Message<'personhog.identity.v1.GetDistinctIdMappingsRequest'> & {
+    /**
+     * @generated from field: int64 team_id = 1;
+     */
+    teamId: bigint
+
+    /**
+     * Max 250 per request.
+     *
+     * @generated from field: repeated string distinct_ids = 2;
+     */
+    distinctIds: string[]
+}
+
+/**
+ * Describes the message personhog.identity.v1.GetDistinctIdMappingsRequest.
+ * Use `create(GetDistinctIdMappingsRequestSchema)` to create a new message.
+ */
+export const GetDistinctIdMappingsRequestSchema: GenMessage<GetDistinctIdMappingsRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_identity_v1_identity, 10)
+
+/**
+ * One live mapping row, shaped for re-emission to ClickHouse: the person
+ * uuid (ClickHouse keys persons by uuid, not row id) and the mapping row's
+ * own version (not the person's).
+ *
+ * @generated from message personhog.identity.v1.DistinctIdMappingRow
+ */
+export type DistinctIdMappingRow = Message<'personhog.identity.v1.DistinctIdMappingRow'> & {
+    /**
+     * @generated from field: string distinct_id = 1;
+     */
+    distinctId: string
+
+    /**
+     * @generated from field: string person_uuid = 2;
+     */
+    personUuid: string
+
+    /**
+     * @generated from field: int64 version = 3;
+     */
+    version: bigint
+}
+
+/**
+ * Describes the message personhog.identity.v1.DistinctIdMappingRow.
+ * Use `create(DistinctIdMappingRowSchema)` to create a new message.
+ */
+export const DistinctIdMappingRowSchema: GenMessage<DistinctIdMappingRow> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_identity_v1_identity, 11)
+
+/**
+ * @generated from message personhog.identity.v1.GetDistinctIdMappingsResponse
+ */
+export type GetDistinctIdMappingsResponse = Message<'personhog.identity.v1.GetDistinctIdMappingsResponse'> & {
+    /**
+     * Distinct ids without a live mapping (unknown, tombstoned, or their
+     * person deleted) are absent.
+     *
+     * @generated from field: repeated personhog.identity.v1.DistinctIdMappingRow mappings = 1;
+     */
+    mappings: DistinctIdMappingRow[]
+}
+
+/**
+ * Describes the message personhog.identity.v1.GetDistinctIdMappingsResponse.
+ * Use `create(GetDistinctIdMappingsResponseSchema)` to create a new message.
+ */
+export const GetDistinctIdMappingsResponseSchema: GenMessage<GetDistinctIdMappingsResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_identity_v1_identity, 12)
+
+/**
  * The identity-side twin of the service RPC of the same name, minus
  * ReadOptions: identity always reads the primary, so there is no
  * consistency to choose.
@@ -364,7 +442,7 @@ export type GetDistinctIdsForPersonsRequest = Message<'personhog.identity.v1.Get
  */
 export const GetDistinctIdsForPersonsRequestSchema: GenMessage<GetDistinctIdsForPersonsRequest> =
     /*@__PURE__*/
-    messageDesc(file_personhog_identity_v1_identity, 10)
+    messageDesc(file_personhog_identity_v1_identity, 13)
 
 /**
  * @generated from message personhog.identity.v1.GetDistinctIdsForPersonsResponse
@@ -382,7 +460,7 @@ export type GetDistinctIdsForPersonsResponse = Message<'personhog.identity.v1.Ge
  */
 export const GetDistinctIdsForPersonsResponseSchema: GenMessage<GetDistinctIdsForPersonsResponse> =
     /*@__PURE__*/
-    messageDesc(file_personhog_identity_v1_identity, 11)
+    messageDesc(file_personhog_identity_v1_identity, 14)
 
 /**
  * One source pair of a MergePersons call.
@@ -410,7 +488,7 @@ export type MergeSource = Message<'personhog.identity.v1.MergeSource'> & {
  */
 export const MergeSourceSchema: GenMessage<MergeSource> =
     /*@__PURE__*/
-    messageDesc(file_personhog_identity_v1_identity, 12)
+    messageDesc(file_personhog_identity_v1_identity, 15)
 
 /**
  * MergePersonsRequest merges every source distinct id's person into the
@@ -510,7 +588,7 @@ export type MergePersonsRequest = Message<'personhog.identity.v1.MergePersonsReq
  */
 export const MergePersonsRequestSchema: GenMessage<MergePersonsRequest> =
     /*@__PURE__*/
-    messageDesc(file_personhog_identity_v1_identity, 13)
+    messageDesc(file_personhog_identity_v1_identity, 16)
 
 /**
  * @generated from message personhog.identity.v1.MergeSourceResult
@@ -550,7 +628,7 @@ export type MergeSourceResult = Message<'personhog.identity.v1.MergeSourceResult
  */
 export const MergeSourceResultSchema: GenMessage<MergeSourceResult> =
     /*@__PURE__*/
-    messageDesc(file_personhog_identity_v1_identity, 14)
+    messageDesc(file_personhog_identity_v1_identity, 17)
 
 /**
  * @generated from message personhog.identity.v1.MergePersonsResponse
@@ -587,7 +665,7 @@ export type MergePersonsResponse = Message<'personhog.identity.v1.MergePersonsRe
  */
 export const MergePersonsResponseSchema: GenMessage<MergePersonsResponse> =
     /*@__PURE__*/
-    messageDesc(file_personhog_identity_v1_identity, 15)
+    messageDesc(file_personhog_identity_v1_identity, 18)
 
 /**
  * @generated from enum personhog.identity.v1.MergeSourceOutcome
@@ -732,6 +810,18 @@ export const PersonHogIdentity: GenService<{
         methodKind: 'unary'
         input: typeof GetPersonsByDistinctIdsRequestSchema
         output: typeof GetPersonsByDistinctIdsResponseSchema
+    }
+    /**
+     * Committed mapping rows for the given distinct ids on the primary, with
+     * the person uuid and mapping-row version, for re-emission to ClickHouse
+     * by merge paths that find their request already satisfied.
+     *
+     * @generated from rpc personhog.identity.v1.PersonHogIdentity.GetDistinctIdMappings
+     */
+    getDistinctIdMappings: {
+        methodKind: 'unary'
+        input: typeof GetDistinctIdMappingsRequestSchema
+        output: typeof GetDistinctIdMappingsResponseSchema
     }
     /**
      * Person-id to distinct-ids expansion on the primary; the strong twin

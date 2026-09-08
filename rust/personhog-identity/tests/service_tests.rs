@@ -14,7 +14,8 @@ use personhog_identity::service::validation::RequestLimits;
 use personhog_identity::service::PersonHogIdentityService;
 use personhog_proto::personhog::identity::v1::person_hog_identity_server::PersonHogIdentity;
 use personhog_proto::personhog::identity::v1::{
-    GetDistinctIdsForPersonsRequest, GetOrCreatePersonByDistinctIdRequest, GetOrCreatePersonEntry,
+    GetDistinctIdMappingsRequest, GetDistinctIdsForPersonsRequest,
+    GetOrCreatePersonByDistinctIdRequest, GetOrCreatePersonEntry,
     GetOrCreatePersonsByDistinctIdsRequest, GetPersonsByDistinctIdsRequest, PersonKey,
 };
 use personhog_proto::personhog::types::v1::{
@@ -477,4 +478,41 @@ async fn repeated_person_ids_do_not_exceed_the_per_person_limit() {
         1,
         "the per-person limit must hold under repeated ids"
     );
+}
+
+/// The mapping read backs ClickHouse re-emission: it must carry the
+/// mapping row's own version (extras are born at version 1, primaries at
+/// 0) and the person's uuid, and hide unknown ids.
+#[tokio::test]
+async fn distinct_id_mappings_carry_uuid_and_mapping_version() {
+    let t = ServiceTestContext::new().await;
+    let mut entry = t.entry("mapping-primary");
+    entry.extra_distinct_ids = vec!["mapping-extra".to_string()];
+    t.get_or_create_single(entry).await.expect("seed person");
+
+    let response = t
+        .service
+        .get_distinct_id_mappings(Request::new(GetDistinctIdMappingsRequest {
+            team_id: t.ctx.team_id,
+            distinct_ids: vec![
+                "mapping-primary".to_string(),
+                "mapping-extra".to_string(),
+                "never-seen".to_string(),
+            ],
+        }))
+        .await
+        .expect("mappings read must succeed")
+        .into_inner();
+
+    let expected_uuid =
+        personhog_common::persons::person_uuid(t.ctx.team_id, "mapping-primary").to_string();
+    let mut mappings = response.mappings;
+    mappings.sort_by(|a, b| a.distinct_id.cmp(&b.distinct_id));
+    assert_eq!(mappings.len(), 2, "unknown ids yield no row");
+    assert_eq!(mappings[0].distinct_id, "mapping-extra");
+    assert_eq!(mappings[0].person_uuid, expected_uuid);
+    assert_eq!(mappings[0].version, 1);
+    assert_eq!(mappings[1].distinct_id, "mapping-primary");
+    assert_eq!(mappings[1].person_uuid, expected_uuid);
+    assert_eq!(mappings[1].version, 0);
 }

@@ -17,7 +17,9 @@ use personhog_common::grpc::{current_client_name, current_method_name};
 
 use crate::config::IdentityTables;
 use crate::storage::error::StorageResult;
-use crate::storage::types::{AttachOutcome, DistinctIdMapping, Person, PersonStub, StubOutcome};
+use crate::storage::types::{
+    AttachOutcome, DistinctIdMapping, DistinctIdPersonMapping, Person, PersonStub, StubOutcome,
+};
 use crate::storage::{IdentityStorage, DB_QUERY_DURATION};
 
 const POOL_LABEL: &str = "primary";
@@ -106,6 +108,22 @@ impl IdentityStorage for PostgresIdentityStorage {
             team_id,
             person_ids,
             limit_per_person,
+        )
+        .await
+    }
+
+    async fn get_distinct_id_mappings(
+        &self,
+        team_id: i64,
+        distinct_ids: &[String],
+    ) -> StorageResult<Vec<DistinctIdPersonMapping>> {
+        let labels = Self::query_labels("get_distinct_id_mappings");
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+        distinct_ids::get_distinct_id_mappings(
+            &self.primary_pool,
+            &self.tables,
+            team_id,
+            distinct_ids,
         )
         .await
     }

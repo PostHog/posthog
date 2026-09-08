@@ -95,6 +95,27 @@ message GetPersonsByDistinctIdsResponse {
   repeated GetPersonByDistinctIdResult results = 1;
 }
 
+message GetDistinctIdMappingsRequest {
+  int64 team_id = 1;
+  // Max 250 per request.
+  repeated string distinct_ids = 2;
+}
+
+// One live mapping row, shaped for re-emission to ClickHouse: the person
+// uuid (ClickHouse keys persons by uuid, not row id) and the mapping row's
+// own version (not the person's).
+message DistinctIdMappingRow {
+  string distinct_id = 1;
+  string person_uuid = 2;
+  int64 version = 3;
+}
+
+message GetDistinctIdMappingsResponse {
+  // Distinct ids without a live mapping (unknown, tombstoned, or their
+  // person deleted) are absent.
+  repeated DistinctIdMappingRow mappings = 1;
+}
+
 // The identity-side twin of the service RPC of the same name, minus
 // ReadOptions: identity always reads the primary, so there is no
 // consistency to choose.
@@ -245,6 +266,10 @@ service PersonHogIdentity {
   // resolve — the router's GetPersonsByDistinctIds reads the replica and
   // its consistency option does not change that.
   rpc GetPersonsByDistinctIds(GetPersonsByDistinctIdsRequest) returns (GetPersonsByDistinctIdsResponse);
+  // Committed mapping rows for the given distinct ids on the primary, with
+  // the person uuid and mapping-row version, for re-emission to ClickHouse
+  // by merge paths that find their request already satisfied.
+  rpc GetDistinctIdMappings(GetDistinctIdMappingsRequest) returns (GetDistinctIdMappingsResponse);
   // Person-id to distinct-ids expansion on the primary; the strong twin
   // of the router RPC of the same name (which reads the replica).
   rpc GetDistinctIdsForPersons(GetDistinctIdsForPersonsRequest) returns (GetDistinctIdsForPersonsResponse);

@@ -1,6 +1,7 @@
 import { createClient, createRouterTransport } from '@connectrpc/connect'
 
 import {
+    GetDistinctIdMappingsRequest,
     GetDistinctIdsForPersonsRequest,
     GetPersonsByDistinctIdsRequest,
     PersonHogIdentity,
@@ -9,7 +10,11 @@ import {
 import { PersonhogIdentityOperations } from './identity'
 
 describe('PersonhogIdentityOperations', () => {
-    function makeOps(handlers: { getPersonsByDistinctIds?: jest.Mock; getDistinctIdsForPersons?: jest.Mock }) {
+    function makeOps(handlers: {
+        getPersonsByDistinctIds?: jest.Mock
+        getDistinctIdsForPersons?: jest.Mock
+        getDistinctIdMappings?: jest.Mock
+    }) {
         const transport = createRouterTransport(({ service }) => {
             service(PersonHogIdentity, {
                 getOrCreatePersonByDistinctId: jest.fn(() => ({ person: undefined, created: false })),
@@ -17,6 +22,7 @@ describe('PersonhogIdentityOperations', () => {
                 getPersonsByDistinctIds: handlers.getPersonsByDistinctIds ?? jest.fn(() => ({ results: [] })),
                 getDistinctIdsForPersons:
                     handlers.getDistinctIdsForPersons ?? jest.fn(() => ({ personDistinctIds: [] })),
+                getDistinctIdMappings: handlers.getDistinctIdMappings ?? jest.fn(() => ({ mappings: [] })),
             })
         })
         return new PersonhogIdentityOperations(createClient(PersonHogIdentity, transport))
@@ -38,6 +44,26 @@ describe('PersonhogIdentityOperations', () => {
         expect(handler.mock.calls[0][0].keys).toHaveLength(250)
         expect(handler.mock.calls[1][0].keys).toHaveLength(1)
         expect(results).toHaveLength(251)
+    })
+
+    // The mapping version feeds the ClickHouse message builder as a JSON
+    // number; a BigInt leaking through would throw in JSON.stringify.
+    it('decodes mapping rows to plain numbers and strings', async () => {
+        const handler = jest.fn((req: GetDistinctIdMappingsRequest) => ({
+            mappings: req.distinctIds.map((distinctId) => ({
+                distinctId,
+                personUuid: '01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+                version: BigInt(1),
+            })),
+        }))
+        const ops = makeOps({ getDistinctIdMappings: handler })
+
+        const mappings = await ops.getDistinctIdMappings(1, ['anon'])
+
+        expect(handler.mock.calls[0][0].teamId).toBe(BigInt(1))
+        expect(mappings).toEqual([
+            { distinctId: 'anon', personUuid: '01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee', version: 1 },
+        ])
     })
 
     it('chunks expansion requests to the service batch cap', async () => {

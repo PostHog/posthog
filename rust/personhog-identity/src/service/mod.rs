@@ -15,6 +15,7 @@ use tonic::{Request, Response, Status};
 
 use personhog_proto::personhog::identity::v1::person_hog_identity_server::PersonHogIdentity;
 use personhog_proto::personhog::identity::v1::{
+    DistinctIdMappingRow, GetDistinctIdMappingsRequest, GetDistinctIdMappingsResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse,
     GetOrCreatePersonByDistinctIdRequest, GetOrCreatePersonByDistinctIdResponse,
     GetOrCreatePersonResult, GetOrCreatePersonsByDistinctIdsRequest,
@@ -150,6 +151,37 @@ impl PersonHogIdentity for PersonHogIdentityService {
             })
             .collect();
         Ok(Response::new(GetPersonsByDistinctIdsResponse { results }))
+    }
+
+    async fn get_distinct_id_mappings(
+        &self,
+        request: Request<GetDistinctIdMappingsRequest>,
+    ) -> Result<Response<GetDistinctIdMappingsResponse>, Status> {
+        let req = request.into_inner();
+        validate_team_id(req.team_id)?;
+        validate_batch_size(&self.limits, req.distinct_ids.len())?;
+
+        let mut distinct_ids = req.distinct_ids;
+        distinct_ids.sort_unstable();
+        distinct_ids.dedup();
+
+        let mappings = self
+            .storage
+            .get_distinct_id_mappings(req.team_id, &distinct_ids)
+            .await
+            .map_err(|e| {
+                crate::service::error::log_and_convert_error(e, "get_distinct_id_mappings")
+            })?;
+
+        let mappings = mappings
+            .into_iter()
+            .map(|mapping| DistinctIdMappingRow {
+                distinct_id: mapping.distinct_id,
+                person_uuid: mapping.person_uuid.to_string(),
+                version: mapping.version.unwrap_or(0),
+            })
+            .collect();
+        Ok(Response::new(GetDistinctIdMappingsResponse { mappings }))
     }
 
     async fn get_distinct_ids_for_persons(

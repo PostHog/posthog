@@ -277,6 +277,16 @@ impl personhog_identity::storage::IdentityStorage for UnusedStorage {
         panic!("not exercised by this test")
     }
 
+    async fn get_distinct_id_mappings(
+        &self,
+        _team_id: i64,
+        _distinct_ids: &[String],
+    ) -> personhog_identity::storage::StorageResult<
+        Vec<personhog_identity::storage::DistinctIdPersonMapping>,
+    > {
+        panic!("not exercised by this test")
+    }
+
     async fn create_person_stubs(
         &self,
         _stubs: &[personhog_identity::storage::PersonStub],
@@ -355,6 +365,18 @@ impl personhog_identity::storage::IdentityStorage for RacingStorage {
     > {
         self.inner
             .get_distinct_ids_for_persons(team_id, person_ids, limit_per_person)
+            .await
+    }
+
+    async fn get_distinct_id_mappings(
+        &self,
+        team_id: i64,
+        distinct_ids: &[String],
+    ) -> personhog_identity::storage::StorageResult<
+        Vec<personhog_identity::storage::DistinctIdPersonMapping>,
+    > {
+        self.inner
+            .get_distinct_id_mappings(team_id, distinct_ids)
             .await
     }
 

@@ -2,6 +2,7 @@ import { create } from '@bufbuild/protobuf'
 import { Client, Code, ConnectError } from '@connectrpc/connect'
 
 import {
+    GetDistinctIdMappingsRequestSchema,
     GetDistinctIdsForPersonsRequestSchema,
     GetOrCreatePersonByDistinctIdRequestSchema,
     GetPersonsByDistinctIdsRequestSchema,
@@ -117,6 +118,40 @@ export class PersonhogIdentityOperations {
             }
         }
         return byPerson
+    }
+
+    /**
+     * Committed mapping rows for the given distinct ids on the primary,
+     * with the person uuid and mapping-row version, for re-emission to
+     * ClickHouse. Ids without a live mapping are absent from the result.
+     */
+    async getDistinctIdMappings(
+        teamId: number,
+        distinctIds: string[],
+        callerTag?: string
+    ): Promise<{ distinctId: string; personUuid: string; version: number }[]> {
+        if (distinctIds.length === 0) {
+            return []
+        }
+        const out: { distinctId: string; personUuid: string; version: number }[] = []
+        for (let i = 0; i < distinctIds.length; i += IDENTITY_BATCH_SIZE) {
+            const chunk = distinctIds.slice(i, i + IDENTITY_BATCH_SIZE)
+            const response = await this.client.getDistinctIdMappings(
+                create(GetDistinctIdMappingsRequestSchema, {
+                    teamId: BigInt(teamId),
+                    distinctIds: chunk,
+                }),
+                callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
+            )
+            for (const mapping of response.mappings) {
+                out.push({
+                    distinctId: mapping.distinctId,
+                    personUuid: mapping.personUuid,
+                    version: Number(mapping.version),
+                })
+            }
+        }
+        return out
     }
 
     /**
