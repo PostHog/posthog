@@ -592,7 +592,7 @@ export interface FutureBreachForecastConfigApi {
     /** Fire when the point forecast crosses the alert's threshold bounds within `horizon` future intervals. */
     condition: FutureBreachForecastConfigApiCondition
     engine?: 'prophet'
-    /** Number of future insight intervals to evaluate. Defaults to 7 and cannot exceed 250 points or 92 days. */
+    /** Number of future insight intervals to evaluate. Cannot exceed 250 points or 92 days. Defaults to 7, or fewer when 7 intervals would pass those limits. */
     horizon?: number | null
     type?: 'ForecastConfig'
 }

@@ -1179,7 +1179,7 @@ export const AlertsSimulateForecastCreateBody = /* @__PURE__ */ zod.object({
                     .union([zod.number(), zod.null()])
                     .optional()
                     .describe(
-                        'Number of future insight intervals to evaluate. Defaults to 7 and cannot exceed 250 points or 92 days.'
+                        'Number of future insight intervals to evaluate. Cannot exceed 250 points or 92 days. Defaults to 7, or fewer when 7 intervals would pass those limits.'
                     ),
                 type: zod
                     .literal('ForecastConfig')
