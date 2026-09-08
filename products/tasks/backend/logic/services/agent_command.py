@@ -90,10 +90,7 @@ def validate_sandbox_url(url: str) -> str | None:
     if not hostname:
         return "No hostname in URL"
 
-    # The hogland control plane is an https origin we configure ourselves, and in-cluster DNS
-    # answers for it with a private address. Resolving it would reject every hogland sandbox,
-    # so trust the exact configured origin instead of the address behind it. Every other host
-    # still has to resolve outside the blocked ranges.
+    # In-cluster DNS answers for the hogland host with a private address.
     if is_hogland_sandbox_url(url):
         return None
 
@@ -138,8 +135,12 @@ def is_hogland_sandbox_url(sandbox_url: str | None) -> bool:
     cannot redirect the credential to an attacker-controlled server, even on the
     ``send_agent_command`` path whose SSRF check permits arbitrary public hosts.
 
-    ``validate_sandbox_url`` reuses the same gate to exempt that one origin from the
-    private-address check, so both trust decisions read the same configured host.
+    Two other decisions read this same gate, because in-cluster DNS answers for the
+    hogland host with a private address that reaches it over PrivateLink.
+    ``validate_sandbox_url`` exempts the origin from its private-address check, which
+    would otherwise reject every hogland sandbox. Callers also send to it with the
+    ``HTTP_PROXY``/``HTTPS_PROXY`` vars ignored, because the egress proxy answers 407
+    for that host. The exact-origin match is what keeps both safe.
     """
     hogland_api_url = getattr(settings, "HOGLAND_API_URL", None)
     if not sandbox_url or not hogland_api_url:
@@ -279,9 +280,7 @@ def send_agent_command(
 
     try:
         if is_hogland_sandbox_url(sandbox_url):
-            # The hogland control plane answers on an in-cluster PrivateLink address, and the
-            # egress proxy rejects that host with 407, so this request has to ignore the
-            # HTTP_PROXY/HTTPS_PROXY vars. A provider tunnel on a public host keeps them.
+            # The egress proxy answers 407 for the in-cluster hogland host.
             with internal_requests_session() as session:
                 resp = session.post(command_url, **request_kwargs)
         else:

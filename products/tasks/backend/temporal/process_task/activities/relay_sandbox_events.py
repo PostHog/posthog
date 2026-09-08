@@ -432,9 +432,6 @@ async def _relay_loop(
                         write=30.0,
                         pool=30.0,
                     ),
-                    # The hogland control plane answers on an in-cluster PrivateLink address,
-                    # and the egress proxy rejects that host with 407. A provider tunnel on a
-                    # public host keeps the HTTP_PROXY/HTTPS_PROXY vars.
                     trust_env=not is_hogland_sandbox_url(events_url),
                 ) as client:
                     async with httpx_sse.aconnect_sse(
