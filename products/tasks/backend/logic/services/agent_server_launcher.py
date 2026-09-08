@@ -349,7 +349,7 @@ class AgentServerLaunchMixin(SandboxBase):
         if not self.agent_server_supports_exec_permission_regex():
             logger.warning(
                 f"Installed agent-server in sandbox {self.id} predates --posthogExecPermissionRegex; "
-                "exec sub-tools will not prompt"
+                "connected-project operations will not prompt"
             )
             exec_permission_regex = None
 

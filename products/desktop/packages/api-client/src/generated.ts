@@ -16201,6 +16201,13 @@ export namespace Schemas {
         id: string;
         status: TaskRunStatusEnum | NullEnum;
         environment: TaskRunEnvironmentEnum | NullEnum;
+        /**
+         * Execution mode of the latest run.
+         *
+         * * `interactive` - interactive
+         * * `background` - background
+         */
+        mode: TaskExecutionModeEnum;
     };
     /**
      * Summary response for a task — reads from a frozen ``TaskSummaryDTO``.

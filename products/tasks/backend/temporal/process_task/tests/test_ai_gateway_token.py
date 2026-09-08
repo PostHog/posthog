@@ -546,7 +546,12 @@ class TestUserPinAndCapOverride:
 
     @pytest.mark.parametrize(
         "ai_product,expected_cap",
-        [("signals_inbox", "75"), ("signals_chat", "30"), ("signals_scout_suggestions", "10")],
+        [
+            ("signals_implementation", "20"),
+            ("signals_inbox", "75"),
+            ("signals_chat", "30"),
+            ("signals_scout_suggestions", "10"),
+        ],
     )
     # A cap key that stops matching the resolver's product fails here instead of quietly
     # dropping to the default. Suggestions carry no entry and take that default on purpose.

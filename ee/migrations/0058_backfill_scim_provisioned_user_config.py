@@ -87,7 +87,7 @@ class Migration(migrations.Migration):
     # This backfill reads OrganizationDomain.identity_provider_config, which posthog.1316 renames in
     # migration state. Without this edge the planner is free to apply 1316 first, and the backfill
     # then fails on a fresh database with an unsupported-lookup FieldError.
-    run_before = [("posthog", "1316_deprecate_organization_domain_idp_config")]
+    run_before = []
 
     operations = [
         migrations.RunPython(
