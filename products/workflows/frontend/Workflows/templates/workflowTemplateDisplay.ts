@@ -77,19 +77,28 @@ export function getOrderedActions(actions: HogFlowAction[], edges: HogFlowEdge[]
     const actionsById = new Map(actions.map((action) => [action.id, action]))
     const edgesByFrom = new Map<string, HogFlowEdge[]>()
     for (const edge of edges ?? []) {
-        edgesByFrom.set(edge.from, [...(edgesByFrom.get(edge.from) ?? []), edge])
+        const fromEdges = edgesByFrom.get(edge.from)
+        if (fromEdges) {
+            fromEdges.push(edge)
+        } else {
+            edgesByFrom.set(edge.from, [edge])
+        }
+    }
+    for (const fromEdges of edgesByFrom.values()) {
+        fromEdges.sort(compareEdges)
     }
 
     const ordered: HogFlowAction[] = []
     const visited = new Set<string>([trigger.id])
     const queue: string[] = [trigger.id]
-    while (queue.length > 0) {
-        const id = queue.shift() as string
+    // A cursor rather than `shift()`, so a template with many edges stays linear.
+    for (let cursor = 0; cursor < queue.length; cursor++) {
+        const id = queue[cursor]
         const action = actionsById.get(id)
         if (action) {
             ordered.push(action)
         }
-        for (const edge of [...(edgesByFrom.get(id) ?? [])].sort(compareEdges)) {
+        for (const edge of edgesByFrom.get(id) ?? []) {
             if (!visited.has(edge.to)) {
                 visited.add(edge.to)
                 queue.push(edge.to)
