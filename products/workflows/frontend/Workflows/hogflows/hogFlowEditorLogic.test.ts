@@ -8,6 +8,7 @@ import {
     BOTTOM_HANDLE_POSITION,
     NODE_HEIGHT,
     NODE_METRICS_SUMMARY_HEIGHT,
+    NODE_WIDTH,
     TOP_HANDLE_POSITION,
 } from './react_flow_utils/constants'
 import { StepViewNodeHandle } from './steps/types'
@@ -584,6 +585,33 @@ describe('hogFlowEditorLogic', () => {
             expect(logic.values.nodes.find((node) => node.id === 'branch')?.measured).toEqual({
                 width: 120,
                 height: 44,
+            })
+        })
+
+        it('keeps a measurement that arrives while the layout runs', async () => {
+            await applyFlow(makeFlow())
+            const metricsHeight = NODE_HEIGHT + NODE_METRICS_SUMMARY_HEIGHT
+
+            // Metrics mode lays the graph out again, and ReactFlow measures the taller node while
+            // elk still works. elk answers a macrotask later, so its result lands last, built from
+            // nodes that predate the measurement.
+            await expectLogic(logic, () => {
+                logic.actions.setMode('metrics')
+                logic.actions.onNodesChange([
+                    {
+                        id: 'branch',
+                        type: 'dimensions',
+                        dimensions: { width: NODE_WIDTH, height: metricsHeight },
+                        resizing: false,
+                    },
+                ])
+            }).toDispatchActions(['setNodesRaw', 'setNodesRaw'])
+
+            // Losing it makes ReactFlow drop the node's handle bounds and measure it again, the
+            // round trip this whole change exists to stop.
+            expect(logic.values.nodes.find((node) => node.id === 'branch')?.measured).toEqual({
+                width: NODE_WIDTH,
+                height: metricsHeight,
             })
         })
     })

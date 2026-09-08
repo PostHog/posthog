@@ -2476,10 +2476,20 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 // so overlapping rebuilds can't finish out of order and let a stale layout win.
                 breakpoint()
 
+                // Only ReactFlow measures a node, and it can report a measurement while elk
+                // works. This payload predates that report, so take the measurement the store
+                // holds now. Writing the payload's back drops the report, and ReactFlow answers
+                // a dropped measurement by measuring the node again.
+                const currentNodesById = values.nodesById
+                const layoutedNodes = formattedNodes.map((node) => {
+                    const measured = currentNodesById[node.id]?.measured
+                    return measured ? { ...node, measured } : node
+                })
+
                 // Reconcile after layout so positions participate in the equality check: a node
                 // that moved gets a fresh reference, an untouched one keeps its identity and its
                 // ReactFlow subtree doesn't re-render.
-                actions.setNodesRaw(reconcileById(values.nodes, formattedNodes, (node) => node.id))
+                actions.setNodesRaw(reconcileById(values.nodes, layoutedNodes, (node) => node.id))
             },
 
             setMode: () => {
