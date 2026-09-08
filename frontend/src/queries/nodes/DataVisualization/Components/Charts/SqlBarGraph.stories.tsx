@@ -5,6 +5,7 @@ import { ChartSettings } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
+import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 import { SqlBarGraph } from './SqlBarGraph'
 import { SqlChartProps } from './SqlChart'
 
@@ -41,6 +42,19 @@ const positiveSeries: AxisSeries<number | null>[] = [
 const mixedSignSeries: AxisSeries<number | null>[] = [
     numericSeries('new_mrr', 1, [400, 250, 300, 220, 280]),
     numericSeries('churned_mrr', 2, [-120, -180, -350, -80, -300]),
+]
+
+const BROWSERS = ['Chrome', 'Safari', 'Firefox', 'Edge', 'Opera', 'Brave']
+
+const breakdownSeries = (metric: string, breakdownValue: string, base: number): AxisBreakdownSeries<number | null> => ({
+    name: `${metric} - ${breakdownValue}`,
+    breakdownValue,
+    data: [base, base + 20, base + 5, base + 35, base + 15],
+})
+
+const repeatedBreakdownSeries: AxisBreakdownSeries<number | null>[] = [
+    ...BROWSERS.map((browser, i) => breakdownSeries('views', browser, 100 - i * 10)),
+    ...BROWSERS.map((browser, i) => breakdownSeries('clicks', browser, 40 - i * 5)),
 ]
 
 // SqlBarGraph fills its flex parent, so the story needs a column container with a definite height —
@@ -87,6 +101,18 @@ export const GroupedBarWithNegativeValues: Story = {
             xData,
             yData: mixedSignSeries,
             visualizationType: ChartDisplayType.ActionsBar,
+            chartSettings: baseSettings,
+        }),
+}
+
+/** Twelve series whose breakdown values repeat across two y-columns. Each series needs its own
+ *  stacked band: a shared band would drop half the bars and shrink the stacked total. */
+export const StackedBarWithRepeatedBreakdownValues: Story = {
+    render: () =>
+        render({
+            xData,
+            yData: repeatedBreakdownSeries,
+            visualizationType: ChartDisplayType.ActionsStackedBar,
             chartSettings: baseSettings,
         }),
 }
