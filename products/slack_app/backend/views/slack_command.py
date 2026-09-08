@@ -156,4 +156,5 @@ def _unknown_command_help(command_name: str) -> str:
         f'• `{command_name} rules add "description" org/repo`\n'
         f"• `{command_name} rules remove <number(s)>`\n"
         f"• `{command_name} project [<id>]`"
+        f"\n• `{command_name} usage`"
     )

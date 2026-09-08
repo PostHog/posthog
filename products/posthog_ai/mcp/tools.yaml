@@ -9,6 +9,9 @@ feature: posthog_ai
 url_prefix: /ai
 ui_apps: {}
 tools:
+    ai-usage-list:
+        operation: ai_usage_list
+        enabled: false
     conversations-append-message-create:
         operation: conversations_append_message_create
         enabled: false

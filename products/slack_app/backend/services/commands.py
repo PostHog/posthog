@@ -1,12 +1,19 @@
 from typing import TYPE_CHECKING
 
+import structlog
+
 from posthog.models.integration import Integration, SlackIntegration
 
+from products.posthog_ai.backend.services.usage.report import build_usage_report
+from products.signals.backend.slack_formatting import prepare_slack_markdown, slack_markdown_block
+from products.slack_app.backend.analytics import AI_PRODUCT
 from products.slack_app.backend.services.slack_messages import post_slack_ephemeral
 
 if TYPE_CHECKING:
     from products.slack_app.backend.api import RulesCommand
     from products.slack_app.backend.services.integration_resolver import ResolutionResult
+
+logger = structlog.get_logger(__name__)
 
 MENTION_COMMAND_PREFIX = "@PostHog"
 
@@ -38,6 +45,7 @@ def _handle_help(
         f"`{command_prefix} rules remove <number(s)>` — Remove routing rules by number (e.g. `remove 1` or `remove 1,2`)",
         f"`{command_prefix} project` — Show which PostHog project your mentions route to in this workspace",
         f"`{command_prefix} project <id>` — Set the PostHog project your mentions route to in this workspace",
+        f"`{command_prefix} usage` — Show PostHog AI credits this project used this billing period",
     ]
 
     # The workspace-wide default is admins/owners-only, so only surface it to them.
@@ -55,6 +63,44 @@ def _handle_help(
         user=slack_user_id,
         thread_ts=thread_ts,
         text="\n".join(lines),
+    )
+
+
+def _handle_usage(
+    slack: SlackIntegration,
+    integration: Integration,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+) -> None:
+    """Report PostHog AI credits for the project this workspace routes to.
+
+    No conversation is in scope: the command answers for the project, and a channel or a thread
+    does not resolve to one agent run. The Slack app's own credits are reported alongside the
+    PostHog AI total they are part of.
+    """
+    try:
+        report = build_usage_report(integration.team, product=AI_PRODUCT)
+    except Exception:
+        logger.exception("slack_app_usage_report_failed", team_id=integration.team_id)
+        post_slack_ephemeral(
+            slack.client,
+            channel=channel,
+            user=slack_user_id,
+            thread_ts=thread_ts,
+            text="Couldn't load PostHog AI usage. Try again in a moment.",
+        )
+        return
+
+    post_slack_ephemeral(
+        slack.client,
+        channel=channel,
+        user=slack_user_id,
+        thread_ts=thread_ts,
+        # The report is Markdown, which only a markdown block renders. `text` stays as the
+        # notification fallback for clients that show no blocks.
+        text="PostHog AI usage",
+        blocks=[slack_markdown_block(prepare_slack_markdown(report.message))],
     )
 
 
@@ -527,6 +573,8 @@ def dispatch_rules_command(
             slack_user_id=slack_user_id,
             command_prefix=command_prefix,
         )
+    elif command.action == "usage":
+        _handle_usage(slack, integration, channel, thread_ts, slack_user_id)
     elif command.action == "add":
         if not command.repository:
             post_slack_ephemeral(

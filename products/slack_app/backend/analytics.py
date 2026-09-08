@@ -14,6 +14,13 @@ from posthog.ph_client import ph_scoped_capture
 
 logger = structlog.get_logger(__name__)
 
+# What the gateway stamps onto every `$ai_generation` a Slack-origin run makes: the run resolves to
+# this gateway product (`_ORIGIN_TO_GATEWAY_PRODUCT` in
+# `products/tasks/backend/temporal/process_task/ai_gateway_token.py`). The other clients make the
+# same match — desktop sends `posthog_code`, web sends `posthog_ai` — which is what puts all PostHog
+# AI feedback on one metric, and what lets a usage report attribute credits to this surface.
+AI_PRODUCT = "slack_app"
+
 
 def slack_event_props(integration: Integration, *, slack_user_id: str | None = None, **extra: object) -> dict:
     """The standard property bundle attached to every Slack app event, plus any ``extra`` props."""

@@ -517,6 +517,14 @@ class ClickHouseSustainedRateThrottle(PersonalApiKeyRateThrottle):
     rate = "1200/hour"
 
 
+class AIUsageRateThrottle(PersonalApiKeyRateThrottle):
+    # One AI usage report costs up to three ClickHouse scans over the whole billing period, so it
+    # gets a tighter budget than the general ClickHouse burst rate. A person asking `/usage` in a
+    # chat cannot approach this; an agent that asks in a loop is what it stops.
+    scope = "ai_usage"
+    rate = "30/minute"
+
+
 # copy_flags fans out to up to 50 target projects per call, creating a feature flag (and any
 # missing cohorts) in each one, a much heavier write than most endpoints, so it gets its own
 # tighter budget instead of the general per-project Burst/SustainedRateThrottle. It's a plain

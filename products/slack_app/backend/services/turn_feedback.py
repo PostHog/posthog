@@ -31,7 +31,7 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models.integration import Integration, SlackIntegration
 
-from products.slack_app.backend.analytics import slack_event_props
+from products.slack_app.backend.analytics import AI_PRODUCT, slack_event_props
 from products.slack_app.backend.services.slack_messages import SLACK_WEBHOOK_TIMEOUT_SECONDS, TURN_FEEDBACK_ACTION_ID
 from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id
 
@@ -42,14 +42,6 @@ SLACK_INTEGRATION_KIND = "slack"
 TURN_FEEDBACK_MODAL_CALLBACK_ID = "slack_app_turn_feedback_modal"
 _MODAL_TEXT_BLOCK_ID = "feedback_text"
 _MODAL_TEXT_ACTION_ID = "text"
-
-# What the run's own generations are already tagged with, so a rating joins them: a
-# Slack-origin run resolves to this gateway product (`_ORIGIN_TO_GATEWAY_PRODUCT` in
-# `products/tasks/backend/temporal/process_task/ai_gateway_token.py`) and the gateway
-# stamps it onto every `$ai_generation`. The other clients make the same match — desktop
-# sends `posthog_code`, web sends `posthog_ai` — which is what puts all PostHog AI
-# feedback on one metric, split by this property.
-AI_PRODUCT = "slack_app"
 
 # Slack's own cap on a `plain_text_input`, and Slack rejects the whole view past it, so the
 # modal would not open at all. Below the desktop client's 4000 on purpose: a reason typed
