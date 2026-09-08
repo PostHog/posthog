@@ -3898,7 +3898,6 @@ def append_suggested_reviewers(
                     actor_user_id=attribution.user_id,
                 )
 
-            # A reviewer added after the PR opened still gets assigned on GitHub, if they opted in.
             # Only on an add: assignment is additive, so a removal leaves the pull request alone.
             if added_logins:
                 assignment = SignalReportAssignment.all_teams.filter(team_id=team.id, report_id=report_id).first()

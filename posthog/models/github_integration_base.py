@@ -1174,7 +1174,6 @@ class GitHubIntegrationBase:
 
         Assignees use the issues endpoint (a PR is an issue for assignment purposes).
         """
-        # GitHub accepts at most 10 assignees per call and ignores the rest without an error.
         wanted = list(dict.fromkeys(login for login in assignees if login))[:MAX_PR_ASSIGNEES]
         if not wanted:
             return {"success": True, "assignees": []}

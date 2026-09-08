@@ -30,8 +30,8 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 logger = structlog.get_logger(__name__)
 
 # Assign only while the pull request can still be reviewed. UNKNOWN is included because a PR whose
-# state could not be read is far more often open than closed, and GitHub rejects assigning a closed
-# one anyway, which costs one request and no correctness.
+# state could not be read is far more often open than closed, and the task re-reads the real state
+# from GitHub before it assigns.
 ASSIGNABLE_PR_STATES = frozenset(
     {
         SignalReportAssignment.PrState.OPEN,
@@ -59,8 +59,8 @@ def schedule_reviewer_pr_assignment(
     if not pr_url or (pr_state or SignalReportAssignment.PrState.UNKNOWN) not in ASSIGNABLE_PR_STATES:
         return
 
-    # Imported here rather than at module level to break the cycle through `tasks`, which imports
-    # this module for the task body.
+    # noqa: PLC0415 because `tasks` imports this module for the task body, so a module-level
+    # import here would be a cycle.
     from products.signals.backend.tasks import assign_reviewers_on_implementation_pr  # noqa: PLC0415
 
     transaction.on_commit(

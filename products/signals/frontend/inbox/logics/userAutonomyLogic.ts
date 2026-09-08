@@ -22,6 +22,9 @@ export interface userAutonomyLogicActions {
     autostartPrioritySettled: () => {
         value: true
     }
+    githubAssignSettled: () => {
+        value: true
+    }
     loadAutonomyConfig: () => any
     loadAutonomyConfigFailure: (
         error: string,
@@ -36,9 +39,6 @@ export interface userAutonomyLogicActions {
     ) => {
         autonomyConfig: SignalUserAutonomyConfig | null
         payload?: any
-    }
-    githubAssignSettled: () => {
-        value: true
     }
     setAutostartPriority: (priority: SignalReportPriority | null) => {
         priority: SignalReportPriority | null
