@@ -1,6 +1,6 @@
 import '../MarketingAnalyticsTable/MarketingAnalyticsTableStyleOverride.scss'
 
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconExternal } from '@posthog/icons'
@@ -26,7 +26,6 @@ import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../logic/marketingAnalyticsTilesLogic'
 import { MarketingAnalyticsCell } from '../../shared'
-import { IntegrationSettingsModal } from '../settings/IntegrationSettingsModal'
 
 // Unique ID counter for this component
 let uniqueNodeId = 0
@@ -36,8 +35,7 @@ const TILE_DESCRIPTION =
     'Conversions with UTM parameters set that do not match any campaign data from your integrations. Use the cell actions to map these to your integrations or configure them from the marketing settings. You need to have conversion goals configured to be able to see any data. If you do not see anything, it means all your conversion from the period are mapped to a native source.'
 
 export const NonIntegratedConversionsTable = (): JSX.Element | null => {
-    const { conversion_goals, integrationSettingsModal } = useValues(marketingAnalyticsSettingsLogic)
-    const { closeIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
+    const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     const { dateFilter, compareFilter, loading, draftConversionGoal } = useValues(marketingAnalyticsLogic)
 
     // Create a unique, stable insightProps for this component instance
@@ -187,15 +185,6 @@ export const NonIntegratedConversionsTable = (): JSX.Element | null => {
             <div className="bg-surface-primary rounded border border-border marketing-analytics-table-container">
                 <Query query={query} readOnly={false} context={nonIntegratedContext} />
             </div>
-            {integrationSettingsModal.integration && (
-                <IntegrationSettingsModal
-                    integrationName={integrationSettingsModal.integration}
-                    isOpen={integrationSettingsModal.isOpen}
-                    onClose={closeIntegrationSettingsModal}
-                    initialTab={integrationSettingsModal.initialTab}
-                    initialUtmValue={integrationSettingsModal.initialUtmValue}
-                />
-            )}
         </div>
     )
 }

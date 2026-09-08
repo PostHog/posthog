@@ -69,7 +69,6 @@ import {
     HogQLQuery,
     MarketingAnalyticsTableQuery,
     NodeKind,
-    NonIntegratedConversionsColumnsSchemaNames,
     PersonsNode,
     SessionAttributionExplorerQuery,
     SessionsQuery,
@@ -91,6 +90,7 @@ import {
     taxonomicPersonFilterToHogQL,
     taxonomicSessionFilterToHogQL,
 } from '~/queries/utils'
+import { getMappableColumn } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/mappingUtils'
 import { NonIntegratedConversionsCellActions } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsCellActions'
 import { NonIntegratedConversionsRowActions } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsRowActions'
 import { EventType, InsightLogicProps } from '~/types'
@@ -361,10 +361,7 @@ export function DataTable({
                         },
                         sorter: undefined, // using custom sorting code
                         cellActions:
-                            sourceFeatures.has(QueryFeature.nonIntegratedConversionsActions) &&
-                            Object.values(NonIntegratedConversionsColumnsSchemaNames).includes(
-                                key as NonIntegratedConversionsColumnsSchemaNames
-                            )
+                            sourceFeatures.has(QueryFeature.campaignMappingActions) && !!getMappableColumn(key)
                                 ? (_: unknown, record: DataTableRow) => {
                                       if (!record.result) {
                                           return null
@@ -796,7 +793,7 @@ export function DataTable({
                       }
                       return null
                   }
-                : sourceFeatures.has(QueryFeature.nonIntegratedConversionsActions)
+                : sourceFeatures.has(QueryFeature.nonIntegratedConversionsRowActions)
                   ? (row: DataTableRow) => {
                         if (row.label || !row.result || !columnsInResponse) {
                             return null
