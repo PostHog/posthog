@@ -156,6 +156,16 @@ jobs:
               env:
                   TEST: 1
 
+            - name: Check if the STL spec artifacts are up to date
+              # Guarded so branches predating common/hogvm/spec still pass
+              run: |
+                  if [ -f common/hogvm/spec/compile.py ]; then
+                      python -m common.hogvm.spec.compile
+                      git diff --exit-code
+                  fi
+              env:
+                  TEST: 1
+
             - name: Run HogVM Python tests
               run: |
                   pytest common/hogvm

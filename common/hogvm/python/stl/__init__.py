@@ -6,6 +6,7 @@ import random
 import datetime
 import dataclasses
 from collections.abc import Callable
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 import pytz
@@ -985,59 +986,45 @@ STL: dict[str, STLFunction] = {
         fn=lambda args, team, stdout, timeout: "".join(
             [print_hog_string_output(arg) if arg is not None else "" for arg in args]
         ),
-        minArgs=1,
-        maxArgs=None,
     ),
-    "match": STLFunction(fn=match, minArgs=2, maxArgs=2),
-    "extractRegex": STLFunction(fn=extractRegex, minArgs=2, maxArgs=2),
-    "like": STLFunction(fn=lambda args, team, stdout, timeout: like(args[0], args[1]), minArgs=2, maxArgs=2),
-    "ilike": STLFunction(fn=lambda args, team, stdout, timeout: like(args[0], args[1], True), minArgs=2, maxArgs=2),
-    "notLike": STLFunction(fn=lambda args, team, stdout, timeout: not like(args[0], args[1]), minArgs=2, maxArgs=2),
-    "notILike": STLFunction(
-        fn=lambda args, team, stdout, timeout: not like(args[0], args[1], True), minArgs=2, maxArgs=2
-    ),
-    "toString": STLFunction(fn=toString, minArgs=1, maxArgs=2),
-    "toUUID": STLFunction(fn=toString, minArgs=1, maxArgs=1),
-    "toInt": STLFunction(fn=toInt, minArgs=1, maxArgs=1),
-    "toFloat": STLFunction(fn=toFloat, minArgs=1, maxArgs=1),
-    "ifNull": STLFunction(fn=ifNull, minArgs=2, maxArgs=2),
-    "isNull": STLFunction(fn=lambda args, team, stdout, timeout: args[0] is None, minArgs=1, maxArgs=1),
-    "isNotNull": STLFunction(fn=lambda args, team, stdout, timeout: args[0] is not None, minArgs=1, maxArgs=1),
-    "length": STLFunction(fn=length, minArgs=1, maxArgs=1),
-    "empty": STLFunction(fn=empty, minArgs=1, maxArgs=1),
-    "notEmpty": STLFunction(
-        fn=lambda args, team, stdout, timeout: not empty(args, team, stdout, timeout), minArgs=1, maxArgs=1
-    ),
-    "tuple": STLFunction(fn=lambda args, team, stdout, timeout: tuple(args), minArgs=0, maxArgs=None),
-    "lower": STLFunction(
-        fn=lambda args, team, stdout, timeout: args[0].lower() if args[0] is not None else None, minArgs=1, maxArgs=1
-    ),
-    "upper": STLFunction(fn=lambda args, team, stdout, timeout: args[0].upper(), minArgs=1, maxArgs=1),
-    "reverse": STLFunction(fn=lambda args, team, stdout, timeout: args[0][::-1], minArgs=1, maxArgs=1),
-    "print": STLFunction(fn=print, minArgs=0, maxArgs=None),
-    "jsonParse": STLFunction(fn=jsonParse, minArgs=1, maxArgs=1),
-    "jsonStringify": STLFunction(fn=jsonStringify, minArgs=1, maxArgs=2),
-    "JSONHas": STLFunction(fn=JSONHas, minArgs=1, maxArgs=None),
-    "isValidJSON": STLFunction(fn=isValidJSON, minArgs=1, maxArgs=1),
-    "JSONLength": STLFunction(fn=JSONLength, minArgs=1, maxArgs=None),
-    "JSONExtractBool": STLFunction(fn=JSONExtractBool, minArgs=1, maxArgs=None),
-    "base64Encode": STLFunction(fn=base64Encode, minArgs=1, maxArgs=1),
-    "base64Decode": STLFunction(fn=base64Decode, minArgs=1, maxArgs=1),
-    "encodeURLComponent": STLFunction(fn=encodeURLComponent, minArgs=1, maxArgs=1),
-    "decodeURLComponent": STLFunction(fn=decodeURLComponent, minArgs=1, maxArgs=1),
-    "tryDecodeURLComponent": STLFunction(fn=tryDecodeURLComponent, minArgs=1, maxArgs=1),
-    "replaceOne": STLFunction(
-        fn=lambda args, team, stdout, timeout: args[0].replace(args[1], args[2], 1), minArgs=3, maxArgs=3
-    ),
-    "replaceAll": STLFunction(
-        fn=lambda args, team, stdout, timeout: args[0].replace(args[1], args[2]), minArgs=3, maxArgs=3
-    ),
+    "match": STLFunction(fn=match),
+    "extractRegex": STLFunction(fn=extractRegex),
+    "like": STLFunction(fn=lambda args, team, stdout, timeout: like(args[0], args[1])),
+    "ilike": STLFunction(fn=lambda args, team, stdout, timeout: like(args[0], args[1], True)),
+    "notLike": STLFunction(fn=lambda args, team, stdout, timeout: not like(args[0], args[1])),
+    "notILike": STLFunction(fn=lambda args, team, stdout, timeout: not like(args[0], args[1], True)),
+    "toString": STLFunction(fn=toString),
+    "toUUID": STLFunction(fn=toString),
+    "toInt": STLFunction(fn=toInt),
+    "toFloat": STLFunction(fn=toFloat),
+    "ifNull": STLFunction(fn=ifNull),
+    "isNull": STLFunction(fn=lambda args, team, stdout, timeout: args[0] is None),
+    "isNotNull": STLFunction(fn=lambda args, team, stdout, timeout: args[0] is not None),
+    "length": STLFunction(fn=length),
+    "empty": STLFunction(fn=empty),
+    "notEmpty": STLFunction(fn=lambda args, team, stdout, timeout: not empty(args, team, stdout, timeout)),
+    "tuple": STLFunction(fn=lambda args, team, stdout, timeout: tuple(args)),
+    "lower": STLFunction(fn=lambda args, team, stdout, timeout: args[0].lower() if args[0] is not None else None),
+    "upper": STLFunction(fn=lambda args, team, stdout, timeout: args[0].upper()),
+    "reverse": STLFunction(fn=lambda args, team, stdout, timeout: args[0][::-1]),
+    "print": STLFunction(fn=print),
+    "jsonParse": STLFunction(fn=jsonParse),
+    "jsonStringify": STLFunction(fn=jsonStringify),
+    "JSONHas": STLFunction(fn=JSONHas),
+    "isValidJSON": STLFunction(fn=isValidJSON),
+    "JSONLength": STLFunction(fn=JSONLength),
+    "JSONExtractBool": STLFunction(fn=JSONExtractBool),
+    "base64Encode": STLFunction(fn=base64Encode),
+    "base64Decode": STLFunction(fn=base64Decode),
+    "encodeURLComponent": STLFunction(fn=encodeURLComponent),
+    "decodeURLComponent": STLFunction(fn=decodeURLComponent),
+    "tryDecodeURLComponent": STLFunction(fn=tryDecodeURLComponent),
+    "replaceOne": STLFunction(fn=lambda args, team, stdout, timeout: args[0].replace(args[1], args[2], 1)),
+    "replaceAll": STLFunction(fn=lambda args, team, stdout, timeout: args[0].replace(args[1], args[2])),
     "position": STLFunction(
         fn=lambda args, team, stdout, timeout: (
             (args[0].index(str(args[1])) + 1) if isinstance(args[0], str) and str(args[1]) in args[0] else 0
         ),
-        minArgs=2,
-        maxArgs=3,
     ),
     "positionCaseInsensitive": STLFunction(
         fn=lambda args, team, stdout, timeout: (
@@ -1045,175 +1032,146 @@ STL: dict[str, STLFunction] = {
             if isinstance(args[0], str) and str(args[1]).lower() in args[0].lower()
             else 0
         ),
-        minArgs=2,
-        maxArgs=3,
     ),
-    "trim": STLFunction(fn=trim, minArgs=1, maxArgs=2),
-    "trimLeft": STLFunction(fn=trimLeft, minArgs=1, maxArgs=2),
-    "trimRight": STLFunction(fn=trimRight, minArgs=1, maxArgs=2),
-    "splitByString": STLFunction(fn=splitByString, minArgs=2, maxArgs=3),
-    "generateUUIDv4": STLFunction(fn=generateUUIDv4, minArgs=0, maxArgs=0),
-    "randomFloat": STLFunction(fn=randomFloat, minArgs=0, maxArgs=0),
-    "sha256Hex": STLFunction(fn=lambda args, team, stdout, timeout: sha256(args[0]), minArgs=1, maxArgs=1),
+    "trim": STLFunction(fn=trim),
+    "trimLeft": STLFunction(fn=trimLeft),
+    "trimRight": STLFunction(fn=trimRight),
+    "splitByString": STLFunction(fn=splitByString),
+    "generateUUIDv4": STLFunction(fn=generateUUIDv4),
+    "randomFloat": STLFunction(fn=randomFloat),
+    "sha256Hex": STLFunction(fn=lambda args, team, stdout, timeout: sha256(args[0])),
     "sha256": STLFunction(
         fn=lambda args, team, stdout, timeout: sha256(args[0], args[1] if len(args) > 1 else "hex"),
-        minArgs=1,
-        maxArgs=2,
     ),
-    "sha1Hex": STLFunction(fn=lambda args, team, stdout, timeout: sha1(args[0]), minArgs=1, maxArgs=1),
+    "sha1Hex": STLFunction(fn=lambda args, team, stdout, timeout: sha1(args[0])),
     "sha1": STLFunction(
         fn=lambda args, team, stdout, timeout: sha1(args[0], args[1] if len(args) > 1 else "hex"),
-        minArgs=1,
-        maxArgs=2,
     ),
-    "md5Hex": STLFunction(fn=lambda args, team, stdout, timeout: md5(args[0]), minArgs=1, maxArgs=1),
-    "md5": STLFunction(
-        fn=lambda args, team, stdout, timeout: md5(args[0], args[1] if len(args) > 1 else "hex"), minArgs=1, maxArgs=2
-    ),
+    "md5Hex": STLFunction(fn=lambda args, team, stdout, timeout: md5(args[0])),
+    "md5": STLFunction(fn=lambda args, team, stdout, timeout: md5(args[0], args[1] if len(args) > 1 else "hex")),
     "sha1HmacChainHex": STLFunction(
         fn=lambda args, team, stdout, timeout: sha1HmacChain(args[0], "hex"),
-        minArgs=1,
-        maxArgs=1,
     ),
     "sha1HmacChain": STLFunction(
         fn=lambda args, team, stdout, timeout: sha1HmacChain(args[0], args[1] if len(args) > 1 else "hex"),
-        minArgs=1,
-        maxArgs=2,
     ),
     "sha256HmacChainHex": STLFunction(
         fn=lambda args, team, stdout, timeout: sha256HmacChain(args[0], "hex"),
-        minArgs=1,
-        maxArgs=1,
     ),
     "sha256HmacChain": STLFunction(
         fn=lambda args, team, stdout, timeout: sha256HmacChain(args[0], args[1] if len(args) > 1 else "hex"),
-        minArgs=1,
-        maxArgs=2,
     ),
-    "isIPAddressInRange": STLFunction(
-        fn=lambda args, team, stdout, timeout: isIPAddressInRange(args[0], args[1]), minArgs=2, maxArgs=2
-    ),
-    "keys": STLFunction(fn=keys, minArgs=1, maxArgs=1),
-    "values": STLFunction(fn=values, minArgs=1, maxArgs=1),
+    "isIPAddressInRange": STLFunction(fn=lambda args, team, stdout, timeout: isIPAddressInRange(args[0], args[1])),
+    "keys": STLFunction(fn=keys),
+    "values": STLFunction(fn=values),
     "indexOf": STLFunction(
         fn=lambda args, team, stdout, timeout: (
             (args[0].index(args[1]) + 1) if isinstance(args[0], list) and args[1] in args[0] else 0
         ),
-        minArgs=2,
-        maxArgs=2,
     ),
-    "arrayPushBack": STLFunction(fn=arrayPushBack, minArgs=2, maxArgs=2),
-    "arrayPushFront": STLFunction(fn=arrayPushFront, minArgs=2, maxArgs=2),
-    "arrayPopBack": STLFunction(fn=arrayPopBack, minArgs=1, maxArgs=1),
-    "arrayPopFront": STLFunction(fn=arrayPopFront, minArgs=1, maxArgs=1),
-    "arraySort": STLFunction(fn=arraySort, minArgs=1, maxArgs=None),
-    "arrayReverse": STLFunction(fn=arrayReverse, minArgs=1, maxArgs=1),
-    "arrayReverseSort": STLFunction(fn=arrayReverseSort, minArgs=1, maxArgs=None),
-    "arrayStringConcat": STLFunction(fn=arrayStringConcat, minArgs=1, maxArgs=2),
-    "has": STLFunction(fn=has, minArgs=2, maxArgs=2),
-    "now": STLFunction(fn=lambda args, team, stdout, timeout: now(), minArgs=0, maxArgs=1),
+    "arrayPushBack": STLFunction(fn=arrayPushBack),
+    "arrayPushFront": STLFunction(fn=arrayPushFront),
+    "arrayPopBack": STLFunction(fn=arrayPopBack),
+    "arrayPopFront": STLFunction(fn=arrayPopFront),
+    "arraySort": STLFunction(fn=arraySort),
+    "arrayReverse": STLFunction(fn=arrayReverse),
+    "arrayReverseSort": STLFunction(fn=arrayReverseSort),
+    "arrayStringConcat": STLFunction(fn=arrayStringConcat),
+    "has": STLFunction(fn=has),
+    "now": STLFunction(fn=lambda args, team, stdout, timeout: now()),
     "toUnixTimestamp": STLFunction(
         fn=lambda args, team, stdout, timeout: toUnixTimestamp(args[0], args[1] if len(args) > 1 else None),
-        minArgs=1,
-        maxArgs=2,
     ),
-    "fromUnixTimestamp": STLFunction(
-        fn=lambda args, team, stdout, timeout: fromUnixTimestamp(args[0]), minArgs=1, maxArgs=1
-    ),
-    "toUnixTimestampMilli": STLFunction(
-        fn=lambda args, team, stdout, timeout: toUnixTimestampMilli(args[0]), minArgs=1, maxArgs=2
-    ),
-    "fromUnixTimestampMilli": STLFunction(
-        fn=lambda args, team, stdout, timeout: fromUnixTimestampMilli(args[0]), minArgs=1, maxArgs=1
-    ),
-    "toTimeZone": STLFunction(
-        fn=lambda args, team, stdout, timeout: toTimeZone(args[0], args[1]), minArgs=2, maxArgs=2
-    ),
-    "toDate": STLFunction(fn=lambda args, team, stdout, timeout: toDate(args[0]), minArgs=1, maxArgs=1),
-    "toDateTime": STLFunction(fn=lambda args, team, stdout, timeout: toDateTime(args[0]), minArgs=1, maxArgs=2),
-    "formatDateTime": STLFunction(fn=_formatDateTime, minArgs=2, maxArgs=3),
+    "fromUnixTimestamp": STLFunction(fn=lambda args, team, stdout, timeout: fromUnixTimestamp(args[0])),
+    "toUnixTimestampMilli": STLFunction(fn=lambda args, team, stdout, timeout: toUnixTimestampMilli(args[0])),
+    "fromUnixTimestampMilli": STLFunction(fn=lambda args, team, stdout, timeout: fromUnixTimestampMilli(args[0])),
+    "toTimeZone": STLFunction(fn=lambda args, team, stdout, timeout: toTimeZone(args[0], args[1])),
+    "toDate": STLFunction(fn=lambda args, team, stdout, timeout: toDate(args[0])),
+    "toDateTime": STLFunction(fn=lambda args, team, stdout, timeout: toDateTime(args[0])),
+    "formatDateTime": STLFunction(fn=_formatDateTime),
     "HogError": STLFunction(
         fn=lambda args, team, stdout, timeout: new_hog_error(
             args[0], args[1] if len(args) > 1 else None, args[2] if len(args) > 2 else None
         ),
-        minArgs=1,
-        maxArgs=3,
     ),
     "Error": STLFunction(
         fn=lambda args, team, stdout, timeout: new_hog_error(
             "Error", args[0] if len(args) > 0 else None, args[1] if len(args) > 1 else None
         ),
-        minArgs=0,
-        maxArgs=2,
     ),
     "RetryError": STLFunction(
         fn=lambda args, team, stdout, timeout: new_hog_error(
             "RetryError", args[0] if len(args) > 0 else None, args[1] if len(args) > 1 else None
         ),
-        minArgs=0,
-        maxArgs=2,
     ),
     "NotImplementedError": STLFunction(
         fn=lambda args, team, stdout, timeout: new_hog_error(
             "NotImplementedError", args[0] if len(args) > 0 else None, args[1] if len(args) > 1 else None
         ),
-        minArgs=0,
-        maxArgs=2,
     ),
-    "typeof": STLFunction(fn=_typeof, minArgs=1, maxArgs=1),
-    "JSONExtract": STLFunction(fn=JSONExtractGeneric, minArgs=2),
-    "JSONExtractArrayRaw": STLFunction(fn=JSONExtractArrayRaw, minArgs=1),
-    "JSONExtractFloat": STLFunction(fn=JSONExtractFloat, minArgs=1),
-    "JSONExtractInt": STLFunction(fn=JSONExtractInt, minArgs=1),
-    "JSONExtractString": STLFunction(fn=JSONExtractString, minArgs=1),
-    "and": STLFunction(fn=and_fn, minArgs=1, maxArgs=None),
-    "addDays": STLFunction(fn=addDays, minArgs=2, maxArgs=2),
-    "assumeNotNull": STLFunction(fn=assumeNotNull, minArgs=1, maxArgs=1),
-    "coalesce": STLFunction(fn=coalesce, minArgs=1, maxArgs=None),
-    "dateAdd": STLFunction(fn=date_add, minArgs=3, maxArgs=3),
-    "dateDiff": STLFunction(fn=date_diff, minArgs=3, maxArgs=3),
-    "dateTrunc": STLFunction(fn=date_trunc, minArgs=2, maxArgs=3),
-    "equals": STLFunction(fn=equals, minArgs=2, maxArgs=2),
-    "extract": STLFunction(fn=extract, minArgs=2, maxArgs=2),
-    "floor": STLFunction(fn=floor_fn, minArgs=1, maxArgs=2),
-    "greater": STLFunction(fn=greater, minArgs=2, maxArgs=2),
-    "greaterOrEquals": STLFunction(fn=greaterOrEquals, minArgs=2, maxArgs=2),
-    "if": STLFunction(fn=if_fn, minArgs=3, maxArgs=3),
-    "in": STLFunction(fn=in_fn, minArgs=2, maxArgs=2),
-    "less": STLFunction(fn=less, minArgs=2, maxArgs=2),
-    "lessOrEquals": STLFunction(fn=lessOrEquals, minArgs=2, maxArgs=2),
-    "min2": STLFunction(fn=min2, minArgs=2, maxArgs=2),
-    "max2": STLFunction(fn=max2, minArgs=2, maxArgs=2),
-    "minus": STLFunction(fn=minus, minArgs=2, maxArgs=2),
-    "multiIf": STLFunction(fn=multiIf, minArgs=3),
-    "not": STLFunction(fn=not_fn, minArgs=1, maxArgs=1),
-    "notEquals": STLFunction(fn=notEquals, minArgs=2, maxArgs=2),
-    "or": STLFunction(fn=or_fn, minArgs=1, maxArgs=None),
-    "plus": STLFunction(fn=plus, minArgs=2, maxArgs=2),
-    "range": STLFunction(fn=range_fn, minArgs=1, maxArgs=2),
-    "round": STLFunction(fn=round_fn, minArgs=1, maxArgs=2),
-    "startsWith": STLFunction(fn=startsWith, minArgs=2, maxArgs=2),
-    "substring": STLFunction(fn=substring, minArgs=2, maxArgs=3),
-    "toIntervalDay": STLFunction(fn=toIntervalDay, minArgs=1, maxArgs=1),
-    "toIntervalHour": STLFunction(fn=toIntervalHour, minArgs=1, maxArgs=1),
-    "toIntervalMinute": STLFunction(fn=toIntervalMinute, minArgs=1, maxArgs=1),
-    "toIntervalMonth": STLFunction(fn=toIntervalMonth, minArgs=1, maxArgs=1),
-    "toMonth": STLFunction(fn=toMonth_fn, minArgs=1, maxArgs=1),
-    "toStartOfDay": STLFunction(fn=toStartOfDay, minArgs=1, maxArgs=2),
-    "toStartOfHour": STLFunction(fn=toStartOfHour, minArgs=1, maxArgs=1),
-    "toStartOfMonth": STLFunction(fn=toStartOfMonth, minArgs=1, maxArgs=1),
-    "toStartOfWeek": STLFunction(fn=toStartOfWeek, minArgs=1, maxArgs=2),
-    "toYYYYMM": STLFunction(fn=toYYYYMM, minArgs=1, maxArgs=1),
-    "toYear": STLFunction(fn=toYear, minArgs=1, maxArgs=1),
-    "today": STLFunction(fn=today, minArgs=0, maxArgs=0),
+    "typeof": STLFunction(fn=_typeof),
+    "JSONExtract": STLFunction(fn=JSONExtractGeneric),
+    "JSONExtractArrayRaw": STLFunction(fn=JSONExtractArrayRaw),
+    "JSONExtractFloat": STLFunction(fn=JSONExtractFloat),
+    "JSONExtractInt": STLFunction(fn=JSONExtractInt),
+    "JSONExtractString": STLFunction(fn=JSONExtractString),
+    "and": STLFunction(fn=and_fn),
+    "addDays": STLFunction(fn=addDays),
+    "assumeNotNull": STLFunction(fn=assumeNotNull),
+    "coalesce": STLFunction(fn=coalesce),
+    "dateAdd": STLFunction(fn=date_add),
+    "dateDiff": STLFunction(fn=date_diff),
+    "dateTrunc": STLFunction(fn=date_trunc),
+    "equals": STLFunction(fn=equals),
+    "extract": STLFunction(fn=extract),
+    "floor": STLFunction(fn=floor_fn),
+    "greater": STLFunction(fn=greater),
+    "greaterOrEquals": STLFunction(fn=greaterOrEquals),
+    "if": STLFunction(fn=if_fn),
+    "in": STLFunction(fn=in_fn),
+    "less": STLFunction(fn=less),
+    "lessOrEquals": STLFunction(fn=lessOrEquals),
+    "min2": STLFunction(fn=min2),
+    "max2": STLFunction(fn=max2),
+    "minus": STLFunction(fn=minus),
+    "multiIf": STLFunction(fn=multiIf),
+    "not": STLFunction(fn=not_fn),
+    "notEquals": STLFunction(fn=notEquals),
+    "or": STLFunction(fn=or_fn),
+    "plus": STLFunction(fn=plus),
+    "range": STLFunction(fn=range_fn),
+    "round": STLFunction(fn=round_fn),
+    "startsWith": STLFunction(fn=startsWith),
+    "substring": STLFunction(fn=substring),
+    "toIntervalDay": STLFunction(fn=toIntervalDay),
+    "toIntervalHour": STLFunction(fn=toIntervalHour),
+    "toIntervalMinute": STLFunction(fn=toIntervalMinute),
+    "toIntervalMonth": STLFunction(fn=toIntervalMonth),
+    "toMonth": STLFunction(fn=toMonth_fn),
+    "toStartOfDay": STLFunction(fn=toStartOfDay),
+    "toStartOfHour": STLFunction(fn=toStartOfHour),
+    "toStartOfMonth": STLFunction(fn=toStartOfMonth),
+    "toStartOfWeek": STLFunction(fn=toStartOfWeek),
+    "toYYYYMM": STLFunction(fn=toYYYYMM),
+    "toYear": STLFunction(fn=toYear),
+    "today": STLFunction(fn=today),
     # only in python, async function in nodejs
-    "sleep": STLFunction(fn=sleep, minArgs=1, maxArgs=1, is_blocking=True),
-    "run": STLFunction(fn=run, minArgs=1, maxArgs=1, is_blocking=True),
+    "sleep": STLFunction(fn=sleep, is_blocking=True),
+    "run": STLFunction(fn=run, is_blocking=True),
     "multiSearchAnyCaseInsensitive": STLFunction(
         fn=multiSearchAnyCaseInsensitive,
-        minArgs=2,
-        maxArgs=2,
     ),
 }
+
+# Arity comes from the cross-language STL contract, not from the declarations above: every VM
+# (python, typescript, rust) consumes the same spec file, so argument-count behavior cannot drift
+# between languages. A builtin missing from the spec fails here at import.
+with open(Path(__file__).parents[2] / "spec" / "stl.json", encoding="utf-8") as _spec_file:
+    _STL_SPEC: dict[str, dict[str, Any]] = json.load(_spec_file)["functions"]
+
+for _name, _stl_fn in STL.items():
+    _entry = _STL_SPEC[_name]
+    _stl_fn.minArgs = _entry["minArgs"]
+    _stl_fn.maxArgs = _entry["maxArgs"]
 
 BLOCKING_FUNCTIONS: frozenset[str] = frozenset(name for name, spec in STL.items() if spec.is_blocking)

@@ -1,5 +1,26 @@
 # HogQL bytecode changelog
 
+## 2026-09-08 - 1.0.71
+
+The standard library surface is now a shared, machine-readable contract: `spec/stl.json` lists
+every builtin with its accepted argument counts. No bytecode operations changed, and no arities
+changed.
+
+All three VMs consume the contract instead of declaring arities themselves. Python loads the JSON
+at import, TypeScript and Rust consume artifacts that `python -m common.hogvm.spec.compile`
+generates from it (`typescript/src/stl/stlSpec.ts`, `rust/common/hogvm/src/stl_spec.rs`). CI
+regenerates the artifacts and fails on any diff, so the JSON file is the only place the contract
+can change.
+
+The compiler also generates conformance vectors (`spec/vectors/arity.json`): for every builtin, a
+call with one argument too few and one too many, with the exact error each VM must produce. All
+three VMs run them in their test suites.
+
+The Rust VM now enforces the contract at the dispatch site, like the Python and TypeScript VMs
+have since 1.0.69, with the same error messages. Calls the contract rejects — for example `and()`
+with no arguments, or `lower(a, b)` — failed already in Python and TypeScript and now fail in Rust
+too.
+
 ## 2026-09-07 - 1.0.70
 
 Eleven standard library functions accept the trailing arguments that HogQL accepts. No bytecode

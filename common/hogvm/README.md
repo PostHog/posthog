@@ -21,6 +21,28 @@ call('arg', 'another') # [_H, op.STRING, "another", op.STRING, "arg", op.CALL_GL
 
 The `python/execute.py` function in this folder acts as the reference implementation in case of disputes.
 
+### The standard library contract
+
+`spec/stl.json` is the single source of truth for the standard library surface: every builtin, the
+argument counts it accepts, and which VMs implement it. No VM declares arities of its own — they all
+consume the contract:
+
+- Python loads the JSON when `python/stl` is imported.
+- TypeScript and Rust consume generated artifacts (`typescript/src/stl/stlSpec.ts`,
+  `rust/common/hogvm/src/stl_spec.rs`), committed to the repo.
+
+To change the contract, edit `spec/stl.json` and run:
+
+```bash
+python -m common.hogvm.spec.compile
+```
+
+This regenerates the artifacts and the conformance vectors in `spec/vectors/`, which every VM runs
+in its test suite (`python/test/test_spec_vectors.py`, `typescript/src/__tests__/specVectors.test.ts`,
+`rust/common/hogvm/tests/spec_vectors.rs`). CI re-runs the compiler and fails on any diff, and a
+change under `common/hogvm/` also runs the Rust crate's parity gates against the shared corpus, so
+the three VMs cannot drift.
+
 ### Operations
 
 Here's a sample list of Hog bytecode operations, missing about half of them and likely out of date:

@@ -1,8 +1,9 @@
 # Hog function argument counts
 
 Hog checks standard library argument counts for direct calls and functions stored in variables.
-The Python and TypeScript native function registries define the minimum and maximum accepted counts.
-The HogQL parity test checks both bounds against shared HogQL function names in these registries.
+The shared contract in `common/hogvm/spec/stl.json` defines the minimum and maximum accepted counts,
+and every VM (Python, TypeScript, Rust) consumes it — see `common/hogvm/README.md`.
+The HogQL parity test checks both bounds against shared HogQL function names in the contract.
 
 `JSONHas(json)` accepts no path components and returns `true`, preserving Hog's existing empty-path behavior.
 

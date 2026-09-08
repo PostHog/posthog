@@ -12,6 +12,7 @@ mod print;
 mod program;
 mod state;
 mod stl;
+mod stl_spec;
 mod util;
 mod values;
 mod vm;
@@ -52,6 +53,10 @@ pub use stl::native_func;
 pub use stl::stl;
 pub use stl::stl_map;
 pub use stl::NativeFunction;
+
+// The cross-language STL contract (generated from common/hogvm/spec/stl.json)
+pub use stl_spec::check_stl_arity;
+pub use stl_spec::STL_ARITY;
 
 // Values - We expose almost everything here for the sake of native function extension authors
 pub use values::construct_free_standing;
