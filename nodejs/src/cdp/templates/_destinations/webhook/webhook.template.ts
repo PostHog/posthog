@@ -27,6 +27,28 @@ if (inputs.debug) {
   print('Request', inputs.url, payload)
 }
 
+// The secret headers are merged after the debug log so that they stay out of the run logs.
+if (not empty(inputs.secret_headers)) {
+  let secretNames := {}
+  for (let name in keys(inputs.secret_headers)) {
+    secretNames[lower(name)] := true
+  }
+
+  let headers := {}
+  for (let name, value in (inputs.headers ?? {})) {
+    // A header name that a secret header also sets is dropped, because HTTP header names are
+    // case insensitive and both values would otherwise go on the wire.
+    if (not secretNames[lower(name)]) {
+      headers[name] := value
+    }
+  }
+  for (let name, value in inputs.secret_headers) {
+    headers[name] := value
+  }
+
+  payload['headers'] := headers
+}
+
 let res := fetch(inputs.url, payload);
 
 if (res.status >= 400) {
@@ -94,6 +116,15 @@ if (inputs.debug) {
             required: false,
             default: { 'Content-Type': 'application/json' },
             description: 'HTTP headers to send in the request.',
+        },
+        {
+            key: 'secret_headers',
+            type: 'dictionary',
+            label: 'Secret headers',
+            secret: true,
+            required: false,
+            description:
+                'HTTP headers that hold a credential, such as an API token. These are encrypted, hidden after saving, and kept out of the logs. A secret header replaces the plaintext header of the same name.',
         },
         {
             key: 'signing_secret',

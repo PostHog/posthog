@@ -68,6 +68,35 @@ describe('webhook template', () => {
         expect(JSON.stringify(params)).not.toContain('MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw')
     })
 
+    it('merges the secret headers into the request, overriding a plaintext header of the same name', async () => {
+        const response = await tester.invoke({
+            url: 'https://example.com',
+            headers: { 'Content-Type': 'application/json', Authorization: 'plaintext' },
+            secret_headers: { authorization: 'Bearer sk_test_token', 'X-Api-Key': 'key_test_token' },
+        })
+
+        expect(response.error).toBeUndefined()
+        expect((response.invocation.queueParameters as any).headers).toEqual({
+            'Content-Type': 'application/json',
+            authorization: 'Bearer sk_test_token',
+            'X-Api-Key': 'key_test_token',
+        })
+    })
+
+    it('keeps a secret header out of the debug log', async () => {
+        const response = await tester.invoke({
+            url: 'https://example.com',
+            secret_headers: { Authorization: 'Bearer sk_test_token' },
+            debug: true,
+        })
+
+        expect(response.error).toBeUndefined()
+        expect((response.invocation.queueParameters as any).headers).toMatchObject({
+            Authorization: 'Bearer sk_test_token',
+        })
+        expect(response.logs.map((l) => l.message).join('\n')).not.toContain('sk_test_token')
+    })
+
     it('should log details of given', async () => {
         let response = await tester.invoke({
             url: 'https://example.com?v={event.properties.$lib_version}',
