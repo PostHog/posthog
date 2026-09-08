@@ -301,9 +301,11 @@ describe('hogFunctionConfigurationLogic', () => {
     })
 
     describe('mapping preview filters', () => {
-        it('combines mapping matchers without mutating global filters', async () => {
+        it('combines mapping matchers with global properties and ignores unsupported global matchers', async () => {
             const globalFilters: CyclotronJobFiltersType = {
                 events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
+                actions: [{ id: '99', name: 'Globally configured action', type: 'actions' }],
+                properties: [{ type: PropertyFilterType.HogQL, key: "properties.plan = 'paid'" }],
             }
             mockApi.getTemplate.mockResolvedValue({
                 ...HOG_TEMPLATE,
@@ -333,10 +335,6 @@ describe('hogFunctionConfigurationLogic', () => {
                         values: [
                             {
                                 type: FilterLogicalOperator.And,
-                                values: [{ type: PropertyFilterType.HogQL, key: "event = '$pageview'" }],
-                            },
-                            {
-                                type: FilterLogicalOperator.And,
                                 values: [{ type: PropertyFilterType.HogQL, key: "event = 'signed up'" }],
                             },
                             {
@@ -344,6 +342,10 @@ describe('hogFunctionConfigurationLogic', () => {
                                 values: [{ type: PropertyFilterType.HogQL, key: 'matchesAction(42)' }],
                             },
                         ],
+                    },
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [{ type: PropertyFilterType.HogQL, key: "properties.plan = 'paid'" }],
                     },
                 ],
             })

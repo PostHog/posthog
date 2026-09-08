@@ -70,15 +70,16 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
             <LemonLabel>{useMapping ? 'Matching events across all mappings' : 'Matching events'}</LemonLabel>
             {useMapping ? (
                 <p className="text-sm text-secondary">
-                    This preview counts each event that matches at least one mapping once. A matcher on one mapping does
-                    not filter the other mappings, and one event may trigger multiple destination invocations.
+                    This preview counts each matching event once, even if it matches several mappings. Matchers only
+                    filter their own mapping, and one event may trigger multiple destination invocations.
                 </p>
             ) : null}
             {sparkline && !sparklineLoading ? (
                 <>
                     {sparkline.count > EVENT_THRESHOLD_ALERT_LEVEL && type !== 'transformation' ? (
                         <LemonBanner type="warning">
-                            <b>Warning:</b> {matchCountDescription} in the last 7 days.
+                            <b>Warning:</b> {matchCountDescription} in the last 7 days. Consider the impact of this
+                            function on your destination.
                         </LemonBanner>
                     ) : (
                         <p>{matchCountDescription} in the last 7 days.</p>
