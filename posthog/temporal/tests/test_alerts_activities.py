@@ -93,7 +93,7 @@ async def _create_alert(
     snoozed_until: datetime | None = None,
     skip_weekend: bool = False,
     schedule_restriction: dict | None = None,
-    schedule_start_time: dict | None = None,
+    schedule_start_time: str | None = None,
     insight_deleted: bool = False,
     state: str = AlertState.NOT_FIRING,
 ) -> AlertConfiguration:
