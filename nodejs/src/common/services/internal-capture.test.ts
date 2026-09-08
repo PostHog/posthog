@@ -22,12 +22,15 @@ describe('InternalCaptureService', () => {
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
     })
     it('should capture an event', async () => {
-        const res = await service.capture({
-            team_token: 'token',
-            event: 'event-name',
-            distinct_id: 'distinct-id',
-            properties: {},
-        })
+        const res = await service.capture(
+            {
+                team_token: 'token',
+                event: 'event-name',
+                distinct_id: 'distinct-id',
+                properties: {},
+            },
+            'test'
+        )
         expect(res.status).toBe(200)
         expect(mockInternalFetch.mock.calls).toMatchInlineSnapshot(
             `
@@ -48,16 +51,19 @@ describe('InternalCaptureService', () => {
     })
 
     it('should allow some overrides', async () => {
-        await service.capture({
-            team_token: 'token',
-            event: 'event-name',
-            timestamp: '2025-03-03T03:03:03.000Z',
-            distinct_id: 'distinct-id',
-            properties: {
-                capture_internal: false,
-                foo: 'bar',
+        await service.capture(
+            {
+                team_token: 'token',
+                event: 'event-name',
+                timestamp: '2025-03-03T03:03:03.000Z',
+                distinct_id: 'distinct-id',
+                properties: {
+                    capture_internal: false,
+                    foo: 'bar',
+                },
             },
-        })
+            'test'
+        )
         expect(parseJSON(mockInternalFetch.mock.calls[0][1].body)).toMatchInlineSnapshot(`
             {
               "api_key": "token",
@@ -71,5 +77,21 @@ describe('InternalCaptureService', () => {
               "timestamp": "2025-03-03T03:03:03.000Z",
             }
         `)
+    })
+
+    // A raw fetch rejection carries only Node timer frames, so error tracking groups every
+    // caller into one bucket with no in_app frame. The wrapper is what keeps a captured
+    // failure attributable.
+    it('wraps a failure with the caller and the target url', async () => {
+        mockInternalFetch.mockRejectedValue(new Error('connect ECONNREFUSED'))
+
+        await expect(
+            service.capture({ team_token: 'token', event: 'event-name', distinct_id: 'distinct-id' }, 'caller-name')
+        ).rejects.toMatchObject({
+            name: 'InternalCaptureError',
+            caller: 'caller-name',
+            url: 'http://localhost:8010/capture',
+            message: 'Internal capture from caller-name to http://localhost:8010/capture failed: connect ECONNREFUSED',
+        })
     })
 })

@@ -11,6 +11,63 @@ const internalCaptureCounter = new Counter({
     labelNames: ['status'],
 })
 
+/**
+ * A failure of a best-effort internal capture write, tagged with the caller and the target URL.
+ * The wrapper puts a frame in this file, so an exception that reaches error tracking has an
+ * in_app frame and a fingerprint per caller, instead of one shared bucket keyed on a stack that
+ * holds only Node timers.
+ */
+export class InternalCaptureError extends Error {
+    constructor(
+        readonly caller: string,
+        readonly url: string,
+        override readonly cause: unknown
+    ) {
+        super(`Internal capture from ${caller} to ${url} failed: ${describeCause(cause)}`)
+        this.name = 'InternalCaptureError'
+    }
+}
+
+function describeCause(cause: unknown): string {
+    if (cause instanceof AggregateError && cause.errors.length > 0) {
+        return cause.errors.map((e) => (e instanceof Error ? e.message : String(e))).join('; ')
+    }
+    return cause instanceof Error ? cause.message : String(cause)
+}
+
+const REMOTE_ORIGIN_CODES = new Set([
+    'UND_ERR_SOCKET',
+    'UND_ERR_CONNECT_TIMEOUT',
+    'UND_ERR_HEADERS_TIMEOUT',
+    'UND_ERR_BODY_TIMEOUT',
+    'ECONNRESET',
+    'ECONNREFUSED',
+    'EPIPE',
+    'ETIMEDOUT',
+    'ENOTFOUND',
+    'EAI_AGAIN',
+])
+
+/**
+ * True when the write failed on the network or on the far side of it: a timeout, a dropped
+ * connection, a name that did not resolve. Nothing in this process can act on one, so a
+ * best-effort caller counts it and logs it rather than filing an exception per event.
+ */
+export function isRemoteOriginError(error: unknown): boolean {
+    if (error instanceof InternalCaptureError) {
+        return isRemoteOriginError(error.cause)
+    }
+    if (error instanceof AggregateError && error.errors.length > 0) {
+        return error.errors.every((e) => isRemoteOriginError(e))
+    }
+    const candidate = error as { name?: string; code?: string } | null | undefined
+    if (!candidate) {
+        return false
+    }
+    // AbortSignal.timeout aborts with a DOMException named TimeoutError.
+    return candidate.name === 'TimeoutError' || REMOTE_ORIGIN_CODES.has(candidate.code ?? '')
+}
+
 export type InternalCaptureEvent = {
     team_token: string
     event: string
@@ -44,7 +101,7 @@ export class InternalCaptureService {
         }
     }
 
-    async capture(event: InternalCaptureEvent): Promise<FetchResponse> {
+    async capture(event: InternalCaptureEvent, caller: string): Promise<FetchResponse> {
         logger.debug('Capturing internal event', { event, url: this.config.CAPTURE_INTERNAL_URL })
         try {
             const response = await internalFetch(this.config.CAPTURE_INTERNAL_URL, {
@@ -60,8 +117,8 @@ export class InternalCaptureService {
             return response
         } catch (e) {
             internalCaptureCounter.inc({ status: 'error' })
-            logger.error('Error capturing internal event', { error: e })
-            throw e
+            logger.error('Error capturing internal event', { error: e, caller })
+            throw new InternalCaptureError(caller, this.config.CAPTURE_INTERNAL_URL, e)
         }
     }
 }

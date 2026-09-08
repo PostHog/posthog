@@ -1,4 +1,5 @@
-import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
+import { InternalCaptureError, InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
+import * as posthogUtils from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
 
 import { Team } from '../../../types'
@@ -43,6 +44,10 @@ describe('CapturedEventsService', () => {
         service = new CapturedEventsService(internalCaptureService, teamManager)
     })
 
+    afterEach(() => {
+        jest.restoreAllMocks()
+    })
+
     describe('queue + flush', () => {
         it('buffers events and emits them on flush via internalCaptureService', async () => {
             const events: InternalCaptureEvent[] = [
@@ -66,8 +71,8 @@ describe('CapturedEventsService', () => {
             await service.flush()
 
             expect(internalCaptureService.capture).toHaveBeenCalledTimes(2)
-            expect(internalCaptureService.capture).toHaveBeenNthCalledWith(1, events[0])
-            expect(internalCaptureService.capture).toHaveBeenNthCalledWith(2, events[1])
+            expect(internalCaptureService.capture).toHaveBeenNthCalledWith(1, events[0], 'CapturedEventsService.flush')
+            expect(internalCaptureService.capture).toHaveBeenNthCalledWith(2, events[1], 'CapturedEventsService.flush')
         })
 
         it('clears the buffer after flush so a second flush is a no-op', async () => {
@@ -107,6 +112,29 @@ describe('CapturedEventsService', () => {
             await expect(service.flush()).resolves.toBeUndefined()
             expect(internalCaptureService.capture).toHaveBeenCalledTimes(2)
         })
+
+        // A timeout on this best-effort write is the far side failing, and one queued batch can
+        // hold thousands of events. Filing an exception per event floods error tracking, so only
+        // a failure this process can act on becomes an exception.
+        it.each([
+            { name: 'a timeout', cause: Object.assign(new Error('aborted'), { name: 'TimeoutError' }), captured: 0 },
+            {
+                name: 'a dropped connection',
+                cause: Object.assign(new Error('closed'), { code: 'ECONNRESET' }),
+                captured: 0,
+            },
+            { name: 'an unexpected failure', cause: new Error('boom'), captured: 1 },
+        ])('reports $captured exceptions for $name', async ({ cause, captured }) => {
+            const captureExceptionSpy = jest.spyOn(posthogUtils, 'captureException').mockImplementation(() => {})
+            internalCaptureService.capture.mockRejectedValue(
+                new InternalCaptureError('CapturedEventsService.flush', 'http://localhost:8010/capture', cause)
+            )
+            service.queue([{ team_token: 'token-a', event: 'a', distinct_id: 'u1' }])
+
+            await service.flush()
+
+            expect(captureExceptionSpy).toHaveBeenCalledTimes(captured)
+        })
     })
 
     describe('queueInvocationResults', () => {
@@ -133,27 +161,36 @@ describe('CapturedEventsService', () => {
             await service.flush()
 
             expect(internalCaptureService.capture).toHaveBeenCalledTimes(3)
-            expect(internalCaptureService.capture).toHaveBeenCalledWith({
-                team_token: 'token-team-1',
-                event: 'a',
-                distinct_id: 'u1',
-                timestamp: 't1',
-                properties: { foo: 'bar' },
-            })
-            expect(internalCaptureService.capture).toHaveBeenCalledWith({
-                team_token: 'token-team-2',
-                event: 'b',
-                distinct_id: 'u2',
-                timestamp: 't2',
-                properties: { foo: 'bar' },
-            })
-            expect(internalCaptureService.capture).toHaveBeenCalledWith({
-                team_token: 'token-team-1',
-                event: 'c',
-                distinct_id: 'u3',
-                timestamp: 't3',
-                properties: { foo: 'bar' },
-            })
+            expect(internalCaptureService.capture).toHaveBeenCalledWith(
+                {
+                    team_token: 'token-team-1',
+                    event: 'a',
+                    distinct_id: 'u1',
+                    timestamp: 't1',
+                    properties: { foo: 'bar' },
+                },
+                'CapturedEventsService.flush'
+            )
+            expect(internalCaptureService.capture).toHaveBeenCalledWith(
+                {
+                    team_token: 'token-team-2',
+                    event: 'b',
+                    distinct_id: 'u2',
+                    timestamp: 't2',
+                    properties: { foo: 'bar' },
+                },
+                'CapturedEventsService.flush'
+            )
+            expect(internalCaptureService.capture).toHaveBeenCalledWith(
+                {
+                    team_token: 'token-team-1',
+                    event: 'c',
+                    distinct_id: 'u3',
+                    timestamp: 't3',
+                    properties: { foo: 'bar' },
+                },
+                'CapturedEventsService.flush'
+            )
         })
 
         it('drops events whose team is not found (teamManager returns null)', async () => {
