@@ -122,6 +122,14 @@ describe('CapturedEventsService', () => {
                 cause: Object.assign(new Error('closed'), { code: 'ECONNRESET' }),
                 captured: 0,
             },
+            {
+                name: 'a dual-stack connect failure',
+                cause: new AggregateError([
+                    Object.assign(new Error('connect ECONNREFUSED 10.0.0.1:3000'), { code: 'ECONNREFUSED' }),
+                    Object.assign(new Error('connect ENETUNREACH ::1:3000'), { code: 'ENETUNREACH' }),
+                ]),
+                captured: 0,
+            },
             { name: 'an unexpected failure', cause: new Error('boom'), captured: 1 },
         ])('reports $captured exceptions for $name', async ({ cause, captured }) => {
             const captureExceptionSpy = jest.spyOn(posthogUtils, 'captureException').mockImplementation(() => {})
