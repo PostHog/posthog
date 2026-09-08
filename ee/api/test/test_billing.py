@@ -35,6 +35,7 @@ from ee.api.billing import (
     _EXPORT_STREAMS,
     BILLING_ACCESS_DENIED_MESSAGE,
     BILLING_LIMIT_TODAYS_USAGE_FLAG,
+    BILLING_PROJECT_ACCESS_DENIED_MESSAGE,
     MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG,
     OWNER_ONLY_BILLING_FLAG,
     BillingDateRangeTooLong,
@@ -1651,6 +1652,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], BILLING_PROJECT_ACCESS_DENIED_MESSAGE)
         mock_get_usage_data.assert_not_called()
 
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
@@ -2050,6 +2052,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         response = self.client.get(f"/api/billing/{endpoint}/?team_ids=[{private_team.pk}]")
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], BILLING_PROJECT_ACCESS_DENIED_MESSAGE)
         # An empty team_ids list means "all teams" to the billing service, so it must never be called here
         mock_get_usage_data.assert_not_called()
         mock_get_spend_data.assert_not_called()

@@ -133,6 +133,10 @@ BILLING_USAGE_SPEND_ACCESS_DENIED_MESSAGE = (
     "Your PostHog user does not have access to billing usage and spend for this organization. "
     "Ask someone with billing access to run this or update your role."
 )
+BILLING_PROJECT_ACCESS_DENIED_MESSAGE = (
+    "The requested projects are not available to this PostHog user or token. "
+    "Adjust the project filter or ask someone with billing access to run this."
+)
 
 
 def _owner_only_billing_enabled(user: User, organization: Organization) -> Optional[bool]:
@@ -1392,7 +1396,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             accessible_team_ids = sorted(set(accessible_team_ids).intersection(token_scoped_team_ids))
 
         if not accessible_team_ids:
-            raise PermissionDenied(HasBillingUsageSpendReadAccess.message)
+            raise PermissionDenied(BILLING_PROJECT_ACCESS_DENIED_MESSAGE)
 
         requested_team_ids = self._parse_team_ids(params_to_pass.get("team_ids"))
         if not requested_team_ids:
@@ -1400,7 +1404,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         scoped_team_ids = sorted(set(requested_team_ids).intersection(accessible_team_ids))
         if not scoped_team_ids:
-            raise PermissionDenied(HasBillingUsageSpendReadAccess.message)
+            raise PermissionDenied(BILLING_PROJECT_ACCESS_DENIED_MESSAGE)
 
         return scoped_team_ids
 
