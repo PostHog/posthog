@@ -323,6 +323,53 @@ describe('inboxSceneLogic routing', () => {
         listLogic.unmount()
     })
 
+    // The flat list merges every selected state, so a state that answers late can add rows that sort
+    // above the report. Ranking on the first state to answer records a rank that is too small, and
+    // the impression side (which waits for all of them) then records a different one.
+    it('under the flat list the rank waits for the slower state, not the first one to answer', async () => {
+        const opened = { id: 'r1', title: 'Crash on login', priority: 'P2' } as SignalReport
+        const higher = { id: 'r2', title: 'Checkout times out', priority: 'P0' } as SignalReport
+        let releaseMonitoring = (): void => {}
+        const monitoringAnswered = new Promise<void>((resolve) => {
+            releaseMonitoring = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/': async ({ request }) => {
+                    // Only the monitoring state filters on an open implementation PR.
+                    if (new URL(request.url).searchParams.get('has_implementation_pr') === 'true') {
+                        await monitoringAnswered
+                        return [200, { results: [higher], count: 1, next: null, previous: null }]
+                    }
+                    return [200, { results: [opened], count: 1, next: null, previous: null }]
+                },
+            },
+        })
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        mountWithRedesign(true)
+        const needsDecision = reportListLogic(sectionListLogicProps('needs-decision'))
+        const monitoring = reportListLogic(sectionListLogicProps('monitoring'))
+        needsDecision.mount()
+        monitoring.mount()
+        needsDecision.actions.loadReports()
+        monitoring.actions.loadReports()
+
+        logic.actions.setSelectedReportId('r1')
+        logic.actions.loadSelectedReportSuccess(opened)
+
+        await waitForOpenRankRetry()
+        expect(needsDecision.values.reports).toHaveLength(1)
+        expect(openedEvents(captureSpy)).toHaveLength(0)
+
+        releaseMonitoring()
+        await waitForOpenRankRetry()
+
+        expect(openedEvents(captureSpy)[0]).toMatchObject({ rank: 2, list_size: 2 })
+        captureSpy.mockRestore()
+        needsDecision.unmount()
+        monitoring.unmount()
+    })
+
     it('stops the runs poll when opening another surface closes the panel', () => {
         // Opening a report flips `isRunsOpen` false through a mutual-exclusion reducer, not
         // `setRunsOpen(false)`, so the poll teardown cannot hang off the `setRunsOpen` listener alone

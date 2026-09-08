@@ -255,13 +255,16 @@ function findReportRank(
     return { rank: null, listSize: null, section: null }
 }
 
-// One list holds rows and none is still fetching. Until then, a missing rank means "not loaded yet".
+// One list answered, with rows or with a failure, and none is still fetching. Until then, a missing
+// rank means "not loaded yet". This mirrors the rule the impression side settles on, so an open and
+// the impression it joins to describe the same list.
 function reportListsSettled(): boolean {
     const mounted = INBOX_REPORT_SECTION_KEYS.map((sectionKey) =>
         reportListLogic.findMounted({ sectionKey, listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey] })
     ).filter((logic) => !!logic)
     return (
-        mounted.some((logic) => logic.values.isLoaded) && mounted.every((logic) => !logic.values.reportsResponseLoading)
+        mounted.some((logic) => logic.values.isLoaded || logic.values.reportsLoadFailed) &&
+        mounted.every((logic) => !logic.values.reportsResponseLoading)
     )
 }
 
@@ -291,20 +294,25 @@ function captureOpenWhenRanked(
             section: resolved.section,
         })
     }
-    const fireWhenReady = (): void => {
+    // The first read sees the list as the person left it, so a rank found there is the rank they
+    // acted on, even while a filter refetch is in flight. Every later read waits for the lists to
+    // settle: the flat list merges the selected states, and a state that answers late adds rows that
+    // can sort above the report, which makes a rank read from the states that answered first too
+    // small.
+    const fireWhenReady = (firstRead: boolean): void => {
         const resolved = findReportRank(tracking.report.id, flatList)
-        if (resolved.rank !== null || Date.now() >= deadline || reportListsSettled()) {
+        if ((firstRead && resolved.rank !== null) || reportListsSettled() || Date.now() >= deadline) {
             fire(resolved)
         }
     }
 
     cache.pendingOpenCapture = () => fire(findReportRank(tracking.report.id, flatList))
-    fireWhenReady()
+    fireWhenReady(true)
     if (!cache.pendingOpenCapture) {
         return
     }
     cache.disposables.add(() => {
-        const interval = setInterval(fireWhenReady, OPEN_RANK_POLL_MS)
+        const interval = setInterval(() => fireWhenReady(false), OPEN_RANK_POLL_MS)
         return () => clearInterval(interval)
     }, 'openRank')
 }
