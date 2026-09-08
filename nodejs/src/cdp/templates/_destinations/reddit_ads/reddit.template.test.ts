@@ -100,7 +100,11 @@ describe('reddit template', () => {
         })
     })
 
-    it('omits an empty email instead of sending the digest of an empty string', async () => {
+    it.each<[string, unknown]>([
+        ['is empty', ''],
+        ['is a number', 1234567890],
+        ['is a list', ['someone@example.com']],
+    ])('omits an email that %s, and still sends the conversion', async (_, email) => {
         const response = await tester.invokeMapping(
             'Order Completed',
             {
@@ -110,7 +114,7 @@ describe('reddit template', () => {
             createAdDestinationPayload({
                 person: {
                     properties: {
-                        email: '',
+                        email,
                     },
                 },
             })
