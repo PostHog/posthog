@@ -6677,14 +6677,8 @@ class QueryStatus(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    budget_remaining_bytes: int | None = Field(
-        default=None,
-        description=("The project's remaining API query budget in bytes after this query, when it was debited."),
-    )
-    bytes_read: int | None = Field(
-        default=None,
-        description=("Bytes the query read, set once it completes when it counted against the API query budget."),
-    )
+    budget_remaining_bytes: int | None = None
+    bytes_read: int | None = None
     complete: bool | None = Field(
         default=False,
         description=(

@@ -2772,9 +2772,7 @@ export type QueryStatus = {
     task_id?: string
     query_progress?: ClickhouseQueryProgress
     labels?: string[]
-    /** Bytes the query read, set once it completes when it counted against the API query budget. */
     bytes_read?: integer
-    /** The project's remaining API query budget in bytes after this query, when it was debited. */
     budget_remaining_bytes?: integer
 }
 

@@ -49402,12 +49402,10 @@
             "additionalProperties": false,
             "properties": {
                 "budget_remaining_bytes": {
-                    "$ref": "#/definitions/integer",
-                    "description": "The project's remaining API query budget in bytes after this query, when it was debited."
+                    "$ref": "#/definitions/integer"
                 },
                 "bytes_read": {
-                    "$ref": "#/definitions/integer",
-                    "description": "Bytes the query read, set once it completes when it counted against the API query budget."
+                    "$ref": "#/definitions/integer"
                 },
                 "complete": {
                     "default": false,

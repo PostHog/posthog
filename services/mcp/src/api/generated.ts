@@ -1046,9 +1046,7 @@ export namespace Schemas {
     }
 
     export interface QueryStatus {
-      /** The project's remaining API query budget in bytes after this query, when it was debited. */
       budget_remaining_bytes?: number | null;
-      /** Bytes the query read, set once it completes when it counted against the API query budget. */
       bytes_read?: number | null;
       /** Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set. */
       complete?: boolean | null;
