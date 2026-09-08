@@ -14,6 +14,7 @@ import {
 } from "@phosphor-icons/react";
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import type { ChannelPresence } from "@posthog/core/canvas/presence";
+import { taskActivityAt } from "@posthog/core/tasks/taskActivity";
 import {
   AlertDialogClose,
   AlertDialogContent,
@@ -482,11 +483,19 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
       id: item.id,
       title: item.title,
       isPinned: item.pinned,
+      isUnread: item.unread,
       task: item.task ?? undefined,
+      activityAtMs: item.task ? Date.parse(taskActivityAt(item.task)) : item.ts,
       // Ticks the space the session is already in, inside "File to…".
       channelId: spaceId,
       onAddToCommandCenter: actions.commandCenterAssigner(item.id),
       onTogglePin: () => actions.togglePin(item),
+      onMarkAsRead: (activityAtMs) => actions.markAsRead(item.id, activityAtMs),
+      onMarkAsUnread: () =>
+        actions.markAsUnread(
+          item.id,
+          item.task ? Date.parse(taskActivityAt(item.task)) : item.ts,
+        ),
       onArchive: () => actions.archive(item),
       ...(canHandoff ? { onHandoff: () => setHandoffOpen(true) } : {}),
     }),

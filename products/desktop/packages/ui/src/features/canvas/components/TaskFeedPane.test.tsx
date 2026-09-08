@@ -18,6 +18,12 @@ vi.mock("@posthog/ui/features/sidebar/usePinnedTasks", () => ({
     setPinnedMany: vi.fn(),
   }),
 }));
+vi.mock("@posthog/ui/features/sidebar/useTaskViewed", () => ({
+  useTaskViewed: () => ({
+    markAsViewed: vi.fn(),
+    markAsUnread: vi.fn(),
+  }),
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelItems", () => ({
   useChannelSessionFacts: () => ({
     needsInputTaskIds: new Set<string>(),

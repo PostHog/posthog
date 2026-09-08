@@ -1,7 +1,8 @@
+import { taskActivityAt } from "@posthog/core/tasks/taskActivity";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { track } from "@posthog/ui/shell/analytics";
 import { Box, Flex } from "@radix-ui/themes";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useSetHeaderContent } from "../../../hooks/useSetHeaderContent";
 import { useTaskViewed } from "../../sidebar/useTaskViewed";
 import { useCommandCenterStore } from "../commandCenterStore";
@@ -36,15 +37,20 @@ export function CommandCenterView() {
     return indices;
   }, [cells]);
 
+  const visibleTasksRef = useRef(cells);
+  visibleTasksRef.current = cells;
   const visibleTaskIdsKey = cells
-    .map((c) => c.taskId)
+    .map((cell) => cell.task?.id)
     .filter(Boolean)
     .join(",");
 
   useEffect(() => {
     if (!visibleTaskIdsKey) return;
-    for (const taskId of visibleTaskIdsKey.split(",")) {
-      markAsViewed(taskId);
+    const visibleTaskIds = new Set(visibleTaskIdsKey.split(","));
+    for (const { task } of visibleTasksRef.current) {
+      if (task && visibleTaskIds.has(task.id)) {
+        markAsViewed(task.id, Date.parse(taskActivityAt(task)));
+      }
     }
   }, [visibleTaskIdsKey, markAsViewed]);
 

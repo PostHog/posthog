@@ -84,6 +84,8 @@ import { ChannelItemRow } from "./ChannelItemRow";
 const actions = {
   open: () => {},
   togglePin: () => {},
+  markAsRead: () => {},
+  markAsUnread: () => {},
   setPinned: () => {},
   archive: () => {},
   remove: () => {},
@@ -457,6 +459,7 @@ describe("ChannelItemRow", () => {
   // definition, so both are asserted against the same expectations.
   const MENU_ITEMS = [
     "Pin",
+    "Mark as unread",
     "Rename",
     "Add to Command Center…",
     "File to…",
@@ -501,6 +504,32 @@ describe("ChannelItemRow", () => {
 
     for (const label of MENU_ITEMS) {
       expect(screen.getByRole("menuitem", { name: label })).not.toBeNull();
+    }
+  });
+
+  it.each([
+    { unread: false, label: "Mark as unread", state: "read" },
+    { unread: true, label: "Mark as read", state: "unread" },
+  ])("offers $label for a $state task", ({ unread, label }) => {
+    const markAsRead = vi.fn();
+    const markAsUnread = vi.fn();
+    renderInList(
+      <ChannelItemRow
+        actions={{ ...actions, markAsRead, markAsUnread }}
+        isActive={false}
+        item={item({ unread })}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByText("Investigate signup drop-off"));
+    fireEvent.click(screen.getByRole("menuitem", { name: label }));
+
+    if (unread) {
+      expect(markAsRead).toHaveBeenCalledWith("task-1", item().ts);
+      expect(markAsUnread).not.toHaveBeenCalled();
+    } else {
+      expect(markAsUnread).toHaveBeenCalledWith("task-1", item().ts);
+      expect(markAsRead).not.toHaveBeenCalled();
     }
   });
 
@@ -695,6 +724,7 @@ describe("ChannelItemRow", () => {
     ).not.toBeNull();
     expect(screen.getByRole("button", { name: "File to…" })).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Mark as unread" })).toBeNull();
   });
 
   it("does not offer filing for another user's canvas", async () => {

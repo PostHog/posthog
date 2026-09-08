@@ -63,7 +63,11 @@ function menuFor(model: ChannelItemModel): TaskRowMenuProps {
     id: model.id,
     title: model.title,
     isPinned: false,
+    isUnread: model.unread,
+    activityAtMs: model.ts,
     onTogglePin: () => {},
+    onMarkAsRead: () => {},
+    onMarkAsUnread: () => {},
   };
 }
 

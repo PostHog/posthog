@@ -1,3 +1,4 @@
+import { taskActivityAt } from "@posthog/core/tasks/taskActivity";
 import type { Task } from "@posthog/shared/domain-types";
 import { Box, Flex, Text, Tooltip } from "@radix-ui/themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -54,7 +55,7 @@ export function TaskDetail({
 }: TaskDetailProps) {
   const taskId = initialTask.id;
   const { task } = useTaskData({ taskId, initialTask });
-  useMarkTaskViewed(taskId);
+  useMarkTaskViewed(taskId, Date.parse(taskActivityAt(task)));
 
   const effectiveRepoPath = useCwd(taskId);
 

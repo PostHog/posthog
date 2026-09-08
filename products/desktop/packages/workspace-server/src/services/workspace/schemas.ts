@@ -219,6 +219,12 @@ export const togglePinOutput = z.object({
 
 export const markViewedInput = z.object({
   taskId: z.string(),
+  activityAtMs: z.number().finite().optional(),
+});
+
+export const markUnreadInput = z.object({
+  taskId: z.string(),
+  activityAtMs: z.number().finite(),
 });
 
 export const markActivityInput = z.object({

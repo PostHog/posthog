@@ -4,7 +4,7 @@ import { createRecordStore } from "./web-local-store";
 // Per-device task metadata (pins + viewed/activity timestamps) for the web host,
 // backed by localStorage. Desktop persists this in a local metadata service
 // (workspace.getPinnedTaskIds / togglePin / getAllTaskTimestamps / markViewed /
-// markActivity). The archive flow reads pins early (getPinnedTaskIds + unpin),
+// markUnread / markActivity). The archive flow reads pins early (getPinnedTaskIds + unpin),
 // so without these the whole archive rejects — hence this store.
 
 const taskMetadataSchema = z.object({
@@ -55,8 +55,34 @@ export const webTaskMetadataStore = {
     return { isPinned: pinnedAt !== null, pinnedAt };
   },
 
-  markViewed(taskId: string): void {
-    update(taskId, { lastViewedAt: new Date().toISOString() });
+  markViewed(taskId: string, activityAtMs?: number): void {
+    const metadata = store.get()[taskId] ?? EMPTY;
+    const storedActivityAtMs = metadata.lastActivityAt
+      ? Date.parse(metadata.lastActivityAt)
+      : 0;
+    update(taskId, {
+      lastViewedAt: new Date(
+        Math.max(
+          Date.now(),
+          activityAtMs ?? 0,
+          Number.isFinite(storedActivityAtMs) ? storedActivityAtMs : 0,
+        ),
+      ).toISOString(),
+    });
+  },
+
+  markUnread(taskId: string, activityAtMs: number): void {
+    const metadata = store.get()[taskId] ?? EMPTY;
+    const storedActivityAtMs = metadata.lastActivityAt
+      ? new Date(metadata.lastActivityAt).getTime()
+      : 0;
+    const effectiveActivityAtMs = Math.max(
+      activityAtMs,
+      Number.isFinite(storedActivityAtMs) ? storedActivityAtMs : 0,
+    );
+    update(taskId, {
+      lastViewedAt: new Date(effectiveActivityAtMs - 1).toISOString(),
+    });
   },
 
   markActivity(taskId: string): void {

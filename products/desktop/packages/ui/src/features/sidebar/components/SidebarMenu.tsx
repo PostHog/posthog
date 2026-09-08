@@ -317,6 +317,8 @@ function SidebarMenuComponent() {
           worktreePath: workspace?.worktreePath ?? undefined,
           folderPath: workspace?.folderPath ?? undefined,
           isPinned,
+          isUnread: taskData.isUnread,
+          activityAtMs: taskData.lastActivityAt,
           isSuspended: taskData?.isSuspended,
           canStop:
             taskData?.taskRunEnvironment === "cloud" &&

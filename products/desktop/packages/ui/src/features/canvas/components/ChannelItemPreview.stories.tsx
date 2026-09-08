@@ -108,10 +108,14 @@ const menu: TaskRowMenuProps = {
   id: "task-1",
   title: "Clean up the importer",
   isPinned: false,
+  isUnread: false,
+  activityAtMs: Date.parse("2026-07-17T12:00:00.000Z"),
   channelId: "channel-1",
   onRename: () => {},
   onAddToCommandCenter: () => {},
   onTogglePin: () => {},
+  onMarkAsRead: () => {},
+  onMarkAsUnread: () => {},
   onArchive: () => {},
 };
 

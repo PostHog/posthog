@@ -1,10 +1,12 @@
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const markAsViewed = vi.hoisted(() => vi.fn());
+const taskViewed = vi.hoisted(() => ({
+  markAsViewed: vi.fn(),
+}));
 
 vi.mock("@posthog/ui/features/sidebar/useTaskViewed", () => ({
-  useTaskViewed: () => ({ markAsViewed }),
+  useTaskViewed: () => taskViewed,
 }));
 
 import { useMarkTaskViewed } from "./useMarkTaskViewed";
@@ -12,18 +14,21 @@ import { useMarkTaskViewed } from "./useMarkTaskViewed";
 describe("useMarkTaskViewed", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("marks each rendered task as viewed once", () => {
-    const { rerender } = renderHook((taskId) => useMarkTaskViewed(taskId), {
-      initialProps: "task-1",
-    });
+  it("marks only when the task id changes and uses its latest activity", () => {
+    const { rerender } = renderHook(
+      ({ taskId, activityAtMs }) => useMarkTaskViewed(taskId, activityAtMs),
+      {
+        initialProps: { taskId: "task-1", activityAtMs: 1_000 },
+      },
+    );
 
-    expect(markAsViewed).toHaveBeenLastCalledWith("task-1");
+    expect(taskViewed.markAsViewed).toHaveBeenLastCalledWith("task-1", 1_000);
 
-    markAsViewed.mockClear();
-    rerender("task-1");
-    expect(markAsViewed).not.toHaveBeenCalled();
+    taskViewed.markAsViewed.mockClear();
+    rerender({ taskId: "task-1", activityAtMs: 2_000 });
+    expect(taskViewed.markAsViewed).not.toHaveBeenCalled();
 
-    rerender("task-2");
-    expect(markAsViewed).toHaveBeenLastCalledWith("task-2");
+    rerender({ taskId: "task-2", activityAtMs: 3_000 });
+    expect(taskViewed.markAsViewed).toHaveBeenLastCalledWith("task-2", 3_000);
   });
 });

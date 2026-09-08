@@ -1,5 +1,6 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import { presenceTier } from "@posthog/core/canvas/presence";
+import { taskActivityAt } from "@posthog/core/tasks/taskActivity";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -65,6 +66,8 @@ import {
 export interface ChannelItemActions {
   open: (item: ChannelItemModel) => void;
   togglePin: (item: ChannelItemModel) => void;
+  markAsRead: (taskId: string, activityAtMs: number) => void;
+  markAsUnread: (taskId: string, activityAtMs: number) => void;
   /** Pins or unpins a whole batch, which a drag over the pinned run applies. */
   setPinned: (items: ChannelItemModel[], pinned: boolean) => void;
   archive: (item: ChannelItemModel) => void;
@@ -448,11 +451,22 @@ export function ChannelItemRow({
             id: item.id,
             title: item.title,
             isPinned: item.pinned,
+            isUnread: item.unread,
             task: item.task ?? undefined,
+            activityAtMs: item.task
+              ? Date.parse(taskActivityAt(item.task))
+              : item.ts,
             channelId,
             onAddToCommandCenter,
             onRename,
             onTogglePin: () => actions.togglePin(item),
+            onMarkAsRead: (activityAtMs) =>
+              actions.markAsRead(item.id, activityAtMs),
+            onMarkAsUnread: () =>
+              actions.markAsUnread(
+                item.id,
+                item.task ? Date.parse(taskActivityAt(item.task)) : item.ts,
+              ),
             onArchive: () => actions.archive(item),
             ...(canHandoff ? { onHandoff: () => setHandoffOpen(true) } : {}),
           },

@@ -349,9 +349,19 @@ const workspaceStubRouter = router({
     .input(z.object({ taskId: z.string() }))
     .mutation(({ input }) => webTaskMetadataStore.togglePin(input.taskId)),
   markViewed: publicProcedure
-    .input(z.object({ taskId: z.string() }))
+    .input(
+      z.object({
+        taskId: z.string(),
+        activityAtMs: z.number().finite().optional(),
+      }),
+    )
     .mutation(({ input }) => {
-      webTaskMetadataStore.markViewed(input.taskId);
+      webTaskMetadataStore.markViewed(input.taskId, input.activityAtMs);
+    }),
+  markUnread: publicProcedure
+    .input(z.object({ taskId: z.string(), activityAtMs: z.number().finite() }))
+    .mutation(({ input }) => {
+      webTaskMetadataStore.markUnread(input.taskId, input.activityAtMs);
     }),
   markActivity: publicProcedure
     .input(z.object({ taskId: z.string() }))

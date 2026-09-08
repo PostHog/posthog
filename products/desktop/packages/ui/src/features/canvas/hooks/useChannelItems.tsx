@@ -94,6 +94,7 @@ export function useChannelItems(channelId: string): {
   });
   const archivedTaskIds = useArchivedTaskIds();
   const { pinnedTaskIds, togglePin, setPinnedMany } = usePinnedTasks();
+  const { markAsViewed, markAsUnread } = useTaskViewed();
   const { archiveTask } = useArchiveTask({ navigateUnscoped: true });
   const {
     setPinned: setCanvasPinned,
@@ -178,6 +179,8 @@ export function useChannelItems(channelId: string): {
           toast.error("Couldn't update pin");
         });
       },
+      markAsRead: markAsViewed,
+      markAsUnread,
       // One request for the sessions and one per canvas, rather than a toggle
       // per row: pinning is a scoped mutation, so a row-at-a-time batch waits
       // out a round trip for each one.
@@ -249,6 +252,8 @@ export function useChannelItems(channelId: string): {
       navigate,
       setCanvasPinned,
       togglePin,
+      markAsViewed,
+      markAsUnread,
       setPinnedMany,
       archiveTask,
       fileDashboard,

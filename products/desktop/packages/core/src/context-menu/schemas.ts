@@ -13,6 +13,7 @@ export const taskContextMenuInput = z.object({
   worktreePath: z.string().optional(),
   folderPath: z.string().optional(),
   isPinned: z.boolean().optional(),
+  isUnread: z.boolean().optional(),
   isSuspended: z.boolean().optional(),
   canStop: z.boolean().optional(),
   isInCommandCenter: z.boolean().optional(),
@@ -64,6 +65,8 @@ const externalAppAction = z.discriminatedUnion("type", [
 const taskAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("rename") }),
   z.object({ type: z.literal("pin") }),
+  z.object({ type: z.literal("mark-read") }),
+  z.object({ type: z.literal("mark-unread") }),
   z.object({ type: z.literal("suspend") }),
   z.object({ type: z.literal("stop") }),
   z.object({ type: z.literal("archive") }),

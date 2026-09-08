@@ -10,6 +10,7 @@ import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import { useExternalAppAction } from "@posthog/ui/features/external-apps/useExternalAppAction";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import { useRestoreTask } from "@posthog/ui/features/suspension/useRestoreTask";
 import { useSuspendTask } from "@posthog/ui/features/suspension/useSuspendTask";
 import { useDeleteTask } from "@posthog/ui/features/tasks/useTaskCrudMutations";
@@ -27,6 +28,7 @@ export function useTaskContextMenu() {
   const { archiveTask } = useArchiveTask();
   const { suspendTask } = useSuspendTask();
   const { restoreTask } = useRestoreTask();
+  const { markAsViewed, markAsUnread } = useTaskViewed();
   // "File to…" is a Project Bluebird feature. Gate the channel fetch behind the
   // flag so the submenu (and its API request) never reaches ungated users.
   const bluebirdEnabled = useFeatureFlag(
@@ -44,6 +46,8 @@ export function useTaskContextMenu() {
         worktreePath?: string;
         folderPath?: string;
         isPinned?: boolean;
+        isUnread?: boolean;
+        activityAtMs?: number;
         isSuspended?: boolean;
         canStop?: boolean;
         runId?: string;
@@ -66,6 +70,8 @@ export function useTaskContextMenu() {
         worktreePath,
         folderPath,
         isPinned,
+        isUnread,
+        activityAtMs,
         isSuspended,
         canStop,
         runId,
@@ -87,6 +93,7 @@ export function useTaskContextMenu() {
           worktreePath,
           folderPath,
           isPinned,
+          isUnread,
           isSuspended,
           canStop,
           isInCommandCenter,
@@ -113,6 +120,14 @@ export function useTaskContextMenu() {
             break;
           case "pin":
             onTogglePin?.();
+            break;
+          case "mark-read":
+            markAsViewed(task.id, activityAtMs);
+            break;
+          case "mark-unread":
+            if (activityAtMs !== undefined) {
+              markAsUnread(task.id, activityAtMs);
+            }
             break;
           case "suspend":
             await suspendTask({ taskId: task.id, reason: "manual" });
@@ -189,6 +204,8 @@ export function useTaskContextMenu() {
       channels,
       deleteWithConfirm,
       fileTask,
+      markAsUnread,
+      markAsViewed,
       restoreTask,
       suspendTask,
       hostClient,

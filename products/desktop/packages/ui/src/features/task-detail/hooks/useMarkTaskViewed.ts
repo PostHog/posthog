@@ -1,10 +1,12 @@
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
-export function useMarkTaskViewed(taskId: string): void {
+export function useMarkTaskViewed(taskId: string, activityAtMs: number): void {
   const { markAsViewed } = useTaskViewed();
+  const activityAtMsRef = useRef(activityAtMs);
+  activityAtMsRef.current = activityAtMs;
 
   useEffect(() => {
-    markAsViewed(taskId);
+    markAsViewed(taskId, activityAtMsRef.current);
   }, [markAsViewed, taskId]);
 }
