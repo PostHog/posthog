@@ -610,6 +610,11 @@ class TestWriteAccessPromptSection(SimpleTestCase):
         # would send a dashboard scout looking for sibling projects' objects that are not there.
         assert "Annotations reach past this project" not in granted
         assert "Annotations reach past this project" in _prompt(write_scopes=["annotation:write"])
+        # A custom scout is a skill, so the skills grant is the one that can change what a later
+        # run is told to do. Stating it for every grant would send a dashboard scout hunting for
+        # scout bodies it was never granted.
+        assert "Skills include the scouts themselves" not in granted
+        assert "Skills include the scouts themselves" in _prompt(write_scopes=["llm_skill:write"])
 
         ungranted = _prompt(write_scopes=[])
         assert "# Write access" not in ungranted
