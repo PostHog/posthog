@@ -560,11 +560,18 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             if (!cache.ticketsFetched) {
                 actions.setTicketsLoading(true)
             }
+            // Panel opens, scene mounts, polls, message sends and the retry button all start a load,
+            // so two requests can be open at once and settle in either order. Each request keeps its
+            // own number, which lets a reply tell whether it is still the current attempt.
+            const requestId = (cache.loadRequestId = (cache.loadRequestId ?? 0) + 1)
             try {
                 const response = await posthog.conversations.getTickets({ limit: 50 })
                 if (response) {
                     cache.ticketsFetched = true
                     cache.loadFailures = 0
+                    // A load that lands drops the banner, even when a later attempt raised it: the
+                    // list below it is real, so a warning over it would be wrong.
+                    actions.setTicketsLoadFailed(false)
                     actions.setTickets(response.results as ConversationTicket[])
                     // With no tickets there's nothing to poll for; creating one re-runs loadTickets
                     // and restarts polling. Otherwise (re)schedule at the cadence startPolling picks.
@@ -576,15 +583,22 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 }
             } catch (e) {
                 console.error('Failed to load tickets:', e)
-                cache.loadFailures = (cache.loadFailures ?? 0) + 1
                 // Reported because a customer who can't see their tickets can't reply to support on
-                // them either, and the toast alone left us blind to how often that happens
+                // them either, and the toast alone left us blind to how often that happens. Reported
+                // for a superseded request too, so the failure rate stays measurable.
                 captureSupportWidgetLoadFailed({
                     surface: 'side_panel_tickets',
                     reason: 'tickets_load_failed',
                     error: e,
                     can_create_ticket: values.canCreateTicket,
                 })
+                // A later load has started since this request went out, so this reply no longer
+                // describes the list. Applying it would warn over tickets that just loaded and hold
+                // the next poll back by at least a minute.
+                if (requestId !== cache.loadRequestId) {
+                    return
+                }
+                cache.loadFailures = (cache.loadFailures ?? 0) + 1
                 // The panel bar's unread badge mounts this logic on every page, so a toast here
                 // interrupted unrelated work and blocked clicks under the toast container - once per
                 // failing poll. The ticket list shows the failure in place instead, with a retry,

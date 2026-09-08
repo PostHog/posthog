@@ -19,6 +19,10 @@ import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
 describe('sidepanelTicketsLogic', () => {
     let logic: ReturnType<typeof sidepanelTicketsLogic.build>
 
+    // kea-test-utils waits for every listener, which never returns while a test holds one request
+    // open on purpose. A macrotask boundary runs the continuations that are already queued instead.
+    const drainPendingWork = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+
     const setSubscriptionLevel = (subscriptionLevel: BillingType['subscription_level']): void => {
         billingLogic.actions.loadBillingSuccess({ subscription_level: subscriptionLevel } as BillingType)
     }
@@ -609,6 +613,77 @@ describe('sidepanelTicketsLogic', () => {
         expect(loadFailures[0][1]).toMatchObject({ surface: 'side_panel_tickets', reason: 'tickets_load_failed' })
 
         errorToast.mockRestore()
+    })
+
+    // Opening the panel or landing on the tickets scene starts a load while a poll is still open, so
+    // two requests run at once. The slower one failing after the newer one lands must not raise the
+    // banner over a list that just loaded, or hold the next poll back to the retry cadence.
+    it('ignores a failed load that a newer load has already replaced', async () => {
+        const ticket = {
+            id: 't1',
+            status: 'open',
+            message_count: 1,
+            created_at: '2026-07-13T00:00:00Z',
+        } as ConversationTicket
+        let failFirstLoad!: (error: Error) => void
+        ;(posthog as any).conversations.getTickets = jest
+            .fn()
+            .mockReturnValueOnce(
+                new Promise((_, reject) => {
+                    failFirstLoad = reject
+                })
+            )
+            .mockResolvedValue({ results: [ticket] })
+
+        logic = sidepanelTicketsLogic.build()
+        // The load from mount stays open, so the one below overlaps it
+        logic.mount()
+        logic.actions.loadTickets()
+        await drainPendingWork()
+        expect(logic.values.tickets).toHaveLength(1)
+
+        failFirstLoad(new Error('Unable to reach the server'))
+        await drainPendingWork()
+
+        expect(logic.values.ticketsLoadFailed).toBe(false)
+        expect(logic.values.tickets).toHaveLength(1)
+        // The failure is still reported, so the rate stays measurable
+        expect(
+            (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === 'support widget load failed')
+        ).toHaveLength(1)
+    })
+
+    // The mirror case of the overlap above: the newer load fails first, then the slower one lands
+    // with real tickets. Leaving the banner up would warn over the list it just delivered.
+    it('drops the failure banner when a slower load lands after a newer one failed', async () => {
+        const ticket = {
+            id: 't1',
+            status: 'open',
+            message_count: 1,
+            created_at: '2026-07-13T00:00:00Z',
+        } as ConversationTicket
+        let landFirstLoad!: (response: { results: ConversationTicket[] }) => void
+        ;(posthog as any).conversations.getTickets = jest
+            .fn()
+            .mockReturnValueOnce(
+                new Promise((resolve) => {
+                    landFirstLoad = resolve
+                })
+            )
+            .mockRejectedValue(new Error('Unable to reach the server'))
+
+        logic = sidepanelTicketsLogic.build()
+        // The load from mount stays open, so the one below overlaps it
+        logic.mount()
+        logic.actions.loadTickets()
+        await drainPendingWork()
+        expect(logic.values.ticketsLoadFailed).toBe(true)
+
+        landFirstLoad({ results: [ticket] })
+        await drainPendingWork()
+
+        expect(logic.values.ticketsLoadFailed).toBe(false)
+        expect(logic.values.tickets).toHaveLength(1)
     })
 
     // A failing load used to keep the background cadence, so a bad network minute re-asked the
