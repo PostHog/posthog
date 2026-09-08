@@ -2270,8 +2270,8 @@ const api = {
         async create(data: any): Promise<InsightModel> {
             return await new ApiRequest().insights().create({ data })
         },
-        async update(id: number, data: any): Promise<InsightModel> {
-            return await new ApiRequest().insight(id).update({ data })
+        async update(id: number, data: any, options?: ApiMethodOptions): Promise<InsightModel> {
+            return await new ApiRequest().insight(id).update({ data, ...options })
         },
         async cancelQuery(clientQueryId: string, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
             await new ApiRequest().insightsCancel(teamId).create({ data: { client_query_id: clientQueryId } })
