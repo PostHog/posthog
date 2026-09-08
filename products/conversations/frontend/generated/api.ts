@@ -10,6 +10,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AiFeedbackRequestApi,
+    BulkArchiveRequestApi,
+    BulkArchiveResponseApi,
     BulkUpdateStatusRequestApi,
     BulkUpdateStatusResponseApi,
     BulkUpdateTagsUUIDRequestApi,
@@ -309,6 +311,35 @@ export const conversationsTicketsReplyCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(ticketReplyRequestApi),
+    })
+}
+
+export const getConversationsTicketsBulkArchiveCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/bulk_archive/`
+}
+
+/**
+ * Archive or restore multiple tickets in a single request.
+ *
+ * Archiving is a soft delete: the tickets leave the ticket list and the unread count,
+ * keep their status, assignee and SLA, and stay readable by direct link or through the
+ * `archived` filter. Nothing is destroyed, and every change lands in the ticket's
+ * activity log.
+ *
+ * Team scoping, object-level access and no-op skipping match `bulk_update_status`:
+ * other-team UUIDs are ignored, tickets the caller can't edit are skipped, and a
+ * ticket already in the requested state is left alone.
+ */
+export const conversationsTicketsBulkArchiveCreate = async (
+    projectId: string,
+    bulkArchiveRequestApi: BulkArchiveRequestApi,
+    options?: RequestInit
+): Promise<BulkArchiveResponseApi> => {
+    return apiMutator<BulkArchiveResponseApi>(getConversationsTicketsBulkArchiveCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkArchiveRequestApi),
     })
 }
 

@@ -12,6 +12,9 @@ tools:
     conversations-tickets-ai-feedback-create:
         operation: conversations_tickets_ai_feedback_create
         enabled: false
+    conversations-tickets-bulk-archive-create:
+        operation: conversations_tickets_bulk_archive_create
+        enabled: false
     conversations-tickets-bulk-update-status-create:
         operation: conversations_tickets_bulk_update_status_create
         enabled: false
@@ -43,12 +46,11 @@ tools:
             priority (low, medium, high, critical), channel_source (widget, email, slack), assignee, tags, SLA state, AI
             triage result, date range, and search. Archived tickets (the product's soft delete) are left out unless
             asked for — pass archived=only for just the archive or archived=all for both. To work with a saved ticket
-            view, pass its short_id as the `view`
-            parameter (find it via conversations-views-list); the view's saved filters are applied server-side, and any
-            filter parameter passed explicitly overrides the view's value for that dimension. Results are paginated and
-            ordered by updated_at descending by default. Returns ticket metadata including status, priority, message
-            counts, and timestamps. Use conversations-tickets-retrieve for one ticket's full details and
-            conversations-tickets-messages-retrieve for its message thread.
+            view, pass its short_id as the `view` parameter (find it via conversations-views-list); the view's saved
+            filters are applied server-side, and any filter parameter passed explicitly overrides the view's value for
+            that dimension. Results are paginated and ordered by updated_at descending by default. Returns ticket
+            metadata including status, priority, message counts, and timestamps. Use conversations-tickets-retrieve for
+            one ticket's full details and conversations-tickets-messages-retrieve for its message thread.
         response:
             include:
                 - id
@@ -209,9 +211,9 @@ tools:
             Create a saved ticket view: a named, reusable set of ticket filters. `filters` accepts status, priority,
             channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, archived, dateFrom, dateTo, sorting,
             and search, and an empty object saves a view over all tickets (archived ones excluded unless the view sets
-            archived to only or all). Set is_favorited to pin the view to the top of the list
-            for the calling user only. The response includes the short_id needed to open the view or to pass as the
-            `view` parameter of conversations-tickets-list.
+            archived to only or all). Set is_favorited to pin the view to the top of the list for the calling user only.
+            The response includes the short_id needed to open the view or to pass as the `view` parameter of
+            conversations-tickets-list.
         response:
             include:
                 - short_id

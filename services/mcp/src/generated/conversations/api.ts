@@ -26,6 +26,12 @@ export const ConversationsTicketsListQueryParams = () => zod.object({
         .describe(
             'Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `blocked_unsafe`, `blocked_unsafe_reply`, `in_progress`.'
         ),
+    archived: zod
+        .enum(['all', 'hide', 'only'])
+        .optional()
+        .describe(
+            'Which side of the archive to return. Defaults to `hide`, so archived (soft-deleted) tickets are left out unless asked for: `only` returns just the archive, `all` returns both.'
+        ),
     assignee: zod
         .string()
         .optional()
@@ -195,6 +201,12 @@ export const ConversationsTicketsPartialUpdateBody = () => zod
             .nullish()
             .describe('Time to reopen the ticket. Pass null to reopen it now.'),
         tags: zod.array(zod.string()).optional().describe('Tag names to set on the ticket.'),
+        archived: zod
+            .boolean()
+            .optional()
+            .describe(
+                'True archives the ticket (a soft delete: it leaves the ticket list and the unread count but is kept in full), false restores it. Read the resulting state from `archived_at`.'
+            ),
     })
     .describe('Fields accepted when updating a ticket.')
 
@@ -412,6 +424,13 @@ export const ConversationsViewsCreateBody = () => zod.object({
                 .array(zod.string())
                 .optional()
                 .describe('Tickets carrying any of these tags are excluded.'),
+            archived: zod
+                .enum(['hide', 'only', 'all'])
+                .describe('\* `hide` - hide\n\* `only` - only\n\* `all` - all')
+                .optional()
+                .describe(
+                    "Which side of the archive to return. 'hide' (the default when omitted) returns only live tickets, 'only' returns only archived ones, 'all' returns both.\n\n\* `hide` - hide\n\* `only` - only\n\* `all` - all"
+                ),
             dateFrom: zod
                 .string()
                 .nullish()
@@ -570,6 +589,13 @@ export const ConversationsViewsPartialUpdateBody = () => zod.object({
                 .array(zod.string())
                 .optional()
                 .describe('Tickets carrying any of these tags are excluded.'),
+            archived: zod
+                .enum(['hide', 'only', 'all'])
+                .describe('\* `hide` - hide\n\* `only` - only\n\* `all` - all')
+                .optional()
+                .describe(
+                    "Which side of the archive to return. 'hide' (the default when omitted) returns only live tickets, 'only' returns only archived ones, 'all' returns both.\n\n\* `hide` - hide\n\* `only` - only\n\* `all` - all"
+                ),
             dateFrom: zod
                 .string()
                 .nullish()

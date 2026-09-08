@@ -60,6 +60,12 @@ export const ConversationsTicketsUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('Time to reopen the ticket. Pass null to reopen it now.'),
         tags: zod.array(zod.string()).optional().describe('Tag names to set on the ticket.'),
+        archived: zod
+            .boolean()
+            .optional()
+            .describe(
+                'True archives the ticket (a soft delete: it leaves the ticket list and the unread count but is kept in full), false restores it. Read the resulting state from `archived_at`.'
+            ),
     })
     .describe('Fields accepted when updating a ticket.')
 
@@ -111,6 +117,12 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('Time to reopen the ticket. Pass null to reopen it now.'),
         tags: zod.array(zod.string()).optional().describe('Tag names to set on the ticket.'),
+        archived: zod
+            .boolean()
+            .optional()
+            .describe(
+                'True archives the ticket (a soft delete: it leaves the ticket list and the unread count but is kept in full), false restores it. Read the resulting state from `archived_at`.'
+            ),
     })
     .describe('Fields accepted when updating a ticket.')
 
@@ -190,6 +202,32 @@ export const ConversationsTicketsReplyCreateBody = /* @__PURE__ */ zod
         rich_content: zod.unknown().optional().describe('Optional TipTap rich content JSON for formatted messages.'),
     })
     .describe('Payload for posting a reply or internal note to a ticket.')
+
+/**
+ * Archive or restore multiple tickets in a single request.
+ *
+ * Archiving is a soft delete: the tickets leave the ticket list and the unread count,
+ * keep their status, assignee and SLA, and stay readable by direct link or through the
+ * `archived` filter. Nothing is destroyed, and every change lands in the ticket's
+ * activity log.
+ *
+ * Team scoping, object-level access and no-op skipping match `bulk_update_status`:
+ * other-team UUIDs are ignored, tickets the caller can't edit are skipped, and a
+ * ticket already in the requested state is left alone.
+ */
+export const conversationsTicketsBulkArchiveCreateBodyIdsMax = 500
+
+export const ConversationsTicketsBulkArchiveCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.uuid())
+        .max(conversationsTicketsBulkArchiveCreateBodyIdsMax)
+        .describe('List of ticket UUIDs to archive or restore.'),
+    archived: zod
+        .boolean()
+        .describe(
+            'True archives the tickets (a soft delete: they leave the ticket list and the unread count but are kept in full), false restores them.'
+        ),
+})
 
 /**
  * Update the status of multiple tickets in a single request.
@@ -387,6 +425,13 @@ export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
                 .array(zod.string())
                 .optional()
                 .describe('Tickets carrying any of these tags are excluded.'),
+            archived: zod
+                .enum(['hide', 'only', 'all'])
+                .describe('\* `hide` - hide\n\* `only` - only\n\* `all` - all')
+                .optional()
+                .describe(
+                    "Which side of the archive to return. 'hide' (the default when omitted) returns only live tickets, 'only' returns only archived ones, 'all' returns both.\n\n\* `hide` - hide\n\* `only` - only\n\* `all` - all"
+                ),
             dateFrom: zod
                 .string()
                 .nullish()
@@ -527,6 +572,13 @@ export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .array(zod.string())
                 .optional()
                 .describe('Tickets carrying any of these tags are excluded.'),
+            archived: zod
+                .enum(['hide', 'only', 'all'])
+                .describe('\* `hide` - hide\n\* `only` - only\n\* `all` - all')
+                .optional()
+                .describe(
+                    "Which side of the archive to return. 'hide' (the default when omitted) returns only live tickets, 'only' returns only archived ones, 'all' returns both.\n\n\* `hide` - hide\n\* `only` - only\n\* `all` - all"
+                ),
             dateFrom: zod
                 .string()
                 .nullish()

@@ -1958,7 +1958,7 @@
         }
     },
     "conversations-tickets-list": {
-        "description": "List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved), priority (low, medium, high, critical), channel_source (widget, email, slack), assignee, tags, SLA state, AI triage result, date range, and search. To work with a saved ticket view, pass its short_id as the `view` parameter (find it via conversations-views-list); the view's saved filters are applied server-side, and any filter parameter passed explicitly overrides the view's value for that dimension. Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including status, priority, message counts, and timestamps. Use conversations-tickets-retrieve for one ticket's full details and conversations-tickets-messages-retrieve for its message thread.",
+        "description": "List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved), priority (low, medium, high, critical), channel_source (widget, email, slack), assignee, tags, SLA state, AI triage result, date range, and search. Archived tickets (the product's soft delete) are left out unless asked for — pass archived=only for just the archive or archived=all for both. To work with a saved ticket view, pass its short_id as the `view` parameter (find it via conversations-views-list); the view's saved filters are applied server-side, and any filter parameter passed explicitly overrides the view's value for that dimension. Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including status, priority, message counts, and timestamps. Use conversations-tickets-retrieve for one ticket's full details and conversations-tickets-messages-retrieve for its message thread.",
         "category": "Conversations",
         "feature": "conversations",
         "summary": "List support tickets",
@@ -2042,7 +2042,7 @@
         }
     },
     "conversations-tickets-update": {
-        "description": "Update a support ticket. Can change status (new, open, pending, on_hold, resolved), priority (low, medium, high, critical), assignee, SLA deadline, escalation reason, and tags. Assignee should be an object with type ('user' or 'role') and id, or null to unassign.",
+        "description": "Update a support ticket. Can change status (new, open, pending, on_hold, resolved), priority (low, medium, high, critical), assignee, SLA deadline, escalation reason, and tags. Assignee should be an object with type ('user' or 'role') and id, or null to unassign. Set archived=true to archive the ticket — a soft delete that takes it out of the ticket list while keeping it in full — or archived=false to restore it.",
         "category": "Conversations",
         "feature": "conversations",
         "summary": "Update support ticket",
@@ -2056,7 +2056,7 @@
         }
     },
     "conversations-views-create": {
-        "description": "Create a saved ticket view: a named, reusable set of ticket filters. `filters` accepts status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search, and an empty object saves a view over all tickets. Set is_favorited to pin the view to the top of the list for the calling user only. The response includes the short_id needed to open the view or to pass as the `view` parameter of conversations-tickets-list.",
+        "description": "Create a saved ticket view: a named, reusable set of ticket filters. `filters` accepts status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, archived, dateFrom, dateTo, sorting, and search, and an empty object saves a view over all tickets (archived ones excluded unless the view sets archived to only or all). Set is_favorited to pin the view to the top of the list for the calling user only. The response includes the short_id needed to open the view or to pass as the `view` parameter of conversations-tickets-list.",
         "category": "Conversations",
         "feature": "conversations",
         "summary": "Create saved ticket view",
