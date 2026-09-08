@@ -739,7 +739,7 @@ class BillingManager:
             headers["X-PostHog-Actor-IP"] = self.ip_address
         return headers
 
-    def public_api_headers(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, str]:
+    def organization_api_headers(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, str]:
         """Headers for billing's /api/v2/billing/ routes: the PostHog-minted access token carrying the
         caller's grants, plus the end-user IP as on every other call."""
         headers = {"Authorization": f"Bearer {mint_billing_access_token(organization, grants, self.license)}"}
@@ -747,18 +747,18 @@ class BillingManager:
             headers["X-PostHog-Actor-IP"] = self.ip_address
         return headers
 
-    def _public_get(
+    def _organization_get(
         self,
         organization: Organization,
         grants: EffectiveBillingGrants,
         path: str,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """One read of billing's public API routes, with the envelope removed. Billing's own refusals
+        """One read of billing's organization API routes, with the envelope removed. Billing's own refusals
         come back as the matching DRF errors, so the caller sees why."""
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/v2/billing/{path}",
-            headers=self.public_api_headers(organization, grants),
+            headers=self.organization_api_headers(organization, grants),
             params=params or None,
             timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT,
         )
@@ -774,13 +774,15 @@ class BillingManager:
         data.pop("customer_id", None)
         return data
 
-    def get_public_subscription(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
-        return self._public_get(organization, grants, "subscription/")
+    def get_organization_subscription(
+        self, organization: Organization, grants: EffectiveBillingGrants
+    ) -> dict[str, Any]:
+        return self._organization_get(organization, grants, "subscription/")
 
-    def get_public_features(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
-        return self._public_get(organization, grants, "features/")
+    def get_organization_features(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._organization_get(organization, grants, "features/")
 
-    def get_public_products(
+    def get_organization_products(
         self,
         organization: Organization,
         grants: EffectiveBillingGrants,
@@ -789,21 +791,23 @@ class BillingManager:
         product_key: str | None = None,
     ) -> dict[str, Any]:
         path = f"products/{product_key}/" if product_key else "products/"
-        return self._public_get(organization, grants, path, {"include_plans": "true"} if include_plans else None)
+        return self._organization_get(organization, grants, path, {"include_plans": "true"} if include_plans else None)
 
-    def get_public_usage(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
-        return self._public_get(organization, grants, "usage/")
+    def get_organization_usage(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._organization_get(organization, grants, "usage/")
 
-    def get_public_usage_status(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
-        return self._public_get(organization, grants, "usage/status/")
+    def get_organization_usage_status(
+        self, organization: Organization, grants: EffectiveBillingGrants
+    ) -> dict[str, Any]:
+        return self._organization_get(organization, grants, "usage/status/")
 
-    def get_public_spend(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
-        return self._public_get(organization, grants, "spend/")
+    def get_organization_spend(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._organization_get(organization, grants, "spend/")
 
-    def get_public_forecast(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
-        return self._public_get(organization, grants, "forecast/")
+    def get_organization_forecast(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._organization_get(organization, grants, "forecast/")
 
-    def get_public_invoices(
+    def get_organization_invoices(
         self,
         organization: Organization,
         grants: EffectiveBillingGrants,
@@ -813,26 +817,26 @@ class BillingManager:
         status: str | None = None,
     ) -> dict[str, Any]:
         params = {key: value for key, value in (("cursor", cursor), ("limit", limit), ("status", status)) if value}
-        return self._public_get(organization, grants, "invoices/", params)
+        return self._organization_get(organization, grants, "invoices/", params)
 
-    def get_public_invoice_pdf_url(
+    def get_organization_invoice_pdf_url(
         self, organization: Organization, grants: EffectiveBillingGrants, invoice_id: str
     ) -> str:
-        return self._public_get(organization, grants, f"invoices/{invoice_id}/pdf-url/")["url"]
+        return self._organization_get(organization, grants, f"invoices/{invoice_id}/pdf-url/")["url"]
 
-    def get_public_limits(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
-        return self._public_get(organization, grants, "limits/")
+    def get_organization_limits(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._organization_get(organization, grants, "limits/")
 
-    def get_public_projects(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
-        return self._public_get(organization, grants, "projects/")
+    def get_organization_projects(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._organization_get(organization, grants, "projects/")
 
-    def get_public_timeseries(
+    def get_organization_timeseries(
         self, organization: Organization, grants: EffectiveBillingGrants, kind: str, params: dict[str, Any]
     ) -> dict[str, Any]:
         """The usage or spend timeseries copy. GET first, then POST when the query string is too long
         for the organization's teams map, as the root usage and spend reads do."""
         url = f"{BILLING_SERVICE_URL}/api/v2/billing/{kind}/timeseries/"
-        headers = self.public_api_headers(organization, grants)
+        headers = self.organization_api_headers(organization, grants)
         res = requests.get(
             url, headers=headers, params=self._to_query_params(params), timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT
         )

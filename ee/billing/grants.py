@@ -90,7 +90,7 @@ def _billing_limit_todays_usage_enabled(user: User, organization: Organization) 
 
 
 class BillingEntitlement(str, Enum):
-    """The three access levels of the public billing API. Each covers the ones below it."""
+    """The three access levels of the organization billing API. Each covers the ones below it."""
 
     MEMBER = "billing:member"
     USAGE_READ = "billing:usage_read"

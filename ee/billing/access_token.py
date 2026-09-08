@@ -1,4 +1,4 @@
-"""The access token PostHog mints for the public billing API.
+"""The access token PostHog mints for the organization billing API.
 
 An RS256 `at+jwt` (RFC 9068) signed with the OIDC key, with billing as the audience. Billing
 verifies it through PostHog's JWKS. PostHog mints it only on the server, in this module. The

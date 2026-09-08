@@ -1,8 +1,8 @@
-"""The public billing API: /api/organizations/{organization_id}/billing/.
+"""The organization billing API: /api/organizations/{organization_id}/billing/.
 
 Each action reads one resource from billing's /api/v2/billing/ routes with the access token
 PostHog mints for the caller (ee.billing.access_token) and reshapes billing's payload into the
-public contract: bare objects, ISO 8601 timestamps, the public field names. PostHog decides what
+organization API contract: bare objects, ISO 8601 timestamps, its own field names. PostHog decides what
 the caller may read (ee.billing.grants); billing checks the token and returns the data.
 """
 
@@ -54,7 +54,7 @@ class CatalogKind(models.TextChoices):
     ADDON = "addon"
 
 
-PUBLIC_BILLING_PROVIDER = {"posthog": "stripe", "vercel": "vercel"}
+ORGANIZATION_BILLING_PROVIDER = {"posthog": "stripe", "vercel": "vercel"}
 
 
 def _with_todays_usage(products: list[dict[str, Any]], organization_usage: dict[str, Any]) -> list[dict[str, Any]]:
@@ -111,7 +111,7 @@ def _billing_period(period: Optional[dict[str, Any]]) -> Optional[dict[str, Any]
     }
 
 
-# Serializers describe the public shapes for the generated schema. The actions build plain dicts.
+# Serializers describe the organization API's shapes for the generated schema. The actions build plain dicts.
 
 
 class BillingPeriodSerializer(serializers.Serializer):
@@ -577,7 +577,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             named = named.filter(id__in=scoped)
         teams_map = dict(named.values_list("id", "name"))
         params["teams_map"] = {str(team_id): name for team_id, name in teams_map.items()}
-        data = self._manager().get_public_timeseries(organization, grants, kind, params)
+        data = self._manager().get_organization_timeseries(organization, grants, kind, params)
         results = data.get("results", [])
         # Names the folded "all other projects" row and any project deleted since it reported, as the root read does.
         _resolve_team_labels(results, teams_map)
@@ -599,7 +599,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     def subscription(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         organization = self.organization
         grants = self._grants(request, organization)
-        data = self._manager().get_public_subscription(organization, grants)
+        data = self._manager().get_organization_subscription(organization, grants)
         license = get_cached_instance_license()
         trial = data.get("trial")
         body: dict[str, Any] = {
@@ -607,7 +607,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             "has_active_subscription": data.get("has_active_subscription", False),
             "subscription_level": data.get("subscription_level"),
             "billing_plan": data.get("billing_plan"),
-            "billing_provider": PUBLIC_BILLING_PROVIDER.get(data.get("billing_provider") or "", None),
+            "billing_provider": ORGANIZATION_BILLING_PROVIDER.get(data.get("billing_provider") or "", None),
             "deactivated": data.get("deactivated", False),
             "is_annual_plan_customer": data.get("is_annual_plan_customer", False),
             "billing_period": _billing_period(data.get("billing_period")),
@@ -648,7 +648,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     def features(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         organization = self.organization
         grants = self._grants(request, organization)
-        data = self._manager().get_public_features(organization, grants)
+        data = self._manager().get_organization_features(organization, grants)
         return Response({"available_product_features": data.get("available_product_features", [])})
 
     @extend_schema(
@@ -661,7 +661,9 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     def products(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         organization = self.organization
         grants = self._grants(request, organization)
-        data = self._manager().get_public_products(organization, grants, include_plans=self._include_plans(request))
+        data = self._manager().get_organization_products(
+            organization, grants, include_plans=self._include_plans(request)
+        )
         return Response({"results": data.get("products", [])})
 
     @extend_schema(
@@ -677,7 +679,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     def product(self, request: Request, *args: Any, product_key: str = "", **kwargs: Any) -> Response:
         organization = self.organization
         grants = self._grants(request, organization)
-        data = self._manager().get_public_products(
+        data = self._manager().get_organization_products(
             organization, grants, include_plans=self._include_plans(request), product_key=product_key
         )
         return Response(data.get("product"))
@@ -692,7 +694,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         organization = self.organization
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.USAGE_READ, whole_organization=True)
-        data = self._manager().get_public_spend(organization, grants)
+        data = self._manager().get_organization_spend(organization, grants)
         return Response({**data, "billing_period": _billing_period(data.get("billing_period"))})
 
     @extend_schema(
@@ -705,7 +707,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         organization = self.organization
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.FULL_ACCESS, whole_organization=True)
-        data = self._manager().get_public_forecast(organization, grants)
+        data = self._manager().get_organization_forecast(organization, grants)
         return Response(
             {
                 **data,
@@ -766,7 +768,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         self._require(grants, BillingEntitlement.FULL_ACCESS, whole_organization=True)
         params = BillingInvoiceListParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
-        data = self._manager().get_public_invoices(organization, grants, **params.validated_data)
+        data = self._manager().get_organization_invoices(organization, grants, **params.validated_data)
         results = [
             {
                 **invoice,
@@ -800,7 +802,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         organization = self.organization
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.FULL_ACCESS, whole_organization=True)
-        url = self._manager().get_public_invoice_pdf_url(organization, grants, invoice_id)
+        url = self._manager().get_organization_invoice_pdf_url(organization, grants, invoice_id)
         upstream = fetch_invoice_document(url)
         if upstream.status_code != 200:
             upstream.close()
@@ -827,7 +829,8 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.USAGE_READ)
         reported = [
-            int(item["id"]) for item in self._manager().get_public_projects(organization, grants).get("results", [])
+            int(item["id"])
+            for item in self._manager().get_organization_projects(organization, grants).get("results", [])
         ]
         user = request.user if isinstance(request.user, User) else None
         if user is not None and not self._covers(grants, BillingEntitlement.FULL_ACCESS):
@@ -850,7 +853,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         organization = self.organization
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.FULL_ACCESS, whole_organization=True)
-        return Response({"results": self._manager().get_public_limits(organization, grants).get("results", [])})
+        return Response({"results": self._manager().get_organization_limits(organization, grants).get("results", [])})
 
     @extend_schema(
         operation_id="billing_usage_summary_retrieve",
@@ -862,7 +865,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         organization = self.organization
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.USAGE_READ)
-        data = self._manager().get_public_usage(organization, grants)
+        data = self._manager().get_organization_usage(organization, grants)
         organization_usage = organization.usage or {}
         usage_summary = []
         for entry in data.get("usage_summary", []):
@@ -897,7 +900,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         now. The counts themselves are on `usage` and need usage read access."""
         organization = self.organization
         grants = self._grants(request, organization)
-        data = self._manager().get_public_usage_status(organization, grants)
+        data = self._manager().get_organization_usage_status(organization, grants)
         organization_usage = organization.usage or {}
 
         def with_quota_state(item: dict[str, Any]) -> dict[str, Any]:

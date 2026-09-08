@@ -119,7 +119,7 @@ class TestOrganizationBillingAPI(APILicensedTest):
         )
 
     @patch("ee.billing.billing_manager.requests.get")
-    def test_subscription_is_reshaped_to_the_public_contract(self, mock_get):
+    def test_subscription_is_reshaped_to_the_organization_contract(self, mock_get):
         mock_get.return_value = _response(SUBSCRIPTION)
         response = self.client.get(self._url("subscription/"))
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
@@ -426,7 +426,7 @@ class TestOrganizationBillingSpendForecastAndSeries(TestOrganizationBillingAPI):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         self.member_read.return_value = True
-        with patch("ee.api.billing_public.visible_team_ids", return_value=[self.team.id]):
+        with patch("ee.api.organization_billing.visible_team_ids", return_value=[self.team.id]):
             response = self.client.get(self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14"))
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         sent = mock_get.call_args.kwargs["params"]
@@ -435,7 +435,7 @@ class TestOrganizationBillingSpendForecastAndSeries(TestOrganizationBillingAPI):
         # The filter names the projects even when the member sees every one, so a project deleted
         # since its usage was reported is never read; the token itself carries no list.
         self.assertEqual((claims["projects"], sent["team_ids"]), (None, json.dumps([self.team.id])))
-        with patch("ee.api.billing_public.visible_team_ids", return_value=[]):
+        with patch("ee.api.organization_billing.visible_team_ids", return_value=[]):
             response = self.client.get(self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -451,7 +451,7 @@ class TestOrganizationBillingSpendForecastAndSeries(TestOrganizationBillingAPI):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         self.member_read.return_value = True
-        with patch("ee.api.billing_public.visible_team_ids", return_value=[self.team.id]):
+        with patch("ee.api.organization_billing.visible_team_ids", return_value=[self.team.id]):
             response = self.client.get(
                 self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14&team_ids=[999999]")
             )
@@ -479,7 +479,7 @@ class TestOrganizationBillingSpendForecastAndSeries(TestOrganizationBillingAPI):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         self.member_read.return_value = True
-        with patch("ee.api.billing_public.visible_team_ids", return_value=[self.team.id]):
+        with patch("ee.api.organization_billing.visible_team_ids", return_value=[self.team.id]):
             response = self.client.get(self._url("projects/"))
         self.assertEqual([project["id"] for project in response.json()["results"]], [self.team.id])
 
@@ -538,7 +538,7 @@ class TestOrganizationBillingInvoicesAndLimits(TestOrganizationBillingAPI):
             response = self.client.get(self._url(f"invoices/?{query}"))
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, query)
 
-    @patch("ee.api.billing_public.fetch_invoice_document")
+    @patch("ee.api.organization_billing.fetch_invoice_document")
     @patch("ee.billing.billing_manager.requests.get")
     async def test_invoice_content_streams_the_pdf_without_exposing_the_link(self, mock_billing_get, mock_upstream_get):
         mock_billing_get.return_value = _response(
@@ -570,7 +570,7 @@ class TestOrganizationBillingInvoicesAndLimits(TestOrganizationBillingAPI):
         self.assertEqual(mock_upstream_get.call_args.args[0], "https://pay.example/in_1/pdf")
         upstream.close.assert_called_once()
 
-    @patch("ee.api.billing_public.fetch_invoice_document")
+    @patch("ee.api.organization_billing.fetch_invoice_document")
     @patch("ee.billing.billing_manager.requests.get")
     def test_invoice_content_is_a_404_when_the_provider_has_no_document(self, mock_billing_get, mock_upstream_get):
         mock_billing_get.return_value = _response(

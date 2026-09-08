@@ -15,7 +15,7 @@ import { APIRequestContext, APIResponse } from '@playwright/test'
  * CI has no billing behind the dev stack, so the suite only runs when asked:
  *
  *   RUN_BILLING_E2E=1 BASE_URL=http://localhost:8010 \
- *     pnpm --filter=@posthog/playwright exec playwright test products/billing/frontend/e2e/public-billing-api.spec.ts
+ *     pnpm --filter=@posthog/playwright exec playwright test products/billing/frontend/e2e/organization-billing-api.spec.ts
  *
  * The first half uses a fresh workspace, which billing creates a customer for on first sight. The
  * second half needs an organization with seeded invoices and documents, from the billing repo's
