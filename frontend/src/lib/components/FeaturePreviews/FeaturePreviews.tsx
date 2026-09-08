@@ -1,7 +1,6 @@
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { useEffect, useLayoutEffect, useState } from 'react'
 
-import { IconBell, IconCheck } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { BasicCard } from 'lib/components/Cards/BasicCard'
@@ -16,6 +15,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
 
+import { ConceptWaitlistCTA } from './ConceptWaitlistCTA'
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
 
 type AvailableFeatureChecker = (feature: AvailableFeature) => boolean
@@ -172,74 +172,9 @@ function PreviewCard({ feature, title, description, actions, children }: Preview
 }
 
 function ConceptPreview({ feature }: { feature: EnrichedEarlyAccessFeature }): JSX.Element {
-    const { updateEarlyAccessFeatureEnrollment, copyExternalFeaturePreviewLink, submitConceptSurvey } =
-        useActions(featurePreviewsLogic)
-    const { waitlistSurveysEnabled, conceptSurveySubmissions } = useValues(featurePreviewsLogic)
+    const { copyExternalFeaturePreviewLink } = useActions(featurePreviewsLogic)
 
-    const { flagKey, enabled, name, description } = feature
-    const [email, setEmail] = useState('')
-
-    // When the gate is on and the feature has a linked waitlist survey, collect an email
-    // (recorded as a survey response) instead of the one-click, login-tied enrollment.
-    const surveyId = feature.payload?.survey_id
-    const hasWaitlistSurvey = waitlistSurveysEnabled && !!surveyId
-    // `enabled` covers users who registered interest before the survey era — the
-    // migration command moves them into the survey, so don't ask them again.
-    const surveySubmitted = !!conceptSurveySubmissions[flagKey] || enabled
-
-    let actions: JSX.Element
-    if (hasWaitlistSurvey) {
-        actions = surveySubmitted ? (
-            // role="status" makes the confirmation a live region: the form (and its focused
-            // button) unmounts on submit, so without it screen readers announce nothing.
-            <span role="status" className="flex items-center gap-1 text-success font-medium">
-                <IconCheck /> Thanks — we'll email you when it's ready.
-            </span>
-        ) : (
-            <form
-                className="flex items-center gap-2"
-                onSubmit={(e) => {
-                    e.preventDefault()
-                    if (email) {
-                        submitConceptSurvey(flagKey, email)
-                    }
-                }}
-            >
-                <LemonInput
-                    type="email"
-                    value={email}
-                    onChange={setEmail}
-                    placeholder="email@yourcompany.com"
-                    aria-label="Email address"
-                    autoComplete="email"
-                    size="small"
-                />
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    htmlType="submit"
-                    disabledReason={!email ? 'Enter your email' : undefined}
-                >
-                    Get notified
-                </LemonButton>
-            </form>
-        )
-    } else {
-        actions = (
-            <LemonButton
-                type="primary"
-                disabledReason={
-                    enabled && "You have already expressed your interest. We'll contact you when it's ready"
-                }
-                onClick={() => updateEarlyAccessFeatureEnrollment(flagKey, true, feature.stage)}
-                size="small"
-                sideIcon={enabled ? <IconCheck /> : <IconBell />}
-                className="w-fit"
-            >
-                {enabled ? 'Registered' : 'Get notified'}
-            </LemonButton>
-        )
-    }
+    const { flagKey, name, description } = feature
 
     return (
         <PreviewCard
@@ -259,7 +194,7 @@ function ConceptPreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
                     {description || <span className="text-tertiary">No description</span>}
                 </p>
             }
-            actions={actions}
+            actions={<ConceptWaitlistCTA feature={feature} />}
         />
     )
 }

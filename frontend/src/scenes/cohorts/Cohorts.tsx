@@ -36,6 +36,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { BehavioralCohortsWaitlistBanner } from 'products/cohorts/frontend/BehavioralCohortsWaitlistBanner'
 import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsEmptyState'
 
 export const scene: SceneExport = {
@@ -292,6 +293,8 @@ export function Cohorts(): JSX.Element {
                     </Shortcut>
                 }
             />
+
+            <BehavioralCohortsWaitlistBanner />
 
             <div>{filtersSection}</div>
             <LemonTable
