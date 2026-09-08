@@ -386,10 +386,17 @@ export function HogFlowEditorPanelBuild({
     const logicNodes = hideIfRowScoped(LOGIC_NODES_TO_SHOW)
 
     return (
-        <div className={`flex flex-col overflow-y-auto${className ? ` ${className}` : ''}`} data-attr="workflow-add-action">
+        <div
+            className={`flex flex-col overflow-y-auto${className ? ` ${className}` : ''}`}
+            data-attr="workflow-add-action"
+        >
             <HogFlowEditorToolbarSection title="Dispatch">
                 {ACTION_NODES_TO_SHOW.map((node, index) => (
-                    <HogFlowEditorToolbarNode key={`${node.type}-${index}`} action={node} onActionSelect={onActionSelect} />
+                    <HogFlowEditorToolbarNode
+                        key={`${node.type}-${index}`}
+                        action={node}
+                        onActionSelect={onActionSelect}
+                    />
                 ))}
                 {featureFlags[FEATURE_FLAGS.WORKFLOWS_PUSH_NOTIFICATIONS] && (
                     <HogFlowEditorToolbarNode
@@ -404,7 +411,11 @@ export function HogFlowEditorPanelBuild({
                     </HogFlowEditorToolbarNode>
                 )}
                 {featureFlags[FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION] && (
-                    <HogFlowEditorToolbarNode key="ai-task" action={AI_TASK_ACTION_NODE} onActionSelect={onActionSelect}>
+                    <HogFlowEditorToolbarNode
+                        key="ai-task"
+                        action={AI_TASK_ACTION_NODE}
+                        onActionSelect={onActionSelect}
+                    >
                         <span className="inline-flex items-center gap-1.5">
                             {AI_TASK_ACTION_NODE.name}
                             <LemonTag type="completion">Beta</LemonTag>
@@ -417,7 +428,11 @@ export function HogFlowEditorPanelBuild({
                 {featureFlags[FEATURE_FLAGS.WORKFLOW_RUN_SCOUT_ACTION] &&
                     !!currentTeam &&
                     currentTeam.id === currentTeam.project_id && (
-                    <HogFlowEditorToolbarNode key="run-scout" action={RUN_SCOUT_ACTION_NODE} onActionSelect={onActionSelect}>
+                        <HogFlowEditorToolbarNode
+                            key="run-scout"
+                            action={RUN_SCOUT_ACTION_NODE}
+                            onActionSelect={onActionSelect}
+                        >
                             <span className="inline-flex items-center gap-1.5">
                                 {RUN_SCOUT_ACTION_NODE.name}
                                 <LemonTag type="completion">Beta</LemonTag>
@@ -429,7 +444,11 @@ export function HogFlowEditorPanelBuild({
 
             <HogFlowEditorToolbarSection title="Delays">
                 {delayNodes.map((action, index) => (
-                    <HogFlowEditorToolbarNode key={`${action.type}-${index}`} action={action} onActionSelect={onActionSelect} />
+                    <HogFlowEditorToolbarNode
+                        key={`${action.type}-${index}`}
+                        action={action}
+                        onActionSelect={onActionSelect}
+                    />
                 ))}
             </HogFlowEditorToolbarSection>
 
@@ -447,7 +466,11 @@ export function HogFlowEditorPanelBuild({
 
             <HogFlowEditorToolbarSection title="PostHog actions">
                 {POSTHOG_NODES_TO_SHOW.map((action, index) => (
-                    <HogFlowEditorToolbarNode key={`${action.type}-${index}`} action={action} onActionSelect={onActionSelect} />
+                    <HogFlowEditorToolbarNode
+                        key={`${action.type}-${index}`}
+                        action={action}
+                        onActionSelect={onActionSelect}
+                    />
                 ))}
             </HogFlowEditorToolbarSection>
 

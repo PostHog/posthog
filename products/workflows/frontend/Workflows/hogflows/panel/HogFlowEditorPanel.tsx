@@ -25,7 +25,9 @@ import { HogFlowEditorPanelVariables } from './HogFlowEditorPanelVariables'
 import { EmailActionTestContent } from './testing/HogFlowEditorNotificationPanelTest'
 import { HogFlowEditorPanelTest } from './testing/HogFlowEditorPanelTest'
 
-export function HogFlowEditorPanel({ layout = 'floating' }: { layout?: 'floating' | 'panel' } = {}): JSX.Element | null {
+export function HogFlowEditorPanel({
+    layout = 'floating',
+}: { layout?: 'floating' | 'panel' } = {}): JSX.Element | null {
     const { panelWidth, selectedNode, mode, workflow } = useValues(hogFlowEditorLogic)
     const { clearPanelWidth, setMode, setPanelWidth, setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const panelRef = useRef<HTMLDivElement>(null)
@@ -62,7 +64,9 @@ export function HogFlowEditorPanel({ layout = 'floating' }: { layout?: 'floating
             ref={panelRef}
             className={clsx(
                 'flex min-h-0 max-h-full flex-col justify-end overflow-hidden',
-                layout === 'floating' ? 'absolute right-0 max-w-full p-2' : 'relative h-full shrink-0 bg-surface-primary'
+                layout === 'floating'
+                    ? 'absolute right-0 max-w-full p-2'
+                    : 'relative h-full shrink-0 bg-surface-primary'
             )}
             style={
                 layout === 'floating'
@@ -82,7 +86,9 @@ export function HogFlowEditorPanel({ layout = 'floating' }: { layout?: 'floating
             <div
                 className={clsx(
                     'relative z-10 flex min-h-0 flex-col overflow-hidden bg-surface-primary',
-                    layout === 'floating' ? 'max-h-full rounded-md border shadow-[0_3px_0_var(--border)]' : 'h-full !rounded-none'
+                    layout === 'floating'
+                        ? 'max-h-full rounded-md border shadow-[0_3px_0_var(--border)]'
+                        : 'h-full !rounded-none'
                 )}
             >
                 <div className="flex shrink-0 items-center gap-2 border-b">
