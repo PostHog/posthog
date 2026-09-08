@@ -99,8 +99,7 @@ export const Stale: Story = {
     ],
 }
 
-// Motivations vary in length, so the cards must align to the top. A row stretched to its tallest
-// card leaves the short ones as empty boxes with their buttons pinned to the bottom.
+// One long motivation beside two short ones: the check that a row no longer stretches to its tallest card.
 export const UnevenMotivations: Story = {
     decorators: [
         mswDecorator({

@@ -143,8 +143,7 @@ function SuggestionGrid({ surface, columns = 3 }: { surface: ScoutSuggestionSurf
     return (
         <div
             className={cn(
-                // Aligned to the top, so a longer motivation makes its own card taller instead of
-                // stretching its neighbours into empty boxes.
+                // Top-aligned, so a longer motivation cannot stretch its neighbours into empty boxes.
                 'grid grid-cols-1 items-start gap-2',
                 // One card in a three-across grid stretches to a third of the row and reads as a
                 // gap where the other two should be, so a lone card keeps a single narrow column.

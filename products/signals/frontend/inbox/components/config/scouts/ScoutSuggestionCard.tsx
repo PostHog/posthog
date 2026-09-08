@@ -21,7 +21,7 @@ export interface ScoutSuggestionCardProps {
  * One suggested scout: what it would watch, why it was picked for this project, and the three ways
  * to act on it. The card carries the motivation only, because the create form already holds the
  * draft, the schedule and the output setting, and is where editing happens. Pressing the body opens
- * that form: a custom pick on its draft, a canonical pick on the scout that already exists.
+ * that form, so a person reads the offer before anything is written.
  */
 export function ScoutSuggestionCard({ item, surface }: ScoutSuggestionCardProps): JSX.Element {
     const { busySuggestionIds } = useValues(scoutSuggestionsLogic)
@@ -87,10 +87,7 @@ function SuggestionTags({ item }: { item: ScoutSuggestionItemApi }): JSX.Element
     )
 }
 
-/**
- * The card's primary action, which depends on its kind, next to the chat that refines it. Both read
- * as a review rather than a commit, because both open a form the person still has to submit.
- */
+/** The card's primary action, which depends on its kind, next to the chat that refines it. */
 function SuggestionActions({ item, surface, isBusy }: ScoutSuggestionCardProps & { isBusy: boolean }): JSX.Element {
     const { aiConsentDisabledReason, runningChatType } = useValues(scoutSuggestionsLogic)
     const { refineSuggestionWithAi, openCreateFromSuggestion } = useActions(scoutSuggestionsLogic)
