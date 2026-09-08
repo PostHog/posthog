@@ -169,7 +169,7 @@ export function DashboardEditSaveCancelButtons({
     /** The large-dashboard "Apply filters" preview button, rendered between Cancel and Save. */
     applyFiltersButton?: JSX.Element | null
 }): JSX.Element {
-    const { dashboardLoading, canEditDashboard } = useValues(dashboardLogic)
+    const { dashboardLoading, canEditDashboard, hasUnsavedEditModeChanges } = useValues(dashboardLogic)
     const { setDashboardMode, cancelEditMode } = useActions(dashboardLogic)
 
     const cancelButton = (
@@ -192,12 +192,17 @@ export function DashboardEditSaveCancelButtons({
             size="small"
             tooltip="Save dashboard"
             tooltipPlacement="bottom"
+            // hasUnsavedEditModeChanges covers everything a save persists — filters, variables,
+            // colors/theme, and layout — so this bar (shared with layout edit mode) stays enabled
+            // whenever any of them differ from what's saved, not just filters.
             disabledReason={
                 dashboardLoading
                     ? 'Wait for dashboard to finish loading'
-                    : canEditDashboard
-                      ? undefined
-                      : 'Not privileged to edit this dashboard'
+                    : !canEditDashboard
+                      ? 'Not privileged to edit this dashboard'
+                      : !hasUnsavedEditModeChanges
+                        ? 'No changes to save'
+                        : undefined
             }
         >
             Save
