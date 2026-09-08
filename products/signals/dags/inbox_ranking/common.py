@@ -179,9 +179,9 @@ def merge_emission_rows(existing: pa.Table, fresh: pa.Table, key_columns: tuple[
     return pa.concat_tables([existing, fresh.filter(mask)])
 
 
-def read_parquet(client, bucket: str, key: str) -> pa.Table:
+def read_parquet(client, bucket: str, key: str, columns: list[str] | None = None) -> pa.Table:
     body = client.get_object(Bucket=bucket, Key=key)["Body"].read()
-    return pq.read_table(pa.BufferReader(body))
+    return pq.read_table(pa.BufferReader(body), columns=columns)
 
 
 def read_parquet_if_exists(client, bucket: str, key: str) -> pa.Table | None:
