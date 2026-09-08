@@ -76,6 +76,7 @@ _LAZY = {
     "SSL_REQUIRED_AFTER_DATE": "sources.postgres.postgres",
     "_get_sslmode": "sources.postgres.postgres",
     "get_primary_key_columns": "sources.postgres.postgres",
+    "new_source_requires_ssl": "sources.postgres.postgres",
     "source_requires_ssl": "sources.postgres.postgres",
     "PostgresSource": "sources.postgres.source",
     "RedshiftSource": "sources.redshift.source",

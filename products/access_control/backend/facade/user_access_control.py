@@ -109,6 +109,7 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "llm_prompt": "llm_analytics",
     "account": "customer_analytics",
     "customer_journey": "customer_analytics",
+    "customer_task": "customer_analytics",
     "experiment_saved_metric": "experiment",
     "experiment_holdout": "experiment",
     "dashboard_template": "dashboard",
@@ -287,9 +288,9 @@ class ResolvedAccess:
     subject_name: Optional[str] = None
 
 
-def model_to_resource(model: Model) -> Optional[APIScopeObject]:
+def model_to_resource(model: Model | type[Model]) -> Optional[APIScopeObject]:
     """
-    Given a model, return the resource type it represents
+    Given a model instance or class, return the resource type it represents
     """
     if hasattr(model, "_meta"):
         name = model._meta.model_name
@@ -337,10 +338,17 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "warehouse_table"
     if name == "customerjourney":
         return "customer_journey"
+    if name == "customertask":
+        return "customer_task"
     if name in ("replayscanner", "replayobservation"):
         return "replay_scanner"
     if name in ("visionalertconfiguration", "visionalertevent"):
         return "vision_alert"
+    # These scopes are served by several viewsets, each with its own model
+    if name in ("parserrecipe", "reviewqueue", "reviewqueueitem", "scoredefinition", "tracereview"):
+        return "llm_analytics"
+    if name in ("dataqualitycheck", "dataqualitysuiterun"):
+        return "warehouse_objects"
 
     if name not in API_SCOPE_OBJECTS or name in INTERNAL_API_SCOPE_OBJECTS:
         return None

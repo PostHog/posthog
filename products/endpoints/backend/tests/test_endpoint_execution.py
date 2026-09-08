@@ -2473,13 +2473,57 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         # data_freshness_seconds=86400, materialized ~5 min ago -> ~86100s remaining
         self.assertGreater(cache_ttl, 80000, f"cache TTL clamped ({cache_ttl}s): freshness read from frozen timestamp")
 
-    def test_series_mismatch_falls_back_to_inline(self):
+    def test_materialized_response_transform_receives_the_job_materialization_time(self):
+        from products.endpoints.backend.logic.strategies import HogQLEndpointStrategy
+
+        endpoint = self._make_fresh_materialized_endpoint(
+            "v2-transform-now", {"kind": "HogQLQuery", "query": "select 1 as n"}
+        )
+        saved_query = endpoint.versions.first().saved_query
+        saved_query.sync_frequency_interval = None
+        saved_query.last_run_at = None
+        saved_query.status = None
+        saved_query.save()
+        materialized_at = timezone.now() - timedelta(minutes=5)
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJob.Engine.CLICKHOUSE,
+            last_run_at=materialized_at,
+        )
+
+        flat_response = Response({"results": [[1]], "columns": ["n"]})
+        with (
+            mock.patch.object(EndpointExecutionService, "_execute_query_and_respond", return_value=flat_response),
+            mock.patch.object(
+                HogQLEndpointStrategy, "transform_materialized_response", autospec=True
+            ) as mock_transform,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_transform.assert_called_once()
+        _strategy, _data, _saved_query, passed_at = mock_transform.call_args.args
+        self.assertEqual(passed_at, materialized_at)
+
+    @parameterized.expand(
+        [
+            ("refresh_starts", None),
+            # A model with no DAG node cannot be re-materialized, but the caller still has to see
+            # the mismatch to fall back inline instead of a failure from the refresh attempt.
+            ("refresh_fails", RuntimeError("no node for this saved query")),
+        ]
+    )
+    def test_series_mismatch_falls_back_to_inline(self, _name: str, refresh_error: Exception | None):
         """Series drift triggers re-materialization AND serves the request inline."""
         from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
         from products.endpoints.backend.logic.strategies import InsightEndpointStrategy
 
         endpoint = self._make_fresh_materialized_endpoint(
-            "mismatch-fallback",
+            f"mismatch-fallback-{_name.replace('_', '-')}",
             TrendsQuery(
                 series=[EventsNode(event="$pageview")],
                 dateRange={"date_from": "2026-01-01", "date_to": "2026-01-10"},
@@ -2499,7 +2543,10 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 "transform_materialized_response",
                 side_effect=MaterializedSeriesMismatchError("series drift"),
             ),
-            mock.patch("products.endpoints.backend.logic.execution.trigger_saved_query_schedule") as mock_trigger,
+            mock.patch(
+                "products.endpoints.backend.logic.execution.materialize_saved_query", side_effect=refresh_error
+            ) as mock_trigger,
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
@@ -2507,7 +2554,11 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_trigger.assert_called_once()
+        # a read-triggered repair must not clear the suspension of a repeatedly failing model
+        self.assertEqual(mock_trigger.call_args.kwargs["resume"], False)
         self.assertEqual(mock_exec.call_count, 2, "expected materialized attempt then inline fallback")
+        # A refresh that cannot start must not overwrite the reason the read failed.
+        self.assertIsInstance(mock_capture.call_args_list[0].args[0], MaterializedSeriesMismatchError)
 
     def test_unrecoverable_failure_not_labeled_materialized_fallback(self):
         from prometheus_client import REGISTRY

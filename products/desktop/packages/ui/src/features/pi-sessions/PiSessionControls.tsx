@@ -1,5 +1,6 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import { CaretDown, Lightning, PiIcon, Stack } from "@phosphor-icons/react";
+import { toModelPickerOption } from "@posthog/core/billing/modelPricing";
 import type {
   PiModelSelection,
   PiThinkingLevel,
@@ -17,6 +18,7 @@ import {
   DropdownMenuTrigger,
   MenuLabel,
 } from "@posthog/quill";
+import { customModelMeta } from "@posthog/shared";
 import {
   type AgentHarness,
   HarnessSubmenu,
@@ -107,7 +109,7 @@ export function PiModelSelector({
                 <span className="text-muted-foreground">
                   <PiIcon size={14} weight="bold" className="translate-y-px" />
                 </span>
-                <Spinner size={12} />
+                <Spinner size="sm" />
                 Loading...
               </Button>
             }
@@ -119,7 +121,7 @@ export function PiModelSelector({
             className="min-w-[230px]"
           >
             <DropdownMenuItem disabled>
-              <Spinner size={12} />
+              <Spinner size="sm" />
               Loading models...
             </DropdownMenuItem>
             {onHarnessChange && (
@@ -215,18 +217,29 @@ export function PiModelSelector({
                     }
                   }}
                 >
-                  {models.map((model) => (
-                    <DropdownMenuRadioItem
-                      key={modelKey(model)}
-                      value={modelKey(model)}
-                      closeOnClick={false}
-                    >
-                      <span className="whitespace-nowrap">
-                        {modelLabel(model)}
-                      </span>
-                      <ModelCostChip modelId={model.id} />
-                    </DropdownMenuRadioItem>
-                  ))}
+                  {models.map((model) => {
+                    const pickerModel = toModelPickerOption({
+                      value: model.id,
+                      name: modelLabel(model),
+                      ...(model.provider === "posthog"
+                        ? {}
+                        : { _meta: customModelMeta() }),
+                    });
+                    return (
+                      <DropdownMenuRadioItem
+                        key={modelKey(model)}
+                        value={modelKey(model)}
+                        closeOnClick={false}
+                      >
+                        <span className="whitespace-nowrap">
+                          {pickerModel.name}
+                        </span>
+                        {pickerModel.kind === "priced" ? (
+                          <ModelCostChip cost={pickerModel.cost} />
+                        ) : null}
+                      </DropdownMenuRadioItem>
+                    );
+                  })}
                 </DropdownMenuRadioGroup>
                 <ModelCostFooter />
               </>

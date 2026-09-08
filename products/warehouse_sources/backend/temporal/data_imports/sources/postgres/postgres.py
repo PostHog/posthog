@@ -163,6 +163,23 @@ _MAX_INITIAL_READ_DROP_RETRIES = 5
 _MAX_INITIAL_READ_LOCK_TIMEOUT_RETRIES = 5
 
 
+def new_source_requires_ssl(source_config: Any = None) -> bool:
+    """Return whether a source created now must connect over SSL/TLS.
+
+    A source created now is always past the cutoff date, so only the SSH tunnel opt-out can
+    relax the requirement. Shares that branch with `source_requires_ssl` so the credential
+    check the wizard runs cannot drift from the connection the sync later opens.
+    """
+    if source_config is not None:
+        # Not every source config carries an SSH tunnel (e.g. Snowflake), and the param is typed
+        # `Any` — only the tunnel opt-out can relax the SSL requirement, so its absence means "required".
+        ssh_tunnel = getattr(source_config, "ssh_tunnel", None)
+        if ssh_tunnel is not None and ssh_tunnel.enabled and not ssh_tunnel.require_tls.enabled:
+            return False
+
+    return True
+
+
 def source_requires_ssl(source: ExternalDataSource, source_config: Any = None) -> bool:
     """Return whether this source must connect over SSL/TLS.
 
@@ -173,14 +190,7 @@ def source_requires_ssl(source: ExternalDataSource, source_config: Any = None) -
     if source.created_at < SSL_REQUIRED_AFTER_DATE:
         return False
 
-    if source_config is not None:
-        # Not every source config carries an SSH tunnel (e.g. Snowflake), and the param is typed
-        # `Any` — only the tunnel opt-out can relax the SSL requirement, so its absence means "required".
-        ssh_tunnel = getattr(source_config, "ssh_tunnel", None)
-        if ssh_tunnel is not None and ssh_tunnel.enabled and not ssh_tunnel.require_tls.enabled:
-            return False
-
-    return True
+    return new_source_requires_ssl(source_config)
 
 
 class SSLRequiredError(Exception):
@@ -3292,6 +3302,7 @@ def postgres_source(
     xmin_last_value: Optional[int] = None,
     xmin_num_wraparound: Optional[int] = None,
     byte_bounded_extraction: bool = False,
+    activity_attempt: int = 1,
 ) -> SourceResponse:
     table_name = table_names[0]
     if not table_name:
@@ -4074,6 +4085,26 @@ def postgres_source(
                 if primary_keys and not is_partitioned and (not used_id_pk_fallback or assumed_id_is_seekable)
                 else None
             )
+
+            # A server cursor idles in an open transaction through every Delta merge, and a replica
+            # that cancels reads during that idle kills each attempt at the same place. The handler
+            # below cannot resume past the first row, because the cursor's order is arbitrary, so
+            # it re-raises for a restart, and a restart on another cursor repeats the failure. The
+            # seek pages in autocommit, so nothing idles and a conflict resumes at the last key.
+            # Only from the second attempt, so a replica that never cancels keeps one snapshot.
+            if (
+                activity_attempt > 1
+                and using_read_replica
+                and keyset_primary_keys is not None
+                and not should_use_incremental_field
+                and xmin_bounds is None
+            ):
+                logger.debug(
+                    f"Attempt {activity_attempt} of a full-table read on a read replica. Seeking from the "
+                    f"start instead of reopening a server cursor. keys = {keyset_primary_keys}"
+                )
+                yield from offset_chunking(0, chunk_size, keyset_primary_keys=keyset_primary_keys)
+                return
 
             initial_read_drop_retries = 0
             initial_read_lock_timeout_retries = 0

@@ -7,14 +7,14 @@ import {
 import { Button } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDetailFrame";
+import { InboxReportCopyLinkMenu } from "@posthog/ui/features/inbox/components/InboxReportCopyLinkMenu";
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
 import {
   type InboxBackTarget,
   useInboxBackTarget,
 } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import { useInboxRestoreReport } from "@posthog/ui/features/inbox/hooks/useInboxRestoreReport";
-import { copyInboxReportLink } from "@posthog/ui/features/inbox/utils/copyInboxReportLink";
-import { Spinner } from "@radix-ui/themes";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useNavigate } from "@tanstack/react-router";
 
 interface DismissedReportDetailProps {
@@ -82,15 +82,20 @@ function DismissedReportDetailContent({
       primaryAction={
         <>
           {canRestore && <RestoreReportButton report={report} />}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => copyInboxReportLink(report)}
-            title="Copy a deep link to this report"
-          >
-            <LinkIcon size={12} />
-          </Button>
+          <InboxReportCopyLinkMenu
+            report={report}
+            trigger={
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-label="Copy link"
+                title="Copy link"
+              >
+                <LinkIcon size={12} />
+              </Button>
+            }
+          />
         </>
       }
       summarySection={{ Icon: FileTextIcon, title: "Summary" }}
@@ -118,7 +123,7 @@ function RestoreReportButton({ report }: { report: SignalReport }) {
       }
     >
       {restore.isPending ? (
-        <Spinner size="1" />
+        <Spinner size="sm" />
       ) : (
         <ArrowCounterClockwiseIcon size={12} />
       )}

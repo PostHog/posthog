@@ -398,6 +398,58 @@ const observationsTrend = {
     ],
 }
 
+// Recordings for the on-demand picker, one per status the list can show: a session the scanner
+// already observed, one it has not reached, and two the eligibility gate refuses.
+const recording = (overrides: Record<string, any>): Record<string, any> => ({
+    distinct_id: 'user_8f3k2j',
+    viewed: false,
+    viewers: [],
+    recording_duration: 240,
+    active_seconds: 95,
+    inactive_seconds: 145,
+    start_time: '2026-05-11T09:00:00Z',
+    end_time: '2026-05-11T09:04:00Z',
+    click_count: 18,
+    keypress_count: 9,
+    mouse_activity_count: 64,
+    console_log_count: 0,
+    console_warn_count: 0,
+    console_error_count: 0,
+    start_url: 'https://app.example.com/checkout',
+    person: {
+        id: 1001,
+        name: 'alice@example.com',
+        distinct_ids: ['user_8f3k2j'],
+        properties: { email: 'alice@example.com' },
+        created_at: '2026-05-01T00:00:00Z',
+        uuid: '00000000-0000-0000-0000-0000000000f1',
+    },
+    snapshot_source: 'web',
+    ongoing: false,
+    ...overrides,
+})
+
+const onDemandRecordings = [
+    // Already observed: shares a session id with the succeeded observation above.
+    recording({ id: '01966b3f-70a1-7c52-a4d5-3f9b2e8c1d07' }),
+    recording({ id: '01966b3f-70a1-7c52-a4d5-3f9b2e8c1e01' }),
+    // Over the active-time ceiling, so the scan-time gate would refuse it.
+    recording({
+        id: '01966b3f-70a1-7c52-a4d5-3f9b2e8c1e02',
+        recording_duration: 10_800,
+        active_seconds: 4_320,
+        inactive_seconds: 6_480,
+        end_time: '2026-05-11T12:00:00Z',
+    }),
+    recording({
+        id: '01966b3f-70a1-7c52-a4d5-3f9b2e8c1e03',
+        recording_duration: 9,
+        active_seconds: 6,
+        inactive_seconds: 3,
+        end_time: '2026-05-11T09:00:09Z',
+    }),
+]
+
 const paginated = (names: string[]): Record<string, any> => ({
     count: names.length,
     next: null,
@@ -440,6 +492,8 @@ const meta: Meta = {
                     evaluation_session_cap: 25,
                 },
                 '/api/projects/:team_id/vision/observations/:id/': observationDetail,
+                '/api/environments/:team_id/session_recordings/': { results: onDemandRecordings, has_next: false },
+                '/api/environments/:team_id/session_recordings/matching_events': { results: [] },
                 '/api/projects/:team_id/signals/scout/configs/': [],
                 '/api/projects/:team_id/signals/scout/runs/recent-per-scout/': [],
                 '/api/projects/:team_id/signals/scout/runs/findings/summary/': [],
@@ -803,6 +857,7 @@ const goalDraft: DraftScannerResponseApi = {
     sampling_rate: 0.25,
     model: 'gemini-3-flash-preview',
     credit_limit: 5000,
+    experiment_targeting: null,
     estimated_monthly_observations: 1000,
 }
 
@@ -828,6 +883,90 @@ export const ScannerEditorGoalOverview: StoryObj = {
                 query: goalDraft.query as RecordingsQuery,
                 sampling_mode: goalDraft.sampling_mode as SamplingMode,
                 sampling_rate: goalDraft.sampling_rate ?? 1,
+            })
+            return <StoryFn />
+        },
+    ],
+}
+
+// The same landing step for a goal that named an experiment: the eligible-recordings section
+// leads with the experiment and variant the scan watches, which no page filter can express.
+export const ScannerEditorGoalOverviewExperiment: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerOverview('new'),
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW]: 'test' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                // The targeting card and the snack read the experiment's name from this fetch.
+                '/api/projects/:team_id/experiments/:id/': {
+                    id: 11,
+                    name: 'AI-based scanner creation',
+                    description: 'Does the goal flow beat the template gallery?',
+                    feature_flag_key: 'vision-goal-based-creation-flow',
+                    feature_flag: {
+                        id: 11,
+                        key: 'vision-goal-based-creation-flow',
+                        filters: {
+                            multivariate: {
+                                variants: [
+                                    { key: 'control', rollout_percentage: 50 },
+                                    { key: 'test', rollout_percentage: 50 },
+                                ],
+                            },
+                        },
+                    },
+                    start_date: '2026-09-01T00:00:00Z',
+                    end_date: null,
+                    exposure_criteria: {},
+                },
+            },
+        }),
+        (StoryFn) => {
+            const logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            const draft: DraftScannerResponseApi = {
+                ...goalDraft,
+                name: 'New creation flow friction',
+                description: 'Flags sessions where a participant struggles in the new AI creation flow.',
+                scanner_config: {
+                    prompt: 'Did the participant hesitate, backtrack, or give up while describing their goal in the scanner creation flow? Answer yes or no with a one-sentence reason.',
+                    allow_inconclusive: true,
+                },
+                rationale:
+                    'Your goal is about the new AI creation flow, so this watches only the sessions of people the experiment put in its test variant, on the pages where that flow lives. Struggling looks unremarkable, so it watches all matching replays rather than only the eventful ones.',
+                query: {
+                    kind: 'RecordingsQuery',
+                    properties: [
+                        {
+                            type: 'recording',
+                            key: 'visited_page',
+                            value: ['/replay-vision/scanners/new'],
+                            operator: 'icontains',
+                        },
+                    ],
+                    events: [
+                        {
+                            id: 'replay_vision_scanner_creation_started',
+                            name: 'replay_vision_scanner_creation_started',
+                            type: 'events',
+                            order: 0,
+                        },
+                    ],
+                } as RecordingsQuery,
+                experiment_targeting: { experiment_id: 11, variant: 'test' },
+            }
+            logic.actions.draftScannerFromGoalSuccess(draft)
+            logic.actions.setScannerValues({
+                name: draft.name,
+                description: draft.description,
+                scanner_type: draft.scanner_type as ScannerType,
+                scanner_config: draft.scanner_config as ScannerConfig,
+                query: draft.query as RecordingsQuery,
+                sampling_mode: draft.sampling_mode as SamplingMode,
+                sampling_rate: draft.sampling_rate ?? 1,
+                experiment_targeting: draft.experiment_targeting,
             })
             return <StoryFn />
         },

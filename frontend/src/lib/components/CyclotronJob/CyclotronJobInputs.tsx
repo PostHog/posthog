@@ -49,6 +49,8 @@ import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSug
 import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIntegration'
 import { CyclotronJobInputIntegrationField } from './integrations/CyclotronJobInputIntegrationField'
 import { CyclotronJobInputIntegrationMulti } from './integrations/CyclotronJobInputIntegrationMulti'
+import { declaresFieldScopes } from './integrations/fieldScopes'
+import { MissingScopesHint } from './integrations/MissingScopesHint'
 import { CyclotronJobInputConfiguration } from './types'
 
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
@@ -983,11 +985,20 @@ function CyclotronJobInputWithSchema({
                 <LemonField.Pure
                     error={error}
                     help={
-                        typeof schema.description === 'string' ? (
-                            <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings>
-                                {schema.description}
-                            </LemonMarkdown>
-                        ) : undefined
+                        <>
+                            {typeof schema.description === 'string' ? (
+                                <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings>
+                                    {schema.description}
+                                </LemonMarkdown>
+                            ) : null}
+                            {declaresFieldScopes(schema) ? (
+                                <MissingScopesHint
+                                    schema={schema}
+                                    configuration={configuration}
+                                    parentConfiguration={parentConfiguration}
+                                />
+                            ) : null}
+                        </>
                     }
                 >
                     <>
