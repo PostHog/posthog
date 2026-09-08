@@ -71,7 +71,12 @@ Vite watches `plugins/posthog/` (and `local-skills/` in dev) for hot-reload.
 
 `pnpm dev` and `pnpm dev:code` sync the context layer skills from the current monorepo checkout into `plugins/posthog/local-skills/` before starting Desktop. This makes local agent sessions use the checked-out context layer skill sources instead of the production release.
 
-To refresh the overlay without restarting Desktop, run:
+To test all product skills from this checkout, use `pnpm dev:local-skills` instead.
+It renders templates with the monorepo Python environment, then copies the built skills into the development override directory.
+After edits, run `pnpm skills:local --all` and start a new agent session.
+See [local development](../../../../../docs/LOCAL-DEVELOPMENT.md#test-local-code-and-skill-changes-together) for backend setup and scope.
+
+To refresh only the context layer skills without restarting Desktop, run:
 
 ```sh
 pnpm skills:local

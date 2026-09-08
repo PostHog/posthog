@@ -89,6 +89,40 @@ cp .env.example .env
 pnpm dev
 ```
 
+## Test local code and skill changes together
+
+Start the local PostHog stack with at least one project. Some skill templates read project metadata from PostgreSQL.
+Then run this command from `products/desktop`:
+
+```bash
+pnpm dev:local-skills
+```
+
+This command builds all `products/*/skills/` with the monorepo skill renderer before it starts Desktop.
+The renderer requires the monorepo Python environment and `uv`. Run `uv sync` from the repository root for initial setup.
+Templates become rendered `SKILL.md` files, including their reference files and scripts.
+Desktop copies these files from `products/posthog_ai/dist/skills/` into its development-only `plugins/posthog/local-skills/` directory.
+These skills take priority over same-named production skills. Other production skills remain available.
+A build failure stops the command before it changes the Desktop skill copies.
+
+Select **Local development** when you sign in to test local backend changes with these skills.
+Skill selection and backend selection are separate. This command does not start the PostHog backend or change the selected backend.
+
+After a skill edit, run this command in a second terminal:
+
+```bash
+pnpm skills:local --all
+```
+
+Vite detects the copied file changes. Start a new agent session to test the new instructions.
+Existing sessions can retain instructions that they already loaded.
+This command refreshes same-named skills, including removal of outdated reference files. It preserves other local skills.
+To test a deleted or renamed skill, stop Desktop. Remove its old directory from `plugins/posthog/local-skills/` and `apps/code/.vite/build/plugins/posthog/skills/`.
+Then restart Desktop.
+
+The default `pnpm dev` command still syncs only context layer skills. It does not remove other local overrides.
+Production builds do not use `local-skills/`. These commands affect local Desktop agent sessions, not remote cloud task sandboxes.
+
 ## Connect
 
 1. Select **Local development** for `localhost:8010`, or select **Dev Cloud** for `app.dev.posthog.dev`.

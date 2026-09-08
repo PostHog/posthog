@@ -16,7 +16,7 @@ afterEach(async () => {
   );
 });
 
-test("overrides context layer skills without removing other local skills", async () => {
+test("replaces checkout skills without removing other local skills", async () => {
   const root = await mkdtemp(join(tmpdir(), "posthog-local-skills-"));
   temporaryDirectories.push(root);
   const checkoutSkillsDir = join(root, "checkout");
@@ -28,6 +28,20 @@ test("overrides context layer skills without removing other local skills", async
     recursive: true,
   });
   await mkdir(join(localSkillsDir, "production-only"), { recursive: true });
+  await mkdir(join(checkoutSkillsDir, "query-data"), { recursive: true });
+  await mkdir(join(localSkillsDir, "query-data", "references"), {
+    recursive: true,
+  });
+  await writeFile(
+    join(checkoutSkillsDir, "query-data", "SKILL.md"),
+    "rendered",
+  );
+  await writeFile(join(checkoutSkillsDir, ".build-hash"), "build metadata");
+  await writeFile(join(localSkillsDir, "query-data", "SKILL.md"), "old");
+  await writeFile(
+    join(localSkillsDir, "query-data", "references", "removed.md"),
+    "outdated reference",
+  );
   await writeFile(
     join(checkoutSkillsDir, "context-layer-dreaming", "SKILL.md"),
     "checkout version",
@@ -51,4 +65,15 @@ test("overrides context layer skills without removing other local skills", async
     await readFile(join(localSkillsDir, "production-only", "SKILL.md"), "utf8"),
     "keep",
   );
+  assert.equal(
+    await readFile(join(localSkillsDir, "query-data", "SKILL.md"), "utf8"),
+    "rendered",
+  );
+  await assert.rejects(
+    readFile(join(localSkillsDir, "query-data", "references", "removed.md")),
+    { code: "ENOENT" },
+  );
+  await assert.rejects(readFile(join(localSkillsDir, ".build-hash")), {
+    code: "ENOENT",
+  });
 });
