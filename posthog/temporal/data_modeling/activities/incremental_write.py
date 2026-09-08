@@ -25,14 +25,20 @@ from typing import Any, Optional
 import pyarrow as pa
 import pyarrow.compute as pc
 
+from posthog.temporal.common.errors import NonReportableError
+
 # Exact duplicate detection has to remember every distinct key a run has produced. The cap bounds
 # that state so a huge materialization cannot OOM the worker; hitting it fails the run loudly
 # rather than quietly skipping verification.
 MAX_UNIQUE_KEY_CHECK_BYTES = 256 * 1024 * 1024
 
 
-class IncrementalWriteError(Exception):
-    """A batch cannot be safely upserted. Carries a message meant for the run's error field."""
+class IncrementalWriteError(NonReportableError):
+    """A batch cannot be safely upserted. Carries a message meant for the run's error field.
+
+    Non-reportable because every case comes from the customer's own query or unique key, and the
+    message already tells them what to change. Each bad key would otherwise mint an error tracking
+    issue that nobody can action, multiplied by the activity's retries."""
 
 
 class SchemaDriftError(IncrementalWriteError):

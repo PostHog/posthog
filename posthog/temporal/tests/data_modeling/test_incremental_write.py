@@ -9,6 +9,7 @@ import pytest
 
 import pyarrow as pa
 
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.data_modeling.activities.incremental_write import IncrementalWriteError, UniqueKeyTracker
 
 
@@ -70,3 +71,9 @@ def test_exceeding_the_memory_cap_fails_loudly() -> None:
 
     with pytest.raises(IncrementalWriteError, match="too many unique keys"):
         tracker.check(_batch([1, 2, 3, 4], ["a", "b", "c", "d"]))
+
+
+def test_the_error_is_not_reported_to_error_tracking() -> None:
+    # The activity interceptor keys off this base class. Without it, every bad key a customer
+    # writes mints a fresh error tracking issue, once per Temporal retry.
+    assert issubclass(IncrementalWriteError, NonReportableError)
