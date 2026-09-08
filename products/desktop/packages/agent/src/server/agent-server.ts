@@ -12,6 +12,7 @@ import {
   ClientSideConnection,
   ndJsonStream,
   PROTOCOL_VERSION,
+  RequestError,
 } from "@agentclientprotocol/sdk";
 import { type ServerType, serve } from "@hono/node-server";
 import { execGh } from "@posthog/git/gh";
@@ -66,10 +67,13 @@ import {
 import type { GatewayEnv } from "../adapters/claude/session/options";
 import { codexKeyMatchesMcpServerName } from "../adapters/codex-app-server/mcp-config";
 import { hasCodexThreadState } from "../adapters/codex-app-server/thread-state";
+import { mergeUsage } from "../adapters/codex-app-server/usage-tracker";
 import {
   type AgentErrorClassification,
   classifyAgentError,
   isPromptTooLongError,
+  isRetryableUpstreamErrorClassification,
+  sanitizeAgentErrorCause,
 } from "../adapters/error-classification";
 import { GH_STACK_QUALIFIED_TOOL_NAME } from "../adapters/local-tools/tools/gh-stack";
 import { isSupportedReasoningEffort } from "../adapters/reasoning-effort";
@@ -147,6 +151,7 @@ const agentErrorClassificationSchema = z.enum([
   "upstream_provider_failure",
   "content_block_rejection",
   "turn_ended_without_response",
+  "subscription_usage_limit",
   "agent_error",
 ]) satisfies z.ZodType<AgentErrorClassification>;
 
@@ -155,14 +160,6 @@ const INITIAL_TASK_RUN_REFRESH_TIMEOUT_MS = 5_000;
 export const UPSTREAM_PROVIDER_FAILURE_MESSAGE =
   "The upstream AI provider failed to process the request. Please retry the task in a few minutes.";
 
-const upstreamProviderFailureClassifications =
-  new Set<AgentErrorClassification>([
-    "upstream_stream_terminated",
-    "upstream_connection_error",
-    "upstream_timeout",
-    "upstream_provider_failure",
-  ]);
-
 type TurnFailureDisposition =
   | "terminal"
   | "recoverable"
@@ -170,7 +167,23 @@ type TurnFailureDisposition =
   | "retryable_followup";
 
 const errorWithClassificationSchema = z.object({
-  data: z.object({ classification: agentErrorClassificationSchema }),
+  data: z.object({
+    classification: agentErrorClassificationSchema,
+    // The adapter carries the app-server's own cause here, so the diagnostic
+    // path can report it separately from the generic ACP display text.
+    result: z.string().optional(),
+    madeProgress: z.boolean().optional(),
+    usage: z
+      .object({
+        inputTokens: z.number(),
+        outputTokens: z.number(),
+        cachedReadTokens: z.number().optional(),
+        cachedWriteTokens: z.number().optional(),
+        thoughtTokens: z.number().optional(),
+        totalTokens: z.number(),
+      })
+      .optional(),
+  }),
 });
 
 export const SSE_KEEPALIVE_INTERVAL_MS = 25_000;
@@ -258,6 +271,16 @@ function hiddenTextBlock(text: string): ContentBlock {
     type: "text",
     text,
     _meta: { ui: { hidden: true } },
+  } as ContentBlock;
+}
+
+function hiddenPromptBlock(block: ContentBlock): ContentBlock {
+  const meta = block._meta as
+    | { ui?: Record<string, unknown>; [key: string]: unknown }
+    | undefined;
+  return {
+    ...block,
+    _meta: { ...meta, ui: { ...meta?.ui, hidden: true } },
   } as ContentBlock;
 }
 
@@ -435,7 +458,9 @@ export class AgentServer {
   private questionRelayedToSlack = false;
   private adapterEmittedTurnComplete = false;
   private suppressAdapterTurnComplete = false;
+  private readonly cancelledStartupSessions = new WeakSet<ActiveSession>();
   private runUsage = new RunUsageAccumulator();
+  private runUsageRunId: string | null = null;
   private detectedPrUrl: string | null = null;
   private slackArtifactDelivery: SlackArtifactDelivery | null = null;
   private slackChartDelivery = false;
@@ -475,6 +500,10 @@ export class AgentServer {
   private inFlightMessageDeliveries = new Map<string, Promise<unknown>>();
   private activeOwnedTurnCount = 0;
   private activeStartupTurnCount = 0;
+  private readonly retryWrappedSessionDepth = new WeakMap<
+    ActiveSession,
+    number
+  >();
   // Normal follow-ups own turns in arrival order. Explicit steering bypasses
   // this tail so it can still reach the active adapter turn immediately.
   private nonSteerDeliveryTail: Promise<void> = Promise.resolve();
@@ -1272,16 +1301,20 @@ export class AgentServer {
             commandSession.payload.run_id,
           );
 
-          const acpSessionId = commandSession.acpSessionId;
           const continueAfterCompaction = (): Promise<PromptResponse> =>
-            this.promptWithUpstreamRetry({
-              sessionId: acpSessionId,
-              prompt: [
-                hiddenTextBlock(
-                  "Compaction is complete. Continue working on the task from the compacted context, following the user's instructions from the /compact command.",
-                ),
-              ],
-            });
+            this.runRetryWrappedTurn(() =>
+              this.promptWithUpstreamRetry(
+                {
+                  sessionId: commandSession.acpSessionId,
+                  prompt: [
+                    hiddenTextBlock(
+                      "Compaction is complete. Continue working on the task from the compacted context, following the user's instructions from the /compact command.",
+                    ),
+                  ],
+                },
+                false,
+              ),
+            );
 
           let result: PromptResponse;
           this.suppressAdapterTurnComplete =
@@ -1442,6 +1475,9 @@ export class AgentServer {
         this.logger.debug("Cancel requested", {
           acpSessionId: this.session.acpSessionId,
         });
+        if (this.isRetryWrappedSession(this.session)) {
+          this.cancelledStartupSessions.add(this.session);
+        }
         await this.session.clientConnection.cancel({
           sessionId: this.session.acpSessionId,
         });
@@ -1746,6 +1782,8 @@ export class AgentServer {
       preTask?.repositories ??
       (preTask?.repository ? [preTask.repository] : []);
 
+    this.runUsage = new RunUsageAccumulator();
+    this.runUsageRunId = payload.run_id;
     seedRunUsage(this.runUsage, preTaskRun?.state.token_usage);
     this.prewarmedRun = preTaskRun?.state.prewarmed === true;
     this.prewarmedStartupTurnPending = this.prewarmedRun;
@@ -2161,12 +2199,17 @@ export class AgentServer {
         this.logger.debug("Failed to set task run to in_progress", err),
       );
 
-    await this.sendInitialTaskMessage(payload, preTaskRun);
+    await this.runStartupTurn(() =>
+      this.sendInitialTaskMessage(payload, preTaskRun),
+    );
   }
 
   private extractErrorClassification(error: unknown): {
     classification: AgentErrorClassification;
     message: string;
+    cause: string;
+    madeProgress: boolean;
+    usage?: NonNullable<PromptResponse["usage"]>;
   } {
     const message =
       error instanceof Error ? error.message : String(error ?? "");
@@ -2174,10 +2217,28 @@ export class AgentServer {
     // Prefer the structured `data` carried on RequestError if present.
     const parsed = errorWithClassificationSchema.safeParse(error);
     if (parsed.success) {
-      return { classification: parsed.data.data.classification, message };
+      // The adapter puts a safe diagnostic cause on `data.result` because the
+      // ACP message contains text for the live client.
+      const cause = sanitizeAgentErrorCause(
+        parsed.data.data.result || message,
+        parsed.data.data.classification,
+      );
+      return {
+        classification: parsed.data.data.classification,
+        message,
+        cause,
+        madeProgress: parsed.data.data.madeProgress ?? false,
+        usage: parsed.data.data.usage,
+      };
     }
 
-    return { classification: classifyAgentError(message), message };
+    const classification = classifyAgentError(message);
+    return {
+      classification,
+      message,
+      cause: sanitizeAgentErrorCause(message, classification),
+      madeProgress: false,
+    };
   }
 
   private async runOwnedTurn<T>(operation: () => Promise<T>): Promise<T> {
@@ -2192,9 +2253,38 @@ export class AgentServer {
   private async runStartupTurn<T>(operation: () => Promise<T>): Promise<T> {
     this.activeStartupTurnCount += 1;
     try {
-      return await this.runOwnedTurn(operation);
+      return await this.runRetryWrappedTurn(() => this.runOwnedTurn(operation));
     } finally {
       this.activeStartupTurnCount -= 1;
+    }
+  }
+
+  private isRetryWrappedSession(session: ActiveSession): boolean {
+    return (this.retryWrappedSessionDepth.get(session) ?? 0) > 0;
+  }
+
+  private async runRetryWrappedTurn<T>(
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const session = this.session;
+    if (session) {
+      this.retryWrappedSessionDepth.set(
+        session,
+        (this.retryWrappedSessionDepth.get(session) ?? 0) + 1,
+      );
+    }
+    try {
+      return await operation();
+    } finally {
+      if (session) {
+        const depth = this.retryWrappedSessionDepth.get(session) ?? 0;
+        if (depth <= 1) {
+          this.retryWrappedSessionDepth.delete(session);
+          this.cancelledStartupSessions.delete(session);
+        } else {
+          this.retryWrappedSessionDepth.set(session, depth - 1);
+        }
+      }
     }
   }
 
@@ -2217,19 +2307,33 @@ export class AgentServer {
    * case retries with a hidden continuation; failures where the request may
    * never have been processed re-send the original prompt instead.
    */
-  private async promptWithUpstreamRetry(request: {
-    sessionId: string;
-    prompt: ContentBlock[];
-    _meta?: Record<string, unknown>;
-  }): Promise<PromptResponse> {
+  private async promptWithUpstreamRetry(
+    request: {
+      sessionId: string;
+      prompt: ContentBlock[];
+      _meta?: Record<string, unknown>;
+    },
+    recordFailedUsage = true,
+  ): Promise<PromptResponse> {
+    const originatingSession = this.session;
+    if (
+      !originatingSession ||
+      originatingSession.acpSessionId !== request.sessionId
+    ) {
+      throw new Error("Agent session changed before the turn could be sent");
+    }
     let retries = 0;
     let continueInterruptedTurn = false;
+    let retryUsage: NonNullable<PromptResponse["usage"]> | undefined;
+    if (this.cancelledStartupSessions.delete(originatingSession)) {
+      return { stopReason: "cancelled" };
+    }
     for (;;) {
-      // Re-read the session on every attempt: it can be torn down or
-      // replaced while the retry delay is pending.
       const session = this.session;
-      if (!session) {
-        throw new Error("Agent session ended before the turn could be sent");
+      if (session !== originatingSession) {
+        throw new Error(
+          "Agent session changed before the turn could be retried",
+        );
       }
       this.emitFirstCommandDispatched();
       const attempt = continueInterruptedTurn
@@ -2242,23 +2346,52 @@ export class AgentServer {
               ),
             ],
           }
-        : { ...request, sessionId: session.acpSessionId };
+        : {
+            ...request,
+            sessionId: session.acpSessionId,
+            prompt:
+              retries > 0
+                ? request.prompt.map(hiddenPromptBlock)
+                : request.prompt,
+          };
       try {
-        return await session.clientConnection.prompt(attempt);
+        const response = await session.clientConnection.prompt(attempt);
+        if (this.session !== originatingSession) {
+          throw new Error(
+            "Agent session changed before the turn result was handled",
+          );
+        }
+        const usage = mergeUsage(retryUsage, response.usage ?? undefined);
+        return { ...response, ...(usage ? { usage } : {}) };
       } catch (error) {
-        const { classification, message } =
+        const { classification, message, cause, madeProgress, usage } =
           this.extractErrorClassification(error);
-        if (
-          !upstreamProviderFailureClassifications.has(classification) ||
-          retries >= MAX_UPSTREAM_TURN_RETRIES
-        ) {
+        const accumulatedUsage = mergeUsage(retryUsage, usage);
+        const retryable =
+          isRetryableUpstreamErrorClassification(classification);
+        if (!retryable || retries >= MAX_UPSTREAM_TURN_RETRIES) {
+          if (recordFailedUsage && this.session === originatingSession) {
+            await this.recordTurnUsage(
+              accumulatedUsage,
+              originatingSession.payload,
+            );
+          }
+          if (retryable && accumulatedUsage) {
+            throw new RequestError(-32603, message, {
+              classification,
+              result: cause,
+              madeProgress: continueInterruptedTurn || madeProgress,
+              usage: accumulatedUsage,
+            });
+          }
           throw error;
         }
+        retryUsage = accumulatedUsage;
         retries += 1;
         // Only a mid-response stream death guarantees the prompt reached the
         // model; connection/timeout/status failures re-send the original.
-        continueInterruptedTurn =
-          classification === "upstream_stream_terminated";
+        continueInterruptedTurn ||=
+          classification === "upstream_stream_terminated" || madeProgress;
         this.logger.warn(
           "Turn hit a transient upstream failure; retrying after a short delay",
           {
@@ -2271,6 +2404,17 @@ export class AgentServer {
         await new Promise((resolve) =>
           setTimeout(resolve, UPSTREAM_TURN_RETRY_DELAY_MS),
         );
+        if (this.session !== originatingSession) {
+          throw new Error(
+            "Agent session changed before the turn could be retried",
+          );
+        }
+        if (this.cancelledStartupSessions.delete(originatingSession)) {
+          return {
+            stopReason: "cancelled",
+            ...(retryUsage ? { usage: retryUsage } : {}),
+          };
+        }
       }
     }
   }
@@ -2280,9 +2424,10 @@ export class AgentServer {
     phase: "initial" | "resume" | "followup",
     error: unknown,
   ): Promise<TurnFailureDisposition> {
-    const { classification, message } = this.extractErrorClassification(error);
+    const { classification, message, cause, usage } =
+      this.extractErrorClassification(error);
     const isUpstreamFailure =
-      upstreamProviderFailureClassifications.has(classification);
+      isRetryableUpstreamErrorClassification(classification);
     const isTurnWithoutResponse =
       classification === "turn_ended_without_response";
     const displayMessage = isUpstreamFailure
@@ -2298,6 +2443,8 @@ export class AgentServer {
       recoverable && /^ACP connection closed$/i.test(message.trim());
     const suppressClientError =
       retryableFollowup || expectedIdleTransportClosure;
+    const activeSessionOwnsFailure =
+      this.session?.payload.run_id === payload.run_id;
 
     this.logger.error(`send_${phase}_task_message_failed`, {
       classification,
@@ -2306,16 +2453,24 @@ export class AgentServer {
       retryableDelivery,
     });
 
+    if (phase === "followup" && activeSessionOwnsFailure) {
+      await this.recordTurnUsage(usage, payload);
+    }
+    const failureSessionStillActive =
+      this.session?.payload.run_id === payload.run_id;
+
     if (retryableDelivery) {
       return "retryable_delivery";
     }
 
-    if (!suppressClientError) {
+    if (!suppressClientError && failureSessionStillActive) {
       this.broadcastTurnFailure(classification, displayMessage);
     }
 
     if (recoverable) {
-      this.broadcastTurnComplete("error_recoverable");
+      if (failureSessionStillActive) {
+        this.broadcastTurnComplete("error_recoverable");
+      }
       return "recoverable";
     }
 
@@ -2323,7 +2478,15 @@ export class AgentServer {
       return "retryable_followup";
     }
 
-    await this.signalTaskComplete(payload, "error", displayMessage);
+    // Keep the live-client message separate from a bounded diagnostic cause.
+    // Upstream failures need the same actionable retry guidance in persisted
+    // task state and Slack notifications.
+    const persistedMessage = isUpstreamFailure
+      ? displayMessage
+      : cause || displayMessage;
+    await this.signalTaskComplete(payload, "error", persistedMessage, {
+      errorCategory: classification,
+    });
     return "terminal";
   }
 
@@ -2475,13 +2638,11 @@ export class AgentServer {
       }
       promptDispatched = true;
 
-      const result = await this.runStartupTurn(() =>
-        this.promptWithUpstreamRetry({
-          sessionId: acpSessionId,
-          prompt: initialPrompt,
-          ...(initialPromptMeta ? { _meta: initialPromptMeta } : {}),
-        }),
-      );
+      const result = await this.promptWithUpstreamRetry({
+        sessionId: acpSessionId,
+        prompt: initialPrompt,
+        ...(initialPromptMeta ? { _meta: initialPromptMeta } : {}),
+      });
 
       this.logger.debug("Initial task message completed", {
         stopReason: result.stopReason,
@@ -2526,55 +2687,57 @@ export class AgentServer {
     const resumeState = this.resumeState;
     taskRun = await this.refreshTaskRunForResume(payload, taskRun);
 
-    await this.runResumeTurn(payload, taskRun, "Resume message", async () => {
-      const conversationSummary = formatConversationForResume(
-        resumeState.conversation,
-      );
+    await this.runStartupTurn(() =>
+      this.runResumeTurn(payload, taskRun, "Resume message", async () => {
+        const conversationSummary = formatConversationForResume(
+          resumeState.conversation,
+        );
 
-      const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
+        const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
 
-      let resumePromptBlocks: ContentBlock[];
-      let resumePromptMeta: Record<string, unknown> | undefined;
-      let resumePromptMessageId: string | undefined;
-      if (pendingUserPrompt?.prompt.length) {
-        resumePromptMeta = pendingUserPrompt.meta;
-        resumePromptMessageId = pendingUserPrompt.messageId;
-        resumePromptBlocks = [
-          hiddenTextBlock(
-            "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
-              `Here is the conversation history from the previous session:\n\n` +
-              `${conversationSummary}\n\n` +
-              `The user has sent a new message:\n\n`,
-          ),
-          ...pendingUserPrompt.prompt,
-          hiddenTextBlock(
-            "\n\nRespond to the user's new message above. You have full context from the previous session.",
-          ),
-        ];
-      } else {
-        resumePromptBlocks = [
-          hiddenTextBlock(
-            "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
-              `Here is the conversation history from the previous session:\n\n` +
-              `${conversationSummary}\n\n` +
-              `Continue from where you left off. The user is waiting for your response.`,
-          ),
-        ];
-      }
+        let resumePromptBlocks: ContentBlock[];
+        let resumePromptMeta: Record<string, unknown> | undefined;
+        let resumePromptMessageId: string | undefined;
+        if (pendingUserPrompt?.prompt.length) {
+          resumePromptMeta = pendingUserPrompt.meta;
+          resumePromptMessageId = pendingUserPrompt.messageId;
+          resumePromptBlocks = [
+            hiddenTextBlock(
+              "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
+                `Here is the conversation history from the previous session:\n\n` +
+                `${conversationSummary}\n\n` +
+                `The user has sent a new message:\n\n`,
+            ),
+            ...pendingUserPrompt.prompt,
+            hiddenTextBlock(
+              "\n\nRespond to the user's new message above. You have full context from the previous session.",
+            ),
+          ];
+        } else {
+          resumePromptBlocks = [
+            hiddenTextBlock(
+              "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
+                `Here is the conversation history from the previous session:\n\n` +
+                `${conversationSummary}\n\n` +
+                `Continue from where you left off. The user is waiting for your response.`,
+            ),
+          ];
+        }
 
-      this.logger.debug("Sending resume message", {
-        taskId: payload.task_id,
-        conversationTurns: resumeState.conversation.length,
-        promptLength: promptBlocksToText(resumePromptBlocks).length,
-        hasPendingUserMessage: !!pendingUserPrompt?.prompt.length,
-      });
+        this.logger.debug("Sending resume message", {
+          taskId: payload.task_id,
+          conversationTurns: resumeState.conversation.length,
+          promptLength: promptBlocksToText(resumePromptBlocks).length,
+          hasPendingUserMessage: !!pendingUserPrompt?.prompt.length,
+        });
 
-      return {
-        prompt: resumePromptBlocks,
-        ...(resumePromptMeta ? { meta: resumePromptMeta } : {}),
-        messageId: resumePromptMessageId,
-      };
-    });
+        return {
+          prompt: resumePromptBlocks,
+          ...(resumePromptMeta ? { meta: resumePromptMeta } : {}),
+          messageId: resumePromptMessageId,
+        };
+      }),
+    );
   }
 
   private async settleIdleResume(
@@ -2723,34 +2886,38 @@ export class AgentServer {
     if (!this.session) return;
     taskRun = await this.refreshTaskRunForResume(payload, taskRun);
 
-    await this.runResumeTurn(
-      payload,
-      taskRun,
-      "Resume continuation",
-      async () => {
-        const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
-        const prompt: ContentBlock[] = pendingUserPrompt?.prompt.length
-          ? pendingUserPrompt.prompt
-          : [
-              {
-                type: "text",
-                text: "Continue from where you left off. The user is waiting for your response.",
-              },
-            ];
-        this.logger.debug("Sending resume continuation", {
-          taskId: payload.task_id,
-          sessionId: this.nativeResume?.sessionId,
-          warm: this.nativeResume?.warm,
-          hasPendingUserMessage: !!pendingUserPrompt?.prompt.length,
-        });
+    await this.runStartupTurn(() =>
+      this.runResumeTurn(
+        payload,
+        taskRun,
+        "Resume continuation",
+        async () => {
+          const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
+          const prompt: ContentBlock[] = pendingUserPrompt?.prompt.length
+            ? pendingUserPrompt.prompt
+            : [
+                {
+                  type: "text",
+                  text: "Continue from where you left off. The user is waiting for your response.",
+                },
+              ];
+          this.logger.debug("Sending resume continuation", {
+            taskId: payload.task_id,
+            sessionId: this.nativeResume?.sessionId,
+            warm: this.nativeResume?.warm,
+            hasPendingUserMessage: !!pendingUserPrompt?.prompt.length,
+          });
 
-        return {
-          prompt,
-          ...(pendingUserPrompt?.meta ? { meta: pendingUserPrompt.meta } : {}),
-          messageId: pendingUserPrompt?.messageId,
-        };
-      },
-      { retryOnOversizedPrompt: true },
+          return {
+            prompt,
+            ...(pendingUserPrompt?.meta
+              ? { meta: pendingUserPrompt.meta }
+              : {}),
+            messageId: pendingUserPrompt?.messageId,
+          };
+        },
+        { retryOnOversizedPrompt: true },
+      ),
     );
   }
 
@@ -2856,13 +3023,11 @@ export class AgentServer {
       }
       promptDispatched = true;
 
-      const result = await this.runStartupTurn(() =>
-        this.promptWithUpstreamRetry({
-          sessionId: acpSessionId,
-          prompt: builtPrompt.prompt,
-          ...(builtPrompt.meta ? { _meta: builtPrompt.meta } : {}),
-        }),
-      );
+      const result = await this.promptWithUpstreamRetry({
+        sessionId: acpSessionId,
+        prompt: builtPrompt.prompt,
+        ...(builtPrompt.meta ? { _meta: builtPrompt.meta } : {}),
+      });
 
       this.logger.debug(`${logLabel} completed`, {
         stopReason: result.stopReason,
@@ -4550,10 +4715,30 @@ ${commonInstructions}
     payload: JwtPayload,
     stopReason: string,
     errorMessage?: string,
+    options?: { errorCategory?: AgentErrorClassification },
   ): Promise<void> {
-    if (this.session?.payload.run_id === payload.run_id) {
+    const currentSession = this.session;
+    const sessionMatchesRun = currentSession?.payload.run_id === payload.run_id;
+    const terminalErrorMessage = errorMessage ?? "Agent error";
+    const persistedErrorMessage = options?.errorCategory
+      ? `${options.errorCategory}: ${errorMessage ?? "Agent error"}`
+      : terminalErrorMessage;
+    // The Django drain reads this contract from the S3 log. Enqueue it before
+    // the flush so the drain can report the safe classified cause.
+    if (stopReason === "error" && (!currentSession || sessionMatchesRun)) {
+      this.enqueueTaskTerminalEvent(POSTHOG_NOTIFICATIONS.ERROR, {
+        source: "agent_server",
+        stopReason,
+        message: terminalErrorMessage,
+        error: terminalErrorMessage,
+        errorCategory: options?.errorCategory,
+        error_category: options?.errorCategory,
+      });
+    }
+
+    if (sessionMatchesRun) {
       try {
-        await this.session.logWriter.flush(payload.run_id, {
+        await currentSession.logWriter.flush(payload.run_id, {
           coalesce: true,
         });
       } catch (error) {
@@ -4574,28 +4759,31 @@ ${commonInstructions}
 
     const status = "failed";
 
-    this.enqueueTaskTerminalEvent(POSTHOG_NOTIFICATIONS.ERROR, {
-      source: "agent_server",
-      stopReason,
-      error: errorMessage ?? "Agent error",
-    });
-
     try {
       await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
         status,
-        error_message: errorMessage ?? "Agent error",
+        error_message: persistedErrorMessage,
       });
       this.logger.debug("Task completion signaled", { status, stopReason });
     } catch (error) {
       this.logger.error("Failed to signal task completion", error);
     } finally {
-      await this.emitRtkSavings();
-      await this.eventStreamSender?.stop();
+      if (
+        (!currentSession || sessionMatchesRun) &&
+        this.session === currentSession
+      ) {
+        await this.emitRtkSavings();
+        if (this.session === currentSession) {
+          await this.eventStreamSender?.stop();
+        }
+      }
       // The run is terminal and the sandbox is torn down right after — and
       // teardown kills this exec'd process without SIGTERM, so this is the
       // last chance to end the root span and drain the OTel queues. The
       // error mirror was appended above, so the root span exports as ERROR.
-      await this.session?.telemetry?.shutdown().catch(() => {});
+      if (sessionMatchesRun) {
+        await currentSession.telemetry?.shutdown().catch(() => {});
+      }
     }
   }
 
@@ -4615,10 +4803,16 @@ ${commonInstructions}
       },
     };
     this.eventStreamSender?.enqueue(entry);
-    // Terminal events bypass the SessionLogWriter (and its sinks), so mirror
-    // them onto the OTel writer directly — a failed run is exactly what the
-    // telemetry must record.
-    this.session?.telemetry?.append(this.session.payload.run_id, entry);
+    // Persist to the session log too: the Django drain reads the terminal event
+    // from the S3 log to report the real cause of a failed run, and only the
+    // SessionLogWriter feeds that log. appendRawLine wraps the bare notification
+    // in the same {type, timestamp, notification} envelope the drain parses, and
+    // forwards it to the OTel sink — so telemetry still records the failed run
+    // without a second append here.
+    this.session?.logWriter.appendRawLine(
+      this.session.payload.run_id,
+      JSON.stringify(entry.notification),
+    );
   }
 
   private configureEnvironment({
@@ -5426,6 +5620,7 @@ ${commonInstructions}
     // Run usage is per run: a later session on this instance (e.g. a resume
     // with a different run_id) must not inherit the previous run's totals.
     this.runUsage = new RunUsageAccumulator();
+    this.runUsageRunId = null;
     this.session = null;
   }
 
@@ -5455,11 +5650,19 @@ ${commonInstructions}
    * to the backend, merged into `TaskRun.state.token_usage`. Best-effort: a
    * reporting failure must never affect the turn outcome.
    */
-  private recordTurnUsage(usage: PromptResponse["usage"]): void {
-    if (!this.runUsage.add(usage)) return;
-    const payload = this.session?.payload;
-    if (!payload) return;
-    reportRunUsage(
+  private recordTurnUsage(
+    usage: PromptResponse["usage"],
+    payload = this.session?.payload,
+  ): Promise<void> {
+    if (!payload || this.session?.payload.run_id !== payload.run_id) {
+      return Promise.resolve();
+    }
+    if (this.runUsageRunId !== payload.run_id) {
+      this.runUsage = new RunUsageAccumulator();
+      this.runUsageRunId = payload.run_id;
+    }
+    if (!this.runUsage.add(usage)) return Promise.resolve();
+    return reportRunUsage(
       this.runUsage,
       this.posthogAPI,
       payload.task_id,
