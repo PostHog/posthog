@@ -314,13 +314,13 @@ def artifact_object_prefix(team_id: int, canvas_id: str | UUID, build_id: str | 
 
 def upload_source_project(
     team_id: int, canvas_id: str | UUID, project: dict[str, Any], *, upload_id: UUID | None = None
-) -> tuple[str, str, int]:
+) -> SourceProjectUpload:
     """Upload the serialized project under its content hash and optional upload ID.
 
     Independent upload IDs let draft cleanup remove one upload while another
     publish stages identical source outside the metadata transaction.
 
-    Returns (object key, source hash, canonical size). Raises
+    Returns the object key, source hash, and canonical size. Raises
     ObjectStorageError when storage is unavailable — a publish cannot proceed
     without its source of record.
     """
@@ -329,7 +329,7 @@ def upload_source_project(
     if upload_id is not None:
         key = key.removesuffix(".json.gz") + f"/{upload_id}.json.gz"
     object_storage.write(key, payload, extras={"ContentType": "application/gzip"})
-    return key, digest, size
+    return SourceProjectUpload(key=key, digest=digest, size=size)
 
 
 def read_source_project(version: CanvasSourceVersion) -> dict[str, Any]:
@@ -498,8 +498,7 @@ def prepare_source_project_publish(
             raise CanvasVersionConflict(current_id)
         _assert_build_capacity(canvas.team_id)
 
-    key, digest, size = upload_source_project(canvas.team_id, canvas.id, project, upload_id=source_upload_id)
-    source_upload = SourceProjectUpload(key=key, digest=digest, size=size)
+    source_upload = upload_source_project(canvas.team_id, canvas.id, project, upload_id=source_upload_id)
 
     # A migrated canvas's pre-relational source must survive its first publish:
     # it becomes a real parent version here so history (undo/revert) can reach
@@ -507,10 +506,7 @@ def prepare_source_project_publish(
     # Same upload-then-commit posture as the main project.
     legacy_upload: SourceProjectUpload | None = None
     if current_id is None and (canvas.legacy_code or "").strip():
-        legacy_key, legacy_digest, legacy_size = upload_source_project(
-            canvas.team_id, canvas.id, synthetic_source_project(canvas.legacy_code)
-        )
-        legacy_upload = SourceProjectUpload(key=legacy_key, digest=legacy_digest, size=legacy_size)
+        legacy_upload = upload_source_project(canvas.team_id, canvas.id, synthetic_source_project(canvas.legacy_code))
 
     return PreparedSourceProjectPublish(
         project=project,
@@ -696,7 +692,7 @@ def publish_grid_layout(
             expected = str(expected_version_id) if expected_version_id else None
             if current_id != expected:
                 raise CanvasVersionConflict(current_id)
-    key, digest, size = upload_source_project(canvas.team_id, canvas.id, layout)
+    source_upload = upload_source_project(canvas.team_id, canvas.id, layout)
     with transaction.atomic(), team_scope(canvas.team_id):
         canvas = _claim_canvas_head(
             canvas,
@@ -708,9 +704,9 @@ def publish_grid_layout(
             team_id=canvas.team_id,
             canvas=canvas,
             parent_version_id=canvas.current_source_version_id,
-            source_hash=digest,
-            source_object_key=key,
-            source_size=size,
+            source_hash=source_upload.digest,
+            source_object_key=source_upload.key,
+            source_size=source_upload.size,
             task_id=task_id,
             prompt=prompt or None,
             created_by=created_by,
@@ -829,7 +825,7 @@ def create_draft_version(
     with team_scope(canvas.team_id):
         _assert_build_capacity(canvas.team_id)
 
-    key, digest, size = upload_source_project(canvas.team_id, canvas.id, project)
+    source_upload = upload_source_project(canvas.team_id, canvas.id, project)
     with transaction.atomic(), team_scope(canvas.team_id):
         canvas = _claim_canvas_head(canvas, has_expected_version=False, expected_version_id=None)
         version = CanvasSourceVersion.objects.create(
@@ -837,9 +833,9 @@ def create_draft_version(
             canvas=canvas,
             draft=True,
             parent_version_id=canvas.current_source_version_id,
-            source_hash=digest,
-            source_object_key=key,
-            source_size=size,
+            source_hash=source_upload.digest,
+            source_object_key=source_upload.key,
+            source_size=source_upload.size,
             task_id=task_id,
             prompt=prompt or None,
             created_by=created_by,
