@@ -17,12 +17,29 @@ from pixelhog import thumbnail as pixelhog_thumbnail
 
 from .db import WRITER_DB
 from .diff import THUMB_HEIGHT, THUMB_WIDTH, CompareResult, compare_images
-from .diff_metadata import DiffMetadata
+from .diff_metadata import DiffMetadata, RowShift
 from .facade.contracts import PIXEL_DIFF_THRESHOLD_PERCENT, SHIFT_ABSORB_MAX_ROWS, SSIM_DISSIMILARITY_THRESHOLD
 from .facade.enums import ChangeKind, ClassificationReason, SnapshotResult, ToleratedReason
 from .models import Artifact, RunSnapshot, ToleratedHash
 
 logger = structlog.get_logger(__name__)
+
+
+def _relocates_content(shift: RowShift, height: int) -> bool:
+    """A shift with both an insert and a delete, neither at the bottom edge.
+
+    A page shift has one band kind, or a second band at the bottom edge where
+    the translated rows ran off. Two interior bands mean the block between
+    them moved and what sat at its edges changed: a thin element relocated,
+    which the row counts alone read as a tiny shift.
+    """
+    if shift.inserted_rows == 0 or shift.deleted_rows == 0:
+        return False
+    for band in shift.bands:
+        at_bottom = band.y >= height if band.kind == "deleted" else band.y + band.rows >= height
+        if at_bottom:
+            return False
+    return True
 
 
 def classify_compare_result(result: CompareResult) -> ChangeKind | None:
@@ -39,7 +56,8 @@ def classify_compare_result(result: CompareResult) -> ChangeKind | None:
     only moved down is judged on what changed rather than on everything the
     shift dragged along. A shift taller than the absorb cap is its own kind, because moving
     a block is a change a reviewer can act on even when the content in it is
-    identical.
+    identical. So is a thin element that moved somewhere else on a page that
+    kept its height, which the counts alone would read as a tiny shift.
 
     Size mismatch is *not* a kind — pixelhog pads to the largest dims and
     we still get a real pixel/SSIM answer over that padded image. The fact
@@ -56,7 +74,7 @@ def classify_compare_result(result: CompareResult) -> ChangeKind | None:
     # is a bar across it or noise.
     if residual_percentage >= PIXEL_DIFF_THRESHOLD_PERCENT:
         return ChangeKind.PIXEL
-    if shifted_rows > SHIFT_ABSORB_MAX_ROWS:
+    if shifted_rows > SHIFT_ABSORB_MAX_ROWS or (shift is not None and _relocates_content(shift, result.height)):
         return ChangeKind.LAYOUT
     if result.aligned_diff_percentage >= PIXEL_DIFF_THRESHOLD_PERCENT:
         return ChangeKind.PIXEL
