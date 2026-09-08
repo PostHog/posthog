@@ -848,7 +848,7 @@ export const STL: Record<string, STLFunction> = {
         },
         description: 'Checks if a JSON path exists in an object',
         example: 'JSONHas($1, $2)',
-        minArgs: 2,
+        minArgs: 1,
     },
     isValidJSON: {
         fn: ([str]) => {

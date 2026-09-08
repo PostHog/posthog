@@ -6,23 +6,30 @@ from common.hogvm.python.stl import STL
 
 HOGQL_FUNCTIONS = {**HOGQL_CLICKHOUSE_FUNCTIONS, **HOGQL_POSTHOG_FUNCTIONS}
 
-# Hog builtins that stay stricter than HogQL on purpose, with the reason.
-NARROWER_THAN_HOGQL_ON_PURPOSE = {
+HIGHER_MIN_ARGS_THAN_HOGQL = {
+    "dateAdd": "Hog requires unit, amount, and datetime; it does not implement HogQL's date/interval overload",
+    "toTimeZone": "Hog has no implicit project timezone, so the timezone argument is required",
+}
+
+LOWER_MAX_ARGS_THAN_HOGQL = {
     "range": "HogQL takes a step argument, Hog's implementation has no step and would ignore it",
 }
 
 
 class TestHogStlArity(SimpleTestCase):
-    def test_no_builtin_accepts_fewer_arguments_than_hogql(self):
-        # A name that HogQL and Hog share reads as one function to the person writing it, so a call
-        # they wrote against the HogQL signature must not fail in Hog. The VM checks maxArgs before
-        # it dispatches, so a maxArgs below the HogQL limit turns such a call into a runtime error.
+    def test_no_builtin_accepts_fewer_arguments_than_hogql(self) -> None:
         too_strict = []
         for name, stl_fn in STL.items():
             hogql_fn = HOGQL_FUNCTIONS.get(name)
-            if hogql_fn is None or stl_fn.maxArgs is None or name in NARROWER_THAN_HOGQL_ON_PURPOSE:
+            if hogql_fn is None:
                 continue
-            if hogql_fn.max_args is None or hogql_fn.max_args > stl_fn.maxArgs:
+            if (stl_fn.minArgs or 0) > hogql_fn.min_args and name not in HIGHER_MIN_ARGS_THAN_HOGQL:
+                too_strict.append(f"{name}: Hog minArgs={stl_fn.minArgs}, HogQL accepts {hogql_fn.min_args}")
+            if (
+                stl_fn.maxArgs is not None
+                and name not in LOWER_MAX_ARGS_THAN_HOGQL
+                and (hogql_fn.max_args is None or hogql_fn.max_args > stl_fn.maxArgs)
+            ):
                 limit = "unbounded" if hogql_fn.max_args is None else hogql_fn.max_args
                 too_strict.append(f"{name}: Hog maxArgs={stl_fn.maxArgs}, HogQL accepts {limit}")
 

@@ -21,6 +21,12 @@ before 1.0.69.
 
 `range` keeps its limit of two arguments. HogQL takes a step argument, and neither VM implements one.
 
+`JSONHas` also accepts a single argument with no path components, matching HogQL and the existing
+implementation.
+
+See [Hog function argument counts](../../../docs/internal/hog-function-arities.md) for the remaining
+differences from HogQL.
+
 ## 2026-08-27 - 1.0.69
 
 The VM checks the argument count of a standard library function before it calls it. No bytecode
