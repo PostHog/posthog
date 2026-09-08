@@ -2288,14 +2288,7 @@
         "schedule_start_time": {
             "anyOf": [
                 {
-                    "properties": {
-                        "time": {
-                            "description": "Local project time in HH:MM format. The scheduler uses this time to start the alert cadence.",
-                            "type": "string"
-                        }
-                    },
-                    "required": ["time"],
-                    "type": "object"
+                    "type": "string"
                 },
                 {
                     "type": "null"
