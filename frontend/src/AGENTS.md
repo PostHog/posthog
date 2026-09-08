@@ -13,6 +13,9 @@ Where to look, in order:
 
 `@posthog/quill` is **not** for this tree. It targets MCP apps and the desktop app, it's deliberately more compact than LemonUI, and the main app isn't being migrated onto it, so quill components read as out of place here. A handful of files already import it; treat those as exceptions rather than a pattern to copy.
 
+For `@posthog/quill-charts` consumers in the main app and product frontends, use `useChartTheme` from [`lib/charts/hooks`](./lib/charts/hooks.ts).
+Prefer its `useChartConfig` helper for memoized configuration.
+
 Common reinventions and what to use instead:
 
 | You're about to build…              | Use instead                                                                               |
@@ -107,5 +110,6 @@ Adding a button/toggle/action to a scene's `ScenePanel`? It must also go in that
 - Root `AGENTS.md` — full Code Style + architecture rules (authoritative).
 - `layout/scenes/AGENTS.md` (scene action surfaces: `ScenePanel` + `SceneMenuBar` dual-write rule).
 - `packages/quill/packages/primitives/AGENTS.md` — component selection matrix.
+- `/working-with-charts`: chart consumption workflow with links to the relevant examples and package docs.
 - `docs/published/handbook/engineering/conventions/frontend-coding.md` — frontend conventions.
-- Skills: `/writing-ui-components`, `/placing-product-frontend-code`, `/adopting-generated-api-types`, `/writing-kea-logics`, `/using-kea-disposables`, `/writing-tests`.
+- Skills: `/writing-ui-components`, `/placing-product-frontend-code`, `/adopting-generated-api-types`, `/writing-kea-logics`, `/using-kea-disposables`, `/writing-tests`, `/working-with-charts`.
