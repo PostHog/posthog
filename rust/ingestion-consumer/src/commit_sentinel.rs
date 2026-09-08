@@ -113,13 +113,19 @@ impl CommitSentinel {
         self.enabled.store(enabled, Ordering::Relaxed);
     }
 
-    /// Check the span a taken frontier covers as it is handed over, so a
-    /// violation is attributed to the work that caused it, then pass the
-    /// frontier on. Consecutive takes on a partition must chain.
-    pub fn advance_frontier(&self, topic_partition: &TopicPartition, taken: TakenFrontier) {
-        let span = OffsetSpan::of_take(&taken);
-        self.check_commit([(topic_partition, &span)]);
+    /// Check the span the poll delivered for the partition against the
+    /// previous commit as the frontier is handed over, so a violation is
+    /// attributed to the poll that caused it, then pass the frontier on.
+    /// Returns the violations for tests.
+    pub fn advance_frontier(
+        &self,
+        topic_partition: &TopicPartition,
+        delivered: OffsetSpan,
+        taken: TakenFrontier,
+    ) -> Vec<CommitViolation> {
+        let violations = self.check_commit([(topic_partition, &delivered)]);
         self.inner.advance_frontier(topic_partition, taken);
+        violations
     }
 
     /// Partitions leaving the assignment: drop their baselines, and whatever
@@ -304,21 +310,24 @@ mod tests {
     }
 
     #[test]
-    fn taken_frontiers_chain_as_last_processed_spans() {
+    fn a_delivered_span_is_checked_as_the_frontier_is_handed_over() {
         let sentinel = sentinel();
-        // Base 0, frontier 10: the commit covers 0..=9. Base 10, frontier 15
-        // starts where that left off.
-        sentinel.advance_frontier(&tp(0), taken(0, 10));
-        sentinel.advance_frontier(&tp(0), taken(10, 15));
+        let span = |first, last| OffsetSpan { first, last };
+        // The first poll baselines. The second delivered 10..=14 and the
+        // frontier reached 15, so it starts where the last commit left off.
         assert!(sentinel
-            .check_commit(&spans(&[("events", 0, 15, 20)]))
+            .advance_frontier(&tp(0), span(0, 9), taken(0, 10))
+            .is_empty());
+        assert!(sentinel
+            .advance_frontier(&tp(0), span(10, 14), taken(10, 15))
             .is_empty());
 
-        // A take that starts past the last frontier skipped offsets.
-        sentinel.advance_frontier(&tp(0), taken(30, 35));
-        let violations = sentinel.check_commit(&spans(&[("events", 0, 40, 41)]));
+        // A poll that delivered past the last commit skipped offsets, even
+        // though the ledger walked the gap and its take chains.
+        let violations = sentinel.advance_frontier(&tp(0), span(17, 19), taken(15, 20));
         assert_eq!(violations.len(), 1);
-        assert_eq!(violations[0].prev_committed, 35);
+        assert_eq!(violations[0].kind, CommitViolationKind::Gap);
+        assert_eq!(violations[0].prev_committed, 15);
     }
 
     fn spans(entries: &[(&str, i32, i64, i64)]) -> HashMap<TopicPartition, OffsetSpan> {
