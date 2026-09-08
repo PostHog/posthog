@@ -39,7 +39,7 @@ const ALLOWLIST_TTL_SECS: u64 = 60;
 /// time in epoch millis). Must stay in sync with `REBUILD_REQUESTS_ZSET` in
 /// `products/feature_flags/backend/rebuild_queue.py` (pinned by the Python test
 /// `test_request_zset_key_matches_rust_contract`).
-const FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET: &str = "flag_definitions:rebuild_requests";
+pub(crate) const FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET: &str = "flag_definitions:rebuild_requests";
 static CONSTANCE_KEY: Lazy<String> = Lazy::new(|| constance_key("RATE_LIMITING_ALLOW_LIST_TEAMS"));
 
 /// Refresh the rate limit allowlist from the database if stale, then update the limiter.
@@ -471,14 +471,29 @@ async fn get_from_cache(
 
 /// Fire-and-forget enqueue of a flag-definitions rebuild request on cache miss.
 ///
-/// Writes to a Redis sorted set on `state.redis_client` — the same shared client
-/// the flags-with-cohorts HyperCacheReader is built from (see `server.rs`), so the
-/// queue can never point at a different Redis than the one the cache lives in.
+/// Writes to a Redis sorted set on the flags-namespace client, because that is where the
+/// Django writer lives. The Celery drain derives its Redis from
+/// `flag_definitions_hypercache.redis_url` (`rebuild_queue.py`), which resolves from the same
+/// `FLAGS_REDIS_URL`. A request written to any other cluster is never drained and the team
+/// never gets rebuilt.
+///
+/// The two ends agree on configuration, not on connection state. A process that cannot reach
+/// the dedicated cluster at startup falls back to the shared one and enqueues there for its
+/// whole life, while Celery keeps draining the dedicated one. Those teams wait for the hourly
+/// verifier instead. The same startup failure already sends the flags.json, team-metadata, and
+/// remote-config readers to the shared cluster, where Django writes nothing, so it degrades
+/// more than this queue.
+///
+/// This is deliberately not the client the payload and the ETag are read from. During the
+/// migration the flags-with-cohorts reader stays pinned to the shared cluster (`server.rs`),
+/// which Django mirrors the cache to. Unifying the queue with the reader severs the queue
+/// from the drain.
+///
 /// Re-enqueuing a team only updates its score, so a client polling a missing team
 /// every ~30s occupies a single slot. Spawned so it never adds latency to (or
 /// changes) the failing response.
 fn enqueue_flag_definitions_rebuild(state: &AppState, team_id: i32) {
-    let redis = state.redis_client.clone();
+    let redis = state.flags_namespace_redis_client();
     tokio::spawn(async move {
         let score = SystemTime::now()
             .duration_since(UNIX_EPOCH)

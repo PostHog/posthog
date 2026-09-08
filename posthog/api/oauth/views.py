@@ -34,7 +34,7 @@ from oauth2_provider.views import (
 )
 from oauth2_provider.views.mixins import OAuthLibMixin
 from oauthlib.common import Request as OauthlibRequest
-from oauthlib.oauth2 import InvalidGrantError
+from oauthlib.oauth2 import InvalidClientIdError, InvalidGrantError
 from redis.exceptions import RedisError
 from rest_framework import serializers, status
 from rest_framework.authentication import SessionAuthentication
@@ -129,6 +129,38 @@ def get_region_info() -> dict | None:
         region = cloud.lower()
         return {"posthog_region": region, "posthog_base_url": settings.SITE_URL}
     return None
+
+
+# The host the other PostHog Cloud region answers on, so an unknown client_id can name it.
+_OTHER_CLOUD_REGION_HOST = {"US": "https://eu.posthog.com", "EU": "https://us.posthog.com"}
+
+
+def unknown_client_id_description(client_id: str | None) -> str:
+    """Describe an unknown `client_id` so the client can act on the 400.
+
+    An OAuth application exists in one region only, and a request sent to the other
+    region fails the client lookup with nothing to separate it from a typo. Naming the
+    region is what makes that case recognizable.
+
+    A CIMD client_id is a metadata URL resolved on demand rather than a registration
+    we hold, so it fails for a different reason and gets a different description.
+    """
+    if is_cimd_client_id(client_id):
+        return (
+            "PostHog could not read the client metadata document at this client_id. "
+            "Check that the URL is reachable over HTTPS and returns valid client metadata."
+        )
+
+    cloud = getattr(settings, "CLOUD_DEPLOYMENT", None)
+    other_host = _OTHER_CLOUD_REGION_HOST.get(cloud or "")
+    if other_host is None:
+        return "No OAuth application is registered with this client_id. Check the client_id, or register the application again."
+
+    return (
+        f"No OAuth application is registered with this client_id in the {cloud} region. "
+        f"An application belongs to the region it was created in. If you created it on {other_host}, "
+        f"send the authorization request to {other_host} instead. Otherwise check the client_id."
+    )
 
 
 # Substrings identifying transient database failures that OAuth clients should retry.
@@ -1366,7 +1398,13 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         try:
             application = OAuthApplication.objects.get(client_id=credentials["client_id"])
         except OAuthApplication.DoesNotExist:
-            return Response({"error": "Invalid client_id"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {
+                    "error": "invalid_request",
+                    "error_description": unknown_client_id_description(credentials["client_id"]),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Track OAuth authorization attempts with the authenticated user
         registration_type = self._registration_type(application)
@@ -1496,7 +1534,13 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             application = OAuthApplication.objects.get(client_id=serializer.validated_data["client_id"])
         except OAuthApplication.DoesNotExist:
             logger.warning("oauth_authorize_invalid_client", client_id=serializer.validated_data["client_id"])
-            return Response({"error": "Invalid client_id"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {
+                    "error": "invalid_request",
+                    "error_description": unknown_client_id_description(serializer.validated_data["client_id"]),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         credentials = {
             "client_id": serializer.validated_data["client_id"],
@@ -1643,6 +1687,15 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         Handle errors either by redirecting to redirect_uri with a json in the body containing
         error details or providing an error response
         """
+        # oauthlib reports every failed client lookup as "Invalid client_id parameter value.",
+        # which reads the same whether the client_id is wrong or the app lives in the other
+        # region. Replace it before the response is built so the region is named.
+        oauthlib_error = getattr(error, "oauthlib_error", None)
+        if isinstance(oauthlib_error, InvalidClientIdError):
+            # An unknown client_id is fatal, so DOT never redirects it and this description
+            # only ever reaches the JSON body.
+            oauthlib_error.description = unknown_client_id_description(self.request.query_params.get("client_id"))
+
         redirect, error_response = super().error_response(error, **kwargs)
 
         # Surface scope-ceiling rejections so on-call can alert on /authorize failing with invalid_scope.

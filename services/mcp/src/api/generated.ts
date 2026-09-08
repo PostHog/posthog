@@ -17344,6 +17344,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription
+     */
+    export type ClaudeModelAccessEnum = typeof ClaudeModelAccessEnum[keyof typeof ClaudeModelAccessEnum];
+
+
+    export const ClaudeModelAccessEnum = {
+      PosthogGateway: 'posthog-gateway',
+      OwnSubscription: 'own-subscription',
+    } as const;
+
+    /**
      * * `claude` - claude
      */
     export type ClaudeRuntimeAdapterEnum = typeof ClaudeRuntimeAdapterEnum[keyof typeof ClaudeRuntimeAdapterEnum];
@@ -17578,6 +17590,11 @@ export namespace Schemas {
          * @nullable
          */
       benjamin_enabled?: boolean | null;
+      /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+       *
+       * * `posthog-gateway` - posthog-gateway
+       * * `own-subscription` - own-subscription */
+      claude_model_access?: ClaudeModelAccessEnum | null;
     }
 
     export type ClickhouseEventProperties = { [key: string]: unknown };
@@ -17830,6 +17847,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `sparse` - sparse
+     * * `quiet` - quiet
+     */
+    export type CoarsenedReasonEnum = typeof CoarsenedReasonEnum[keyof typeof CoarsenedReasonEnum];
+
+
+    export const CoarsenedReasonEnum = {
+      Sparse: 'sparse',
+      Quiet: 'quiet',
+    } as const;
+
+    /**
      * * `dataset_archived` - dataset_archived
      * * `dataset_name_conflict` - dataset_name_conflict
      * * `dataset_item_archived` - dataset_item_archived
@@ -17976,6 +18005,11 @@ export namespace Schemas {
          * @nullable
          */
       benjamin_enabled?: boolean | null;
+      /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+       *
+       * * `posthog-gateway` - posthog-gateway
+       * * `own-subscription` - own-subscription */
+      claude_model_access?: ClaudeModelAccessEnum | null;
     }
 
     export type PropertyGroupOperatorEnum = typeof PropertyGroupOperatorEnum[keyof typeof PropertyGroupOperatorEnum];
@@ -20200,12 +20234,26 @@ export namespace Schemas {
       color?: string | null;
     }
 
+    /**
+     * Extra text files to ship next to app.py, keyed by project-relative path (for example 'utils.py' or 'data/config.json'), each as plain text (max 1 MB).
+     */
+    export type CreateVersionFromSourceInputFiles = {[key: string]: string};
+
+    /**
+     * Extra binary files to ship next to app.py, keyed by project-relative path (for example 'data/events.parquet'), each as standard base64 text.
+     */
+    export type CreateVersionFromSourceInputAssets = {[key: string]: string};
+
     export interface CreateVersionFromSourceInput {
       /**
          * Full Python source for the Streamlit app's root app.py file, as free text (max 1 MB). Becomes a new version and is set as the active version.
          * @maxLength 1048576
          */
       source: string;
+      /** Extra text files to ship next to app.py, keyed by project-relative path (for example 'utils.py' or 'data/config.json'), each as plain text (max 1 MB). */
+      files?: CreateVersionFromSourceInputFiles;
+      /** Extra binary files to ship next to app.py, keyed by project-relative path (for example 'data/events.parquet'), each as standard base64 text. */
+      assets?: CreateVersionFromSourceInputAssets;
     }
 
     /**
@@ -21138,12 +21186,10 @@ export namespace Schemas {
       /** Optional description of the DAG's purpose */
       description?: string;
       /**
-         * Sync frequency string (e.g. '24hour', '7day')
+         * Legacy DAG-level cadence string (e.g. '24hour', '7day'). Scheduling is driven by each model's own sync frequency, so a PATCH that changes this value is rejected.
          * @nullable
          */
       sync_frequency?: string | null;
-      /** True when this team's DAG schedules are driven by per-model freshness targets, so `sync_frequency` no longer controls scheduling and writes to it are rejected. False when the DAG-level frequency still applies. */
-      readonly frequency_managed_by_nodes: boolean;
       readonly node_count: number;
       readonly created_at: string;
       /** @nullable */
@@ -22708,7 +22754,6 @@ export namespace Schemas {
 
     /**
      * * `tiered` - tiered
-     * * `dag_schedule` - dag_schedule
      * * `managed_viewset` - managed_viewset
      * * `legacy` - legacy
      * * `no_node` - no_node
@@ -22718,7 +22763,6 @@ export namespace Schemas {
 
     export const FrequencyModeEnum = {
       Tiered: 'tiered',
-      DagSchedule: 'dag_schedule',
       ManagedViewset: 'managed_viewset',
       Legacy: 'legacy',
       NoNode: 'no_node',
@@ -22801,10 +22845,9 @@ export namespace Schemas {
     }
 
     export interface SyncFrequencyBounds {
-      /** What governs this view's cadence. 'tiered' is the only mode where `options` is meaningful and `sync_frequency` is writable per view. 'dag_schedule' means the team's single DAG schedule owns it, 'managed_viewset' means PostHog owns the view, 'legacy' means the v1 backend, where any cadence is accepted and no bounds apply, and 'no_node' means the view has no data modeling node to store a cadence on.
+      /** What governs this view's cadence. 'tiered' is the only mode where `options` is meaningful and `sync_frequency` is writable per view. 'managed_viewset' means PostHog owns the view, 'legacy' means the v1 backend, where any cadence is accepted and no bounds apply, and 'no_node' means the view has no data modeling node to store a cadence on.
        *
        * * `tiered` - tiered
-       * * `dag_schedule` - dag_schedule
        * * `managed_viewset` - managed_viewset
        * * `legacy` - legacy
        * * `no_node` - no_node */
@@ -22882,7 +22925,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.
+      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the cadence stored on the view's DAG node.
        *
        * * `never` - never
        * * `15min` - 15min
@@ -22894,8 +22937,6 @@ export namespace Schemas {
        * * `7day` - 7day
        * * `30day` - 30day */
       sync_frequency?: SavedQuerySyncFrequencyEnum | null;
-      /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
-      readonly sync_frequency_managed_by_dag: boolean;
       /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
       readonly sync_frequency_bounds: SyncFrequencyBounds;
       readonly columns: readonly DataWarehouseSavedQueryColumnsItem[];
@@ -23057,8 +23098,6 @@ export namespace Schemas {
       readonly description: string;
       /** @nullable */
       readonly sync_frequency: string | null;
-      /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
-      readonly sync_frequency_managed_by_dag: boolean;
       readonly columns: readonly DataWarehouseSavedQueryMinimalColumnsItem[];
       readonly status: DataWarehouseSavedQueryStatusEnum | null;
       /** @nullable */
@@ -49889,7 +49928,14 @@ export namespace Schemas {
          * @nullable
          */
       band_ready_at: string | null;
-      /** One entry per display bucket across the whole window, oldest first, zero-filled. */
+      /** Grain of this series' buckets, in minutes. Equals the response interval_minutes unless the series was too sparse at that grain and was coarsened to the next rung it is dense enough to read at. */
+      interval_minutes: number;
+      /** Why this series was too thin to read at the requested grain, or null when it was not. sparse: fewer than 20% of its buckets held any records. quiet: its non-empty buckets averaged under 5 records. A series that fails every rung is returned at the coarsest one. A series that a coarser rung has no rows for, or that the request's time budget cannot refetch, keeps the requested grain and still carries its reason.
+       *
+       * * `sparse` - sparse
+       * * `quiet` - quiet */
+      coarsened_reason: CoarsenedReasonEnum | null;
+      /** One entry per display bucket across the window at this series' interval_minutes, oldest first, zero-filled. A coarsened series' window is snapped to its grain, so it can end short of window_end. */
       buckets: LogsSeriesBandBucket[];
     }
 
@@ -49916,13 +49962,13 @@ export namespace Schemas {
       serviceName: string;
       /** Window to chart. Defaults to the last 7 days. It may span at most 7 days and start at most 35 days ago, past which the volume rollup no longer reaches. */
       dateRange?: _SeriesBandsDateRange;
-      /** Display grain in minutes for buckets and bands. One of 5, 15, 30, 60. The window may hold at most 500 buckets per series at the chosen grain, so a finer grain needs a shorter window.
+      /** Display grain in minutes for buckets and bands. One of 5, 15, 30, 60. The window may hold at most 500 buckets per series at the chosen grain, so a finer grain needs a shorter window. Omit it to let the window pick its grain, the coarsest that still cuts it into about 168 buckets. A series too sparse to read at this grain is returned at a coarser one; see each series' interval_minutes.
        *
        * * `5` - 5
        * * `15` - 15
        * * `30` - 30
        * * `60` - 60 */
-      intervalMinutes?: IntervalMinutesEnum;
+      intervalMinutes?: IntervalMinutesEnum | null;
     }
 
     export interface LogsSeriesBandsResponse {
@@ -49932,7 +49978,7 @@ export namespace Schemas {
       window_start: string;
       /** End of the observed window (UTC, exclusive). */
       window_end: string;
-      /** Display grain of the buckets, in minutes. */
+      /** Display grain requested, or picked to cut the window into about 168 buckets when the request left it out. */
       interval_minutes: number;
       /** True when the service has more series than the response carries; the quietest were dropped. */
       series_truncated: boolean;
@@ -53990,6 +54036,12 @@ export namespace Schemas {
 
     export interface OnboardingSessionTest {
       /**
+         * Optional LLM model identifier for the test session. Omit to use the plan default.
+         * @maxLength 255
+         * @nullable
+         */
+      model?: string | null;
+      /**
          * Company domain to research. Blank simulates a personal email address.
          * @maxLength 253
          */
@@ -56911,7 +56963,7 @@ export namespace Schemas {
        * * `scorer` - Scorer
        * * `summarizer` - Summarizer */
       scanner_type: ScannerTypeEnum;
-      /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.
+      /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.
        *
        * * `ai` - AI draft
        * * `template` - Template
@@ -59709,38 +59761,6 @@ export namespace Schemas {
       results: TaskThreadMessageDTO[];
     }
 
-    /**
-     * Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.
-     * Also used for nested serializers.
-     */
-    export interface TeamBasic {
-      readonly id: number;
-      readonly uuid: string;
-      readonly organization: string;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
-      readonly project_id: number;
-      readonly api_token: string;
-      readonly name: string;
-      readonly completed_snippet_onboarding: boolean;
-      readonly has_completed_onboarding_for: unknown;
-      readonly ingested_event: boolean;
-      readonly is_demo: boolean;
-      readonly timezone: string;
-      readonly access_control: boolean;
-    }
-
-    export interface PaginatedTeamBasicList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: TeamBasic[];
-    }
-
     export interface ThresholdWithAlert {
       readonly id: string;
       readonly created_at: string;
@@ -60468,6 +60488,29 @@ export namespace Schemas {
       Disabled: 'disabled',
       Toolbar: 'toolbar',
     } as const;
+
+    /**
+     * Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.
+     * Also used for nested serializers.
+     */
+    export interface TeamBasic {
+      readonly id: number;
+      readonly uuid: string;
+      readonly organization: string;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      readonly project_id: number;
+      readonly api_token: string;
+      readonly name: string;
+      readonly completed_snippet_onboarding: boolean;
+      readonly has_completed_onboarding_for: unknown;
+      readonly ingested_event: boolean;
+      readonly is_demo: boolean;
+      readonly timezone: string;
+      readonly access_control: boolean;
+    }
 
     export interface ScenePersonalisationBasic {
       /** @maxLength 200 */
@@ -62213,12 +62256,10 @@ export namespace Schemas {
       /** Optional description of the DAG's purpose */
       description?: string;
       /**
-         * Sync frequency string (e.g. '24hour', '7day')
+         * Legacy DAG-level cadence string (e.g. '24hour', '7day'). Scheduling is driven by each model's own sync frequency, so a PATCH that changes this value is rejected.
          * @nullable
          */
       sync_frequency?: string | null;
-      /** True when this team's DAG schedules are driven by per-model freshness targets, so `sync_frequency` no longer controls scheduling and writes to it are rejected. False when the DAG-level frequency still applies. */
-      readonly frequency_managed_by_nodes?: boolean;
       readonly node_count?: number;
       readonly created_at?: string;
       /** @nullable */
@@ -62587,7 +62628,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.
+      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the cadence stored on the view's DAG node.
        *
        * * `never` - never
        * * `15min` - 15min
@@ -62599,8 +62640,6 @@ export namespace Schemas {
        * * `7day` - 7day
        * * `30day` - 30day */
       sync_frequency?: SavedQuerySyncFrequencyEnum | null;
-      /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
-      readonly sync_frequency_managed_by_dag?: boolean;
       /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
       readonly sync_frequency_bounds?: SyncFrequencyBounds;
       readonly columns?: readonly PatchedDataWarehouseSavedQueryColumnsItem[];
@@ -67021,7 +67060,7 @@ export namespace Schemas {
        * * `scorer` - Scorer
        * * `summarizer` - Summarizer */
       scanner_type?: ScannerTypeEnum;
-      /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.
+      /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.
        *
        * * `ai` - AI draft
        * * `template` - Template
@@ -68831,207 +68870,6 @@ export namespace Schemas {
          * @nullable
          */
       channel?: string | null;
-    }
-
-    export type PatchedTeamDefaultModifiers = { [key: string]: unknown };
-
-    export type PatchedTeamGroupTypesItem = { [key: string]: unknown };
-
-    export type PatchedTeamProductIntentsItem = { [key: string]: unknown };
-
-    export type PatchedTeamManagedViewsets = {[key: string]: boolean};
-
-    export interface PatchedTeam {
-      readonly id?: number;
-      readonly uuid?: string;
-      /**
-         * @minLength 1
-         * @maxLength 200
-         */
-      name?: string;
-      access_control?: boolean;
-      readonly organization?: string;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
-      readonly project_id?: number;
-      readonly api_token?: string;
-      /** @nullable */
-      readonly secret_api_token?: string | null;
-      /** @nullable */
-      readonly secret_api_token_backup?: string | null;
-      readonly created_at?: string;
-      readonly updated_at?: string;
-      readonly ingested_event?: boolean;
-      readonly default_modifiers?: PatchedTeamDefaultModifiers;
-      readonly person_on_events_querying_enabled?: boolean;
-      /**
-         * The effective access level the user has for this object
-         * @nullable
-         */
-      readonly user_access_level?: string | null;
-      /** @items.maxLength 200 */
-      app_urls?: (string | null)[];
-      anonymize_ips?: boolean;
-      completed_snippet_onboarding?: boolean;
-      /** Filters used to identify internal/test users. Each entry is a property filter.
-       *
-       *             Supported entry types and the exact shape each accepts:
-       *
-       *             # Person property — match (or exclude) by a person property
-       *             {"key": "email", "type": "person", "value": "@example.com", "operator": "ends_with"}
-       *
-       *             # Event property — match by an event property
-       *             {"key": "$host", "type": "event", "value": "localhost", "operator": "icontains"}
-       *
-       *             # Cohort membership — match (or exclude) members of a cohort.
-       *             # Use operator "in" for inclusion and "not_in" for exclusion. Do NOT use a
-       *             # `negation` field here — `negation` is specific to cohort *definitions*
-       *             # (the inner sub-filters that build a cohort) and is rejected by the
-       *             # property-filter schema.
-       *             {"key": "id", "type": "cohort", "value": 8814, "operator": "not_in"}
-       *
-       *             Common operators: "exact", "is_not", "icontains", "not_icontains", "starts_with",
-       *             "not_starts_with", "ends_with", "not_ends_with", "regex", "not_regex", "gt", "lt",
-       *             "gte", "lte", "is_set", "is_not_set", "in", "not_in". */
-      test_account_filters?: unknown;
-      /** @nullable */
-      test_account_filters_default_checked?: boolean | null;
-      path_cleaning_filters?: unknown;
-      is_demo?: boolean;
-      timezone?: string;
-      data_attributes?: unknown;
-      /**
-         * @nullable
-         * @items.maxLength 400
-         */
-      person_display_name_properties?: string[] | null;
-      correlation_config?: unknown;
-      /** @nullable */
-      autocapture_opt_out?: boolean | null;
-      /** @nullable */
-      autocapture_exceptions_opt_in?: boolean | null;
-      /** @nullable */
-      autocapture_web_vitals_opt_in?: boolean | null;
-      autocapture_web_vitals_allowed_metrics?: unknown;
-      autocapture_exceptions_errors_to_ignore?: unknown;
-      /** @nullable */
-      capture_console_log_opt_in?: boolean | null;
-      logs_settings?: unknown;
-      /** @nullable */
-      capture_performance_opt_in?: boolean | null;
-      session_recording_opt_in?: boolean;
-      /**
-         * @nullable
-         * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
-         */
-      session_recording_sample_rate?: string | null;
-      /**
-         * @minimum 0
-         * @maximum 30000
-         * @nullable
-         */
-      session_recording_minimum_duration_milliseconds?: number | null;
-      session_recording_linked_flag?: unknown;
-      session_recording_network_payload_capture_config?: unknown;
-      session_recording_masking_config?: unknown;
-      /** @nullable */
-      session_recording_url_trigger_config?: unknown[] | null;
-      /** @nullable */
-      session_recording_url_blocklist_config?: unknown[] | null;
-      /** @nullable */
-      session_recording_event_trigger_config?: (string | null)[] | null;
-      /**
-         * @maxLength 24
-         * @nullable
-         */
-      session_recording_trigger_match_type_config?: string | null;
-      /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
-      session_recording_trigger_groups?: unknown;
-      session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
-      session_replay_config?: unknown;
-      survey_config?: unknown;
-      week_start_day?: WeekStartDayEnum | null;
-      /** @nullable */
-      primary_dashboard?: number | null;
-      /** @nullable */
-      live_events_columns?: string[] | null;
-      /**
-         * @nullable
-         * @items.maxLength 200
-         */
-      recording_domains?: (string | null)[] | null;
-      cookieless_server_hash_mode?: CookielessServerHashModeEnum | null;
-      /** @nullable */
-      human_friendly_comparison_periods?: boolean | null;
-      /** @nullable */
-      inject_web_apps?: boolean | null;
-      extra_settings?: unknown;
-      modifiers?: unknown;
-      has_completed_onboarding_for?: unknown;
-      /** @nullable */
-      surveys_opt_in?: boolean | null;
-      /** @nullable */
-      heatmaps_opt_in?: boolean | null;
-      /** @nullable */
-      flags_persistence_default?: boolean | null;
-      /** @nullable */
-      feature_flag_confirmation_enabled?: boolean | null;
-      /** @nullable */
-      feature_flag_confirmation_message?: string | null;
-      /**
-         * Whether to automatically apply default evaluation contexts to new feature flags
-         * @nullable
-         */
-      default_evaluation_contexts_enabled?: boolean | null;
-      /**
-         * Whether to require at least one evaluation context tag when creating new feature flags
-         * @nullable
-         */
-      require_evaluation_contexts?: boolean | null;
-      feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
-      /** @nullable */
-      capture_dead_clicks?: boolean | null;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         * @nullable
-         */
-      default_data_theme?: number | null;
-      revenue_analytics_config?: TeamRevenueAnalyticsConfig;
-      marketing_analytics_config?: TeamMarketingAnalyticsConfig;
-      customer_analytics_config?: TeamCustomerAnalyticsConfig;
-      onboarding_tasks?: unknown;
-      base_currency?: BaseCurrencyEnum;
-      /** @nullable */
-      web_analytics_pre_aggregated_tables_enabled?: boolean | null;
-      /** @nullable */
-      receive_org_level_activity_logs?: boolean | null;
-      /** Whether this project serves B2B or B2C customers, used to optimize the UI layout.
-       *
-       * * `b2b` - B2B
-       * * `b2c` - B2C
-       * * `other` - Other */
-      business_model?: BusinessModelEnum | BlankEnum | null;
-      /** @nullable */
-      conversations_enabled?: boolean | null;
-      conversations_settings?: unknown;
-      /** @nullable */
-      proactive_tasks_enabled?: boolean | null;
-      workflows_config?: TeamWorkflowsConfig;
-      readonly effective_membership_level?: OrganizationMembershipLevelEnum;
-      readonly has_group_types?: boolean;
-      readonly group_types?: readonly PatchedTeamGroupTypesItem[];
-      /** @nullable */
-      readonly live_events_token?: string | null;
-      readonly product_intents?: readonly PatchedTeamProductIntentsItem[];
-      readonly managed_viewsets?: PatchedTeamManagedViewsets;
-      readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnum[];
-      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-      readonly event_retention_months?: number;
-      /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-      readonly events_retention_enforced?: boolean;
     }
 
     export interface PatchedTeamTracingConfig {
@@ -86052,6 +85890,11 @@ export namespace Schemas {
          * @nullable
          */
       benjamin_enabled?: boolean | null;
+      /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+       *
+       * * `posthog-gateway` - posthog-gateway
+       * * `own-subscription` - own-subscription */
+      claude_model_access?: ClaudeModelAccessEnum | null;
     }
 
     export interface TaskRunCancelRequest {
@@ -86077,6 +85920,7 @@ export namespace Schemas {
      * * `permission_response` - permission_response
      * * `set_config_option` - set_config_option
      * * `mcp_response` - mcp_response
+     * * `credential_response` - credential_response
      * * `pi/rpc` - pi/rpc
      * * `queue_get` - queue_get
      * * `queue_clear` - queue_clear
@@ -86092,6 +85936,7 @@ export namespace Schemas {
       PermissionResponse: 'permission_response',
       SetConfigOption: 'set_config_option',
       McpResponse: 'mcp_response',
+      CredentialResponse: 'credential_response',
       PiRpc: 'pi/rpc',
       QueueGet: 'queue_get',
       QueueClear: 'queue_clear',
@@ -86114,6 +85959,7 @@ export namespace Schemas {
        * * `permission_response` - permission_response
        * * `set_config_option` - set_config_option
        * * `mcp_response` - mcp_response
+       * * `credential_response` - credential_response
        * * `pi/rpc` - pi/rpc
        * * `queue_get` - queue_get
        * * `queue_clear` - queue_clear
@@ -86126,7 +85972,7 @@ export namespace Schemas {
     }
 
     /**
-     * Error details on failure
+     * JSON-RPC error details, including failures returned with HTTP 200
      */
     export type TaskRunCommandResponseError = { [key: string]: unknown };
 
@@ -86138,9 +85984,9 @@ export namespace Schemas {
       jsonrpc: string;
       /** Request ID echoed back (string or number) */
       id?: unknown;
-      /** Command result on success */
+      /** Command result. Permission responses confirm acceptance only with resolved=true. */
       result?: unknown;
-      /** Error details on failure */
+      /** JSON-RPC error details, including failures returned with HTTP 200 */
       error?: TaskRunCommandResponseError;
     }
 
@@ -86191,6 +86037,8 @@ export namespace Schemas {
       type?: string;
       /** Machine-readable error code */
       code?: string;
+      /** After confirmed warm startup nondelivery, echo this token in X-PostHog-Warm-Retry to retry the same run and message within 60 seconds. */
+      retry_token?: string;
       /** Why PostHog Desktop access was denied, when applicable.
        *
        * * `startup_plan` - startup_plan
@@ -87059,207 +86907,6 @@ export namespace Schemas {
       canvas_id: string;
       /** The requester's personal space containing the canvas. */
       channel_id: string;
-    }
-
-    export type TeamDefaultModifiers = { [key: string]: unknown };
-
-    export type TeamGroupTypesItem = { [key: string]: unknown };
-
-    export type TeamProductIntentsItem = { [key: string]: unknown };
-
-    export type TeamManagedViewsets = {[key: string]: boolean};
-
-    export interface Team {
-      readonly id: number;
-      readonly uuid: string;
-      /**
-         * @minLength 1
-         * @maxLength 200
-         */
-      name?: string;
-      access_control?: boolean;
-      readonly organization: string;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
-      readonly project_id: number;
-      readonly api_token: string;
-      /** @nullable */
-      readonly secret_api_token: string | null;
-      /** @nullable */
-      readonly secret_api_token_backup: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
-      readonly ingested_event: boolean;
-      readonly default_modifiers: TeamDefaultModifiers;
-      readonly person_on_events_querying_enabled: boolean;
-      /**
-         * The effective access level the user has for this object
-         * @nullable
-         */
-      readonly user_access_level: string | null;
-      /** @items.maxLength 200 */
-      app_urls?: (string | null)[];
-      anonymize_ips?: boolean;
-      completed_snippet_onboarding?: boolean;
-      /** Filters used to identify internal/test users. Each entry is a property filter.
-       *
-       *             Supported entry types and the exact shape each accepts:
-       *
-       *             # Person property — match (or exclude) by a person property
-       *             {"key": "email", "type": "person", "value": "@example.com", "operator": "ends_with"}
-       *
-       *             # Event property — match by an event property
-       *             {"key": "$host", "type": "event", "value": "localhost", "operator": "icontains"}
-       *
-       *             # Cohort membership — match (or exclude) members of a cohort.
-       *             # Use operator "in" for inclusion and "not_in" for exclusion. Do NOT use a
-       *             # `negation` field here — `negation` is specific to cohort *definitions*
-       *             # (the inner sub-filters that build a cohort) and is rejected by the
-       *             # property-filter schema.
-       *             {"key": "id", "type": "cohort", "value": 8814, "operator": "not_in"}
-       *
-       *             Common operators: "exact", "is_not", "icontains", "not_icontains", "starts_with",
-       *             "not_starts_with", "ends_with", "not_ends_with", "regex", "not_regex", "gt", "lt",
-       *             "gte", "lte", "is_set", "is_not_set", "in", "not_in". */
-      test_account_filters?: unknown;
-      /** @nullable */
-      test_account_filters_default_checked?: boolean | null;
-      path_cleaning_filters?: unknown;
-      is_demo?: boolean;
-      timezone?: string;
-      data_attributes?: unknown;
-      /**
-         * @nullable
-         * @items.maxLength 400
-         */
-      person_display_name_properties?: string[] | null;
-      correlation_config?: unknown;
-      /** @nullable */
-      autocapture_opt_out?: boolean | null;
-      /** @nullable */
-      autocapture_exceptions_opt_in?: boolean | null;
-      /** @nullable */
-      autocapture_web_vitals_opt_in?: boolean | null;
-      autocapture_web_vitals_allowed_metrics?: unknown;
-      autocapture_exceptions_errors_to_ignore?: unknown;
-      /** @nullable */
-      capture_console_log_opt_in?: boolean | null;
-      logs_settings?: unknown;
-      /** @nullable */
-      capture_performance_opt_in?: boolean | null;
-      session_recording_opt_in?: boolean;
-      /**
-         * @nullable
-         * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
-         */
-      session_recording_sample_rate?: string | null;
-      /**
-         * @minimum 0
-         * @maximum 30000
-         * @nullable
-         */
-      session_recording_minimum_duration_milliseconds?: number | null;
-      session_recording_linked_flag?: unknown;
-      session_recording_network_payload_capture_config?: unknown;
-      session_recording_masking_config?: unknown;
-      /** @nullable */
-      session_recording_url_trigger_config?: unknown[] | null;
-      /** @nullable */
-      session_recording_url_blocklist_config?: unknown[] | null;
-      /** @nullable */
-      session_recording_event_trigger_config?: (string | null)[] | null;
-      /**
-         * @maxLength 24
-         * @nullable
-         */
-      session_recording_trigger_match_type_config?: string | null;
-      /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
-      session_recording_trigger_groups?: unknown;
-      session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
-      session_replay_config?: unknown;
-      survey_config?: unknown;
-      week_start_day?: WeekStartDayEnum | null;
-      /** @nullable */
-      primary_dashboard?: number | null;
-      /** @nullable */
-      live_events_columns?: string[] | null;
-      /**
-         * @nullable
-         * @items.maxLength 200
-         */
-      recording_domains?: (string | null)[] | null;
-      cookieless_server_hash_mode?: CookielessServerHashModeEnum | null;
-      /** @nullable */
-      human_friendly_comparison_periods?: boolean | null;
-      /** @nullable */
-      inject_web_apps?: boolean | null;
-      extra_settings?: unknown;
-      modifiers?: unknown;
-      has_completed_onboarding_for?: unknown;
-      /** @nullable */
-      surveys_opt_in?: boolean | null;
-      /** @nullable */
-      heatmaps_opt_in?: boolean | null;
-      /** @nullable */
-      flags_persistence_default?: boolean | null;
-      /** @nullable */
-      feature_flag_confirmation_enabled?: boolean | null;
-      /** @nullable */
-      feature_flag_confirmation_message?: string | null;
-      /**
-         * Whether to automatically apply default evaluation contexts to new feature flags
-         * @nullable
-         */
-      default_evaluation_contexts_enabled?: boolean | null;
-      /**
-         * Whether to require at least one evaluation context tag when creating new feature flags
-         * @nullable
-         */
-      require_evaluation_contexts?: boolean | null;
-      feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
-      /** @nullable */
-      capture_dead_clicks?: boolean | null;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         * @nullable
-         */
-      default_data_theme?: number | null;
-      revenue_analytics_config?: TeamRevenueAnalyticsConfig;
-      marketing_analytics_config?: TeamMarketingAnalyticsConfig;
-      customer_analytics_config?: TeamCustomerAnalyticsConfig;
-      onboarding_tasks?: unknown;
-      base_currency?: BaseCurrencyEnum;
-      /** @nullable */
-      web_analytics_pre_aggregated_tables_enabled?: boolean | null;
-      /** @nullable */
-      receive_org_level_activity_logs?: boolean | null;
-      /** Whether this project serves B2B or B2C customers, used to optimize the UI layout.
-       *
-       * * `b2b` - B2B
-       * * `b2c` - B2C
-       * * `other` - Other */
-      business_model?: BusinessModelEnum | BlankEnum | null;
-      /** @nullable */
-      conversations_enabled?: boolean | null;
-      conversations_settings?: unknown;
-      /** @nullable */
-      proactive_tasks_enabled?: boolean | null;
-      workflows_config?: TeamWorkflowsConfig;
-      readonly effective_membership_level: OrganizationMembershipLevelEnum;
-      readonly has_group_types: boolean;
-      readonly group_types: readonly TeamGroupTypesItem[];
-      /** @nullable */
-      readonly live_events_token: string | null;
-      readonly product_intents: readonly TeamProductIntentsItem[];
-      readonly managed_viewsets: TeamManagedViewsets;
-      readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
-      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-      readonly event_retention_months: number;
-      /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-      readonly events_retention_enforced: boolean;
     }
 
     export interface TeamTestSignal {
@@ -93622,6 +93269,11 @@ export namespace Schemas {
 
     export type ColumnConfigurationsListParams = {
     /**
+     * Return saved views for this context only.
+     * @minLength 1
+     */
+    context_key?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -95662,24 +95314,6 @@ export namespace Schemas {
       MergeQueue: 'merge_queue',
       PullRequest: 'pull_request',
     } as const;
-
-    export type EnvironmentsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsEvaluationContextSuggestionsDestroyParams = {
-    /**
-     * Name of the evaluation context to restore to suggestions.
-     */
-    context_name: string;
-    };
 
     export type ErrorTrackingAlertsListParams = {
     /**
@@ -98835,6 +98469,12 @@ export namespace Schemas {
      */
     created_by_id?: number;
     /**
+     * Return each prompt at the version this label points to, e.g. 'production'. Prompts that do not carry the label are omitted. If omitted, the latest version of every prompt is returned.
+     * @minLength 1
+     * @maxLength 128
+     */
+    label?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -98976,7 +98616,7 @@ export namespace Schemas {
      */
     content?: LlmSkillsBundleRetrieveContent;
     /**
-     * Maximum number of skills in the zip, newest first; default 20, at most 100. Every skill in the zip costs the agent prompt context on each turn, so pick what the harness can usefully carry. Skills past the limit are reported in X-Skills-Dropped.
+     * Maximum number of skills in the zip, newest first; default 50, at most 100. Every skill in the zip costs the agent prompt context on each turn, so pick what the harness can usefully carry. Skills past the limit are reported in X-Skills-Dropped.
      * @minimum 1
      * @maximum 100
      */
