@@ -588,15 +588,46 @@ class ClickhouseCluster:
             )
 
     def map_one_host_per_shard(
-        self, fn: Callable[[Client], T], concurrency: int | None = None
+        self,
+        fn: Callable[[Client], T],
+        concurrency: int | None = None,
+        node_roles: list[NodeRole] | None = None,
+        *,
+        require_hosts: bool = False,
     ) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each shard in the cluster.
 
+        ``node_roles`` narrows the candidate hosts inside each shard the same way
+        `map_hosts_by_roles` narrows the whole cluster, so a caller reaches only the hosts it
+        addressed before. A shard with no matching host is skipped, unless ``require_hosts`` asks
+        for a host in every shard, which also rejects a handle that discovered no shard at all.
+        Give no roles to keep any host per shard.
+
+        Roles that own no shard here raise, because every shard would drop out and the caller would
+        get an empty map that looks like a completed dispatch.
+
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
-        hosts = {next(iter(shard_hosts)) for shard_hosts in self.__shards.values()}
+        if node_roles is not None and NodeRole.ALL not in node_roles and self.__shard_role not in node_roles:
+            raise ValueError(
+                f"No shard is owned by roles {node_roles}; this cluster shards on {self.__shard_role.name}. "
+                "Address the cluster that stores the table with sibling() instead."
+            )
+
+        hosts: set[HostInfo] = set()
+        for shard_num, shard_hosts in self.__shards.items():
+            candidates = shard_hosts if node_roles is None else self.__hosts_by_roles(shard_hosts, node_roles)
+            if not candidates:
+                if require_hosts:
+                    raise ValueError(f"No hosts found with roles {node_roles} in shard {shard_num}")
+                continue
+            hosts.add(next(iter(candidates)))
+
+        if require_hosts and not hosts:
+            raise ValueError(f"No shard-bearing hosts found in cluster {self.__data_cluster_name!r}")
+
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             return FuturesMap({host: executor.submit(self.__get_task_function(host, fn)) for host in hosts})
 
