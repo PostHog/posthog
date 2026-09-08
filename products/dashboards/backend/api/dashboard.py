@@ -1857,13 +1857,14 @@ class DashboardSerializer(DashboardMetadataSerializer):
             )
 
         request_filters = initial_data.get("filters")
-        if request_filters:
+        if request_filters is not None:
             instance.filters = self._validated_filters(request_filters)
 
         request_variables = initial_data.get("variables")
-        if request_variables:
+        # An empty dict is a real value here: it clears the last remaining variable override.
+        if request_variables is not None:
             if not isinstance(request_variables, dict):
-                raise serializers.ValidationError("Filters must be a dictionary")
+                raise serializers.ValidationError("Variables must be a dictionary")
             instance.variables = request_variables
 
         instance = super().update(instance, validated_data)
