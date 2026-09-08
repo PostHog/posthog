@@ -18,6 +18,7 @@ from .schemas import REPORT_CONFIG, RESOURCE_SCHEMAS, BingAdsResource
 from .utils import (
     ENVIRONMENT,
     REPORT_POLL_INTERVAL_MS,
+    BingAdsReportTimeoutError,
     build_report_request,
     download_and_extract_report_csv,
     parse_csv_to_dicts,
@@ -262,6 +263,10 @@ class BingAdsClient:
                     report_type=report_config["report_type"],
                     account_id=account_id,
                 )
+        except BingAdsReportTimeoutError:
+            # Keep the type intact so the caller can narrow the date range. Wrapping it in a plain
+            # ValueError would hide the one error the caller can act on.
+            raise
         except Exception as e:
             raise _wrap_with_fault_detail(e, f"Failed to generate {resource.value} report") from e
 

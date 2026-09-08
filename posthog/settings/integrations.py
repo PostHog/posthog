@@ -112,6 +112,9 @@ BING_ADS_CLIENT_SECRET = get_from_env("BING_ADS_CLIENT_SECRET", "")
 BING_ADS_CLIENT_ID_FALLBACK = get_from_env("BING_ADS_CLIENT_ID_FALLBACK", "")
 BING_ADS_CLIENT_SECRET_FALLBACK = get_from_env("BING_ADS_CLIENT_SECRET_FALLBACK", "")
 BING_ADS_DEVELOPER_TOKEN = get_from_env("BING_ADS_DEVELOPER_TOKEN", "")
+# Bing builds performance reports on its own queue, and Microsoft documents generation as taking
+# minutes to hours for a large request. This is how long the SDK polls for one before it gives up.
+BING_ADS_REPORT_TIMEOUT_SECONDS = get_from_env("BING_ADS_REPORT_TIMEOUT_SECONDS", 1800, type_cast=int)
 
 REDDIT_ADS_CLIENT_ID = get_from_env("REDDIT_ADS_CLIENT_ID", "")
 REDDIT_ADS_CLIENT_SECRET = get_from_env("REDDIT_ADS_CLIENT_SECRET", "")

@@ -9,8 +9,10 @@ from pathlib import Path
 from typing import Any
 
 import structlog
-from bingads.v13.reporting import ReportingDownloadParameters
+from bingads.v13.reporting import ReportingDownloadException, ReportingDownloadParameters
 from dateutil.relativedelta import relativedelta
+
+from posthog.settings import integrations
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
@@ -34,7 +36,14 @@ class BingAdsResumeConfig:
 
 ENVIRONMENT = "production"
 REPORT_POLL_INTERVAL_MS = 5000
-REPORT_TIMEOUT_MS = 360000
+
+
+class BingAdsReportTimeoutError(Exception):
+    """Bing did not finish generating a report inside the polling budget.
+
+    The size of the requested date range drives the generation time, so callers can retry with a
+    smaller range instead of replaying the same request.
+    """
 
 
 def parse_csv_to_dicts(csv_data: str) -> list[dict[str, Any]]:
@@ -80,15 +89,13 @@ def fetch_data_in_yearly_chunks(
         )
 
         try:
-            data_pages = client.get_data_by_resource(
+            yield from _fetch_range_narrowing_on_timeout(
+                client=client,
                 resource=resource,
                 account_id=account_id,
-                start_date=dt.datetime.combine(current_start, dt.time.min),
-                end_date=dt.datetime.combine(chunk_end, dt.time.max),
+                range_start=current_start,
+                range_end=chunk_end,
             )
-            for page in data_pages:
-                if page:
-                    yield page
         except Exception as e:
             # Bing's 36-month retention boundary moves day by day, so the oldest chunk can land just
             # outside it and get rejected with InvalidCustomDateRangeEnd. That rejection is
@@ -114,6 +121,48 @@ def fetch_data_in_yearly_chunks(
                 end_date=end_date.isoformat(),
             )
         )
+
+
+def _fetch_range_narrowing_on_timeout(
+    client: Any,
+    resource: BingAdsResource,
+    account_id: int,
+    range_start: dt.date,
+    range_end: dt.date,
+) -> Iterator[list[dict]]:
+    """Fetch one date range, halving it whenever Bing runs out of time to generate the report.
+
+    Generation time grows with the range, so a range that times out can still succeed in halves.
+    Replaying the same range would time out again and stall the sync forever. Ranges are fetched
+    oldest first, and a single day that times out raises, because it cannot be narrowed further.
+    """
+    pending = [(range_start, range_end)]
+
+    while pending:
+        start, end = pending.pop()
+        try:
+            data_pages = client.get_data_by_resource(
+                resource=resource,
+                account_id=account_id,
+                start_date=dt.datetime.combine(start, dt.time.min),
+                end_date=dt.datetime.combine(end, dt.time.max),
+            )
+            for page in data_pages:
+                if page:
+                    yield page
+        except BingAdsReportTimeoutError:
+            if start >= end:
+                raise
+            midpoint = start + (end - start) // 2
+            logger.warning(
+                "Bing Ads report timed out, retrying the range in two halves",
+                resource=resource.value,
+                range_start=start.isoformat(),
+                range_end=end.isoformat(),
+                split_at=midpoint.isoformat(),
+            )
+            pending.append((midpoint + dt.timedelta(days=1), end))
+            pending.append((start, midpoint))
 
 
 def build_report_request(
@@ -189,10 +238,20 @@ def download_and_extract_report_csv(
             result_file_directory=tmpdir,
             result_file_name=filename,
             overwrite_result_file=True,
-            timeout_in_milliseconds=REPORT_TIMEOUT_MS,
+            timeout_in_milliseconds=integrations.BING_ADS_REPORT_TIMEOUT_SECONDS * 1000,
         )
 
-        result_file_path = reporting_service_manager.download_file(download_params)
+        try:
+            result_file_path = reporting_service_manager.download_file(download_params)
+        except ReportingDownloadException as e:
+            # The SDK raises this same type for a poll-budget timeout and for a failed download, and
+            # only the message tells them apart. Only the timeout is worth narrowing the range for.
+            if "timeout" not in str(e).lower():
+                raise
+            raise BingAdsReportTimeoutError(
+                f"Bing Ads did not finish the {report_type} report within "
+                f"{integrations.BING_ADS_REPORT_TIMEOUT_SECONDS}s"
+            ) from e
 
         # Bing returns no file when the report completes with zero rows for the requested range
         # (e.g. a date window with no campaign activity). Treat that as an empty report instead of
