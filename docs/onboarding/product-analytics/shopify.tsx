@@ -94,6 +94,8 @@ export const getShopifyEcommerceStep = (ctx: OnboardingComponentsContext): StepD
                                         persistence: 'memory',
                                         autocapture: false,
                                         capture_pageview: false,
+                                        // The pixel only sends events, so skip the feature flag and config request.
+                                        advanced_disable_flags: true,
                                         bootstrap: distinctId ? { distinctID: distinctId } : {}
                                     })
 
