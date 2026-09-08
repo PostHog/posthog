@@ -181,14 +181,15 @@ class TestSendAgentCommand:
 
     @patch("products.tasks.backend.logic.services.agent_command.validate_sandbox_url", return_value=None)
     @patch("products.tasks.backend.logic.services.agent_command.requests.post")
-    def test_success(self, mock_post, mock_validate):
+    @pytest.mark.parametrize("method", ["user_message", "credential_response"])
+    def test_success(self, mock_post, mock_validate, method):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"jsonrpc": "2.0", "result": "ok"}
         mock_post.return_value = mock_resp
 
         task_run = self._make_task_run(sandbox_url="https://sandbox.modal.run/rpc", connect_token="tok")
-        result = send_agent_command(task_run, "user_message", params={"message": "hi"})
+        result = send_agent_command(task_run, method, params={"message": "hi"})
 
         assert result.success
         assert result.status_code == 200
@@ -196,8 +197,12 @@ class TestSendAgentCommand:
 
         call_kwargs = mock_post.call_args
         assert call_kwargs.kwargs["headers"]["Authorization"] == "Bearer tok"
-        assert call_kwargs.kwargs["json"]["method"] == "user_message"
+        assert call_kwargs.kwargs["json"]["method"] == method
         assert call_kwargs.args[0] == "https://sandbox.modal.run/rpc/command"
+
+        if method == "credential_response":
+            assert call_kwargs.kwargs["timeout"] == 5
+            assert call_kwargs.kwargs["allow_redirects"] is False
 
     @patch("products.tasks.backend.logic.services.agent_command.validate_sandbox_url", return_value=None)
     @patch("products.tasks.backend.logic.services.agent_command.requests.post")

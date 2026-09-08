@@ -10,6 +10,7 @@ import { canvasDataRouter } from "@posthog/host-router/routers/canvas-data.route
 import { canvasTemplatesRouter } from "@posthog/host-router/routers/canvas-templates.router";
 import { channelTasksRouter } from "@posthog/host-router/routers/channel-tasks.router";
 import { claudeCliSessionsRouter } from "@posthog/host-router/routers/claude-cli-sessions.router";
+import { claudeSubscriptionTokenRouter } from "@posthog/host-router/routers/claude-subscription-token.router";
 import { cloudTaskRouter } from "@posthog/host-router/routers/cloud-task.router";
 import { connectivityRouter } from "@posthog/host-router/routers/connectivity.router";
 import { contextMenuRouter } from "@posthog/host-router/routers/context-menu.router";
@@ -107,6 +108,7 @@ export const trpcRouter = router({
   sleep: sleepRouter,
   suspension: suspensionRouter,
   secureStore: secureStoreRouter,
+  claudeSubscriptionToken: claudeSubscriptionTokenRouter,
   shell: shellRouter,
   speech: speechRouter,
   skills: skillsRouter,

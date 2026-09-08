@@ -70,7 +70,6 @@ export interface IDashboardsService {
     prompt?: string;
     expectedCurrentVersionId: string | null;
   }): Promise<CanvasLayoutResult>;
-  saveContext(input: { id: string; context: string }): Promise<DashboardRecord>;
   setGenerationTask(input: {
     id: string;
     taskId: string | null;
