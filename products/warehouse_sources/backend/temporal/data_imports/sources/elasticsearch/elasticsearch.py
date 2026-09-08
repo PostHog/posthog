@@ -32,6 +32,33 @@ NON_JSON_RESPONSE_ERROR = "Elasticsearch returned a non-JSON response"
 _ES_FLOAT_TYPES = frozenset({"float", "double", "half_float", "scaled_float"})
 
 
+# Setup-time copy, one message per failure the root-info probe can tell apart. Collapsing them
+# into one blames the credentials for a cluster that was never reached, so someone re-enters a
+# key that was correct all along.
+CREDENTIALS_REJECTED_ERROR = (
+    "Elasticsearch rejected your credentials. Check the username and password, or the API key, then try again."
+)
+FORBIDDEN_ERROR = (
+    "Your Elasticsearch credentials can't read this cluster. Grant the user or API key read access "
+    "to the indices you want to sync, then try again."
+)
+UNREACHABLE_ERROR = (
+    "Couldn't reach your Elasticsearch cluster. Check the cluster URL and port, and that the "
+    "cluster accepts connections from PostHog's IP addresses."
+)
+TLS_ERROR = (
+    "Couldn't open a secure connection to your Elasticsearch cluster. Check that the URL starts "
+    "with https and that the cluster's TLS certificate is valid."
+)
+CLUSTER_UNAVAILABLE_ERROR = (
+    "Your Elasticsearch cluster didn't answer the connection check. Check the cluster's health, then try again."
+)
+UNEXPECTED_RESPONSE_ERROR = (
+    "Elasticsearch didn't accept the connection check. Check that the cluster URL points at the "
+    "Elasticsearch HTTP API, not Kibana or a proxy in front of it."
+)
+
+
 class ElasticsearchRetryableError(Exception):
     pass
 
@@ -71,13 +98,26 @@ def _get_session(auth: ElasticsearchAuth) -> requests.Session:
     return session
 
 
-def validate_credentials(host: str, auth: ElasticsearchAuth) -> bool:
+def validate_credentials(host: str, auth: ElasticsearchAuth) -> tuple[bool, str | None]:
     """Confirm the cluster is reachable and the credentials are valid via the root info endpoint."""
     try:
         response = _get_session(auth).get(f"{normalize_host(host)}/", timeout=10)
-        return response.status_code == 200
+    except requests.exceptions.SSLError:
+        return False, TLS_ERROR
     except Exception:
-        return False
+        return False, UNREACHABLE_ERROR
+
+    if response.status_code == 200:
+        return True, None
+    if response.status_code == 401:
+        return False, CREDENTIALS_REJECTED_ERROR
+    if response.status_code == 403:
+        return False, FORBIDDEN_ERROR
+    # A 429 or 5xx means the cluster is busy or unhealthy, not that the URL or the credentials
+    # are wrong, so neither is worth re-checking.
+    if response.status_code == 429 or response.status_code >= 500:
+        return False, CLUSTER_UNAVAILABLE_ERROR
+    return False, UNEXPECTED_RESPONSE_ERROR
 
 
 def list_indices(host: str, auth: ElasticsearchAuth) -> list[str]:
