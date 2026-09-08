@@ -92,6 +92,7 @@ import {
   handleUsageCommand,
   isUsageCommand,
   type UsageCommandConfig,
+  withUsageCommand,
 } from "../usage-command";
 import {
   buildBreakdown,
@@ -1151,7 +1152,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               session.knownSlashCommands = collectKnownSlashCommands(
                 message.commands,
               );
-              const available = getAvailableSlashCommands(message.commands);
+              const available = withUsageCommand(
+                getAvailableSlashCommands(message.commands),
+                this.usageCommandConfig,
+              );
               await this.client.sessionUpdate({
                 sessionId,
                 update: {
@@ -3499,7 +3503,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   private async sendAvailableCommandsUpdate(): Promise<void> {
     const commands = await this.session.query.supportedCommands();
     this.session.knownSlashCommands = collectKnownSlashCommands(commands);
-    const available = getAvailableSlashCommands(commands);
+    const available = withUsageCommand(
+      getAvailableSlashCommands(commands),
+      this.usageCommandConfig,
+    );
     await this.client.sessionUpdate({
       sessionId: this.sessionId,
       update: {

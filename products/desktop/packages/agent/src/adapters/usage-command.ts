@@ -1,9 +1,32 @@
 import type {
   AgentSideConnection,
+  AvailableCommand,
   PromptRequest,
   PromptResponse,
 } from "@agentclientprotocol/sdk";
 import { visiblePromptBlocks } from "./prompt-blocks";
+
+/**
+ * What a session advertises for this command, so a client's command menu offers only what the
+ * agent can honor. The adapter answers it rather than the model, like `/clear`, so no model
+ * lists it and it has to be added to the declaration by hand.
+ */
+export const USAGE_AVAILABLE_COMMAND: AvailableCommand = {
+  name: "usage",
+  description:
+    "Show PostHog AI credits for this conversation and billing period",
+  input: null,
+};
+
+export function withUsageCommand<T extends { name: string }>(
+  commands: T[],
+  config: UsageCommandConfig | undefined,
+): (T | AvailableCommand)[] {
+  if (!config || commands.some((command) => command.name === "usage")) {
+    return commands;
+  }
+  return [...commands, USAGE_AVAILABLE_COMMAND];
+}
 
 export interface UsageCommandConfig {
   /** PostHog renders the report, so no surface holds a second wording of it. */

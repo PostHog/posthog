@@ -68,6 +68,7 @@ import {
   handleUsageCommand,
   isUsageCommand,
   type UsageCommandConfig,
+  withUsageCommand,
 } from "../usage-command";
 import {
   AppServerClient,
@@ -861,7 +862,10 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         sessionId: this.sessionId,
         update: {
           sessionUpdate: "available_commands_update",
-          availableCommands: commands,
+          availableCommands: withUsageCommand(
+            commands,
+            this.usageCommandConfig,
+          ),
         },
       } as unknown as Parameters<AgentSideConnection["sessionUpdate"]>[0])
       .catch(() => undefined);
