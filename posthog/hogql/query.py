@@ -68,6 +68,7 @@ from posthog.hogql.warehouse_warnings import record_warnings
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
+from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
 from posthog.models.team import Team
@@ -83,6 +84,13 @@ if TYPE_CHECKING:
 tracer = trace.get_tracer(__name__)
 
 TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
+
+
+@frozen
+class EmbeddedClickHouseQuery:
+    sql: str
+    context: HogQLContext
+    settings: dict[str, object]
 
 
 class _EmbeddedSelectSettingsValidator(TraversingVisitor):
@@ -687,7 +695,6 @@ class HogQLQueryExecutor:
         self._parse_query()
 
         if embedded_select:
-            _EmbeddedSelectSettingsValidator().visit(self.select_query)
             self.context.limit_top_select = False
 
         source = self._resolve_direct_source()
@@ -698,6 +705,8 @@ class HogQLQueryExecutor:
 
         self._process_variables()
         self._process_placeholders()
+        if embedded_select:
+            _EmbeddedSelectSettingsValidator().visit(self.select_query)
         if not embedded_select:
             self._apply_limit()
         with self.timings.measure("_generate_hogql"):
@@ -845,11 +854,15 @@ class HogQLQueryExecutor:
         return prepared_execution.sql, prepared_execution.context
 
     @tracer.start_as_current_span("HogQLQueryExecutor.generate_clickhouse_subquery_sql")
-    def generate_clickhouse_subquery_sql(self) -> tuple[str, HogQLContext]:
+    def generate_clickhouse_subquery_sql(self) -> EmbeddedClickHouseQuery:
         prepared_execution = self._prepare_execution(embedded_select=True)
         if prepared_execution.engine != "clickhouse":
             raise ExposedHogQLError("Only ClickHouse-backed HogQL queries can be embedded.")
-        return prepared_execution.sql, prepared_execution.context
+        return EmbeddedClickHouseQuery(
+            sql=prepared_execution.sql,
+            context=prepared_execution.context,
+            settings=prepared_execution.context.top_level_settings,
+        )
 
     @tracer.start_as_current_span("HogQLQueryExecutor.execute")
     def execute(self) -> HogQLQueryResponse:

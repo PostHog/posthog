@@ -452,7 +452,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             pretty=False,
         )
-        selected_sql, selected_context = executor.generate_clickhouse_subquery_sql()
+        selected = executor.generate_clickhouse_subquery_sql()
+        selected_sql = selected.sql
 
         self.assertNotIn(" LIMIT ", selected_sql)
         self.assertNotIn(" SETTINGS ", selected_sql)
@@ -465,8 +466,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
         sync_execute(
             insert_sql,
-            {**selected_context.values, "_deletion_team_id": self.team.pk},
+            {**selected.context.values, "_deletion_team_id": self.team.pk},
             team_id=self.team.pk,
+            settings=selected.settings,
         )
 
         queued = sync_execute(
@@ -484,6 +486,45 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         with self.assertRaisesRegex(ExposedHogQLError, "SETTINGS are not allowed"):
             executor.generate_clickhouse_subquery_sql()
+
+        placeholder_executor = HogQLQueryExecutor(
+            query="SELECT uuid FROM {source}",
+            placeholders={"source": query},
+            team=self.team,
+        )
+
+        with self.assertRaisesRegex(ExposedHogQLError, "SETTINGS are not allowed"):
+            placeholder_executor.generate_clickhouse_subquery_sql()
+
+    def test_embedded_hogql_select_returns_required_table_settings(self) -> None:
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql.database.database import Database
+        from posthog.hogql.database.models import StringDatabaseField, TableNode
+        from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+
+        csv_table = HogQLDataWarehouseTable(
+            name="csv_table",
+            url="https://example.com/test.csv",
+            format="CSVWithNames",
+            fields={"uuid": StringDatabaseField(name="uuid")},
+            structure="`uuid` String",
+            top_level_settings=HogQLQuerySettings(format_csv_allow_double_quotes=True),
+        )
+        database = Database()
+        root = TableNode()
+        root.add_child(TableNode(name="csv_table", table=csv_table))
+        database._add_warehouse_tables(root)
+        executor = HogQLQueryExecutor(
+            query="SELECT uuid FROM csv_table",
+            team=self.team,
+            context=HogQLContext(team_id=self.team.pk, database=database),
+        )
+
+        selected = executor.generate_clickhouse_subquery_sql()
+
+        self.assertTrue(selected.settings["format_csv_allow_double_quotes"])
+        self.assertNotIn("readonly", selected.settings)
+        self.assertNotIn(" SETTINGS ", selected.sql)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_pdi_persons(self):
