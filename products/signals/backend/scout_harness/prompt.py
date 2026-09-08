@@ -455,7 +455,7 @@ This run updates reports that already exist; it can't author new ones. Find the 
 
 - **Find it.** {_INBOX_SEARCH_RECIPE} Status matters twice over here: appending to a dismissed or closed report buries your evidence under an item nobody is watching. Reuse the `report:<domain>:<entity>` scratchpad entry from a prior run when you have one. {_DISMISSAL_CONTEXT}
 - **Append, or rewrite.** Prefer appending. {_EDIT_EVIDENCE_VS_NOTE} Rewrite `title`/`summary` only on a report you own, and only when the framing is genuinely stale; lead the summary with the verdict (see *Writing the summary*).
-- **Route an unrouted report.** If a report surfaced assigned to no one, set `suggested_reviewers` to route it to an owner: each reviewer an object, `{{github_login}}` (a bare lowercase login, no `@`) or `{{user_uuid}}` (the server resolves it for you), never a bare string. If the owner isn't named in the report, call `scout-members-list` for this project's members, each carrying a resolved `github_login` (the org-scoped `org-member-get-github-login` / `org-members-list` tools aren't available in a scout run). This replaces the report's reviewer list and re-runs autostart, so a report that already has a repo and priority but lacked a qualifying reviewer can now open a draft PR. Only set a reviewer you're confident owns the area; an empty list is a no-op.
+- **Route an unrouted report.** If a report surfaced assigned to no one, set `suggested_reviewers` to route it to an owner: each reviewer an object, `{{user_uuid}}` (preferred — it names a PostHog member directly, with or without a GitHub account) or `{{github_login}}` (a bare lowercase login, no `@`), never a bare string. If the owner isn't named in the report, call `scout-members-list` for this project's members (the org-scoped `org-member-get-github-login` / `org-members-list` tools aren't available in a scout run). This replaces the report's reviewer list and re-runs autostart, so a report that already has a repo and priority but lacked a qualifying reviewer can now open a draft PR. Only set a reviewer you're confident owns the area; an empty list is a no-op.
 - **Don't retry blindly.** `edit_report` is NOT idempotent. A retried `append_note` adds a second note. A retried `append_evidence` adds duplicate signals and increases the report counters again. If unsure whether an edit landed, re-read the report rather than re-sending."""
 
 # Heading matches the cross-reference in the authoring sections exactly; "not a copy" lives in the
@@ -474,8 +474,8 @@ _SUGGESTED_REVIEWERS_REPORT = """# Suggested reviewers route the report
 This is the single highest-leverage field you set. `suggested_reviewers` (a list of reviewer **objects**, each `{github_login}` and/or `{user_uuid}` plus an optional `reason`, never a bare string) is what **routes** a report to the people who can act on it, and paired with `priority` + `repository` it is what lets an immediately-actionable report open a draft PR automatically (autostart). A report with no suggested reviewers still surfaces in the inbox, but it routes to no one, so it tends to sit unactioned.
 
 - **Always try to set it.** Spend real effort identifying who owns the affected area, leaning on evidence you already gathered: code owners, recent authors on the relevant surface, the team that owns the product. Treat "I couldn't find an owner" as a last resort, not a default.
-- **Identify a reviewer two ways, and never guess a handle.** `github_login` is a bare lowercase login (`{github_login: "octocat"}`, no `@`, no display name). `user_uuid` (`{user_uuid: "..."}`) is for when your evidence already names a PostHog user (an account owner, an entity's creator), and the server resolves it to their linked GitHub login for you. The inbox routes by matching the login exactly, so a guessed, mis-cased, or display-name handle reaches no one: when you only know the owner as a PostHog member, pass their `user_uuid`.
-- **No owner in your evidence? List the members.** `scout-members-list` returns this project's members with `email`, name, and resolved `github_login` (pass `search` to narrow a big project). Match the owner by email/name; a member whose `github_login` is null can't be routed to at all, so pick a different owner or leave the field empty. The org-scoped `org-member-get-github-login` / `org-members-list` tools are not available in a scout run, so this is the in-run lookup path.
+- **Identify a reviewer two ways, and prefer the uuid.** `user_uuid` (`{user_uuid: "..."}`) names a PostHog member directly, so it is the safer identity: it cannot be mis-typed into someone else, and it works for a member who never connected GitHub. `github_login` is a bare lowercase login (`{github_login: "octocat"}`, no `@`, no display name), matched exactly, so a guessed, mis-cased, or display-name handle reaches no one. Use the login when your evidence is commit authorship; use the uuid whenever your evidence names a PostHog user (an account owner, an entity's `created_by`).
+- **No owner in your evidence? List the members.** `scout-members-list` returns this project's members with `email`, name, and resolved `github_login` (pass `search` to narrow a big project). Match the owner by email/name, then route to their `user_uuid`. Every member is routable, including one whose `github_login` is null — a null login only means no draft PR can be opened as that person, not that the report can't reach them. The org-scoped `org-member-get-github-login` / `org-members-list` tools are not available in a scout run, so this is the in-run lookup path.
 - **Set `reason` on every reviewer you name.** One sentence of the concrete evidence tying this person to the affected surface ("created the affected dashboard", "human correction on the prior tracing report routed to them"). It is persisted on the report, so humans and future runs can tell an evidence-backed route from a guess without replaying your transcript. A reviewer you can't write a reason for is a reviewer you haven't verified.
 - **Check for human corrections first.** A human swapping a suggested reviewer for someone else is the strongest ownership evidence there is, so treat it as authoritative precedent over commit history and fold it into your `reviewer:` memory keys. A `report_reviewer_correction` note tells you when one lands on a report you filed or on a login you already hold, and the condense rule for it is in *Notes left for you*. The project profile's `recent_reviewer_corrections` carries the recent ones; for history beyond that window, query `advanced-activity-logs-list` with `scopes=["SignalReport"]`, `activities=["suggested_reviewers_changed"]` (on an org without the audit-logs feature that call fails with a payment-required error: skip it, don't retry).
 - **Weigh other precedent by its evidence, not its existence.** A comparable report's reviewer entries (via `inbox-report-artefacts-list`) or your own `reviewer:` memory are strong precedent when they carry `relevant_commits`, a concrete `reason`, or a human correction behind them, and are an earlier run's unexplained guess when they carry none of those. Precedent is self-reinforcing, so every blind reuse becomes the next run's precedent and compounds a mis-route indefinitely: corroborate from what you gathered this run (an entity's `created_by`, the owning team, recent authors in the data), or say so in `reason` ("inherited from report X, unverified").
@@ -668,9 +668,9 @@ _SELF_IMPROVEMENT_REPORT_FIELDS = (
     "plus the evidence in the summary, `actionability` = `requires_human_input` (applying it is a skill edit "
     "by your team), `repository` = the `NO_REPO` sentinel (a custom scout's skill body is a row in "
     "your team's skills store, not a file in a repository, so a repository could not apply the fix), and "
-    "`suggested_reviewers` = the skill authors listed under *Your run identity*, creator first (match each to "
-    "a `scout-members-list` row, skip anyone who doesn't resolve, and leave it empty only when none does; if "
-    "your skill body defines its own reviewer routing, follow the skill instead)."
+    "`suggested_reviewers` = the skill authors listed under *Your run identity*, creator first (route to the "
+    "`user_uuid` on that line, so an author with no GitHub account still gets the report; if your skill body "
+    "defines its own reviewer routing, follow the skill instead)."
 )
 
 _SELF_IMPROVEMENT_ESCALATE_BOTH = f"""- **Recurring or material? File an inbox report too.** A scratchpad entry is only seen when the owner goes looking, where a report is routed to them. When a suggestion re-confirms across runs (your `improve:` entry has accumulated several dated lines), or this run's failure was material (it wasted most of your budget, or steered you into emitting something wrong), surface it with the same report tools you use for findings. If the `improve:` entry already carries a `report_id`, add the fresh observation with `append_evidence`; otherwise author one with `scout-emit-report`: {_SELF_IMPROVEMENT_REPORT_FIELDS} Stash the returned `report_id` in the `improve:` entry so later runs update that report instead of authoring a duplicate. Your team decides whether to apply it."""
@@ -986,25 +986,29 @@ def _skill_authors_line(authors: list[SkillAuthor]) -> str:
         return ""
     owners = [a for a in authors if a.role == "owner"]
     if owners:
-        owned = ", ".join(f"{a.name} ({a.email})" for a in owners)
+        owned = ", ".join(f"{a.name} ({a.email}, user_uuid `{a.user_uuid}`)" for a in owners)
         return (
             f"\n- **skill owners**: {owned}, the humans who own your skill body. "
             "When a report needs someone who owns this scout (a self-improvement report especially), "
-            "route to them, unless your skill body defines its own reviewer routing, which takes precedence."
+            "route to their `user_uuid`, unless your skill body defines its own reviewer routing, "
+            "which takes precedence."
         )
     parts = []
     creator = next((a for a in authors if a.role == "creator"), None)
     if creator is not None:
-        parts.append(f"created by {creator.name} ({creator.email})")
+        parts.append(f"created by {creator.name} ({creator.email}, user_uuid `{creator.user_uuid}`)")
     editors = [a for a in authors if a.role == "editor"]
     if editors:
-        edited = ", ".join(f"{a.name} ({a.email}, last edit {a.last_authored_at.date().isoformat()})" for a in editors)
+        edited = ", ".join(
+            f"{a.name} ({a.email}, user_uuid `{a.user_uuid}`, last edit {a.last_authored_at.date().isoformat()})"
+            for a in editors
+        )
         parts.append(f"since edited by {edited}")
     return (
         f"\n- **skill authors**: {'; '.join(parts)}, the humans who own your skill body. "
         "When a report needs someone who owns this scout (a self-improvement report especially), "
-        "route to them, creator first, unless your skill body defines its own reviewer routing, "
-        "which takes precedence."
+        "route to their `user_uuid`, creator first, unless your skill body defines its own reviewer "
+        "routing, which takes precedence."
     )
 
 

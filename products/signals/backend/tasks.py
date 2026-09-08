@@ -285,7 +285,11 @@ def enqueue_scout_slack_delivery(
 )
 @with_team_scope()
 def send_reviewer_added_slack_notifications(
-    report_id: str, team_id: int, added_github_logins: list[str], exclude_user_id: int | None = None
+    report_id: str,
+    team_id: int,
+    added_github_logins: list[str],
+    exclude_user_id: int | None = None,
+    added_user_uuids: list[str] | None = None,
 ) -> None:
     """Slack-ping reviewers a human just added to a report.
 
@@ -315,6 +319,7 @@ def send_reviewer_added_slack_notifications(
         report_id=report_id,
         team_id=team_id,
         added_github_logins=added_github_logins,
+        added_user_uuids=added_user_uuids,
         source_products=source_products,
         exclude_user_id=exclude_user_id,
     )

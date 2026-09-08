@@ -44,16 +44,21 @@ def capture_suggested_reviewers_resolved(
     report_id: str,
     github_logins: list[str],
     source: ReviewerSuggestionSource,
+    user_uuid_only_count: int = 0,
     correction_notes_written: int | None = None,
     correction_note_targets: int | None = None,
 ) -> None:
     """Emit `signals_suggested_reviewers_resolved` when a report's suggested reviewers are persisted.
 
-    Suggested reviewers are stored as bare GitHub logins; the login -> PostHog user mapping only
-    happens downstream (Slack routing, autostart, API read), where an unmapped login falls through
-    silently. A report whose logins map to nobody cannot be routed to a person, yet still counts as
-    "assigned" in `suggested_reviewers`-based metrics. This event records the linkable/unlinkable
-    split at suggestion time so that bucket is measurable.
+    A reviewer stored by GitHub login is only linked to a PostHog user downstream (Slack routing,
+    autostart, API read), where an unmapped login falls through silently. A report whose logins map
+    to nobody cannot be routed to a person, yet still counts as "assigned" in
+    `suggested_reviewers`-based metrics. This event records the linkable/unlinkable split at
+    suggestion time so that bucket is measurable.
+
+    `user_uuid_only_count` is how many of the report's reviewers are identified by PostHog user
+    alone, with no GitHub login. They resolve to a person by construction, so they count as
+    linkable; they are counted separately because autostart still needs a login to run as someone.
 
     A human edit that changed the set also steers the scouts holding the routing memory it
     corrects (`reviewer_correction_notes.py`). `correction_notes_written` and
@@ -83,12 +88,17 @@ def capture_suggested_reviewers_resolved(
                 "team_id": team_id,
                 "report_id": report_id,
                 "source": source,
-                "suggested_count": len(linkability.linkable_logins) + len(linkability.unlinkable_logins),
-                "linkable_count": len(linkability.linkable_logins),
+                "suggested_count": len(linkability.linkable_logins)
+                + len(linkability.unlinkable_logins)
+                + user_uuid_only_count,
+                "linkable_count": len(linkability.linkable_logins) + user_uuid_only_count,
                 "unlinkable_count": len(linkability.unlinkable_logins),
                 "linkable_logins": linkability.linkable_logins[:_MAX_LOGINS_PER_EVENT],
                 "unlinkable_logins": linkability.unlinkable_logins[:_MAX_LOGINS_PER_EVENT],
-                "all_unlinkable": bool(linkability.unlinkable_logins) and not linkability.linkable_logins,
+                "user_uuid_only_count": user_uuid_only_count,
+                "all_unlinkable": bool(linkability.unlinkable_logins)
+                and not linkability.linkable_logins
+                and not user_uuid_only_count,
                 **(
                     {}
                     if correction_notes_written is None

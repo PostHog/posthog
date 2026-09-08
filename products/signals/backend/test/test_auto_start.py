@@ -23,7 +23,7 @@ from products.signals.backend.auto_start import (
     _build_autostart_task_description,
     _create_implementation_task_if_absent,
     _generate_self_driving_head_branch,
-    _live_skill_owner_logins,
+    _live_skill_owner_identities,
     _report_meets_team_autostart_threshold,
     _resolve_autostart_assignee,
     _resolve_autostart_fallback_user,
@@ -51,6 +51,7 @@ from products.signals.backend.report_generation.research import (
     Priority,
     PriorityAssessment,
 )
+from products.signals.backend.report_generation.resolve_reviewers import ReviewerIdentitySet
 from products.signals.backend.signal_metadata import SignalSourceReference
 from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
 from products.signals.backend.test.test_billing import _seed_canonical_scout_skill
@@ -79,9 +80,16 @@ def _create_org_member_with_github(email: str, organization: Organization, login
     return user
 
 
-def _reviewer(login: str, *, is_skill_owner: bool = False, source_skill: str | None = None) -> ReviewerContent:
+def _reviewer(
+    login: str | None,
+    *,
+    user_uuid: str | None = None,
+    is_skill_owner: bool = False,
+    source_skill: str | None = None,
+) -> ReviewerContent:
     return ReviewerContent(
         github_login=login,
+        user_uuid=user_uuid,
         github_name=None,
         relevant_commits=[],
         reason=None,
@@ -171,7 +179,7 @@ def test_resolve_autostart_assignee_excludes_live_owners_past_a_stale_stamp(orga
         # Stamp says not-an-owner (stale); the live set says otherwise.
         reviewers_content=[_reviewer("ownercat", is_skill_owner=False), _reviewer("authorcat")],
         team_default_priority=Priority.P4,
-        live_owner_logins={"ownercat"},
+        live_owner_identities=ReviewerIdentitySet(user_uuids=frozenset(), github_logins=frozenset({"ownercat"})),
     )
     assert assignee is not None
     assert assignee.id == author.id
@@ -205,7 +213,7 @@ def test_live_owner_logins_span_every_scout_that_touched_the_report(organization
             )
         LLMSkillOwner.objects.create(team=team, skill_name=editing_skill, user=owner)
 
-    assert _live_skill_owner_logins(team, str(report.id), []) == {"editorowner"}
+    assert _live_skill_owner_identities(team, str(report.id), []).github_logins == frozenset({"editorowner"})
 
 
 @pytest.mark.django_db
@@ -222,7 +230,7 @@ def test_live_owner_logins_survive_a_lost_edit_tally(organization, team):
         LLMSkillOwner.objects.create(team=team, skill_name="signals-scout-tallyless", user=owner)
 
     reviewers = [_reviewer("tallylessowner", source_skill="signals-scout-tallyless")]
-    assert _live_skill_owner_logins(team, str(report.id), reviewers) == {"tallylessowner"}
+    assert _live_skill_owner_identities(team, str(report.id), reviewers).github_logins == frozenset({"tallylessowner"})
 
 
 @pytest.mark.parametrize(

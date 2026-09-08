@@ -19,6 +19,7 @@ from posthog.models.organization import OrganizationMembership
 
 from products.signals.backend.artefact_schemas import Priority, PriorityAssessment, SuggestedReviewers, TaskRunArtefact
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalSourceConfig
+from products.signals.backend.report_generation.resolve_reviewers import ReviewerIdentitySet
 from products.signals.backend.scout_harness.tools.report import (
     MAX_EVIDENCE_DESCRIPTION_LENGTH,
     MAX_REPORT_SIGNALS,
@@ -940,8 +941,11 @@ class TestScoutReportAPI(APIBaseTest):
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="pipeline report")
         with (
             patch(
-                "products.signals.backend.scout_harness.tools.report._owner_logins",
-                side_effect=[set(), {"octocat"}],
+                "products.signals.backend.scout_harness.tools.report._owner_identities",
+                side_effect=[
+                    ReviewerIdentitySet.empty(),
+                    ReviewerIdentitySet(user_uuids=frozenset(), github_logins=frozenset({"octocat"})),
+                ],
             ),
             patch(AUTOSTART_PATH, new=AsyncMock()),
         ):

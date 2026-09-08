@@ -586,9 +586,10 @@ tools:
             their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null when they have no
             linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a
             fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list
-            members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on
-            `scout-emit-report` / `scout-edit-report` (a member with a null `github_login` can't be routed to — pick
-            another owner). Pass `search` to narrow a large roster. Strictly team-scoped.
+            members, match the owner by email/name, then put their `user_uuid` in `suggested_reviewers` on
+            `scout-emit-report` / `scout-edit-report`. Every member is routable this way; a null `github_login` only
+            means no draft PR can be opened as that person. Pass `search` to narrow a large roster. Strictly
+            team-scoped.
     scout-metadata-get:
         operation: signals_scout_metadata_get
         enabled: true

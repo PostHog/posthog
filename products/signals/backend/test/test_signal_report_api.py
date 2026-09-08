@@ -2046,20 +2046,20 @@ class TestAvailableReviewersAPI(APIBaseTest):
             email=f"user{n:04d}@example.com",
         )
 
-    def _login_map(self, count: int) -> dict[str, SimpleNamespace]:
-        return {f"gh{n}": self._fake_user(n) for n in range(count)}
+    def _member_map(self, count: int) -> dict[str, SimpleNamespace]:
+        return {str(uuid.UUID(int=n)): self._fake_user(n) for n in range(count)}
 
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_returns_all_members_without_cap(self, mock_map):
         # 250 > the old hard cap of 100: every member must come back now.
-        mock_map.return_value = self._login_map(250)
+        mock_map.return_value = self._member_map(250)
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()) == 250
 
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_search_query_filters_server_side(self, mock_map):
-        mock_map.return_value = self._login_map(250)
+        mock_map.return_value = self._member_map(250)
         response = self.client.get(self._url(query="User0123"))
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
@@ -2067,48 +2067,48 @@ class TestAvailableReviewersAPI(APIBaseTest):
         assert next(iter(body.values()))["email"] == "user0123@example.com"
 
     @patch("products.signals.backend.views.capture_exception")
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_no_exception_captured_under_threshold(self, mock_map, mock_capture):
-        mock_map.return_value = self._login_map(50)
+        mock_map.return_value = self._member_map(50)
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
         mock_capture.assert_not_called()
 
     @patch("products.signals.backend.views.capture_exception")
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_exception_captured_over_threshold(self, mock_map, mock_capture):
-        mock_map.return_value = self._login_map(1201)
+        mock_map.return_value = self._member_map(1201)
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()) == 1201
         mock_capture.assert_called_once()
 
     @patch("products.signals.backend.views.capture_exception")
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_threshold_capture_deduplicated_across_requests(self, mock_map, mock_capture):
         # Repeated popover opens for the same over-threshold org must report at most once.
-        mock_map.return_value = self._login_map(1201)
+        mock_map.return_value = self._member_map(1201)
         for _ in range(3):
             assert self.client.get(self._url()).status_code == status.HTTP_200_OK
         mock_capture.assert_called_once()
 
     @patch("products.signals.backend.views.capture_exception")
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_threshold_not_triggered_by_search_requests(self, mock_map, mock_capture):
         # A search-as-you-type request must not spam the threshold capture.
-        mock_map.return_value = self._login_map(1201)
+        mock_map.return_value = self._member_map(1201)
         response = self.client.get(self._url(query="User0001"))
         assert response.status_code == status.HTTP_200_OK
         mock_capture.assert_not_called()
 
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_empty_org_returns_empty(self, mock_map):
         mock_map.return_value = {}
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {}
 
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_missing_team_map_returns_empty(self, mock_map):
         # The helper returns None for an unknown team; the view coalesces it to an empty result.
         mock_map.return_value = None

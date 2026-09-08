@@ -2512,7 +2512,7 @@ export interface ScoutMemberApi {
     /** The member's last name (may be empty). */
     last_name: string
     /**
-     * The member's resolved GitHub login (lowercased), already resolved server-side — put this value in a report's `suggested_reviewers` once you've matched the finding's owner to this row. Null when the member has no linked GitHub identity: a null-login member can't be routed to at all (neither a login nor a uuid resolves), so pick a different owner or leave `suggested_reviewers` empty.
+     * The member's resolved GitHub login (lowercased), already resolved server-side. Null when the member has no linked GitHub account, which does not stop you routing to them: pass their `user_uuid` in `suggested_reviewers` and the report reaches them. A null login only means no draft PR can be opened as that person.
      * @nullable
      */
     github_login: string | null
@@ -3503,10 +3503,9 @@ export interface ReportEvidenceApi {
 /**
  * One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
  *
- * The server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the
- * org member's linked GitHub login (and wins over a supplied `github_login` when both are given). A
- * `user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a
- * reviewer is never silently dropped.
+ * A reviewer is a PostHog user, so a `user_uuid` only has to name an org member of this team: a
+ * member with no linked GitHub account routes the report like anyone else. A `user_uuid` that
+ * isn't an org member of this team is rejected — so a reviewer is never silently dropped.
  */
 export interface SuggestedReviewerApi {
     /**
@@ -3514,7 +3513,7 @@ export interface SuggestedReviewerApi {
      * @maxLength 200
      */
     github_login?: string
-    /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
+    /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use this when you know the PostHog user, whether or not they have a GitHub handle — every member is routable this way. Must be a concrete UUID; the `@me` alias is not valid here. */
     user_uuid?: string
     /**
      * One sentence of evidence for WHY this person: what ties them to the affected surface (e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human correction routed the prior tracing report to them'). Persisted on the report so the routing is auditable — always set it when you can name the evidence; 'precedent' alone is weak, prefer code-derived ownership.

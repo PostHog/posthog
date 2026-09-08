@@ -12,6 +12,7 @@ import { EnrichedReviewer, SignalReport } from '../../types'
 
 const MAX_VISIBLE_REVIEWERS = 5
 import { DetailSection } from './DetailSection'
+import { getReviewerDisplayName } from './reviewerDisplay'
 import { removeSuggestedReviewer, ReviewerSearchList } from './ReviewerSearchList'
 
 /**
@@ -80,7 +81,7 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
                     {(showAllReviewers ? baseReviewers : baseReviewers.slice(0, MAX_VISIBLE_REVIEWERS)).map(
                         (reviewer: EnrichedReviewer) => (
                             <ReviewerRow
-                                key={reviewer.user?.uuid ?? reviewer.github_login}
+                                key={reviewer.user?.uuid ?? reviewer.user_uuid ?? reviewer.github_login}
                                 reviewer={reviewer}
                                 disabled={isUpdatingReviewers}
                                 onRemove={() => removeReviewer(reviewer)}
@@ -113,7 +114,7 @@ function ReviewerRow({
     disabled: boolean
     onRemove: () => void
 }): JSX.Element {
-    const displayName = reviewer.github_name ?? reviewer.user?.first_name ?? reviewer.github_login
+    const displayName = getReviewerDisplayName(reviewer)
     const reason = reviewer.reason ?? reviewer.relevant_commits[0]?.reason ?? null
     const githubUrl = reviewer.github_login ? `https://github.com/${reviewer.github_login}` : null
 
@@ -185,7 +186,7 @@ function ReviewerRow({
                 icon={<IconX />}
                 disabledReason={disabled ? 'Updating…' : undefined}
                 onClick={onRemove}
-                tooltip={`Remove ${reviewer.github_login || reviewer.user?.first_name || 'reviewer'}`}
+                tooltip={`Remove ${displayName}`}
                 // Hover reveal keeps rows quiet with a mouse, but a coarse pointer (phone, tablet) has no
                 // hover state, so the button stays visible there and whenever the row holds keyboard focus.
                 className="opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"

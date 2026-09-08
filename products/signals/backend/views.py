@@ -53,6 +53,7 @@ from posthog.api.integration import github_rate_limited_response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
@@ -121,10 +122,13 @@ from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
-    get_org_member_github_login_to_user_map,
+    ReviewerPayloadIndex,
     get_org_member_github_logins_by_user_uuid,
+    get_org_member_users_by_uuid,
     normalized_github_logins_from_suggested_reviewer_artefacts,
+    normalized_user_uuids_from_suggested_reviewer_artefacts,
     resolve_org_github_login_to_users,
+    resolve_org_users_by_uuid,
 )
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
@@ -1286,15 +1290,18 @@ class SignalReportViewSet(
         except (ValueError, AttributeError) as e:
             raise serializers.ValidationError({"suggested_reviewers": f"Invalid user UUID: {e}"})
 
+        # A reviewer entry identifies its person by `user_uuid`, by `github_login`, or by both, so
+        # match on either: the requested users' own uuids, plus their logins for the entries written
+        # before reviewers carried a uuid.
         reviewer_github_logins = list(
             get_org_member_github_logins_by_user_uuid(self.team.id, reviewer_user_uuids).values()
         )
-        if not reviewer_github_logins:
-            return queryset.none()
-
         reviewer_json_filters = [
-            json.dumps([{"github_login": github_login}]) for github_login in reviewer_github_logins
+            *(json.dumps([{"user_uuid": user_uuid}]) for user_uuid in reviewer_user_uuids),
+            *(json.dumps([{"github_login": github_login}]) for github_login in reviewer_github_logins),
         ]
+        if not reviewer_json_filters:
+            return queryset.none()
         reviewer_where = " OR ".join(["content::jsonb @> %s::jsonb"] * len(reviewer_json_filters))
         return queryset.filter(
             Exists(
@@ -1549,16 +1556,20 @@ class SignalReportViewSet(
         # even when a user connects their GitHub account after the report was generated.
         # Never true for ready + not_actionable — there is nothing actionable to review.
         # Failed reports are excluded too — pipelines that errored should not bubble as "needs your review".
+        # Match the user's own uuid as well as their login: a reviewer with no linked GitHub
+        # account is stored by uuid alone, and entries predating `user_uuid` carry only a login.
         github_login = self._get_github_login(self.request.user)
-        if not github_login:
-            return queryset.annotate(is_suggested_reviewer=Value(False))
+        identity_filters = [json.dumps([{"user_uuid": str(self.request.user.uuid)}])]
+        if github_login:
+            # github_login comes from our own UserSocialAuth DB, not user input.
+            identity_filters.append(json.dumps([{"github_login": github_login}]))
+        identity_where = " OR ".join(["content::jsonb @> %s::jsonb"] * len(identity_filters))
 
-        # github_login comes from our own UserSocialAuth DB, not user input.
         suggested_exists = Exists(
             # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
             self._latest_suggested_reviewers_qs().extra(
-                where=["content::jsonb @> %s::jsonb"],
-                params=[json.dumps([{"github_login": github_login}])],
+                where=[identity_where],
+                params=identity_filters,
             )
         )
         return queryset.annotate(
@@ -2081,10 +2092,10 @@ class SignalReportViewSet(
     @action(detail=False, methods=["get"], url_path="available_reviewers", required_scopes=["task:read"])
     def available_reviewers(self, request, **kwargs):
         with tracer.start_as_current_span("signals.available_reviewers") as span:
-            login_to_user = get_org_member_github_login_to_user_map(self.team.id) or {}
+            # Every org member, not only the GitHub-linked ones: a reviewer is a PostHog user, so a
+            # teammate who never connected GitHub is still pickable — and can pick themselves.
+            users_by_uuid = get_org_member_users_by_uuid(self.team.id) or {}
             query = (request.query_params.get("query") or "").strip().lower()
-
-            users_by_uuid = {str(user.uuid): user for user in login_to_user.values()}
 
             candidate_count = len(users_by_uuid)
             span.set_attribute("signals.available_reviewers.candidate_count", candidate_count)
@@ -2154,7 +2165,7 @@ class SignalReportViewSet(
         entries = write_serializer.validated_data["content"]
 
         try:
-            new_artefact, seen = append_suggested_reviewers(
+            new_artefact = append_suggested_reviewers(
                 team=self.team,
                 report_id=str(report.id),
                 entries=entries,
@@ -2164,14 +2175,7 @@ class SignalReportViewSet(
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         # Return the read-shape (enriched) so the client sees the canonical result, matching the artefact PUT.
-        login_map = resolve_org_github_login_to_users(self.team.id, list(seen)) if seen else {}
-        read_serializer = SignalReportArtefactSerializer(
-            new_artefact,
-            context={
-                **self.get_serializer_context(),
-                "signals_github_login_to_user_map": login_map,
-            },
-        )
+        read_serializer = SignalReportArtefactSerializer(new_artefact, context=self.get_serializer_context())
         return Response(read_serializer.data)
 
     def destroy(self, request, *args, **kwargs):
@@ -3676,8 +3680,46 @@ class ReviewerWriteError(Exception):
     """A reviewer write payload that couldn't be resolved. Callers surface it as a 400 `{"error": ...}`."""
 
 
+@frozen
+class _ResolvedReviewerWrite:
+    """One reviewer write entry after identity resolution, ready to merge onto the stored list.
+
+    `explicit_name` / `explicit_reason` separate "supplied, possibly as an empty string to clear"
+    from "field absent": only an absent field falls back to what the report already stored.
+    """
+
+    user_uuid: str | None
+    github_login: str | None
+    github_name: str | None
+    explicit_name: bool
+    reason: str | None
+    explicit_reason: bool
+
+    @property
+    def identity_label(self) -> str:
+        return self.github_login or f"user:{self.user_uuid}"
+
+
+def _reviewer_identity_label(payload: dict) -> str:
+    """How a stored reviewer entry names its person in the activity log and in dedupe.
+
+    A GitHub login where there is one, so existing rows and the scout-facing correction history
+    read exactly as before; the user's uuid where there is not.
+    """
+    login = str(payload.get("github_login") or "").strip().lower()
+    if login:
+        return login
+    user_uuid = payload.get("user_uuid")
+    return f"user:{user_uuid}" if user_uuid else ""
+
+
 def _schedule_reviewer_added_slack_notifications(
-    *, team_id: int, report_id: str, added_logins: Sequence[str], actor_user_id: int | None
+    *,
+    team_id: int,
+    report_id: str,
+    added_logins: Sequence[str],
+    added_user_uuids: Sequence[str],
+    actor_user_id: int | None,
 ) -> None:
     """After commit, Slack-notify reviewers a human just added to this report.
 
@@ -3691,6 +3733,7 @@ def _schedule_reviewer_added_slack_notifications(
             report_id=report_id,
             team_id=team_id,
             added_github_logins=list(added_logins),
+            added_user_uuids=list(added_user_uuids),
             exclude_user_id=actor_user_id,
         ),
         robust=True,
@@ -3703,12 +3746,12 @@ def append_suggested_reviewers(
     report_id: str,
     entries: list[dict],
     request: Request,
-) -> tuple[SignalReportArtefact, set[str]]:
+) -> SignalReportArtefact:
     """Append a new `suggested_reviewers` status row for a report, merging forward from the current
     (latest) reviewers. Works whether or not the report already has a reviewers artefact — the first
     write for a report with none simply creates the first row. Shared by the app-only reviewers PUT
-    on both the report and artefact viewsets. Returns the new artefact and the set of canonical logins
-    written (for read-time enrichment). Raises `ReviewerWriteError` on unresolvable entries."""
+    on both the report and artefact viewsets. Returns the new artefact.
+    Raises `ReviewerWriteError` on unresolvable entries."""
     # App/user-only write (agents append reviewers via the artefacts POST), so always attribute to
     # the requesting user — never the X-PostHog-Task-Id header. A task-attributed reviewers row has
     # no created_by_id, which makes auto-start treat the list as agent-authored and run the
@@ -3722,39 +3765,55 @@ def append_suggested_reviewers(
     scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
     scoped_team_id_tuple = tuple(scoped_team_ids) if scoped_team_ids is not None else None
 
-    # Resolve any user_uuid → canonical github_login via team org membership.
+    # Resolve a supplied user_uuid to the org member it names, and a supplied login to that member's
+    # uuid. A reviewer is a PostHog user, so an entry needs org membership rather than a GitHub
+    # account: a member who never connected GitHub is stored by uuid, with a null login.
     uuids_to_resolve = [str(e["user_uuid"]) for e in entries if e.get("user_uuid")]
-    uuid_to_login: dict[str, str] = (
-        get_org_member_github_logins_by_user_uuid(team.id, uuids_to_resolve) if uuids_to_resolve else {}
-    )
+    uuid_to_user = resolve_org_users_by_uuid(team.id, uuids_to_resolve) if uuids_to_resolve else {}
+    logins_to_resolve = {
+        str(e["github_login"]).strip().lower()
+        for e in entries
+        if not e.get("user_uuid") and str(e.get("github_login") or "").strip()
+    }
+    login_to_org_user = resolve_org_github_login_to_users(team.id, logins_to_resolve) if logins_to_resolve else {}
 
-    # Resolve canonical login per entry. Fail loudly if a user_uuid does not
-    # map to an org member with a GitHub identity on this team.
     # The bool tuple elements distinguish "github_name / reason explicitly supplied
     # (incl. empty string to clear)" from "field absent" — the merge step below
     # only falls back to the prior value when the field is absent.
-    resolved_entries: list[tuple[str, str | None, bool, str | None, bool]] = []
+    resolved_entries: list[_ResolvedReviewerWrite] = []
     for idx, entry in enumerate(entries):
         user_uuid = entry.get("user_uuid")
         if user_uuid is not None:
-            resolved_login = uuid_to_login.get(str(user_uuid))
-            if not resolved_login:
-                raise ReviewerWriteError(
-                    f"content[{idx}]: user_uuid '{user_uuid}' is not an org member of this team "
-                    "with a linked GitHub identity."
-                )
-            login_lc = resolved_login.lower()
+            member = uuid_to_user.get(str(user_uuid))
+            if member is None:
+                raise ReviewerWriteError(f"content[{idx}]: user_uuid '{user_uuid}' is not an org member of this team.")
+            uuid_str: str | None = str(member.uuid)
+            member_login = member.get_github_login()
+            login_lc = member_login.lower() if member_login else None
         else:
             raw_login = entry.get("github_login") or ""
-            login_lc = raw_login.strip().lower()
+            login_lc = raw_login.strip().lower() or None
             if not login_lc:
                 raise ReviewerWriteError(f"content[{idx}]: github_login resolved to empty after normalization.")
+            # Store the uuid alongside a login that names an org member, so the entry keeps routing
+            # if they later unlink GitHub.
+            member = login_to_org_user.get(login_lc)
+            uuid_str = str(member.uuid) if member is not None else None
 
         explicit_name = "github_name" in entry
         github_name = entry.get("github_name") if explicit_name else None
         explicit_reason = "reason" in entry
         reason = entry.get("reason") if explicit_reason else None
-        resolved_entries.append((login_lc, github_name, explicit_name, reason, explicit_reason))
+        resolved_entries.append(
+            _ResolvedReviewerWrite(
+                user_uuid=uuid_str,
+                github_login=login_lc,
+                github_name=github_name,
+                explicit_name=explicit_name,
+                reason=reason,
+                explicit_reason=explicit_reason,
+            )
+        )
 
     # Lock the report for the read-merge-append so concurrent reviewer edits serialize — each
     # write reads the current (latest) reviewers and appends a new row, so without the lock two
@@ -3786,27 +3845,12 @@ def append_suggested_reviewers(
             prior_content = json.loads(current.content) if current else []
         except (json.JSONDecodeError, ValueError):
             prior_content = []
-        prior_commits_by_login: dict[str, list] = {}
-        prior_name_by_login: dict[str, str | None] = {}
-        prior_reason_by_login: dict[str, str | None] = {}
-        prior_logins: list[str] = []
-        if isinstance(prior_content, list):
-            for prior in prior_content:
-                if not isinstance(prior, dict):
-                    continue
-                login = (prior.get("github_login") or "").strip().lower()
-                if not login:
-                    continue
-                prior_logins.append(login)
-                commits = prior.get("relevant_commits")
-                if isinstance(commits, list):
-                    prior_commits_by_login[login] = commits
-                prior_name = prior.get("github_name")
-                if isinstance(prior_name, str):
-                    prior_name_by_login[login] = prior_name
-                prior_reason = prior.get("reason")
-                if isinstance(prior_reason, str):
-                    prior_reason_by_login[login] = prior_reason
+        if not isinstance(prior_content, list):
+            prior_content = []
+        prior_index = ReviewerPayloadIndex.build(prior_content)
+        prior_payloads = [
+            prior for prior in prior_content if isinstance(prior, dict) and _reviewer_identity_label(prior)
+        ]
 
         # Newly-added reviewers carry no routing evidence, so record who added them and when
         # (this path is always attributed to request.user). Dates use the report's project timezone.
@@ -3816,25 +3860,37 @@ def append_suggested_reviewers(
         added_on = f"{now_local:%b} {now_local.day}, {now_local.year}"
         manual_add_reason = f"Added as a reviewer by {actor.get_full_name().strip() or actor.email} on {added_on}"
 
-        # Dedupe by canonical login, preserve first-seen order.
+        # Dedupe by identity (a login and its owner's uuid are the same person), preserve
+        # first-seen order.
         new_content: list[dict] = []
-        for login_lc, github_name, explicit_name, reason, explicit_reason in resolved_entries:
-            if login_lc in seen:
+        # Identity of the prior entry each kept reviewer matched, so a reviewer whose stored entry
+        # only carried a login and now carries a uuid too reads as kept, not as a remove plus an add.
+        matched_prior_ids: set[int] = set()
+        for resolved in resolved_entries:
+            identity = resolved.identity_label
+            if identity in seen:
                 continue
-            seen.add(login_lc)
+            seen.add(identity)
+            prior = prior_index.get(user_uuid=resolved.user_uuid, github_login=resolved.github_login)
+            if prior is not None:
+                matched_prior_ids.add(id(prior))
+            prior_name = prior.get("github_name") if prior else None
+            prior_reason = prior.get("reason") if prior else None
+            prior_commits = prior.get("relevant_commits") if prior else None
             # If the client supplied github_name (incl. ""), honour it. Otherwise
             # carry over the prior one so kept reviewers don't lose their name.
             # Same rule for reason. Only fall back to the manual-add note when the field was
             # omitted for a brand-new reviewer — an explicit null clears the reason, as for kept ones.
-            effective_name = github_name if explicit_name else prior_name_by_login.get(login_lc)
-            effective_reason = reason if explicit_reason else prior_reason_by_login.get(login_lc)
-            if not explicit_reason and login_lc not in prior_logins:
+            effective_name = resolved.github_name if resolved.explicit_name else prior_name
+            effective_reason = resolved.reason if resolved.explicit_reason else prior_reason
+            if not resolved.explicit_reason and prior is None:
                 effective_reason = manual_add_reason
             new_content.append(
                 {
-                    "github_login": login_lc,
-                    "github_name": effective_name,
-                    "relevant_commits": prior_commits_by_login.get(login_lc, []),
+                    "github_login": resolved.github_login,
+                    "user_uuid": resolved.user_uuid,
+                    "github_name": effective_name if isinstance(effective_name, str) else None,
+                    "relevant_commits": prior_commits if isinstance(prior_commits, list) else [],
                     "reason": effective_reason or None,
                 }
             )
@@ -3851,12 +3907,19 @@ def append_suggested_reviewers(
         # Human reviewer corrections are a routing signal (scouts query them via the
         # activity log to learn who owns an area), so log them — but only genuine
         # membership changes by a human, not agent writes or order-only rewrites.
-        # `new_content` is deduped above; dedupe `prior_logins` too (a legacy or
-        # hand-crafted prior row may carry duplicates) so before/after read symmetrically.
-        prior_logins = list(dict.fromkeys(prior_logins))
-        new_logins = [entry["github_login"] for entry in new_content]
+        # Membership is compared by which prior entry each new one matched, so before/after read
+        # symmetrically even where the two rows identify the same person by different fields. A
+        # reviewer is labelled by their login when they have one, and by their uuid when they don't.
+        removed_payloads = [prior for prior in prior_payloads if id(prior) not in matched_prior_ids]
+        added_entries = [
+            entry
+            for entry in new_content
+            if not prior_index.get(user_uuid=entry["user_uuid"], github_login=entry["github_login"])
+        ]
+        prior_identities = list(dict.fromkeys(_reviewer_identity_label(prior) for prior in prior_payloads))
+        new_identities = list(dict.fromkeys(_reviewer_identity_label(entry) for entry in new_content))
         correction: ReviewerCorrection | None = None
-        if attribution.kind == "user" and set(prior_logins) != set(new_logins):
+        if attribution.kind == "user" and (removed_payloads or added_entries):
             # Read impersonation once: the activity row records it, and a support-staff edit made
             # while impersonating must not become scout routing precedent. The reviewer-corrections
             # profile already excludes impersonated rows (`_recent_reviewer_corrections`), so the
@@ -3877,8 +3940,8 @@ def append_suggested_reviewers(
                             type="SignalReport",
                             action="changed",
                             field="suggested_reviewers",
-                            before=prior_logins,
-                            after=new_logins,
+                            before=prior_identities,
+                            after=new_identities,
                         )
                     ],
                 ),
@@ -3887,13 +3950,12 @@ def append_suggested_reviewers(
             # A human added reviewers: ping the newly-added ones on their own Slack channel so
             # someone added after generation still hears about an actionable report, mirroring
             # the notification sent when it first went ready. Removals aren't notified.
-            prior_login_set = set(prior_logins)
-            added_logins = [login for login in new_logins if login not in prior_login_set]
-            if added_logins:
+            if added_entries:
                 _schedule_reviewer_added_slack_notifications(
                     team_id=team.id,
                     report_id=str(report_id),
-                    added_logins=added_logins,
+                    added_logins=[e["github_login"] for e in added_entries if e["github_login"]],
+                    added_user_uuids=[e["user_uuid"] for e in added_entries if e["user_uuid"]],
                     actor_user_id=attribution.user_id,
                 )
 
@@ -3901,12 +3963,19 @@ def append_suggested_reviewers(
             # is the only return path a scout has for routing memory it already cached — but only for
             # a genuine team edit. An impersonated operator edit is not team ownership evidence, so it
             # steers nothing, matching the reviewer-corrections profile's impersonation filter.
+            # Scout routing memory is keyed on GitHub logins, so a change that only moved a
+            # login-less reviewer carries nothing for that channel to steer and is skipped there.
             if not was_impersonated:
-                new_login_set = set(new_logins)
                 correction = ReviewerCorrection(
                     report_id=str(report_id),
-                    added_logins=tuple(added_logins),
-                    removed_logins=tuple(login for login in prior_logins if login not in new_login_set),
+                    added_logins=tuple(e["github_login"] for e in added_entries if e["github_login"]),
+                    removed_logins=tuple(
+                        login
+                        for login in (
+                            str(prior.get("github_login") or "").strip().lower() for prior in removed_payloads
+                        )
+                        if login
+                    ),
                     actor_user_id=user_id,
                     scoped_team_ids=scoped_team_id_tuple,
                 )
@@ -3918,12 +3987,15 @@ def append_suggested_reviewers(
                 _record_reviewer_edit,
                 team=team,
                 report_id=str(report_id),
-                github_logins=new_logins,
+                github_logins=[entry["github_login"] for entry in new_content if entry["github_login"]],
+                user_uuid_only_count=sum(
+                    1 for entry in new_content if entry["user_uuid"] and not entry["github_login"]
+                ),
                 correction=correction,
             )
         )
 
-    return new_artefact, seen
+    return new_artefact
 
 
 def _record_reviewer_edit(
@@ -3931,6 +4003,7 @@ def _record_reviewer_edit(
     team: Team,
     report_id: str,
     github_logins: list[str],
+    user_uuid_only_count: int,
     correction: ReviewerCorrection | None,
 ) -> None:
     """The post-commit tail of a reviewer edit: steer the scouts, then record what the edit did.
@@ -3943,6 +4016,7 @@ def _record_reviewer_edit(
         team_id=team.id,
         report_id=report_id,
         github_logins=github_logins,
+        user_uuid_only_count=user_uuid_only_count,
         source="user_edit",
         correction_notes_written=len(forwarded.note_ids) if forwarded else None,
         correction_note_targets=forwarded.targets_resolved if forwarded else None,
@@ -4055,12 +4129,15 @@ class SignalReportArtefactViewSet(
         artefacts = list(page if page is not None else log)
         logins_union = normalized_github_logins_from_suggested_reviewer_artefacts(artefacts)
         login_map = resolve_org_github_login_to_users(self.team.id, logins_union) if logins_union else {}
+        uuids_union = normalized_user_uuids_from_suggested_reviewer_artefacts(artefacts)
+        uuid_map = resolve_org_users_by_uuid(self.team.id, uuids_union) if uuids_union else {}
         serializer = SignalReportArtefactSerializer(
             artefacts,
             many=True,
             context={
                 **self.get_serializer_context(),
                 "signals_github_login_to_user_map": login_map,
+                "signals_reviewer_user_uuid_map": uuid_map,
             },
         )
         if page is not None:
@@ -4088,7 +4165,7 @@ class SignalReportArtefactViewSet(
         entries = write_serializer.validated_data["content"]
 
         try:
-            new_artefact, seen = append_suggested_reviewers(
+            new_artefact = append_suggested_reviewers(
                 team=self.team,
                 report_id=str(artefact.report_id),
                 entries=entries,
@@ -4098,14 +4175,7 @@ class SignalReportArtefactViewSet(
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         # Return the read-shape (enriched) so the client sees the canonical result.
-        login_map = resolve_org_github_login_to_users(self.team.id, list(seen)) if seen else {}
-        read_serializer = SignalReportArtefactSerializer(
-            new_artefact,
-            context={
-                **self.get_serializer_context(),
-                "signals_github_login_to_user_map": login_map,
-            },
-        )
+        read_serializer = SignalReportArtefactSerializer(new_artefact, context=self.get_serializer_context())
         return Response(read_serializer.data)
 
     @staticmethod
@@ -4267,7 +4337,10 @@ class SignalReportArtefactViewSet(
                     capture_suggested_reviewers_resolved,
                     team_id=self.team.id,
                     report_id=report_id,
-                    github_logins=[entry.github_login for entry in parsed_content.root],
+                    github_logins=[entry.github_login for entry in parsed_content.root if entry.github_login],
+                    user_uuid_only_count=sum(
+                        1 for entry in parsed_content.root if entry.user_uuid and not entry.github_login
+                    ),
                     source="api",
                 )
             )
@@ -4294,21 +4367,23 @@ class SignalReportArtefactViewSet(
                 .first()
             )
             logins: list[str] = []
+            user_uuid_only_count = 0
             if latest is not None:
                 try:
                     parsed = json.loads(latest.content)
                 except (json.JSONDecodeError, TypeError, ValueError):
                     parsed = []
                 if isinstance(parsed, list):
-                    logins = [
-                        str(entry.get("github_login"))
-                        for entry in parsed
-                        if isinstance(entry, dict) and entry.get("github_login")
-                    ]
+                    rows = [entry for entry in parsed if isinstance(entry, dict)]
+                    logins = [str(entry["github_login"]) for entry in rows if entry.get("github_login")]
+                    user_uuid_only_count = sum(
+                        1 for entry in rows if entry.get("user_uuid") and not entry.get("github_login")
+                    )
             capture_suggested_reviewers_resolved(
                 team_id=self.team.id,
                 report_id=report_id,
                 github_logins=logins,
+                user_uuid_only_count=user_uuid_only_count,
                 source="api",
             )
         except Exception:

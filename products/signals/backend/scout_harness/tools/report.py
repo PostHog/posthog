@@ -51,7 +51,12 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalScoutRun
 from products.signals.backend.report_charts import ChartSize, ReportChart, chart_batch_error
-from products.signals.backend.report_generation.resolve_reviewers import get_org_member_github_logins_by_user_uuid
+from products.signals.backend.report_generation.resolve_reviewers import (
+    ReviewerIdentitySet,
+    get_org_member_github_logins_by_user_uuid,
+    resolve_org_github_login_to_users,
+    resolve_org_users_by_uuid,
+)
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_prompts import normalize_suggested_prompts, suggested_prompts_batch_error
 from products.signals.backend.scout_harness.prompt import SELF_IMPROVEMENT_REPORT_TITLE_PREFIX
@@ -398,17 +403,22 @@ def _build_priority(priority: str | None, explanation: str | None) -> PriorityAs
     return PriorityAssessment(priority=priority_level, explanation=explanation)
 
 
-def _owner_logins(team: Team, skill_name: str) -> set[str]:
-    """The running scout's owner GitHub logins (lowercased), for stamping reviewer provenance.
+def _owner_identities(team: Team, skill_name: str) -> ReviewerIdentitySet:
+    """The running scout's owners, for stamping reviewer provenance.
 
-    Owners come from `LLMSkillOwner`. Owners with no linked GitHub identity aren't included — they
-    can't be a routable reviewer, and provenance only matters for a login that could appear in the
-    artefact. Used to mark, not to inject: routing is the scout's call (see `_build_suggested_reviewers`)."""
+    Owners come from `LLMSkillOwner`. Both identities are collected because an owner with no linked
+    GitHub account is a routable reviewer too, and the stamp has to recognize them however the
+    scout named them. Used to mark, not to inject: routing is the scout's call (see
+    `_build_suggested_reviewers`)."""
     owner_uuids = resolve_skill_owner_user_uuids(team, skill_name)
     if not owner_uuids:
-        return set()
+        return ReviewerIdentitySet.empty()
     uuid_to_login = get_org_member_github_logins_by_user_uuid(team.id, owner_uuids)
-    return {login for login in uuid_to_login.values() if login}  # already lowercased by the resolver
+    return ReviewerIdentitySet(
+        user_uuids=frozenset(str(u) for u in owner_uuids),
+        # already lowercased by the resolver
+        github_logins=frozenset(login for login in uuid_to_login.values() if login),
+    )
 
 
 def _build_suggested_reviewers(
@@ -417,16 +427,17 @@ def _build_suggested_reviewers(
     *,
     skill_name: str | None = None,
 ) -> SuggestedReviewers | None:
-    """Resolve reviewer entries to a canonical, lowercased, deduped `suggested_reviewers` artefact
-    (GitHub logins), or None to omit it.
+    """Resolve reviewer entries to a canonical, deduped `suggested_reviewers` artefact, or None to
+    omit it.
 
-    Each scout-supplied entry identifies a reviewer by `github_login`, `user_uuid`, or both — mirroring
-    the inbox `SuggestedReviewerEntryWriteSerializer`. A `user_uuid` is resolved to the org member's
-    linked GitHub login (and wins over a supplied `github_login` when both are given), so a scout that
-    only knows a PostHog user can still route a report. Resolution is fail-loud: a `user_uuid` that
-    isn't an org member of this team with a linked GitHub identity raises `InvalidScoutReportError`
-    rather than silently dropping the reviewer, since a quietly-lost reviewer is what leaves a report
-    routed to no one.
+    Each scout-supplied entry identifies a reviewer by `github_login`, `user_uuid`, or both —
+    mirroring the inbox `SuggestedReviewerEntryWriteSerializer`. A reviewer is a PostHog user, so a
+    `user_uuid` only has to name an org member of this team: a member who never connected GitHub is
+    stored by uuid with a null login and routes like anyone else. A supplied login is stored
+    alongside the uuid of the org member it names, so the entry keeps routing if they later unlink
+    GitHub. Resolution is fail-loud: a `user_uuid` that isn't an org member of this team raises
+    `InvalidScoutReportError` rather than silently dropping the reviewer, since a quietly-lost
+    reviewer is what leaves a report routed to no one.
 
     **The scout owns routing.** Owners are *not* injected here — they're surfaced to the scout as
     context (the run prompt's skill-owners line) so it can decide, and a skill body that says "route
@@ -460,30 +471,38 @@ def _build_suggested_reviewers(
             raise InvalidScoutReportError("each suggested reviewer needs a github_login or a user_uuid")
 
     uuids_to_resolve = [str(entry.user_uuid) for entry in reviewers if entry.user_uuid]
-    uuid_to_login = get_org_member_github_logins_by_user_uuid(team.id, uuids_to_resolve) if uuids_to_resolve else {}
+    uuid_to_user = resolve_org_users_by_uuid(team.id, uuids_to_resolve) if uuids_to_resolve else {}
+    logins_to_resolve = {
+        (entry.github_login or "").strip().lower()
+        for entry in reviewers
+        if not entry.user_uuid and (entry.github_login or "").strip()
+    }
+    login_to_user = resolve_org_github_login_to_users(team.id, logins_to_resolve) if logins_to_resolve else {}
 
     scout_entries: list[SuggestedReviewerEntry] = []
     for entry in reviewers:
         if entry.user_uuid:
-            resolved = uuid_to_login.get(str(entry.user_uuid))
-            if not resolved:
-                raise InvalidScoutReportError(
-                    f"user_uuid '{entry.user_uuid}' is not an org member of this team with a linked GitHub identity"
-                )
-            login = resolved.lower()
+            member = uuid_to_user.get(str(entry.user_uuid))
+            if member is None:
+                raise InvalidScoutReportError(f"user_uuid '{entry.user_uuid}' is not an org member of this team")
+            user_uuid: str | None = str(member.uuid)
+            member_login = member.get_github_login()
+            login: str | None = member_login.lower() if member_login else None
         else:
-            login = (entry.github_login or "").strip().lower()
+            login = (entry.github_login or "").strip().lower() or None
             if not login:
                 raise InvalidScoutReportError("github_login resolved to empty after normalization")
+            member = login_to_user.get(login)
+            user_uuid = str(member.uuid) if member is not None else None
         reason = entry.reason.strip() if entry.reason and entry.reason.strip() else None
-        scout_entries.append(SuggestedReviewerEntry(github_login=login, reason=reason))
+        scout_entries.append(SuggestedReviewerEntry(github_login=login, user_uuid=user_uuid, reason=reason))
 
-    # Dedupe by login (a login + its uuid can resolve to the same person), preserving the scout's
+    # Dedupe by identity (a login and its owner's uuid are the same person), preserving the scout's
     # order — there's no reordering, so the scout's ranking is the routing order.
-    entries_by_login: dict[str, SuggestedReviewerEntry] = {}
+    entries_by_identity: dict[str, SuggestedReviewerEntry] = {}
     for scout_entry in scout_entries:
-        entries_by_login.setdefault(scout_entry.github_login, scout_entry)
-    entries = list(entries_by_login.values())[:MAX_SUGGESTED_REVIEWERS]
+        entries_by_identity.setdefault(scout_entry.github_login or f"user:{scout_entry.user_uuid}", scout_entry)
+    entries = list(entries_by_identity.values())[:MAX_SUGGESTED_REVIEWERS]
 
     if not entries:
         return None
@@ -505,10 +524,15 @@ def _stamp_owner_provenance(team: Team, reviewers: SuggestedReviewers, *, skill_
     the pick: autostart's live owner exclusion also resolves the touching scouts from the run's
     edit/emit tallies, but those writes are best-effort — a lost tally must not lose the exclusion.
     """
-    owners = _owner_logins(team, skill_name) if skill_name else set()
+    owners = _owner_identities(team, skill_name) if skill_name else ReviewerIdentitySet.empty()
     entries = [
         # model_copy keeps every other field (name, commit evidence) exactly as the entry carries it.
-        e.model_copy(update={"is_skill_owner": e.github_login in owners, "source_skill": skill_name or None})
+        e.model_copy(
+            update={
+                "is_skill_owner": owners.covers(user_uuid=e.user_uuid, github_login=e.github_login),
+                "source_skill": skill_name or None,
+            }
+        )
         for e in reviewers.root
     ]
     return SuggestedReviewers(root=entries)
