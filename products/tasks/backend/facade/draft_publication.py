@@ -30,6 +30,17 @@ class DraftPublicationResult:
     pr_url: str | None
 
 
+@frozen
+class DraftPublicationLifecycleResult:
+    """Read-only local publication and authoritative remote pull request state."""
+
+    publication_id: UUID
+    local_status: Literal["pending", "published", "unknown", "blocked", "revoked"]
+    remote_state: Literal["pending", "open", "merged", "closed", "unknown"]
+    pr_number: int | None
+    pr_url: str | None
+
+
 class InvalidDraftPublicationError(ValueError):
     """Raised when a draft publication does not match its protected lifecycle binding."""
 
@@ -50,6 +61,14 @@ def get_draft_publication(*, team_id: int, caller_id: UUID, publication_id: UUID
     from products.tasks.backend.logic.services.publication_service import get_publication
 
     return get_publication(team_id=team_id, caller_id=caller_id, publication_id=publication_id)
+
+
+def get_draft_publication_lifecycle(
+    *, team_id: int, caller_id: UUID, publication_id: UUID
+) -> DraftPublicationLifecycleResult:
+    from products.tasks.backend.logic.services.publication_service import get_publication_lifecycle
+
+    return get_publication_lifecycle(team_id=team_id, caller_id=caller_id, publication_id=publication_id)
 
 
 def revoke_draft_publication(*, team_id: int, caller_id: UUID, publication_id: UUID) -> bool:

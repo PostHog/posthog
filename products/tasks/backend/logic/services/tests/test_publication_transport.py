@@ -1,5 +1,6 @@
 import hashlib
 from datetime import UTC, datetime
+from typing import cast
 
 import pytest
 
@@ -16,6 +17,7 @@ from products.tasks.backend.logic.services.publication_transport import (
     create_draft_pull_request,
     create_server_branch,
     create_server_commit,
+    read_draft_pull_request_state,
     reconcile_draft_pull_request,
     reconcile_server_branch,
 )
@@ -141,6 +143,8 @@ class FakeGitHubClient:
             if self.malformed_pr:
                 return {}
             return self.pull_request
+        if method == "GET" and "/pulls/" in path:
+            return self.pull_request or {}
         if method == "GET" and path.endswith("/pulls"):
             return [self.pull_request] if self.pull_request else []
         raise AssertionError(f"unexpected request: {method} {path}")
@@ -308,3 +312,50 @@ def test_mismatched_materialized_head_tree_is_blocked_before_commit() -> None:
         create_server_commit(client, _input())
 
     assert ("POST", "/repos/example/repository/git/commits") not in client.requests
+
+
+def test_read_draft_pull_request_state_accepts_only_the_exact_published_pull_request() -> None:
+    client = FakeGitHubClient()
+    publication = _input()
+    client.pull_request = _draft_payload(publication)
+    assert client.pull_request is not None
+    head = cast(dict[str, object], client.pull_request["head"])
+    base = cast(dict[str, object], client.pull_request["base"])
+    base_repo = cast(dict[str, object], base["repo"])
+    head_repo = cast(dict[str, object], head["repo"])
+    client.pull_request["state"] = "open"
+    client.pull_request["merged"] = False
+    head["sha"] = COMMIT
+    base_repo["full_name"] = "Example/Repository"
+    head_repo["full_name"] = "Example/Repository"
+    client.pull_request["html_url"] = "https://github.com/example/repository/pull/17"
+
+    assert (
+        read_draft_pull_request_state(
+            client,
+            publication,
+            pr_number=17,
+            expected_pr_url="https://github.com/example/repository/pull/17",
+            expected_commit_sha=COMMIT,
+        )
+        == "open"
+    )
+    assert client.requests == [("GET", "/repos/example/repository/pulls/17")]
+
+
+def test_read_draft_pull_request_state_rejects_a_mismatched_remote_head() -> None:
+    client = FakeGitHubClient()
+    publication = _input()
+    client.pull_request = _draft_payload(publication)
+    assert client.pull_request is not None
+    head = cast(dict[str, object], client.pull_request["head"])
+    head["sha"] = "e" * 40
+
+    with pytest.raises(PublicationTransportError, match="protected pull request"):
+        read_draft_pull_request_state(
+            client,
+            publication,
+            pr_number=17,
+            expected_pr_url="https://github.com/Example/Repository/pull/17",
+            expected_commit_sha=COMMIT,
+        )

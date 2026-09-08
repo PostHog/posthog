@@ -314,6 +314,7 @@ layer = "modules"
 path = "products.subscriptions"
 depends_on = [
     "posthog",
+    "products.experiments",
     "products.tasks",
 ]
 layer = "modules"
@@ -1377,10 +1378,10 @@ layer = "modules"
 # Isolation debt: outside test suites build tasks rows and read its enums straight
 # from the models. Drain by adding factories to facade/testing.py and migrating the
 # suites, then delete this block. Consumers: canvas, slack_app, review_hog,
-# replay_vision, posthog_ai, stamphog, conversations, signals, ee.
+# replay_vision, posthog_ai, stamphog, conversations, signals, subscriptions, ee.
 [[interfaces]]
 expose = [
-    "backend\\.models\\.(Channel|SandboxEnvironment|Task|TaskRun|TaskThreadMessage)",
+    "backend\\.models\\.(Channel|SandboxEnvironment|Task|TaskDraftPublication|TaskRun|TaskStagedRun|TaskThreadMessage)",
 ]
 from = [
     "products.tasks",

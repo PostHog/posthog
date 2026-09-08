@@ -30,7 +30,7 @@ _PULSE_DRAFT_VARIANTS = [
     {"key": "control", "name": "Control group", "rollout_percentage": 50},
     {"key": "test", "name": "Test variant", "rollout_percentage": 50},
 ]
-_PULSE_DRAFT_FLAG_FILTERS = {
+_PULSE_DRAFT_FLAG_FILTERS: dict[str, object] = {
     "aggregation_group_type_index": None,
     "groups": [{"properties": [], "rollout_percentage": 0, "aggregation_group_type_index": None}],
     "holdout": None,
