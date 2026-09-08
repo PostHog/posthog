@@ -451,6 +451,57 @@ class TestHistoryRequirements:
         assert evaluation.is_inconclusive is False
         assert engine.calls[0]["horizon"] == 31
 
+    @parameterized.expand(
+        [
+            (
+                "target pins a bucket, so it needs fresh data",
+                {
+                    "condition": "target_by_date",
+                    "target": 100,
+                    "target_direction": "at_least",
+                    "target_date": "2026-10-07",
+                },
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            ),
+            (
+                "breach keeps the shared cached mode",
+                {"condition": "future_breach", "horizon": 7},
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ),
+        ]
+    )
+    def test_the_execution_mode_reaching_the_query(
+        self, _name: str, condition: dict, expected_mode: ExecutionMode
+    ) -> None:
+        forecast_config = {"type": "ForecastConfig", "engine": "prophet", **condition}
+        alert = SimpleNamespace(
+            forecast_config=forecast_config,
+            config={"series_index": 0},
+            team=SimpleNamespace(timezone="UTC", week_start_day=1, base_currency="USD"),
+            created_by=None,
+        )
+        query = {
+            "kind": "TrendsQuery",
+            "interval": "day",
+            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+        }
+
+        with (
+            freeze_time("2026-09-07T12:00:00Z"),
+            patch(
+                "products.alerts.backend.evaluation.forecast.extract_trends_series",
+                return_value=_series(n=124, start=datetime.date(2026, 5, 6)),
+            ) as extract,
+        ):
+            TrendsForecastExtractor().extract(
+                cast(AlertConfiguration, alert),
+                cast(Insight, SimpleNamespace()),
+                query,
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            )
+
+        assert extract.call_args.args[4] == expected_mode
+
 
 @contextmanager
 def _unavailable_forecast_slot(*, team_id: int):

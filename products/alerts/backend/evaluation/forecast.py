@@ -384,6 +384,11 @@ class TrendsForecastExtractor:
         horizon, reference_date = _forecast_extraction_contract(
             forecast_config, trends_query.interval, now, getattr(alert.team, "week_start_day", None)
         )
+        if reference_date is not None:
+            # A pinned target bucket has to come from data computed under this check's clock. A
+            # cached result from before the bucket boundary lost that bucket with the ongoing
+            # interval, and the evaluation would read the gap as stale source data.
+            execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
         result = extract_trends_series(
             insight,
             alert.team,
