@@ -44,10 +44,9 @@ export function initPostHog(appName: string, appVersion: string): void {
             $mcp_app_version: appVersion,
         })
     } catch (error) {
-        // posthog-js-lite 4.11.0 reads `window.localStorage` in its constructor without a
-        // guard, and MCP app iframes are sandboxed without `allow-same-origin`, so the
-        // property read throws SecurityError and kills the app. Analytics is optional;
-        // the app must render regardless.
+        // posthog-js-lite 4.11.0 reads `window.localStorage` unguarded; in a
+        // sandboxed app iframe that read throws SecurityError. Analytics is
+        // optional; the app must render regardless.
         log('PostHog client initialization failed', error)
         client = null
     }

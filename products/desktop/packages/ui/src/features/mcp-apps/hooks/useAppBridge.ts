@@ -62,11 +62,8 @@ interface UseAppBridgeArgs {
 interface UseAppBridgeReturn {
   sendWhenReady: (fn: (bridge: AppBridge) => void) => void;
   /**
-   * Delivers a tool result at most once per `toolCallId`, deduplicating across
-   * the callers that can race for the same result (the live subscription and
-   * the exec-replay effect). The "already sent" flag is a bridge-scoped ref,
-   * so a bridge teardown clears it too, letting a result queued right before
-   * teardown be retried against the next bridge instead of lost.
+   * Delivers a tool result at most once per `toolCallId`; the sent flag is
+   * bridge-scoped, so a teardown lets the next bridge redeliver it.
    */
   sendResultOnce: (toolCallId: string, raw: unknown) => void;
 }
@@ -155,9 +152,7 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
     containerWidth: number;
   } | null>(null);
 
-  // Declared ahead of the main lifecycle effect below so its `oninitialized`
-  // remount catch-up can route through `sendResultOnce` instead of sending
-  // directly.
+  // Must sit above the lifecycle effect: its deps array reads these during render.
   const sendWhenReady = useCallback((fn: (bridge: AppBridge) => void) => {
     if (initializedRef.current && bridgeRef.current) {
       fn(bridgeRef.current);
@@ -313,11 +308,8 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
             });
           }
 
-          // If the tool already completed (e.g. remounted after scrolling back
-          // into the virtualized list), send the result now instead of waiting
-          // on a subscription event that already fired. Routed through
-          // `sendResultOnce`, which shares its dedup guard with the
-          // exec-replay effect below, so this can't double-send.
+          // Remount after scrolling back into the virtualized list: the
+          // subscription event already fired, so send the stored result.
           if (
             tc.rawOutput &&
             (tc.status === "completed" || tc.status === "failed")
@@ -383,12 +375,10 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
       initializedRef.current = false;
       prevContextRef.current = null;
       pendingRef.current = [];
-      // A result queued against this bridge is gone with it. Clearing the
-      // flag lets the next bridge legitimately redeliver it instead of
-      // dropping it forever.
+      // Queued results die with this bridge; let the next bridge redeliver.
       sentResultForCallRef.current = null;
     };
-    // Re-run only when iframe element or resource identity changes; sendResultOnce is referentially stable.
+    // Only re-runs on iframe/resource identity; sendResultOnce is referentially stable.
   }, [iframeEl, uiResource, args.serverName, sendResultOnce]);
 
   // Host context change effect — sends deltas when theme/displayMode/containerWidth change

@@ -77,13 +77,11 @@ const CALL_TOOL_RESULT_OPTIONAL_KEYS = [
 ] as const;
 
 /**
- * Strip the optional `CallToolResult` fields above when a source sent them as
- * an explicit `null` instead of omitting them. The app-side zod schema types
- * them `.optional()`, not nullable, so a `null` value fails validation and
- * drops the whole tool result, leaving the app on its loading state. The
- * Codex app-server does this: it models the fields as nullable and serializes
- * an absent MCP optional as JSON `null`. Call this where a raw MCP result
- * enters the desktop, before it reaches an MCP App.
+ * Some sources (the Codex app-server) serialize absent optional
+ * `CallToolResult` fields as JSON `null`. The app-side zod schema types them
+ * `.optional()`, not nullable, so an explicit null fails validation and drops
+ * the whole tool result, leaving the app on its loading state. Call this
+ * before a raw MCP result reaches an MCP App.
  */
 export function omitNullCallToolResultFields<T>(result: T): T {
   if (result == null || typeof result !== "object") return result;

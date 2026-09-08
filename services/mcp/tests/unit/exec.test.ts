@@ -311,8 +311,8 @@ describe('exec tool', () => {
                 __execBuiltPayload?: true
             }
 
-            // Text content points at structuredContent instead of repeating the result,
-            // and the render note tells the model the host already displays it.
+            // Text content points at structuredContent; the render note says the
+            // host already displays it.
             expect(result.content[0]!.text).toBe(`${STRUCTURED_CONTENT_ONLY_TEXT}\n\n${UI_APP_RENDER_NOTE}`)
             // With no compact table to protect, the app payload stays in the standard
             // structuredContent field (with analytics) rather than being duplicated under
@@ -364,8 +364,8 @@ describe('exec tool', () => {
                     _meta: { ui: { resourceUri: string }; [key: string]: unknown }
                 }
 
-                // Model sees ONLY the compact table, not the raw results JSON, followed
-                // by the render note so it does not duplicate the chart in its reply.
+                // Model sees only the compact table plus the render note, not the raw
+                // results JSON.
                 expect(result.content[0]!.text).toBe(`Date|count\n2026-05-07|6\n\n${UI_APP_RENDER_NOTE}`)
                 // Top-level structuredContent is dropped so coding agents don't surface it.
                 expect(result.structuredContent).toBeUndefined()

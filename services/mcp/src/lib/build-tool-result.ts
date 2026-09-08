@@ -86,19 +86,17 @@ export function markExecPayload(payload: ToolResultPayload): ToolResultPayload {
 export const STRUCTURED_CONTENT_ONLY_TEXT = "Full result is in this response's structuredContent field."
 
 /**
- * Footer appended for inline-exec UI-app hosts (see `includeUiResponseMeta`), so the
- * model does not re-present the rendered data in its reply. The system prompt already
- * carries this rule, but some models only honor it when the note arrives with the data.
+ * Footer for inline-exec UI-app hosts. The system prompt already carries the
+ * no-repeat rule, but some models only honor it when the note arrives with the data.
  */
 export const UI_APP_RENDER_NOTE =
     'The user already sees this result as an interactive view in the conversation. State your conclusion in text and do not repeat this data in your reply.'
 
 /**
- * Estimate output tokens from what the client actually receives, not the raw handler
- * object (TOON is materially smaller than JSON for tabular results, so measuring the
- * raw object would over-count). When the text is only the `STRUCTURED_CONTENT_ONLY_TEXT`
- * pointer, drop the pointer from the count and use `structuredContent` instead; a footer
- * appended after the pointer (the UI render note) still reaches the client, so it's counted.
+ * Estimate output tokens from what the client receives, not the raw handler object
+ * (TOON is smaller than JSON for tabular results). When the text is only the
+ * `STRUCTURED_CONTENT_ONLY_TEXT` pointer plus a footer, count `structuredContent`
+ * and the footer, not the pointer.
  */
 export function estimateResponseTokens(response: ToolResultPayload): number {
     const text = response.content.map((part) => part.text).join('')
@@ -212,8 +210,8 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         }
     }
 
-    // Only inline-exec UI hosts set includeUiResponseMeta; a CLI client sees no
-    // rendered view, so its model may legitimately re-present the data.
+    // Inline-exec only: a CLI client sees no rendered view, so its model may
+    // legitimately re-present the data.
     if (includeUiResponseMeta && resourceUri && !useJson) {
         text = `${text}\n\n${UI_APP_RENDER_NOTE}`
     }
