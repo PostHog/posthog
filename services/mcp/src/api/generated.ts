@@ -69680,6 +69680,10 @@ export namespace Schemas {
       recordings_queued_for_deletion: boolean;
       /** Persons that could not be deleted. Each entry contains 'person_uuid'. Contact support if this persists. */
       deletion_errors?: PersonBulkDeleteResponseDeletionErrorsItem[];
+      /** The person UUIDs you sent that matched no person. Nothing was deleted for them. */
+      ids_not_found: string[];
+      /** The distinct IDs you sent that matched no person. Nothing was deleted for them. A distinct ID has no person when every event for it was captured with `$process_person_profile: false`, or when the person was already deleted. */
+      distinct_ids_not_found: string[];
     }
 
     export interface PersonDeletePropertyRequest {

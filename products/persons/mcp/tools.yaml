@@ -34,7 +34,8 @@ tools:
         description: >
             Delete up to 1000 persons by PostHog person UUIDs or distinct IDs. Optionally delete associated events and
             recordings. Pass either `ids` (person UUIDs) or `distinct_ids`. Returns 202 Accepted. This operation is
-            irreversible.
+            irreversible. Check `ids_not_found` and `distinct_ids_not_found` in the response: they list the IDs you sent
+            that matched no person, and nothing is deleted for those IDs.
         exclude_params:
             - format
     persons-cohorts-retrieve:

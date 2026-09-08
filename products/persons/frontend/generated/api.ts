@@ -561,6 +561,8 @@ export const getPersonsBulkDeleteCreateUrl = (projectId: string, params?: Person
 
 /**
  * This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call. Only events captured before the request will be deleted.
+ *
+ * An ID that matches no person is reported in `ids_not_found` or `distinct_ids_not_found`. Nothing is deleted for those IDs. Empty lists only mean that every ID matched a person. A person that matched but failed to delete is reported in `deletion_errors`. Event and recording deletion is queued and runs after this response, so use the `deletion_status` endpoint to check whether the queued event deletions have finished.
  */
 export const personsBulkDeleteCreate = async (
     projectId: string,

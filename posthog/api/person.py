@@ -56,6 +56,7 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.person.bulk_delete import (
     delete_persons_profile,
+    identifiers_without_persons,
     queue_person_event_deletion,
     queue_person_recording_deletion,
     resolve_persons_for_deletion,
@@ -293,6 +294,16 @@ class PersonBulkDeleteResponseSerializer(serializers.Serializer):
         child=serializers.DictField(),
         required=False,
         help_text="Persons that could not be deleted. Each entry contains 'person_uuid'. Contact support if this persists.",
+    )
+    ids_not_found = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="The person UUIDs you sent that matched no person. Nothing was deleted for them.",
+    )
+    distinct_ids_not_found = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="The distinct IDs you sent that matched no person. Nothing was deleted for them. "
+        "A distinct ID has no person when every event for it was captured with "
+        "`$process_person_profile: false`, or when the person was already deleted.",
     )
 
 
@@ -862,6 +873,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def bulk_delete(self, request: request.Request, pk=None, **kwargs):
         """
         This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call. Only events captured before the request will be deleted.
+
+        An ID that matches no person is reported in `ids_not_found` or `distinct_ids_not_found`. Nothing is deleted for those IDs. Empty lists only mean that every ID matched a person. A person that matched but failed to delete is reported in `deletion_errors`. Event and recording deletion is queued and runs after this response, so use the `deletion_status` endpoint to check whether the queued event deletions have finished.
         """
 
         delete_events = bool(request.data.get("delete_events"))
@@ -898,6 +911,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError("You need to specify either distinct_ids or ids")
 
         persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids)
+        not_found = identifiers_without_persons(persons, ids, distinct_ids)
 
         persons_deleted = 0
         errors: builtins.list[dict[str, str]] = []
@@ -923,6 +937,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "events_queued_for_deletion": delete_events and len(persons) > 0,
             "recordings_queued_for_deletion": delete_recordings and len(persons) > 0,
             "deletion_errors": errors,
+            "ids_not_found": not_found if ids else [],
+            "distinct_ids_not_found": not_found if distinct_ids else [],
         }
 
     @extend_schema(
