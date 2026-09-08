@@ -17,6 +17,7 @@ from posthog.clickhouse.query_tagging import tags_context
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.security.llm_prompt_sanitization import sanitize_user_text, strip_llm_framing_markers
@@ -209,7 +210,12 @@ def _saved_query_events(insight: Insight) -> tuple[str, ...]:
 
 
 def _validated_saved_query(insight: Insight) -> BaseModel | None:
-    raw_query = insight.query or insight.query_from_filters
+    raw_query = insight.query
+    if not raw_query and insight.filters:
+        try:
+            raw_query = filter_to_query(insight.filters).model_dump(mode="json")
+        except Exception:
+            return None
     if not isinstance(raw_query, dict):
         return None
     try:

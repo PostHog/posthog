@@ -86,7 +86,7 @@ def _hogql_query(variable_id: str, *, value: str) -> dict[str, Any]:
 class TestReportContextPureFunctions(SimpleTestCase):
     def test_saved_queries_are_upgraded_on_a_copy_before_validation(self) -> None:
         raw_query = _trends_query("legacy event")
-        insight = MagicMock(query=raw_query, query_from_filters=None)
+        insight = MagicMock(query=raw_query, filters={})
 
         def upgrade_query(query: dict[str, Any]) -> dict[str, Any]:
             query["source"]["series"][0]["event"] = "upgraded event"
@@ -99,6 +99,19 @@ class TestReportContextPureFunctions(SimpleTestCase):
         assert validated.series[0].event == "upgraded event"  # type: ignore[attr-defined]
         assert raw_query["source"]["series"][0]["event"] == "legacy event"
         upgrade_query_mock.assert_called_once()
+
+    def test_legacy_filters_are_converted_before_validation(self) -> None:
+        raw_query = _trends_query("legacy event")["source"]
+        insight = MagicMock(query=None, filters={"insight": "TRENDS"})
+        converted_query = MagicMock()
+        converted_query.model_dump.return_value = raw_query
+
+        with patch(f"{_MODULE}.filter_to_query", return_value=converted_query) as convert:
+            validated = _validated_saved_query(insight)
+
+        assert validated is not None
+        assert validated.series[0].event == "legacy event"  # type: ignore[attr-defined]
+        convert.assert_called_once_with(insight.filters)
 
     def test_ranking_is_popularity_first_then_layout_and_bounded(self) -> None:
         def tile(insight_id: int, y: float, x: float) -> _DashboardTile:
