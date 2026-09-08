@@ -21,6 +21,7 @@ from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.event_definitions.backend.models import effective_project_id_expr
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
@@ -29,6 +30,13 @@ from products.surveys.backend.models import Survey
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 LIMIT = 25
+
+PROJECT_EXPRESSION_SCOPED: frozenset[type[Model]] = frozenset({EventDefinition, PropertyDefinition})
+"""Models that carry their own project column and are indexed by `effective_project_id_expr()`.
+
+Filtering `team__project_id` on these joins `posthog_team`, which stops the planner using those
+indexes, so scope them by the expression the index leads with instead.
+"""
 
 
 class EntityConfig(TypedDict, total=False):
@@ -176,6 +184,7 @@ def search_entities(
     )
 
     # add entities
+    branches: list[QuerySet[Any]] = []
     for entity_meta in [entity_map[entity] for entity in entities]:
         assert entity_meta is not None
         klass_qs, entity_name = class_queryset(
@@ -187,9 +196,12 @@ def search_entities(
             extra_fields=entity_meta["extra_fields"],
             filters=entity_meta.get("filters"),
         )
-        qs = qs.union(klass_qs)
         if include_counts:
             counts[entity_name] = klass_qs.count()
+        # `type` is constant in a branch, so this is the union order applied to that branch
+        branch_order = "-rank" if query else F("_sort_name").asc(nulls_first=True)
+        branches.append(klass_qs.order_by(branch_order))
+    qs = qs.union(*branches)
 
     # order by rank
     if query:
@@ -197,8 +209,10 @@ def search_entities(
     else:
         qs = qs.order_by("type", F("_sort_name").asc(nulls_first=True))
 
-    # Get total count before pagination (only when needed)
-    total_count = qs.count() if include_counts else None
+    _limit_branches(qs, offset + limit)
+
+    # The branches select disjoint rows, so their counts add up to the count of the union
+    total_count = sum(count for count in counts.values() if count is not None) if include_counts else None
 
     # Apply pagination
     results = cast(list[dict[str, Any]], list(qs[offset : offset + limit]))
@@ -209,6 +223,18 @@ def search_entities(
         result.pop("_pk", None)
         result.pop("_created_by_id", None)
     return results, counts or None, total_count
+
+
+def _limit_branches(qs: QuerySet[Any], size: int) -> None:
+    """Gives every union branch the same row limit as the union itself.
+
+    Each branch carries the union order, so the union can only ever return a branch's first
+    `size` rows. Without the limit a branch selects and sorts every matching row in the project
+    and the outer limit throws almost all of it away. Django refuses `order_by()` on a union of
+    sliced querysets, so the limit goes onto the branch queries after the union is ordered.
+    """
+    for branch_query in qs.query.combined_queries:
+        branch_query.set_limits(high=size)
 
 
 def _annotate_user_access_levels(
@@ -253,7 +279,13 @@ def class_queryset(
     entity_type = class_to_entity_name(klass)
     values = ["type", "result_id", "extra_fields", "_sort_name", "_pk", "_created_by_id"]
 
-    qs: QuerySet[Any] = cast(Any, klass).objects.filter(team__project_id=project_id)  # filter team
+    manager = cast(Any, klass).objects
+    if klass in PROJECT_EXPRESSION_SCOPED:
+        qs: QuerySet[Any] = manager.alias(effective_project_id=effective_project_id_expr()).filter(
+            effective_project_id=project_id
+        )
+    else:
+        qs = manager.filter(team__project_id=project_id)
     qs = view.user_access_control.filter_queryset_by_access_level(qs)  # filter access level
 
     # Uniform columns for access level resolution — every union member must produce them

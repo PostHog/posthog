@@ -282,8 +282,47 @@ class TestSearch(APIBaseTest):
                 include_counts=False,
             )
 
-        assert len(ctx_with) - len(ctx_without) >= 13
+        # one count per entity, and nothing else — the total is summed from those counts
+        assert len(ctx_with) - len(ctx_without) == len(ENTITY_MAP)
         assert len(ctx_without) == 1
+
+    def test_search_limits_every_union_branch(self):
+        mock_view = Mock()
+        mock_view.user_access_control.filter_queryset_by_access_level = lambda qs: qs
+        entities = {"insight", "dashboard", "property_definition"}
+
+        with CaptureQueriesContext(connection) as ctx:
+            search_entities(
+                entities=entities,
+                query="sec",
+                project_id=self.team.project_id,
+                view=mock_view,
+                entity_map=ENTITY_MAP,
+                include_counts=False,
+            )
+
+        # a branch without a limit of its own selects and sorts every matching row in the project
+        assert len(ctx) == 1
+        assert ctx.captured_queries[0]["sql"].count("LIMIT") == len(entities) + 1
+
+    def test_search_scopes_taxonomy_entities_without_joining_teams(self):
+        mock_view = Mock()
+        mock_view.user_access_control.filter_queryset_by_access_level = lambda qs: qs
+
+        with CaptureQueriesContext(connection) as ctx:
+            search_entities(
+                entities={"property_definition"},
+                query="sec",
+                project_id=self.team.project_id,
+                view=mock_view,
+                entity_map=ENTITY_MAP,
+                include_counts=False,
+            )
+
+        # joining posthog_team stops the planner using the COALESCE(project_id, team_id) indexes
+        sql = ctx.captured_queries[0]["sql"]
+        assert "posthog_team" not in sql
+        assert 'COALESCE("posthog_propertydefinition"."project_id"' in sql
 
     def test_search_entities_returns_total_count(self):
         for i in range(5):
