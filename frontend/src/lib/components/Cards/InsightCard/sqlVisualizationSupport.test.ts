@@ -65,19 +65,14 @@ describe('dashboard SQL visualization support', () => {
             const autoVisualizationType = getAutoVisualizationType(columns, response.result.length)
             const numericalColumns = columns.filter((column) => column.type.isNumerical)
 
-            const options = getTableDisplayOptions(
-                columns,
-                numericalColumns,
-                autoVisualizationType,
-                (displayType) =>
-                    sqlVisualizationDisabledReason(
-                        displayType,
-                        baseQuery,
-                        columns,
-                        response.result.length,
-                        autoVisualizationType
-                    ),
-                true
+            const options = getTableDisplayOptions(columns, numericalColumns, autoVisualizationType, (displayType) =>
+                sqlVisualizationDisabledReason(
+                    displayType,
+                    baseQuery,
+                    columns,
+                    response.result.length,
+                    autoVisualizationType
+                )
             )
 
             const enabled = options
@@ -87,24 +82,39 @@ describe('dashboard SQL visualization support', () => {
 
             expect(enabled.length).toBeGreaterThan(0)
 
-            for (const displayType of enabled) {
-                const saved = applyVisualizationType(baseQuery, displayType, columns, response.result.length)
+            const chartTypes = enabled.filter((displayType) => {
                 const resolved =
                     displayType === ChartDisplayType.Auto ? autoVisualizationType : (displayType as ChartDisplayType)
+                return ![ChartDisplayType.ActionsTable, ChartDisplayType.BoldNumber].includes(resolved)
+            })
 
-                const needsYAxis = ![ChartDisplayType.ActionsTable, ChartDisplayType.BoldNumber].includes(resolved)
-                if (!needsYAxis) {
-                    continue
-                }
+            for (const displayType of chartTypes) {
+                const saved = applyVisualizationType(baseQuery, displayType, columns, response.result.length)
 
-                if (resolved !== ChartDisplayType.Metric) {
-                    expect(saved.chartSettings?.xAxis?.column).toEqual(expect.any(String))
-                }
+                expect(saved.chartSettings?.xAxis?.column).toEqual(expect.any(String))
                 expect(saved.chartSettings?.yAxis?.length ?? 0).toBeGreaterThan(0)
-                if (resolved === ChartDisplayType.Metric) {
-                    expect(saved.chartSettings?.yAxis).toHaveLength(1)
-                }
             }
+        }
+    )
+
+    it.each([responses['date and numeric'], responses['a single numeric column']])(
+        'sets up a dashboard Metric from numeric results',
+        (response) => {
+            const columns = columnsFromResponse(response)
+            const autoVisualizationType = getAutoVisualizationType(columns, response.result.length)
+
+            expect(
+                sqlVisualizationDisabledReason(
+                    ChartDisplayType.Metric,
+                    baseQuery,
+                    columns,
+                    response.result.length,
+                    autoVisualizationType
+                )
+            ).toBeUndefined()
+
+            const saved = applyVisualizationType(baseQuery, ChartDisplayType.Metric, columns, response.result.length)
+            expect(saved.chartSettings?.yAxis).toHaveLength(1)
         }
     )
 

@@ -29,60 +29,73 @@ const cachedResults: HogQLQueryResponse = {
     ],
 }
 
+function renderTableDisplay(
+    key: string,
+    featureFlags: Record<string, string | boolean> = {}
+): () => DataVisualizationNode {
+    initKeaTests()
+
+    const flags = featureFlagLogic()
+    flags.mount()
+    flags.actions.setFeatureFlags(Object.keys(featureFlags), featureFlags)
+
+    let query: DataVisualizationNode = {
+        kind: NodeKind.DataVisualizationNode,
+        source: { kind: NodeKind.HogQLQuery, query: 'select * from summaries' },
+        display: ChartDisplayType.ActionsTable,
+    }
+    const props: DataVisualizationLogicProps = {
+        key,
+        query,
+        cachedResults,
+        dataNodeCollectionId: key,
+        setQuery: (setter) => {
+            query = setter(query)
+        },
+    }
+
+    dataNodeLogic({
+        key: props.key,
+        query: query.source,
+        cachedResults,
+        dataNodeCollectionId: props.dataNodeCollectionId,
+    }).mount()
+    dataVisualizationLogic(props).mount()
+
+    render(
+        <BindLogic logic={dataVisualizationLogic} props={props}>
+            <TableDisplay />
+        </BindLogic>
+    )
+
+    return () => query
+}
+
+async function selectDisplay(label: string): Promise<void> {
+    const user = userEvent.setup()
+    await user.click(screen.getByTestId('chart-filter'))
+    await user.click(await screen.findByText(label))
+}
+
 describe('TableDisplay', () => {
     afterEach(() => {
         cleanup()
     })
 
-    it.each([
-        ['Box plot', ChartDisplayType.BoxPlot, false],
-        ['Metric', ChartDisplayType.Metric, true],
-    ])('offers %s and saves the selected display', async (label, display, metricInsightEnabled) => {
-        initKeaTests()
+    it('offers box plots and saves the selected display', async () => {
+        const query = renderTableDisplay('table-display-box-plot')
 
-        if (metricInsightEnabled) {
-            const flags = featureFlagLogic()
-            flags.mount()
-            flags.actions.setFeatureFlags([FEATURE_FLAGS.METRIC_INSIGHT], { [FEATURE_FLAGS.METRIC_INSIGHT]: true })
-        }
+        await selectDisplay('Box plot')
 
-        let query: DataVisualizationNode = {
-            kind: NodeKind.DataVisualizationNode,
-            source: { kind: NodeKind.HogQLQuery, query: 'select * from summaries' },
-            display: ChartDisplayType.ActionsTable,
-        }
-        const key = `table-display-${display}`
-        const props: DataVisualizationLogicProps = {
-            key,
-            query,
-            cachedResults,
-            dataNodeCollectionId: key,
-            setQuery: (setter) => {
-                query = setter(query)
-            },
-        }
+        await waitFor(() => expect(query().display).toBe(ChartDisplayType.BoxPlot))
+    })
 
-        dataNodeLogic({
-            key: props.key,
-            query: query.source,
-            cachedResults,
-            dataNodeCollectionId: props.dataNodeCollectionId,
-        }).mount()
-        dataVisualizationLogic(props).mount()
+    it('offers metrics behind the feature flag and saves one Y-series', async () => {
+        const query = renderTableDisplay('table-display-metric', { [FEATURE_FLAGS.METRIC_INSIGHT]: true })
 
-        render(
-            <BindLogic logic={dataVisualizationLogic} props={props}>
-                <TableDisplay />
-            </BindLogic>
-        )
+        await selectDisplay('Metric')
 
-        const user = userEvent.setup()
-        await user.click(screen.getByTestId('chart-filter'))
-        await user.click(await screen.findByText(label))
-
-        await waitFor(() => expect(query.display).toBe(display))
-        if (display === ChartDisplayType.Metric) {
-            expect(query.chartSettings?.yAxis).toHaveLength(1)
-        }
+        await waitFor(() => expect(query().display).toBe(ChartDisplayType.Metric))
+        expect(query().chartSettings?.yAxis).toHaveLength(1)
     })
 })
