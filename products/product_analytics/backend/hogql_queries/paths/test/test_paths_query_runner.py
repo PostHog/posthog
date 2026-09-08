@@ -191,6 +191,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
             ).run()
 
+            assert isinstance(result, CachedPathsQueryResponse)
             self.assertEqual(len(result.results), 4)
 
             date_to = now()
