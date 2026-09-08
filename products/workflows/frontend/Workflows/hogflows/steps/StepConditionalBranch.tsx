@@ -133,7 +133,7 @@ export function StepConditionalBranchConfiguration({
     return (
         <div>
             <StepSchemaErrors />
-            <div className="mt-3 flex flex-col gap-3">
+            <div className="flex flex-col gap-3">
                 {conditions.map((condition, index) => (
                     <div key={index} className="flex flex-col gap-2 p-2 rounded border">
                         <div className="flex justify-between items-center gap-2">
