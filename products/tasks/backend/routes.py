@@ -20,6 +20,12 @@ def register_routes(routers: RouterRegistry) -> None:
         "organization_desktop_beta_terms",
         ["organization_id"],
     )
+    routers.projects.register(
+        r"desktop_beta_terms",
+        desktop.DesktopBetaTermsViewSet,
+        "project_desktop_beta_terms",
+        ["team_id"],
+    )
     routers.projects.register(r"desktop", desktop_access.DesktopAccessViewSet, "project_desktop", ["team_id"])
     routers.projects.register(r"tasks/config", config.TasksTeamConfigViewSet, "project_tasks_config", ["team_id"])
     routers.projects.register(
