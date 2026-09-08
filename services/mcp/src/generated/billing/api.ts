@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 14 enabled ops
+ * PostHog API - MCP 15 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -210,6 +210,18 @@ export const BillingProductsRetrieveQueryParams = () => zod.object({
         .boolean()
         .default(billingProductsRetrieveQueryIncludePlansDefault)
         .describe('Add the `plans` list to each product and add-on. Most of the payload.'),
+})
+
+/**
+ * Every project the organization has reported usage for, deleted ones included, so a caller knows which ids a project breakdown or a team_ids filter can name. Below full billing access the list is the projects the caller can see.
+ * @summary List the projects with usage
+ */
+export const BillingProjectListParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
 })
 
 /**

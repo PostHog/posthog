@@ -971,6 +971,25 @@ export interface BillingProductsApi {
     results: BillingProductApi[]
 }
 
+export interface BillingProjectApi {
+    id: number
+    /**
+     * The project's name, or null when the project was deleted after its usage was reported.
+     * @nullable
+     */
+    name: string | null
+    deleted: boolean
+}
+
+export interface BillingProjectsApi {
+    count: number
+    /** @nullable */
+    next: string | null
+    /** @nullable */
+    previous: string | null
+    results: BillingProjectApi[]
+}
+
 export interface TierSpendApi {
     /** @nullable */
     up_to: number | null

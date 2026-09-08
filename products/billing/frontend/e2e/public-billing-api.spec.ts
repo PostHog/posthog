@@ -67,7 +67,7 @@ test.describe('Organization billing API', () => {
             expect(usage).toHaveProperty('usage_reported_through')
             expect(usage).not.toHaveProperty('customer_id')
 
-            for (const path of ['usage/status/', 'spend/', 'forecast/', 'limits/']) {
+            for (const path of ['usage/status/', 'spend/', 'forecast/', 'limits/', 'projects/']) {
                 expect((await get(path)).status(), path).toBe(200)
             }
             for (const kind of ['usage', 'spend']) {
@@ -164,6 +164,7 @@ test.describe('Organization billing API', () => {
             expect((await get('usage/')).status()).toBe(withFlag)
             expect((await get('spend/')).status()).toBe(withFlag)
             expect((await get('usage/timeseries/', SERIES)).status()).toBe(withFlag)
+            expect((await get('projects/')).status()).toBe(withFlag)
         })
     })
 })

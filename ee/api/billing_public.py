@@ -22,7 +22,7 @@ from asgiref.sync import sync_to_async
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -398,6 +398,22 @@ class BillingLimitsSerializer(serializers.Serializer):
     results = ProductLimitSerializer(many=True)
 
 
+class BillingProjectSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField(
+        allow_null=True,
+        help_text="The project's name, or null when the project was deleted after its usage was reported.",
+    )
+    deleted = serializers.BooleanField()
+
+
+class BillingProjectsSerializer(serializers.Serializer):
+    count = serializers.IntegerField()
+    next = serializers.URLField(allow_null=True)
+    previous = serializers.URLField(allow_null=True)
+    results = BillingProjectSerializer(many=True)
+
+
 class PaginatedBillingTimeSeriesPointListSerializer(serializers.Serializer):
     count = serializers.IntegerField()
     next = serializers.URLField(allow_null=True)
@@ -471,6 +487,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "invoices",
         "invoice_content",
         "limits",
+        "projects",
     ]
     scope_object_write_actions: list[str] = []
     # Nothing here answers until the flag is on for the caller's organization.
@@ -531,26 +548,34 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         if "cursor" in params:
             params["after"] = params.pop("cursor")
         requested = json.loads(params["team_ids"]) if params.get("team_ids") else None
-        organization_team_ids = set(Team.objects.filter(organization=organization).values_list("id", flat=True))
-        if requested is not None and not set(requested) <= organization_team_ids:
-            raise ValidationError({"team_ids": "All team IDs must belong to this organization."})
-        allowed = organization_team_ids if grants.projects is None else set(grants.projects)
         # Below full access a user's series cover the projects they can see, filtered here per
         # request as the usage and spend reads do today. The filter always names the projects, so
         # a project deleted since its usage was reported is never in it.
         user = request.user if isinstance(request.user, User) else None
-        filtered_by_visibility = False
+        visible: set[int] | None = None
         if user is not None and not self._covers(grants, BillingEntitlement.FULL_ACCESS):
-            filtered_by_visibility = True
-            allowed = allowed & set(visible_team_ids(user, organization))
-            if not allowed:
-                raise PermissionDenied(BILLING_ACCESS_DENIED)
-        scoped = sorted(allowed if requested is None else allowed.intersection(requested))
-        if requested is not None and not scoped:
-            raise PermissionDenied("The credential does not cover the requested projects.")
-        if grants.projects is not None or requested is not None or filtered_by_visibility:
+            visible = set(visible_team_ids(user, organization))
+        scoped: list[int] | None
+        if grants.projects is None and visible is None:
+            # A whole-organization caller may name any project the organization has reported usage
+            # for, deleted ones included, as the projects read lists them. Billing scopes the read
+            # to the organization, so an id it never reported yields nothing.
+            scoped = sorted(set(requested)) if requested is not None else None
+        else:
+            allowed = set(grants.projects) if grants.projects is not None else set()
+            if visible is not None:
+                allowed = visible if grants.projects is None else allowed & visible
+                if not allowed:
+                    raise PermissionDenied(BILLING_ACCESS_DENIED)
+            scoped = sorted(allowed if requested is None else allowed.intersection(requested))
+            if requested is not None and not scoped:
+                raise PermissionDenied("The credential does not cover the requested projects.")
+        if scoped is not None:
             params["team_ids"] = json.dumps(scoped)
-        teams_map = dict(Team.objects.filter(id__in=scoped).values_list("id", "name"))
+        named = Team.objects.filter(organization=organization)
+        if scoped is not None:
+            named = named.filter(id__in=scoped)
+        teams_map = dict(named.values_list("id", "name"))
         params["teams_map"] = {str(team_id): name for team_id, name in teams_map.items()}
         data = self._manager().get_public_timeseries(organization, grants, kind, params)
         results = data.get("results", [])
@@ -785,6 +810,35 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             content_type="application/pdf",
             headers={"Content-Disposition": f'attachment; filename="{invoice_id}.pdf"'},
         )
+
+    @extend_schema(
+        operation_id="billing_project_list",
+        summary="List the projects with usage",
+        description=(
+            "Every project the organization has reported usage for, deleted ones included, so a caller knows "
+            "which ids a project breakdown or a team_ids filter can name. Below full billing access the list is "
+            "the projects the caller can see."
+        ),
+        responses={200: OpenApiResponse(response=BillingProjectsSerializer)},
+    )
+    @action(methods=["GET"], detail=False, url_path="projects")
+    def projects(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        organization = self.organization
+        grants = self._grants(request, organization)
+        self._require(grants, BillingEntitlement.USAGE_READ)
+        reported = [
+            int(item["id"]) for item in self._manager().get_public_projects(organization, grants).get("results", [])
+        ]
+        user = request.user if isinstance(request.user, User) else None
+        if user is not None and not self._covers(grants, BillingEntitlement.FULL_ACCESS):
+            # A deleted project cannot be checked against what a member can see, so it is not listed for them.
+            visible = set(visible_team_ids(user, organization))
+            reported = [team_id for team_id in reported if team_id in visible]
+        names = dict(Team.objects.filter(organization=organization, id__in=reported).values_list("id", "name"))
+        results = [
+            {"id": team_id, "name": names.get(team_id), "deleted": team_id not in names} for team_id in sorted(reported)
+        ]
+        return Response({"count": len(results), "next": None, "previous": None, "results": results})
 
     @extend_schema(
         operation_id="billing_limits_retrieve",

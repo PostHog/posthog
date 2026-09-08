@@ -28,6 +28,7 @@ import type {
     BillingProductsApi,
     BillingProductsListParams,
     BillingProductsRetrieveParams,
+    BillingProjectsApi,
     BillingSpendExportRetrieveParams,
     BillingSpendRetrieveParams,
     BillingSpendSummaryApi,
@@ -809,6 +810,24 @@ export const billingProductsRetrieve = async (
     options?: RequestInit
 ): Promise<BillingProductApi> => {
     return apiMutator<BillingProductApi>(getBillingProductsRetrieveUrl(organizationId, productKey, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingProjectListUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/projects/`
+}
+
+/**
+ * Every project the organization has reported usage for, deleted ones included, so a caller knows which ids a project breakdown or a team_ids filter can name. Below full billing access the list is the projects the caller can see.
+ * @summary List the projects with usage
+ */
+export const billingProjectList = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<BillingProjectsApi> => {
+    return apiMutator<BillingProjectsApi>(getBillingProjectListUrl(organizationId), {
         ...options,
         method: 'GET',
     })

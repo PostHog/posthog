@@ -1026,6 +1026,21 @@
         },
         "feature_flag": "organization-billing-api"
     },
+    "billing-projects-list": {
+        "description": "Every project the organization has reported usage for, with its name where it still exists and a deleted marker where it does not. Use it to learn which project ids a project breakdown or a team_ids filter on billing-usage-timeseries-get and billing-spend-timeseries-get can name.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "List projects with usage",
+        "title": "List projects with usage",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "organization-billing-api"
+    },
     "billing-spend-get": {
         "description": "Fetch time-series spend (cost in USD) breakdowns for the organization across a date range. Same dimensional parameters as billing-usage-get, but values are dollar amounts rather than usage volumes. Requires billing usage/spend read access: owners always, admins when owner-only billing is off, or members only when owner-only billing is off and the org has the member read-only billing usage/spend flag enabled. This member grant applies only to usage/spend, not billing-overview-get or billing admin actions. Use this to investigate cost spikes, compare spend across periods, or attribute spend to specific products or teams.",
         "category": "Billing",

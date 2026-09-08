@@ -121,6 +121,21 @@ tools:
             below current spend, spend so far, and whether the limit is reached. Needs full billing access. Use it for
             "am I over my spend limit"; the quota limiting state PostHog applies is on billing-usage-summary-get.
         feature_flag: organization-billing-api
+    billing-projects-list:
+        operation: billing_project_list
+        enabled: true
+        scopes:
+            - billing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List projects with usage
+        description: >
+            Every project the organization has reported usage for, with its name where it still exists and a deleted
+            marker where it does not. Use it to learn which project ids a project breakdown or a team_ids filter on
+            billing-usage-timeseries-get and billing-spend-timeseries-get can name.
+        feature_flag: organization-billing-api
         url_prefix: /organization/billing/overview
     billing-overview-get:
         operation: billing_list

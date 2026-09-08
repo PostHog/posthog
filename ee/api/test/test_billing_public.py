@@ -439,11 +439,49 @@ class TestOrganizationBillingSpendForecastAndSeries(TestOrganizationBillingAPI):
             response = self.client.get(self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_team_outside_the_organization_is_rejected(self):
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_a_whole_organization_caller_may_name_a_project_the_organization_no_longer_has(self, mock_get):
+        mock_get.return_value = _response(SERIES)
         response = self.client.get(
             self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14&team_ids=[999999]")
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(mock_get.call_args.kwargs["params"]["team_ids"], json.dumps([999999]))
+        # Below full access the filter is the caller's visible projects, which a deleted one is never in.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.member_read.return_value = True
+        with patch("ee.api.billing_public.visible_team_ids", return_value=[self.team.id]):
+            response = self.client.get(
+                self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14&team_ids=[999999]")
+            )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_projects_names_live_projects_and_marks_deleted_ones(self, mock_get):
+        mock_get.return_value = _response({"results": [{"id": 424242}, {"id": self.team.id}]})
+        response = self.client.get(self._url("projects/"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(
+            response.json(),
+            {
+                "count": 2,
+                "next": None,
+                "previous": None,
+                "results": [
+                    {"id": self.team.id, "name": self.team.name, "deleted": False},
+                    {"id": 424242, "name": None, "deleted": True},
+                ],
+            },
+        )
+        self.assertTrue(mock_get.call_args.args[0].endswith("/api/v2/billing/projects/"), mock_get.call_args.args[0])
+        # A member's list is the projects they can see, so a deleted project is not offered to them.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.member_read.return_value = True
+        with patch("ee.api.billing_public.visible_team_ids", return_value=[self.team.id]):
+            response = self.client.get(self._url("projects/"))
+        self.assertEqual([project["id"] for project in response.json()["results"]], [self.team.id])
 
 
 INVOICES: dict[str, Any] = {

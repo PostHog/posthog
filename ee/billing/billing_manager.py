@@ -823,6 +823,9 @@ class BillingManager:
     def get_public_limits(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
         return self._public_get(organization, grants, "limits/")
 
+    def get_public_projects(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._public_get(organization, grants, "projects/")
+
     def get_public_timeseries(
         self, organization: Organization, grants: EffectiveBillingGrants, kind: str, params: dict[str, Any]
     ) -> dict[str, Any]:

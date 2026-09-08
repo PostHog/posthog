@@ -14401,6 +14401,25 @@ export namespace Schemas {
       results: BillingProduct[];
     }
 
+    export interface BillingProject {
+      id: number;
+      /**
+         * The project's name, or null when the project was deleted after its usage was reported.
+         * @nullable
+         */
+      name: string | null;
+      deleted: boolean;
+    }
+
+    export interface BillingProjects {
+      count: number;
+      /** @nullable */
+      next: string | null;
+      /** @nullable */
+      previous: string | null;
+      results: BillingProject[];
+    }
+
     /**
      * * `stripe` - stripe
      * * `vercel` - vercel
