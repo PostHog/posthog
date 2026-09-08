@@ -33,8 +33,17 @@ logger = get_write_only_logger()
 # expected control flow, not a defect.
 # "AIFeaturesCloudOnly" is raised by the AI observability guard on non-cloud deployments (see
 # posthog/temporal/ai_observability/llm_endpoint.py). It reflects the deployment, not a defect.
+# "trace_not_settled" and "session_not_settled" are the aggregate-evaluation settle probes, whose
+# retry schedule is the poll loop. Each settle target keeps its own type, so a new target must
+# list its type here too; `_NOT_SETTLED_ERROR_TYPES` is tested against this set.
 EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
-    {"trace_not_settled", "TransientRepartitionError", "EmbeddingServiceUnavailable", "AIFeaturesCloudOnly"}
+    {
+        "trace_not_settled",
+        "session_not_settled",
+        "TransientRepartitionError",
+        "EmbeddingServiceUnavailable",
+        "AIFeaturesCloudOnly",
+    }
 )
 
 
