@@ -106,7 +106,7 @@ export function HogFlowEditorPanel({
                         />
                     </div>
 
-                    <div className="flex-1">
+                    <div className="min-w-0 flex-1">
                         <LemonTabs
                             activeKey={mode}
                             onChange={(key) => setMode(key)}

@@ -188,7 +188,7 @@ export function HogFlowTreeStep({
             {hasValidationIssue && (
                 <Badge
                     variant="warning"
-                    className="pointer-events-none absolute end-1 top-1 z-20 shrink-0"
+                    className="pointer-events-none absolute -end-1 -top-1 z-20 !size-5 !min-w-5 shrink-0 !rounded-full border-2 border-card !p-0 !leading-none shadow-sm"
                     aria-label="Some fields need attention"
                 >
                     !
