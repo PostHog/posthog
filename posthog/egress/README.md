@@ -15,6 +15,29 @@ It is unrelated to `posthog.rate_limit`, which throttles _inbound_ DRF requests 
 All three lanes are **domain-generic** and domain-free; each third-party API is an incarnation under its own subpackage (`github/`, `logodev/`, `firecrawl/`), supplying a budget policy, a metric set + parser, and a transport subclass.
 Adding a new outbound API is another `<domain>/` folder, not a change to the mechanisms.
 
+## Non-goals
+
+This section records what egress does not do, and why.
+Each item below was a real proposal.
+
+**Egress does not store response data.**
+The limiter keeps control state about a budget, which stays O(1) per scope and expires on its own, so its footprint does not grow with traffic.
+A response body is the opposite, because its footprint tracks request volume.
+The test is the entry count, not the entry size.
+A small entry per URL still grows with the number of URLs, so a store of validators fails this the same way a store of bodies does.
+Storing either therefore needs a size budget, an eviction policy, and a store of its own.
+The shared Django cache is not that store, because it also serves the request path.
+Cache what a caller needs in that caller's own cache, where the data is already smaller and better shaped than the raw response.
+
+**Egress does not hide an API's response semantics from callers.**
+A transport that replays a `304` as a `200`, or an error as an empty result, leaves the caller unable to act on what the API said.
+Classify the response instead, and hand the caller a typed result it can act on.
+"No call site changes" is not a reason to break this. If a caller has to know that nothing changed, change the caller.
+
+**Egress does not decide what a caller should request.**
+A caller that fetches data it does not need is a product bug, and the limiter only makes that bug cheaper to survive.
+Fix the request pattern first, then measure what is left.
+
 ## Rate limiting
 
 ### Using it

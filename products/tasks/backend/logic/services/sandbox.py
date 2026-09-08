@@ -458,9 +458,6 @@ class SandboxBase(ABC):
         return result.exit_code == 0
 
     def agent_server_supports_exec_permission_regex(self) -> bool:
-        """Same probe as --autoPublish: check the installed binary before passing
-        --posthogExecPermissionRegex; unsupported binaries degrade to server-side auto-approval of
-        exec sub-tools instead of crashing at launch."""
         result = self.execute(
             "grep -q posthogExecPermissionRegex /scripts/node_modules/.bin/agent-server", timeout_seconds=10
         )
