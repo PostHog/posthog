@@ -93,7 +93,7 @@ export function getDashboardVariableChanges(
     })
 }
 
-const PROPERTY_FILTER_TYPE_LABELS: Partial<Record<PropertyFilterType, string>> = {
+const DASHBOARD_FILTER_TYPE_LABELS: Partial<Record<PropertyFilterType | BreakdownType | MultipleBreakdownType, string>> = {
     [PropertyFilterType.Cohort]: 'cohort',
     [PropertyFilterType.DataWarehouse]: 'data warehouse property',
     [PropertyFilterType.DataWarehousePersonProperty]: 'data warehouse person property',
@@ -113,7 +113,7 @@ const PROPERTY_FILTER_TYPE_LABELS: Partial<Record<PropertyFilterType, string>> =
 // reads as the same filter removed and added again.
 function formatProperty(property: AnyPropertyFilter): string {
     const label = formatPropertyLabel(property, {}).trim()
-    const taxonomy = property.type ? PROPERTY_FILTER_TYPE_LABELS[property.type] : undefined
+    const taxonomy = property.type ? DASHBOARD_FILTER_TYPE_LABELS[property.type] : undefined
     return taxonomy ? `${label} (${taxonomy})` : label
 }
 
@@ -136,19 +136,6 @@ function formatDateRange(filters: DashboardFilter): string {
     return filters.explicitDate ? `${dateRange} (exact time range)` : dateRange
 }
 
-const BREAKDOWN_TYPE_LABELS: Record<BreakdownType | MultipleBreakdownType, string> = {
-    cohort: 'cohort',
-    person: 'person property',
-    event: 'event property',
-    event_metadata: 'event metadata',
-    group: 'group property',
-    session: 'session property',
-    hogql: 'SQL expression',
-    data_warehouse: 'data warehouse property',
-    data_warehouse_person_property: 'data warehouse person property',
-    revenue_analytics: 'revenue analytics property',
-}
-
 // The same property name exists in several taxonomies, so a breakdown that keeps the name and
 // changes the taxonomy would otherwise read as the same value on both sides of the change.
 function formatBreakdownValue(
@@ -156,7 +143,7 @@ function formatBreakdownValue(
     type: BreakdownType | MultipleBreakdownType | null | undefined
 ): string {
     const name = String(property)
-    const label = type ? BREAKDOWN_TYPE_LABELS[type] : undefined
+    const label = type ? DASHBOARD_FILTER_TYPE_LABELS[type] : undefined
     return label ? `${name} (${label})` : name
 }
 
