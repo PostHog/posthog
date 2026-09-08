@@ -44,7 +44,12 @@ const costsByModel: Record<string, MockModelRow> = {
     },
     'google/gemini-2.5-pro-preview': {
         model: 'google/gemini-2.5-pro-preview',
-        cost: { prompt_token: 0.00000125, completion_token: 0.00001, cache_read_token: 3.1e-7 },
+        cost: {
+            prompt_token: 0.00000125,
+            completion_token: 0.00001,
+            cache_read_token: 3.1e-7,
+            cache_write_token: 3.75e-7,
+        },
     },
     'gemini-2.5-pro-preview:large': {
         model: 'gemini-2.5-pro-preview:large',
@@ -1060,21 +1065,31 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_output_cost_usd).toBeGreaterThan(0)
         })
 
-        it('handles custom pricing with cache read tokens for OpenAI', () => {
-            event.properties!.$ai_provider = 'openai'
-            event.properties!.$ai_input_token_price = 0.001
-            event.properties!.$ai_output_token_price = 0.002
-            event.properties!.$ai_cache_read_token_price = 0.0005
-            event.properties!.$ai_input_tokens = 100
-            event.properties!.$ai_cache_read_input_tokens = 40
-            event.properties!.$ai_output_tokens = 50
+        it.each([
+            { provider: 'openai', model: 'gpt-4o', writeRate: 0.00125, expectedInputCost: 0.085 },
+            { provider: 'google', model: 'gemini-2.5-flash', writeRate: 0.00125, expectedInputCost: 0.085 },
+            { provider: 'google', model: 'gemini-2.5-flash', writeRate: 0, expectedInputCost: 0.06 },
+        ])(
+            'handles custom cache pricing for $provider at write rate $writeRate',
+            ({ provider, model, writeRate, expectedInputCost }) => {
+                event.properties!.$ai_provider = provider
+                event.properties!.$ai_model = model
+                event.properties!.$ai_input_token_price = 0.001
+                event.properties!.$ai_output_token_price = 0.002
+                event.properties!.$ai_cache_read_token_price = 0.0005
+                event.properties!.$ai_cache_write_token_price = writeRate
+                event.properties!.$ai_input_tokens = 100
+                event.properties!.$ai_cache_read_input_tokens = 40
+                event.properties!.$ai_cache_creation_input_tokens = 20
+                event.properties!.$ai_output_tokens = 50
 
-            const result = processAiEvent(event)
+                const result = processAiEvent(event)
 
-            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.08, 6)
-            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.1, 6)
-            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.18, 6)
-        })
+                expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(expectedInputCost, 6)
+                expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.1, 6)
+                expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(expectedInputCost + 0.1, 6)
+            }
+        )
 
         it('handles custom pricing with cache tokens for Anthropic', () => {
             event.properties!.$ai_provider = 'anthropic'
@@ -1263,9 +1278,8 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Custom)
         })
 
-        // Every optional price OpenAI events consume is garbage at once, so dropping
-        // the coercion on any single one puts it back in front of js-big-decimal. The
-        // cache-write rates only apply to Anthropic events, covered separately below.
+        // Several optional prices are invalid at once, so dropping the coercion on
+        // any single one puts it back in front of js-big-decimal.
         it('ignores unusable optional prices and keeps custom pricing', () => {
             event.properties!.$ai_provider = 'openai'
             event.properties!.$ai_input_token_price = 0.001
@@ -1290,8 +1304,8 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.18, 6)
         })
 
-        // Only the Anthropic path consumes the cache-write rates, and only when the
-        // 5m/1h breakdown is present does it consume both of them.
+        // Only the Anthropic TTL path consumes the 1-hour cache-write rate, and only
+        // when both TTL counts are present.
         it('ignores unusable cache write prices on an Anthropic event', () => {
             event.properties!.$ai_model = 'claude-sonnet-4'
             event.properties!.$ai_provider = 'anthropic'
@@ -1905,11 +1919,17 @@ describe('processAiEvent()', () => {
     })
 
     describe('gemini cache handling', () => {
-        it('handles cache read tokens with correct cost calculation for gemini-2.5-pro-preview', () => {
-            event.properties!.$ai_provider = 'gemini'
+        it.each([
+            { provider: 'gemini', cacheWriteTokens: 0 },
+            { provider: 'gemini', cacheWriteTokens: 300 },
+            { provider: 'vertex', cacheWriteTokens: 300 },
+            { provider: 'openrouter', cacheWriteTokens: 300 },
+        ])('prices cache reads and $cacheWriteTokens writes for $provider', ({ provider, cacheWriteTokens }) => {
+            event.properties!.$ai_provider = provider
             event.properties!.$ai_model = 'gemini-2.5-pro-preview'
             event.properties!.$ai_input_tokens = 1000
             event.properties!.$ai_cache_read_input_tokens = 400
+            event.properties!.$ai_cache_creation_input_tokens = cacheWriteTokens
             event.properties!.$ai_output_tokens = 50
 
             const result = processAiEvent(event)
