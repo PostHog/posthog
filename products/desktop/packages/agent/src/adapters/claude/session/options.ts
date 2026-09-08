@@ -219,6 +219,40 @@ function buildEnvironment(
   return env;
 }
 
+/**
+ * `CLAUDE_CODE_USE_BEDROCK` puts the CLI on the direct-Bedrock path: it
+ * SigV4-signs its requests and calls bedrock-runtime directly, with no PostHog
+ * LLM gateway in the request path. Any set, non-falsy value enables it
+ * (hogland's guest profile sets it to "1").
+ */
+function usesDirectBedrock(value: string | undefined): boolean {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized !== "" && normalized !== "0" && normalized !== "false";
+}
+
+/**
+ * AWS strips any header whose NAME contains "_" before it validates a SigV4
+ * signature, but the Claude CLI signs custom headers verbatim — so a signed
+ * `x-posthog-property-task_id` makes AWS recompute a different signature and
+ * reject the request with 403 SignatureDoesNotMatch. On the direct-Bedrock
+ * path these `x-posthog-property-*` attribution headers reach no gateway (the
+ * only consumer that reads them), so dropping the underscore-named ones there
+ * unbreaks signing and loses no attribution that path could have captured.
+ * Hyphen-only headers (X-PostHog-Project-Id, x-posthog-use-bedrock-fallback,
+ * x-posthog-provider, x-posthog-flag-*) sign fine and are kept.
+ */
+function dropUnderscoreNamedHeaderLines(customHeaders: string): string {
+  return customHeaders
+    .split("\n")
+    .filter((line) => {
+      const separator = line.indexOf(":");
+      const name = separator === -1 ? line : line.slice(0, separator);
+      return !name.includes("_");
+    })
+    .join("\n");
+}
+
 function applyGatewayAuth(
   env: Record<string, string>,
   gateway: GatewayEnv | undefined,
@@ -267,7 +301,14 @@ function applyGatewayAuth(
       `x-posthog-flag-${BEDROCK_LLM_GATEWAY_FLAG}: ${bedrockGatewayVariant}`,
     );
   }
-  env.ANTHROPIC_CUSTOM_HEADERS = headerLines.join("\n");
+  const customHeaders = headerLines.join("\n");
+  // On the direct-Bedrock path the CLI SigV4-signs these headers, and AWS
+  // rejects any underscore-named one (see dropUnderscoreNamedHeaderLines). Strip
+  // them there so signing succeeds; every other path keeps them for gateway
+  // attribution.
+  env.ANTHROPIC_CUSTOM_HEADERS = usesDirectBedrock(env.CLAUDE_CODE_USE_BEDROCK)
+    ? dropUnderscoreNamedHeaderLines(customHeaders)
+    : customHeaders;
 
   // Explicit gateway values win over whatever happens to be in process.env.
   // This prevents concurrent Agent instances from clobbering each other's

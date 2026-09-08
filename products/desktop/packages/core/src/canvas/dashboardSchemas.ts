@@ -6,6 +6,15 @@ import { z } from "zod";
 import { canvasAgentRequestInputSchema } from "./freeformSchemas";
 import { componentMetaSchema } from "./gridLayoutSchemas";
 
+export const canvasCreatorSchema = z.object({
+  id: z.number().optional(),
+  uuid: z.string(),
+  first_name: z.string().nullish(),
+  last_name: z.string().nullish(),
+  email: z.string().nullish(),
+});
+export type CanvasCreator = z.infer<typeof canvasCreatorSchema>;
+
 // A canvas record from the PostHog canvases API, normalized to camelCase and
 // epoch-ms timestamps. Source code and version history are NOT part of the
 // record — they live behind the source/versions endpoints, and the rendered
@@ -32,6 +41,7 @@ export const dashboardRecordSchema = z.object({
   // Display name of the creator (from the backend's created_by user).
   createdBy: z.string().optional(),
   createdByUuid: z.string().optional(),
+  createdByUser: canvasCreatorSchema.optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
   // Epoch ms the canvas was pinned to its channel; absent = not pinned.

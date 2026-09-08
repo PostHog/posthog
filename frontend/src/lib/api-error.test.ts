@@ -99,7 +99,10 @@ describe('api-error', () => {
             ['a 409 that is not an approvals gate', { status: 409, data: {} }, true],
             ['a 500 backend exception', { status: 500 }, true],
             ['a 400 validation error', { status: 400 }, true],
+            // A route the backend does not serve stays reportable here. Only a caller that already
+            // degrades excuses one, through `isUnavailableEndpointError`.
             ['a 404', { status: 404 }, true],
+            ['a 405', { status: 405 }, true],
             // A request the browser never sent. Nothing of ours failed, and grouping is stack-based,
             // so reporting these opens one issue per loader that met the same connectivity blip.
             ['a Chromium fetch failure', new TypeError('Failed to fetch'), false],

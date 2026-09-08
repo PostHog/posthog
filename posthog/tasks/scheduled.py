@@ -76,11 +76,9 @@ from posthog.utils import get_crontab, get_instance_region
 
 from products.approvals.backend.tasks import expire_old_change_requests, validate_pending_change_requests
 from products.canvas.backend.tasks import cleanup_canvas_builds, sweep_canvas_builds
-from products.conversations.backend.tasks import (
-    flush_pending_email_replies,
-    poll_teams_shared_channels,
-    wake_snoozed_tickets,
-)
+from products.conversations.backend.tasks.email import flush_pending_email_replies
+from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
+from products.conversations.backend.tasks.teams import poll_teams_shared_channels
 from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
 from products.data_warehouse.backend.facade.tasks import (
     reconcile_all_managed_warehouse_tables_task,
@@ -105,6 +103,7 @@ from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.tasks import (
     pause_inactive_signal_scouts,
+    prune_expired_scratchpad_entries_task,
     refresh_signal_repository_activity,
     sync_pending_signals_refund_credits,
 )
@@ -360,6 +359,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="6", minute="15"),
         pause_inactive_signal_scouts.s(),
         name="pause inactive signals scouts",
+    )
+
+    # Hard-delete signals scratchpad entries long past their expiry - daily at 6:45 AM
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="6", minute="45"),
+        prune_expired_scratchpad_entries_task.s(),
+        name="prune expired signals scratchpad entries",
     )
 
     # Keep the signals repository area-activity cache warm - weekly, Monday early morning

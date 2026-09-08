@@ -45,7 +45,6 @@ import {
   useAdapterSubscription,
 } from "@posthog/ui/features/settings/adapterSubscription";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
-import { NEW_TASK_COMPOSER_FADE_MS } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import type { TaskInputReportAssociation } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { navigateToInbox } from "@posthog/ui/router/navigationBridge";
@@ -132,7 +131,6 @@ import { useResolvedWorkspaceMode } from "../hooks/useResolvedWorkspaceMode";
 import { useTaskCreation } from "../hooks/useTaskCreation";
 import { useWarmTask } from "../hooks/useWarmTask";
 import { ChannelContextChip } from "./ChannelContextChip";
-import { CloudGithubMissingNotice } from "./CloudGithubMissingNotice";
 import { NewTaskSuggestions } from "./ContinueCliSessions";
 import { shouldShowChannelContextChip } from "./channelContext";
 import {
@@ -853,6 +851,10 @@ export function TaskInput({
 
   const effectiveWorkspaceMode = workspaceMode;
   const cloudIds = workspaceMode === "cloud" ? cloudTargetIds(cloudTarget) : {};
+  const cloudGithubUnavailable =
+    effectiveWorkspaceMode === "cloud" &&
+    !isLoadingIntegrations &&
+    !hasGithubIntegration;
 
   const repoOptional = !!allowNoRepo && workspaceMode === "cloud";
 
@@ -1052,7 +1054,6 @@ export function TaskInput({
 
   const {
     isCreatingTask,
-    isExitingComposer,
     canSubmit,
     handleSubmit,
     additionalDirectories,
@@ -1122,7 +1123,7 @@ export function TaskInput({
       ...resolvedRun,
       instructions: contentToXml(content).trim(),
     });
-    const submitted = await handleSubmit(override);
+    const submitted = await handleSubmit(override, content);
     if (submitted) {
       track(ANALYTICS_EVENTS.AUTORESEARCH_RUN_STARTED, {
         direction: resolvedRun.direction,
@@ -1390,16 +1391,8 @@ export function TaskInput({
                 // suggestions fade out (and back in when the prompt is cleared).
                 top: suggestions && suggestions.length > 0 ? "38%" : "50%",
                 transform: "translate(-50%, -50%)",
-                // Once the task is on its way, the whole composer fades out and
-                // the pending chat fades in over it.
-                opacity: isExitingComposer ? 0 : 1,
-                transitionProperty: "opacity",
-                transitionDuration: `${NEW_TASK_COMPOSER_FADE_MS}ms`,
-                transitionTimingFunction: "ease-out",
               }}
-              className={`absolute left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2 ${
-                isExitingComposer ? "pointer-events-none" : ""
-              }`}
+              className="absolute left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2"
             >
               <Flex
                 gap="2"
@@ -1413,6 +1406,8 @@ export function TaskInput({
                   adapter={runtime === "pi" ? undefined : adapter}
                   cloudTarget={cloudTarget}
                   onCloudTargetChange={setCloudTarget}
+                  hasGithubIntegration={hasGithubIntegration}
+                  isLoadingGithubIntegration={isLoadingIntegrations}
                   size="1"
                 />
                 {repoOptional && (
@@ -1420,7 +1415,7 @@ export function TaskInput({
                     cloud={workspaceMode === "cloud"}
                     repositoryCount={taskRepositories.length}
                     hasFolder={!!taskFolder}
-                    disabled={isCreatingTask}
+                    disabled={isCreatingTask || cloudGithubUnavailable}
                     onOpen={() => setRepositoryDialogOpen(true)}
                   />
                 )}
@@ -1762,13 +1757,6 @@ export function TaskInput({
                     </Tooltip>
                   </div>
                 )}
-                {effectiveWorkspaceMode === "cloud" &&
-                  !isLoadingRepos &&
-                  !hasGithubIntegration && (
-                    <div className="mx-2 mt-2">
-                      <CloudGithubMissingNotice />
-                    </div>
-                  )}
               </Flex>
               <div className="absolute top-full right-0 left-0 z-10">
                 {suggestions ? (

@@ -152,9 +152,18 @@ Escalating to the next rung is the last resort, not the default.
 
 ### Always — determinism and isolation
 
-- **No `time.sleep` / arbitrary waits.**
-  Use fake timers, `wait_for` / `waitFor` on a real condition, or `freeze_time`.
-  A sleep is a flake waiting to happen, and it slows every run.
+- **Control the state transition instead of racing it.** Choose the control that matches
+  the behavior under test:
+  - For elapsed-time behavior, enable fake timers before starting the work and advance
+    exactly the duration the behavior requires.
+  - For a final async result, use `wait_for` / `waitFor` on the observable result.
+  - For an in-flight state, make the mocked boundary await a promise controlled by the
+    test. Assert the pending state, release the promise, then assert the final state.
+    Do not assume a debounce, `setTimeout`, kea breakpoint, or fast mock will still be
+    pending on the next line. Test setup may shorten internal delays without changing
+    production behavior.
+- **No `time.sleep` / arbitrary waits.** A sleep is a flake waiting to happen, and it
+  slows every run. Replace it with the matching control above or `freeze_time`.
 - **An absolute date in a test is a time bomb until you pin the clock.**
   A fixture date keeps its meaning only while the real clock stays where you left it.
   If anything under test measures that date against `now` — an age, a window, a "recent" flag, an expiry — the assertion holds today and fails some weeks later, on every open branch at once.
