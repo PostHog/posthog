@@ -218,11 +218,18 @@ function parseDashboardTileId(tileId: string | undefined): DashboardTileIdOrNew 
     return Number.isNaN(parsedTileId) ? null : parsedTileId
 }
 
+// kea-router decodes a numeric query value to a number, so a clicked link supplies 41 while a
+// params-object push supplies '41'. Both forms must resolve to the same tile.
+function parseHighlightTileId(value: unknown): number | null {
+    const parsed =
+        typeof value === 'number' ? value : typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : null
+    return parsed !== null && Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
+}
+
 function dashboardRevealKeyFromSearchParams(dashboardId: number, searchParams: Record<string, unknown>): string | null {
     if (Object.prototype.hasOwnProperty.call(searchParams, 'highlightTileId')) {
         const value = searchParams.highlightTileId
-        const parsed = typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : null
-        return parsed !== null && Number.isSafeInteger(parsed) && parsed > 0 ? `${dashboardId}:tile:${value}` : null
+        return parseHighlightTileId(value) !== null ? `${dashboardId}:tile:${String(value)}` : null
     }
 
     const highlightedInsightId = searchParams.highlightInsightId
@@ -2967,11 +2974,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         highlightedTileId: [
             () => [router.selectors.searchParams],
-            (searchParams: Record<string, unknown>): number | null => {
-                const value = searchParams.highlightTileId
-                const parsed = typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : null
-                return parsed !== null && Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
-            },
+            (searchParams: Record<string, unknown>): number | null =>
+                parseHighlightTileId(searchParams.highlightTileId),
         ],
         sortedDates: [
             (s) => [s.insightTiles],

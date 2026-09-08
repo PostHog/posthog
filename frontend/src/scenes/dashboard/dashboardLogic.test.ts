@@ -22,6 +22,7 @@ import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardL
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -432,6 +433,17 @@ describe('dashboardLogic', () => {
 
             expect(loadDashboardSpy).not.toHaveBeenCalled()
             expect(logic.values.dashboardRevealReadyKey).toBeNull()
+        })
+
+        it('reveals a tile when the parameter arrives in the pushed URL', async () => {
+            router.actions.push(urls.dashboard(5, undefined, TEXT_TILE.id))
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.highlightTileIdParam).toBe(TEXT_TILE.id)
+            expect(logic.values.highlightedTileId).toBe(TEXT_TILE.id)
+            expect(logic.values.dashboardRevealReadyKey).toBe(`5:tile:${TEXT_TILE.id}`)
         })
 
         it('keeps parameter presence separate from a valid positive safe integer', () => {

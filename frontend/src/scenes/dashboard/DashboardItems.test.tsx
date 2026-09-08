@@ -458,14 +458,14 @@ describe('DashboardItems', () => {
         expect(urls.dashboard(7, undefined, 41)).toBe('/dashboard/7?highlightTileId=41')
     })
 
-    it('prefers an explicit tile target over the legacy insight target', () => {
+    it.each([42, '42'])('prefers an explicit tile target of %p over the legacy insight target', (rawTarget) => {
         const tiles: DashboardTileFixture[] = [
             { id: 41, insight: { id: 101, short_id: 'legacy-target', query: { kind: 'InsightVizNode' } } },
             { id: 42, text: { id: 102, body: 'Explicit target' } },
         ]
         mockHighlightedInsightId = 'legacy-target'
         mockHasHighlightTileIdParam = true
-        mockHighlightTileIdParam = '42'
+        mockHighlightTileIdParam = rawTarget
         mockHighlightedTileId = 42
         mockDashboardRevealReadyKey = '5:tile:42'
         installDashboardValues(() => tiles)

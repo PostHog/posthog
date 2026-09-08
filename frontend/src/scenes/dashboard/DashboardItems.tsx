@@ -214,8 +214,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
           ? 'insight'
           : null
     const rawRevealTarget = hasHighlightTileIdParam
-        ? typeof highlightTileIdParam === 'string'
-            ? highlightTileIdParam
+        ? typeof highlightTileIdParam === 'string' || typeof highlightTileIdParam === 'number'
+            ? String(highlightTileIdParam)
             : null
         : typeof highlightedInsightId === 'string' && highlightedInsightId
           ? highlightedInsightId
