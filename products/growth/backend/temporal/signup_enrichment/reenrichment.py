@@ -1,4 +1,4 @@
-"""Scheduled re-enrichment sweep for orgs whose V0.5 evaluation produced no score.
+"""Scheduled re-enrichment sweep for orgs whose fit evaluation produced no score.
 
 Measured on prod-us 2026-08-24 over 14,848 scored orgs: 40.8% of matched signups are
 empty-shell Harmonic profiles (insufficient_data) and 0.9% aren't matched at all (not_found)
@@ -295,6 +295,7 @@ async def reenrich_organization_activity(inputs: ReenrichOrgInputs) -> dict[str,
                 "organization_id": inputs.organization_id,
                 "matched": matched,
                 "icp_fit_status": status,
+                "harmonic_enrichment_status": outcome.enrichment_status,
                 **observed,
             },
             groups={"organization": inputs.organization_id},

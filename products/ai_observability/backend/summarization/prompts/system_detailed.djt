@@ -14,7 +14,7 @@ IMPORTANT GUIDELINES:
 - Provide 5-10 bullet points covering the main aspects of what happened.
 - Include interesting notes highlighting notable aspects that a human user responsible for the system might want to know.
 - Line references go in the line_refs field - DO NOT include them in the text field.
-- Line references format: Pick ONE most relevant line reference per bullet/note in format "L45". Do not use ranges or multiple references.
+- Line references format: exactly one reference per bullet/note, like "L45". Write "L28", never "L28-L31" or "L28, L34". If a bullet covers several lines, pick the most important one.
 - Focus on what was accomplished, any issues encountered, and key details.
 - Strong emotions, either positive or negative, expressed by a user are always interesting.
 - Keep the summary concise but comprehensive.

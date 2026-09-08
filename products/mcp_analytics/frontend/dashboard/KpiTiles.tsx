@@ -68,6 +68,7 @@ export function KpiTiles({
     intentClusterCount,
     kpisLoading,
     usersLoading,
+    showIntentClusters,
     theme,
     incompleteTail,
 }: {
@@ -76,6 +77,7 @@ export function KpiTiles({
     intentClusterCount: KPIMetric
     kpisLoading: boolean
     usersLoading: boolean
+    showIntentClusters: boolean
     theme: ChartTheme
     // When true, the sparklines' final point is the current in-progress interval — dash it so a
     // partial period doesn't read as a decline. Required rather than optional: an omitted prop
@@ -129,27 +131,34 @@ export function KpiTiles({
             loading: kpisLoading,
             summaryLabel: 'Latest',
         },
-        {
-            label: 'Intent clusters',
-            metric: intentClusterCount,
-            href: urls.mcpAnalyticsIntentClustering(),
-            format: formatNumber,
-            color: theme.colors[6],
-            loading: false,
-            summaryLabel: 'Total',
-            // Clusters come from the latest clustering snapshot across all sessions, so
-            // unlike the other tiles this count isn't scoped by the date or test-account
-            // filters. Label it so the grid doesn't read as a single consistent scope.
-            subtitle: 'Latest run · all sessions',
-        },
+        ...(showIntentClusters
+            ? [
+                  {
+                      label: 'Intent clusters',
+                      metric: intentClusterCount,
+                      href: urls.mcpAnalyticsIntentClustering(),
+                      format: formatNumber,
+                      color: theme.colors[6],
+                      loading: false,
+                      summaryLabel: 'Total',
+                      // Clusters come from the latest clustering snapshot across all sessions, so
+                      // unlike the other tiles this count isn't scoped by the date or test-account
+                      // filters. Label it so the grid doesn't read as a single consistent scope.
+                      subtitle: 'Latest run · all sessions',
+                  },
+              ]
+            : []),
     ]
 
-    // Wrap the six tiles only into rows that divide evenly (6 → 3+3 → 2+2+2), never a lone
-    // trailing card. Container queries key off the card area's own width, so the sidebar can't
-    // push it to an awkward 5+1 the way viewport breakpoints or plain auto-fit would.
+    // Keep both flag states balanced: six tiles wrap as 3+3 or 2+2+2, while five stay on one
+    // wide row. Container queries key off the card area's width rather than the viewport.
     return (
         <div className="@container">
-            <div className="grid grid-cols-2 gap-3 @xl:grid-cols-3 @6xl:grid-cols-6">
+            <div
+                className={`grid gap-3 ${
+                    showIntentClusters ? 'grid-cols-2 @xl:grid-cols-3 @6xl:grid-cols-6' : 'grid-cols-1 @xl:grid-cols-5'
+                }`}
+            >
                 {tiles.map((tile) => (
                     <KPITile key={tile.label} tile={tile} theme={theme} incompleteTail={incompleteTail} />
                 ))}

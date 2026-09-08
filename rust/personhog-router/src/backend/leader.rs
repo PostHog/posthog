@@ -14,6 +14,11 @@ use tonic::{Code, Status};
 use tower::{Service, ServiceExt};
 
 use personhog_common::grpc::{current_client_name, SEMANTIC_REFUSAL_METADATA_KEY};
+
+/// Set by the leader on writes refused for a lifecycle hold. Mirrored so
+/// the router does not depend on the leader crate.
+const FENCED_METADATA_KEY: &str = "x-person-fenced";
+const FENCED_OP_ID_METADATA_KEY: &str = "x-person-fenced-op-id";
 use personhog_common::partitioning::partition_for_person;
 
 use super::stash::{StashDecision, StashTable};
@@ -100,6 +105,11 @@ pub enum ForwardDecision {
         call_ms: f64,
     },
     Bounced(BounceReason),
+    /// Any non-semantic FAILED_PRECONDITION with its refusal metadata;
+    /// the holder's op id tells a caller whether the fence is its own.
+    BouncedFenced {
+        headers: HeaderMap,
+    },
 }
 
 /// Static configuration for `LeaderBackend`. Bundles the knobs that come
@@ -340,7 +350,9 @@ impl LeaderBackend {
                 {
                     ForwardDecision::Delivered { response, call_ms }
                 } else {
-                    ForwardDecision::Bounced(BounceReason::Fenced)
+                    ForwardDecision::BouncedFenced {
+                        headers: response.headers().clone(),
+                    }
                 }
             }
             Ok((response, call_ms)) => ForwardDecision::Delivered { response, call_ms },
@@ -391,6 +403,8 @@ impl LeaderBackend {
         frame: Bytes,
     ) -> (http::Response<BoxBody>, Option<f64>) {
         let mut consecutive_bounces = 0u32;
+        // Whether any attempt may have been applied, which the stash
+        // needs to treat a replay as at-least-once.
         let mut possibly_applied = false;
         loop {
             // The stash module emits its own enqueued/rejected counters
@@ -430,20 +444,51 @@ impl LeaderBackend {
                 ForwardDecision::Delivered { response, call_ms } => {
                     return (response, Some(call_ms));
                 }
-                ForwardDecision::Bounced(reason) => {
+                decision
+                @ (ForwardDecision::Bounced(_) | ForwardDecision::BouncedFenced { .. }) => {
+                    let reason = match &decision {
+                        ForwardDecision::Bounced(reason) => *reason,
+                        _ => BounceReason::Fenced,
+                    };
                     if counts_as_possibly_applied(reason) {
                         possibly_applied = true;
                     }
                     consecutive_bounces += 1;
                     if consecutive_bounces >= MAX_CONSECUTIVE_BOUNCES {
-                        counter!("personhog_router_forward_retries_exhausted_total").increment(1);
-                        return (
-                            grpc_error_response(
-                                Code::Unavailable,
-                                "leader unreachable or transitioning; retry",
-                            ),
-                            None,
+                        // The label separates a fence exhaustion (acked,
+                        // dropped) from a transport one (redelivered).
+                        counter!(
+                            "personhog_router_forward_retries_exhausted_total",
+                            "reason" => reason.label(),
+                        )
+                        .increment(1);
+                        // Fence metadata names a lifecycle holder; a bare
+                        // FAILED_PRECONDITION is ordinary handoff/ownership.
+                        let held_by_op = matches!(
+                            &decision,
+                            ForwardDecision::BouncedFenced { headers }
+                                if headers.contains_key(FENCED_METADATA_KEY)
                         );
+                        let mut response = grpc_error_response(
+                            Code::Unavailable,
+                            if held_by_op {
+                                "person is held by a lifecycle operation; retries exhausted"
+                            } else if matches!(reason, BounceReason::Fenced) {
+                                "leader refused the write precondition (handoff or ownership); retries exhausted"
+                            } else {
+                                "leader unreachable or transitioning; retry"
+                            },
+                        );
+                        // Keys travel only from the bounce that ended the
+                        // request, so a dead leader cannot report as held.
+                        if let ForwardDecision::BouncedFenced { headers: fence } = &decision {
+                            for key in [FENCED_METADATA_KEY, FENCED_OP_ID_METADATA_KEY] {
+                                if let Some(value) = fence.get(key) {
+                                    response.headers_mut().insert(key, value.clone());
+                                }
+                            }
+                        }
+                        return (response, None);
                     }
                     counter!(
                         "personhog_router_forward_retries_total",

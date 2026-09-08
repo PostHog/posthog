@@ -30,7 +30,6 @@ import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { pluralize } from 'lib/utils/strings'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
 import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -56,6 +55,7 @@ import { CopyExperimentToProjectModal } from 'products/experiments/frontend/comp
 import { DuplicateExperimentModal } from 'products/experiments/frontend/components/DuplicateExperimentModal'
 import { ExperimentVelocityStats } from 'products/experiments/frontend/components/ExperimentVelocityStats'
 import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
+import { CONCLUSION_DISPLAY_CONFIG } from 'products/experiments/frontend/constants'
 import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
 import {
     canArchiveExperiment,

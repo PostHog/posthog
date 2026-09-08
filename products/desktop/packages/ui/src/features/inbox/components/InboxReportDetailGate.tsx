@@ -4,18 +4,19 @@ import {
   isPullRequestReport,
   isReportTabReport,
 } from "@posthog/core/inbox/reportMembership";
-import { Spinner } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { DetailBackLink } from "@posthog/ui/features/inbox/components/DetailBackLink";
 import {
   asInboxBackTarget,
   type InboxListRoute,
+  useInboxTriageOrigin,
 } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import { useInboxReportById } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import {
   type InboxDetailTab,
   useReportOpenTracker,
 } from "@posthog/ui/features/inbox/hooks/useReportOpenTracker";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { Flex, Text } from "@radix-ui/themes";
 import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect } from "react";
@@ -80,6 +81,7 @@ export function InboxReportDetailGate({
   children,
 }: InboxReportDetailGateProps) {
   const navigate = useNavigate();
+  const triageOrigin = useInboxTriageOrigin();
   const {
     data: report,
     isLoading,
@@ -135,33 +137,28 @@ export function InboxReportDetailGate({
       // the user is returning to. Validated because `backTo` may be a literal
       // path on the in-space route (which never redirects, but types can't see
       // that).
-      state:
-        redirectTo === "/inbox/dismissed/$reportId"
+      state: (previous) => ({
+        ...previous,
+        ...(redirectTo === "/inbox/dismissed/$reportId"
           ? {
               inboxBackOrigin:
                 asInboxBackTarget({ to: backTo, label: backLabel }) ??
                 undefined,
             }
-          : undefined,
+          : {}),
+        ...(triageOrigin ? { inboxTriageOrigin: triageOrigin } : {}),
+      }),
     });
-  }, [redirectTo, redirectReportId, navigate, backTo, backLabel]);
+  }, [redirectTo, redirectReportId, navigate, backTo, backLabel, triageOrigin]);
 
   if ((isLoading && !resolvedReport) || statusUnconfirmed) {
-    return (
-      <Flex align="center" justify="center" className="py-16">
-        <Spinner />
-      </Flex>
-    );
+    return <LoadingState className="py-16" />;
   }
 
   if (redirectTo) {
     // Redirecting across the dismissed↔pipeline boundary; render nothing
     // meaningful for the frame we're leaving.
-    return (
-      <Flex align="center" justify="center" className="py-16">
-        <Spinner />
-      </Flex>
-    );
+    return <LoadingState className="py-16" />;
   }
 
   if (!resolvedReport) {

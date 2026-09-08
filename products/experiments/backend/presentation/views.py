@@ -30,7 +30,12 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.api.utils import action
-from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import (
+    IDJagAccessTokenAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
+)
 from posthog.models.activity_logging.activity_log import ActivityLog, get_activity_page
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.organization import OrganizationMembership
@@ -40,6 +45,8 @@ from posthog.permissions import is_service_auth, posthog_feature_flag_enabled
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
+    PersonalOrProjectSecretApiKeyRateThrottle,
+    ProjectSecretApiKeyTeamRateThrottle,
     SessionBucketsBurstRateThrottle,
     SessionBucketsSustainedRateThrottle,
     SessionContextsBurstRateThrottle,
@@ -59,6 +66,7 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
+from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
 # TODO: Route through facade instead of direct import
@@ -79,6 +87,7 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentBasicSerializer,
     ExperimentFlagCleanupTargetSerializer,
     ExperimentFlagCleanupTaskSerializer,
+    ExperimentInSessionExposureSerializer,
     ExperimentMatchingIdsResponseSerializer,
     ExperimentMetricsRecalculationSerializer,
     ExperimentSerializer,
@@ -353,6 +362,32 @@ EXPERIMENT_LIST_FILTER_PARAMETERS = [
         required=False,
     ),
 ]
+class ExperimentBurstRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    # Same scope and rate as the default BurstRateThrottle so personal-key and session
+    # behavior is unchanged; the subclass only adds per-key throttling for PSAK requests,
+    # which the default throttles silently bypass (no personal key, no throttling).
+    scope = "burst"
+    rate = "480/minute"
+
+
+class ExperimentSustainedRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    scope = "sustained"
+    rate = "4800/hour"
+
+
+class ExperimentProjectSecretApiKeyTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    """Per-team aggregate burst budget across all of a project's PSAKs — same size as the
+    per-key budget, so minting extra keys never multiplies a project's total burst capacity."""
+
+    scope = "experiment_psak_team_burst"
+    rate = "480/minute"
+
+
+class ExperimentProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    """Per-team aggregate sustained budget across all of a project's PSAKs."""
+
+    scope = "experiment_psak_team_sustained"
+    rate = "4800/hour"
 
 
 @extend_schema_view(
@@ -399,6 +434,18 @@ class EnterpriseExperimentsViewSet(
     # bulk_update_tags comes from TaggedItemViewSetMixin and must be opted into PAT access explicitly.
     scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "bulk_update_tags"]
     bulk_tag_activity_scope = "Experiment"
+    # Extends the default authenticators (TeamAndOrgViewSetMixin appends session/PAT/OAuth).
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    # A project secret API key with experiment:read can export experiment definitions
+    # (list/retrieve) — a service credential not tied to one person's account. Everything
+    # else (writes, lifecycle actions, results) stays session/PAT/OAuth-only.
+    psak_allowed_actions = ["list", "retrieve"]
+    throttle_classes = [
+        ExperimentBurstRateThrottle,
+        ExperimentSustainedRateThrottle,
+        ExperimentProjectSecretApiKeyTeamBurstThrottle,
+        ExperimentProjectSecretApiKeyTeamSustainedThrottle,
+    ]
     serializer_class = ExperimentSerializer
     queryset = (
         Experiment.objects.select_related(
@@ -1538,6 +1585,23 @@ class EnterpriseExperimentsViewSet(
             {"results": [{"session_id": session_id, "results": items} for session_id, items in contexts.items()]}
         )
         return Response(serializer.data)
+
+    @extend_schema(
+        request=None,
+        responses={200: OpenApiResponse(response=ExperimentInSessionExposureSerializer)},
+    )
+    @action(methods=["GET"], detail=True, url_path="in_session_exposure", required_scopes=["experiment:read"])
+    def in_session_exposure(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """How the recordings tab's in-session exposure scope reads on this experiment.
+
+        Resolved through the same seam as the recordings query's `in_session` refusal, so the
+        scope control disables exactly what a query would be refused for, and the copy can say
+        when sessions are matched on the stamped flag property rather than on the exposure event.
+        Postgres reads only, so it can serve the tab's mount path.
+        """
+        experiment: Experiment = self.get_object()
+        semantics = resolve_in_session_exposure_semantics(self.team, experiment)
+        return Response(ExperimentInSessionExposureSerializer(semantics).data)
 
     @validated_request(
         request_serializer=ExperimentSessionBucketRequestSerializer,

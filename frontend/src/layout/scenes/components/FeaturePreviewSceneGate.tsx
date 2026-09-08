@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
+import { featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import {
@@ -15,7 +16,6 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
-import { featurePreviewsLogic } from '~/layout/FeaturePreviews/featurePreviewsLogic'
 import { FeaturePreviewGateConfig } from '~/types'
 
 import { SceneContent } from './SceneContent'
@@ -48,7 +48,8 @@ function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfi
     }, [loadEarlyAccessFeatures])
 
     const feature = earlyAccessFeatures.find((f) => f.flagKey === config.flag)
-    const sceneConfig = activeSceneId ? sceneConfigurations[activeSceneId] : undefined
+    const sceneIdForHeader = config.sceneId ?? activeSceneId
+    const sceneConfig = sceneIdForHeader ? sceneConfigurations[sceneIdForHeader] : undefined
     const flagsHonored = areClientFeatureFlagsHonored(preflight)
 
     return (

@@ -16,6 +16,7 @@ export const manifest: ProductManifest = {
     scenes: {
         StreamlitApps: {
             name: 'Streamlit apps',
+            description: 'Build and share custom Python apps that run on your PostHog data.',
             import: () => import('./frontend/StreamlitApps'),
             projectBased: true,
         },

@@ -12,6 +12,7 @@ from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.settings import (
     ANTHROPIC_ENDPOINTS,
+    ENDPOINT_RETIRED_ERROR,
     USAGE_GROUP_BY_FALLBACKS,
     PaginationType,
 )
@@ -498,7 +499,12 @@ def anthropic_source(
     resumable_source_manager: ResumableSourceManager[AnthropicResumeConfig],
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
-    config = ANTHROPIC_ENDPOINTS[endpoint]
+    config = ANTHROPIC_ENDPOINTS.get(endpoint)
+    if config is None:
+        # A schema row outlives the catalog entry it was discovered from when an endpoint is
+        # dropped. Raise the message `get_non_retryable_errors` keys on, so the run disables the
+        # schema and pauses its schedule instead of retrying a KeyError forever.
+        raise ValueError(f"{ENDPOINT_RETIRED_ERROR}: {endpoint}")
     # Set only where the rows come from something other than iterating `resource` once.
     items: Optional[Callable[[], Iterator[list[dict[str, Any]]]]] = None
 

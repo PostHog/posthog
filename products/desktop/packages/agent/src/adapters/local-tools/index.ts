@@ -4,7 +4,7 @@ import { finishTool } from "./tools/finish";
 import { ghStackTool } from "./tools/gh-stack";
 import { listAgentsTool } from "./tools/list-agents";
 import { listReposTool } from "./tools/list-repos";
-import { reportInsightTool } from "./tools/report-insight";
+import { reportActivityTool } from "./tools/report-activity";
 import { sendAgentMessageTool } from "./tools/send-agent-message";
 import { showActionsTool } from "./tools/show-actions";
 import { signedCommitTool } from "./tools/signed-commit";
@@ -18,7 +18,6 @@ export {
   type LocalTool,
   type LocalToolCtx,
   type LocalToolGateMeta,
-  type LocalToolResult,
   qualifiedLocalToolName,
 } from "./registry";
 
@@ -33,7 +32,7 @@ export const LOCAL_TOOLS: LocalTool[] = [
   speakTool,
   showActionsTool,
   uploadArtifactTool,
-  reportInsightTool,
+  reportActivityTool,
   finishTool,
   listAgentsTool,
   sendAgentMessageTool,

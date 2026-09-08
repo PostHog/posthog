@@ -1,11 +1,7 @@
-import {
-  ArrowLeft,
-  ArrowRight,
-  CheckCircle,
-  CircleNotch,
-} from "@phosphor-icons/react";
+import { ArrowLeft, ArrowRight, CheckCircle } from "@phosphor-icons/react";
 import { repoMatchesGitHubRepos } from "@posthog/core/onboarding/repoProvider";
 import { cn } from "@posthog/quill";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { Button, Flex, Text } from "@radix-ui/themes";
 import { AnimatePresence, motion } from "framer-motion";
@@ -149,10 +145,7 @@ export function SelectRepoStep({
                       transition={{ duration: 0.15 }}
                     >
                       <Flex align="center" gap="2">
-                        <CircleNotch
-                          size={14}
-                          className="animate-spin text-(--gray-9)"
-                        />
+                        <Spinner size="md" className="text-(--gray-9)" />
                         <Text className="text-(--gray-9) text-[13px]">
                           Detecting repository...
                         </Text>

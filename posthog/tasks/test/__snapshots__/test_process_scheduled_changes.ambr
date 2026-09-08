@@ -297,6 +297,7 @@
          "posthog_taggeditem"."account_id",
          "posthog_taggeditem"."endpoint_id",
          "posthog_taggeditem"."replay_scanner_id",
+         "posthog_taggeditem"."project_id"
          "posthog_taggeditem"."experiment_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
@@ -317,6 +318,7 @@
          "posthog_taggeditem"."account_id",
          "posthog_taggeditem"."endpoint_id",
          "posthog_taggeditem"."replay_scanner_id",
+         "posthog_taggeditem"."project_id"
          "posthog_taggeditem"."experiment_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
@@ -473,6 +475,7 @@
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
@@ -760,6 +763,7 @@
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
@@ -1216,6 +1220,7 @@
          "posthog_taggeditem"."account_id",
          "posthog_taggeditem"."endpoint_id",
          "posthog_taggeditem"."replay_scanner_id",
+         "posthog_taggeditem"."project_id"
          "posthog_taggeditem"."experiment_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
@@ -1236,6 +1241,7 @@
          "posthog_taggeditem"."account_id",
          "posthog_taggeditem"."endpoint_id",
          "posthog_taggeditem"."replay_scanner_id",
+         "posthog_taggeditem"."project_id"
          "posthog_taggeditem"."experiment_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
@@ -1412,6 +1418,7 @@
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
@@ -1795,6 +1802,7 @@
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",

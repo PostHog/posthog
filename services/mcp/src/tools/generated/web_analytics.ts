@@ -2,28 +2,20 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    HeatmapsEventsRetrieveQueryParams,
-    HeatmapsListQueryParams,
-    SavedCreateBody,
-    SavedListQueryParams,
-    SavedPartialUpdateBody,
-    SavedPartialUpdateParams,
-    SavedRegenerateCreateParams,
-    SavedRetrieveParams,
-    WebAnalyticsPathCleaningSuggestionsApplyParams,
-    WebAnalyticsWeeklyDigestQueryParams,
-} from '@/generated/web_analytics/api'
+import * as orvalSchemas from '@/generated/web_analytics/api'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const HeatmapsEventsSchema = HeatmapsEventsRetrieveQueryParams
+const HeatmapsEventsSchema = () => {
+    const HeatmapsEventsRetrieveQueryParams = orvalSchemas.HeatmapsEventsRetrieveQueryParams()
+    return HeatmapsEventsRetrieveQueryParams
+}
 
-const heatmapsEvents = (): ToolBase<typeof HeatmapsEventsSchema, Schemas.HeatmapEventsResponse> => ({
+const heatmapsEvents = (): ToolBase<ReturnType<typeof HeatmapsEventsSchema>, Schemas.HeatmapEventsResponse> => ({
     name: 'heatmaps-events',
-    schema: HeatmapsEventsSchema,
-    handler: async (context: Context, params: z.infer<typeof HeatmapsEventsSchema>) => {
+    schema: HeatmapsEventsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof HeatmapsEventsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HeatmapEventsResponse>({
             method: 'GET',
@@ -33,6 +25,7 @@ const heatmapsEvents = (): ToolBase<typeof HeatmapsEventsSchema, Schemas.Heatmap
                 cohort_ids: params.cohort_ids,
                 date_from: params.date_from,
                 date_to: params.date_to,
+                events: params.events,
                 filter_test_accounts: params.filter_test_accounts,
                 hide_zero_coordinates: params.hide_zero_coordinates,
                 limit: params.limit,
@@ -49,12 +42,18 @@ const heatmapsEvents = (): ToolBase<typeof HeatmapsEventsSchema, Schemas.Heatmap
     },
 })
 
-const HeatmapsListSchema = HeatmapsListQueryParams
+const HeatmapsListSchema = () => {
+    const HeatmapsListQueryParams = orvalSchemas.HeatmapsListQueryParams()
+    return HeatmapsListQueryParams
+}
 
-const heatmapsList = (): ToolBase<typeof HeatmapsListSchema, WithPostHogUrl<Schemas.HeatmapsResponse[]>> => ({
+const heatmapsList = (): ToolBase<
+    ReturnType<typeof HeatmapsListSchema>,
+    WithPostHogUrl<Schemas.HeatmapsResponse[]>
+> => ({
     name: 'heatmaps-list',
-    schema: HeatmapsListSchema,
-    handler: async (context: Context, params: z.infer<typeof HeatmapsListSchema>) => {
+    schema: HeatmapsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof HeatmapsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HeatmapsResponse[]>({
             method: 'GET',
@@ -64,6 +63,7 @@ const heatmapsList = (): ToolBase<typeof HeatmapsListSchema, WithPostHogUrl<Sche
                 cohort_ids: params.cohort_ids,
                 date_from: params.date_from,
                 date_to: params.date_to,
+                events: params.events,
                 filter_test_accounts: params.filter_test_accounts,
                 hide_zero_coordinates: params.hide_zero_coordinates,
                 limit: params.limit,
@@ -79,12 +79,18 @@ const heatmapsList = (): ToolBase<typeof HeatmapsListSchema, WithPostHogUrl<Sche
     },
 })
 
-const HeatmapsSavedCreateSchema = SavedCreateBody
+const HeatmapsSavedCreateSchema = () => {
+    const SavedCreateBody = orvalSchemas.SavedCreateBody()
+    return SavedCreateBody
+}
 
-const heatmapsSavedCreate = (): ToolBase<typeof HeatmapsSavedCreateSchema, Schemas.HeatmapScreenshotResponse> => ({
+const heatmapsSavedCreate = (): ToolBase<
+    ReturnType<typeof HeatmapsSavedCreateSchema>,
+    Schemas.HeatmapScreenshotResponse
+> => ({
     name: 'heatmaps-saved-create',
-    schema: HeatmapsSavedCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof HeatmapsSavedCreateSchema>) => {
+    schema: HeatmapsSavedCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof HeatmapsSavedCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -114,12 +120,18 @@ const heatmapsSavedCreate = (): ToolBase<typeof HeatmapsSavedCreateSchema, Schem
     },
 })
 
-const HeatmapsSavedGetSchema = SavedRetrieveParams.omit({ project_id: true })
+const HeatmapsSavedGetSchema = () => {
+    const SavedRetrieveParams = orvalSchemas.SavedRetrieveParams()
+    return SavedRetrieveParams.omit({ project_id: true })
+}
 
-const heatmapsSavedGet = (): ToolBase<typeof HeatmapsSavedGetSchema, Schemas.HeatmapScreenshotResponse> => ({
+const heatmapsSavedGet = (): ToolBase<
+    ReturnType<typeof HeatmapsSavedGetSchema>,
+    Schemas.HeatmapScreenshotResponse
+> => ({
     name: 'heatmaps-saved-get',
-    schema: HeatmapsSavedGetSchema,
-    handler: async (context: Context, params: z.infer<typeof HeatmapsSavedGetSchema>) => {
+    schema: HeatmapsSavedGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof HeatmapsSavedGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HeatmapScreenshotResponse>({
             method: 'GET',
@@ -129,15 +141,18 @@ const heatmapsSavedGet = (): ToolBase<typeof HeatmapsSavedGetSchema, Schemas.Hea
     },
 })
 
-const HeatmapsSavedListSchema = SavedListQueryParams
+const HeatmapsSavedListSchema = () => {
+    const SavedListQueryParams = orvalSchemas.SavedListQueryParams()
+    return SavedListQueryParams
+}
 
 const heatmapsSavedList = (): ToolBase<
-    typeof HeatmapsSavedListSchema,
+    ReturnType<typeof HeatmapsSavedListSchema>,
     WithPostHogUrl<Schemas.SavedHeatmapListResponse[]>
 > => ({
     name: 'heatmaps-saved-list',
-    schema: HeatmapsSavedListSchema,
-    handler: async (context: Context, params: z.infer<typeof HeatmapsSavedListSchema>) => {
+    schema: HeatmapsSavedListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof HeatmapsSavedListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SavedHeatmapListResponse[]>({
             method: 'GET',
@@ -156,15 +171,18 @@ const heatmapsSavedList = (): ToolBase<
     },
 })
 
-const HeatmapsSavedRegenerateSchema = SavedRegenerateCreateParams.omit({ project_id: true })
+const HeatmapsSavedRegenerateSchema = () => {
+    const SavedRegenerateCreateParams = orvalSchemas.SavedRegenerateCreateParams()
+    return SavedRegenerateCreateParams.omit({ project_id: true })
+}
 
 const heatmapsSavedRegenerate = (): ToolBase<
-    typeof HeatmapsSavedRegenerateSchema,
+    ReturnType<typeof HeatmapsSavedRegenerateSchema>,
     Schemas.HeatmapScreenshotResponse
 > => ({
     name: 'heatmaps-saved-regenerate',
-    schema: HeatmapsSavedRegenerateSchema,
-    handler: async (context: Context, params: z.infer<typeof HeatmapsSavedRegenerateSchema>) => {
+    schema: HeatmapsSavedRegenerateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof HeatmapsSavedRegenerateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HeatmapScreenshotResponse>({
             method: 'POST',
@@ -174,14 +192,19 @@ const heatmapsSavedRegenerate = (): ToolBase<
     },
 })
 
-const HeatmapsSavedUpdateSchema = SavedPartialUpdateParams.omit({ project_id: true }).extend(
-    SavedPartialUpdateBody.shape
-)
+const HeatmapsSavedUpdateSchema = () => {
+    const SavedPartialUpdateBody = orvalSchemas.SavedPartialUpdateBody()
+    const SavedPartialUpdateParams = orvalSchemas.SavedPartialUpdateParams()
+    return SavedPartialUpdateParams.omit({ project_id: true }).extend(SavedPartialUpdateBody.shape)
+}
 
-const heatmapsSavedUpdate = (): ToolBase<typeof HeatmapsSavedUpdateSchema, Schemas.HeatmapScreenshotResponse> => ({
+const heatmapsSavedUpdate = (): ToolBase<
+    ReturnType<typeof HeatmapsSavedUpdateSchema>,
+    Schemas.HeatmapScreenshotResponse
+> => ({
     name: 'heatmaps-saved-update',
-    schema: HeatmapsSavedUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof HeatmapsSavedUpdateSchema>) => {
+    schema: HeatmapsSavedUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof HeatmapsSavedUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -214,17 +237,95 @@ const heatmapsSavedUpdate = (): ToolBase<typeof HeatmapsSavedUpdateSchema, Schem
     },
 })
 
-const WebAnalyticsPathCleaningSuggestionsApplySchema = WebAnalyticsPathCleaningSuggestionsApplyParams.omit({
-    project_id: true,
+const WebAnalyticsBotRulesCreateSchema = () => {
+    const WebAnalyticsBotRulesCreateBody = orvalSchemas.WebAnalyticsBotRulesCreateBody()
+    return WebAnalyticsBotRulesCreateBody
+}
+
+const webAnalyticsBotRulesCreate = (): ToolBase<
+    ReturnType<typeof WebAnalyticsBotRulesCreateSchema>,
+    Schemas.CustomBotRule
+> => ({
+    name: 'web-analytics-bot-rules-create',
+    schema: WebAnalyticsBotRulesCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WebAnalyticsBotRulesCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.key !== undefined) {
+            body['key'] = params.key
+        }
+        if (params.matcher !== undefined) {
+            body['matcher'] = params.matcher
+        }
+        if (params.pattern !== undefined) {
+            body['pattern'] = params.pattern
+        }
+        if (params.category !== undefined) {
+            body['category'] = params.category
+        }
+        const result = await context.api.request<Schemas.CustomBotRule>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics_bot_rules/`,
+            body,
+        })
+        return result
+    },
 })
 
+const WebAnalyticsBotRulesDestroySchema = () => {
+    const WebAnalyticsBotRulesDestroyParams = orvalSchemas.WebAnalyticsBotRulesDestroyParams()
+    return WebAnalyticsBotRulesDestroyParams.omit({ project_id: true })
+}
+
+const webAnalyticsBotRulesDestroy = (): ToolBase<ReturnType<typeof WebAnalyticsBotRulesDestroySchema>, unknown> => ({
+    name: 'web-analytics-bot-rules-destroy',
+    schema: WebAnalyticsBotRulesDestroySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WebAnalyticsBotRulesDestroySchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics_bot_rules/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const WebAnalyticsBotRulesListSchema = () => z.object({})
+
+const webAnalyticsBotRulesList = (): ToolBase<
+    ReturnType<typeof WebAnalyticsBotRulesListSchema>,
+    WithPostHogUrl<Schemas.CustomBotRule[]>
+> => ({
+    name: 'web-analytics-bot-rules-list',
+    schema: WebAnalyticsBotRulesListSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof WebAnalyticsBotRulesListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CustomBotRule[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics_bot_rules/`,
+        })
+        return await withPostHogUrl(context, result, '/web')
+    },
+})
+
+const WebAnalyticsPathCleaningSuggestionsApplySchema = () => {
+    const WebAnalyticsPathCleaningSuggestionsApplyParams = orvalSchemas.WebAnalyticsPathCleaningSuggestionsApplyParams()
+    return WebAnalyticsPathCleaningSuggestionsApplyParams.omit({ project_id: true })
+}
+
 const webAnalyticsPathCleaningSuggestionsApply = (): ToolBase<
-    typeof WebAnalyticsPathCleaningSuggestionsApplySchema,
+    ReturnType<typeof WebAnalyticsPathCleaningSuggestionsApplySchema>,
     Schemas.ApplyPathCleaningSuggestionResponse
 > => ({
     name: 'web-analytics-path-cleaning-suggestions-apply',
-    schema: WebAnalyticsPathCleaningSuggestionsApplySchema,
-    handler: async (context: Context, params: z.infer<typeof WebAnalyticsPathCleaningSuggestionsApplySchema>) => {
+    schema: WebAnalyticsPathCleaningSuggestionsApplySchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof WebAnalyticsPathCleaningSuggestionsApplySchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ApplyPathCleaningSuggestionResponse>({
             method: 'POST',
@@ -234,16 +335,18 @@ const webAnalyticsPathCleaningSuggestionsApply = (): ToolBase<
     },
 })
 
-const WebAnalyticsPathCleaningSuggestionsGenerateSchema = z.object({})
+const WebAnalyticsPathCleaningSuggestionsGenerateSchema = () => z.object({})
 
 const webAnalyticsPathCleaningSuggestionsGenerate = (): ToolBase<
-    typeof WebAnalyticsPathCleaningSuggestionsGenerateSchema,
+    ReturnType<typeof WebAnalyticsPathCleaningSuggestionsGenerateSchema>,
     Schemas.GeneratePathCleaningSuggestionResponse
 > => ({
     name: 'web-analytics-path-cleaning-suggestions-generate',
-    schema: WebAnalyticsPathCleaningSuggestionsGenerateSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof WebAnalyticsPathCleaningSuggestionsGenerateSchema>) => {
+    schema: WebAnalyticsPathCleaningSuggestionsGenerateSchema(),
+    handler: async (
+        context: Context,
+        _params: z.infer<ReturnType<typeof WebAnalyticsPathCleaningSuggestionsGenerateSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.GeneratePathCleaningSuggestionResponse>({
             method: 'POST',
@@ -253,12 +356,18 @@ const webAnalyticsPathCleaningSuggestionsGenerate = (): ToolBase<
     },
 })
 
-const WebAnalyticsWeeklyDigestSchema = WebAnalyticsWeeklyDigestQueryParams
+const WebAnalyticsWeeklyDigestSchema = () => {
+    const WebAnalyticsWeeklyDigestQueryParams = orvalSchemas.WebAnalyticsWeeklyDigestQueryParams()
+    return WebAnalyticsWeeklyDigestQueryParams
+}
 
-const webAnalyticsWeeklyDigest = (): ToolBase<typeof WebAnalyticsWeeklyDigestSchema, Schemas.WeeklyDigestResponse> => ({
+const webAnalyticsWeeklyDigest = (): ToolBase<
+    ReturnType<typeof WebAnalyticsWeeklyDigestSchema>,
+    Schemas.WeeklyDigestResponse
+> => ({
     name: 'web-analytics-weekly-digest',
-    schema: WebAnalyticsWeeklyDigestSchema,
-    handler: async (context: Context, params: z.infer<typeof WebAnalyticsWeeklyDigestSchema>) => {
+    schema: WebAnalyticsWeeklyDigestSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WebAnalyticsWeeklyDigestSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.WeeklyDigestResponse>({
             method: 'GET',
@@ -582,6 +691,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'heatmaps-saved-list': heatmapsSavedList,
     'heatmaps-saved-regenerate': heatmapsSavedRegenerate,
     'heatmaps-saved-update': heatmapsSavedUpdate,
+    'web-analytics-bot-rules-create': webAnalyticsBotRulesCreate,
+    'web-analytics-bot-rules-destroy': webAnalyticsBotRulesDestroy,
+    'web-analytics-bot-rules-list': webAnalyticsBotRulesList,
     'web-analytics-path-cleaning-suggestions-apply': webAnalyticsPathCleaningSuggestionsApply,
     'web-analytics-path-cleaning-suggestions-generate': webAnalyticsPathCleaningSuggestionsGenerate,
     'web-analytics-weekly-digest': webAnalyticsWeeklyDigest,

@@ -8,7 +8,7 @@ the serving side can assert `booster.feature_names == FEATURE_NAMES` at load.
 import numpy as np
 import pandas as pd
 import xgboost as xgb
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import average_precision_score, log_loss, roc_auc_score
 
 from posthog.dataclasses import frozen
 
@@ -29,6 +29,11 @@ XGB_PARAMS: dict[str, object] = {
 # A readable head must also clear its own permutation null by this much; below it the AUC is
 # within the noise of this many positives.
 NULL_MARGIN = 0.05
+# Each null is a full fit on permuted labels, so this multiplies the training cost per head. One
+# draw swings with whichever feature the permuted fit happened to lean on (age_hours dominates),
+# which put single-draw nulls at 0.38 on a 35k-row holdout; the mean of a few draws is the number
+# the margin is compared against, and the spread is reported so a wide band is visible.
+NULL_PERMUTATIONS = 3
 
 
 @frozen
@@ -39,8 +44,17 @@ class HeadMetrics:
     holdout_rows: int
     holdout_positives: int
     holdout_auc: float | None
+    # Mean and spread over NULL_PERMUTATIONS label-permutation fits scored on the holdout.
     null_auc: float | None
+    null_auc_std: float | None
     readable: bool
+    # Metrics for the dashboard, not the gate: the train-fit AUC on its own rows (the gap to
+    # holdout_auc is the overfit signal), and holdout metrics that read better than AUC when
+    # positives are rare.
+    train_auc: float | None = None
+    holdout_average_precision: float | None = None
+    holdout_logloss: float | None = None
+    holdout_positive_rate: float | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -51,7 +65,13 @@ class HeadMetrics:
             "holdout_positives": self.holdout_positives,
             "holdout_auc": self.holdout_auc,
             "null_auc": self.null_auc,
+            "null_auc_std": self.null_auc_std,
+            "null_permutations": NULL_PERMUTATIONS,
             "readable": self.readable,
+            "train_auc": self.train_auc,
+            "holdout_average_precision": self.holdout_average_precision,
+            "holdout_logloss": self.holdout_logloss,
+            "holdout_positive_rate": self.holdout_positive_rate,
         }
 
 
@@ -86,8 +106,8 @@ def _head_readable(
 ) -> bool:
     """Readable = enough holdout positives, an above-chance holdout AUC, and clearing the head's own
     permutation null by NULL_MARGIN. The absolute 0.5 floor is load-bearing on top of the null
-    margin because the null is a single noisy draw: an inversely predictive head (AUC below chance)
-    can still beat one low null draw by the margin, and must not be graded readable."""
+    margin because the null is a mean of a few noisy draws: an inversely predictive head (AUC below
+    chance) can still beat a low null mean by the margin, and must not be graded readable."""
     if holdout_auc is None or null_auc is None:
         return False
     return holdout_positives >= min_positives and holdout_auc > 0.5 and holdout_auc - null_auc >= NULL_MARGIN
@@ -106,13 +126,23 @@ def train_head(examples: pd.DataFrame, head: Head, *, holdout_days: int, seed: i
         return None
 
     model = _fit(x_train, y_train, seed)
-    holdout_auc = _auc(y_test, model.predict_proba(x_test)[:, 1]) if len(y_test) else None
+    train_auc = _auc(y_train, model.predict_proba(x_train)[:, 1])
+    holdout_scores = model.predict_proba(x_test)[:, 1] if len(y_test) else np.array([])
+    holdout_auc = _auc(y_test, holdout_scores) if len(y_test) else None
 
     null_auc: float | None = None
+    null_auc_std: float | None = None
     if holdout_auc is not None:
         rng = np.random.default_rng(seed)
-        null_model = _fit(x_train, rng.permutation(y_train), seed)
-        null_auc = _auc(y_test, null_model.predict_proba(x_test)[:, 1])
+        null_aucs = [
+            auc
+            for draw in range(NULL_PERMUTATIONS)
+            if (auc := _auc(y_test, _fit(x_train, rng.permutation(y_train), seed + draw).predict_proba(x_test)[:, 1]))
+            is not None
+        ]
+        if null_aucs:
+            null_auc = float(np.mean(null_aucs))
+            null_auc_std = float(np.std(null_aucs))
 
     readable = _head_readable(holdout_auc, null_auc, int(y_test.sum()), min_positives=head.min_holdout_positives)
     metrics = HeadMetrics(
@@ -123,7 +153,15 @@ def train_head(examples: pd.DataFrame, head: Head, *, holdout_days: int, seed: i
         holdout_positives=int(y_test.sum()),
         holdout_auc=holdout_auc,
         null_auc=null_auc,
+        null_auc_std=null_auc_std,
         readable=readable,
+        train_auc=train_auc,
+        holdout_average_precision=(
+            float(average_precision_score(y_test, holdout_scores)) if holdout_auc is not None else None
+        ),
+        # Logloss is defined on a single-class holdout, unlike AUC and average precision.
+        holdout_logloss=float(log_loss(y_test, holdout_scores, labels=[0, 1])) if len(y_test) else None,
+        holdout_positive_rate=float(y_test.mean()) if len(y_test) else None,
     )
     # Refit on everything before shipping: the holdout only exists to grade the recipe.
     final = _fit(x, y, seed)

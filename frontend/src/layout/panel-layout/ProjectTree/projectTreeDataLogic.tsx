@@ -1635,8 +1635,6 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             const customProduct = customProductMap.get(productPath)
                             return {
                                 ...product,
-                                reason: customProduct?.reason,
-                                reasonText: customProduct?.reason_text,
                                 created_at: customProduct?.created_at, // Underscore because it comes from backend if it's an actual `FileSystemImport`
                             } as FileSystemImport
                         })

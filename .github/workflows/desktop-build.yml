@@ -17,9 +17,14 @@ concurrency:
     group: desktop-build-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+    # npm's audit blocks the pnpm bootstrap. See .github/actions/pnpm-install for why.
+    NPM_CONFIG_AUDIT: 'false'
+    NPM_CONFIG_FUND: 'false'
+
 jobs:
     changes:
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         if: github.event_name != 'merge_group'
         permissions:
@@ -64,8 +69,22 @@ jobs:
     build:
         needs: changes
         # Fail closed: if change detection itself failed, run instead of skipping.
-        if: ${{ !cancelled() && github.event_name != 'merge_group' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true') }}
-        runs-on: ubuntu-latest
+        #
+        # A draft pull request skips this job, so a draft pays for the quality, typecheck
+        # and unit test jobs only. This job is what proves the bundler still works, which
+        # a typecheck cannot tell you, so the signal comes back on ready_for_review, which
+        # desktop-ci.yml dispatches on for this reason.
+        #
+        # trunk-merge/** heads are exempt because Trunk opens its batch pull requests as
+        # drafts. Without that clause, the draft check would skip the one run that gates
+        # master.
+        if: >-
+            !cancelled() &&
+            github.event_name != 'merge_group' &&
+            (github.event.pull_request.draft != true ||
+            startsWith(github.head_ref, 'trunk-merge/')) &&
+            (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true')
+        runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         permissions:
             contents: read
@@ -102,10 +121,6 @@ jobs:
                   key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
                   restore-keys: desktop-pnpm-${{ runner.os }}-
 
-            # Only dependency builds are cached, tests themselves always run.
-            - name: Restore turbo cache
-              uses: ./.github/actions/desktop-restore-turbo-cache
-
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
               env:
@@ -123,9 +138,9 @@ jobs:
     desktop-build-pass:
         needs: [changes, build]
         name: Desktop Build Pass
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
             - name: Check results
               run: |

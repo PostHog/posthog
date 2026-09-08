@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isRestorableVisitHref,
   RAIL_PANE_ROOT,
   railPaneForPath,
   railPaneHasSidebar,
@@ -14,6 +15,8 @@ describe("railPaneForPath", () => {
     ["/inbox/pulls/$reportId", "inbox"],
     ["/loops", "loops"],
     ["/loops/$loopId/edit", "loops"],
+    ["/feeds/", "feeds"],
+    ["/feeds/$feedId", "feeds"],
   ] as const)("puts %s on %s", (path, pane) => {
     expect(railPaneForPath(path)).toBe(pane);
   });
@@ -37,11 +40,38 @@ describe("railPaneForPath", () => {
     "/spaces/$channelId/history",
     "/spaces/$channelId/canvases",
     "/spaces/$channelId/tasks/$taskId",
-    "/feeds/$feedId",
     "/tasks/$taskId",
     "/new",
   ])("leaves %s with Spaces", (path) => {
     expect(railPaneForPath(path)).toBe("spaces");
+  });
+});
+
+describe("isRestorableVisitHref", () => {
+  it.each([
+    ["spaces", "/spaces/chan-1/tasks/task-1"],
+    ["spaces", "/tasks/task-1"],
+    ["spaces", "/new"],
+    ["activity", "/activity?task=task-1"],
+    ["inbox", "/inbox/pulls/report-1"],
+    ["home", "/"],
+  ] as const)("lets %s replay %s", (pane, href) => {
+    expect(isRestorableVisitHref(pane, href)).toBe(true);
+  });
+
+  it.each([
+    ["spaces", "/settings"],
+    ["spaces", "/settings/general"],
+    ["spaces", "/settings/general?from=rail"],
+    ["spaces", "/folders/folder-1"],
+    ["spaces", "/skills"],
+    ["spaces", "/mcp-servers"],
+    ["spaces", "/usage"],
+    ["inbox", "/inbox/agents"],
+    ["spaces", "/activity"],
+    ["activity", "/spaces/chan-1"],
+  ] as const)("does not let %s replay %s", (pane, href) => {
+    expect(isRestorableVisitHref(pane, href)).toBe(false);
   });
 });
 
@@ -53,9 +83,12 @@ describe("railPaneHasSidebar", () => {
     },
   );
 
-  it.each(["spaces", "activity"] as const)("gives %s a column", (pane) => {
-    expect(railPaneHasSidebar(pane)).toBe(true);
-  });
+  it.each(["spaces", "activity", "feeds"] as const)(
+    "gives %s a column",
+    (pane) => {
+      expect(railPaneHasSidebar(pane)).toBe(true);
+    },
+  );
 });
 
 describe("RAIL_PANE_ROOT", () => {
