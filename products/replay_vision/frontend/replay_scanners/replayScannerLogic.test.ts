@@ -110,7 +110,7 @@ describe('replayScannerLogic', () => {
                 kind: 'RecordingsQuery',
                 events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
             }
-            router.actions.push('/replay-vision/new', { filters: JSON.stringify(query) })
+            router.actions.push(urls.replayVisionScannerConfigure('new'), { filters: JSON.stringify(query) })
             await expectLogic(logic, () => logic.actions.loadScanner()).toMatchValues({
                 scanner: expect.objectContaining({ query: expect.objectContaining({ events: query.events }) }),
             })
@@ -119,25 +119,28 @@ describe('replayScannerLogic', () => {
         it('a ?filters= deep link outranks a saved draft', async () => {
             const query = { kind: 'RecordingsQuery', events: [{ id: '$autocapture', type: 'events' }] }
             writeScannerDraft(teamLogic.values.currentTeamId!, { ...newScanner(null), name: 'stale draft' })
-            router.actions.push('/replay-vision/new', { filters: JSON.stringify(query) })
+            router.actions.push(urls.replayVisionScannerConfigure('new'), { filters: JSON.stringify(query) })
             await expectLogic(logic, () => logic.actions.loadScanner()).toMatchValues({
                 scanner: expect.objectContaining({
-                    name: '',
+                    name: newScanner(null, teamLogic.values.currentTeam?.name).name,
                     query: expect.objectContaining({ events: query.events }),
                 }),
             })
         })
 
         it('a malformed ?filters= param falls back to the blank wizard', async () => {
-            router.actions.push('/replay-vision/new', { filters: 'not-json{' })
+            router.actions.push(urls.replayVisionScannerConfigure('new'), { filters: 'not-json{' })
             await expectLogic(logic, () => logic.actions.loadScanner()).toMatchValues({
-                scanner: expect.objectContaining({ name: '', scanner_type: 'monitor' }),
+                scanner: expect.objectContaining({
+                    scanner_type: 'monitor',
+                    query: { kind: 'RecordingsQuery' },
+                }),
             })
         })
 
         it('strips the consumed ?filters= param, so a reload does not re-seed over the user edits', async () => {
             const query = { kind: 'RecordingsQuery', events: [{ id: '$pageview', type: 'events' }] }
-            router.actions.push('/replay-vision/new', { filters: JSON.stringify(query) })
+            router.actions.push(urls.replayVisionScannerConfigure('new'), { filters: JSON.stringify(query) })
             await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
             expect(router.values.searchParams.filters).toBeUndefined()
         })
