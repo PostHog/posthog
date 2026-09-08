@@ -134,7 +134,7 @@
     "node-addon-api": "^8.5.0",
     "node-machine-id": "^1.1.12",
     "node-pty": "1.1.0",
-    "posthog-node": "^5.51.6",
+    "posthog-node": "^5.51.7",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "react-grab": "^0.2.0",

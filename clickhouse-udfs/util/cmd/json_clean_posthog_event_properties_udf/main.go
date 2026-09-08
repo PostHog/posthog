@@ -324,6 +324,16 @@ func (p *processor) recycle(v *value) {
 	}
 	v.s = ""
 	v.b = false
+	// Keep small arrays for reuse; bound clearing work for larger ones by this row's size.
+	if cap(v.entries) > max(16, 2*len(v.entries)) {
+		v.entries = nil
+	}
+	if cap(v.values) > max(16, 2*len(v.values)) {
+		v.values = nil
+	}
+	// Truncated entries can still hold borrowed keys that retain entire input rows.
+	clear(v.entries[:cap(v.entries)])
+	clear(v.values[:cap(v.values)])
 	v.entries = v.entries[:0]
 	v.values = v.values[:0]
 	p.free = append(p.free, v)

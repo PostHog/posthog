@@ -474,9 +474,9 @@ class ExperimentQueryRunner(QueryRunner):
 
     def _metric_events_precompute_applicable(self) -> bool:
         """
-        Metric-events precompute supports ordered funnels, count/sum-style mean
-        metrics, and retention metrics, in all cases without breakdowns, CUPED,
-        or data warehouse sources.
+        Metric-events precompute supports ordered funnels, numeric mean metrics
+        (count/sum/avg/min/max), and retention metrics, in all cases without
+        breakdowns, CUPED, or data warehouse sources.
         """
         if self._get_breakdowns_for_builder() or self.cuped_config.enabled or self.is_data_warehouse_query:
             return False
@@ -492,7 +492,16 @@ class ExperimentQueryRunner(QueryRunner):
             if is_session_property_metric(source):
                 return False
             math_type = getattr(source, "math", None) or ExperimentMetricMathType.TOTAL
-            return math_type in (ExperimentMetricMathType.TOTAL, ExperimentMetricMathType.SUM)
+            # These math types are safe because the build query stores the same
+            # coalesced per-event float regardless of math type, and the math is
+            # applied at read time by build_value_aggregation_expr on both paths.
+            return math_type in (
+                ExperimentMetricMathType.TOTAL,
+                ExperimentMetricMathType.SUM,
+                ExperimentMetricMathType.AVG,
+                ExperimentMetricMathType.MIN,
+                ExperimentMetricMathType.MAX,
+            )
         if isinstance(self.metric, ExperimentRetentionMetric):
             if not isinstance(self.metric.start_event, (EventsNode, ActionsNode)) or not isinstance(
                 self.metric.completion_event, (EventsNode, ActionsNode)

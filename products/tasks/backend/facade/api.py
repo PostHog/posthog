@@ -2,6 +2,7 @@ import re
 import time
 import hashlib
 import logging
+from collections import Counter
 from collections.abc import Collection, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -65,8 +66,8 @@ from products.tasks.backend.constants import (
     PR_STATES as PR_STATES,  # re-exported for presentation
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
     SERVER_OWNED_RESUME_STATE_KEYS,
+    TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
     TASK_ANALYSIS_FEATURE_FLAG,
-    TASK_ANALYSIS_INSIGHTS_STATE_KEY,
     TASK_SESSION_MAX_SIZE_BYTES,
     get_required_model_flag,
     is_blocked_sandbox_env_key,
@@ -861,10 +862,13 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
     also serve the generally-available Inbox, whose tasks must run without the waitlist. Only
     server-verifiable Inbox shapes qualify:
 
-    - ``SIGNAL_REPORT`` linked to a report in this team and repo-less (Inbox "Discuss").
-      Reports are minted by scouts and the link is team-scoped by the write serializer, so a
-      caller can't forge one. Acting on a report is entitled through self-driving
-      (`product-autonomy`). Repository-backed report tasks require Desktop access.
+    - ``SIGNAL_REPORT`` linked to a report in this team, repo-less, and carrying no GitHub
+      integration (the Inbox "Discuss" fallback). Reports are minted by scouts and the link is
+      team-scoped by the write serializer, so a caller can't forge one. Acting on a report is
+      entitled through self-driving (`product-autonomy`). A report task that resolved a
+      repository, or that carries the team integration for a repo-less discussion, is not
+      exempt, because `create_task` only gives it either after the gate passed. Re-checking
+      here costs the caller nothing.
     - ``SIGNALS_CHAT`` (Inbox scout chat), reserved for server-side creation by the signals
       scout-chat endpoint; the write serializer rejects it from API callers. Only while
       repo-less: chat tasks are minted without repositories, and attaching one via update
@@ -2209,11 +2213,11 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "timed_out_inactivity",
         "timed_out_wall_clock",
         "sandbox_gone",
-        TASK_ANALYSIS_INSIGHTS_STATE_KEY,
+        TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
         ANALYSIS_TARGET_TASK_ID_STATE_KEY,
         ANALYSIS_TARGET_RUN_ID_STATE_KEY,
         # Server-stamped at analysis creation (task_analysis._target_context_state) and read back
-        # at insight-report time to attribute the captured event to a repository and sandbox
+        # at activity-report time to attribute the captured event to a repository and sandbox
         # image. A PATCHable value would let the sandbox agent forge that attribution.
         ANALYSIS_TARGET_REPOSITORY_STATE_KEY,
         ANALYSIS_TARGET_IMAGE_ID_STATE_KEY,
@@ -3757,16 +3761,18 @@ def analyze_task_run(run_id: str | UUID, task_id: str | UUID, team_id: int, *, u
     return str(analysis_task.id), created
 
 
-def report_task_analysis_insight(run_id: str | UUID, task_id: str | UUID, team_id: int, *, insight: dict) -> int | None:
-    """Append one validated analysis finding to a run. Returns its index, or ``None`` if not visible."""
+def report_task_analysis_activity(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, activity: dict
+) -> int | None:
+    """Append one validated activity record to a run. Returns its index, or ``None`` if not visible."""
     from products.tasks.backend.logic.services.task_analysis import (  # noqa: PLC0415 — keep storage deps off the api import path
-        append_analysis_insight,
+        append_analysis_activity,
     )
 
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    return append_analysis_insight(run=run, insight=insight)
+    return append_analysis_activity(run=run, activity=activity)
 
 
 def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
@@ -5467,6 +5473,65 @@ def list_tasks(team_id: int, user_id: int | None, *, filters: dict) -> list[cont
     return _tasks_to_dtos(_list_tasks_queryset(team_id, user_id, filters=filters), team_id)
 
 
+_SEARCH_KIND_ORDER = (
+    TaskSearchDocument.Kind.TASK,
+    TaskSearchDocument.Kind.CANVAS,
+    TaskSearchDocument.Kind.CHANNEL,
+    TaskSearchDocument.Kind.PULL_REQUEST,
+    TaskSearchDocument.Kind.ARTIFACT,
+)
+_SEARCH_BULK_KINDS = {TaskSearchDocument.Kind.PULL_REQUEST, TaskSearchDocument.Kind.ARTIFACT}
+_SEARCH_BULK_KIND_PAGE_SHARE = 0.25
+_SEARCH_CANDIDATE_FACTOR = 3
+_SEARCH_MAX_CANDIDATES = 150
+
+
+def _mixed_search_page(documents: Iterable[TaskSearchDocument], page_size: int) -> list[TaskSearchDocument]:
+    quota = int(page_size * _SEARCH_BULK_KIND_PAGE_SHARE)
+    used: Counter[str] = Counter()
+    page: list[TaskSearchDocument] = []
+    overflow: list[TaskSearchDocument] = []
+    for document in documents:
+        if document.kind in _SEARCH_BULK_KINDS and used[document.kind] >= quota:
+            overflow.append(document)
+            continue
+        used[document.kind] += 1
+        page.append(document)
+    return (page + overflow)[:page_size]
+
+
+def _search_latest_run_summary(run: TaskRun | None) -> contracts.TaskLatestRunSummaryDTO | None:
+    """The run state a search row needs to draw the task's icon."""
+    if run is None:
+        return None
+    interactive = (run.state or {}).get("mode") == "interactive"
+    return contracts.TaskLatestRunSummaryDTO(
+        id=run.id,
+        status=run.status,
+        environment=run.environment,
+        mode="interactive" if interactive else "background",
+    )
+
+
+def _search_result_payload(document: TaskSearchDocument, latest_runs: dict[Any, TaskRun]) -> dict:
+    """One search row, with the fields a client needs to draw it without a second request."""
+    task = document.task if document.task_id else None
+    return {
+        "id": str(document.id),
+        "kind": document.kind,
+        "title": document.title,
+        "subtitle": document.subtitle,
+        "task_id": str(document.task_id) if document.task_id else None,
+        "task_run_id": str(document.task_run_id) if document.task_run_id else None,
+        "channel_id": str(document.channel_id) if document.channel_id else None,
+        "created_by": _user_basic_info(task.created_by if task else None),
+        "origin_product": task.origin_product if task else None,
+        "latest_run": _search_latest_run_summary(latest_runs.get(document.task_id) if document.task_id else None),
+        "updated_at": document.updated_at,
+        "metadata": document.metadata,
+    }
+
+
 def search_tasks(
     team_id: int,
     user_id: int | None,
@@ -5497,8 +5562,10 @@ def search_tasks(
     matches = exact_match
     if len(normalized) >= 3:
         matches |= Q(search_text__icontains=normalized)
-    documents = (
+    page_size = min(limit, 50)
+    candidates = (
         TaskSearchDocument.objects.for_team(team_id)
+        .select_related("task__created_by")
         .filter(visibility)
         .filter(matches)
         .annotate(
@@ -5507,23 +5574,20 @@ def search_tasks(
                 When(search_text__startswith=normalized, then=Value(1)),
                 default=Value(2),
                 output_field=IntegerField(),
-            )
+            ),
+            _kind_rank=Case(
+                *[When(kind=kind, then=Value(rank)) for rank, kind in enumerate(_SEARCH_KIND_ORDER)],
+                default=Value(len(_SEARCH_KIND_ORDER)),
+                output_field=IntegerField(),
+            ),
         )
-        .order_by("_rank", "-updated_at")[: min(limit, 50)]
+        .order_by("_rank", "_kind_rank", "-updated_at")[
+            : min(page_size * _SEARCH_CANDIDATE_FACTOR, _SEARCH_MAX_CANDIDATES)
+        ]
     )
-    return [
-        {
-            "id": str(document.id),
-            "kind": document.kind,
-            "title": document.title,
-            "subtitle": document.subtitle,
-            "task_id": str(document.task_id) if document.task_id else None,
-            "task_run_id": str(document.task_run_id) if document.task_run_id else None,
-            "channel_id": str(document.channel_id) if document.channel_id else None,
-            "metadata": document.metadata,
-        }
-        for document in documents
-    ]
+    documents = _mixed_search_page(candidates, page_size)
+    latest_runs = _latest_runs_by_task_id((document.task_id for document in documents if document.task_id), team_id)
+    return [_search_result_payload(document, latest_runs) for document in documents]
 
 
 def inaccessible_repositories_via_integration(team_id: int, integration_id: int, repositories: list[str]) -> list[str]:
@@ -5556,7 +5620,14 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
     latest_run = (
         TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id)
         .order_by("-created_at", "-id")
-        .annotate(_data=JSONObject(id="id", status="status", environment="environment"))
+        .annotate(
+            _mode=Case(
+                When(state__mode="interactive", then=Value("interactive")),
+                default=Value("background"),
+                output_field=CharField(),
+            ),
+            _data=JSONObject(id="id", status="status", environment="environment", mode="_mode"),
+        )
     )
     tasks = (
         Task.objects.filter(team_id=team_id, deleted=False, id__in=ids)
@@ -5569,7 +5640,10 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
         raw = getattr(task, "_latest_run", None)
         latest = (
             contracts.TaskLatestRunSummaryDTO(
-                id=raw["id"], status=raw.get("status"), environment=raw.get("environment")
+                id=raw["id"],
+                status=raw.get("status"),
+                environment=raw.get("environment"),
+                mode=raw.get("mode", "background"),
             )
             if isinstance(raw, dict)
             else None
@@ -5601,13 +5675,16 @@ def compute_repository_readiness(team_id: int, *, repository: str, window_days: 
     return _compute(team=team, repository=repository, window_days=window_days, refresh=refresh)
 
 
-def _capture_no_repo_selection_override(*, team: Team, report_id: str, resolved_repository: str | None) -> None:
+def _capture_no_repo_selection_override(
+    *, team: Team, report_id: str, resolved_repository: str | None, relationship: str | None
+) -> None:
     """Record a person starting work on a report whose scout chose no repository.
 
     The count tells the signals team how often the scouts' `NO_REPO` default disagrees with what a
     person wanted, and `resolved_repository` separates a recovery from a cascade that also found
-    nothing. Keyed on the team, like the other scout events. Best-effort: a capture failure must
-    never fail the task creation."""
+    nothing. `relationship` separates a "Create PR" override from an Ask AI one, which start from
+    different intents. Keyed on the team, like the other scout events. Best-effort: a capture
+    failure must never fail the task creation."""
     try:
         posthoganalytics.capture(
             distinct_id=str(team.uuid),
@@ -5616,6 +5693,7 @@ def _capture_no_repo_selection_override(*, team: Team, report_id: str, resolved_
                 "report_id": report_id,
                 "team_id": team.id,
                 "resolved_repository": resolved_repository,
+                "relationship": relationship,
             },
             groups=groups(team=team),
         )
@@ -5629,6 +5707,7 @@ def create_task(
     *,
     validated_data: dict,
     client_provenance: TaskClientProvenance | None = None,
+    code_access_allowed: bool = False,
 ) -> contracts.TaskDetailDTO:
     """Create a task, mirroring ``TaskSerializer.create`` byte-for-byte.
 
@@ -5636,6 +5715,11 @@ def create_task(
     ``resolve_user_github_integration_for_task`` so no internal/other-product import leaks into
     presentation. ``validated_data`` carries the validated write fields (integrations already
     resolved to instances by the write serializer's PK fields).
+
+    ``code_access_allowed`` is the caller's Desktop-access outcome, which only the request layer can
+    evaluate. It upgrades a report discussion from the repo-less exempt shape to a full cloud task:
+    a resolved repository and the team's GitHub credential. Defaults to ``False`` so a caller that
+    never ran the gate creates the exempt shape.
     """
     from posthog.models import Team  # noqa: PLC0415
 
@@ -5802,17 +5886,17 @@ def create_task(
     signal_report_task_relationship = validated_data.pop("signal_report_task_relationship", None)
 
     # Inbox "Create PR" doesn't pre-select a repo, so resolve one here rather than creating a
-    # report-linked task that can never open a PR. Only "implementation" (Create PR) and legacy
-    # clients (no relationship) resolve one: "Discuss" (and any other non-implementation label)
-    # must stay repo-less to keep the code-access exemption (`task_exempt_from_code_access`).
-    # Giving a discussion a repository would 403 a caller without Desktop access on the very click
-    # this path exists to unblock.
+    # report-linked task that can never open a PR. "Implementation" (Create PR) and legacy clients
+    # (no relationship) always resolve one. "Discuss" (and any other non-implementation label)
+    # resolves one only for a caller the Desktop gate passed: the run endpoint gates a
+    # repository-backed report task, so resolving for anyone else would 403 the very click this
+    # path exists to unblock (see `task_exempt_from_code_access`).
     signal_report = validated_data.get("signal_report")
     if (
         signal_report is not None
         and not validated_data.get("repository")
         and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
-        and signal_report_task_relationship in (None, "implementation")
+        and (signal_report_task_relationship in (None, "implementation") or code_access_allowed)
     ):
         from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product read kept off the api import path
             persisted_repo_selection,
@@ -5838,12 +5922,25 @@ def create_task(
             )
             if selection is not None:
                 _capture_no_repo_selection_override(
-                    team=team, report_id=str(signal_report.id), resolved_repository=resolved_repository
+                    team=team,
+                    report_id=str(signal_report.id),
+                    resolved_repository=resolved_repository,
+                    relationship=signal_report_task_relationship,
                 )
         if resolved_repository:
             validated_data["repository"] = resolved_repository
 
-    if validated_data.get("repository") and not validated_data.get("github_integration"):
+    # The credential follows the entitlement, not the repository: an entitled report task carries
+    # the team's GitHub integration even when nothing resolved, so the agent can still clone what
+    # the conversation turns out to need. That is the shape a repo-less user-created task already
+    # has, and provisioning keys the token off the attached integration, so a task created without
+    # the gate stays credential-less.
+    entitled_report_task = (
+        code_access_allowed
+        and signal_report is not None
+        and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
+    )
+    if (validated_data.get("repository") or entitled_report_task) and not validated_data.get("github_integration"):
         default_integration = Integration.objects.filter(team=team, kind="github").first()
         if default_integration:
             validated_data["github_integration"] = default_integration
@@ -5939,7 +6036,9 @@ def update_task(
         if task is None or not Task.objects.filter(id=task.id).filter(task_control_q(user_id)).exists():
             return None
 
-        # Repo is immutable for code-access-exempt tasks; a mutable repo reopens the gate (see task_exempt_from_code_access).
+        # Repo and credential are immutable for code-access-exempt tasks: a mutable repo reopens the
+        # gate (see task_exempt_from_code_access), and provisioning injects whatever integration is
+        # attached, so an attachable one would credential a run the create path left credential-less.
         if task.origin_product in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
             validated_data.pop("repository", None)
             validated_data.pop("repositories", None)
@@ -8032,7 +8131,6 @@ def _visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) 
 def _locked_visible_channel(
     channel_id: str | UUID, team_id: int, user_id: int | None, *, no_key: bool = False
 ) -> Channel | None:
-
     channel = (
         Channel.objects.for_team(team_id).select_for_update(no_key=no_key).filter(id=channel_id, deleted=False).first()
     )
