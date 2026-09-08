@@ -575,7 +575,6 @@ def confirm_pandadoc_envelope_gone(document: LegalDocument) -> bool:
             pandadoc_document_id=document.pandadoc_document_id,
             error=str(exc),
         )
-        document.save(update_fields=["updated_at"])
         return False
     if status_code == 404:
         return True
@@ -587,13 +586,27 @@ def confirm_pandadoc_envelope_gone(document: LegalDocument) -> bool:
     return True
 
 
+def claim_pandadoc_envelope_retry(document: LegalDocument) -> bool:
+    """
+    Stamp `updated_at` only when it still holds the value this run loaded.
+    Overlapping sweep runs race on this one conditional update, so only the
+    winner goes on to call PandaDoc. The stamp doubles as the throttle that
+    `RECONCILE_RECREATE_MIN_AGE` measures from.
+    """
+    claimed = LegalDocument.objects.filter(id=document.id, updated_at=document.updated_at).update(
+        updated_at=timezone.now()
+    )
+    if claimed:
+        document.refresh_from_db(fields=["updated_at"])
+    return bool(claimed)
+
+
 def retry_pandadoc_envelope(document: LegalDocument) -> bool:
     """
     Re-attempt envelope creation for a row whose PandaDoc envelope is missing
-    or was never created. Stamps `updated_at` first so the sweep's throttle
-    measures from this attempt, not the original failure.
+    or was never created. The caller claims the row with
+    `claim_pandadoc_envelope_retry` first.
     """
-    document.save(update_fields=["updated_at"])
     return create_pandadoc_envelope(document) is not None
 
 

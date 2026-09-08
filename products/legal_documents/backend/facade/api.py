@@ -380,11 +380,12 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
                     and _time_since_touched(document) >= logic.RECONCILE_RECREATE_MIN_AGE
                     and recreate_attempts < logic.RECONCILE_MAX_RECREATES_PER_RUN
                 ):
-                    recreate_attempts += 1
-                    if _recreate_lost_envelope(document):
-                        envelopes_recreated += 1
-                    else:
-                        errors += 1
+                    if logic.claim_pandadoc_envelope_retry(document):
+                        recreate_attempts += 1
+                        if _recreate_lost_envelope(document):
+                            envelopes_recreated += 1
+                        else:
+                            errors += 1
             except Exception as exc:
                 errors += 1
                 logger.exception("legal_document_reconcile_pending_row_failed", document_id=str(document.id))
@@ -410,8 +411,10 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
             break
         if _time_since_touched(document) < logic.RECONCILE_RECREATE_MIN_AGE:
             continue
-        recreate_attempts += 1
         try:
+            if not logic.claim_pandadoc_envelope_retry(document):
+                continue
+            recreate_attempts += 1
             if logic.retry_pandadoc_envelope(document):
                 envelopes_recreated += 1
             else:

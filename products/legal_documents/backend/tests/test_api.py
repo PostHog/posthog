@@ -1108,6 +1108,30 @@ class TestLegalDocumentReconciliation(APIBaseTest):
             self.document.refresh_from_db()
             self.assertEqual(self.document.pandadoc_document_id, "doc_123")
 
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.create_document_from_template")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.force_void_document")
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    def test_reconcile_skips_recreate_claimed_by_another_run(self, status_mock, void_mock, create_mock) -> None:
+        # An overlapping sweep run stamps updated_at (its own successful claim,
+        # or a fresh webhook) between this run loading the row and reaching the
+        # recreate branch. This run's claim must lose the race and do nothing.
+        LegalDocument.objects.filter(id=self.document.id).update(updated_at=timezone.now() - timedelta(hours=2))
+
+        def status_side_effect(*, document_id):  # noqa: ARG001
+            LegalDocument.objects.filter(id=self.document.id).update(updated_at=timezone.now())
+            return None
+
+        status_mock.side_effect = status_side_effect
+
+        result = legal_api.reconcile_pending_signatures()
+
+        void_mock.assert_not_called()
+        create_mock.assert_not_called()
+        self.assertEqual(result.envelopes_recreated, 0)
+        self.assertEqual(result.errors, 0)
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.pandadoc_document_id, "doc_123")
+
     @override_settings(PANDADOC_DPA_TEMPLATE_ID="tpl_dpa")
     @patch("products.legal_documents.backend.facade.api.capture_exception")
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.create_document_from_template")
