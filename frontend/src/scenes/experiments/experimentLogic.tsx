@@ -2456,7 +2456,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions, asyncActions, cache }) => ({
+    listeners(({ values, actions, asyncActions, cache, props }) => ({
         beforeUnmount: () => {
             actions.stopAutoRefreshInterval()
             clearTimeout(cache.notificationOfferTimer)
@@ -2841,100 +2841,106 @@ export const experimentLogic = kea<experimentLogicType>([
                     delete cache.refreshSummariesById[refreshId]
                 }
 
-                const primaryCount =
-                    (values.experiment?.metrics?.length || 0) +
-                    (values.experiment?.saved_metrics?.filter(
-                        (m: { metadata: { type: string } }) => m.metadata.type === 'primary'
-                    ).length || 0)
-                const secondaryCount =
-                    (values.experiment?.metrics_secondary?.length || 0) +
-                    (values.experiment?.saved_metrics?.filter(
-                        (m: { metadata: { type: string } }) => m.metadata.type === 'secondary'
-                    ).length || 0)
-                const successfulCount = refreshSummaries.reduce((sum, s) => sum + s.successfulCount, 0)
-                const erroredCount = refreshSummaries.reduce((sum, s) => sum + s.erroredCount, 0)
-                const cachedCount = refreshSummaries.reduce((sum, s) => sum + s.cachedCount, 0)
-
-                eventUsageLogic.actions.reportExperimentResultsRefreshCompleted(
-                    values.experimentId,
-                    values.currentTeamId,
-                    {
-                        total_duration_ms: totalDurationMs,
-                        primary_metrics_count: primaryCount,
-                        secondary_metrics_count: secondaryCount,
-                        successful_count: successfulCount,
-                        errored_count: erroredCount,
-                        cached_count: cachedCount,
-                        triggered_by: triggeredBy ?? 'manual',
-                        force_refresh: !!forceRefresh,
-                        refresh_id: refreshId,
-                        experiment_duration_hours: values.experiment?.start_date
-                            ? Math.round(
-                                  (Date.now() - new Date(values.experiment.start_date).getTime()) / (1000 * 60 * 60)
-                              )
-                            : null,
-                        experiment_status: values.experiment?.status ?? null,
-                        total_metrics_count: primaryCount + secondaryCount,
-                        execution_mode: getExperimentExecutionMode(values.featureFlags),
-                    }
-                )
-
-                const finalState: FinishedRefreshState = caughtError
-                    ? 'errored'
-                    : erroredCount > 0
-                      ? 'partial'
-                      : 'completed'
-                actions.markRefreshFinished(refreshId, finalState)
-
-                // Clear notification offer timer
+                // Clear notification offer timer (even when unmounted below, so it can't fire later)
                 clearTimeout(cache.notificationOfferTimer)
 
-                // Fire browser notification if user subscribed
-                if (
-                    values.notifyWhenResultsReady &&
-                    'Notification' in window &&
-                    Notification.permission === 'granted'
-                ) {
-                    const notification = new Notification('Experiment results ready', {
-                        body: `Results for "${values.experiment.name}" are now available.`,
-                        icon: '/static/posthog-icon.svg',
-                        tag: `experiment-results-${values.experimentId}`,
-                    })
-                    notification.onclick = () => {
-                        window.focus()
-                        notification.close()
-                    }
-                }
+                // The metric loads above can outlive the page: navigating to another experiment
+                // unmounts this logic and detaches its reducers, so any `values` read below would
+                // throw "[KEA] Can not find path ... in the store". The remaining bookkeeping only
+                // concerns a page that's still showing, so skip it when unmounted.
+                if (experimentLogic.findMounted(props)) {
+                    const primaryCount =
+                        (values.experiment?.metrics?.length || 0) +
+                        (values.experiment?.saved_metrics?.filter(
+                            (m: { metadata: { type: string } }) => m.metadata.type === 'primary'
+                        ).length || 0)
+                    const secondaryCount =
+                        (values.experiment?.metrics_secondary?.length || 0) +
+                        (values.experiment?.saved_metrics?.filter(
+                            (m: { metadata: { type: string } }) => m.metadata.type === 'secondary'
+                        ).length || 0)
+                    const successfulCount = refreshSummaries.reduce((sum, s) => sum + s.successfulCount, 0)
+                    const erroredCount = refreshSummaries.reduce((sum, s) => sum + s.erroredCount, 0)
+                    const cachedCount = refreshSummaries.reduce((sum, s) => sum + s.cachedCount, 0)
 
-                // Reset notification state
-                actions.setShowNotificationOffer(false)
-                actions.setNotifyWhenResultsReady(false)
-
-                // Only set up auto-refresh if enabled AND page is visible
-                // This prevents the interval from restarting when async operations complete after the page becomes invisible
-                if (
-                    values.experiment &&
-                    values.autoRefresh.enabled &&
-                    isLaunched(values.experiment) &&
-                    values.isPageVisible
-                ) {
-                    actions.resetAutoRefreshInterval()
-                }
-
-                // A warming-up experiment can show a stale "no results yet" snapshot on load, so fetch
-                // fresh once. When it has results we leave it to the in-tab auto-refresh, since recomputes
-                // might be expensive. Gated on `!forceRefresh` so the refresh we trigger here can't loop.
-                if (
-                    refreshIfStale &&
-                    !forceRefresh &&
-                    !caughtError &&
-                    !values.hasMinimumExposureForResults &&
-                    experimentResultsAreStale(
-                        [...values.primaryMetricsResults, ...values.secondaryMetricsResults],
-                        NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES
+                    eventUsageLogic.actions.reportExperimentResultsRefreshCompleted(
+                        values.experimentId,
+                        values.currentTeamId,
+                        {
+                            total_duration_ms: totalDurationMs,
+                            primary_metrics_count: primaryCount,
+                            secondary_metrics_count: secondaryCount,
+                            successful_count: successfulCount,
+                            errored_count: erroredCount,
+                            cached_count: cachedCount,
+                            triggered_by: triggeredBy ?? 'manual',
+                            force_refresh: !!forceRefresh,
+                            refresh_id: refreshId,
+                            experiment_duration_hours: values.experiment?.start_date
+                                ? Math.round(
+                                      (Date.now() - new Date(values.experiment.start_date).getTime()) / (1000 * 60 * 60)
+                                  )
+                                : null,
+                            experiment_status: values.experiment?.status ?? null,
+                            total_metrics_count: primaryCount + secondaryCount,
+                            execution_mode: getExperimentExecutionMode(values.featureFlags),
+                        }
                     )
-                ) {
-                    actions.refreshExperimentResults(true, 'page_load')
+
+                    const finalState: FinishedRefreshState = caughtError
+                        ? 'errored'
+                        : erroredCount > 0
+                          ? 'partial'
+                          : 'completed'
+                    actions.markRefreshFinished(refreshId, finalState)
+
+                    // Fire browser notification if user subscribed
+                    if (
+                        values.notifyWhenResultsReady &&
+                        'Notification' in window &&
+                        Notification.permission === 'granted'
+                    ) {
+                        const notification = new Notification('Experiment results ready', {
+                            body: `Results for "${values.experiment.name}" are now available.`,
+                            icon: '/static/posthog-icon.svg',
+                            tag: `experiment-results-${values.experimentId}`,
+                        })
+                        notification.onclick = () => {
+                            window.focus()
+                            notification.close()
+                        }
+                    }
+
+                    // Reset notification state
+                    actions.setShowNotificationOffer(false)
+                    actions.setNotifyWhenResultsReady(false)
+
+                    // Only set up auto-refresh if enabled AND page is visible
+                    // This prevents the interval from restarting when async operations complete after the page becomes invisible
+                    if (
+                        values.experiment &&
+                        values.autoRefresh.enabled &&
+                        isLaunched(values.experiment) &&
+                        values.isPageVisible
+                    ) {
+                        actions.resetAutoRefreshInterval()
+                    }
+
+                    // A warming-up experiment can show a stale "no results yet" snapshot on load, so fetch
+                    // fresh once. When it has results we leave it to the in-tab auto-refresh, since recomputes
+                    // might be expensive. Gated on `!forceRefresh` so the refresh we trigger here can't loop.
+                    if (
+                        refreshIfStale &&
+                        !forceRefresh &&
+                        !caughtError &&
+                        !values.hasMinimumExposureForResults &&
+                        experimentResultsAreStale(
+                            [...values.primaryMetricsResults, ...values.secondaryMetricsResults],
+                            NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES
+                        )
+                    ) {
+                        actions.refreshExperimentResults(true, 'page_load')
+                    }
                 }
             }
         },
@@ -3463,8 +3469,9 @@ export const experimentLogic = kea<experimentLogicType>([
 
             actions.setPrimaryMetricsResultsLoading(false)
 
-            // Mark the review results task as complete when results are loaded for a launched experiment
-            if (values.experiment && isLaunched(values.experiment)) {
+            // Mark the review results task as complete when results are loaded for a launched experiment.
+            // Mounted check first: the load can outlive the page, and `values` reads throw once unmounted.
+            if (experimentLogic.findMounted(props) && values.experiment && isLaunched(values.experiment)) {
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ReviewExperimentResults)
             }
         },
