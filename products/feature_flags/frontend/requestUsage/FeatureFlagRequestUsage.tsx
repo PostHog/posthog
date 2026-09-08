@@ -17,7 +17,7 @@ import {
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { dateMapping } from 'lib/utils/dateFilters'
-import { BillingLineGraph } from 'scenes/billing/BillingLineGraph'
+import { BillingChart } from 'scenes/billing/BillingChart'
 
 import {
     type FeatureFlagRequestTypeFilter,
@@ -243,7 +243,7 @@ export function FeatureFlagRequestUsage(): JSX.Element {
                                         ]}
                                     />
                                 </div>
-                                <BillingLineGraph
+                                <BillingChart
                                     series={series}
                                     dates={dates}
                                     isLoading={usageResponseLoading}

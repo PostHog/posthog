@@ -16,7 +16,11 @@ import type {
   WriteTextFileRequest,
   WriteTextFileResponse,
 } from "@agentclientprotocol/sdk";
-import { isAnthropicModelId, restrictedModelMeta } from "@posthog/shared";
+import {
+  customModelMeta,
+  isAnthropicModelId,
+  restrictedModelMeta,
+} from "@posthog/shared";
 import {
   compareModelsForPicker,
   DEFAULT_GATEWAY_MODEL,
@@ -243,6 +247,7 @@ export abstract class BaseAcpAgent implements Agent {
         value: currentModelId,
         name: currentModelId,
         description: "Custom model",
+        _meta: customModelMeta(),
       });
     }
 

@@ -473,13 +473,21 @@ class TestTikTokAdsSource:
             with pytest.raises(ValueError, match="TikTok Ads access token not found"):
                 self.source.source_for_pipeline(self.config, MagicMock(), inputs)
 
-    def test_validate_credentials_exception_handling(self):
+    @parameterized.expand(
+        [
+            # A deleted/disconnected integration is an expected user state — surface a clean
+            # "reconnect" message rather than the internal id the ValueError carries.
+            ("missing_integration", ValueError("Integration not found: 123"), "TikTok Ads integration not found"),
+            ("unexpected_error", Exception("Network error"), "Failed to validate TikTok Ads credentials"),
+        ]
+    )
+    def test_validate_credentials_exception_handling(self, _name, side_effect, expected_error_fragment):
         config = TikTokAdsSourceConfig(advertiser_id="123456789", tiktok_integration_id=123)
 
         with patch.object(self.source, "get_oauth_integration") as mock_get_integration:
-            mock_get_integration.side_effect = Exception("Network error")
+            mock_get_integration.side_effect = side_effect
 
             is_valid, error = self.source.validate_credentials(config, self.team_id)
 
             assert is_valid is False
-            assert "Failed to validate TikTok Ads credentials" in str(error)
+            assert expected_error_fragment in str(error)
