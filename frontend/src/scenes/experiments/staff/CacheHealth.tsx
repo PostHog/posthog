@@ -45,27 +45,38 @@ function ttlStatus(partition: string): { label: string; type: LemonTagType } {
 // dated before today means that stopped, so it gets a headline verdict instead of a table row
 // the reader has to scan for.
 function TtlVerdictBanner({ tables }: { tables: CacheTableStats[] }): JSX.Element | null {
-    const readable = tables.filter((table) => !table.unavailable)
-    if (readable.length === 0) {
+    if (tables.length === 0) {
         return null
     }
+    const readable = tables.filter((table) => !table.unavailable)
+    const unavailable = tables.filter((table) => table.unavailable)
     const today = dayjs().format('YYYYMMDD')
     const expired = readable.flatMap((table) => table.partitions.filter((partition) => partition.partition < today))
-    if (expired.length === 0) {
+    if (expired.length > 0) {
+        const days = new Set(expired.map((partition) => partition.partition))
+        const bytes = expired.reduce((sum, partition) => sum + partition.bytes_on_disk, 0)
+        const oldest = [...days].sort()[0]
         return (
-            <LemonBanner type="success" className="mb-4">
-                TTL cleanup is keeping up. No expired data is waiting to be dropped.
+            <LemonBanner type="error" className="mb-4">
+                Expired data from {days.size} {days.size === 1 ? 'day' : 'days'} ({humanizeBytes(bytes)}) is still on
+                disk, oldest from {formatPartitionDay(oldest)}. ClickHouse is not dropping expired partitions. Check TTL
+                merges on the cluster.
             </LemonBanner>
         )
     }
-    const days = new Set(expired.map((partition) => partition.partition))
-    const bytes = expired.reduce((sum, partition) => sum + partition.bytes_on_disk, 0)
-    const oldest = [...days].sort()[0]
+    // A green verdict from partial data would hide the exact failure it exists to surface,
+    // so an unreadable table degrades the verdict to unknown.
+    if (unavailable.length > 0) {
+        return (
+            <LemonBanner type="warning" className="mb-4">
+                TTL status is unknown for {unavailable.map((table) => tableLabel(table.table)).join(' and ')}:
+                system.parts could not be read. No expired data in the tables that were checked.
+            </LemonBanner>
+        )
+    }
     return (
-        <LemonBanner type="error" className="mb-4">
-            Expired data from {days.size} {days.size === 1 ? 'day' : 'days'} ({humanizeBytes(bytes)}) is still on disk,
-            oldest from {formatPartitionDay(oldest)}. ClickHouse is not dropping expired partitions. Check TTL merges on
-            the cluster.
+        <LemonBanner type="success" className="mb-4">
+            TTL cleanup is keeping up. No expired data is waiting to be dropped.
         </LemonBanner>
     )
 }
