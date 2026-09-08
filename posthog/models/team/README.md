@@ -69,3 +69,8 @@ config = get_or_create_team_extension(team, TeamMyProductConfig)
 
 Some older extensions still have `team.<product>_config` descriptors on the Team model.
 These are transitional and should not be used as a pattern for new extensions.
+
+An extension exposed as a nested field on the team or project serializer is the exception, and does
+need the descriptor.
+DRF skips a `required=False` field whose attribute is missing, so removing the descriptor drops the
+setting from every API response without raising.

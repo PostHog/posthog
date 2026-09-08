@@ -270,7 +270,7 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.last_message_text == "First public"
         assert self.ticket.last_message_at == first_public.created_at
 
-    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
+    @patch("products.conversations.backend.tasks.slack.post_reply_to_slack.delay")
     def test_slack_ticket_team_message_enqueues_slack_reply(self, mock_delay, mock_on_commit):
         self.team.conversations_settings = {"slack_enabled": True}
         self.team.save()
@@ -296,7 +296,7 @@ class TestTicketMessageSignals(BaseTest):
         call_kwargs = mock_delay.call_args[1]
         assert call_kwargs["author_email"] == self.user.email
 
-    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
+    @patch("products.conversations.backend.tasks.slack.post_reply_to_slack.delay")
     def test_private_slack_message_does_not_enqueue_slack_reply(self, mock_delay, mock_on_commit):
         self.team.conversations_settings = {"slack_enabled": True}
         self.team.save()
@@ -320,7 +320,7 @@ class TestTicketMessageSignals(BaseTest):
 
         mock_delay.assert_not_called()
 
-    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
+    @patch("products.conversations.backend.tasks.slack.post_reply_to_slack.delay")
     def test_customer_slack_message_does_not_enqueue_slack_reply(self, mock_delay, mock_on_commit):
         self.team.conversations_settings = {"slack_enabled": True}
         self.team.save()

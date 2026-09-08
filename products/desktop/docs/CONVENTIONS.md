@@ -19,6 +19,8 @@ Hooks wrap one source: one query, one mutation, one subscription, or one store s
 
 ## Components
 
+Use `PresenceAvatars` to show presence in a space.
+
 Use functional components and typed props.
 
 ```ts

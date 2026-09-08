@@ -148,7 +148,8 @@ tools:
         title: Report missing capability
         description: >
             Report that the current MCP tools are insufficient for the user's goal. Use this when a missing tool,
-            missing workflow support, or missing explanation blocks progress.
+            missing workflow support, or missing explanation blocks progress. Describe the gap without personal data or
+            sensitive query content. This records feedback for the PostHog team; continue with a fallback when possible.
         include_params:
             - goal
             - missing_capability
@@ -361,6 +362,31 @@ wrappers:
             toolName (effective tool name, resolved server-side) and a dateRange. Use to spot description drift or a
             tool registered with more than one description across clients or versions.
         system_prompt_hint: Distinct effective descriptions seen for one MCP tool
+        exclude_properties:
+            - response
+            - modifiers
+            - version
+            - tags
+        feature_flag: mcp-analytics
+    query-mcp-missing-capabilities:
+        schema_ref: MCPMissingCapabilitiesQuery
+        enabled: true
+        scopes:
+            - query:read
+            - mcp_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List MCP missing-capability reports
+        description: >
+            Return capabilities that agents asked this MCP server for but could not access. Each row contains one
+            $mcp_missing_capability report from the SDK's get_more_tools tool, including the report text, timestamp,
+            client label, conversation id, and person. Results are chronological because exact-text grouping would split
+            similar free-form requests. The query accepts a dateRange, case-insensitive text search, limit, and offset.
+            The response's has_next field indicates whether more results remain. Use this tool to identify capabilities
+            that agents need or to prioritize new MCP tools.
+        system_prompt_hint: MCP missing capabilities that agents reported, newest first
         exclude_properties:
             - response
             - modifiers

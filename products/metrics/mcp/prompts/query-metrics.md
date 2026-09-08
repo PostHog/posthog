@@ -1,6 +1,12 @@
 Query server/infrastructure metrics (OTel- or Prometheus-ingested) as bucketed time series. The response is a list of series — `{labels, points: [{time, value}], metric_name, clause}` — where every series shares one time grid (missing buckets are zero-filled). A single ungrouped query returns exactly one series with empty labels.
 
-All parameters are nested inside a `query` object. Two request forms:
+All parameters go inside `query`:
+
+```json
+{ "query": { "metricName": "m", "aggregation": "rate", "dateFrom": "2026-01-01T00:00:00Z" } }
+```
+
+Two request forms:
 
 - **Single metric (shorthand):** set `metricName` (+ `aggregation`, `filters`, `groupBy`).
 - **Multi-clause / formula:** set `clauses: [{name, metricName, aggregation, quantile?, filters?, groupBy?}, ...]` and optionally `formula` (e.g. `"(a - b) / a"` over clause names; `+ - * /` and parentheses; division by zero yields 0). With a formula set, only the formula result series are returned.

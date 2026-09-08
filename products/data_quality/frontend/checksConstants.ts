@@ -2,7 +2,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag'
 
 import { CheckTypeEnumApi } from './generated/api.schemas'
-import type { DataQualityCheckApi } from './generated/api.schemas'
+import type { DataQualityCheckApi, DataQualityCheckRunApi } from './generated/api.schemas'
 
 export const CHECK_TYPE_LABELS: Record<string, string> = {
     [CheckTypeEnumApi.NotNull]: 'Not null',
@@ -19,6 +19,25 @@ export const CHECK_STATUS_TAG_TYPES: Record<string, LemonTagType> = {
     failed: 'danger',
     errored: 'warning',
     skipped: 'muted',
+}
+
+const CHECK_STATUS_ATTENTION_ORDER: Record<string, number> = {
+    failed: 0,
+    errored: 1,
+    skipped: 2,
+    passed: 3,
+}
+
+const LAST_ATTENTION_RANK = Object.keys(CHECK_STATUS_ATTENTION_ORDER).length
+
+export function byStatusAttention(
+    a: Pick<DataQualityCheckRunApi, 'status'>,
+    b: Pick<DataQualityCheckRunApi, 'status'>
+): number {
+    return (
+        (CHECK_STATUS_ATTENTION_ORDER[a.status] ?? LAST_ATTENTION_RANK) -
+        (CHECK_STATUS_ATTENTION_ORDER[b.status] ?? LAST_ATTENTION_RANK)
+    )
 }
 
 export const SUITE_RUN_STATUS_TAG_TYPES: Record<string, LemonTagType> = {
@@ -62,27 +81,39 @@ const FAILING_STATUSES = ['failed', 'errored']
  * raises. Kept short because it sits beside the status tag, which already says it failed.
  */
 export function failingForLabel(
-    check: Pick<DataQualityCheckApi, 'last_status' | 'last_succeeded_at'>,
+    check: Pick<DataQualityCheckApi, 'last_status' | 'last_succeeded_at' | 'failing_since'>,
     now: Dayjs = dayjs()
 ): string | null {
     if (!FAILING_STATUSES.includes(check.last_status ?? '')) {
         return null
     }
-    if (!check.last_succeeded_at) {
-        return 'never passed'
+    if (check.failing_since) {
+        return `for ${dayjs(check.failing_since).from(now, true)}`
     }
-    return `for ${dayjs(check.last_succeeded_at).from(now, true)}`
+    return check.last_succeeded_at ? null : 'never passed'
 }
 
 export function checkTypeLabel(checkType: string): string {
     return CHECK_TYPE_LABELS[checkType] ?? checkType
 }
 
+interface NamedCheck {
+    name?: string | null
+    check_type: string
+    column_name?: string | null
+}
+
 /** The check's own name when it has one, otherwise a description of the assertion it makes. */
-export function checkDisplayName(check: Pick<DataQualityCheckApi, 'name' | 'check_type' | 'column_name'>): string {
+export function checkDisplayName(check: NamedCheck): string {
     if (check.name) {
         return check.name
     }
     const label = checkTypeLabel(check.check_type)
     return check.column_name ? `${label} on ${check.column_name}` : label
+}
+
+export function checkRunDisplayName(
+    run: Pick<DataQualityCheckRunApi, 'check_name' | 'check_type' | 'column_name'>
+): string {
+    return checkDisplayName({ name: run.check_name, check_type: run.check_type, column_name: run.column_name })
 }

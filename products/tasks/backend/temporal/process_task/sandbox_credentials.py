@@ -15,7 +15,7 @@ from posthog.models.integration import Integration
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.redis import get_client
 
-from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.exceptions import CredentialUnavailableError, SandboxExecutionError
 from products.tasks.backend.logic.services.agentsh import GITHUB_ENV_FILE, OAUTH_ENV_FILE
 from products.tasks.backend.logic.services.run_actor import loop_owner_eligible_for_credentials
 from products.tasks.backend.models import Task, TaskRun
@@ -50,6 +50,7 @@ _GITHUB_REFRESH_INTERVAL_BY_PREFIX: dict[str, float] = {
     "ghu_": 2 * 60 * 60,
 }
 DEFAULT_REFRESH_INTERVAL_SECONDS: float = 20 * 60
+CREDENTIAL_SANDBOX_EXEC_TIMEOUT_SECONDS = 15
 
 
 def github_refresh_interval_seconds(token: str) -> float:
@@ -73,7 +74,7 @@ def set_git_remote_token(sandbox: "SandboxBase", repository: str, github_token: 
         f"git remote set-url origin {shlex.quote(remote_url)}; "
         f"fi"
     )
-    result = sandbox.execute(update_remote, timeout_seconds=30)
+    result = sandbox.execute(update_remote, timeout_seconds=CREDENTIAL_SANDBOX_EXEC_TIMEOUT_SECONDS)
     if result.exit_code != 0:
         logger.warning(
             "Failed to refresh git remote URL",
@@ -85,15 +86,26 @@ def set_git_remote_token(sandbox: "SandboxBase", repository: str, github_token: 
 
 def _write_sandbox_credential_file(sandbox: "SandboxBase", path: str, payload: bytes) -> bool:
     """Atomically replace one credential domain without a cross-key read-modify-write."""
-    write = sandbox.write_file(path, payload)
+    write = sandbox.write_file(path, payload, timeout_seconds=CREDENTIAL_SANDBOX_EXEC_TIMEOUT_SECONDS)
     if write.exit_code != 0:
+        if write.error in {"exec_write", "atomic_move"}:
+            raise SandboxExecutionError(
+                "Failed to write sandbox credential file",
+                {
+                    "sandbox_id": sandbox.id,
+                    "path": path,
+                    "write_stage": write.error,
+                    "exit_code": write.exit_code,
+                },
+                cause=RuntimeError(f"Sandbox credential write exited with code {write.exit_code}"),
+            )
         logger.warning(
             "Failed to refresh sandbox credential file",
             extra={"sandbox_id": sandbox.id, "credential_file": path, "stderr": write.stderr},
         )
         return False
 
-    chmod = sandbox.execute(f"chmod 600 {shlex.quote(path)}", timeout_seconds=30)
+    chmod = sandbox.execute(f"chmod 600 {shlex.quote(path)}", timeout_seconds=CREDENTIAL_SANDBOX_EXEC_TIMEOUT_SECONDS)
     if chmod.exit_code != 0:
         logger.warning(
             "Failed to restrict sandbox credential file permissions",
@@ -168,10 +180,10 @@ def _actor_rebound_away_from_owner(run_id: str, state: dict | None, owner_id: in
 
 # TTL derivation: the lock must outlive the whole critical section, or the lease can expire mid-write
 # and let a concurrent refresh acquire and interleave (a regression we hit before). Each managed
-# write is a chain of in-sandbox execs, each bounded by a 30s timeout — set_git_remote_token (1 exec)
-# and _write_sandbox_credential_file (a file write + a chmod exec). The per-message gate can run two
+# write is a chain of in-sandbox execs, each bounded by a 15s timeout — set_git_remote_token (1 exec)
+# and _write_sandbox_credential_file (a write, move, and chmod). The per-message gate can run two
 # such chains back-to-back in one lock hold (apply the new token, then, if that fails, log out), so
-# the worst case is ~4 × 30s ≈ 2 min. A 5 min TTL clears that with margin; recompute if those exec
+# the worst case is ~8 × 15s ≈ 2 min. A 5 min TTL clears that with margin; recompute if those exec
 # timeouts change. The wait stays under the refresh activity's 2 min timeout, so a contender that
 # can't acquire skips (fail-safe) rather than blocking the activity.
 _CREDENTIAL_LOCK_TTL_SECONDS = 5 * 60

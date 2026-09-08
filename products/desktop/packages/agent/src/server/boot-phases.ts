@@ -18,7 +18,17 @@ export interface AgentBootSnapshot {
   currentPhase?: AgentBootPhase;
   failedPhase?: AgentBootPhase;
   totalMs: number;
+  httpReadyMs?: number;
+  launcherToProcessMs?: number;
   phasesMs: Partial<Record<AgentBootPhase, number>>;
+}
+
+export function launcherToProcessMs(
+  launcherStartedAtMs?: number,
+): number | undefined {
+  if (launcherStartedAtMs === undefined) return undefined;
+  const processStartedAtMs = Date.now() - process.uptime() * 1000;
+  return Math.max(0, Math.round(processStartedAtMs - launcherStartedAtMs));
 }
 
 export class AgentBootTracker {
@@ -28,9 +38,16 @@ export class AgentBootTracker {
   private currentPhaseStartedAt?: number;
   private failedPhase?: AgentBootPhase;
   private totalMs?: number;
+  private httpReadyMs?: number;
   private readonly phasesMs: Partial<Record<AgentBootPhase, number>> = {};
 
-  constructor(private readonly bootId: string) {}
+  constructor(
+    private readonly bootId: string,
+    httpReadyMs?: number,
+    private readonly launcherToProcessMs?: number,
+  ) {
+    this.httpReadyMs = httpReadyMs;
+  }
 
   async measure<T>(phase: AgentBootPhase, work: () => Promise<T>): Promise<T> {
     this.start(phase);
@@ -48,6 +65,10 @@ export class AgentBootTracker {
     this.finishCurrentPhase();
     this.totalMs = this.elapsedMs();
     this.state = "ready";
+  }
+
+  markHttpReady(elapsedMs?: number): void {
+    this.httpReadyMs ??= Math.max(0, Math.round(elapsedMs ?? this.elapsedMs()));
   }
 
   markFailed(): void {
@@ -71,6 +92,12 @@ export class AgentBootTracker {
       ...(this.currentPhase ? { currentPhase: this.currentPhase } : {}),
       ...(this.failedPhase ? { failedPhase: this.failedPhase } : {}),
       totalMs: this.totalMs ?? this.elapsedMs(),
+      ...(this.httpReadyMs !== undefined
+        ? { httpReadyMs: this.httpReadyMs }
+        : {}),
+      ...(this.launcherToProcessMs !== undefined
+        ? { launcherToProcessMs: this.launcherToProcessMs }
+        : {}),
       phasesMs,
     };
   }

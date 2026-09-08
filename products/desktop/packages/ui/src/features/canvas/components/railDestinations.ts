@@ -5,13 +5,17 @@ import {
   HouseSimple,
   type IconProps,
   Lightning,
+  ListMagnifyingGlassIcon,
   ShapesIcon,
 } from "@phosphor-icons/react";
 import type { RailVisit } from "@posthog/shared";
 import type { SidebarNavItem } from "@posthog/shared/analytics-events";
 import { readMirror } from "@posthog/ui/features/browser-tabs/tabsSync";
 import { SpacesIcon } from "@posthog/ui/features/canvas/components/SpacesIcon";
-import type { NavRailPane } from "@posthog/ui/features/canvas/railPane";
+import {
+  isRestorableVisitHref,
+  type NavRailPane,
+} from "@posthog/ui/features/canvas/railPane";
 import {
   applyTabViewState,
   showChannelList,
@@ -24,10 +28,12 @@ import {
 import type { CountBadgeTone } from "@posthog/ui/primitives/CountBadge";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
+  getCurrentMatches,
   navigateToActivity,
   navigateToCanvases,
   navigateToChannel,
   navigateToCommandCenter,
+  navigateToFeeds,
   navigateToHome,
   navigateToInbox,
   navigateToLoops,
@@ -57,15 +63,19 @@ export interface RailDestination {
    * from landing on its root. Defaults to `onPick`.
    */
   onReclick?: () => void;
+  placement?: "top" | "bottom";
   shortcut?: string;
   count?: (counts: RailCounts) => number;
   countTone?: CountBadgeTone;
-  enabled?: (flags: {
-    home: boolean;
-    inbox: boolean;
-    loops: boolean;
-    context: boolean;
-  }) => boolean;
+  enabled?: (flags: RailFlags) => boolean;
+}
+
+export interface RailFlags {
+  home: boolean;
+  inbox: boolean;
+  loops: boolean;
+  context: boolean;
+  savedSearches: boolean;
 }
 
 /**
@@ -124,7 +134,12 @@ export function pickRailDestination(
   destination: RailDestination,
   current: NavRailPane,
 ): void {
-  if (destination.pane === current) {
+  const matches = getCurrentMatches();
+  const routePath = matches[matches.length - 1]?.fullPath ?? "";
+  const onDestination =
+    destination.pane === current &&
+    isRestorableVisitHref(destination.pane, routePath);
+  if (onDestination) {
     (destination.onReclick ?? destination.onPick)();
     return;
   }
@@ -132,7 +147,11 @@ export function pickRailDestination(
   // A remembered visit that IS where we already are restores nothing, and the
   // click would look dead. Fall through to the destination's root instead, so
   // a pick always goes somewhere.
-  if (visit && visit.href !== currentHref()) restoreVisit(visit);
+  const restorable =
+    visit &&
+    visit.href !== currentHref() &&
+    isRestorableVisitHref(destination.pane, visit.href);
+  if (restorable) restoreVisit(visit);
   else destination.onPick();
 }
 
@@ -205,6 +224,16 @@ const RAIL_DESTINATIONS: readonly RailDestination[] = [
     enabled: (flags) => flags.loops,
   },
   {
+    pane: "feeds",
+    label: "Saved searches",
+    analyticsId: "search",
+    Icon: ListMagnifyingGlassIcon,
+    href: "/feeds",
+    onPick: navigateToFeeds,
+    placement: "bottom",
+    enabled: (flags) => flags.savedSearches,
+  },
+  {
     pane: "context",
     label: "Context",
     analyticsId: "contexts",
@@ -215,11 +244,8 @@ const RAIL_DESTINATIONS: readonly RailDestination[] = [
   },
 ];
 
-export function visibleRailDestinations(flags: {
-  home: boolean;
-  inbox: boolean;
-  loops: boolean;
-  context: boolean;
-}): readonly RailDestination[] {
+export function visibleRailDestinations(
+  flags: RailFlags,
+): readonly RailDestination[] {
   return RAIL_DESTINATIONS.filter(({ enabled }) => enabled?.(flags) ?? true);
 }

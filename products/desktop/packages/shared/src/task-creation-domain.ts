@@ -1,4 +1,4 @@
-import type { Adapter, CodexModelAccess } from "./adapter";
+import type { Adapter, ModelAccess } from "./adapter";
 import type { AgentRuntime } from "./agent-runtime";
 import type { CloudRunSource, PrAuthorshipMode } from "./cloud";
 import type { Task } from "./domain-types";
@@ -37,7 +37,8 @@ export interface TaskCreationInput {
   githubUserIntegrationId?: string;
   executionMode?: ExecutionMode;
   adapter?: Adapter;
-  codexModelAccess?: CodexModelAccess;
+  codexModelAccess?: ModelAccess;
+  claudeModelAccess?: ModelAccess;
   runtime?: AgentRuntime;
   model?: string;
   reasoningLevel?: string;
@@ -66,6 +67,8 @@ export interface TaskCreationInput {
    * label itself. Only sent when signalReportId is set.
    */
   signalReportTaskRelationship?: string;
+  /** Empty suppresses the scout note; omitted falls back to parsing taskDescription for older clients. */
+  signalReportDiscussionQuestion?: string;
   additionalDirectories?: string[];
   /**
    * CONTEXT.md of the channel a task was created in, if any. Appended to the
@@ -89,9 +92,8 @@ export interface TaskCreationInput {
   channelContextId?: string;
   /**
    * The user's saved personalization (Settings → Personalization custom
-   * instructions). Cloud-only: local tasks already receive these through the
-   * workspace-server system prompt, so the saga folds this into the cloud run's
-   * first message instead, to avoid double-injecting.
+   * instructions). Cloud tasks include these in their first message. Local Pi
+   * tasks need them here because they bypass the workspace-server prompt.
    */
   customInstructions?: string;
   /**

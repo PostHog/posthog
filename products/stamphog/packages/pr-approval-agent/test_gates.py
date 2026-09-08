@@ -577,6 +577,11 @@ def test_ownership_counts_a_products_generated_directory_and_nothing_wider(tmp_p
 
     assert ownership["team_file_counts"] == {"@PostHog/team-a": 3}
     assert ownership["team_generated_file_counts"] == {"@PostHog/team-a": 1}
+    # The sample is what the digest shows a summarizer as "your files", so a path no person edited
+    # does not belong in it. The count above is what the digest subtracts.
+    assert ownership["team_files"] == {
+        "@PostHog/team-a": ["products/foo/backend/generated/thing.py", "products/foo/backend/models.py"]
+    }
 
 
 def test_owners_candidates_are_fixed_offsets_from_this_file() -> None:

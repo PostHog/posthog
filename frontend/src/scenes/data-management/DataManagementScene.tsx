@@ -12,8 +12,6 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { Annotations } from 'scenes/annotations'
-import { NewAnnotationButton } from 'scenes/annotations/AnnotationModal'
 import { Comments } from 'scenes/data-management/comments/Comments'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -41,7 +39,6 @@ export enum DataManagementTab {
     EventDefinitions = 'events',
     PropertyDefinitions = 'properties',
     SchemaManagement = 'schema',
-    Annotations = 'annotations',
     Comments = 'comments',
     History = 'history',
     IngestionWarnings = 'warnings',
@@ -111,16 +108,6 @@ const tabs: Record<DataManagementTab, TabConfig> = {
         label: 'Property Groups',
         content: <SchemaManagement />,
         flag: FEATURE_FLAGS.SCHEMA_MANAGEMENT,
-    },
-    [DataManagementTab.Annotations]: {
-        url: urls.annotations(),
-        content: <Annotations />,
-        label: 'Annotations',
-        buttons: <NewAnnotationButton />,
-        tooltipDocLink: 'https://posthog.com/docs/data/annotations',
-        children: {
-            [urls.annotation(':id')]: {},
-        },
     },
     [DataManagementTab.Comments]: {
         url: urls.comments(),
@@ -260,15 +247,6 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
                             name: sceneConfigurations[Scene.EventDefinition].name,
                             path: urls.eventDefinitions(),
                             iconType: sceneConfigurations[Scene.EventDefinition].iconType || 'default_icon_type',
-                        },
-                    ]
-                } else if (tab === DataManagementTab.Annotations) {
-                    return [
-                        {
-                            key: Scene.Annotations,
-                            name: sceneConfigurations[Scene.Annotations].name,
-                            path: urls.annotations(),
-                            iconType: sceneConfigurations[Scene.Annotations].iconType || 'default_icon_type',
                         },
                     ]
                 } else if (tab === DataManagementTab.PropertyDefinitions) {

@@ -5,7 +5,7 @@ This is the deep-dive behind the main skill's [Step 2 (smells)](../SKILL.md) and
 explain _why_ it is slow before you reach for a fix. Where Step 2 scans the SQL for known-bad shapes,
 this reference works the other way round, from the runtime cost back to the cause.
 
-It is written for a query you pulled from production (via `/query-clickhouse-via-metabase` against
+It is written for a query you pulled from production (via `/querying-production-databases-via-metabase` against
 `posthog.query_log_archive`, since the slowest real example beats a synthesized one), but the reasoning
 applies to any slow query. You do not need certainty: a concrete, falsifiable hypothesis ("the sort key
 is function-wrapped, so the date filter can't prune granules") is what drives the next step. Always state

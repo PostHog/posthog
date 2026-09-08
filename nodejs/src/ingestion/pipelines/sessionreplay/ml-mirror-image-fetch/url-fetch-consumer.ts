@@ -3,7 +3,13 @@ import pLimit from 'p-limit'
 
 import { logger } from '~/common/utils/logger'
 
-import { FetchCandidate, MAX_HOPS, UrlDropReason, parseCollectedUrlsRecord } from './collected-urls-record'
+import {
+    FetchCandidate,
+    MAX_HOPS,
+    UrlDropReason,
+    UrlSkipReason,
+    parseCollectedUrlsRecord,
+} from './collected-urls-record'
 import { CrawlHistoryItem, CrawlHistoryStore, UrlCrawlHistoryItem, configurationCacheKey } from './crawl-history'
 import { mergeDuplicateFetchCandidates } from './fetch-candidate-queue'
 import {
@@ -17,6 +23,7 @@ import {
 import { FrontierDeadLetterReason, FrontierDeadLetterSink } from './frontier-dead-letter-sink'
 import { FrontierPublisher, RepublishBatch } from './frontier-publisher'
 import { ImageFetchConsumerMetrics, ImageFetchRequestMetrics } from './metrics'
+import { ImageFetchTopHogMetrics } from './tophog-metrics'
 
 const ONE_HOUR_MS = 60 * 60 * 1000
 const REPUBLISH_DEADLINE_FROM_BATCH_START_MS = 200_000
@@ -39,7 +46,8 @@ export class UrlFetchConsumer {
         private readonly publisher: FrontierPublisher,
         private readonly options: UrlFetchConsumerOptions,
         private readonly runner?: FetchPass,
-        private readonly deadLetters: FrontierDeadLetterSink | null = null
+        private readonly deadLetters: FrontierDeadLetterSink | null = null,
+        private readonly topHogMetrics?: ImageFetchTopHogMetrics
     ) {
         if (!Number.isInteger(options.seenTtlSeconds) || options.seenTtlSeconds < 60 * 60) {
             throw new Error('AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS must be at least 3600')
@@ -54,6 +62,7 @@ export class UrlFetchConsumer {
         const startedAt = process.hrtime.bigint()
         const republishDeadlineAtMonotonicMs = performance.now() + REPUBLISH_DEADLINE_FROM_BATCH_START_MS
         const drops = new Map<UrlDropReason, number>()
+        const skips = new Map<UrlSkipReason, number>()
         const rejectedRecords: RejectedFrontierRecord[] = []
         const candidatesByRef = new Map<string, FetchCandidate>()
         let dedupedInBatch = 0
@@ -81,6 +90,9 @@ export class UrlFetchConsumer {
                         message,
                         reasons: parsed.rejected.map((rejected) => rejected.reason),
                     })
+                }
+                for (const { reason } of parsed.skipped) {
+                    skips.set(reason, (skips.get(reason) ?? 0) + 1)
                 }
                 for (const candidate of parsed.candidates) {
                     const partitionCandidate = { ...candidate, sourcePartitions: [message.partition] }
@@ -129,6 +141,7 @@ export class UrlFetchConsumer {
 
             if (this.options.dryRun || candidates.length === 0) {
                 await this.parkRejectedRecords(rejectedRecords, drops)
+                this.countSkippedJobs(skips)
                 return
             }
 
@@ -184,11 +197,10 @@ export class UrlFetchConsumer {
                 await this.runCrawlHistoryOperation('write', updates.length, () => this.crawlHistory.write(updates))
             }
             const republishResult = await republishBatch.flush()
-            const lost = attempts.filter((attempt) => attempt.lost).length + republishResult.failedUrls
-            if (lost > 0) {
-                throw new Error(`the image fetch lane could not account for ${lost} URLs`)
-            }
             for (const attempt of attempts) {
+                if (attempt.lost || (!attempt.finished && republishResult.failedUrls > 0)) {
+                    continue
+                }
                 for (const sourcePartition of attempt.candidate.sourcePartitions ?? []) {
                     ImageFetchRequestMetrics.incPartitionAttempt(
                         sourcePartition,
@@ -196,11 +208,17 @@ export class UrlFetchConsumer {
                         attempt.outcome
                     )
                 }
+                this.topHogMetrics?.recordAttempt(attempt)
                 if (!attempt.finished && isTransientOutcome(attempt.outcome)) {
                     ImageFetchRequestMetrics.incRetryCause(attempt.outcome)
                 }
             }
+            const lost = attempts.filter((attempt) => attempt.lost).length + republishResult.failedUrls
+            if (lost > 0) {
+                throw new Error(`the image fetch lane could not account for ${lost} URLs`)
+            }
             await this.parkRejectedRecords(rejectedRecords, drops)
+            this.countSkippedJobs(skips)
         } finally {
             ImageFetchConsumerMetrics.finishBatch(activeBatchId)
             this.recordMetrics(
@@ -223,6 +241,13 @@ export class UrlFetchConsumer {
                 error: error instanceof Error ? error.name : 'unknown',
             })
             return { ok: false, reason: 'malformed' }
+        }
+    }
+
+    /** Runs after the batch's durable work, so a batch that fails and is redelivered counts its skips once. */
+    private countSkippedJobs(skips: Map<UrlSkipReason, number>): void {
+        for (const [reason, count] of skips) {
+            ImageFetchConsumerMetrics.incSkipped(reason, count)
         }
     }
 
@@ -338,8 +363,10 @@ export class UrlFetchConsumer {
             return this.terminalAttempt(candidate, HOPS_EXHAUSTED, nowMs)
         }
         const waitMs = candidate.notBeforeMs - nowMs
+        const blockingReason = candidate.lastBlockReason ?? 'unknown_backoff'
+        const republishedCandidate: FetchCandidate = { ...candidate, lastBlockReason: blockingReason }
         const result = await republishBatch.republish(
-            candidate,
+            republishedCandidate,
             {
                 currentUrl: candidate.currentUrl,
                 host: candidate.host,
@@ -353,10 +380,11 @@ export class UrlFetchConsumer {
             return this.terminalAttempt(candidate, DELAY_TOO_LONG, nowMs)
         }
         return {
-            candidate,
+            candidate: republishedCandidate,
             outcome: 'backoff',
             finished: false,
             lost: false,
+            block: { reason: blockingReason, waitMs },
             configurationUpdates: [],
         }
     }

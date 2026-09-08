@@ -5,11 +5,11 @@ description: >
   PRs that conflict with master, resolve the trivial conflicts (generated artifacts
   deterministically, source conflicts with judgment), land one merge commit on
   the PR head, and flag everything else for a human. Use when running as the
-  "Autoresolve PR conflicts" Loop or scheduled routine, when asked to sweep or auto-resolve merge
+  scheduled conflict autoresolver, when asked to sweep or auto-resolve merge
   conflicts against master, or when asked to bring a conflicting PR up to date
   without rewriting its history. Trigger terms: conflict sweep, autoresolve,
   merge conflicts, conflicting PRs, bring PR up to date, restack.
-  Operators setting up the automation itself: see references/loop-setup.md.
+  Operators setting up the automation itself: see references/routine-setup.md.
 ---
 
 # Autoresolving PR conflicts
@@ -21,7 +21,7 @@ Whatever fired the run tells you nothing beyond that `master` may have moved, be
 
 ## Non-negotiable rules
 
-- Write only to head branches of open, non-draft, same-repo PRs targeting `master`. Never write to `master`, to a branch whose write GitHub refuses (step 1 of the resolution procedure), to fork branches, or to `loop/*` / `posthog-code/*` branches (agent-owned; touching them can re-trigger automation).
+- Write only to head branches of open, non-draft, same-repo PRs targeting `master`. Never write to `master`, to a branch whose write GitHub refuses (step 1 of the resolution procedure), to fork branches, or to `loop/*` / `claude/*` / `posthog-code/*` branches (agent-owned; touching them can re-trigger automation).
 - Never open, close, merge, approve, or convert PRs. This job pushes commits to existing branches and comments; nothing else.
 - Never rewrite history. No force-push, no amend. The resolution lands as exactly one new commit on top of the PR head.
 - The commit you land must record both the PR head and `origin/master` as parents. Flattening it turned a 19-file PR three days behind master into 5102 changed files. Use `git merge origin/master`, resolve, `git commit`, `git push`. If you cannot produce a two-parent commit, flag the PR for a human; never flatten the merge instead.

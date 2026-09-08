@@ -35,6 +35,7 @@ from .skill_services import (
     check_allowed_tool_name,
     normalize_skill_file_path,
 )
+from .skill_template_services import TemplateRenderError, parse_template_variables, validate_template
 
 logger = structlog.get_logger(__name__)
 
@@ -177,6 +178,7 @@ def render_skill_md(
     license: str = "",
     compatibility: str = "",
     author_handle: str = "",
+    metadata: dict[str, Any] | None = None,
 ) -> str:
     """Render an LLMSkill's fields into community-skills `SKILL.md` content (frontmatter + body).
 
@@ -227,6 +229,20 @@ def render_skill_md(
         frontmatter["compatibility"] = compatibility.strip()
     if allowed_tools:
         frontmatter["allowed_tools"] = list(allowed_tools)
+    template_variables = parse_template_variables(metadata)
+    if template_variables:
+        # `required` is always written, so an omitted `default` reads back the same as an empty one.
+        frontmatter["metadata"] = {
+            "variables": [
+                {
+                    "name": variable.name,
+                    "prompt": variable.prompt,
+                    "required": variable.required,
+                    **({"default": variable.default} if variable.default else {}),
+                }
+                for variable in template_variables
+            ]
+        }
 
     # sort_keys=False keeps the human-friendly field order above; default_flow_style=False emits
     # block-style YAML (lists as `- item`) that the repo's yaml.safe_load round-trips.
@@ -249,6 +265,7 @@ def render_community_skill_files(
     license: str = "",
     compatibility: str = "",
     author_handle: str = "",
+    metadata: dict[str, Any] | None = None,
 ) -> list[RenderedFile]:
     """Render the full set of files to commit for a skill: SKILL.md plus any bundled files.
 
@@ -257,6 +274,14 @@ def render_community_skill_files(
     """
     _validate_slug(slug)
     _validate_entry_caps(body=body, files=files or [])
+    # Only a template reads `{{ }}` as placeholders. A plain skill keeps that text verbatim, the way
+    # install does, so a skill quoting GitHub Actions or Go template syntax still publishes.
+    template_variables = parse_template_variables(metadata)
+    if template_variables:
+        try:
+            validate_template(variables=template_variables, body=body, files=files or [])
+        except TemplateRenderError as err:
+            raise CommunitySkillPublishValidationError(str(err)) from err
     skill_root = f"{SKILLS_DIR}/{slug}"
 
     rendered: list[RenderedFile] = [
@@ -271,6 +296,7 @@ def render_community_skill_files(
                 license=license,
                 compatibility=compatibility,
                 author_handle=author_handle,
+                metadata=metadata,
             ),
         )
     ]
@@ -551,6 +577,7 @@ def publish_skill_to_community(
     license: str = "",
     compatibility: str = "",
     author_handle: str = "",
+    metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Open a PR in PostHog/community-skills adding (or updating) this skill. Returns the PR url/number.
 
@@ -582,6 +609,7 @@ def publish_skill_to_community(
         license=license,
         compatibility=compatibility,
         author_handle=author_handle,
+        metadata=metadata,
     )
 
     publisher = get_community_skills_publisher()

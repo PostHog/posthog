@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { ReactNode, useState } from 'react'
+import { ReactNode, useMemo, useState } from 'react'
 
 import {
     IconCheck,
@@ -25,6 +25,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
+import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -38,11 +39,13 @@ import {
 } from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
+import { useSceneAgentPanel } from '~/scenes/max/useSceneAgentPanel'
 import { InsightShortId, SidePanelTab } from '~/types'
 
 import { humanizeDefinitionKind, METRIC_DESCRIPTION_MAX_LENGTH, validateMetricName } from './common'
 import { MetricDefinition } from './components/MetricDefinition'
 import { buildMetricRunPrompt } from './components/RunMetricWithAIButton'
+import { buildDataCatalogMetricAgentContext, DATA_CATALOG_METRIC_AGENT_HEADLINES } from './dataCatalogAgentContext'
 import {
     dataCatalogMetricSceneLogic,
     DataCatalogMetricSceneLogicProps,
@@ -86,14 +89,31 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { isMaxAvailable } = useValues(maxGlobalLogic)
+    const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
+    const contextItems = useMemo(
+        () => buildDataCatalogMetricAgentContext(name, editingDefinition ? draftMarkdown : null),
+        [draftMarkdown, editingDefinition, name]
+    )
+
+    useSceneAgentPanel({
+        sceneKey: 'data-catalog',
+        contextItems,
+        headlines: DATA_CATALOG_METRIC_AGENT_HEADLINES,
+        active: !!metric,
+    })
 
     const runMarkdownMetricWithAI = (): void => {
         if (!metric) {
             return
         }
-        // Still record the run server-side so last run time and run analytics stay accurate.
-        loadRunResult()
-        openSidePanel(SidePanelTab.Max, autoRunMaxPrompt(buildMetricRunPrompt(metric.name)))
+        if (!sceneIntegrationEnabled) {
+            // Still record the run server-side so last run time and run analytics stay accurate.
+            loadRunResult()
+        }
+        openSidePanel(
+            SidePanelTab.Max,
+            autoRunMaxPrompt(buildMetricRunPrompt(metric.name, { metricAttached: sceneIntegrationEnabled }))
+        )
     }
 
     if (metricLoading && !metric) {
