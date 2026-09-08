@@ -157,6 +157,27 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
             1,
         )
 
+    def test_environment_url_resolves_to_the_canonical_team(self) -> None:
+        # `for_team` canonicalizes its filter but not the create kwargs, so an environment (child
+        # team) id in the URL must resolve to the parent before the row is looked up or created.
+        # A raw id makes the lookup never match and the unique constraint reject every later call.
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        environment_endpoint = f"/api/projects/{environment.id}/user_customer_analytics_config/@me/"
+        pinned = [{"kind": "custom_property", "id": str(self._custom_property().id)}]
+
+        first = self.client.get(environment_endpoint)
+        saved = self.client.patch(environment_endpoint, {"pinned_properties": pinned}, format="json")
+        reread = self.client.get(environment_endpoint)
+
+        self.assertEqual(first.status_code, status.HTTP_200_OK, first.json())
+        self.assertEqual(saved.status_code, status.HTTP_200_OK, saved.json())
+        self.assertEqual(reread.status_code, status.HTTP_200_OK, reread.json())
+        self.assertEqual(reread.json(), {"pinned_properties": pinned})
+        self.assertEqual(self.client.get(self.endpoint).json(), {"pinned_properties": pinned})
+        config = UserCustomerAnalyticsConfig.objects.for_team(self.team.id).get(user_id=self.user.id)
+        self.assertEqual(config.team_id, self.team.id)
+        self.assertEqual(UserCustomerAnalyticsConfig.objects.unscoped().filter(user_id=self.user.id).count(), 1)
+
     def test_patch_rejects_invalid_references_on_the_pinned_properties_field(self) -> None:
         valid_custom = self._custom_property()
         person_custom = self._custom_property(target_type=TargetType.PERSON)
