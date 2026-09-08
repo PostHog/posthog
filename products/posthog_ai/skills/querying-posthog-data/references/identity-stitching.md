@@ -47,6 +47,11 @@ It also misses merges that came from other sources, such as `$create_alias` or a
 Do not use `distinct_id` where you mean a user.
 Counting `DISTINCT distinct_id` counts devices and pre-identify sessions as separate users, so it reports more users than you have.
 
+Do not join `persons` with a plain `JOIN` when the query must keep anonymous events.
+PostHog writes a `persons` row only when it creates a person profile, and the default posthog-js setting `person_profiles: 'identified_only'` creates no profile for a user who never identifies.
+Those events still carry a `person_id`, so an inner join removes them and reports fewer users than you have.
+Use `LEFT JOIN` instead.
+
 ## One exception
 
 A project can be set to read `events.person_id` straight from the event, without the merge correction.
@@ -61,5 +66,6 @@ To resolve the merges yourself, join `person_distinct_id_overrides` on `distinct
 - `person.properties.*` reaches the person behind the event.
   See [person property modes](./person-property-modes.md) for whether those values are historical or current.
 - `persons.id` matches `events.person_id`, so you can join the `persons` table on it.
+  The match exists only for events that have a person profile, so use `LEFT JOIN` to keep the rest.
 - The `person_distinct_ids` table maps each `distinct_id` to its `person_id`.
   Query it when you want the ids themselves, for example to debug a merge.
