@@ -88,8 +88,6 @@ import type {
     TaskRepositoriesResponseApi,
     TaskRunAnalysisActivityRequestApi,
     TaskRunAnalysisActivityResponseApi,
-    TaskRunAnalysisInsightRequestApi,
-    TaskRunAnalysisInsightResponseApi,
     TaskRunAnalyzeResponseApi,
     TaskRunAppendLogRequestApi,
     TaskRunArtifactPresignRequestApi,
@@ -1760,29 +1758,6 @@ export const tasksRunsAnalysisActivityCreate = async (
             body: JSON.stringify(taskRunAnalysisActivityRequestApi),
         }
     )
-}
-
-export const getTasksRunsAnalysisInsightCreateUrl = (projectId: string, taskId: string, id: string) => {
-    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/analysis-insight/`
-}
-
-/**
- * Store one verified inefficiency finding on a task-analysis run. Only the run's own task-bound sandbox agent may call it, and only on a task-analysis run. The findings list is server-owned: it is not writable through the run update endpoint.
- * @summary Report an analysis finding
- */
-export const tasksRunsAnalysisInsightCreate = async (
-    projectId: string,
-    taskId: string,
-    id: string,
-    taskRunAnalysisInsightRequestApi?: TaskRunAnalysisInsightRequestApi,
-    options?: RequestInit
-): Promise<TaskRunAnalysisInsightResponseApi> => {
-    return apiMutator<TaskRunAnalysisInsightResponseApi>(getTasksRunsAnalysisInsightCreateUrl(projectId, taskId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taskRunAnalysisInsightRequestApi),
-    })
 }
 
 export const getTasksRunsAnalyzeCreateUrl = (projectId: string, taskId: string, id: string) => {

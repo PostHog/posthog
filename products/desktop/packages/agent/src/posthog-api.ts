@@ -346,27 +346,6 @@ export class PostHogAPIClient {
   }
 
   /**
-   * File one task-analysis finding. The server owns the findings list, validates the
-   * shape and enforces the per-run cap, so this is the only way to add one.
-   */
-  async reportAnalysisInsight(
-    taskId: string,
-    runId: string,
-    insight: Record<string, unknown>,
-    signal?: AbortSignal,
-  ): Promise<{ insight_index: number }> {
-    const teamId = this.getTeamId();
-    return this.apiRequest<{ insight_index: number }>(
-      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/analysis-insight/`,
-      {
-        method: "POST",
-        body: JSON.stringify(insight),
-        signal,
-      },
-    );
-  }
-
-  /**
    * Record one task-analysis activity. The server owns the activities list, validates the
    * shape and enforces the per-run cap, so this is the only way to add one.
    */
