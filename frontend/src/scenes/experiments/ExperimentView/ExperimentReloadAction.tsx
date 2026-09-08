@@ -121,10 +121,12 @@ export const ExperimentReloadAction = ({
 
     /**
      * Stopping an experiment starts no recalculation, so the run on screen can still stop short of the end
-     * date. Block the reload only once the results reach that date, and let the user compute them until then.
+     * date. Every run of a stopped experiment pins its cutoff to that date, so only an exact match makes the
+     * results final. An earlier cutoff leaves data to compute. A later one covers a window wider than the
+     * experiment, which is what a backdated end date or a daily timeseries placeholder leaves behind.
      */
     const coversFullWindow =
-        !!dataThrough && !!experiment.end_date && !dayjs(dataThrough).isBefore(dayjs(experiment.end_date))
+        !!dataThrough && !!experiment.end_date && dayjs(dataThrough).isSame(dayjs(experiment.end_date))
     const finalResultsReason =
         ended && coversFullWindow
             ? `This experiment stopped on ${dayjs(experiment.end_date).format('MMM D, YYYY')}. Results are final.`

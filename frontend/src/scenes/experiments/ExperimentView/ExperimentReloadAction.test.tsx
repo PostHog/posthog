@@ -60,6 +60,12 @@ describe('ExperimentReloadAction', () => {
             '2026-06-09T12:00:00Z',
             'false',
         ],
+        [
+            'keeps the reload live when the results overshoot a backdated end date',
+            ExperimentStatus.Stopped,
+            '2026-06-12T00:00:00Z',
+            'false',
+        ],
         ['keeps the reload live on a stopped experiment with no results yet', ExperimentStatus.Stopped, null, 'false'],
         ['keeps the reload live while the experiment runs', ExperimentStatus.Running, END_DATE, 'false'],
     ])('%s', (_name, status, dataThrough, expected) => {
