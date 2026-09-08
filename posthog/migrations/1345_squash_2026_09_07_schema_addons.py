@@ -153,10 +153,6 @@ class Migration(migrations.Migration):
             reverse_sql="",
         ),
         migrations.RunSQL(
-            sql='\n                    CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_734394e1_uniq" ON "posthog_taggeditem" ("tag_id", "dashboard_id", "insight_id", "event_definition_id", "property_definition_id", "action_id", "feature_flag_id", "experiment_saved_metric_id");\n                    ',
-            reverse_sql="",
-        ),
-        migrations.RunSQL(
             sql='\n                    CREATE INDEX CONCURRENTLY IF NOT EXISTS "posthog_batchexportrun_backfill_id_9243c0f7" ON "posthog_batchexportrun" ("backfill_id");\n                    ',
             reverse_sql="",
         ),
@@ -261,10 +257,6 @@ class Migration(migrations.Migration):
             reverse_sql="",
         ),
         migrations.RunSQL(
-            sql='\n                CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_d90686d0_uniq"\n                ON "posthog_taggeditem" (\n                    "tag_id",\n                    "dashboard_id",\n                    "insight_id",\n                    "event_definition_id",\n                    "property_definition_id",\n                    "action_id",\n                    "feature_flag_id",\n                    "experiment_saved_metric_id",\n                    "ticket_id"\n                );\n            ',
-            reverse_sql="",
-        ),
-        migrations.RunSQL(
             sql='\n                        CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "unique_cohort_kind_per_team"\n                        ON "posthog_cohort" ("team_id", "kind")\n                        WHERE "kind" IS NOT NULL AND "deleted" = false\n                    ',
             reverse_sql="",
         ),
@@ -281,15 +273,7 @@ class Migration(migrations.Migration):
             reverse_sql="",
         ),
         migrations.RunSQL(
-            sql='\n                CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_4fe7898b_uniq"\n                ON "posthog_taggeditem" (\n                    "tag_id",\n                    "dashboard_id",\n                    "insight_id",\n                    "event_definition_id",\n                    "property_definition_id",\n                    "action_id",\n                    "feature_flag_id",\n                    "experiment_saved_metric_id",\n                    "ticket_id",\n                    "account_id"\n                );\n            ',
-            reverse_sql="",
-        ),
-        migrations.RunSQL(
             sql='\n                CREATE INDEX CONCURRENTLY IF NOT EXISTS "posthog_taggeditem_endpoint_id_idx"\n                ON "posthog_taggeditem" ("endpoint_id");\n            ',
-            reverse_sql="",
-        ),
-        migrations.RunSQL(
-            sql='\n                CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_endpoint_uniq"\n                ON "posthog_taggeditem" (\n                    "tag_id",\n                    "dashboard_id",\n                    "insight_id",\n                    "event_definition_id",\n                    "property_definition_id",\n                    "action_id",\n                    "feature_flag_id",\n                    "experiment_saved_metric_id",\n                    "ticket_id",\n                    "account_id",\n                    "endpoint_id"\n                );\n            ',
             reverse_sql="",
         ),
         migrations.RunSQL(
@@ -305,10 +289,6 @@ class Migration(migrations.Migration):
             reverse_sql="",
         ),
         migrations.RunSQL(
-            sql='CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "posthog_identityproviderconfig_saml_relay_state_a35fb61b_uniq" ON "posthog_identityproviderconfig" (saml_relay_state)',
-            reverse_sql="",
-        ),
-        migrations.RunSQL(
             sql='CREATE INDEX CONCURRENTLY IF NOT EXISTS "posthog_identityproviderconfig_saml_relay_state_a35fb61b_like" ON "posthog_identityproviderconfig" (saml_relay_state varchar_pattern_ops)',
             reverse_sql="",
         ),
@@ -317,15 +297,7 @@ class Migration(migrations.Migration):
             reverse_sql="",
         ),
         migrations.RunSQL(
-            sql='CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_replay_scan_uniq" ON "posthog_taggeditem" ("tag_id", "dashboard_id", "insight_id", "event_definition_id", "property_definition_id", "action_id", "feature_flag_id", "experiment_saved_metric_id", "ticket_id", "account_id", "endpoint_id", "replay_scanner_id")',
-            reverse_sql="",
-        ),
-        migrations.RunSQL(
             sql='CREATE INDEX CONCURRENTLY IF NOT EXISTS "posthog_taggeditem_project_id_0a61d235" ON "posthog_taggeditem" ("project_id")',
-            reverse_sql="",
-        ),
-        migrations.RunSQL(
-            sql='CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_4ec15a8f_uniq" ON "posthog_taggeditem" ("tag_id", "dashboard_id", "insight_id", "event_definition_id", "property_definition_id", "action_id", "feature_flag_id", "experiment_saved_metric_id", "ticket_id", "account_id", "endpoint_id", "replay_scanner_id", "project_id")',
             reverse_sql="",
         ),
         django.contrib.postgres.operations.ValidateConstraint(
