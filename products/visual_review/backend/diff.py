@@ -6,9 +6,11 @@ diff_count, ssim, diff_image, thumbnail, and clusters without paying for
 re-decode.
 """
 
+import io
 from typing import Any
 
 from blake3 import blake3
+from PIL import Image
 from pixelhog import ClustersResult, Comparison, RowAlignment
 
 from posthog.dataclasses import frozen
@@ -78,6 +80,39 @@ class CompareResult:
     # None when there was nothing to align, or when pixelhog could not align
     # the pair because the two images differ by more than its budget.
     row_shift: RowShift | None
+
+
+def _relocated_rows(baseline_bytes: bytes, current_bytes: bytes, alignment: RowAlignment) -> int:
+    """Inserted rows whose pixels equal a deleted row's: content that moved, not padding that appeared.
+
+    Padding that grew blends into a neighbor, so an inserted band counts only
+    when it differs from the rows above and below it in the current image.
+    Only a pair with both inserts and deletes decodes the images again.
+    """
+    deleted = [seg for seg in alignment.segments if seg.kind == "delete"]
+    inserted = [seg for seg in alignment.segments if seg.kind == "insert"]
+    if not deleted or not inserted:
+        return 0
+    baseline = Image.open(io.BytesIO(baseline_bytes)).convert("RGBA")
+    current = Image.open(io.BytesIO(current_bytes)).convert("RGBA")
+
+    def row(image: Image.Image, y: int) -> bytes:
+        return image.crop((0, y, image.width, y + 1)).tobytes()
+
+    deleted_rows = {
+        row(baseline, y) for seg in deleted for y in range(seg.baseline_start, seg.baseline_start + seg.len)
+    }
+    relocated = 0
+    for seg in inserted:
+        start, end = seg.current_start, seg.current_start + seg.len
+        band = [row(current, y) for y in range(start, end)]
+        if any(pixels not in deleted_rows for pixels in band):
+            continue
+        above_differs = start == 0 or row(current, start - 1) != band[0]
+        below_differs = end >= current.height or row(current, end) != band[-1]
+        if above_differs and below_differs:
+            relocated += seg.len
+    return relocated
 
 
 def _to_cluster_summary(clusters_result: ClustersResult) -> ClusterSummary:
@@ -155,6 +190,7 @@ def compare_images(
             deleted_rows=alignment.deleted_rows,
             changed_rows=alignment.changed_rows,
             residual_pixel_count=alignment.residual_count,
+            relocated_rows=_relocated_rows(baseline_bytes, current_bytes, alignment),
             residual_percentage=round(residual_percentage, 4),
             raw_diff_percentage=round(diff_percentage, 4),
             bands=[ShiftBand(y=b.y, rows=b.rows, kind=b.kind) for b in alignment.bands],

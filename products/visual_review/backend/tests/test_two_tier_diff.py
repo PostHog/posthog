@@ -64,6 +64,18 @@ def _insert_rows(png_bytes: bytes, y: int, rows: int) -> bytes:
     return insert_background_rows(png_bytes, y, rows, PAGE_BACKGROUND)
 
 
+def _grow_rows(png_bytes: bytes, y: int, rows: int) -> bytes:
+    # A panel that grows repeats its edge row, so the new rows match the row above them.
+    image = open_png(png_bytes)
+    width, height = image.size
+    out = Image.new("RGBA", (width, height + rows))
+    out.paste(image.crop((0, 0, width, y)), (0, 0))
+    for i in range(rows):
+        out.paste(image.crop((0, y - 1, width, y)), (0, y + i))
+    out.paste(image.crop((0, y, width, height)), (0, y + rows))
+    return to_png(out)
+
+
 def _classify(baseline_bytes: bytes, current_bytes: bytes) -> ChangeKind | None:
     """Run the production classifier on a fresh compare result."""
     result = compare_images(baseline_bytes, current_bytes, with_thumbnail=False)
@@ -250,7 +262,7 @@ class TestRowShiftClassification:
         # as the same number of inserted and deleted rows. Summing both sides
         # would double the movement and push a cap-sized shift into layout.
         baseline = _make_tall_settings_page(height=page_height)
-        grown = open_png(_insert_rows(baseline, y=page_height // 2, rows=moved_rows))
+        grown = open_png(_grow_rows(baseline, y=page_height // 2, rows=moved_rows))
         current = to_png(grown.crop((0, 0, grown.width, grown.height - moved_rows)))
 
         result = compare_images(baseline, current, with_thumbnail=False)
@@ -295,19 +307,22 @@ class TestRowShiftClassification:
 
         assert classify_compare_result(result) == ChangeKind.LAYOUT
 
-    def test_relocated_thin_element_is_layout_not_a_small_shift(self):
-        # A one-row line that moved from y=100 to y=800 aligns as one delete
+    @pytest.mark.parametrize("destination", [pytest.param(800, id="interior"), pytest.param(3000, id="bottom_edge")])
+    def test_relocated_thin_element_is_layout_not_a_small_shift(self, destination: int):
+        # A one-row line that moved from y=100 elsewhere aligns as one delete
         # plus one insert with no residual. Counting rows alone calls that a
-        # one-row shift; the two interior bands say a block moved instead.
+        # one-row shift; the inserted row's pixels equal the deleted row's,
+        # which says the line moved. The bottom edge is the case that looks
+        # exactly like a page translation from the band positions alone.
         colors = [(200 + (i * 7) % 50, 200 + (i * 13) % 50, 220, 255) for i in range(3000)]
         line = (0, 0, 0, 255)
         baseline = make_striped_png([*colors[:100], line, *colors[100:]], width=100)
-        current = make_striped_png([*colors[:800], line, *colors[800:]], width=100)
+        current = make_striped_png([*colors[:destination], line, *colors[destination:]], width=100)
 
         result = compare_images(baseline, current, with_thumbnail=False)
         assert result.row_shift is not None
         assert (result.row_shift.inserted_rows, result.row_shift.deleted_rows) == (1, 1)
-        assert result.row_shift.residual_percentage == 0
+        assert result.row_shift.relocated_rows == 1
 
         assert classify_compare_result(result) == ChangeKind.LAYOUT
 
