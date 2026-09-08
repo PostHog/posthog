@@ -517,6 +517,8 @@ class OrganizationAdmin(admin.ModelAdmin):
         teams = list(organization.teams.only("id", "name").all())
         team_ids = [team.pk for team in teams]
         project_names = [team.name for team in teams]
+        # Read the members now: the deletion workflow removes the memberships before it mails them.
+        member_user_ids = list(organization.memberships.values_list("user_id", flat=True))
 
         user = request.user
         report_organization_deleted(user, organization)
@@ -534,6 +536,7 @@ class OrganizationAdmin(admin.ModelAdmin):
                 user_id=user.id,
                 organization_name=organization.name,
                 project_names=project_names,
+                member_user_ids=member_user_ids,
             )
         except WorkflowAlreadyStartedError:
             messages.error(

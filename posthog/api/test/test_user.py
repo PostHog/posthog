@@ -1833,8 +1833,12 @@ class TestUserAPI(APIBaseTest):
         response = self.client.delete(f"/api/users/@me/")
         assert response.status_code == status.HTTP_409_CONFLICT
 
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.api.user.send_account_deleted_email.delay")
     @patch("posthoganalytics.capture")
-    def test_can_delete_user_with_no_organization_memberships(self, mock_capture):
+    def test_can_delete_user_with_no_organization_memberships(
+        self, mock_capture, mock_send_account_deleted_email, mock_is_email_available
+    ):
         user = self._create_user("noactiveorgmemberships@posthog.com", password="test")
 
         self.client.force_login(user)
@@ -1855,6 +1859,13 @@ class TestUserAPI(APIBaseTest):
             distinct_id=user.distinct_id,
             event="user account deleted",
             properties=mock.ANY,
+        )
+
+        # The row is hard-deleted, so the recipient must be captured before the delete.
+        mock_send_account_deleted_email.assert_called_once_with(
+            email="noactiveorgmemberships@posthog.com",
+            first_name=user.first_name,
+            distinct_id=str(user.distinct_id),
         )
 
     def test_cannot_delete_another_user_with_no_org_memberships(self):

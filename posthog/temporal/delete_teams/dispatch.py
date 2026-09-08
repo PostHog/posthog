@@ -27,7 +27,13 @@ def start_delete_project_data_workflow(
 
 
 def start_delete_organization_workflow(
-    *, team_ids: list[int], organization_id: str, user_id: int, organization_name: str, project_names: list[str]
+    *,
+    team_ids: list[int],
+    organization_id: str,
+    user_id: int,
+    organization_name: str,
+    project_names: list[str],
+    member_user_ids: list[int],
 ) -> None:
     inputs = DeleteOrganizationWorkflowInputs(
         team_ids=team_ids,
@@ -35,6 +41,7 @@ def start_delete_organization_workflow(
         user_id=user_id,
         organization_name=organization_name,
         project_names=project_names,
+        member_user_ids=member_user_ids,
     )
 
     async def _start() -> None:

@@ -48,6 +48,7 @@ class OrganizationEmailInputs:
     user_id: int
     organization_name: str
     project_names: list[str]
+    member_user_ids: list[int] = dataclasses.field(default_factory=list)
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -89,6 +90,7 @@ class DeleteOrganizationWorkflowInputs:
     user_id: int
     organization_name: str
     project_names: list[str]
+    member_user_ids: list[int] = dataclasses.field(default_factory=list)
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
