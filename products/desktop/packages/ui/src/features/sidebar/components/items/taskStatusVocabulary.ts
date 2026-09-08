@@ -100,8 +100,8 @@ export interface TaskDot {
  * Recoverable run mechanics stay behind one loading state. A failed run uses a
  * red mark because the loading spinner must end with a clear result.
  *
- * A cloud run's queued state shows the same loading spinner as other startup
- * states. A local run at `queued`, or any run at `in_progress` with nothing
+ * A cloud run's `not_started` and `queued` states show the same loading spinner
+ * as other startup states. A local run at `queued`, or any run at `in_progress` with nothing
  * streaming, is not a live signal by itself because those states can outlive
  * the work.
  *
@@ -109,10 +109,11 @@ export interface TaskDot {
  * that story; only a visibly loading or streaming run lights the dot.
  */
 export function taskDot(props: TaskStatusInput): TaskDot {
-  // Cloud `queued` is a sandbox being claimed, and the backend leaves that
-  // state by itself. A local run can remain `queued` after the agent finishes.
+  // Cloud `not_started` and `queued` are setup states that the backend leaves
+  // by itself. A local run can remain `queued` after the agent finishes.
   const isLoadingCloudRun =
-    props.taskRunStatus === "queued" &&
+    (props.taskRunStatus === "not_started" ||
+      props.taskRunStatus === "queued") &&
     props.workspaceMode === "cloud" &&
     !props.isGenerating;
   const isLoading = props.isAgentSessionStarting || isLoadingCloudRun;

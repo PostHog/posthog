@@ -177,6 +177,15 @@ describe("ChannelItemRow", () => {
       "All caught up",
     ],
     [
+      "a running cloud session restored after an app restart",
+      {
+        taskRunStatus: "in_progress" as const,
+        workspaceMode: "cloud" as const,
+        isGenerating: true,
+      },
+      "Working",
+    ],
+    [
       // The backend leaves an interactive run in_progress after it succeeds, so
       // the session stays open for a follow-up. Reading that as a claim marked
       // every finished session pending, forever, on a row opening it could not
@@ -187,6 +196,14 @@ describe("ChannelItemRow", () => {
         runMode: "interactive" as const,
       },
       "All caught up",
+    ],
+    [
+      "a cloud run waiting to be queued",
+      {
+        taskRunStatus: "not_started" as const,
+        workspaceMode: "cloud" as const,
+      },
+      "Loading",
     ],
     [
       // Launching: a sandbox is being claimed and the backend leaves this state
@@ -360,12 +377,16 @@ describe("ChannelItemRow", () => {
   });
 
   it.each([
-    ["the signed-in user", "u-1", "You were here recently"],
-    ["another user", "u-2", "Ada Lovelace was here recently"],
-  ])("labels recent presence for %s", (_case, uuid, label) => {
+    ["task", "u-1", "You were here recently"],
+    ["task", "u-2", "Ada Lovelace was here recently"],
+    ["canvas", "u-1", "You were here recently"],
+    ["canvas", "u-2", "Ada Lovelace was here recently"],
+  ] as const)("labels recent %s presence for %s", (kind, uuid, label) => {
     renderRow(
       item({
+        kind,
         ts: Date.now() - 5 * 60_000,
+        authorUuid: uuid,
         authorUser: {
           id: 1,
           uuid,
@@ -376,7 +397,9 @@ describe("ChannelItemRow", () => {
       }),
     );
 
-    expect(screen.getByRole("img", { name: label })).not.toBeNull();
+    expect(screen.getByRole("img", { name: label }).textContent).toContain(
+      "AL",
+    );
   });
 
   // A pinned row offering only `move` resolves against the Command Center's

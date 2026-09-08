@@ -25,6 +25,7 @@ import {
   type BedrockGatewayVariant,
   type CloudRegion,
   classifyGatewayLimitError,
+  customModelMeta,
   type ExecutionMode,
   flattenSelectOptions,
   getBackoffDelay,
@@ -6357,6 +6358,7 @@ export class SessionService {
           option.category === "thought_level"
             ? (reasoningLabels[preferredValue] ?? preferredValue)
             : preferredValue,
+        ...(option.category === "model" ? { _meta: customModelMeta() } : {}),
       };
 
       if (option.options.length > 0 && "group" in option.options[0]) {
