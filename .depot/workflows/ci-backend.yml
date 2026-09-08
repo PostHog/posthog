@@ -101,8 +101,10 @@
 #   a stripped side effect (migration-risk check run, OpenAPI auto-commit, snapshot commit,
 #   telemetry) are stripped with it.
 # - `depot ci run` fires with event_name `api`; the sample gate treats it like
-#   workflow_dispatch so a branch can be trialled before it reaches master, which is where
-#   `depot ci dispatch` looks for workflows.
+#   workflow_dispatch so a branch can be trialled without a push. Depot caps an inline
+#   workflow at 64 KiB and this file is larger, so the working branch trial is
+#   `depot ci dispatch --workflow ci-backend.yml --ref <branch>`, which runs the ref's
+#   copy of a workflow that also exists on master.
 # - Three data-modeling tests deselected (Depot-only MinIO 403 quarantine)
 # - COMPOSE_PROJECT_NAME pinned to posthog because bin/wait-for-docker filters by that
 #   project name and checkout directory names are not stable across CI providers
