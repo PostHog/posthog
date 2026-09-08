@@ -164,6 +164,7 @@ describe('DashboardHeader', () => {
             scenario: 'View mode, can edit',
             dashboardMode: null as DashboardMode | null,
             canEdit: true,
+            hasTiles: false,
             visible: [],
             notVisible: [
                 'dashboard-add-tile',
@@ -177,6 +178,7 @@ describe('DashboardHeader', () => {
             scenario: 'View mode, cannot edit',
             dashboardMode: null as DashboardMode | null,
             canEdit: false,
+            hasTiles: false,
             visible: [],
             notVisible: [
                 'dashboard-add-tile',
@@ -191,6 +193,7 @@ describe('DashboardHeader', () => {
             dashboardEditing: { filters: true, layout: false },
             dashboardModeSource: DashboardEventSource.DashboardFilters,
             canEdit: true,
+            hasTiles: false,
             visible: [],
             notVisible: [
                 'dashboard-add-tile',
@@ -203,10 +206,25 @@ describe('DashboardHeader', () => {
             ],
         },
         {
+            scenario: 'Filter edit mode, cannot edit',
+            dashboardEditing: { filters: true, layout: false },
+            dashboardModeSource: DashboardEventSource.DashboardFilters,
+            canEdit: false,
+            hasTiles: true,
+            visible: [],
+            notVisible: [
+                'dashboard-edit-mode-button',
+                'dashboard-edit-mode-discard',
+                'dashboard-edit-mode-save',
+                'dashboard-share-button',
+            ],
+        },
+        {
             scenario: 'Layout edit mode',
             dashboardEditing: { filters: true, layout: true },
             dashboardModeSource: DashboardEventSource.SceneCommonButtons,
             canEdit: true,
+            hasTiles: false,
             visible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save'],
             notVisible: [
                 'dashboard-add-tile',
@@ -220,16 +238,27 @@ describe('DashboardHeader', () => {
             scenario: 'Fullscreen mode',
             dashboardMode: DashboardMode.Fullscreen,
             canEdit: true,
+            hasTiles: false,
             visible: ['dashboard-exit-presentation-mode'],
             notVisible: ['dashboard-share-button', 'dashboard-edit-mode-save'],
         },
     ])(
         '$scenario shows correct action buttons',
-        ({ dashboardMode, dashboardModeSource, canEdit, visible, notVisible }) => {
+        ({ dashboardMode, dashboardEditing, dashboardModeSource, canEdit, hasTiles, visible, notVisible }) => {
             const dashboard = makeDashboard({
                 user_access_level: canEdit ? AccessControlLevel.Editor : AccessControlLevel.Viewer,
+                tiles: hasTiles
+                    ? [
+                          {
+                              id: 1,
+                              color: null,
+                              layouts: {},
+                              insight: { id: 1, short_id: 'test', name: 'Test' } as QueryBasedInsightModel,
+                          },
+                      ]
+                    : [],
             })
-            const { logic } = renderHeader({ dashboard, dashboardMode, dashboardModeSource })
+            const { logic } = renderHeader({ dashboard, dashboardMode, dashboardEditing, dashboardModeSource })
 
             for (const attr of visible) {
                 expect(document.querySelector(`[data-attr="${attr}"]`)).toBeInTheDocument()

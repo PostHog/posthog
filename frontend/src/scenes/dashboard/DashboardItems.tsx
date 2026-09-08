@@ -290,8 +290,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         ]
     )
 
-    const showResizeHandles = layoutEditMode && !isMobileView && isEditablePlacement && !isLayoutZoomToggled
-    const showEditingControls = isEditablePlacement || layoutEditMode
+    const showResizeHandles =
+        canEditDashboard && layoutEditMode && !isMobileView && isEditablePlacement && !isLayoutZoomToggled
+    const showEditingControls = isEditablePlacement || (canEditDashboard && layoutEditMode)
     const showDetailsControls =
         placement !== DashboardPlacement.Export &&
         placement !== DashboardPlacement.Public &&
@@ -299,20 +300,20 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     const dragConfig = useMemo(
         () => ({
-            enabled: layoutEditMode && !isMobileView,
+            enabled: canEditDashboard && layoutEditMode && !isMobileView,
             handle: '.CardMeta,.DashboardTileCard__body,.WidgetCard__header,.drag-handle',
             cancel: 'a,table,button,input,.Popover',
             bounded: true,
         }),
-        [layoutEditMode, isMobileView]
+        [canEditDashboard, layoutEditMode, isMobileView]
     )
 
     const resizeConfig = useMemo(
         () => ({
-            enabled: layoutEditMode && !isMobileView && !isLayoutZoomToggled,
+            enabled: canEditDashboard && layoutEditMode && !isMobileView && !isLayoutZoomToggled,
             handles: ['s', 'e', 'se', 'n', 'w', 'nw', 'ne', 'sw'] as const,
         }),
-        [layoutEditMode, isMobileView, isLayoutZoomToggled]
+        [canEditDashboard, layoutEditMode, isMobileView, isLayoutZoomToggled]
     )
 
     useResizeHandleScrollbarPassThrough(layoutEditMode && !isMobileView)

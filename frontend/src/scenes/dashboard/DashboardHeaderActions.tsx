@@ -241,7 +241,7 @@ export function DashboardEditSaveCancelButtons({
 }
 
 export function EditModeActions(): JSX.Element {
-    const { layoutEditMode, tiles, dashboardCustomizeMenuOpen } = useValues(dashboardLogic)
+    const { canEditDashboard, layoutEditMode, tiles, dashboardCustomizeMenuOpen } = useValues(dashboardLogic)
     const { setDashboardEditing, setDashboardCustomizeMenuOpen } = useActions(dashboardLogic)
     const dashboardCustomizationEnabled = useFeatureFlag('DASHBOARD_CUSTOMIZATION')
 
@@ -249,7 +249,7 @@ export function EditModeActions(): JSX.Element {
         <>
             <DashboardSubscribeButton />
             {layoutEditMode && <DashboardEditSaveCancelButtons />}
-            {!layoutEditMode && tiles.length > 0 && (
+            {canEditDashboard && !layoutEditMode && tiles.length > 0 && (
                 <Shortcut
                     name="EnterEditMode"
                     scope={Scene.Dashboard}
