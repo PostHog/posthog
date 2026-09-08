@@ -409,12 +409,12 @@ describe('log-record-avro', () => {
         // Trace records are written with a schema that has no `body` field, so the decoded record
         // has no `body` key at all. The JSON stage must treat that like a null body, not throw.
         it('passes a body-less trace record through with JSON parsing enabled', async () => {
-            const schemaJson = LOG_RECORD_SCHEMA.schema() as { fields: { name: string }[] }
-            const bodylessSchema = avro.parse({
+            const schemaJson = LOG_RECORD_SCHEMA.schema() as avro.schema.RecordType
+            const bodylessSchema = avro.Type.forSchema({
                 ...schemaJson,
                 fields: schemaJson.fields.filter((field) => field.name !== 'body'),
             })
-            const record = {
+            const record: LogRecord = {
                 uuid: 'span-uuid',
                 trace_id: Buffer.from('0123456789abcdef'),
                 span_id: Buffer.from('01234567'),
@@ -429,7 +429,7 @@ describe('log-record-avro', () => {
                 event_name: null,
                 attributes: { 'http.method': 'GET' },
                 bytes_uncompressed: null,
-            } as unknown as LogRecord
+            }
 
             const inputBuffer = await encodeLogRecords(bodylessSchema, 'zstandard', [record])
             const { value: outputBuffer } = await processLogMessageBuffer(inputBuffer, { json_parse_logs: true })
