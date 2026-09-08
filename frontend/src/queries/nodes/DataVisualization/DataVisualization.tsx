@@ -168,8 +168,7 @@ export function DataTableVisualization({
 }
 
 // Reads `exportContext` here, not in the host component, so read-only and embedded surfaces leave
-// insightDataLogic unmounted. A host that goes away mid-render then cannot make the selector read an
-// insightLogic store branch that kea has already removed.
+// insightDataLogic unmounted. Its selector throws if it re-runs mid-unmount.
 function SqlExportButton({
     insightProps,
     disabledReason,

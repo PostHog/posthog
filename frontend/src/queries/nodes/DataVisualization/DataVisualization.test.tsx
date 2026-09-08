@@ -106,8 +106,6 @@ describe('DataTableVisualization', () => {
             })
 
             expect(!!container.querySelector('[data-attr="export-button"]')).toBe(!readOnly)
-            // A read-only surface must leave insightDataLogic, and the insightLogic it connects,
-            // unmounted — an unmount race there threw and took the chart down.
             const mounted = insightDataLogic.findMounted({
                 dashboardItemId: `new-AdHoc.DataVisualizationNode.${uniqueKey}`,
             })
