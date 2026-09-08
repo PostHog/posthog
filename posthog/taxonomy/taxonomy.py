@@ -3110,9 +3110,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Vendor client captured at session initialize and carried across every request in that session.",
             "examples": ["ClaudeCode", "ClaudeAI"],
         },
-        # Replay Vision properties, all on `$recording_observed`. `session_id` is deliberately absent:
-        # this group labels a property name everywhere it appears, and error tracking and signals
-        # already send their own `session_id`.
+        # Replay Vision properties, all on `$recording_observed`. This group labels a property name
+        # everywhere it appears, so only names Replay Vision owns belong here. `session_id`,
+        # `triggered_by`, `credits`, `model_used` and `provider_used` are deliberately absent:
+        # error tracking, experiments, LLM analytics and signals send their own, with different
+        # values. `scanner_*` is safe because Replay Vision's own LLM calls carry it too.
         "scanner_id": {
             "label": "Scanner ID (Replay Vision)",
             "description": "Scanner that produced the observation.",
@@ -3129,24 +3131,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "scanner_version": {
             "label": "Scanner version (Replay Vision)",
             "description": "Version of the scanner config that produced the observation. Editing a scanner bumps this, so breaking down by it separates results from before and after a prompt change.",
-            "type": "Numeric",
-        },
-        "triggered_by": {
-            "label": "Triggered by (Replay Vision)",
-            "description": "What started the scan: the scanner's own schedule, a person scanning on demand, a historical backfill, or a retry.",
-            "examples": ["schedule", "on_demand", "backfill", "retry"],
-        },
-        "model_used": {
-            "label": "Model used (Replay Vision)",
-            "description": "Gemini model that analyzed the recording. Sets the credit price of the observation.",
-        },
-        "provider_used": {
-            "label": "Provider used (Replay Vision)",
-            "description": "Provider that served the model call.",
-        },
-        "credits": {
-            "label": "Credits (Replay Vision)",
-            "description": "Credits charged for the observation, priced when the event was emitted. 1 credit is $0.01. Sum this to see spend by scanner, model, or trigger.",
             "type": "Numeric",
         },
         "emits_signals": {

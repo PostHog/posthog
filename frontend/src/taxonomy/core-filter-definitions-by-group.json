@@ -3586,11 +3586,6 @@
             ],
             "label": "App build"
         },
-        "credits": {
-            "description": "Credits charged for the observation, priced when the event was emitted. 1 credit is $0.01. Sum this to see spend by scanner, model, or trigger.",
-            "label": "Credits (Replay Vision)",
-            "type": "Numeric"
-        },
         "currency": {
             "description": "The currency code associated with the event.",
             "examples": [
@@ -3769,10 +3764,6 @@
             "label": "MCP server version (unprefixed, internal)",
             "type": "Numeric"
         },
-        "model_used": {
-            "description": "Gemini model that analyzed the recording. Sets the credit price of the observation.",
-            "label": "Model used (Replay Vision)"
-        },
         "msclkid": {
             "description": "Microsoft Click ID",
             "label": "msclkid"
@@ -3790,10 +3781,6 @@
                 "1.0.0"
             ],
             "label": "App previous version"
-        },
-        "provider_used": {
-            "description": "Provider that served the model call.",
-            "label": "Provider used (Replay Vision)"
         },
         "qclid": {
             "description": "Quora Click ID",
@@ -3867,16 +3854,6 @@
         "tool_name": {
             "description": "Older unprefixed variant of $mcp_tool_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_tool_name for new dashboards.",
             "label": "Tool name (unprefixed)"
-        },
-        "triggered_by": {
-            "description": "What started the scan: the scanner's own schedule, a person scanning on demand, a historical backfill, or a retry.",
-            "examples": [
-                "schedule",
-                "on_demand",
-                "backfill",
-                "retry"
-            ],
-            "label": "Triggered by (Replay Vision)"
         },
         "ttclid": {
             "description": "TikTok Click ID",
@@ -8710,11 +8687,6 @@
             ],
             "label": "App build"
         },
-        "credits": {
-            "description": "Credits charged for the observation, priced when the event was emitted. 1 credit is $0.01. Sum this to see spend by scanner, model, or trigger.",
-            "label": "Credits (Replay Vision)",
-            "type": "Numeric"
-        },
         "currency": {
             "description": "The currency code associated with the event.",
             "examples": [
@@ -8903,10 +8875,6 @@
             "label": "MCP server version (unprefixed, internal)",
             "type": "Numeric"
         },
-        "model_used": {
-            "description": "Gemini model that analyzed the recording. Sets the credit price of the observation.",
-            "label": "Model used (Replay Vision)"
-        },
         "msclkid": {
             "description": "Microsoft Click ID Data from the last time this user was seen.",
             "label": "Latest msclkid"
@@ -8924,10 +8892,6 @@
                 "1.0.0"
             ],
             "label": "App previous version"
-        },
-        "provider_used": {
-            "description": "Provider that served the model call.",
-            "label": "Provider used (Replay Vision)"
         },
         "qclid": {
             "description": "Quora Click ID Data from the last time this user was seen.",
@@ -9001,16 +8965,6 @@
         "tool_name": {
             "description": "Older unprefixed variant of $mcp_tool_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_tool_name for new dashboards.",
             "label": "Tool name (unprefixed)"
-        },
-        "triggered_by": {
-            "description": "What started the scan: the scanner's own schedule, a person scanning on demand, a historical backfill, or a retry.",
-            "examples": [
-                "schedule",
-                "on_demand",
-                "backfill",
-                "retry"
-            ],
-            "label": "Triggered by (Replay Vision)"
         },
         "ttclid": {
             "description": "TikTok Click ID Data from the last time this user was seen.",
