@@ -3255,6 +3255,10 @@ describe('dashboardLogic', () => {
 
             finishPreview(logic.values.tiles[0].insight!)
             await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.previewedDashboardSettings?.variables).toEqual({})
+            expect(logic.values.currentDashboardSettings.variables[variableId]).toEqual(
+                expect.objectContaining({ value: 'newer value' })
+            )
             getInsightWithRetrySpy.mockRestore()
             payloadSpy.mockRestore()
         })

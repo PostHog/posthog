@@ -4254,6 +4254,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         refreshDashboardItems: async ({ action, forceRefresh, previewUnsavedFilters }, breakpoint) => {
             const dashboardRefreshStartTime = performance.now()
+            const settingsToRefresh = previewUnsavedFilters
+                ? values.currentDashboardSettings
+                : values.settingsForRefresh
             const isInitialLoad =
                 action === DashboardLoadAction.InitialLoad || action === DashboardLoadAction.InitialLoadWithVariables
             const isInitialLoadOrUpdate = isInitialLoad || action === DashboardLoadAction.Update
@@ -4304,9 +4307,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // Cache values used during and after the long-running fetch, since the logic
                 // may be unmounted by the time the awaits complete (kea's no-arg breakpoint()
                 // only cancels on newer invocations, not on unmount).
-                const { currentTeamId, effectiveRefreshFilters, urlFilters, dashboardLoadData, lastDashboardRefresh } =
-                    values
-                const urlVariables = values.settingsForRefresh.variables
+                const { currentTeamId, externalFilters, urlFilters, dashboardLoadData, lastDashboardRefresh } = values
+                const effectiveRefreshFilters = combineDashboardFilters(externalFilters, settingsToRefresh.filters)
+                const urlVariables = settingsToRefresh.variables
 
                 const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
                     const insight = tile.insight
@@ -4418,7 +4421,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 if (previewUnsavedFilters && (tilesErroredCount > 0 || tilesAbortedCount > 0)) {
                     actions.previewDashboardChangesFailure()
                 } else if (previewUnsavedFilters) {
-                    actions.setPreviewedDashboardSettings(values.currentDashboardSettings)
+                    actions.setPreviewedDashboardSettings(settingsToRefresh)
                 }
             }
 
@@ -4579,6 +4582,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.saveDashboardChangesSuccess(getQueryBasedDashboard(dashboard), settings)
                 actions.clearDashboardSettingsUrlOverrides()
                 actions.clearInitialDashboardSettingsOverride()
+                if (!values.previewedDashboardSettings) {
+                    actions.refreshDashboardItems({
+                        action: RefreshDashboardItemsAction.Preview,
+                        forceRefresh: false,
+                    })
+                }
                 lemonToast.success('Dashboard changes saved')
             } catch (error) {
                 actions.saveDashboardChangesFailure(String(error))
@@ -4983,6 +4992,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.refreshDashboardItems({
                     action: RefreshDashboardItemsAction.Preview,
                     forceRefresh: false,
+                    previewUnsavedFilters: true,
                 })
             }
         },
@@ -5023,6 +5033,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.refreshDashboardItems({
                     action: RefreshDashboardItemsAction.Preview,
                     forceRefresh: false,
+                    previewUnsavedFilters: true,
                 })
             }
             if (values.dashboardSettingsState === 'unsavedChanges' && values.dashboardMode !== DashboardMode.Edit) {
