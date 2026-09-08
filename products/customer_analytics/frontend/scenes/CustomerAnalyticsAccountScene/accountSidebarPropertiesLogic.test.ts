@@ -164,6 +164,43 @@ describe('accountSidebarPropertiesLogic', () => {
         expect(accountDataRequest).not.toHaveBeenCalled()
     })
 
+    it('blocks the panel only until properties load, then keeps them through a failed refresh', async () => {
+        silenceKeaLoadersErrors()
+        let accountDataFails = true
+        const accountData = <T>(rows: () => T): (() => T | [number, { detail: string }]) => {
+            return () => (accountDataFails ? [500, { detail: 'Account data unavailable' }] : rows())
+        }
+        useMocks({
+            get: {
+                [VALUES_URL]: accountData(() => [{ id: 'value-1', definition_id: definition.id, value: storedValue }]),
+                [RELATIONSHIPS_URL]: accountData(() => assignments),
+            },
+        })
+        logic = accountSidebarPropertiesLogic({ projectId: 1, accountId: 'account-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({
+            propertiesPanelState: 'failed',
+            propertiesRefreshFailed: false,
+            sidebarProperties: [],
+        })
+
+        accountDataFails = false
+        await expectLogic(logic, () => logic.actions.loadPropertyData())
+            .toFinishAllListeners()
+            .toMatchValues({ propertiesPanelState: 'ready', propertiesRefreshFailed: false })
+
+        accountDataFails = true
+        logic.actions.editProperty(logic.values.sidebarProperties[1])
+        await expectLogic(logic, () => logic.actions.loadPropertyData())
+            .toFinishAllListeners()
+            .toMatchValues({
+                propertiesPanelState: 'ready',
+                propertiesRefreshFailed: true,
+                editingPropertyKey: 'custom:property-1',
+            })
+        expect(logic.values.sidebarProperties[1]).toMatchObject({ value: 'Starter' })
+    })
+
     it('refreshes from relationship-tab changes without mounting that tab for the sidebar', async () => {
         logic = accountSidebarPropertiesLogic({ projectId: MOCK_DEFAULT_TEAM.id, accountId: 'account-1' })
         logic.mount()
