@@ -282,8 +282,8 @@ class TestMetricCheckAPI(APIBaseTest):
     def test_overview_subject_picker_lists_only_live_hogql_metrics(self) -> None:
         Metric.objects.for_team(self.team.id).create(
             team=self.team,
-            name="revenue_trend",
-            definition={"kind": "TrendsQuery", "series": []},
+            name="metric_without_definition",
+            definition=None,
             referenced_table_names=[],
         )
         deleted = Metric.objects.for_team(self.team.id).create(
