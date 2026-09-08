@@ -152,7 +152,7 @@ class ScannerCreationMethod(models.TextChoices):
     SCRATCH = "scratch", "From scratch"
 
 
-def _reported_creation_method(request: Request | None, claimed: str | None) -> str | None:
+def _reported_creation_method(context: dict[str, Any], claimed: str | None) -> str | None:
     """What `creation_method` says on the created event.
 
     The field answers how a person filled the creation form, so only a request from the app can
@@ -163,10 +163,15 @@ def _reported_creation_method(request: Request | None, claimed: str | None) -> s
 
     Worth the override rather than only filling in a missing value: the wizard creates several times
     more scanners than the app does, and it already sends a method on some of its calls.
+
+    Max reaches the serializer directly with no HTTP request, so it declares its surface in the
+    context the same way it passes `user`. Without that it would fall through as unattributed, which
+    is the one gap a request-derived source cannot close.
     """
-    if request is None:
+    request = context.get("request")
+    source = get_event_source(request) if request is not None else context.get("event_source")
+    if source is None:
         return claimed
-    source = get_event_source(request)
     return claimed if source == EventSource.WEB else source.value
 
 
@@ -793,7 +798,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             {
                 **_scanner_lifecycle_properties(scanner),
                 "creation_flow_variant": _goal_flow_variant(user, team),
-                "creation_method": _reported_creation_method(self.context.get("request"), creation_method),
+                "creation_method": _reported_creation_method(self.context, creation_method),
             },
             team=team,
             request=self.context.get("request"),
