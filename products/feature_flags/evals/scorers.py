@@ -28,6 +28,7 @@ __all__ = [
     "GENERIC_UPDATE_TOOL",
     "REFUSED_WITHOUT_BLAMING_QUESTION",
     "STALE_IS_NOT_SAFE_TO_REMOVE_QUESTION",
+    "AttemptedTool",
     "AvoidedTool",
     "CalledExpectedTool",
     "CreatedFlagWithTags",
@@ -159,6 +160,34 @@ class AvoidedTool(Scorer):
         if called:
             return Score(name=self._name(), score=0.0, metadata={"called": called})
         return Score(name=self._name(), score=1.0, metadata={"forbidden": sorted(tools)})
+
+
+class AttemptedTool(Scorer):
+    """Binary: did the agent try one of ``expected.tools`` on the seeded flag?
+
+    The mirror of the check above, for the case whose answer is a refusal. Every other
+    row on that case passes by inaction: no forbidden call succeeded, and a message can
+    report a refusal the agent never met. Attempts that were refused are the point here,
+    so an error counts; whether one landed is the other row's question.
+    """
+
+    def _name(self) -> str:
+        return "attempted_tool"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = _spec(expected, self._name())
+        tools = _tools(spec) if spec else []
+        if not tools:
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()}.tools on case"})
+        parser = _parser(output)
+        if not parser:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        seed = _seed(output)
+        attempted = sorted({tool for tool in tools if _on_seeded_flag(parser.get_tool_calls(tool), seed)})
+        if attempted:
+            return Score(name=self._name(), score=1.0, metadata={"attempted": attempted})
+        return Score(name=self._name(), score=0.0, metadata={"expected_an_attempt_at_any_of": sorted(tools)})
 
 
 class GenericUpdateOmitsFields(Scorer):

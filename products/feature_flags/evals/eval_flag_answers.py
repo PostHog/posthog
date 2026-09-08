@@ -6,7 +6,8 @@ successful write, and the value of the turn is what the agent says instead:
 * ``stale_flag_is_not_safe_to_remove`` — the flag has not been evaluated in months, and
   another active flag depends on it. Staleness is one signal, not a clearance.
 * ``read_only_mcp_refuses_write`` — the organization caps MCP access to read-only, so
-  the write is refused. The user must learn that from the reply, and nothing must change.
+  the write is refused. The user must learn that from the reply, nothing must change,
+  and the refusal has to be one the agent met rather than assumed.
 * ``required_tags_create_recovers`` — the project requires a tag on every new flag, a
   policy the user did not mention and the agent cannot see until the create is rejected.
 
@@ -23,6 +24,7 @@ from products.feature_flags.evals.scorers import (
     EXPLAINED_TAG_REQUIREMENT_QUESTION,
     REFUSED_WITHOUT_BLAMING_QUESTION,
     STALE_IS_NOT_SAFE_TO_REMOVE_QUESTION,
+    AttemptedTool,
     AvoidedTool,
     CalledExpectedTool,
     CreatedFlagWithTags,
@@ -78,6 +80,10 @@ async def eval_flag_answers(ctx: EvalContext) -> None:
             prompt=f"Turn the {READ_ONLY_FLAG_KEY} flag off.",
             setup=seed_read_only_mcp_org,
             expected={
+                # The cap is enforced at the API, so the write tools are still offered and
+                # the refusal arrives as a 403. An agent that never sent one is reporting a
+                # restriction it assumed, which reads the same in the final message.
+                "attempted_tool": {"tools": _FLAG_WRITE_TOOLS},
                 "avoided_tool": {"tools": _FLAG_WRITE_TOOLS},
                 "refused_without_blaming": {"required": True},
             },
@@ -101,6 +107,7 @@ async def eval_flag_answers(ctx: EvalContext) -> None:
         cases=cases,
         scorers=[
             CalledExpectedTool(),
+            AttemptedTool(),
             AvoidedTool(),
             CreatedFlagWithTags(),
             FinalMessageJudge(name="stale_is_not_safe_to_remove", question=STALE_IS_NOT_SAFE_TO_REMOVE_QUESTION),

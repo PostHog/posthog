@@ -6,6 +6,7 @@ from typing import Any
 from parameterized import parameterized
 
 from products.feature_flags.evals.scorers import (
+    AttemptedTool,
     AvoidedTool,
     CalledExpectedTool,
     CreatedFlagWithTags,
@@ -146,6 +147,7 @@ def _group_level_variant_override() -> dict[str, Any]:
 @parameterized.expand(
     [
         (CalledExpectedTool(), "called_expected_tool"),
+        (AttemptedTool(), "attempted_tool"),
         (AvoidedTool(), "avoided_tool"),
         (GenericUpdateOmitsFields(), "generic_update_omits_fields"),
         (GenericUpdateSetsFields(), "generic_update_sets_fields"),
@@ -175,6 +177,27 @@ def test_avoided_tool(_name: str, calls: list[tuple[str, dict[str, Any], str]], 
     score = AvoidedTool()._run_eval_sync(
         {"raw_log": _tool_log(calls)},
         {"avoided_tool": {"tools": ["feature-flag-disable", UPDATE_TOOL]}},
+    )
+
+    assert score.score == expected_score
+
+
+# The refusal case turns the rule above around. Its other rows all pass on a run that made
+# no calls at all, so a message claiming "I do not have permission" scores full marks
+# without the agent ever meeting the restriction. A refused attempt is the evidence.
+@parameterized.expand(
+    [
+        ("attempted_and_was_refused", [("feature-flag-disable", {"id": SEEDED_FLAG_ID}, "failed")], 1.0),
+        # Whether the write landed is the avoided-tool row's question, not this one's.
+        ("attempt_landed", [("feature-flag-disable", {"id": SEEDED_FLAG_ID}, "completed")], 1.0),
+        ("read_the_flag_and_stopped", [(BY_KEY_TOOL, {"key": SEEDED_FLAG_KEY}, "completed")], 0.0),
+        ("tried_on_another_flag", [("feature-flag-disable", {"id": 4242}, "failed")], 0.0),
+    ]
+)
+def test_attempted_tool(_name: str, calls: list[tuple[str, dict[str, Any], str]], expected_score: float) -> None:
+    score = AttemptedTool()._run_eval_sync(
+        {"raw_log": _tool_log(calls), "seed": FLAG_SEED},
+        {"attempted_tool": {"tools": ["feature-flag-disable", UPDATE_TOOL]}},
     )
 
     assert score.score == expected_score
