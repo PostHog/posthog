@@ -13891,6 +13891,7 @@ dependencies = [
  "health",
  "metrics",
  "metrics-exporter-prometheus",
+ "metrics-util",
  "moka",
  "rdkafka",
  "redis",
