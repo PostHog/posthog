@@ -3870,6 +3870,7 @@ export interface WebBotsTableQuery extends WebAnalyticsQueryBase<WebBotsTableQue
     kind: NodeKind.WebBotsTableQuery
     breakdownBy: WebBotsBreakdown
     limit?: integer
+    useWebAnalyticsPrecompute?: boolean
 }
 export interface WebBotsTableQueryResponse extends AnalyticsQueryResponseBase {
     results: unknown[]

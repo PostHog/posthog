@@ -145,6 +145,7 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebPreAggregatedBouncesTable,
     WebPreAggregatedStatsTable,
 )
+from posthog.hogql.database.schema.web_bots_preaggregated import WebBotsPreaggregatedTable
 from posthog.hogql.database.schema.web_goals_preaggregated import WebGoalsPreaggregatedTable
 from posthog.hogql.database.schema.web_overview_preaggregated import WebOverviewPreaggregatedTable
 from posthog.hogql.database.schema.web_stats_frustration_preaggregated import WebStatsFrustrationPreaggregatedTable
@@ -513,6 +514,9 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     ),
                     "web_stats_frustration_preaggregated": TableNode(
                         name="web_stats_frustration_preaggregated", table=WebStatsFrustrationPreaggregatedTable()
+                    ),
+                    "web_bots_preaggregated": TableNode(
+                        name="web_bots_preaggregated", table=WebBotsPreaggregatedTable()
                     ),
                     "web_goals_preaggregated": TableNode(
                         name="web_goals_preaggregated", table=WebGoalsPreaggregatedTable()

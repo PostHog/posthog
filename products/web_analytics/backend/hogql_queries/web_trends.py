@@ -2,6 +2,9 @@ from posthog.schema import QueryTiming, ResolvedDateRangeResponse, TrendsQueryRe
 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 
+from products.web_analytics.backend.hogql_queries.web_bots_trends_lazy_precompute import (
+    execute_lazy_precomputed_bots_trends,
+)
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_precompute_enabled_for_team
 from products.web_analytics.backend.hogql_queries.web_trends_lazy_precompute import (
     execute_lazy_precomputed_trends,
@@ -32,14 +35,21 @@ class WebTrendsQueryRunner(TrendsQueryRunner):
         return payload
 
     def _calculate(self) -> TrendsQueryResponse:
-        results = execute_lazy_precomputed_trends(self)
-        if results is None:
-            return super()._calculate()
+        # The bot trend chart breaks down by crawler, category, host or path, which the
+        # overview buckets carry none of — it reads the bot buckets instead.
+        bots = execute_lazy_precomputed_bots_trends(self)
+        if bots is not None:
+            results, has_more = bots
+        else:
+            overview = execute_lazy_precomputed_trends(self)
+            if overview is None:
+                return super()._calculate()
+            results, has_more = overview, False
 
         timings: list[QueryTiming] = self.timings.to_list()
         return TrendsQueryResponse(
             results=results,
-            hasMore=False,
+            hasMore=has_more,
             timings=timings,
             modifiers=self.modifiers,
             resolved_date_range=ResolvedDateRangeResponse(
