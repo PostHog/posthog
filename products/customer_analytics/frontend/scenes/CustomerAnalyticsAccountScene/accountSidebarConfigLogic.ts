@@ -1,6 +1,8 @@
 import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
+import { AccountsEvents } from 'products/customer_analytics/frontend/components/Accounts/constants'
 import * as api from 'products/customer_analytics/frontend/generated/api'
 import type {
     AccountRelationshipDefinitionApi,
@@ -402,6 +404,12 @@ export const accountSidebarConfigLogic = kea<accountSidebarConfigLogicType>([
         },
         persistPinnedPropertiesSuccess: ({ config }) => {
             actions.setDraftPinnedProperties([...config.pinned_properties])
+            const customPropertyCount = config.pinned_properties.filter(({ kind }) => kind === 'custom_property').length
+            posthog.capture(AccountsEvents.PinnedPropertiesSaved, {
+                pinned_count: config.pinned_properties.length,
+                custom_property_count: customPropertyCount,
+                relationship_count: config.pinned_properties.length - customPropertyCount,
+            })
         },
     })),
     afterMount(({ actions, props }) => {
