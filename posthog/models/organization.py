@@ -426,7 +426,9 @@ class Organization(ModelActivityMixin, UUIDTModel):
             raise ValueError(f"Organization {self.id} has a name that gives an empty slug")
         if slug_matches_base(self.slug, base_slug):
             return False
-        self._save_with_regenerated_slug(base_slug, update_fields=["slug"])
+        # `auto_now` skips a field left out of `update_fields`, and `updated_at` is the incremental
+        # watermark for the ClickHouse mirror, which would otherwise never read the repaired slug.
+        self._save_with_regenerated_slug(base_slug, update_fields=["slug", "updated_at"])
         return True
 
     def _save_with_regenerated_slug(self, base_slug: str, *args: Any, **kwargs: Any) -> None:

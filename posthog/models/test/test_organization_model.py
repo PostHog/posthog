@@ -110,11 +110,16 @@ class TestOrganization(BaseTest):
         organization = Organization.objects.create(name="Old Inc")
         Organization.objects.filter(pk=organization.pk).update(name="New Inc", slug=current_slug)
         organization.refresh_from_db()
+        previous_updated_at = organization.updated_at
 
         self.assertEqual(organization.repair_slug(), expected_change)
 
         organization.refresh_from_db()
         self.assertEqual(organization.slug, expected_slug)
+        if expected_change:
+            self.assertGreater(organization.updated_at, previous_updated_at)
+        else:
+            self.assertEqual(organization.updated_at, previous_updated_at)
 
     def test_repair_slug_appends_suffix_when_target_slug_is_taken(self):
         Organization.objects.create(name="New Inc")
