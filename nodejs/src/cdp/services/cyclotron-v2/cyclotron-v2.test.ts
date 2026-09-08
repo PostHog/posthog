@@ -99,6 +99,7 @@ interface RawJobRow {
     person_id: string | null
     action_id: string | null
     cancel_requested_at: string | Date | null
+    pending_step_resumes: Record<string, unknown> | null
 }
 
 async function queryJob(id: string): Promise<RawJobRow> {
@@ -193,6 +194,105 @@ describe('Cyclotron V2', () => {
         const jobs = await dequeueOneBatch(worker)
         return { id, job: jobs[0] }
     }
+
+    describe('pending workflow step resumes', () => {
+        const stateFor = (key?: string): Buffer =>
+            Buffer.from(
+                JSON.stringify({
+                    state: {
+                        actionStepCount: 3,
+                        currentAction: {
+                            id: 'task',
+                            ...(key
+                                ? {
+                                      awaitingResume: {
+                                          key,
+                                          deadlineAt: '2099-01-01T00:00:00Z',
+                                          dispatch: { id: 't1' },
+                                      },
+                                  }
+                                : {}),
+                        },
+                    },
+                })
+            )
+
+        const deliver = async (id: string, key: string): Promise<void> => {
+            await assertPool.query(
+                `UPDATE cyclotron_jobs SET pending_step_resumes = $2::jsonb || COALESCE(pending_step_resumes, '{}'::jsonb) WHERE id = $1`,
+                [id, JSON.stringify({ [key]: { key, status: 'completed', result: { final_message: 'done' } } })]
+            )
+        }
+
+        it.each(['before_dequeue', 'running', 'after_park', 'retry'])(
+            'delivers a result received %s without polling',
+            async (arrival) => {
+                const id = await manager.createJob({ teamId: 1, queueName: QUEUE, state: stateFor() })
+                const key = `${id}:task:3`
+                if (arrival === 'before_dequeue') {
+                    await deliver(id, key)
+                }
+                const worker = createWorker()
+                try {
+                    let [job] = await dequeueOneBatch(worker)
+                    if (arrival === 'running' || arrival === 'retry') {
+                        await deliver(id, key)
+                        expect(
+                            parseJSON((await queryJob(id)).state!.toString()).state.currentAction.resumeResult
+                        ).toBeUndefined()
+                    }
+                    if (arrival === 'retry') {
+                        await job.reschedule({ state: stateFor() })
+                        expect((await queryJob(id)).pending_step_resumes).not.toBeNull()
+                        const retryWorker = createWorker()
+                        try {
+                            ;[job] = await dequeueOneBatch(retryWorker)
+                            await job.reschedule({ state: stateFor(key), scheduledAt: new Date('2099-01-01') })
+                        } finally {
+                            await retryWorker.disconnect()
+                        }
+                    } else {
+                        await job.reschedule({ state: stateFor(key), scheduledAt: new Date('2099-01-01') })
+                    }
+                    if (arrival === 'after_park') {
+                        await deliver(id, key)
+                    }
+
+                    const saved = await queryJob(id)
+                    expect(saved.pending_step_resumes).toBeNull()
+                    expect(await jobIsDue(id)).toBe(true)
+                    expect(parseJSON(saved.state!.toString()).state.currentAction.resumeResult).toEqual({
+                        key,
+                        status: 'completed',
+                        result: { final_message: 'done' },
+                    })
+                } finally {
+                    await worker.disconnect()
+                }
+            }
+        )
+
+        it('keeps an old execution result separate from the rerun', async () => {
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+            const key = `${id}:task:3`
+            const rerunKey = `${key}.r1`
+            await assertPool.query('UPDATE cyclotron_jobs SET state = $2, scheduled = $3 WHERE id = $1', [
+                id,
+                stateFor(rerunKey),
+                new Date('2099-01-01'),
+            ])
+
+            await deliver(id, key)
+            expect(await jobIsDue(id)).toBe(false)
+            expect(parseJSON((await queryJob(id)).state!.toString()).state.currentAction.resumeResult).toBeUndefined()
+
+            await deliver(id, rerunKey)
+            expect(await jobIsDue(id)).toBe(true)
+            expect(parseJSON((await queryJob(id)).state!.toString()).state.currentAction.resumeResult.key).toBe(
+                rerunKey
+            )
+        })
+    })
 
     // ── Manager ──────────────────────────────────────────────────────
 

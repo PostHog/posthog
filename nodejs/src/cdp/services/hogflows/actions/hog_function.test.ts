@@ -9,6 +9,7 @@ import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
+import { workflowStepDispatchKeyFromInvocation } from '~/cdp/utils/workflow-step-dispatch-key'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
@@ -701,6 +702,36 @@ describe('HogFunctionHandler', () => {
             buildTaskFlow()
         })
 
+        it.each([
+            { rerunAttempts: 0, legacyDispatch: false },
+            { rerunAttempts: 1, legacyDispatch: false },
+            { rerunAttempts: 2, legacyDispatch: false },
+            { rerunAttempts: 1, legacyDispatch: true },
+        ])('uses the dispatch key when parking: %j', async ({ rerunAttempts, legacyDispatch }) => {
+            invocation.state.rerunAttempts = rerunAttempts
+            const originalBuild =
+                mockHogFlowFunctionsService.buildHogFunctionInvocation.bind(mockHogFlowFunctionsService)
+            const buildSpy = jest.spyOn(mockHogFlowFunctionsService, 'buildHogFunctionInvocation')
+            if (legacyDispatch) {
+                buildSpy.mockImplementationOnce(async (...args) => {
+                    const child = await originalBuild(...args)
+                    delete child.state.rerunAttempts
+                    invocation.state.currentAction!.hogFunctionState = child.state
+                    return originalBuild(...args)
+                })
+            }
+            const { invocationResult } = await execute()
+            const child = await buildSpy.mock.results[0].value
+
+            expect(child.state.rerunAttempts).toBe(legacyDispatch ? undefined : rerunAttempts)
+            expect(workflowStepDispatchKeyFromInvocation(child)).toBe(
+                invocationResult.invocation.state.currentAction?.awaitingResume?.key
+            )
+            expect(invocationResult.invocation.state.currentAction?.awaitingResume?.key).toBe(
+                `${dispatchKey}${rerunAttempts && !legacyDispatch ? `.r${rerunAttempts}` : ''}`
+            )
+        })
+
         it('parks after the dispatch until the task finishes', async () => {
             const before = DateTime.now()
             const { handlerResult, invocationResult } = await execute()
@@ -783,6 +814,33 @@ describe('HogFunctionHandler', () => {
                     dispatch: { id: 't1', run_id: 'r1' },
                     label: 'task',
                 }
+            })
+
+            it.each([true, false])('resumes without dispatch when the flag is %s', async (awaitedStepsEnabled) => {
+                delete invocation.state.currentAction!.awaitingResume
+                const { invocationResult: parked } = await execute()
+                expect(executeSpy).toHaveBeenCalledTimes(1)
+                executeSpy.mockClear()
+                invocation = parked.invocation
+                invocation.state.currentAction!.resumeResult = {
+                    key: dispatchKey,
+                    status: 'completed',
+                    result: { final_message: 'done' },
+                }
+                const handler = new HogFunctionHandler(
+                    mockHogFlowFunctionsService,
+                    mockRecipientPreferencesService,
+                    mockEmailValidationService,
+                    'fetch',
+                    undefined,
+                    { awaitedStepsEnabled }
+                )
+
+                const { handlerResult } = await execute(handler)
+
+                expect(executeSpy).not.toHaveBeenCalled()
+                expect(handlerResult.nextAction?.id).toBe('exit')
+                expect(handlerResult.result).toMatchObject({ status: 'completed', final_message: 'done' })
             })
 
             it('advances with the dispatch and the run result merged, without re-running the step', async () => {

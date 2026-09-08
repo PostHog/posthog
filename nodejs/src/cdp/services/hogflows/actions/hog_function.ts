@@ -2,7 +2,10 @@ import { DateTime, Duration } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { HogFlowAction } from '~/cdp/schema/hogflow'
-import { buildWorkflowStepDispatchKey } from '~/cdp/utils/workflow-step-dispatch-key'
+import {
+    buildWorkflowStepDispatchKey,
+    workflowStepDispatchKeyFromInvocation,
+} from '~/cdp/utils/workflow-step-dispatch-key'
 import { capWorkflowStepResult } from '~/cdp/utils/workflow-step-result'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
@@ -79,7 +82,7 @@ export class HogFunctionHandler implements ActionHandler {
         const awaitedStepsEnabled = this.options.awaitedStepsEnabled ?? false
         const awaiting = invocation.state.currentAction?.awaitingResume
         // Resume before anything else: the dispatch already ran and was billed.
-        if (awaitedStepsEnabled && awaiting) {
+        if (awaiting) {
             return this.resumeAwaitedStep(invocation, action, result, awaiting)
         }
 
@@ -163,7 +166,14 @@ export class HogFunctionHandler implements ActionHandler {
         const awaitRequest =
             awaitedStepsEnabled && !functionResult.error ? parseAwaitRequest(functionResult.execResult) : null
         if (awaitRequest) {
-            return this.parkForAwaitedRun(invocation, action, result, awaitRequest, functionResult.execResult)
+            return this.parkForAwaitedRun(
+                invocation,
+                action,
+                result,
+                awaitRequest,
+                functionResult.execResult,
+                workflowStepDispatchKeyFromInvocation(functionResult.invocation)
+            )
         }
 
         return {
@@ -178,10 +188,18 @@ export class HogFunctionHandler implements ActionHandler {
         action: Action,
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
         awaitRequest: AwaitRequest,
-        execResult: unknown
+        execResult: unknown,
+        dispatchKey: string | null
     ): ActionHandlerResult {
         const { await: _await, ...dispatch } = execResult as Record<string, unknown>
-        const key = buildWorkflowStepDispatchKey(invocation.id, action.id, invocation.state.actionStepCount)
+        const key =
+            dispatchKey ??
+            buildWorkflowStepDispatchKey(
+                invocation.id,
+                action.id,
+                invocation.state.actionStepCount,
+                invocation.state.rerunAttempts
+            )
         const deadline = DateTime.now().plus(awaitRequest.maxWait)
         result.invocation.state.currentAction!.awaitingResume = {
             key,

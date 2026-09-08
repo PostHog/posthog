@@ -120,6 +120,7 @@ export class HogFlowFunctionsService {
                 attempts: 0,
                 actionId: invocation.state.currentAction?.id,
                 actionStepCount: invocation.state.actionStepCount,
+                rerunAttempts: invocation.state.rerunAttempts,
             },
         }
 
