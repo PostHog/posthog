@@ -1,11 +1,11 @@
 {
   "source_repository": "https://github.com/PostHog/posthog-sdk-test-harness",
   "source_path": "contracts/feature_flag_rules_v2",
-  "source_revision": "87b8bd116ac5442c077145d7ed153cca536dadb2",
+  "source_revision": "95401356a9a72e9b92389831288bc3fc222a3752",
   "source_status": "provisional: vendored from the head of draft pull requests #51 and #52 before they merged; re-vendor from the merged revision and refresh every digest here before treating this gate as final",
   "contract_version": "1.1.0",
   "corpus_version": "1.0.0",
-  "source_sha256sums_digest": "21ac52d930e4231b1bbbd373fad72d18c861f853e373899da439181fe0b3d212",
+  "source_sha256sums_digest": "66296dc4f8875dc43547951d8f9ca405c0342012007ba62c3a1970ff1043180e",
   "files": {
     "manifest.json": "480a6944eaf4415c65ed4ed07842cd15615948fe35a5f12bd5f58532b6a4d9b0",
     "corpus/hash_sha1_60_v1.json": "41b2a0645f0aa1fb6197caa29cae31e577d52199b41512cea3241d70e1fe07ba",
