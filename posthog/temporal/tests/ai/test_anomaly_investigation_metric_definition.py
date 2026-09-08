@@ -204,6 +204,18 @@ def test_insight_description_reaches_the_definition_block() -> None:
     assert "not from the spend view" in described
 
 
+# The ensemble the detector selector writes by default. Every setting the agent needs sits on a
+# sub-detector, and both members difference the series.
+DEFAULT_ENSEMBLE = {
+    "type": "ensemble",
+    "operator": "and",
+    "detectors": [
+        {"type": "zscore", "threshold": 0.99, "window": 168, "preprocessing": {"diffs_n": 1, "lags_n": 3}},
+        {"type": "mad", "threshold": 0.99, "window": 168, "preprocessing": {"diffs_n": 1}},
+    ],
+}
+
+
 @parameterized.expand(
     [
         # Differencing is the setting that made the agent call a working alert mis-tuned.
@@ -215,10 +227,26 @@ def test_insight_description_reaches_the_definition_block() -> None:
         ("says_when_untransformed", {"type": "zscore"}, "scores the metric's own level"),
         ("names_smoothing", {"type": "mad", "preprocessing": {"smooth_n": 3}}, "averaged over 3 buckets"),
         ("survives_no_config", None, "Detector: threshold"),
+        # An ensemble carries its settings a level down, so a top-level read finds none of them.
+        ("reaches_ensemble_preprocessing", DEFAULT_ENSEMBLE, "change from the previous bucket"),
+        ("reaches_ensemble_window", DEFAULT_ENSEMBLE, "168 buckets"),
+        # Which members had to agree decides whether one member firing was enough to alert.
+        ("names_ensemble_operator", DEFAULT_ENSEMBLE, "every sub-detector flags it"),
+        # A threshold alert is defined by its bounds, which no other field carries.
+        ("renders_the_lower_bound", {"type": "threshold", "lower_bound": 2.5}, "below 2.5"),
+        ("renders_the_upper_bound", {"type": "threshold", "upper_bound": 9.0}, "above 9.0"),
     ]
 )
 def test_detector_block_names_what_is_scored(_name: str, config: dict | None, expected: str) -> None:
     assert expected in describe_detector(config)
+
+
+def test_ensemble_is_never_reported_as_untransformed() -> None:
+    described = describe_detector(DEFAULT_ENSEMBLE)
+
+    assert "scores the metric's own level" not in described
+    assert "Sub-detector: zscore" in described
+    assert "Sub-detector: mad" in described
 
 
 def test_null_preprocessing_values_read_as_switched_off() -> None:

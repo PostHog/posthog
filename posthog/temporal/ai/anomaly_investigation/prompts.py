@@ -169,7 +169,29 @@ def describe_detector(detector_config: dict | None) -> str:
     defect, and offers mis-tuning as a candidate bug on a correctly configured alert.
     """
     config = detector_config or {}
-    lines = [f"Detector: {config.get('type') or 'threshold'}"]
+    detector_type = config.get("type") or "threshold"
+
+    if detector_type != "ensemble":
+        return "\n".join([f"Detector: {detector_type}", *_describe_detector_settings(config)])
+
+    # An ensemble holds the window, the threshold and the preprocessing on each sub-detector, so
+    # the top level carries none of them. A read of the top level alone reports every ensemble as
+    # untransformed, including the default one, whose members both score the first difference.
+    sub_detectors = config.get("detectors") or []
+    operator = str(config.get("operator") or "unknown").lower()
+    lines = [f"Detector: ensemble of {len(sub_detectors)} sub-detectors, combined with {operator.upper()}"]
+    if operator == "and":
+        lines.append("- A bucket is anomalous only when every sub-detector flags it.")
+    elif operator == "or":
+        lines.append("- A bucket is anomalous when any sub-detector flags it.")
+    for sub_detector in sub_detectors:
+        lines.append(f"- Sub-detector: {sub_detector.get('type') or 'unknown'}")
+        lines.extend(f"  {line}" for line in _describe_detector_settings(sub_detector))
+    return "\n".join(lines)
+
+
+def _describe_detector_settings(config: dict) -> list[str]:
+    lines: list[str] = []
 
     window = config.get("window")
     if window is not None:
@@ -177,11 +199,17 @@ def describe_detector(detector_config: dict | None) -> str:
     threshold = config.get("threshold")
     if threshold is not None:
         lines.append(f"- Anomaly threshold: {threshold}")
+    lower_bound = config.get("lower_bound")
+    if lower_bound is not None:
+        lines.append(f"- Lower bound: a value below {lower_bound} is an anomaly")
+    upper_bound = config.get("upper_bound")
+    if upper_bound is not None:
+        lines.append(f"- Upper bound: a value above {upper_bound} is an anomaly")
 
     preprocessing = {key: value for key, value in (config.get("preprocessing") or {}).items() if value}
     if not preprocessing:
         lines.append("- Preprocessing: none. The detector scores the metric's own level.")
-        return "\n".join(lines)
+        return lines
 
     lines.append(f"- Preprocessing: {', '.join(f'{key}={value}' for key, value in sorted(preprocessing.items()))}")
     if preprocessing.get("smooth_n"):
@@ -194,7 +222,7 @@ def describe_detector(detector_config: dict | None) -> str:
         )
     if preprocessing.get("lags_n"):
         lines.append(f"- The detector also sees {preprocessing['lags_n']} lagged copies of the series.")
-    return "\n".join(lines)
+    return lines
 
 
 def build_anomaly_context(
