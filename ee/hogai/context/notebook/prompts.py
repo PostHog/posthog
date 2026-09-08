@@ -10,8 +10,18 @@ LEGACY_CELL_GUIDANCE = """- Component tags such as `<Query … />` render a `tit
 - Do not add `<SQLV2 />` or `<PythonV2 />` cells. This project cannot run them, so their Run button always fails. Write new SQL as a `<Query />` cell instead"""
 
 
-def cell_guidance_prompt(*, sql_v2_enabled: bool) -> str:
-    return SQL_V2_CELL_GUIDANCE if sql_v2_enabled else LEGACY_CELL_GUIDANCE
+WIDGET_CELL_GUIDANCE = """- Generated widgets are available. When the user asks to add a widget or custom interactive visualization, insert `<Widget title="Interactive visualization" prompt="Describe the requested visualization here" />` as notebook markdown, outside a code fence
+- Put the user's requirements in `prompt`. Use the `Widget` tag, not `GenUI` or `GeneratedWidget`. Do not write the generated source or invent artifact IDs
+- Return the Widget tag directly to insert it, without backticks. If the user explicitly asks to see the tag's syntax instead of inserting a widget, use a code fence with the `text` language
+- Widgets infer their inputs from the notebook's SQL and Python dataframe cells. Do not add an `inputs` prop. Add data cells only when needed and when the cell guidance above allows them; widgets can also work without dataframes
+- Inserting a Widget block does not generate it. Tell the user to click Generate widget in its settings. All notebook dataframes must have completed runs before generation. Do not claim the widget has been generated merely because you inserted the block"""
+
+
+def cell_guidance_prompt(*, sql_v2_enabled: bool, widgets_enabled: bool) -> str:
+    cell_guidance = SQL_V2_CELL_GUIDANCE if sql_v2_enabled else LEGACY_CELL_GUIDANCE
+    if widgets_enabled:
+        return f"{cell_guidance}\n{WIDGET_CELL_GUIDANCE}"
+    return f"{cell_guidance}\n- Generated widgets are unavailable for this user. Do not add new `<Widget />` cells. Preserve existing widgets when editing unrelated content"
 
 
 NOTEBOOK_CONTEXT_TEMPLATE = """
