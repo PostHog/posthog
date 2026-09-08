@@ -55,6 +55,9 @@ func TestValidateAcceptsKnownFieldsAndFunctions(t *testing.T) {
 	if !result.Valid || len(result.Diagnostics) != 0 {
 		t.Fatalf("result = %#v", result)
 	}
+	if len(result.TableNames) != 1 || result.TableNames[0] != "warehouse_orders" {
+		t.Fatalf("table names = %#v", result.TableNames)
+	}
 }
 
 func TestValidateAcceptsHogQLQualifiedTable(t *testing.T) {
