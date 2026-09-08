@@ -35,6 +35,7 @@ import {
     getSurveyDisplayConditionsSummary,
     getSurveyEndDateForQuery,
     getSurveyResponse,
+    getSurveyResponseOutcomeBreakdown,
     getSurveyResponseStatus,
     transformSurveyResponseRows,
     getSurveyStartDateForQuery,
@@ -61,6 +62,21 @@ afterEach(() => {
 })
 
 describe('survey utils', () => {
+    it.each<{ counts: [number, number, number]; percentages: number[] }>([
+        { counts: [2, 1, 2], percentages: [0.4, 0.2, 0.4] },
+        { counts: [0, 1, 3], percentages: [0, 0.25, 0.75] },
+        { counts: [3, 0, 0], percentages: [1, 0, 0] },
+        { counts: [0, 0, 0], percentages: [0, 0, 0] },
+    ])('calculates response outcome shares for $counts', ({ counts, percentages }) => {
+        expect(getSurveyResponseOutcomeBreakdown(counts)).toEqual(
+            ['Completed', 'Dismissed', 'Abandoned'].map((label, index) => ({
+                label,
+                count: counts[index],
+                percentage: percentages[index],
+            }))
+        )
+    })
+
     it.each([
         ['survey sent', { $survey_completed: false }, 'Abandoned'],
         ['survey dismissed', { $survey_partially_completed: true }, 'Dismissed'],

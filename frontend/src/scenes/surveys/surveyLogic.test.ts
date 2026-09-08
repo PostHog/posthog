@@ -1889,6 +1889,7 @@ describe('survey stats calculation', () => {
             logic.actions.setDismissedAndSentCount(null)
         }).toMatchValues({
             processedSurveyStats: null,
+            surveyResponseOutcomes: null,
             surveyRates: {
                 response_rate: 0.0,
                 dismissal_rate: 0.0,
@@ -1897,6 +1898,25 @@ describe('survey stats calculation', () => {
             },
         })
     })
+
+    it.each([true, false])(
+        'uses submissions for outcome percentages when counting people is %s',
+        async (countPeople) => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilterSurveyStatsByDistinctId(countPeople)
+                logic.actions.setBaseStatsResults([
+                    createBaseStat(SurveyEventName.SHOWN, 100, 80),
+                    [SurveyEventName.SENT, 5, 1, MOCK_FIRST_SEEN, MOCK_LAST_SEEN, [2, 1, 2]],
+                ])
+            }).toMatchValues({
+                surveyResponseOutcomes: [
+                    { label: 'Completed', count: 2, percentage: 0.4 },
+                    { label: 'Dismissed', count: 1, percentage: 0.2 },
+                    { label: 'Abandoned', count: 2, percentage: 0.4 },
+                ],
+            })
+        }
+    )
 
     it('should calculate stats correctly when only "survey shown" events exist', async () => {
         const baseStats = [createBaseStat(SurveyEventName.SHOWN, 100, 80)]

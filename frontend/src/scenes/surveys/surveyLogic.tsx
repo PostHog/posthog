@@ -132,6 +132,7 @@ import {
     DATE_FORMAT,
     type OpenEndedColumnMap,
     type SurveyQueryFilters,
+    type SurveyResponseOutcome,
     buildAggregateQuery,
     buildOpenEndedQuery,
     buildSurveyResponsesQuery,
@@ -143,6 +144,7 @@ import {
     createAnswerFilterHogQLExpression,
     getResponseFieldWithId,
     getSurveyEndDateForQuery,
+    getSurveyResponseOutcomeBreakdown,
     getSurveyStartDateForQuery,
     isSurveyRunning,
     isThumbQuestion,
@@ -151,7 +153,14 @@ import {
     validateSurveyAppearance,
 } from './utils'
 
-export type SurveyBaseStatTuple = [string, number, number, string | null, string | null] // [event_name, total_count, unique_persons, first_seen, last_seen]
+export type SurveyBaseStatTuple = [
+    eventName: string,
+    totalCount: number,
+    uniquePersons: number,
+    firstSeen: string | null,
+    lastSeen: string | null,
+    outcomeCounts?: [number, number, number],
+] // [event_name, total_count, unique_persons, first_seen, last_seen, outcome_counts]
 export type SurveyBaseStatsResult = SurveyBaseStatTuple[] | null
 export type DismissedAndSentCountResult = number | null
 export type TranslationValidationError = {
@@ -742,6 +751,7 @@ export interface surveyLogicValues {
     surveyNotificationsLoading: boolean
     surveyRates: SurveyRates | null
     surveyRepeatedActivationAvailable: boolean
+    surveyResponseOutcomes: SurveyResponseOutcome[] | null
     surveyShufflingQuestionsAvailable: boolean
     surveyTouched: boolean
     surveyTouches: Record<string, boolean>
@@ -1453,6 +1463,7 @@ export interface surveyLogicMeta {
         ) => (questionIndex: number, fieldPath: string) => TranslationValidationError | undefined
         surveyAsInsightURL: (survey: NewSurvey | Survey) => string
         defaultInterval: (survey: NewSurvey | Survey) => IntervalType
+        surveyResponseOutcomes: (surveyBaseStatsInternal: SurveyBaseStatsResult) => SurveyResponseOutcome[] | null
         processedSurveyStats: (
             surveyBaseStatsInternal: SurveyBaseStatsResult,
             surveyDismissedAndSentCountInternal: DismissedAndSentCountResult
@@ -1750,7 +1761,8 @@ export const surveyLogic = kea<surveyLogicType>([
                     -- QUERYING BASE STATS
                     SELECT event as event_name, count() as total_count,
                         count(DISTINCT person_id) as unique_persons,
-                        min(timestamp) as first_seen, max(timestamp) as last_seen
+                        min(timestamp) as first_seen, max(timestamp) as last_seen,
+                        tuple(0, 0, 0) as outcome_counts
                     FROM events
                     WHERE event IN ('${SurveyEventName.SHOWN}', '${SurveyEventName.DISMISSED}')
                         AND properties.\`${SurveyEventProperties.SURVEY_ID}\` = '${props.id}'
@@ -3609,6 +3621,13 @@ export const surveyLogic = kea<surveyLogicType>([
                     return 'week'
                 }
                 return 'month'
+            },
+        ],
+        surveyResponseOutcomes: [
+            (s) => [s.surveyBaseStatsInternal],
+            (baseStats: SurveyBaseStatsResult): SurveyResponseOutcome[] | null => {
+                const counts = baseStats?.find(([eventName]) => eventName === SurveyEventName.SENT)?.[5]
+                return counts ? getSurveyResponseOutcomeBreakdown(counts) : null
             },
         ],
         processedSurveyStats: [

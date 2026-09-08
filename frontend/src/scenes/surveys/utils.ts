@@ -935,8 +935,24 @@ export function buildSurveyResponseStatsQuery(survey: Survey, filters: SurveyQue
     return `SELECT '${SurveyEventName.SENT}' AS event_name, count() AS total_count,
         count(DISTINCT person_id) AS unique_persons,
         if(count() > 0, min(submitted_at), null) AS first_seen,
-        if(count() > 0, max(submitted_at), null) AS last_seen
+        if(count() > 0, max(submitted_at), null) AS last_seen,
+        tuple(countIf(outcome = 'completed'), countIf(outcome = 'dismissed'), countIf(outcome = 'abandoned')) AS outcome_counts
         FROM (${merged})`
+}
+
+export interface SurveyResponseOutcome {
+    label: string
+    count: number
+    percentage: number
+}
+
+export function getSurveyResponseOutcomeBreakdown(counts: [number, number, number]): SurveyResponseOutcome[] {
+    const total = counts.reduce((sum, count) => sum + count, 0)
+    return ['Completed', 'Dismissed', 'Abandoned'].map((label, index) => ({
+        label,
+        count: counts[index],
+        percentage: total > 0 ? counts[index] / total : 0,
+    }))
 }
 
 export function buildSurveyRespondentQuery(survey: Survey, filters: SurveyQueryFilters): string {
