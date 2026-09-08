@@ -17,8 +17,6 @@ const { bridgeInstances, createMockAppBridge } = vi.hoisted(() => {
     close = vi.fn().mockResolvedValue(undefined);
   }
   const bridgeInstances: MockAppBridge[] = [];
-  // Named, not an arrow: the mock must survive `new`, and autofix would inline
-  // an arrow back in.
   function createMockAppBridge() {
     const instance = new MockAppBridge();
     bridgeInstances.push(instance);
@@ -44,8 +42,6 @@ vi.mock("../../message-editor/draftStore", () => ({
   },
 }));
 
-// The hook builds a bridge only on a `message` event whose source matches the
-// iframe, which jsdom can't forge, so invoke the registered listener directly.
 let latestMessageListener: ((event: MessageEvent) => void) | undefined;
 
 beforeEach(() => {
