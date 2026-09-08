@@ -136,26 +136,11 @@ tools:
     mcp-missing-capability-list:
         operation: mcp_analytics_missing_capabilities_list
         enabled: false
+    # Superseded by the analytics SDK's get_more_tools tool, which every connection is
+    # advertised rather than only the flagged teams this one reached. The endpoint stays.
     mcp-missing-capability-report:
         operation: mcp_analytics_missing_capabilities_create
-        enabled: true
-        scopes:
-            - mcp_analytics:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Report missing capability
-        description: >
-            Report that the current MCP tools are insufficient for the user's goal. Use this when a missing tool,
-            missing workflow support, or missing explanation blocks progress. Describe the gap without personal data or
-            sensitive query content. This records feedback for the PostHog team; continue with a fallback when possible.
-        include_params:
-            - goal
-            - missing_capability
-            - blocked
-            - attempted_tool
-        feature_flag: mcp-analytics
+        enabled: false
 wrappers:
     query-mcp-harness-breakdown:
         schema_ref: MCPHarnessBreakdownQuery
