@@ -2676,6 +2676,9 @@ SQL
     column "surfacing_score" {
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
+    column "snapshot_mode" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
     engine "distributed" {
       cluster_name    = "posthog"
       remote_database = "posthog"
