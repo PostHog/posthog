@@ -724,7 +724,11 @@ describe('subscriptionLogic', () => {
         targetLogic.actions.chooseInsight('abc123' as InsightShortId, 'Weekly signups')
 
         await expectLogic(newLogic, () => {
-            newLogic.actions.submitSubscriptionSuccess({ target_type: 'email' } as SubscriptionType)
+            newLogic.actions.submitSubscriptionSuccess({
+                ...newLogic.values.subscription,
+                target_type: 'email',
+                contexts: [],
+            })
         }).toFinishListeners()
 
         expect(targetLogic.values.target).toBeNull()
