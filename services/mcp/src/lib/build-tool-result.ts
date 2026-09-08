@@ -210,8 +210,6 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         }
     }
 
-    // Inline-exec only: a CLI client sees no rendered view, so its model may
-    // legitimately re-present the data.
     if (includeUiResponseMeta && resourceUri && !useJson) {
         text = `${text}\n\n${UI_APP_RENDER_NOTE}`
     }

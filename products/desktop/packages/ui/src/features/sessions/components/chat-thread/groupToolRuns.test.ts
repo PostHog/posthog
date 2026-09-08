@@ -153,8 +153,6 @@ describe("groupToolRuns", () => {
   });
 
   it("still groups an MCP tool call whose result has no UI app", () => {
-    // A name-based check would pull every exec call out of grouping, since
-    // Codex routes all tools through one wrapper.
     const execCall = toolItem("exec", {
       toolCallId: "exec",
       _meta: posthogToolMeta({
