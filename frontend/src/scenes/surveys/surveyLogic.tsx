@@ -41,7 +41,6 @@ import {
     canQuestionHaveResponseBasedBranching,
     createBranchingConfig,
     getDefaultBranchingType,
-    getResponseConfiguration,
     remapBranchingIndices,
 } from 'scenes/surveys/components/question-branching/utils'
 import { getDemoDataForSurvey } from 'scenes/surveys/utils/demoDataGenerator'
@@ -3311,27 +3310,38 @@ export const surveyLogic = kea<surveyLogicType>([
                         question.branching?.type === SurveyQuestionBranchingType.ResponseBased &&
                         isObject(question.branching?.responseValues)
                     ) {
-                        const { responseValues } = question.branching
-                        for (const toIndex of Object.values(responseValues)) {
+                        for (const [_, toIndex] of Object.entries(question.branching?.responseValues)) {
                             if (Number.isInteger(toIndex)) {
                                 graph.get(fromIndex).add(toIndex)
                             }
                         }
 
-                        // The SDK goes to the next question only when a response has no destination
-                        // of its own, so a question that routes every response never reaches it.
-                        // Adding the fall-through edge below would invent a path that no respondent
-                        // can take, and report a cycle that cannot happen.
-                        const responses = canQuestionHaveResponseBasedBranching(question)
-                            ? getResponseConfiguration(question)
-                            : []
-                        const everyResponseRouted =
+                        // The SDK goes to the next question only when the selected response has
+                        // no destination of its own, so a question that routes every response
+                        // never reaches it. Adding the fall-through edge below would invent a path
+                        // no respondent can take, and report a cycle that cannot happen.
+                        let responses: (string | number)[] = []
+                        if (question.type === SurveyQuestionType.SingleChoice) {
+                            responses = question.choices.map((_, choiceIndex) => choiceIndex)
+                        } else if (isRatingSurveyQuestion(question)) {
+                            // Rating responses are keyed by the buckets the SDK derives from the
+                            // scale, so an unrecognized scale leaves the fall-through edge in place.
+                            if (question.scale === 2) {
+                                responses = ['positive', 'negative']
+                            } else if (question.scale === 10) {
+                                responses = ['detractors', 'passives', 'promoters']
+                            } else if ([3, 5, 7].includes(question.scale)) {
+                                responses = ['negative', 'neutral', 'positive']
+                            }
+                        }
+                        const { responseValues } = question.branching
+                        if (
                             responses.length > 0 &&
-                            responses.every(({ value }) => {
-                                const destination = responseValues[String(value)]
+                            responses.every((response) => {
+                                const destination = responseValues[String(response)]
                                 return Number.isInteger(destination) || destination === SurveyQuestionBranchingType.End
                             })
-                        if (everyResponseRouted) {
+                        ) {
                             return
                         }
                     }
