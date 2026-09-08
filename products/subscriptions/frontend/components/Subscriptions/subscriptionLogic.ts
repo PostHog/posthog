@@ -440,14 +440,14 @@ export interface subscriptionLogicActions {
         }
         payload?: any
     }
-    replaceTeamsWebhook: () => {
-        value: true
-    }
     prefillCurrentContext: () => {
         value: true
     }
     removeContext: (context: SubscriptionContextApi) => {
         context: SubscriptionContextApi
+    }
+    replaceTeamsWebhook: () => {
+        value: true
     }
     resetSubscription: (values?: SubscriptionFormType) => {
         values?: SubscriptionFormType
