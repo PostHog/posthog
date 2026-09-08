@@ -546,12 +546,13 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
                 }
             },
         )
-        # Master keeps absorbing the same shift against the same baseline:
-        # the current image did not change, so this is not a second entry.
+        # Master keeps absorbing a shift against the same baseline, with jitter
+        # giving every run its own image: one entry per baseline period, not
+        # one per run.
         self._seed_history_row(
             sha="ddd0002",
             branch="master",
-            content_hash="hash-shift",
+            content_hash="hash-shift-jitter",
             baseline_content_hash="base-2",
             diff_metadata={
                 "row_shift": {
