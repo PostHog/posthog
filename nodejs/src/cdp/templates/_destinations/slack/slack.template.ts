@@ -45,8 +45,25 @@ let res := fetch('https://slack.com/api/chat.postMessage', {
   }
 });
 
+// Slack reports a refusal as HTTP 200 with the reason as a code in the body. The status says
+// nothing, so lead with the code, and add a remedy for the codes a person can fix themselves.
+// A response with no code, such as an outage page, still needs the raw body to be diagnosable.
 if (res.status != 200 or res.body.ok == false) {
-  throw Error(f'Failed to post message to Slack: {res.status}: {res.body}');
+  let code := res.body.error;
+
+  if (empty(code)) {
+    throw Error(f'Failed to post message to Slack: {res.status}: {res.body}');
+  }
+
+  let remedies := {
+    'channel_not_found': 'The channel no longer exists, or this Slack connection cannot see it. Pick the channel again.',
+    'not_in_channel': 'Invite the PostHog app to the channel, then try again.',
+    'is_archived': 'The channel is archived. Pick a different channel.',
+    'invalid_auth': 'Reconnect Slack in your project settings.'
+  };
+  let remedy := remedies[code] ?? '';
+
+  throw Error(trim(f'Slack rejected the message: {code}. {remedy}'));
 }
 `.trim(),
     inputs_schema: [
