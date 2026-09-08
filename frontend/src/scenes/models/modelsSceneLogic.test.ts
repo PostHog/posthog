@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -72,9 +74,19 @@ describe('modelsSceneLogic', () => {
         ['/models?tab=runs', 'runs'],
         ['/models?tab=graph', 'graph'],
         ['/models?tab=nope', 'models'],
+        ['/models?tab=data-quality', 'models'],
     ])('%s opens the %s tab', async (path, tab) => {
         await mount(path)
         expect(logic.values.activeTab).toEqual(tab)
+    })
+
+    it('opens the data quality tab once its flag is on', async () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_QUALITY_CHECKS], {
+            [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: true,
+        })
+        await mount('/models?tab=data-quality')
+        expect(logic.values.activeTab).toEqual('data-quality')
     })
 
     it('counts models whose last run failed and models that are suspended', async () => {

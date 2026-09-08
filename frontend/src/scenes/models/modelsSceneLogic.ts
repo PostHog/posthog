@@ -3,16 +3,19 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { urls } from 'scenes/urls'
 
 import { DataModelingNode } from '~/types'
 
+import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { DataWarehouseSavedQuery } from '../../types'
 
-export type ModelsSceneTab = 'models' | 'runs' | 'graph'
+export type ModelsSceneTab = 'models' | 'runs' | 'graph' | 'data-quality'
 
-const MODELS_SCENE_TABS: ModelsSceneTab[] = ['models', 'runs', 'graph']
+const MODELS_SCENE_TABS: ModelsSceneTab[] = ['models', 'runs', 'graph', 'data-quality']
 
 function isModelsSceneTab(tab: unknown): tab is ModelsSceneTab {
     return typeof tab === 'string' && (MODELS_SCENE_TABS as string[]).includes(tab)
@@ -21,7 +24,9 @@ function isModelsSceneTab(tab: unknown): tab is ModelsSceneTab {
 export interface modelsSceneLogicValues {
     dataWarehouseSavedQueries: DataWarehouseSavedQuery[] // dataWarehouseViewsLogic
     dataWarehouseSavedQueriesLoading: boolean // dataWarehouseViewsLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     activeTab: ModelsSceneTab
+    dataQualityTabEnabled: boolean
     nodes: DataModelingNode[]
     nodesLoading: boolean
     savedQueryIdToNodeId: Record<string, string>
@@ -54,6 +59,7 @@ export interface modelsSceneLogicMeta {
         savedQueryIdToNodeId: (nodes: DataModelingNode[]) => Record<string, string>
         failingNodes: (nodes: DataModelingNode[]) => DataModelingNode[]
         suspendedViews: (dataWarehouseSavedQueries: DataWarehouseSavedQuery[]) => DataWarehouseSavedQuery[]
+        dataQualityTabEnabled: (featureFlags: FeatureFlagsSet) => boolean
     }
 }
 
@@ -67,7 +73,12 @@ export type modelsSceneLogicType = MakeLogicType<
 export const modelsSceneLogic = kea<modelsSceneLogicType>([
     path(['scenes', 'models', 'modelsSceneLogic']),
     connect(() => ({
-        values: [dataWarehouseViewsLogic, ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueriesLoading']],
+        values: [
+            dataWarehouseViewsLogic,
+            ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueriesLoading'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
         actions: [dataWarehouseViewsLogic, ['loadDataWarehouseSavedQueries']],
     })),
     actions({
@@ -113,10 +124,17 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
             (dataWarehouseSavedQueries: DataWarehouseSavedQuery[]): DataWarehouseSavedQuery[] =>
                 dataWarehouseSavedQueries.filter((view) => Object.keys(view.suspended ?? {}).length > 0),
         ],
+        dataQualityTabEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS],
+        ],
     }),
     urlToAction(({ actions, values }) => ({
         [urls.models()]: (_, searchParams) => {
-            const tab = isModelsSceneTab(searchParams.tab) ? searchParams.tab : 'models'
+            let tab: ModelsSceneTab = isModelsSceneTab(searchParams.tab) ? searchParams.tab : 'models'
+            if (tab === 'data-quality' && !values.dataQualityTabEnabled) {
+                tab = 'models'
+            }
             if (tab !== values.activeTab) {
                 actions.setActiveTab(tab)
             }

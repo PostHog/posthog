@@ -19,6 +19,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, DataWarehouseSavedQuery } from '~/types'
 
+import { DataQualityOverview } from 'products/data_quality/frontend/overview/DataQualityOverview'
+
 import { ViewsTab } from '../data-warehouse/scene/ViewsTab'
 import { ModelsSceneTab, modelsSceneLogic } from './modelsSceneLogic'
 import { ModelsGraphTab } from './tabs/ModelsGraphTab'
@@ -69,7 +71,7 @@ function ModelsHealthStrip(): JSX.Element | null {
 }
 
 export function ModelsScene(): JSX.Element {
-    const { savedQueryIdToNodeId, activeTab } = useValues(modelsSceneLogic)
+    const { savedQueryIdToNodeId, activeTab, dataQualityTabEnabled } = useValues(modelsSceneLogic)
 
     const getViewUrl = useCallback(
         (view: DataWarehouseSavedQuery): string => {
@@ -107,6 +109,17 @@ export function ModelsScene(): JSX.Element {
             content: <ModelsGraphTab />,
             'data-attr': 'models-tab-graph',
         },
+        ...(dataQualityTabEnabled
+            ? [
+                  {
+                      key: 'data-quality' as const,
+                      label: 'Data quality',
+                      link: urls.models('data-quality'),
+                      content: <DataQualityOverview />,
+                      'data-attr': 'models-tab-data-quality',
+                  },
+              ]
+            : []),
     ]
 
     return (
