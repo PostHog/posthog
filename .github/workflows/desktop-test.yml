@@ -205,7 +205,7 @@ jobs:
             - name: Install xvfb and the Chromium system libraries
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y --no-install-recommends xvfb
+                  sudo apt-get install -y --no-install-recommends xvfb fluxbox
                   # Electron ships Chromium, so it needs the same system libraries as the
                   # Playwright browser, on a cache hit as much as on a miss.
                   pnpm --filter code exec playwright install-deps chromium
@@ -219,8 +219,10 @@ jobs:
               # continue-on-error so the web host below still runs and the "Fail on E2E failure"
               # step at the end is the verdict for both hosts.
               continue-on-error: true
-              # xvfb-run defaults to a 640x480 screen, too small for the app's minimum window.
-              run: xvfb-run -a -s "-screen 0 1920x1080x24" pnpm --filter code run test:e2e
+              # The app starts maximized, and maximize() needs a window manager. On a bare
+              # Xvfb the framed default window keeps less than the 600px of content the
+              # smoke suite asserts, so fluxbox runs inside the session.
+              run: xvfb-run -a -s "-screen 0 1920x1080x24" bash -c 'fluxbox >/dev/null 2>&1 & sleep 2; pnpm --filter code run test:e2e'
               env:
                   CI: true
 
