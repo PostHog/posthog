@@ -34,6 +34,7 @@ export function AccountSidebar({ account }: { account: AccountApi }): JSX.Elemen
         configLoading,
         draftPinnedProperties,
         isConfiguring,
+        resolvedPinnedProperties,
         stalePinnedProperties,
     } = useValues(configLogic)
     const {
@@ -57,8 +58,12 @@ export function AccountSidebar({ account }: { account: AccountApi }): JSX.Elemen
     } = useValues(propertyLogic)
     const { loadPropertyData, editProperty, cancelEditing, saveCustomProperty, saveRelationship } =
         useActions(propertyLogic)
-    const loadFailed = configLoadFailed || availableDefinitionsLoadFailed || propertyDataLoadFailed
-    const loading = !loadFailed && (config === null || availableDefinitions === null || propertyData === null)
+    const hasPinnedProperties = resolvedPinnedProperties.length > 0
+    const loadFailed =
+        configLoadFailed || availableDefinitionsLoadFailed || (hasPinnedProperties && propertyDataLoadFailed)
+    const loading =
+        !loadFailed &&
+        (config === null || availableDefinitions === null || (hasPinnedProperties && propertyData === null))
     const propertyOptions: AccountPropertyOption[] = [
         ...(availableDefinitions?.customProperties ?? []).map((definition) => ({
             key: pinnedPropertyToConfiguratorKey({ kind: 'custom_property', id: definition.id }),

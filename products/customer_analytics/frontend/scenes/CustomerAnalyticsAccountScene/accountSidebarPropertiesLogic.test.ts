@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
@@ -7,6 +9,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { accountRelationshipsLogic } from '../../components/Accounts/accountRelationshipsLogic'
 import type {
     AccountRelationshipApi,
     AccountRelationshipDefinitionApi,
@@ -14,6 +17,7 @@ import type {
     CustomPropertyValueWriteApi,
     AccountRelationshipWriteApi,
 } from '../../generated/api.schemas'
+import { accountSidebarConfigLogic } from './accountSidebarConfigLogic'
 import { accountSidebarPropertiesLogic } from './accountSidebarPropertiesLogic'
 
 jest.mock('lib/utils/accessControlUtils', () => ({ userHasAccess: jest.fn(() => true) }))
@@ -118,6 +122,63 @@ describe('accountSidebarPropertiesLogic', () => {
         logic?.unmount()
         resumeKeaLoadersErrors()
         jest.clearAllMocks()
+    })
+
+    it('defers account data until pinning and recovers the empty state after an account-data failure', async () => {
+        silenceKeaLoadersErrors()
+        const accountDataRequest = jest.fn(() => [500, { detail: 'Account data unavailable' }])
+        useMocks({
+            get: {
+                '/api/projects/:project_id/user_customer_analytics_config/@me/': { pinned_properties: [] },
+                [VALUES_URL]: accountDataRequest,
+                [RELATIONSHIPS_URL]: accountDataRequest,
+            },
+            patch: {
+                '/api/projects/:project_id/user_customer_analytics_config/@me/': async ({ request }) => [
+                    200,
+                    await request.json(),
+                ],
+            },
+        })
+        logic = accountSidebarPropertiesLogic({ projectId: 1, accountId: 'account-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({
+            propertyData: null,
+            propertyDataLoadFailed: false,
+            sidebarProperties: [],
+        })
+        expect(accountDataRequest).not.toHaveBeenCalled()
+        const config = accountSidebarConfigLogic({ projectId: 1 })
+        config.actions.beginConfiguring()
+        config.actions.setDraftPinnedProperties([{ kind: 'custom_property', id: definition.id }])
+        expect(config.values.canSavePinnedProperties).toBe(true)
+        await expectLogic(logic, () => config.actions.savePinnedProperties()).toFinishAllListeners()
+        expect(logic.values.propertyDataLoadFailed).toBe(true)
+        expect(accountDataRequest).toHaveBeenCalled()
+        accountDataRequest.mockClear()
+        config.actions.beginConfiguring()
+        config.actions.setDraftPinnedProperties([])
+        await expectLogic(logic, () => config.actions.savePinnedProperties()).toFinishAllListeners()
+        expect(logic.values.propertyDataLoadFailed).toBe(false)
+        expect(logic.values.sidebarProperties).toEqual([])
+        expect(accountDataRequest).not.toHaveBeenCalled()
+    })
+
+    it('refreshes from relationship-tab changes without mounting that tab for the sidebar', async () => {
+        logic = accountSidebarPropertiesLogic({ projectId: MOCK_DEFAULT_TEAM.id, accountId: 'account-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(accountRelationshipsLogic.findMounted({ accountId: 'account-1' })).toBeNull()
+        const tab = accountRelationshipsLogic({ accountId: 'account-1' })
+        tab.mount()
+        try {
+            await expectLogic(tab).toFinishAllListeners()
+            assignments.push(assignment(4))
+            await expectLogic(logic, () => tab.actions.loadRelationships()).toFinishAllListeners()
+            expect(logic.values.sidebarProperties[0]).toMatchObject({ members: [{ id: 1 }, { id: 2 }, { id: 4 }] })
+        } finally {
+            tab.unmount()
+        }
     })
 
     it.each([
