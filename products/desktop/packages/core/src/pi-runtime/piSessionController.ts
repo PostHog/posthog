@@ -1,10 +1,11 @@
 import type { PiRemoteRpcClient } from "@posthog/agent/pi/remote-rpc-client";
 import type {
-  PiExtensionEvent,
+  PiExtensionSessionEvent,
   PiNativeModelInfo,
   PiPersistedSessionConfig,
   PiQueueSnapshot,
   PiThinkingLevel,
+  PiUsageStats,
   RpcExtensionUIResponse,
 } from "@posthog/agent/pi/types";
 import {
@@ -78,6 +79,7 @@ export interface PiSession {
     id: string,
   ): Promise<void>;
   health(): Promise<PiRuntimeHealth>;
+  usageStats?(): PiUsageStats | undefined;
   getConversation(): Promise<AgentConversationEvent[]>;
   onConversationEvent(
     onEvent: (
@@ -96,7 +98,7 @@ export interface PiSession {
     decision: McpToolPermissionDecision,
   ): Promise<void>;
   onExtensionEvent?(
-    onEvent: (event: PiExtensionEvent) => void,
+    onEvent: (event: PiExtensionSessionEvent) => void,
     onError: (error: unknown) => void,
     onComplete?: () => void,
   ): () => void;
@@ -151,6 +153,14 @@ function normalizeSessionError(error: unknown): {
     message: typeof value?.message === "string" ? value.message : String(error),
     retryable: value?.retryable !== false,
   };
+}
+
+function isResumableCloudSendError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes("No active sandbox") ||
+    message.includes("Task run workflow has ended")
+  );
 }
 
 @injectable()
@@ -516,7 +526,13 @@ export class PiSessionController {
         }
         this.setTurnStreaming(taskId, wasStreaming);
         const operation = queuesMessage ? "queue" : "prompt";
-        throw this.recordOperationFailure(taskId, operation, error);
+        throw this.recordOperationFailure(
+          taskId,
+          operation,
+          error,
+          undefined,
+          message,
+        );
       }
     }
 
@@ -709,7 +725,7 @@ export class PiSessionController {
         session.getConversation(),
         session.client.getState(),
         session.getQueue(),
-        session.client.getSessionStats().catch(() => retainedStats),
+        this.loadStats(session, retainedStats),
       ]);
       if (this.getSessionVersion(taskId) !== connectedSessionVersion) {
         return;
@@ -1031,12 +1047,22 @@ export class PiSessionController {
     this.updateSession(taskId, { cloudStatus });
   }
 
+  private async loadStats(
+    session: PiSession,
+    retained?: PiUsageStats,
+  ): Promise<PiUsageStats | undefined> {
+    const liveStats = await session.client
+      .getSessionStats()
+      .catch(() => undefined);
+    return liveStats ?? session.usageStats?.() ?? retained;
+  }
+
   private async refreshStats(taskId: string): Promise<void> {
     const sessionVersion = this.getSessionVersion(taskId);
     try {
       const session = await this.getPiSession(taskId);
-      const stats = await session.client.getSessionStats();
-      if (this.getSessionVersion(taskId) === sessionVersion) {
+      const stats = await this.loadStats(session);
+      if (stats && this.getSessionVersion(taskId) === sessionVersion) {
         this.updateSession(taskId, { stats });
       }
     } catch {
@@ -1163,7 +1189,9 @@ export class PiSessionController {
     failure: PromptFailure,
   ): string {
     if (failure.kind === "usage_limit") {
-      return "Usage limit reached";
+      return failure.limitCause === "model_unavailable"
+        ? "Model not available"
+        : "Usage limit reached";
     }
     if (failure.kind === "transient") {
       return "Provider temporarily unavailable";
@@ -1372,9 +1400,8 @@ export class PiSessionController {
       await session.sendUserMessage(type, content, artifactIds, messageId);
       return;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
       const taskRunId = this.taskRunIds.get(taskId) ?? session.taskRunId;
-      if (!taskRunId || !message.includes("No active sandbox")) {
+      if (!taskRunId || !isResumableCloudSendError(error)) {
         throw error;
       }
 

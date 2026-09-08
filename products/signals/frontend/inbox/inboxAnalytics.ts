@@ -26,11 +26,11 @@ export const INBOX_EVENTS = {
     WELCOME_VIEWED: 'Inbox welcome viewed',
     WELCOME_COMMAND_COPIED: 'Inbox welcome command copied',
     WELCOME_MANUAL_SETUP_CLICKED: 'Inbox welcome manual setup clicked',
+    INTRO_MODAL_VIEWED: 'Inbox intro modal viewed',
     PANEL_VIEWED: 'Inbox panel viewed',
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
     REPORT_OPENED: 'Inbox report opened',
-    SECTION_TOGGLED: 'Inbox section toggled',
     REPORT_CLOSED: 'Inbox report closed',
     REPORT_SCROLLED: 'Inbox report scrolled',
     REPORT_ACTION: 'Inbox report action',
@@ -49,14 +49,27 @@ export const INBOX_EVENTS = {
     SCOUT_CONFIG_CHANGED: 'Scout config changed',
     SCOUT_ACTION: 'Scout action',
     SCOUT_CHAT_STARTED: 'Scout chat started',
+    // The pre-computed "Suggested for this project" strip. Cloud-only for now — desktop has no
+    // suggestions surface — so these carry `inbox_client: 'cloud'` on every row.
+    SCOUT_SUGGESTIONS_SHOWN: 'Scout suggestions shown',
+    SCOUT_SUGGESTION_CLICKED: 'Scout suggestion clicked',
+    SCOUT_SUGGESTION_CREATED: 'Scout suggestion created',
+    SCOUT_SUGGESTION_DISMISSED: 'Scout suggestion dismissed',
+    SCOUT_SUGGESTIONS_REFRESHED: 'Scout suggestions refreshed',
     RUN_OPENED: 'Inbox run opened',
     ONBOARDING_DECIDED: 'Inbox onboarding decided',
 } as const
 
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
 
-/** Action surface an `Inbox report action` fired from. */
-export type InboxReportActionSurface = 'detail_pane' | 'detail_footer' | 'list_row' | 'bulk_bar' | 'triage_mode'
+/** Action surface an `Inbox report action` fired from. `context_menu` is the right-click menu on a list row. */
+export type InboxReportActionSurface =
+    | 'detail_pane'
+    | 'detail_footer'
+    | 'list_row'
+    | 'bulk_bar'
+    | 'triage_mode'
+    | 'context_menu'
 
 /** How a report detail was opened. `triage` is the open-report shortcut in triage mode. */
 export type InboxReportOpenMethod = 'click' | 'deeplink' | 'triage' | 'unknown'
@@ -72,13 +85,15 @@ export type InboxReportFeedbackSentiment = 'positive' | 'negative'
 
 /**
  * Report actions cloud actually emits. Names match the desktop enum one-for-one (so the
- * `action_type` breakdown reads the same across clients), plus cloud-only `restore` (Archive tab),
- * `view_diff`, `show_more` (a list section widening its window), and the section expand/collapse
- * pair (desktop splits those per section instead).
+ * `action_type` breakdown reads the same across clients), plus cloud-only `restore` (Dismissed
+ * section), `resolve` (marking a report done without an inbox PR), `view_diff`, `show_more` (a list
+ * section widening its window), and the section expand/collapse pair (desktop splits those per
+ * section instead).
  * Desktop-only variants we don't fire yet are intentionally omitted.
  */
 export type InboxReportActionType =
     | 'dismiss'
+    | 'resolve'
     | 'discuss'
     | 'restore'
     | 'create_pr'
@@ -129,7 +144,16 @@ export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limi
 export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings' | 'triage'
 
 /** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
-export type InboxQueryChange = 'scope' | 'sort' | 'source_product' | 'scout' | 'priority' | 'search' | 'clear' | 'url'
+export type InboxQueryChange =
+    | 'scope'
+    | 'sort'
+    | 'source_product'
+    | 'scout'
+    | 'priority'
+    | 'state'
+    | 'search'
+    | 'clear'
+    | 'url'
 
 /** Surface a scout-management event fired from. Matches the desktop values. */
 export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'replay_vision_scanner'
@@ -157,6 +181,7 @@ export type ScoutActionType =
     | 'copy_finding_link'
     | 'open_task_run'
     | 'open_linked_report'
+    | 'open_create_modal'
     | 'create_scout'
     | 'delete_scout'
     | 'open_memory'
@@ -270,6 +295,15 @@ export function captureInboxWelcomeManualSetupClicked(): void {
 }
 
 /**
+ * The self-driving intro modal rendered (opened from the Code badge next to PostHog AI). The
+ * click-through to the inbox is recoverable as this event followed by an inbox view in the same
+ * session, so the modal only needs its own top-of-funnel marker.
+ */
+export function captureSelfDrivingIntroModalViewed(): void {
+    captureInboxEvent(INBOX_EVENTS.INTRO_MODAL_VIEWED, {})
+}
+
+/**
  * The report list settled for the first time in a tab mount. `report_count` / `total_count` describe
  * the active tab's list only (and `report_count` is capped at the loaded page), so the headline
  * "how many reports does this user have" numbers are `pulls_tab_count` / `reports_tab_count`: the tab badge
@@ -285,6 +319,8 @@ export function captureInboxViewed(params: {
     hasActiveFilters: boolean
     sourceProductFilter: string[]
     priorityFilter: string[]
+    /** Selected report states on the flat Reports list; [] (every state) on other surfaces. */
+    stateFilter?: string[]
     scope: string
 }): void {
     captureInboxEvent(INBOX_EVENTS.VIEWED, {
@@ -297,6 +333,7 @@ export function captureInboxViewed(params: {
         has_active_filters: params.hasActiveFilters,
         source_product_filter: params.sourceProductFilter,
         priority_filter: params.priorityFilter,
+        state_filter: params.stateFilter ?? [],
         scope: params.scope,
         ...priorityBreakdown(params.reports),
         ...actionabilityBreakdown(params.reports),
@@ -362,18 +399,6 @@ export function captureInboxReportOpened(params: {
         rank: params.rank,
         list_size: params.listSize,
         section: params.section,
-    })
-}
-
-/**
- * A Reports list section was expanded or collapsed. Resolved and Not actionable start collapsed,
- * so without this a reader who scrolls down to the resolved work is invisible until a card in it
- * impresses. Cloud-only: the desktop app has no collapsible sections.
- */
-export function captureInboxSectionToggled(params: { section: InboxReportSectionKey; isOpen: boolean }): void {
-    captureInboxEvent(INBOX_EVENTS.SECTION_TOGGLED, {
-        section: params.section,
-        is_open: params.isOpen,
     })
 }
 
@@ -585,6 +610,7 @@ export function captureInboxQueryChanged(params: {
     sourceProductFilter: string[]
     scoutFilter: string[]
     priorityFilter: string[]
+    stateFilter: string[]
     searchQuery: string
     hasActiveFilters: boolean
 }): void {
@@ -598,6 +624,7 @@ export function captureInboxQueryChanged(params: {
         source_product_filter: params.sourceProductFilter,
         scout_filter: params.scoutFilter,
         priority_filter: params.priorityFilter,
+        state_filter: params.stateFilter,
         has_search: search.length > 0,
         search_length: search.length,
         has_active_filters: params.hasActiveFilters,
@@ -638,12 +665,30 @@ function settingValueProperties(key: string, value: unknown): Record<string, unk
     return { [key]: value ?? null, [`${key}_size`]: null }
 }
 
+/**
+ * How the fleet materialization that preceded this view ended. The roster keeps its existing list
+ * when the sync is refused, so without this an `is_empty: true` view from a viewer who cannot write
+ * looks exactly like one from a project whose fleet genuinely failed to arrive.
+ */
+export type ScoutFleetSyncOutcome =
+    /** The sync ran and answered with the fleet. */
+    | 'synced'
+    /** No sync was issued — the roster opened before a project was resolved. */
+    | 'not_attempted'
+    /** 403: a member without `signal_scout:write`. The roster shows whatever the list read returned. */
+    | 'skipped_permission'
+    /** 404: a stale project id, usually left in the URL by a project switch. */
+    | 'not_found'
+    /** Anything else, including a 5xx. */
+    | 'failed'
+
 /** Roster shape at the moment the scout troop list was opened. Mirrors desktop's `Scout fleet viewed`. */
 export function captureScoutFleetViewed(params: {
     scoutCount: number
     enabledCount: number
     customCount: number
     dryRunCount: number
+    syncOutcome: ScoutFleetSyncOutcome
 }): void {
     captureInboxEvent(INBOX_EVENTS.SCOUT_FLEET_VIEWED, {
         scout_count: params.scoutCount,
@@ -651,6 +696,7 @@ export function captureScoutFleetViewed(params: {
         custom_count: params.customCount,
         dry_run_count: params.dryRunCount,
         is_empty: params.scoutCount === 0,
+        sync_outcome: params.syncOutcome,
     })
 }
 
@@ -760,4 +806,93 @@ export function captureScoutChatStarted(params: {
         surface: params.surface,
         skill_name: params.skillName ?? null,
     })
+}
+
+/** Where a suggestion card was rendered: the strip above the roster, or the empty state's body. */
+export type ScoutSuggestionSurface = 'strip' | 'empty_state'
+
+/** Which offer a suggestion card makes. Mirrors the API's `kind`. */
+export type ScoutSuggestionKind = 'canonical' | 'custom'
+
+/** What the person did with a suggestion card, beyond creating or dismissing it. */
+export type ScoutSuggestionClickTarget = 'turn_on' | 'create' | 'refine_with_ai'
+
+/** What the person pressed to reach that target: the action row's button, or the card body. */
+export type ScoutSuggestionClickVia = 'button' | 'card'
+
+/** How a suggestion became a scout: the create API in place, or a chat the person drove. */
+export type ScoutSuggestionCreatedVia = 'api' | 'chat'
+
+/** How a refresh request ended, from the endpoint's answer. */
+export type ScoutSuggestionsRefreshOutcome = 'accepted' | 'running' | 'capped' | 'failed'
+
+/**
+ * The suggestion batch as it was first rendered this visit. Without it a batch nobody acts on is
+ * indistinguishable from one nobody was shown, which is exactly the gap that left the producer
+ * running unread.
+ */
+export function captureScoutSuggestionsShown(params: {
+    count: number
+    status: string
+    ageHours: number | null
+    collapsed: boolean
+    surface: ScoutSuggestionSurface
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTIONS_SHOWN, {
+        suggestion_count: params.count,
+        batch_status: params.status,
+        batch_age_hours: params.ageHours,
+        collapsed: params.collapsed,
+        surface: params.surface,
+    })
+}
+
+/** One of a suggestion card's actions was pressed. `via` separates the card body from the button. */
+export function captureScoutSuggestionClicked(params: {
+    kind: ScoutSuggestionKind
+    skillName: string
+    target: ScoutSuggestionClickTarget
+    via: ScoutSuggestionClickVia
+    surface: ScoutSuggestionSurface
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTION_CLICKED, {
+        suggestion_kind: params.kind,
+        skill_name: params.skillName,
+        click_target: params.target,
+        via: params.via,
+        surface: params.surface,
+    })
+}
+
+/** A suggestion turned into a running scout. `via` separates the one-click paths from the chat. */
+export function captureScoutSuggestionCreated(params: {
+    kind: ScoutSuggestionKind
+    skillName: string
+    via: ScoutSuggestionCreatedVia
+    surface: ScoutSuggestionSurface
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTION_CREATED, {
+        suggestion_kind: params.kind,
+        skill_name: params.skillName,
+        via: params.via,
+        surface: params.surface,
+    })
+}
+
+/** A suggestion was hidden. Dismissals are remembered by skill name, so this is the rejection signal. */
+export function captureScoutSuggestionDismissed(params: {
+    kind: ScoutSuggestionKind
+    skillName: string
+    surface: ScoutSuggestionSurface
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTION_DISMISSED, {
+        suggestion_kind: params.kind,
+        skill_name: params.skillName,
+        surface: params.surface,
+    })
+}
+
+/** A refresh was asked for, and what the endpoint said. Refreshes cost a scan, so the cap matters. */
+export function captureScoutSuggestionsRefreshed(params: { outcome: ScoutSuggestionsRefreshOutcome }): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTIONS_REFRESHED, { outcome: params.outcome })
 }

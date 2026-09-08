@@ -3,6 +3,8 @@ import json
 import logging
 from typing import Any, Optional
 
+from django.db import models
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
@@ -540,6 +542,8 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "task_model",
             "task_repository",
             "task_mcp_installations",
+            "signals_scout",
+            "task_skills",
         ]
     )
     key = serializers.CharField()
@@ -572,9 +576,14 @@ class AnyInputField(serializers.Field):
         return value
 
 
+class HogFunctionTemplating(models.TextChoices):
+    HOG = "hog", "hog"
+    LIQUID = "liquid", "liquid"
+
+
 class InputsItemSerializer(serializers.Serializer):
     value = AnyInputField(required=False)
-    templating = serializers.ChoiceField(choices=["hog", "liquid"], required=False)
+    templating = serializers.ChoiceField(choices=HogFunctionTemplating.choices, required=False)
     bytecode = serializers.ListField(required=False, read_only=True)
     order = serializers.IntegerField(required=False, read_only=True)
     transpiled = serializers.JSONField(required=False, read_only=True)
@@ -654,6 +663,12 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "task_mcp_installations":
             if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
                 raise serializers.ValidationError({"input": "Value must be a list of MCP connector IDs."})
+        elif item_type == "signals_scout":
+            if not isinstance(value, str):
+                raise serializers.ValidationError({"input": "Value must be a scout skill name."})
+        elif item_type == "task_skills":
+            if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+                raise serializers.ValidationError({"input": "Value must be a list of skill names."})
         elif item_type == "email" or item_type == "native_email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be an email object."})
@@ -908,7 +923,9 @@ def _contains_behavioral_property(filters: dict) -> bool:
 
 class HogFunctionFiltersSerializer(serializers.Serializer):
     source = serializers.ChoiceField(
-        choices=["events", "person-updates", *DATA_WAREHOUSE_SOURCES], required=False, default="events"
+        choices=["events", "internal-events", "person-updates", *DATA_WAREHOUSE_SOURCES],
+        required=False,
+        default="events",
     )  # type: ignore
     actions = serializers.ListField(child=serializers.DictField(), required=False)
     events = serializers.ListField(child=serializers.DictField(), required=False)
@@ -937,6 +954,9 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
                 "Use a cohort to filter on past behavior."
             )
 
+        if function_type == "internal_destination":
+            data["source"] = "internal-events"
+
         if function_type == "transformation_log":
             # Filter bytecode is compiled against event-shaped globals, which log records
             # don't have — silently accepting filters would mis-evaluate at ingestion time.
@@ -955,6 +975,27 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         if data.get("source") == "events":
             # Don't allow events or actions for person-updates
             data.pop("data_warehouse", None)
+
+        if data.get("source") == "internal-events":
+            disallowed = [key for key in ("actions", "data_warehouse") if data.get(key)]
+            if disallowed:
+                raise serializers.ValidationError(
+                    dict.fromkeys(disallowed, "This filter is not supported for internal events.")
+                )
+            data.pop("actions", None)
+            data.pop("data_warehouse", None)
+            events = data.get("events")
+            if (
+                not isinstance(events, list)
+                or not events
+                or any(
+                    not isinstance(event, dict) or not isinstance(event.get("id"), str) or not event["id"].strip()
+                    for event in events
+                )
+            ):
+                raise serializers.ValidationError(
+                    {"events": "Internal event filters require at least one event with a non-empty id."}
+                )
 
         if data.get("source") == "person-updates":
             # Don't allow events or actions for person-updates

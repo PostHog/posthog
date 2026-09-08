@@ -2,7 +2,11 @@
   "$schema": "https://unpkg.com/knip@latest/schema.json",
   "workspaces": {
     ".": {
-      "entry": ["mprocs.yaml", "postcss.config.mjs", "scripts/*.{mjs,js,ts}"],
+      "entry": [
+        "mprocs.yaml",
+        "postcss.config.mjs",
+        "scripts/*.{mjs,js,ts,mts}"
+      ],
       "ignoreBinaries": ["bin/phrocs"]
     },
     "apps/code": {

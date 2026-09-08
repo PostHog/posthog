@@ -172,7 +172,9 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
     #     across all completed master/main runs ever. Real baseline flips on
     #     master leave a CHANGED/REMOVED row in the run that introduced them
     #     (subsequent runs see UNCHANGED against the new YAML baseline), so
-    #     this count IS the number of times the YAML moved. Postgres uses
+    #     this count IS the number of times the YAML moved. "Ever" reaches
+    #     back as far as retention keeps default-branch runs, which is
+    #     `retention.DEFAULT_BRANCH_RUN_RETENTION_DAYS`. Postgres uses
     #     the `snapshot_run_result` index on (run_id, result) to bitmap-scan
     #     straight to the rare event rows (~1k of millions). No window
     #     function, no per-row LAG comparison.

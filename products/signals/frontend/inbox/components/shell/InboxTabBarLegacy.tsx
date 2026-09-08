@@ -6,10 +6,9 @@ import { LemonSkeleton, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import { inboxSceneLogic } from '../../inboxSceneLogic'
-import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
+import { legacyTabListLogicProps, reportListLogic } from '../../logics/reportListLogic'
 import {
     INBOX_FLAT_LIST_TAB_KEYS,
-    INBOX_LEGACY_TAB_SECTION,
     INBOX_STAFF_ONLY_TAB_KEYS,
     INBOX_LEGACY_TAB_KEYS,
     INBOX_TAB_LABEL,
@@ -32,8 +31,7 @@ function isStaffOnlyTabKey(tab: InboxTabKey): boolean {
  * The active tab shares the same keyed instance, so no double-fetch.
  */
 function FlatTabCount({ tabKey }: { tabKey: InboxFlatListTabKey }): JSX.Element {
-    const sectionKey = INBOX_LEGACY_TAB_SECTION[tabKey]
-    const logic = reportListLogic({ sectionKey, listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey] })
+    const logic = reportListLogic(legacyTabListLogicProps(tabKey))
     useMountedLogic(logic)
     const { count, countLoading } = useValues(logic)
     // Skeleton only while the request is genuinely in flight; on failure `count` stays null,

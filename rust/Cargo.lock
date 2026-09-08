@@ -2591,6 +2591,7 @@ dependencies = [
  "hogvm",
  "metrics",
  "petgraph 0.8.3",
+ "proptest",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -2657,6 +2658,7 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "proptest",
+ "rand 0.8.5",
  "rdkafka",
  "rustls 0.23.37",
  "serde",
@@ -2843,6 +2845,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-grpc"
+version = "0.1.0"
+dependencies = [
+ "http 1.4.0",
+ "metrics",
+ "metrics-util",
+ "pin-project",
+ "tokio",
+ "tonic 0.12.3",
+ "tower 0.4.13",
+]
+
+[[package]]
 name = "common-hypercache"
 version = "0.1.0"
 dependencies = [
@@ -2900,6 +2915,14 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "common-kafka-consumer"
+version = "0.1.0"
+dependencies = [
+ "metrics",
+ "rdkafka",
 ]
 
 [[package]]
@@ -5478,6 +5501,7 @@ dependencies = [
 name = "hogvm"
 version = "0.1.0"
 dependencies = [
+ "ahash 0.8.12",
  "base64 0.22.1",
  "chrono",
  "chrono-tz",
@@ -6156,6 +6180,7 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-continuous-profiling",
+ "common-kafka-consumer",
  "dashmap 6.1.0",
  "envconfig",
  "futures",
@@ -8963,11 +8988,14 @@ dependencies = [
  "reqwest 0.12.28",
  "rmcp",
  "rust_decimal",
+ "rustls 0.23.37",
+ "rustls-native-certs 0.8.3",
  "schemars 1.2.1",
  "serde",
  "serde_json",
  "tokio",
  "tokio-postgres",
+ "tokio-postgres-rustls",
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
@@ -8995,6 +9023,7 @@ dependencies = [
  "regex",
  "rust_decimal",
  "rustls 0.23.37",
+ "rustls-native-certs 0.8.3",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -9005,7 +9034,6 @@ dependencies = [
  "toml 0.8.23",
  "tracing",
  "tracing-subscriber",
- "webpki-roots 1.0.6",
 ]
 
 [[package]]
@@ -9273,7 +9301,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.4.7"
+version = "0.5.0"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
@@ -9529,6 +9557,7 @@ name = "property-defs-rs"
 version = "0.1.0"
 dependencies = [
  "ahash 0.8.12",
+ "aho-corasick",
  "anyhow",
  "axum 0.7.9",
  "chrono",
@@ -13854,15 +13883,19 @@ dependencies = [
  "axum 0.7.9",
  "chrono",
  "common-database",
+ "common-grpc",
  "common-kafka",
  "common-liveness",
  "envconfig",
+ "futures",
  "health",
  "metrics",
  "metrics-exporter-prometheus",
  "moka",
  "rdkafka",
+ "redis",
  "reqwest 0.12.28",
+ "rustls 0.23.37",
  "serde",
  "serde_json",
  "sqlx",

@@ -891,27 +891,40 @@ export const TaskActivityMarkReadCreateBody = /* @__PURE__ */ zod
     .describe('Request body for clearing the unread flag on specific tasks.')
 
 /**
- * Returns the existing public channel with the (normalized) name, creating it if needed. A channel created here is starred for the requester unless star is false. The general name returns the team's general space; names that read as a private space ("me", "personal") are rejected.
- * @summary Resolve or create a public channel
+ * Create a channel. Public channels use lowercase names with hyphens. If a public channel has that name, return it. The name general returns the project's general space. Private channels always get a new ID, even if another channel has the same name. The requester and users in member_ids with project access become members. New channels are starred for the requester unless star is false. The names "me" and "personal" are reserved.
+ * @summary Create a channel
  */
 export const taskChannelsCreateBodyNameMax = 128
 
+export const taskChannelsCreateBodyChannelTypeDefault = `public`
+export const taskChannelsCreateBodyMemberIdsMax = 100
+
 export const taskChannelsCreateBodyStarDefault = true
 
-export const TaskChannelsCreateBody = /* @__PURE__ */ zod
-    .object({
-        name: zod
-            .string()
-            .max(taskChannelsCreateBodyNameMax)
-            .describe('Channel name, rendered as #<name>. Normalized to lowercase-dashed.'),
-        star: zod
-            .boolean()
-            .default(taskChannelsCreateBodyStarDefault)
-            .describe(
-                'Star the channel for the requester when this call creates it. Ignored when the channel already exists, which leaves existing stars untouched.'
-            ),
-    })
-    .describe('Request body for creating (resolve-or-create) or renaming a public channel.')
+export const TaskChannelsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(taskChannelsCreateBodyNameMax)
+        .describe('Channel name, shown as #<name>. Uses lowercase letters and hyphens.'),
+    channel_type: zod
+        .enum(['public', 'private'])
+        .describe('\* `public` - public\n\* `private` - private')
+        .default(taskChannelsCreateBodyChannelTypeDefault)
+        .describe(
+            "Use 'public' for access by all project members. Use 'private' for access by channel members only. Defaults to 'public'. This endpoint cannot create personal #me spaces.\n\n\* `public` - public\n\* `private` - private"
+        ),
+    member_ids: zod
+        .array(zod.number())
+        .max(taskChannelsCreateBodyMemberIdsMax)
+        .optional()
+        .describe(
+            'User IDs to add to a private channel. The requester is always a member. The endpoint ignores this field for public channels and skips users without project access.'
+        ),
+    star: zod
+        .boolean()
+        .default(taskChannelsCreateBodyStarDefault)
+        .describe('Star a new channel for the requester. This field does not change stars on an existing channel.'),
+})
 
 /**
  * API for a channel's system-announcement feed — durable "PostHog agent" rows
@@ -941,17 +954,15 @@ export const TaskChannelsFeedCreateBody = /* @__PURE__ */ zod
     .describe("Request body for posting a system announcement into a channel's feed.")
 
 /**
- * API for task channels — the shared feeds tasks are kicked off in. The
- * provision_defaults action get-or-creates the requester's personal "#me" channel and
- * the team's shared "#general" channel; creation is resolve-or-create by normalized
- * name so clients can map channel-like surfaces onto backend channels.
- * @summary Rename a public channel
+ * @summary Update a channel
  */
 export const taskChannelsPartialUpdateBodyNameMax = 128
 
 export const taskChannelsPartialUpdateBodyRepositoriesItemMax = 255
 
 export const taskChannelsPartialUpdateBodyRepositoriesMax = 10
+
+export const taskChannelsPartialUpdateBodyAutoArchiveAfterDaysMax = 365
 
 export const TaskChannelsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -968,13 +979,24 @@ export const TaskChannelsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(taskChannelsPartialUpdateBodyRepositoriesMax)
         .optional()
         .describe('GitHub repositories inherited by new tasks in this channel.'),
+    auto_archive_after_days: zod
+        .number()
+        .min(1)
+        .max(taskChannelsPartialUpdateBodyAutoArchiveAfterDaysMax)
+        .nullish()
+        .describe(
+            'Days of inactivity before tasks in this channel are archived. Accepts 1 through 365. Null disables automatic archiving.'
+        ),
+    channel_type: zod
+        .enum(['public', 'private'])
+        .describe('\* `public` - public\n\* `private` - private')
+        .optional()
+        .describe(
+            "Switch a shared space between 'public' and 'private'. Making a space private keeps only the creator and the requester as members. Making it public removes its member list. Personal #me spaces cannot change.\n\n\* `public` - public\n\* `private` - private"
+        ),
 })
 
 /**
- * API for task channels — the shared feeds tasks are kicked off in. The
- * provision_defaults action get-or-creates the requester's personal "#me" channel and
- * the team's shared "#general" channel; creation is resolve-or-create by normalized
- * name so clients can map channel-like surfaces onto backend channels.
  * @summary Set or clear the channel's CONTEXT.md generation task
  */
 export const TaskChannelsContextGenerationUpdateBody = /* @__PURE__ */ zod
@@ -1033,10 +1055,21 @@ export const TaskChannelsInstructionsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Request body for publishing a new instructions version.')
 
 /**
- * API for task channels — the shared feeds tasks are kicked off in. The
- * provision_defaults action get-or-creates the requester's personal "#me" channel and
- * the team's shared "#general" channel; creation is resolve-or-create by normalized
- * name so clients can map channel-like surfaces onto backend channels.
+ * Replace the members of a private channel. Any member can update this list. The creator remains a member. Return 400 for public and personal channels.
+ * @summary Replace a private channel's members
+ */
+export const taskChannelsMembersUpdateBodyUserIdsMax = 100
+
+export const TaskChannelsMembersUpdateBody = /* @__PURE__ */ zod.object({
+    user_ids: zod
+        .array(zod.number())
+        .max(taskChannelsMembersUpdateBodyUserIdsMax)
+        .describe(
+            'Required list of member user IDs. This list replaces the current members. The creator remains a member. Send an empty list to remove all other members. Each submitted user must have project access.'
+        ),
+})
+
+/**
  * @summary Star or unstar a channel for the requesting user
  */
 export const TaskChannelsStarCreateBody = /* @__PURE__ */ zod
@@ -1049,6 +1082,8 @@ export const TaskChannelsStarCreateBody = /* @__PURE__ */ zod
  * Feature-flagged test path that creates a repeatable session from explicit prompt-building inputs, in the requester's personal space.
  * @summary Start a test first-run onboarding session
  */
+export const taskChannelsOnboardingSessionTestCreateBodyModelMax = 255
+
 export const taskChannelsOnboardingSessionTestCreateBodyCompanyDomainDefault = ``
 export const taskChannelsOnboardingSessionTestCreateBodyCompanyDomainMax = 253
 
@@ -1073,6 +1108,11 @@ export const taskChannelsOnboardingSessionTestCreateBodySourcesWatchingMax = 25
 export const taskChannelsOnboardingSessionTestCreateBodySourcesNewlyEnabledDefault = false
 
 export const TaskChannelsOnboardingSessionTestCreateBody = /* @__PURE__ */ zod.object({
+    model: zod
+        .string()
+        .max(taskChannelsOnboardingSessionTestCreateBodyModelMax)
+        .nullish()
+        .describe('Optional LLM model identifier for the test session. Omit to use the plan default.'),
     company_domain: zod
         .string()
         .max(taskChannelsOnboardingSessionTestCreateBodyCompanyDomainMax)
@@ -1130,169 +1170,172 @@ export const tasksCreateBodyBranchMax = 255
 
 export const tasksCreateBodyPendingUserArtifactIdsItemMax = 128
 
-export const TasksCreateBody = /* @__PURE__ */ zod
-    .object({
-        title: zod
-            .string()
-            .max(tasksCreateBodyTitleMax)
-            .optional()
-            .describe('Short human-readable title. Auto-generated from `description` when omitted.'),
-        title_manually_set: zod
-            .boolean()
-            .optional()
-            .describe('Whether the title was set by a human (vs auto-generated from the description).'),
-        description: zod
-            .string()
-            .optional()
-            .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
-        origin_product: zod
-            .enum([
-                'onboarding',
-                'error_tracking',
-                'eval_clusters',
-                'user_created',
-                'slack',
-                'support_queue',
-                'session_summaries',
-                'posthog_ai',
-                'experiments',
-                'signal_report',
-                'signals_scout',
-                'support_reply',
-                'hogdesk',
-                'review_hog',
-                'image_builder',
-                'loop',
-                'mcp_analytics',
-                'signals_chat',
-                'task_analysis',
-                'workflow',
-            ])
-            .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
-            )
-            .optional()
-            .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
-            ),
-        repository: zod
-            .string()
-            .max(tasksCreateBodyRepositoryMax)
-            .nullish()
-            .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
-        repositories: zod
-            .array(zod.string().max(tasksCreateBodyRepositoriesItemMax))
-            .max(tasksCreateBodyRepositoriesMax)
-            .optional()
-            .describe('GitHub repositories available to this task, each in `organization\/repo` format.'),
-        github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
-        github_user_integration: zod
-            .uuid()
-            .nullish()
-            .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
-        signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
-        signal_report_task_relationship: zod
-            .string()
-            .max(tasksCreateBodySignalReportTaskRelationshipMax)
-            .optional()
-            .describe(
-                "How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit."
-            ),
-        json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
-        archived: zod.boolean().optional().describe('If true, the task is hidden from default list responses.'),
-        ci_prompt: zod
-            .string()
-            .nullish()
-            .describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
-        branch: zod
-            .string()
-            .max(tasksCreateBodyBranchMax)
-            .nullish()
-            .describe(
-                'Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.'
-            ),
-        runtime_adapter: zod
-            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
-            .optional()
-            .describe(
-                "Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.\n\n\* `claude` - claude\n\* `codex` - codex"
-            ),
-        model: zod
-            .string()
-            .nullish()
-            .describe(
-                'Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.'
-            ),
-        reasoning_effort: zod
-            .union([
-                zod
-                    .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
-                    .describe(
-                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
-            ),
-        initial_permission_mode: zod
-            .union([
-                zod
-                    .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto', 'read-only', 'full-access'])
-                    .describe(
-                        '\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
-            ),
-        pending_user_message: zod
-            .string()
-            .nullish()
-            .describe(
-                'First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.'
-            ),
-        pending_user_artifact_ids: zod
-            .array(zod.string().max(tasksCreateBodyPendingUserArtifactIdsItemMax))
-            .optional()
-            .describe(
-                "Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched."
-            ),
-        auto_publish: zod
-            .boolean()
-            .nullish()
-            .describe(
-                "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead."
-            ),
-        channel: zod.uuid().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
-        naming_source: zod
-            .string()
-            .optional()
-            .describe(
-                'Text the server generates the title from instead of `description`. Lets a client whose `description` is only an attachment summary (e.g. pasted text stored as a file) supply the real content for naming, so `description` (the prompt passed to the agent) stays unchanged. Not persisted.'
-            ),
-        sandbox_environment_id: zod
-            .uuid()
-            .nullish()
-            .describe('Sandbox environment selected for matching a pre-warmed cloud run. Not persisted on the task.'),
-        custom_image_id: zod
-            .uuid()
-            .nullish()
-            .describe('Custom image selected for matching a pre-warmed cloud run. Not persisted on the task.'),
-        runtime: zod
-            .enum(['acp', 'pi'])
-            .describe('\* `acp` - ACP\n\* `pi` - Pi')
-            .optional()
-            .describe(
-                "Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.\n\n\* `acp` - ACP\n\* `pi` - Pi"
-            ),
-    })
-    .describe(
-        'Request body for creating or updating a task.\n\nField required\/default semantics match the ``Task`` model. The view passes\n``validated_data`` (integration\/report PK fields already resolved to instances) to the\nfacade ``create_task`` \/ ``update_task`` functions.'
-    )
+export const tasksCreateBodySignalReportDiscussionQuestionMax = 4000
+
+export const TasksCreateBody = /* @__PURE__ */ zod.object({
+    title: zod
+        .string()
+        .max(tasksCreateBodyTitleMax)
+        .optional()
+        .describe('Short human-readable title. Auto-generated from `description` when omitted.'),
+    title_manually_set: zod
+        .boolean()
+        .optional()
+        .describe('Whether the title was set by a human (vs auto-generated from the description).'),
+    description: zod
+        .string()
+        .optional()
+        .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
+    origin_product: zod
+        .enum([
+            'onboarding',
+            'error_tracking',
+            'eval_clusters',
+            'user_created',
+            'slack',
+            'support_queue',
+            'session_summaries',
+            'posthog_ai',
+            'experiments',
+            'signal_report',
+            'signals_scout',
+            'scout_suggestions',
+            'support_reply',
+            'hogdesk',
+            'review_hog',
+            'image_builder',
+            'loop',
+            'mcp_analytics',
+            'signals_chat',
+            'task_analysis',
+            'workflow',
+        ])
+        .describe(
+            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+        )
+        .optional()
+        .describe(
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+        ),
+    repository: zod
+        .string()
+        .max(tasksCreateBodyRepositoryMax)
+        .nullish()
+        .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
+    repositories: zod
+        .array(zod.string().max(tasksCreateBodyRepositoriesItemMax))
+        .max(tasksCreateBodyRepositoriesMax)
+        .optional()
+        .describe('GitHub repositories available to this task, each in `organization\/repo` format.'),
+    github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
+    github_user_integration: zod
+        .uuid()
+        .nullish()
+        .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
+    signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
+    signal_report_task_relationship: zod
+        .string()
+        .max(tasksCreateBodySignalReportTaskRelationshipMax)
+        .optional()
+        .describe(
+            "How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit."
+        ),
+    json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
+    archived: zod.boolean().optional().describe('If true, the task is hidden from default list responses.'),
+    ci_prompt: zod.string().nullish().describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
+    branch: zod
+        .string()
+        .max(tasksCreateBodyBranchMax)
+        .nullish()
+        .describe(
+            'Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.'
+        ),
+    runtime_adapter: zod
+        .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
+        .optional()
+        .describe(
+            "Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.\n\n\* `claude` - claude\n\* `codex` - codex"
+        ),
+    model: zod
+        .string()
+        .nullish()
+        .describe(
+            'Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.'
+        ),
+    reasoning_effort: zod
+        .union([
+            zod
+                .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+                .describe(
+                    '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+        ),
+    initial_permission_mode: zod
+        .union([
+            zod
+                .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto', 'read-only', 'full-access'])
+                .describe(
+                    '\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+        ),
+    pending_user_message: zod
+        .string()
+        .nullish()
+        .describe(
+            'First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.'
+        ),
+    pending_user_artifact_ids: zod
+        .array(zod.string().max(tasksCreateBodyPendingUserArtifactIdsItemMax))
+        .optional()
+        .describe(
+            "Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched."
+        ),
+    auto_publish: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead."
+        ),
+    channel: zod.uuid().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
+    signal_report_discussion_question: zod
+        .string()
+        .max(tasksCreateBodySignalReportDiscussionQuestionMax)
+        .optional()
+        .describe(
+            "Question to forward to the signal report's scout when creating a discussion task. Send an empty string when there is no question. Omit only for older clients that embed the question in the task description. Not persisted on the task."
+        ),
+    naming_source: zod
+        .string()
+        .optional()
+        .describe(
+            'Text the server generates the title from instead of `description`. Lets a client whose `description` is only an attachment summary (e.g. pasted text stored as a file) supply the real content for naming, so `description` (the prompt passed to the agent) stays unchanged. Not persisted.'
+        ),
+    sandbox_environment_id: zod
+        .uuid()
+        .nullish()
+        .describe('Sandbox environment selected for matching a pre-warmed cloud run. Not persisted on the task.'),
+    custom_image_id: zod
+        .uuid()
+        .nullish()
+        .describe('Custom image selected for matching a pre-warmed cloud run. Not persisted on the task.'),
+    runtime: zod
+        .enum(['acp', 'pi'])
+        .describe('\* `acp` - ACP\n\* `pi` - Pi')
+        .optional()
+        .describe(
+            "Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.\n\n\* `acp` - ACP\n\* `pi` - Pi"
+        ),
+})
 
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
@@ -1311,148 +1354,142 @@ export const tasksUpdateBodyBranchMax = 255
 
 export const tasksUpdateBodyPendingUserArtifactIdsItemMax = 128
 
-export const TasksUpdateBody = /* @__PURE__ */ zod
-    .object({
-        title: zod
-            .string()
-            .max(tasksUpdateBodyTitleMax)
-            .optional()
-            .describe('Short human-readable title. Auto-generated from `description` when omitted.'),
-        title_manually_set: zod
-            .boolean()
-            .optional()
-            .describe('Whether the title was set by a human (vs auto-generated from the description).'),
-        description: zod
-            .string()
-            .optional()
-            .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
-        origin_product: zod
-            .enum([
-                'onboarding',
-                'error_tracking',
-                'eval_clusters',
-                'user_created',
-                'slack',
-                'support_queue',
-                'session_summaries',
-                'posthog_ai',
-                'experiments',
-                'signal_report',
-                'signals_scout',
-                'support_reply',
-                'hogdesk',
-                'review_hog',
-                'image_builder',
-                'loop',
-                'mcp_analytics',
-                'signals_chat',
-                'task_analysis',
-                'workflow',
-            ])
-            .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
-            )
-            .optional()
-            .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
-            ),
-        repository: zod
-            .string()
-            .max(tasksUpdateBodyRepositoryMax)
-            .nullish()
-            .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
-        repositories: zod
-            .array(zod.string().max(tasksUpdateBodyRepositoriesItemMax))
-            .max(tasksUpdateBodyRepositoriesMax)
-            .optional()
-            .describe('GitHub repositories available to this task, each in `organization\/repo` format.'),
-        github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
-        github_user_integration: zod
-            .uuid()
-            .nullish()
-            .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
-        signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
-        signal_report_task_relationship: zod
-            .string()
-            .max(tasksUpdateBodySignalReportTaskRelationshipMax)
-            .optional()
-            .describe(
-                "How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit."
-            ),
-        json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
-        archived: zod.boolean().optional().describe('If true, the task is hidden from default list responses.'),
-        ci_prompt: zod
-            .string()
-            .nullish()
-            .describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
-        branch: zod
-            .string()
-            .max(tasksUpdateBodyBranchMax)
-            .nullish()
-            .describe(
-                'Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.'
-            ),
-        runtime_adapter: zod
-            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
-            .optional()
-            .describe(
-                "Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.\n\n\* `claude` - claude\n\* `codex` - codex"
-            ),
-        model: zod
-            .string()
-            .nullish()
-            .describe(
-                'Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.'
-            ),
-        reasoning_effort: zod
-            .union([
-                zod
-                    .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
-                    .describe(
-                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
-            ),
-        initial_permission_mode: zod
-            .union([
-                zod
-                    .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto', 'read-only', 'full-access'])
-                    .describe(
-                        '\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
-            ),
-        pending_user_message: zod
-            .string()
-            .nullish()
-            .describe(
-                'First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.'
-            ),
-        pending_user_artifact_ids: zod
-            .array(zod.string().max(tasksUpdateBodyPendingUserArtifactIdsItemMax))
-            .optional()
-            .describe(
-                "Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched."
-            ),
-        auto_publish: zod
-            .boolean()
-            .nullish()
-            .describe(
-                "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead."
-            ),
-        channel: zod.uuid().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
-    })
-    .describe(
-        'Request body for creating or updating a task.\n\nField required\/default semantics match the ``Task`` model. The view passes\n``validated_data`` (integration\/report PK fields already resolved to instances) to the\nfacade ``create_task`` \/ ``update_task`` functions.'
-    )
+export const TasksUpdateBody = /* @__PURE__ */ zod.object({
+    title: zod
+        .string()
+        .max(tasksUpdateBodyTitleMax)
+        .optional()
+        .describe('Short human-readable title. Auto-generated from `description` when omitted.'),
+    title_manually_set: zod
+        .boolean()
+        .optional()
+        .describe('Whether the title was set by a human (vs auto-generated from the description).'),
+    description: zod
+        .string()
+        .optional()
+        .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
+    origin_product: zod
+        .enum([
+            'onboarding',
+            'error_tracking',
+            'eval_clusters',
+            'user_created',
+            'slack',
+            'support_queue',
+            'session_summaries',
+            'posthog_ai',
+            'experiments',
+            'signal_report',
+            'signals_scout',
+            'scout_suggestions',
+            'support_reply',
+            'hogdesk',
+            'review_hog',
+            'image_builder',
+            'loop',
+            'mcp_analytics',
+            'signals_chat',
+            'task_analysis',
+            'workflow',
+        ])
+        .describe(
+            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+        )
+        .optional()
+        .describe(
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+        ),
+    repository: zod
+        .string()
+        .max(tasksUpdateBodyRepositoryMax)
+        .nullish()
+        .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
+    repositories: zod
+        .array(zod.string().max(tasksUpdateBodyRepositoriesItemMax))
+        .max(tasksUpdateBodyRepositoriesMax)
+        .optional()
+        .describe('GitHub repositories available to this task, each in `organization\/repo` format.'),
+    github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
+    github_user_integration: zod
+        .uuid()
+        .nullish()
+        .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
+    signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
+    signal_report_task_relationship: zod
+        .string()
+        .max(tasksUpdateBodySignalReportTaskRelationshipMax)
+        .optional()
+        .describe(
+            "How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit."
+        ),
+    json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
+    archived: zod.boolean().optional().describe('If true, the task is hidden from default list responses.'),
+    ci_prompt: zod.string().nullish().describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
+    branch: zod
+        .string()
+        .max(tasksUpdateBodyBranchMax)
+        .nullish()
+        .describe(
+            'Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.'
+        ),
+    runtime_adapter: zod
+        .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
+        .optional()
+        .describe(
+            "Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.\n\n\* `claude` - claude\n\* `codex` - codex"
+        ),
+    model: zod
+        .string()
+        .nullish()
+        .describe(
+            'Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.'
+        ),
+    reasoning_effort: zod
+        .union([
+            zod
+                .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+                .describe(
+                    '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+        ),
+    initial_permission_mode: zod
+        .union([
+            zod
+                .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto', 'read-only', 'full-access'])
+                .describe(
+                    '\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+        ),
+    pending_user_message: zod
+        .string()
+        .nullish()
+        .describe(
+            'First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.'
+        ),
+    pending_user_artifact_ids: zod
+        .array(zod.string().max(tasksUpdateBodyPendingUserArtifactIdsItemMax))
+        .optional()
+        .describe(
+            "Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched."
+        ),
+    auto_publish: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead."
+        ),
+    channel: zod.uuid().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
+})
 
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
@@ -1471,148 +1508,142 @@ export const tasksPartialUpdateBodyBranchMax = 255
 
 export const tasksPartialUpdateBodyPendingUserArtifactIdsItemMax = 128
 
-export const TasksPartialUpdateBody = /* @__PURE__ */ zod
-    .object({
-        title: zod
-            .string()
-            .max(tasksPartialUpdateBodyTitleMax)
-            .optional()
-            .describe('Short human-readable title. Auto-generated from `description` when omitted.'),
-        title_manually_set: zod
-            .boolean()
-            .optional()
-            .describe('Whether the title was set by a human (vs auto-generated from the description).'),
-        description: zod
-            .string()
-            .optional()
-            .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
-        origin_product: zod
-            .enum([
-                'onboarding',
-                'error_tracking',
-                'eval_clusters',
-                'user_created',
-                'slack',
-                'support_queue',
-                'session_summaries',
-                'posthog_ai',
-                'experiments',
-                'signal_report',
-                'signals_scout',
-                'support_reply',
-                'hogdesk',
-                'review_hog',
-                'image_builder',
-                'loop',
-                'mcp_analytics',
-                'signals_chat',
-                'task_analysis',
-                'workflow',
-            ])
-            .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
-            )
-            .optional()
-            .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
-            ),
-        repository: zod
-            .string()
-            .max(tasksPartialUpdateBodyRepositoryMax)
-            .nullish()
-            .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
-        repositories: zod
-            .array(zod.string().max(tasksPartialUpdateBodyRepositoriesItemMax))
-            .max(tasksPartialUpdateBodyRepositoriesMax)
-            .optional()
-            .describe('GitHub repositories available to this task, each in `organization\/repo` format.'),
-        github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
-        github_user_integration: zod
-            .uuid()
-            .nullish()
-            .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
-        signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
-        signal_report_task_relationship: zod
-            .string()
-            .max(tasksPartialUpdateBodySignalReportTaskRelationshipMax)
-            .optional()
-            .describe(
-                "How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit."
-            ),
-        json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
-        archived: zod.boolean().optional().describe('If true, the task is hidden from default list responses.'),
-        ci_prompt: zod
-            .string()
-            .nullish()
-            .describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
-        branch: zod
-            .string()
-            .max(tasksPartialUpdateBodyBranchMax)
-            .nullish()
-            .describe(
-                'Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.'
-            ),
-        runtime_adapter: zod
-            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
-            .optional()
-            .describe(
-                "Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.\n\n\* `claude` - claude\n\* `codex` - codex"
-            ),
-        model: zod
-            .string()
-            .nullish()
-            .describe(
-                'Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.'
-            ),
-        reasoning_effort: zod
-            .union([
-                zod
-                    .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
-                    .describe(
-                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
-            ),
-        initial_permission_mode: zod
-            .union([
-                zod
-                    .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto', 'read-only', 'full-access'])
-                    .describe(
-                        '\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
-            ),
-        pending_user_message: zod
-            .string()
-            .nullish()
-            .describe(
-                'First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.'
-            ),
-        pending_user_artifact_ids: zod
-            .array(zod.string().max(tasksPartialUpdateBodyPendingUserArtifactIdsItemMax))
-            .optional()
-            .describe(
-                "Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched."
-            ),
-        auto_publish: zod
-            .boolean()
-            .nullish()
-            .describe(
-                "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead."
-            ),
-        channel: zod.uuid().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
-    })
-    .describe(
-        'Request body for creating or updating a task.\n\nField required\/default semantics match the ``Task`` model. The view passes\n``validated_data`` (integration\/report PK fields already resolved to instances) to the\nfacade ``create_task`` \/ ``update_task`` functions.'
-    )
+export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
+    title: zod
+        .string()
+        .max(tasksPartialUpdateBodyTitleMax)
+        .optional()
+        .describe('Short human-readable title. Auto-generated from `description` when omitted.'),
+    title_manually_set: zod
+        .boolean()
+        .optional()
+        .describe('Whether the title was set by a human (vs auto-generated from the description).'),
+    description: zod
+        .string()
+        .optional()
+        .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
+    origin_product: zod
+        .enum([
+            'onboarding',
+            'error_tracking',
+            'eval_clusters',
+            'user_created',
+            'slack',
+            'support_queue',
+            'session_summaries',
+            'posthog_ai',
+            'experiments',
+            'signal_report',
+            'signals_scout',
+            'scout_suggestions',
+            'support_reply',
+            'hogdesk',
+            'review_hog',
+            'image_builder',
+            'loop',
+            'mcp_analytics',
+            'signals_chat',
+            'task_analysis',
+            'workflow',
+        ])
+        .describe(
+            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+        )
+        .optional()
+        .describe(
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+        ),
+    repository: zod
+        .string()
+        .max(tasksPartialUpdateBodyRepositoryMax)
+        .nullish()
+        .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
+    repositories: zod
+        .array(zod.string().max(tasksPartialUpdateBodyRepositoriesItemMax))
+        .max(tasksPartialUpdateBodyRepositoriesMax)
+        .optional()
+        .describe('GitHub repositories available to this task, each in `organization\/repo` format.'),
+    github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
+    github_user_integration: zod
+        .uuid()
+        .nullish()
+        .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
+    signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
+    signal_report_task_relationship: zod
+        .string()
+        .max(tasksPartialUpdateBodySignalReportTaskRelationshipMax)
+        .optional()
+        .describe(
+            "How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit."
+        ),
+    json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
+    archived: zod.boolean().optional().describe('If true, the task is hidden from default list responses.'),
+    ci_prompt: zod.string().nullish().describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
+    branch: zod
+        .string()
+        .max(tasksPartialUpdateBodyBranchMax)
+        .nullish()
+        .describe(
+            'Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.'
+        ),
+    runtime_adapter: zod
+        .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
+        .optional()
+        .describe(
+            "Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.\n\n\* `claude` - claude\n\* `codex` - codex"
+        ),
+    model: zod
+        .string()
+        .nullish()
+        .describe(
+            'Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.'
+        ),
+    reasoning_effort: zod
+        .union([
+            zod
+                .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+                .describe(
+                    '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+        ),
+    initial_permission_mode: zod
+        .union([
+            zod
+                .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto', 'read-only', 'full-access'])
+                .describe(
+                    '\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+        ),
+    pending_user_message: zod
+        .string()
+        .nullish()
+        .describe(
+            'First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.'
+        ),
+    pending_user_artifact_ids: zod
+        .array(zod.string().max(tasksPartialUpdateBodyPendingUserArtifactIdsItemMax))
+        .optional()
+        .describe(
+            "Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched."
+        ),
+    auto_publish: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead."
+        ),
+    channel: zod.uuid().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
+})
 
 /**
  * Transfer ownership of a task to another member of the project: they take over driving it (steering, archiving, running), and future runs resolve GitHub authorship and notification recipients from them. Only the task's current owner can hand it off. Every run must be finished or canceled, and every sandbox must be shut down first. A task in a private space moves into the recipient's private space; a task in a shared space stays there.
@@ -1836,6 +1867,12 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .describe(
                     'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
                 ),
+            benjamin_enabled: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.'
+                ),
         })
         .describe('Request body for creating a new task run'),
     zod
@@ -1982,6 +2019,12 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .nullish()
                 .describe(
                     'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
+                ),
+            benjamin_enabled: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.'
                 ),
         })
         .describe('Request body for creating a new task run'),
@@ -2422,6 +2465,12 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
             ),
+        benjamin_enabled: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.'
+            ),
     })
     .describe('Request body for creating a task run without starting execution yet.')
 
@@ -2457,166 +2506,144 @@ export const TasksRunsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Store one verified inefficiency finding on a task-analysis run. Only the run's own task-bound sandbox agent may call it, and only on a task-analysis run. The findings list is server-owned: it is not writable through the run update endpoint.
- * @summary Report an analysis finding
+ * Store one activity record on a task-analysis run. Only the run's own task-bound sandbox agent may call it, and only on a task-analysis run. Activities arrive in log order and do not overlap. An exact repeat of a stored activity returns its index without storing it again. The activities list is server-owned: it is not writable through the run update endpoint.
+ * @summary Report an analysis activity
  */
-export const tasksRunsAnalysisInsightCreateBodyObservationMin = 80
-export const tasksRunsAnalysisInsightCreateBodyObservationMax = 500
+export const tasksRunsAnalysisActivityCreateBodyGoalMin = 3
+export const tasksRunsAnalysisActivityCreateBodyGoalMax = 80
 
-export const tasksRunsAnalysisInsightCreateBodyEvidenceItemQuoteMin = 20
-export const tasksRunsAnalysisInsightCreateBodyEvidenceItemQuoteMax = 300
+export const tasksRunsAnalysisActivityCreateBodyBlockerNameMax = 120
 
-export const tasksRunsAnalysisInsightCreateBodyOtherJustificationMin = 50
-export const tasksRunsAnalysisInsightCreateBodyOtherJustificationMax = 200
+export const tasksRunsAnalysisActivityCreateBodyRepairMax = 300
 
-export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneChangeMin = 50
-export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneChangeMax = 400
+export const tasksRunsAnalysisActivityCreateBodyEvidenceMin = 10
+export const tasksRunsAnalysisActivityCreateBodyEvidenceMax = 200
 
-export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneDoneWhenMin = 30
-export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneDoneWhenMax = 200
+export const tasksRunsAnalysisActivityCreateBodyToolCallsMin = 0
 
-export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneSetupCommandsItemMax = 500
+export const tasksRunsAnalysisActivityCreateBodyFailedCallsMin = 0
 
-export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneSetupCommandsMax = 10
+export const tasksRunsAnalysisActivityCreateBodySecondsMin = 0
 
-export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneRequiredServicesItemMax = 100
+export const tasksRunsAnalysisActivityCreateBodyIdleSecondsMin = 0
 
-export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneRequiredServicesMax = 10
+export const tasksRunsAnalysisActivityCreateBodyCommandsItemMax = 60
 
-export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneEnvVarNamesItemMax = 100
+export const tasksRunsAnalysisActivityCreateBodyCommandsMax = 24
 
-export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneEnvVarNamesMax = 10
+export const tasksRunsAnalysisActivityCreateBodyGuidanceReadItemMax = 200
 
-export const TasksRunsAnalysisInsightCreateBody = /* @__PURE__ */ zod
+export const tasksRunsAnalysisActivityCreateBodyGuidanceReadMax = 20
+
+export const TasksRunsAnalysisActivityCreateBody = /* @__PURE__ */ zod
     .object({
-        no_findings_reason: zod
-            .enum(['run_was_efficient', 'too_short_to_judge', 'insufficient_visibility'])
-            .describe(
-                '\* `run_was_efficient` - run_was_efficient\n\* `too_short_to_judge` - too_short_to_judge\n\* `insufficient_visibility` - insufficient_visibility'
-            )
-            .optional()
-            .describe(
-                'Only for a run with zero findings; never combined with a finding.\n\n\* `run_was_efficient` - run_was_efficient\n\* `too_short_to_judge` - too_short_to_judge\n\* `insufficient_visibility` - insufficient_visibility'
-            ),
-        observation: zod
-            .string()
-            .min(tasksRunsAnalysisInsightCreateBodyObservationMin)
-            .max(tasksRunsAnalysisInsightCreateBodyObservationMax)
-            .optional()
-            .describe('What happened, 1-3 sentences.'),
-        evidence: zod
-            .array(
-                zod.object({
-                    quote: zod
-                        .string()
-                        .min(tasksRunsAnalysisInsightCreateBodyEvidenceItemQuoteMin)
-                        .max(tasksRunsAnalysisInsightCreateBodyEvidenceItemQuoteMax)
-                        .describe('Verbatim span copied from the analysed run log.'),
-                    evidence_type: zod
-                        .enum(['transcript_quote', 'command_output', 'measured_count'])
-                        .describe(
-                            '\* `transcript_quote` - transcript_quote\n\* `command_output` - command_output\n\* `measured_count` - measured_count'
-                        )
-                        .describe(
-                            'What kind of log content the quote was taken from.\n\n\* `transcript_quote` - transcript_quote\n\* `command_output` - command_output\n\* `measured_count` - measured_count'
-                        ),
-                })
-            )
-            .optional()
-            .describe('Quotes from the analysed log backing the observation.'),
-        occurrence_count: zod.number().min(1).optional().describe('How often this happened.'),
-        category: zod
+        goal_kind: zod
             .enum([
-                'environment_failure',
-                'missing_tool',
-                'verbose_output',
-                'redundant_work',
-                'missing_capability',
-                'instruction_gap',
-                'wasted_retry',
-                'other',
+                'orient',
+                'explore',
+                'gather',
+                'produce',
+                'verify',
+                'setup_env',
+                'ship',
+                'wait',
+                'operate',
+                'deliver',
             ])
             .describe(
-                '\* `environment_failure` - environment_failure\n\* `missing_tool` - missing_tool\n\* `verbose_output` - verbose_output\n\* `redundant_work` - redundant_work\n\* `missing_capability` - missing_capability\n\* `instruction_gap` - instruction_gap\n\* `wasted_retry` - wasted_retry\n\* `other` - other'
+                '\* `orient` - orient\n\* `explore` - explore\n\* `gather` - gather\n\* `produce` - produce\n\* `verify` - verify\n\* `setup_env` - setup_env\n\* `ship` - ship\n\* `wait` - wait\n\* `operate` - operate\n\* `deliver` - deliver'
             )
-            .optional()
             .describe(
-                'The kind of inefficiency observed.\n\n\* `environment_failure` - environment_failure\n\* `missing_tool` - missing_tool\n\* `verbose_output` - verbose_output\n\* `redundant_work` - redundant_work\n\* `missing_capability` - missing_capability\n\* `instruction_gap` - instruction_gap\n\* `wasted_retry` - wasted_retry\n\* `other` - other'
+                'Which kind of work the agent did in this span.\n\n\* `orient` - orient\n\* `explore` - explore\n\* `gather` - gather\n\* `produce` - produce\n\* `verify` - verify\n\* `setup_env` - setup_env\n\* `ship` - ship\n\* `wait` - wait\n\* `operate` - operate\n\* `deliver` - deliver'
             ),
-        other_justification: zod
+        goal: zod
             .string()
-            .min(tasksRunsAnalysisInsightCreateBodyOtherJustificationMin)
-            .max(tasksRunsAnalysisInsightCreateBodyOtherJustificationMax)
-            .optional()
-            .describe("Required when category is 'other'."),
-        wasted_effort: zod
-            .object({
-                tool_calls: zod.number().min(1).optional().describe('Wasted tool calls, counted from the log.'),
-                seconds: zod.number().min(1).optional().describe('Wall-clock seconds across the wasted span.'),
-                tokens: zod.number().min(1).optional().describe('Token delta across the wasted span.'),
-                output_bytes: zod
-                    .number()
-                    .min(1)
-                    .optional()
-                    .describe('Sum of tool-output sizes across the wasted span.'),
-            })
-            .optional()
-            .describe('Effort measured from the log, never estimated.'),
-        recurrence: zod
-            .enum(['every_run_in_this_repo', 'runs_touching_this_area', 'one_off'])
+            .min(tasksRunsAnalysisActivityCreateBodyGoalMin)
+            .max(tasksRunsAnalysisActivityCreateBodyGoalMax)
+            .describe('What the agent tried, in 3 to 8 words.'),
+        outcome: zod
+            .enum(['worked', 'failed', 'abandoned', 'unknown'])
+            .describe('\* `worked` - worked\n\* `failed` - failed\n\* `abandoned` - abandoned\n\* `unknown` - unknown')
             .describe(
-                '\* `every_run_in_this_repo` - every_run_in_this_repo\n\* `runs_touching_this_area` - runs_touching_this_area\n\* `one_off` - one_off'
-            )
-            .optional()
-            .describe(
-                'How widely this is expected to recur.\n\n\* `every_run_in_this_repo` - every_run_in_this_repo\n\* `runs_touching_this_area` - runs_touching_this_area\n\* `one_off` - one_off'
+                'How the activity ended for the agent.\n\n\* `worked` - worked\n\* `failed` - failed\n\* `abandoned` - abandoned\n\* `unknown` - unknown'
             ),
-        confidence_basis: zod
-            .enum(['directly_observed', 'inferred'])
-            .describe('\* `directly_observed` - directly_observed\n\* `inferred` - inferred')
+        blocker_kind: zod
+            .union([
+                zod
+                    .enum([
+                        'missing_binary',
+                        'missing_package',
+                        'service_down',
+                        'missing_build_artifact',
+                        'missing_credential',
+                        'memory_limit',
+                        'network',
+                        'shallow_git',
+                        'tool_error',
+                        'tool_syntax',
+                        'api_error',
+                        'missing_flag',
+                        'unclear_instructions',
+                        'user_redirect',
+                    ])
+                    .describe(
+                        '\* `missing_binary` - missing_binary\n\* `missing_package` - missing_package\n\* `service_down` - service_down\n\* `missing_build_artifact` - missing_build_artifact\n\* `missing_credential` - missing_credential\n\* `memory_limit` - memory_limit\n\* `network` - network\n\* `shallow_git` - shallow_git\n\* `tool_error` - tool_error\n\* `tool_syntax` - tool_syntax\n\* `api_error` - api_error\n\* `missing_flag` - missing_flag\n\* `unclear_instructions` - unclear_instructions\n\* `user_redirect` - user_redirect'
+                    ),
+                zod.null(),
+            ])
             .optional()
             .describe(
-                'How the finding was established.\n\n\* `directly_observed` - directly_observed\n\* `inferred` - inferred'
+                'What stopped the agent, when something did. Omit for healthy work.\n\n\* `missing_binary` - missing_binary\n\* `missing_package` - missing_package\n\* `service_down` - service_down\n\* `missing_build_artifact` - missing_build_artifact\n\* `missing_credential` - missing_credential\n\* `memory_limit` - memory_limit\n\* `network` - network\n\* `shallow_git` - shallow_git\n\* `tool_error` - tool_error\n\* `tool_syntax` - tool_syntax\n\* `api_error` - api_error\n\* `missing_flag` - missing_flag\n\* `unclear_instructions` - unclear_instructions\n\* `user_redirect` - user_redirect'
             ),
-        suggested_fix: zod
-            .object({
-                change: zod
-                    .string()
-                    .min(tasksRunsAnalysisInsightCreateBodySuggestedFixOneChangeMin)
-                    .max(tasksRunsAnalysisInsightCreateBodySuggestedFixOneChangeMax)
-                    .describe('The specific change to make.'),
-                done_when: zod
-                    .string()
-                    .min(tasksRunsAnalysisInsightCreateBodySuggestedFixOneDoneWhenMin)
-                    .max(tasksRunsAnalysisInsightCreateBodySuggestedFixOneDoneWhenMax)
-                    .describe('A checkable condition confirming the fix worked.'),
-                setup_commands: zod
-                    .array(
-                        zod.string().min(1).max(tasksRunsAnalysisInsightCreateBodySuggestedFixOneSetupCommandsItemMax)
-                    )
-                    .max(tasksRunsAnalysisInsightCreateBodySuggestedFixOneSetupCommandsMax)
-                    .optional()
-                    .describe('Single-line commands only; these may become image build steps.'),
-                required_services: zod
-                    .array(
-                        zod
-                            .string()
-                            .min(1)
-                            .max(tasksRunsAnalysisInsightCreateBodySuggestedFixOneRequiredServicesItemMax)
-                    )
-                    .max(tasksRunsAnalysisInsightCreateBodySuggestedFixOneRequiredServicesMax)
-                    .optional()
-                    .describe('Services the fix needs available.'),
-                env_var_names: zod
-                    .array(zod.string().min(1).max(tasksRunsAnalysisInsightCreateBodySuggestedFixOneEnvVarNamesItemMax))
-                    .max(tasksRunsAnalysisInsightCreateBodySuggestedFixOneEnvVarNamesMax)
-                    .optional()
-                    .describe('Environment variable names only, never values.'),
-            })
+        blocker_name: zod
+            .string()
+            .max(tasksRunsAnalysisActivityCreateBodyBlockerNameMax)
+            .nullish()
+            .describe(
+                'The exact binary, package, service, file, flag, or error the blocker names. Required with blocker_kind.'
+            ),
+        repair: zod
+            .string()
+            .max(tasksRunsAnalysisActivityCreateBodyRepairMax)
+            .nullish()
+            .describe('The command or step that removed the blocker, when the agent found one. Requires blocker_kind.'),
+        evidence: zod
+            .string()
+            .min(tasksRunsAnalysisActivityCreateBodyEvidenceMin)
+            .max(tasksRunsAnalysisActivityCreateBodyEvidenceMax)
+            .describe("One exact quote from the run log inside the activity's line range."),
+        start_line: zod.number().min(1).describe('First log line of the activity, 1-based.'),
+        end_line: zod.number().min(1).describe('Last log line of the activity, 1-based.'),
+        tool_calls: zod
+            .number()
+            .min(tasksRunsAnalysisActivityCreateBodyToolCallsMin)
+            .describe('Distinct tool calls started inside the line range.'),
+        failed_calls: zod
+            .number()
+            .min(tasksRunsAnalysisActivityCreateBodyFailedCallsMin)
+            .describe('Tool calls started inside the line range that ended as failed.'),
+        seconds: zod
+            .number()
+            .min(tasksRunsAnalysisActivityCreateBodySecondsMin)
+            .describe(
+                'Wall-clock seconds from the last timestamp before the line range to the last timestamp inside it.'
+            ),
+        idle_seconds: zod
+            .number()
+            .min(tasksRunsAnalysisActivityCreateBodyIdleSecondsMin)
+            .describe('Sum of the gaps longer than 4 minutes between those consecutive timestamps.'),
+        commands: zod
+            .array(zod.string().min(1).max(tasksRunsAnalysisActivityCreateBodyCommandsItemMax))
+            .max(tasksRunsAnalysisActivityCreateBodyCommandsMax)
             .optional()
-            .describe('The fix the finding argues for.'),
+            .describe('Command heads run in the activity, in order, adjacent duplicates removed.'),
+        guidance_read: zod
+            .array(zod.string().min(1).max(tasksRunsAnalysisActivityCreateBodyGuidanceReadItemMax))
+            .max(tasksRunsAnalysisActivityCreateBodyGuidanceReadMax)
+            .optional()
+            .describe('Skills, AGENTS.md files, templates, and wiki pages the agent read in the activity.'),
     })
-    .describe('One analysis finding. The shape the server stores, independent of what the tool sent.')
+    .describe('One activity record from a task-run analysis: what the agent tried, how it went, and what blocked it.')
 
 /**
  * Append one or more log entries to the task run log array
@@ -2672,7 +2699,11 @@ export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
                     .max(tasksRunsArtifactsCreateBodyArtifactsItemSourceMax)
                     .default(tasksRunsArtifactsCreateBodyArtifactsItemSourceDefault)
                     .describe('Optional source label for the artifact, such as agent_output or user_attachment'),
-                content: zod.string().describe('Artifact contents encoded according to content_encoding'),
+                content: zod
+                    .string()
+                    .describe(
+                        'Artifact contents encoded according to content_encoding. Artifacts above 14 MB must use prepare_upload instead.'
+                    ),
                 content_encoding: zod
                     .enum(['utf-8', 'base64'])
                     .describe('\* `utf-8` - utf-8\n\* `base64` - base64')
@@ -3358,7 +3389,73 @@ export const TasksThreadMessagesSendToAgentCreateBody = /* @__PURE__ */ zod
     .describe("Response shape for one message in a task's thread.")
 
 /**
- * Returns summary for the requested tasks: `id`, `title`, `repository`, `created_at`, `updated_at`, and the latest run's `status` and `environment`.
+ * Set your per-project default AI run preferences; they override the project default wholesale. Send all fields as null to clear and inherit the project default.
+ */
+export const TasksMeConfigCreateBody = /* @__PURE__ */ zod
+    .object({
+        runtime_adapter: zod
+            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
+            .optional()
+            .describe(
+                "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.\n\n\* `claude` - claude\n\* `codex` - codex"
+            ),
+        model: zod
+            .string()
+            .nullish()
+            .describe('Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.'),
+        reasoning_effort: zod
+            .union([
+                zod
+                    .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+                    .describe(
+                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Default reasoning effort for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            ),
+    })
+    .describe(
+        'The default AI run triple stored at team or user level.\n\nWrite payload for the tasks config endpoints and the `ai_run_preferences` block of\ntheir responses. `runtime_adapter` and `model` must be set together; send all three\nas null to clear a stored preference.'
+    )
+
+/**
+ * Set the project-wide default AI run preferences applied to task runs created without an explicit runtime selection. Send all fields as null to clear.
+ */
+export const TasksConfigCreateBody = /* @__PURE__ */ zod
+    .object({
+        runtime_adapter: zod
+            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
+            .optional()
+            .describe(
+                "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.\n\n\* `claude` - claude\n\* `codex` - codex"
+            ),
+        model: zod
+            .string()
+            .nullish()
+            .describe('Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.'),
+        reasoning_effort: zod
+            .union([
+                zod
+                    .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+                    .describe(
+                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Default reasoning effort for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            ),
+    })
+    .describe(
+        'The default AI run triple stored at team or user level.\n\nWrite payload for the tasks config endpoints and the `ai_run_preferences` block of\ntheir responses. `runtime_adapter` and `model` must be set together; send all three\nas null to clear a stored preference.'
+    )
+
+/**
+ * Returns summary for the requested tasks, including the creator ID and the latest run's ID, status, and environment.
  * @summary Fetch task summaries by ID
  */
 export const tasksSummariesCreateBodyIdsMax = 5000
