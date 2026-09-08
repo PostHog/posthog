@@ -2,7 +2,14 @@ import { Server, createServer } from 'node:http'
 import { AddressInfo } from 'node:net'
 
 import { ImageScrubConsumerMetrics } from './metrics'
-import { POISON_MAX_REJECTED_MS, ScrubAborted, ScrubClient, ScrubContractError, ScrubPoisoned } from './scrub-client'
+import {
+    POISON_MAX_REJECTED_MS,
+    ScrubAborted,
+    ScrubClient,
+    ScrubContractError,
+    ScrubPoisoned,
+    socketWaitReason,
+} from './scrub-client'
 
 /** `destroy` drops the socket without replying; `hold` never replies at all, so the client's timeout fires. */
 type Reply = { status: number; body?: string; durationMs?: number; destroy?: boolean; hold?: boolean }
@@ -133,14 +140,20 @@ describe('ScrubClient', () => {
     it.each([
         ['nothing listening on the sidecar port', 'refused', { listening: false }],
         ['a connection the sidecar dropped before replying', 'reset', { reply: { status: 0, destroy: true } }],
-        ['a request the sidecar never answered', 'timeout', { reply: { status: 0, hold: true }, timeoutMs: 50 }],
+        ['a request the sidecar never answered', 'timeout', { holdFirst: true, timeoutMs: 100 }],
     ] as const)('labels %s as "%s" and keeps waiting', async (_label, reason, setup) => {
-        // The unreachable alert keys on "refused" alone. A dropped socket is what every pod sees when
-        // the sidecar closes its idle connections on shutdown, and a timeout is a sidecar that is
-        // slow rather than absent, so either of those landing on "refused" would page for a rollout.
+        // A dropped socket is what every pod sees when the sidecar closes its idle connections on
+        // shutdown, and a timeout is a sidecar that is slow rather than absent, so either of those
+        // landing on "refused" would page for a rollout.
         const incScrubWait = jest.spyOn(ImageScrubConsumerMetrics, 'incScrubWait')
         if ('reply' in setup) {
             replies = [setup.reply]
+        }
+        // Keyed on the request count rather than queued: the client destroys a timed-out socket, and
+        // if that lands before the server's end handler runs, a queued hold would be left for the
+        // retry, which would then time out as well.
+        if ('holdFirst' in setup) {
+            replyFor = () => (requests === 1 ? { status: 0, hold: true } : undefined)
         }
         const scrubClient = client(false, 'timeoutMs' in setup ? setup.timeoutMs : 1000, listenAgain)
         if ('listening' in setup) {
@@ -151,6 +164,23 @@ describe('ScrubClient', () => {
 
         expect(incScrubWait.mock.calls).toEqual([[reason]])
         incScrubWait.mockRestore()
+    })
+
+    it.each([
+        ['ECONNREFUSED', 'refused'],
+        ['ECONNRESET', 'reset'],
+        ['EPIPE', 'reset'],
+        ['ECONNABORTED', 'reset'],
+        ['ENOTFOUND', 'transport'],
+        ['ETIMEDOUT', 'transport'],
+        ['EMFILE', 'transport'],
+        [undefined, 'transport'],
+    ])('maps socket error code %s to "%s"', (code, reason) => {
+        // "reset" is the one label the runbook tells the on-call to expect, so only the codes a peer
+        // produces by closing an accepted connection may land there. Anything else, or no code at
+        // all, has to stay on a label the unreachable alert selects, or a misdirected URL or a
+        // leaked descriptor reads as a rollout.
+        expect(socketWaitReason(Object.assign(new Error('boom'), code ? { code } : {}))).toBe(reason)
     })
 
     it('never dead-letters on saturation alone, however long the sidecar sheds', async () => {
