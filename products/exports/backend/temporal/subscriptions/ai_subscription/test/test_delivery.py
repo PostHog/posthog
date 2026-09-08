@@ -5,6 +5,7 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import connection
 from django.template.loader import render_to_string
 
 from parameterized import parameterized
@@ -538,6 +539,34 @@ class TestResolveSubscriptionContext(APIBaseTest):
         assert context.user == (self.user if has_creator else None)
         assert context.prompt == "how are exports doing?"
         assert context.context_selection == ReportContextSelection()
+
+    def test_a_failed_cutoff_lookup_falls_back_without_aborting_the_resolver(self) -> None:
+        # The cutoff lookup degrades to the cadence window on a database error, and it runs inside the
+        # resolver's transaction. An un-rolled-back statement error there would abort every later query
+        # in the block — including the creator's access check — turning the fallback into a failure.
+        sub = Subscription.objects.create(
+            team=self.team,
+            prompt="how are exports doing?",
+            target_type="email",
+            target_value="a@posthog.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            created_by=self.user,
+        )
+
+        def _statement_error(*args: object, **kwargs: object) -> None:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1 / 0")
+
+        with (
+            patch.object(SubscriptionDelivery.objects, "filter", side_effect=_statement_error),
+            patch(f"{_DELIVERY}.capture_exception"),
+        ):
+            context = _resolve_subscription_context(sub)
+
+        assert context.creator_can_query is True
+        assert context.window.start < context.window.end
 
 
 class TestLastSuccessfulDeliveryAnchor(APIBaseTest):

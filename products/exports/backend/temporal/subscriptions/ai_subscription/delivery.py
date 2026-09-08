@@ -132,20 +132,23 @@ def _split_text_into_chunks(text: str, limit: int = SLACK_MRKDWN_SECTION_LIMIT) 
 
 def _last_scheduled_report_cutoff(subscription: Subscription) -> datetime | None:
     try:
-        row = (
-            SubscriptionDelivery.objects.filter(
-                subscription_id=subscription.id,
-                status=SubscriptionDelivery.Status.COMPLETED,
-                # Only real scheduled sends move the anchor: a manual "Test delivery" (or an immediate
-                # target-change confirmation) right before a run would otherwise shrink its window to
-                # near-empty — a test is a preview, not a send.
-                trigger_type=SubscriptionTriggerType.SCHEDULED,
-                finished_at__isnull=False,
+        # Savepoint: the caller reads this inside its own transaction, and a statement error left
+        # un-rolled-back would abort every later query there instead of degrading to the fallback.
+        with transaction.atomic():
+            row = (
+                SubscriptionDelivery.objects.filter(
+                    subscription_id=subscription.id,
+                    status=SubscriptionDelivery.Status.COMPLETED,
+                    # Only real scheduled sends move the anchor: a manual "Test delivery" (or an immediate
+                    # target-change confirmation) right before a run would otherwise shrink its window to
+                    # near-empty — a test is a preview, not a send.
+                    trigger_type=SubscriptionTriggerType.SCHEDULED,
+                    finished_at__isnull=False,
+                )
+                .order_by("-finished_at")
+                .values_list("finished_at", "content_snapshot")
+                .first()
             )
-            .order_by("-finished_at")
-            .values_list("finished_at", "content_snapshot")
-            .first()
-        )
         if row is None:
             return None
         finished_at, snapshot = row
