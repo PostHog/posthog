@@ -248,7 +248,7 @@ export const calculateLayouts = (
         }
 
         const layouts = (sortedDashboardTiles || []).map((tile) => {
-            const query = tile.insight ? getQueryBasedInsightModel(tile.insight) : null
+            const query = tile.insight ? getQueryBasedInsightModel(tile.insight, 'dashboard_tile_layout') : null
             // Base constraints
             let defaultW = 6
             let defaultH = 5
