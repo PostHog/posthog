@@ -1914,6 +1914,11 @@ class TaskRunPeerMessageResponseSerializer(serializers.Serializer):
 TASK_SUMMARIES_MAX_IDS = 5000
 
 
+class TaskExecutionMode(models.TextChoices):
+    INTERACTIVE = "interactive", "interactive"
+    BACKGROUND = "background", "background"
+
+
 class TaskSummariesRequestSerializer(serializers.Serializer):
     ids = serializers.ListField(
         child=serializers.UUIDField(),
@@ -1930,6 +1935,10 @@ class TaskRunSummarySerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="ID of the latest run.")
     status = serializers.ChoiceField(choices=tasks_facade.TaskRunStatus.choices, allow_null=True)
     environment = serializers.ChoiceField(choices=tasks_facade.TaskRunEnvironment.choices, allow_null=True)
+    mode = serializers.ChoiceField(
+        choices=TaskExecutionMode.choices,
+        help_text="Execution mode of the latest run.",
+    )
 
 
 class TaskSummarySerializer(DataclassSerializer):
@@ -2980,11 +2989,6 @@ def get_relayed_imported_mcp_name_collision_error(attrs: dict) -> str | None:
         if server["name"].lower() in imported_names:
             return f"Relayed MCP server name '{server['name']}' collides with an imported MCP server name."
     return None
-
-
-class TaskExecutionMode(models.TextChoices):
-    INTERACTIVE = "interactive", "interactive"
-    BACKGROUND = "background", "background"
 
 
 class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpServersFieldMixin, serializers.Serializer):

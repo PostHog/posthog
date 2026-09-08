@@ -59645,6 +59645,11 @@ export namespace Schemas {
       id: string;
       status: TaskRunStatusEnum | null;
       environment: TaskRunEnvironmentEnum | null;
+      /** Execution mode of the latest run.
+       *
+       * * `interactive` - interactive
+       * * `background` - background */
+      mode: TaskExecutionModeEnum;
     }
 
     /**
