@@ -30,14 +30,27 @@ afterEach(() => {
 
 describe('FunnelLineChart', () => {
     describe('series rendering', () => {
-        it('renders a single conversion series with percentage values in the tooltip', async () => {
+        it('renders a single conversion series with the counts behind the rate in the tooltip', async () => {
             renderInsight({ query: buildFunnelsQuery() })
 
             const tooltip = await chart.hoverTooltip(2)
 
             expect(getHogChart().seriesCount).toBe(1)
             expect(tooltip.element.textContent).toContain(FUNNEL_CONVERSION_SERIES_LABEL)
-            expect(tooltip.element.textContent).toContain('40%')
+            // A bare percentage hides whether the period converted 3 people or 3,000.
+            expect(tooltip.element.textContent).toContain('20 of 50 people (40%)')
+        })
+
+        it('falls back to the bare percentage when the response carries no step counts', async () => {
+            renderInsight({
+                query: buildFunnelsQuery({
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                }),
+            })
+
+            const tooltip = await chart.hoverTooltip(2)
+
+            expect(tooltip.row('Spike')).toBe('50%')
         })
 
         it('renders a series per breakdown variant with the breakdown label on each tooltip row', async () => {
