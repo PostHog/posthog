@@ -9,12 +9,11 @@
 //! offsets. `ingestion_consumer_commits_checked_total` is the denominator: the
 //! guarantee holds while it grows and the violation counter stays flat.
 //!
-//! **Commit confirmation**: "commits are actually made" cannot be observed via
-//! `ConsumerContext::commit_callback` — librdkafka drops the result of manual
-//! async commits (see the note on [`crate::order_sentinel::SentinelContext`]).
-//! Instead the commit monitor periodically fetches the group's
-//! broker-committed offsets and feeds [`CommitSentinel::observe_broker_committed`],
-//! which emits `ingestion_consumer_broker_committed_offset` and
+//! **Commit confirmation**: librdkafka never reports the result of a manual
+//! async commit (see the note on [`crate::order_sentinel::SentinelContext`]),
+//! so the commit monitor fetches the group's broker-committed offsets and
+//! feeds [`CommitSentinel::observe_broker_committed`], which emits
+//! `ingestion_consumer_broker_committed_offset` and
 //! `ingestion_consumer_commit_confirmation_lag` gauges and stamps
 //! `ingestion_consumer_last_successful_commit_timestamp_seconds` on progress.
 //!
@@ -92,13 +91,6 @@ struct PartitionCommits {
 /// Caveat: legitimate offset gaps exist on topics with transactional producers
 /// (control records consume offsets). The ingestion topics are produced by
 /// capture without transactions, so a gap here is a real skip.
-///
-/// Because commits use `CommitMode::Async` and librdkafka silently drops the
-/// result of manual async commits (no conf-level `offset_commit_cb` is ever
-/// registered by rust-rdkafka, so `ConsumerContext::commit_callback` never
-/// fires for them), commit *success* is verified out of band: the consumer's
-/// commit monitor periodically fetches the group's broker-committed offsets
-/// and feeds them to [`CommitSentinel::observe_broker_committed`].
 pub struct CommitSentinel {
     partitions: Mutex<HashMap<(String, i32), PartitionCommits>>,
     /// Kill switch (`CONSUMER_ORDER_SENTINEL_ENABLED`). When off, checks
@@ -121,16 +113,11 @@ impl CommitSentinel {
         self.enabled.store(enabled, Ordering::Relaxed);
     }
 
-    /// Check a taken frontier as it is handed over, so a violation is
-    /// attributed to the work that caused it, then pass it on. The frontier
-    /// spans the window base it started from to the frontier it reached, so
-    /// consecutive takes on a partition must chain; the frontier is
-    /// next-to-read while the span is last-processed.
+    /// Check the span a taken frontier covers as it is handed over, so a
+    /// violation is attributed to the work that caused it, then pass the
+    /// frontier on. Consecutive takes on a partition must chain.
     pub fn on_frontier(&self, topic_partition: &TopicPartition, taken: TakenFrontier) {
-        let span = OffsetSpan {
-            first: taken.first.0,
-            last: taken.offset.0 - 1,
-        };
+        let span = OffsetSpan::of_take(&taken);
         self.check_commit([(topic_partition, &span)]);
         self.inner.on_frontier(topic_partition, taken);
     }

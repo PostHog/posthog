@@ -1,9 +1,9 @@
 //! Commit pacing for the ingestion consumer. The consumer hands over each
 //! partition's frontier as it takes it from the ledger and asks the pacer
-//! on every wake-up. The pacer holds the latest frontier per partition and
+//! on every tick. The pacer holds the latest frontier per partition and
 //! hands them out once the interval has elapsed. The consumer commits them
-//! in one call. The commit rate is bounded by the interval rather than by
-//! how often frontiers move.
+//! in one call, so the commit rate is bounded by the interval rather than by
+//! how often frontiers move. The pacer holds no I/O.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -16,13 +16,11 @@ struct State {
     /// The next-to-read offset each partition is ready to commit. Frontiers
     /// only move forward, so the latest one covers every earlier one.
     pending: HashMap<TopicPartition, Offset>,
-    /// When the last commit went out; `None` before the first.
-    last_commit: Option<Instant>,
+    last_take: Option<Instant>,
 }
 
-/// Holds the offsets ready to commit and hands them out at most once per
-/// `interval`. Holds no I/O: the consumer commits what it is given. The
-/// commit sentinel wraps it to check what passes through.
+/// Hands out the pending offsets at most once per `interval`. The commit
+/// sentinel wraps it to check what passes through.
 pub struct CommitPacer {
     state: Mutex<State>,
     interval: Duration,
@@ -62,14 +60,14 @@ impl CommitPacer {
     pub fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
         let mut state = self.state.lock().unwrap();
         let inside_interval = state
-            .last_commit
+            .last_take
             .is_some_and(|last| now < last + self.interval);
-        // An idle tick does not start an interval, so a frontier arriving
-        // after a quiet spell goes out on the next tick.
+        // An empty take does not start an interval, so a frontier arriving
+        // after a quiet spell goes out on the next call.
         if inside_interval || state.pending.is_empty() {
             return None;
         }
-        state.last_commit = Some(now);
+        state.last_take = Some(now);
         Some(std::mem::take(&mut state.pending))
     }
 
@@ -108,7 +106,7 @@ mod tests {
     const INTERVAL: Duration = Duration::from_millis(500);
 
     #[test]
-    fn the_first_tick_with_a_pending_frontier_commits_at_once() {
+    fn the_first_take_with_a_pending_frontier_hands_it_out() {
         let pacer = CommitPacer::new(INTERVAL);
         pacer.on_frontier(&tp(0), taken(0, 10));
 
@@ -117,7 +115,7 @@ mod tests {
     }
 
     #[test]
-    fn the_latest_frontier_per_partition_is_what_commits() {
+    fn the_latest_frontier_per_partition_is_what_goes_out() {
         let pacer = CommitPacer::new(INTERVAL);
         pacer.on_frontier(&tp(0), taken(0, 10));
         pacer.on_frontier(&tp(1), taken(0, 20));
@@ -131,7 +129,7 @@ mod tests {
     }
 
     #[test]
-    fn a_tick_inside_the_interval_commits_nothing_and_keeps_the_frontier() {
+    fn a_take_inside_the_interval_hands_out_nothing_and_keeps_the_frontier() {
         let pacer = CommitPacer::new(INTERVAL);
         let start = Instant::now();
         pacer.on_frontier(&tp(0), taken(0, 10));
@@ -146,7 +144,7 @@ mod tests {
     }
 
     #[test]
-    fn an_idle_tick_does_not_start_an_interval() {
+    fn an_empty_take_does_not_start_an_interval() {
         let pacer = CommitPacer::new(INTERVAL);
         let start = Instant::now();
 

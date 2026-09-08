@@ -1,8 +1,8 @@
-//! Confirms that async commits land. librdkafka drops the result of a manual
-//! async commit (no conf-level `offset_commit_cb` is ever registered by
-//! rust-rdkafka, and only sync commits attach a reply queue), so a task
-//! fetches the group's broker-committed offsets on an interval and reports
-//! them to the commit sentinel.
+//! Confirms that async commits land. librdkafka never reports the result of
+//! a manual async commit (see the note on
+//! [`crate::order_sentinel::SentinelContext`]), so a task fetches the group's
+//! broker-committed offsets on an interval and reports them to the commit
+//! sentinel.
 
 use std::sync::Arc;
 use std::time::Duration;

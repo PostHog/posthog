@@ -28,10 +28,9 @@ use crate::ledger_rejection::{warn_rejection, RejectedSlice};
 use crate::order_sentinel::{OffsetSpan, SentinelContext};
 use crate::types::{Accumulator, SerializedKafkaMessage};
 
-/// The consumer loop's wake-up timer while it waits on completions: the
-/// resolution at which it reports liveness and gives the commit pacer a
-/// chance to commit. While it collects a poll, the batch timeout is the
-/// resolution.
+/// How often the loop reports liveness and asks the pacer while it waits on
+/// completions. While it collects a poll, the batch timeout sets that cadence
+/// instead.
 const TICK: Duration = Duration::from_millis(100);
 
 /// Batch-wide statistics gathered while collecting, used to emit parity
@@ -411,7 +410,7 @@ impl IngestionConsumer {
     }
 
     /// Poll, dispatch, and complete until shutdown drains the in-flight polls
-    /// or a batch fails.
+    /// or the loop fails.
     async fn run(
         &self,
         mut completions: mpsc::UnboundedReceiver<GroupCompletion>,
@@ -427,11 +426,12 @@ impl IngestionConsumer {
             // processed in parallel, bounded by `max_in_flight_batches`.
             gauge!("ingestion_consumer_in_flight_batches").set(in_flight_polls.len() as f64);
 
-            // Once per iteration rather than as a select arm below: a wake-up
-            // that won against `collect_batch` would drop a half-collected
-            // poll, and the next commit would then skip its offsets. A
-            // collection returns within the batch timeout, so a due commit
-            // waits at most that long.
+            // Asked once per iteration, and not as a timer arm in the select
+            // below: `select!` drops the losing future, and a dropped
+            // `collect_batch` loses the messages it already pulled from the
+            // stream before they reach the ledger. The next commit would then
+            // advance past them. A collection returns within the batch
+            // timeout, so a due commit waits at most that long.
             if let Err(err) = self.maybe_commit_offsets() {
                 self.fail_commit(err);
                 return;
@@ -493,11 +493,9 @@ impl IngestionConsumer {
     /// Report liveness and commit if the commit pacer says a commit is due.
     fn maybe_commit_offsets(&self) -> anyhow::Result<()> {
         self.handle.report_healthy();
-        // The commit pacer owns the pacing: it holds the frontiers handed
-        // to it and answers with offsets at most once per commit interval.
-        // The consumer asks on every wake-up and commits only an answer, so
-        // asking here as often as the loop turns does not reach Kafka more
-        // often than the interval.
+        // The pacer owns the pacing: `take_due` hands out offsets at most
+        // once per commit interval, so calling this on every tick does not
+        // reach Kafka more often than that.
         if let Some(offsets) = self.commit_sentinel.take_due(Instant::now()) {
             self.commit_offsets(&offsets)?;
         }
@@ -815,7 +813,7 @@ impl IngestionConsumer {
             // Unreachable while batches require messages to be spawned; counted
             // so "no empty commits" is a measurable guarantee, not an assumption.
             counter!("ingestion_consumer_commit_violations_total", "kind" => "empty").increment(1);
-            warn!("Commit requested with no offsets");
+            warn!("Poll settled with no partitions");
             return;
         }
 

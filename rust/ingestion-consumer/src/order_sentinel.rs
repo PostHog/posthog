@@ -35,7 +35,7 @@ use tracing::{info, warn};
 use crate::commit_pacer::CommitPacer;
 use crate::commit_sentinel::CommitSentinel;
 use crate::types::SerializedKafkaMessage;
-use common_kafka_consumer::{AssignmentEpoch, TopicOffsetLedger, TopicPartition};
+use common_kafka_consumer::{AssignmentEpoch, TakenFrontier, TopicOffsetLedger, TopicPartition};
 
 /// The first and last Kafka offsets a batch holds for one topic-partition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,6 +49,15 @@ impl OffsetSpan {
         Self {
             first: offset,
             last: offset,
+        }
+    }
+
+    /// The offsets a taken frontier covers. The frontier is next-to-read, so
+    /// the span ends one before it.
+    pub fn of_take(taken: &TakenFrontier) -> Self {
+        Self {
+            first: taken.first.0,
+            last: taken.offset.0 - 1,
         }
     }
 

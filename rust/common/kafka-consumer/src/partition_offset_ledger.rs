@@ -68,8 +68,9 @@ impl fmt::Display for LedgerError {
 
 impl std::error::Error for LedgerError {}
 
-/// A consumed contiguous prefix: its commit-ready frontier, the charge it
-/// covers, and how many of its offsets Kafka never delivered.
+/// A consumed contiguous prefix: the window base it started from, its
+/// commit-ready frontier, the charge it covers, and how many of its offsets
+/// Kafka never delivered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TakenFrontier {
     pub first: Offset,
