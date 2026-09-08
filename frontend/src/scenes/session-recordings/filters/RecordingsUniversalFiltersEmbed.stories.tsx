@@ -1,6 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { combineUrl } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordingPlaylists } from 'scenes/session-recordings/__mocks__/recording_playlists'
@@ -64,4 +65,15 @@ export const ProductAnalyticsUnderLimit: Story = {
             },
         }),
     ],
+}
+
+// The footer action row with the Replay vision cross-sell shown, so the divider that splits it
+// from the filter-management buttons stays covered by visual review. The non-default date range
+// puts the filter count above zero, which is what makes the button actionable.
+export const ScannerCrossSell: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.VISION_ENTRYPOINT_REPLAY_FILTERS],
+        pageUrl: combineUrl(urls.replay(), { showFilters: true, filters: { date_from: '-7d' } }).url,
+        testOptions: { waitForSelector: '[data-attr="replay-save-filters-as-scanner"]' },
+    },
 }
