@@ -1,1 +1,1 @@
-0006_rename_alertconfiguration_schedule_anchor
+0005_alertconfiguration_schedule_start_time

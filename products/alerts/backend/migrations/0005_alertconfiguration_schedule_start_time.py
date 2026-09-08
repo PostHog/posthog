@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="alertconfiguration",
-            name="schedule_anchor",
+            name="schedule_start_time",
             field=models.JSONField(blank=True, default=None, null=True),
         ),
     ]
