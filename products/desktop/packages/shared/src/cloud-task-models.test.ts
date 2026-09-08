@@ -17,6 +17,7 @@ import {
   normalizeGatewayModelsResponse,
   pickAllowedModel,
 } from "./cloud-task-models";
+import { isCustomModelOption } from "./models";
 
 const model = (
   id: string,
@@ -362,6 +363,7 @@ describe("buildProviderModelGroups", () => {
     expect(groups.at(-1)).toMatchObject({
       options: [{ value: "my-custom", description: "Custom model" }],
     });
+    expect(isCustomModelOption(groups.at(-1)?.options[0]?._meta)).toBe(true);
   });
 
   // A gateway blip answers with an empty or one-sided catalog. The picker must
@@ -392,6 +394,7 @@ describe("buildProviderModelGroups", () => {
           },
         ],
       });
+      expect(isCustomModelOption(groups[0]?.options[0]?._meta)).toBe(true);
     },
   );
 });

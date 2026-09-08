@@ -161,7 +161,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     sessionId={feedbackTaskId}
                     turnIndex={trailer.turnIndex}
                     run={feedbackRun}
-                    isLastTurn={trailer.isLastTurn}
+                    traceId={trailer.traceId}
                     turnText={trailer.turnText}
                 />
             ) : null,

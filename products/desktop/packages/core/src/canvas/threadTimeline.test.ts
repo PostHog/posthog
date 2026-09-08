@@ -205,6 +205,16 @@ describe("deriveThreadAgentStatus", () => {
       expected: { phase: "error", label: "Run failed" },
     },
     {
+      name: "shows a new run loading over a stale failure",
+      input: {
+        hasActivity: true,
+        hasError: true,
+        isInitializing: true,
+        errorTitle: "Run failed",
+      },
+      expected: { phase: "active", label: "Loading" },
+    },
+    {
       name: "prioritizes pending permissions over active work",
       input: {
         hasActivity: true,
@@ -212,6 +222,20 @@ describe("deriveThreadAgentStatus", () => {
         isPromptPending: true,
       },
       expected: { phase: "needs_input", label: "Needs input" },
+    },
+    {
+      name: "reports startup loading before other activity",
+      input: { isInitializing: true },
+      expected: { phase: "active", label: "Loading" },
+    },
+    {
+      name: "keeps startup loading ahead of prompt work",
+      input: {
+        hasActivity: true,
+        isInitializing: true,
+        isPromptPending: true,
+      },
+      expected: { phase: "active", label: "Loading" },
     },
     {
       name: "reports active work",

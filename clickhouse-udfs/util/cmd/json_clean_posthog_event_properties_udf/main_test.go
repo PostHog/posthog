@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"weak"
 )
 
 func TestProcessLineCleansEventProperties(t *testing.T) {
@@ -50,15 +52,21 @@ func TestProcessLinePreservesPersonProperties(t *testing.T) {
 }
 
 func TestProcessLineGroupsFeaturePropertiesAndPreservesExistingFlagValues(t *testing.T) {
-	input := []byte(`{"$feature/first-flag":"fresh","$feature/number":42,"$feature/enabled":true,"$feature/config":{"nested.value":"dropped"},"$feature_flags":"invalid","$feature_flags":{"existing":"kept","first-flag":"existing"},"$feature_flag_payloads":{"flag":"dropped"},"other":"value"}`)
-	want := `{"$feature_flags":{"existing":"kept","first-flag":"existing","number":42,"enabled":true,"config":{"nested":{"value":"dropped"}}},"other":"value"}`
-
-	var got bytes.Buffer
-	if err := processLine(input, &got); err != nil {
-		t.Fatal(err)
+	tests := map[string]string{
+		`{"$feature/first-flag":"fresh","$feature/number":42,"$feature/enabled":true,"$feature/config":{"nested.value":"dropped"},"$feature_flags":"invalid","$feature_flags":{"existing":"kept","first-flag":"existing"},"$feature_flag_payloads":{"flag":"dropped"},"other":"value"}`: `{"$feature_flags":{"config":{"nested":{"value":"dropped"}},"enabled":true,"existing":"kept","first-flag":"existing","number":42},"other":"value"}`,
+		`{"$feature/zebra":false,"$feature/alpha":"control","other":1}`: `{"other":1,"$feature_flags":{"alpha":"control","zebra":false}}`,
+		`{"$feature_flags":{"zebra":false,"alpha":"control"}}`:          `{"$feature_flags":{"alpha":"control","zebra":false}}`,
+		`{"$feature/a.b":1,"$feature/a":{"b":2},"$feature/Z":true}`:     `{"$feature_flags":{"Z":true,"a":{"b":1}}}`,
 	}
-	if got.String() != want {
-		t.Fatalf("processLine() = %s, want %s", got.String(), want)
+
+	for input, want := range tests {
+		var got bytes.Buffer
+		if err := processLine([]byte(input), &got); err != nil {
+			t.Fatalf("processLine(%s) returned error: %v", input, err)
+		}
+		if got.String() != want {
+			t.Fatalf("processLine(%s) = %s, want %s", input, got.String(), want)
+		}
 	}
 }
 
@@ -138,6 +146,22 @@ func TestProcessLineQuarantinesExcessiveDepth(t *testing.T) {
 				t.Fatalf("processLine() = %s, want %s", got.String(), want)
 			}
 		})
+	}
+}
+
+func TestTemporaryPropertiesDoNotDuplicateQuarantinedDocuments(t *testing.T) {
+	for _, input := range []string{
+		`{"$set":` + strings.Repeat(`{"x":`, maxJSONDepth) + `1` + strings.Repeat(`}`, maxJSONDepth) + `}`,
+		`{"$set.` + strings.Repeat("x.", maxJSONDepth) + `x":1}`,
+	} {
+		proc := processor{kind: temporaryProperties}
+		var got bytes.Buffer
+		if err := proc.processLine([]byte(input), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.String() != "{}" {
+			t.Fatalf("temporary output must not retain raw quarantine: %s", got.String())
+		}
 	}
 }
 
@@ -228,6 +252,77 @@ func TestRunChunked(t *testing.T) {
 	}
 	if output.String() != want {
 		t.Fatalf("runChunked() = %q, want %q", output.String(), want)
+	}
+}
+
+func TestProcessLineReleasesPreviousInput(t *testing.T) {
+	for _, kind := range []propertiesKind{eventProperties, personProperties, temporaryProperties} {
+		t.Run(fmt.Sprint(kind), func(t *testing.T) {
+			proc := processor{kind: kind}
+			var output bytes.Buffer
+			input := []byte(`{"$set":1,"discard":null}`)
+			previousInput := weak.Make(&input[0])
+			if err := proc.processLine(input, &output); err != nil {
+				t.Fatal(err)
+			}
+			input = nil
+			if err := proc.processLine([]byte(`{"$set":2}`), &output); err != nil {
+				t.Fatal(err)
+			}
+			runtime.GC()
+			if previousInput.Value() != nil {
+				t.Error("processor retains a previous input after garbage collection")
+			}
+			runtime.KeepAlive(&proc)
+		})
+	}
+}
+
+func TestProcessLineReleasesOversizedContainers(t *testing.T) {
+	var object strings.Builder
+	object.WriteByte('{')
+	for i := range 64 {
+		if i > 0 {
+			object.WriteByte(',')
+		}
+		fmt.Fprintf(&object, `"key%d":1`, i)
+	}
+	object.WriteByte('}')
+	for name, input := range map[string]string{
+		"object": object.String(),
+		"array":  "[" + strings.Repeat("1,", 63) + "1]",
+	} {
+		t.Run(name, func(t *testing.T) {
+			var proc processor
+			var output bytes.Buffer
+			if err := proc.processLine([]byte(input), &output); err != nil {
+				t.Fatal(err)
+			}
+			var entries weak.Pointer[entry]
+			var values weak.Pointer[*value]
+			for _, v := range proc.free {
+				if cap(v.entries) >= 64 {
+					entries = weak.Make(&v.entries[:cap(v.entries)][0])
+				}
+				if cap(v.values) >= 64 {
+					values = weak.Make(&v.values[:cap(v.values)][0])
+				}
+			}
+			if entries.Value() == nil && values.Value() == nil {
+				t.Fatal("wide row did not retain a reusable container")
+			}
+			if err := proc.processLine([]byte(`{}`), &output); err != nil {
+				t.Fatal(err)
+			}
+			if output.String() != "{}" {
+				t.Fatalf("unexpected output: %s", output.String())
+			}
+			runtime.GC()
+			if entries.Value() != nil || values.Value() != nil {
+				t.Error("small row retains an oversized container after garbage collection")
+			}
+			runtime.KeepAlive(&proc)
+		})
 	}
 }
 
@@ -328,4 +423,55 @@ func generatedBenchmarkLines() ([][]byte, int) {
 		totalBytes += len(line)
 	}
 	return lines, totalBytes
+}
+
+func TestProcessLineSplitsTemporaryProperties(t *testing.T) {
+	tests := []struct {
+		name, input, permanent, temporary string
+	}{
+		{
+			name:      "allowlist",
+			input:     `{"$set":{"score":7,"enabled":false},"$set_once":{"source":"demo"},"$unset":["old"],"$group_set":{"tier":"basic"},"$feature_flag_request_id":"request-example","$debug_first_full_snapshot_timestamp":1,"$snapshot_max_depth_exceeded":true,"$sess_rec_flush_size":2,"$session_recording_remote_config":{"enabled":true},"$session_recording_network_payload_capture":false,"$session_recording_canvas_recording":true,"$replay_script_config":{"version":3},"$sent_at":"2026-01-01","$lib_rate_limit_remaining_tokens":0,"$lib_custom_api_host":"https://example.com","$sdk_debug_new_metric":[[1,"x"],null],"$sdk_debug_current_session_duration":42,"$debug_images":[{"type":"elf"}],"$feature/demo":"control","$active_feature_flags":["demo"],"$feature_flag_payload":{},"$feature_flag_payloads":{},"$feature_flag_bootstrapped_payload":{},"$feature_flag_original_payload":{},"$transformations_succeeded":[],"custom":{"$set":"keep"}}`,
+			permanent: `{"$debug_images":[{"type":"elf"}],"custom":{"$set":"keep"},"$feature_flags":{"demo":"control"}}`,
+			temporary: `{"$set":{"score":7,"enabled":false},"$set_once":{"source":"demo"},"$unset":["old"],"$group_set":{"tier":"basic"},"$feature_flag_request_id":"request-example","$debug_first_full_snapshot_timestamp":1,"$snapshot_max_depth_exceeded":true,"$sess_rec_flush_size":2,"$session_recording_remote_config":{"enabled":true},"$session_recording_network_payload_capture":false,"$session_recording_canvas_recording":true,"$replay_script_config":{"version":3},"$sent_at":"2026-01-01","$lib_rate_limit_remaining_tokens":0,"$lib_custom_api_host":"https://example.com","$sdk_debug_new_metric":[[1,"x"],null],"$sdk_debug_current_session_duration":42}`,
+		},
+		{
+			name:      "dotted roots and normalization",
+			input:     `{"$set.profile.score":7,"$set.profile.missing":null,"$sdk_debug_probe.a":1,"$sdk_debug_probe.a":2,"$sdk_debug_probe.large":18446744073709551616,"$sdk_debug_current_session_duration.value":42,"$set_extra":true,"$debug_custom":"keep","custom.$set":"keep"}`,
+			permanent: `{"$set_extra":true,"$debug_custom":"keep","custom":{"$set":"keep"}}`,
+			temporary: `{"$set":{"profile":{"score":7}},"$sdk_debug_probe":{"a":1,"large":"18446744073709551616"},"$sdk_debug_current_session_duration":{"value":42}}`,
+		},
+		{
+			name: "nothing temporary", input: `{"custom":true}`, permanent: `{"custom":true}`, temporary: `{}`,
+		},
+		{
+			name: "already separated", input: `{"$set":{"enabled":false},"$unset":[]}`, permanent: `{}`, temporary: `{"$set":{"enabled":false},"$unset":[]}`,
+		},
+	}
+	for _, kind := range []propertiesKind{eventProperties, temporaryProperties} {
+		temporaryOnly := kind == temporaryProperties
+		proc := processor{kind: kind}
+		var got bytes.Buffer
+		for _, tt := range tests {
+			t.Run(fmt.Sprintf("%s/temporary=%t", tt.name, temporaryOnly), func(t *testing.T) {
+				want := tt.permanent
+				if temporaryOnly {
+					want = tt.temporary
+				}
+				if err := proc.processLine([]byte(tt.input), &got); err != nil {
+					t.Fatal(err)
+				}
+				if got.String() != want {
+					t.Fatalf("got %s, want %s", got.String(), want)
+				}
+			})
+		}
+	}
+	for _, input := range []string{`{"broken"`, `[]`, `null`, `"text"`} {
+		proc := processor{kind: temporaryProperties}
+		var got bytes.Buffer
+		if err := proc.processLine([]byte(input), &got); err == nil {
+			t.Fatalf("expected error for temporary properties %s", input)
+		}
+	}
 }

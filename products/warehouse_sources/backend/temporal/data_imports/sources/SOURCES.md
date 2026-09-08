@@ -972,6 +972,7 @@ doesn't conflict with concurrent PRs.
 - crowdstrike_falcon
 - cube_cloud
 - curve
+- cybersource
 - d2l_brightspace
 - datascope
 - datorama
@@ -1027,6 +1028,7 @@ doesn't conflict with concurrent PRs.
 - flexport
 - flowlu
 - fly_io
+- folk
 - formbricks
 - fortnox
 - fourthwall
@@ -1406,6 +1408,7 @@ doesn't conflict with concurrent PRs.
 - tebra
 - telli
 - tempo
+- tenjin
 - terabox
 - ternary
 - terra_api

@@ -308,9 +308,24 @@ tools:
             idempotent: true
         title: Snapshot change history
         description: >
-            List recent change history for a snapshot `identifier` across previous runs in the same repo. Useful for
-            diagnosing flaky snapshots — if the same identifier flips between changed and clean across runs, it is a
-            candidate for tolerated hashes or quarantine. Requires `identifier` query parameter.
+            List recent change history for one snapshot across previous runs in the same repo. Useful for diagnosing
+            flaky snapshots — if the same identifier flips between changed and clean across runs, it is a candidate for
+            tolerated hashes or quarantine. Both parameters are required, and one snapshot from
+            `visual-review-runs-snapshots-list` gives you both: pass its `run_id` as `id`, and its `identifier` as
+            `identifier`. Passing the snapshot's own `id` as `id` does not work, and neither parameter can be left out.
+        param_overrides:
+            id:
+                description: >
+                    UUID of the visual review run to look the snapshot up from — a run id, not the `id` of a snapshot
+                    inside the run. Use the snapshot's `run_id`, or a run id from `visual-review-runs-list`. Required,
+                    and `identifier` is required alongside it.
+                aliases:
+                    - run_id
+            identifier:
+                description: >
+                    Identifier of the snapshot to trace, for example a Storybook story id plus theme. Copy the
+                    `identifier` field of a snapshot in the run — it is a name, not a UUID. Required in addition to
+                    `id`; without it the call is rejected rather than returning history for the whole run.
         feature_flag: visual-review
     visual-review-runs-snapshots-list:
         operation: visual_review_runs_snapshots_list
@@ -364,7 +379,22 @@ tools:
             idempotent: true
         title: List tolerated hashes
         description: >
-            List known tolerated alternate hashes for a snapshot `identifier` in the run's repo. Tolerated hashes
-            catalog acceptable rendering variants (e.g. anti-aliasing noise) so future runs don't flag them as changes.
-            Requires `identifier` query parameter.
+            List known tolerated alternate hashes for one snapshot in the run's repo. Tolerated hashes catalog
+            acceptable rendering variants (e.g. anti-aliasing noise) so future runs don't flag them as changes. This
+            covers a single snapshot, not the whole run or repo. Both parameters are required, and one snapshot from
+            `visual-review-runs-snapshots-list` gives you both: pass its `run_id` as `id`, and its `identifier` as
+            `identifier`.
+        param_overrides:
+            id:
+                description: >
+                    UUID of the visual review run whose repo holds the tolerated hashes — a run id, not the `id` of a
+                    snapshot inside the run. Use the snapshot's `run_id`, or a run id from `visual-review-runs-list`.
+                    Required, and `identifier` is required alongside it.
+                aliases:
+                    - run_id
+            identifier:
+                description: >
+                    Identifier of the snapshot whose tolerated hashes you want, for example a Storybook story id plus
+                    theme. Copy the `identifier` field of a snapshot in the run — it is a name, not a UUID. Required in
+                    addition to `id`; there is no way to list every tolerated hash in the repo from this tool.
         feature_flag: visual-review

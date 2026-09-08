@@ -1,5 +1,6 @@
 import {
     MOCK_DEFAULT_BASIC_USER,
+    MOCK_DEFAULT_ORGANIZATION,
     MOCK_DEFAULT_PROJECT,
     MOCK_DEFAULT_TEAM,
     MOCK_ORGANIZATION_ID,
@@ -15,6 +16,8 @@ import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -63,6 +66,7 @@ import {
     scheduleDateToProjectTzISO,
     slugifyFeatureFlagKey,
     validateFeatureFlagKey,
+    validateFeatureFlagTags,
     validateFeatureFlagVariantKey,
     validateVariantRolloutSum,
 } from './featureFlagLogic'
@@ -1496,6 +1500,219 @@ describe('featureFlagLogic', () => {
 
             testLogic.unmount()
             resumeKeaLoadersErrors()
+        })
+    })
+
+    describe('creating a flag in additional projects', () => {
+        const TARGET_A = MOCK_TEAM_ID + 1
+        const TARGET_B = MOCK_TEAM_ID + 2
+
+        let newLogic: ReturnType<typeof featureFlagLogic.build>
+        let copyRequests: Record<string, unknown>[]
+
+        function createAndCopyMocks(
+            copyResult: [number, CopyFlagsResponseApi | Record<string, unknown>]
+        ): Parameters<typeof useMocks>[0] {
+            return {
+                post: {
+                    '/api/projects/:team_id/feature_flags/': () => [201, MOCK_FEATURE_FLAG],
+                    '/api/organizations/:organization_id/feature_flags/copy_flags': async ({ request }) => {
+                        copyRequests.push((await request.json()) as Record<string, unknown>)
+                        return copyResult
+                    },
+                },
+            }
+        }
+
+        function copiedFlagInProject(teamId: number): CopyFlagsResponseApi['success'][number] {
+            return {
+                id: teamId,
+                key: MOCK_FEATURE_FLAG.key,
+                name: MOCK_FEATURE_FLAG.name,
+                active: true,
+                team_id: teamId,
+                updated_existing: false,
+            }
+        }
+
+        beforeEach(() => {
+            copyRequests = []
+            eventUsageLogic.mount()
+            newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+            // Named teams so the toasts resolve real project names instead of the "Project N" fallback
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                teams: [
+                    MOCK_DEFAULT_TEAM,
+                    { ...MOCK_DEFAULT_TEAM, id: TARGET_A, name: 'Marketing' },
+                    { ...MOCK_DEFAULT_TEAM, id: TARGET_B, name: 'Docs' },
+                ],
+            })
+        })
+
+        afterEach(() => {
+            newLogic.unmount()
+            eventUsageLogic.unmount()
+        })
+
+        it('copies the created flag to each selected project and reports where it landed', async () => {
+            useMocks(
+                createAndCopyMocks([
+                    200,
+                    {
+                        success: [copiedFlagInProject(TARGET_A), copiedFlagInProject(TARGET_B)],
+                        failed: [],
+                    },
+                ])
+            )
+
+            await expectLogic(newLogic, () => {
+                newLogic.actions.setAlsoCreateInProjects([TARGET_A, TARGET_B])
+                newLogic.actions.saveFeatureFlag({ ...NEW_FLAG, key: MOCK_FEATURE_FLAG.key })
+            }).toDispatchActions(['saveFeatureFlagSuccess'])
+
+            // Asserted at the point saveFeatureFlagSuccess dispatched, without draining listeners
+            // first: the copy must complete inside the saveFeatureFlag loader, or featureFlagLoading
+            // drops mid-copy and a second submit can fire a second create.
+            expect(copyRequests).toHaveLength(1)
+            expect(copyRequests[0]).toEqual({
+                feature_flag_key: MOCK_FEATURE_FLAG.key,
+                from_project: MOCK_TEAM_ID,
+                target_project_ids: [TARGET_A, TARGET_B],
+            })
+            expect(lemonToast.success).toHaveBeenCalledWith(
+                expect.stringContaining('Flag also created in Marketing and Docs')
+            )
+            // The picker resets so the next new-flag form starts empty
+            expect(newLogic.values.alsoCreateInProjects).toEqual([])
+
+            await expectLogic(newLogic).toFinishAllListeners()
+        })
+
+        it('makes no copy call when no additional projects are selected', async () => {
+            useMocks(createAndCopyMocks([200, { success: [], failed: [] }]))
+
+            await expectLogic(newLogic, () => {
+                newLogic.actions.saveFeatureFlag({ ...NEW_FLAG, key: MOCK_FEATURE_FLAG.key })
+            })
+                .toDispatchActions(['saveFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(copyRequests).toHaveLength(0)
+        })
+
+        it('keeps the save successful and reports an error when the copy request itself fails', async () => {
+            useMocks(createAndCopyMocks([500, { type: 'server_error', detail: 'Copy failed' }]))
+
+            await expectLogic(newLogic, () => {
+                newLogic.actions.setAlsoCreateInProjects([TARGET_A, TARGET_B])
+                newLogic.actions.saveFeatureFlag({ ...NEW_FLAG, key: MOCK_FEATURE_FLAG.key })
+            })
+                .toDispatchActions(['saveFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith(
+                expect.stringContaining('Copy to Marketing and Docs failed: Copy failed')
+            )
+        })
+
+        it('reports an overwritten same-key flag separately from created ones', async () => {
+            useMocks(
+                createAndCopyMocks([
+                    200,
+                    {
+                        success: [
+                            { ...copiedFlagInProject(TARGET_A), updated_existing: true },
+                            copiedFlagInProject(TARGET_B),
+                        ],
+                        failed: [],
+                    },
+                ])
+            )
+
+            await expectLogic(newLogic, () => {
+                newLogic.actions.setAlsoCreateInProjects([TARGET_A, TARGET_B])
+                newLogic.actions.saveFeatureFlag({ ...NEW_FLAG, key: MOCK_FEATURE_FLAG.key })
+            })
+                .toDispatchActions(['saveFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(lemonToast.warning).toHaveBeenCalledWith(expect.stringContaining('Flag also created in Docs'))
+            expect(lemonToast.warning).toHaveBeenCalledWith(
+                expect.stringContaining('an existing flag with this key was overwritten in Marketing')
+            )
+            expect(capturesOf('feature flag created in additional projects')).toEqual([
+                [
+                    'feature flag created in additional projects',
+                    {
+                        target_count: 2,
+                        created_count: 1,
+                        overwritten_count: 1,
+                        pending_approval_count: 0,
+                        failed_count: 0,
+                    },
+                ],
+            ])
+        })
+
+        it('surfaces dependency warnings from an otherwise successful copy', async () => {
+            useMocks(
+                createAndCopyMocks([
+                    200,
+                    {
+                        success: [
+                            {
+                                ...copiedFlagInProject(TARGET_A),
+                                flag_dependency_warnings: ['Dependency "parent-flag" is missing in the target'],
+                            },
+                        ],
+                        failed: [],
+                    },
+                ])
+            )
+
+            await expectLogic(newLogic, () => {
+                newLogic.actions.setAlsoCreateInProjects([TARGET_A])
+                newLogic.actions.saveFeatureFlag({ ...NEW_FLAG, key: MOCK_FEATURE_FLAG.key })
+            })
+                .toDispatchActions(['saveFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(lemonToast.warning).toHaveBeenCalledWith(expect.stringContaining('parent-flag'))
+        })
+
+        it.each([
+            [
+                'a failed project',
+                { project_id: TARGET_B, error_message: 'No access to this project', approval_pending: false },
+                'copy to Docs failed: No access to this project',
+            ],
+            [
+                'an approval-pending project',
+                { project_id: TARGET_B, error_message: 'Approval required', approval_pending: true },
+                'copy to Docs needs approval (a change request was created)',
+            ],
+        ])('surfaces %s distinctly instead of swallowing it', async (_desc, failedEntry, expectedFragment) => {
+            useMocks(
+                createAndCopyMocks([
+                    200,
+                    {
+                        success: [copiedFlagInProject(TARGET_A)],
+                        failed: [failedEntry],
+                    },
+                ])
+            )
+
+            await expectLogic(newLogic, () => {
+                newLogic.actions.setAlsoCreateInProjects([TARGET_A, TARGET_B])
+                newLogic.actions.saveFeatureFlag({ ...NEW_FLAG, key: MOCK_FEATURE_FLAG.key })
+            })
+                .toDispatchActions(['saveFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(lemonToast.warning).toHaveBeenCalledWith(expect.stringContaining(expectedFragment))
+            expect(lemonToast.warning).toHaveBeenCalledWith(expect.stringContaining('Flag also created in Marketing'))
         })
     })
 
@@ -3029,6 +3246,63 @@ describe('validateVariantRolloutSum', () => {
     })
 })
 
+describe('validateFeatureFlagTags', () => {
+    it.each([
+        { desc: 'the project does not require tags', tags: [], required: false, isNewFlag: true, hadTags: false },
+        { desc: 'a new flag carries a tag', tags: ['billing'], required: true, isNewFlag: true, hadTags: false },
+        // `hadTags` exists for this case: turning the setting on must not freeze the flags that
+        // predate it. Collapsing the check to a plain length test would block this save.
+        {
+            desc: 'a flag that predates the setting is edited while still untagged',
+            tags: [],
+            required: true,
+            isNewFlag: false,
+            hadTags: false,
+        },
+    ])('allows the save when $desc', ({ tags, required, isNewFlag, hadTags }) => {
+        expect(validateFeatureFlagTags(tags, { required, isNewFlag, hadTags })).toBeUndefined()
+    })
+
+    it.each([
+        {
+            desc: 'a new flag has no tags',
+            tags: [],
+            required: true,
+            isNewFlag: true,
+            hadTags: false,
+            error: 'Add at least one tag',
+        },
+        // A blank tag is not a tag: the server normalizes it away, so accepting it here would only
+        // buy a rejected save.
+        {
+            desc: 'a new flag has only a blank tag',
+            tags: ['   '],
+            required: true,
+            isNewFlag: true,
+            hadTags: false,
+            error: 'Add at least one tag',
+        },
+        {
+            desc: 'a tagged flag loses its last tag',
+            tags: [],
+            required: true,
+            isNewFlag: false,
+            hadTags: true,
+            error: 'Keep at least one tag',
+        },
+        {
+            desc: 'a tagged flag has its last tag replaced by a blank one',
+            tags: [''],
+            required: true,
+            isNewFlag: false,
+            hadTags: true,
+            error: 'Keep at least one tag',
+        },
+    ])('blocks the save when $desc', ({ tags, required, isNewFlag, hadTags, error }) => {
+        expect(validateFeatureFlagTags(tags, { required, isNewFlag, hadTags })).toContain(error)
+    })
+})
+
 describe('variant rollout sum validation', () => {
     let logic: ReturnType<typeof featureFlagLogic.build>
 
@@ -3113,6 +3387,59 @@ describe('variant rollout sum validation', () => {
         })
 
         expect(logic.values.featureFlagHasErrors).toBe(false)
+    })
+})
+
+describe('required tags on a collapsed advanced panel', () => {
+    let logic: ReturnType<typeof featureFlagLogic.build>
+
+    beforeEach(() => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                    200,
+                    MOCK_FEATURE_FLAG,
+                ],
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/status`]: () => [
+                    200,
+                    MOCK_FEATURE_FLAG_STATUS,
+                ],
+            },
+        })
+        initKeaTests()
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            feature_flag_policy_config: { require_tags: true },
+        })
+        logic = featureFlagLogic({ id: 1 })
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    // The tag input sits inside the advanced panel, and a collapsed LemonCollapse unmounts its
+    // children, so without this the save is blocked with no field on screen to explain why.
+    it('opens the panel when a save is blocked for emptying the last tag', async () => {
+        logic.actions.setOriginalFeatureFlag({ ...MOCK_FEATURE_FLAG, tags: ['billing'] } as FeatureFlagType)
+        logic.actions.setFeatureFlag({ ...MOCK_FEATURE_FLAG, tags: [] } as FeatureFlagType)
+        expect(logic.values.advancedPanelOpen).toBe(false)
+
+        await expectLogic(logic, () => {
+            logic.actions.submitFeatureFlag()
+        }).toFinishAllListeners()
+
+        expect(logic.values.advancedPanelOpen).toBe(true)
+    })
+
+    // A flag that predates the setting stays editable, so an untagged one must not be held back.
+    it('leaves the panel closed when an untagged flag saves cleanly', async () => {
+        logic.actions.setOriginalFeatureFlag({ ...MOCK_FEATURE_FLAG, tags: [] } as FeatureFlagType)
+        logic.actions.setFeatureFlag({ ...MOCK_FEATURE_FLAG, tags: [] } as FeatureFlagType)
+
+        expect(logic.values.featureFlagHasErrors).toBe(false)
+        expect(logic.values.advancedPanelOpen).toBe(false)
     })
 })
 
