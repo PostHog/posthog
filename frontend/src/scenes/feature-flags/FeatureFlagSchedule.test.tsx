@@ -159,6 +159,32 @@ describe('FeatureFlagSchedule', () => {
         expect(screen.getByText(new RegExp(expectedText))).toBeInTheDocument()
     })
 
+    // A staged ramp on a flag that already serves everyone changes nothing when it fires.
+    it.each([
+        { name: 'below the current rollout', currentRollout: 100, scheduledRollout: 25, expectWarning: true },
+        { name: 'level with the current rollout', currentRollout: 40, scheduledRollout: 40, expectWarning: true },
+        { name: 'above the current rollout', currentRollout: 40, scheduledRollout: 60, expectWarning: false },
+        { name: 'left at the form default', currentRollout: 100, scheduledRollout: 0, expectWarning: false },
+    ])('condition add $name: warns=$expectWarning', ({ currentRollout, scheduledRollout, expectWarning }) => {
+        renderSchedule(
+            buildFeatureFlag({ active: true, rolloutPercentage: currentRollout }),
+            ScheduledChangeOperationType.AddReleaseCondition
+        )
+
+        act(() => {
+            featureFlagLogic(logicProps).actions.setSchedulePayload(
+                {
+                    groups: [{ properties: [], rollout_percentage: scheduledRollout, variant: null }],
+                    multivariate: null,
+                },
+                null
+            )
+        })
+
+        const warning = screen.queryByText(/This flag already serves/)
+        expect(!!warning).toEqual(expectWarning)
+    })
+
     // useMocks trips the hooks naming lint inside named helpers, so each test registers
     // its own mock before calling this.
     const renderWithSchedules = (): void => {

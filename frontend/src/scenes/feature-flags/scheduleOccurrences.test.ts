@@ -1,7 +1,11 @@
 import { dayjs } from 'lib/dayjs'
 
 import {
+    AnyPropertyFilter,
+    FeatureFlagGroupType,
     FeatureFlagType,
+    PropertyFilterType,
+    PropertyOperator,
     RecurrenceInterval,
     ScheduledChangeOperationType,
     ScheduledChangePayload,
@@ -10,7 +14,7 @@ import {
 } from '~/types'
 
 import { makeScheduledChange, resetScheduledChangeIds } from './makeScheduledChange'
-import { OCCURRENCE_CAP, expandScheduleOccurrences } from './scheduleOccurrences'
+import { OCCURRENCE_CAP, expandScheduleOccurrences, maxUntargetedRolloutPercentage } from './scheduleOccurrences'
 
 const NOW = dayjs('2026-01-01T00:00:00Z')
 
@@ -58,12 +62,36 @@ describe('expandScheduleOccurrences', () => {
 
         expect(occurrences.map((o) => o.projected.rolloutPercentage)).toEqual([25, 50, 75, 100])
         expect(occurrences.map((o) => o.addedRolloutPercentage)).toEqual([25, 50, 75, 100])
+        expect(occurrences.map((o) => o.rolloutUnchanged)).toEqual([false, false, false, false])
         expect(occurrences.map((o) => o.timestamp)).toEqual([
             NOW.add(1, 'day').toISOString(),
             NOW.add(2, 'day').toISOString(),
             NOW.add(3, 'day').toISOString(),
             NOW.add(4, 'day').toISOString(),
         ])
+    })
+
+    it.each([
+        {
+            name: 'a flag that already serves everyone',
+            current: 100,
+            adds: [25, 50, 100],
+            expected: [true, true, true],
+        },
+        { name: 'a ramp that overtakes the current level', current: 30, adds: [25, 50], expected: [true, false] },
+        { name: 'an add that matches the current level', current: 25, adds: [25], expected: [true] },
+    ])('marks a covered condition add as no change: $name', ({ current, adds, expected }) => {
+        const schedules = adds.map((rollout, index) =>
+            change({ payload: conditionPayload(rollout), scheduled_at: NOW.add(index + 1, 'day').toISOString() })
+        )
+
+        const occurrences = expandScheduleOccurrences(
+            schedules,
+            flag({ filters: { groups: [{ properties: [], rollout_percentage: current, variant: null }] } }),
+            NOW
+        )
+
+        expect(occurrences.map((o) => o.rolloutUnchanged)).toEqual(expected)
     })
 
     it('carries status, rollout, and variant projections through a mixed plan', () => {
@@ -379,5 +407,38 @@ describe('expandScheduleOccurrences', () => {
         const occurrences = expandScheduleOccurrences(schedules, flag(), NOW)
 
         expect(occurrences[0].timestamp).toEqual('2026-01-30T09:00:00.000Z')
+    })
+})
+
+describe('maxUntargetedRolloutPercentage', () => {
+    const person: AnyPropertyFilter = {
+        key: 'email',
+        value: 'a',
+        type: PropertyFilterType.Person,
+        operator: PropertyOperator.Exact,
+    }
+    const cases: { name: string; groups: FeatureFlagGroupType[]; expected: number | null }[] = [
+        {
+            name: 'ignores a condition set a property filter narrows',
+            groups: [
+                { properties: [person], rollout_percentage: 100, variant: null },
+                { properties: [], rollout_percentage: 20, variant: null },
+            ],
+            expected: 20,
+        },
+        {
+            name: 'reads a missing rollout as everyone',
+            groups: [{ properties: [], rollout_percentage: null, variant: null }],
+            expected: 100,
+        },
+        {
+            name: 'returns null when every set is narrowed',
+            groups: [{ properties: [person], rollout_percentage: 100, variant: null }],
+            expected: null,
+        },
+    ]
+
+    it.each(cases)('$name', ({ groups, expected }) => {
+        expect(maxUntargetedRolloutPercentage(groups)).toEqual(expected)
     })
 })

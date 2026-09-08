@@ -17,6 +17,8 @@ const TIME_LABEL_MIN_GAP = 40
 const TOP_LABEL_MIN_GAP = 40
 /** How far the second lane sits above the first. Tuned against the 9px label size. */
 const TOP_LABEL_LANE_OFFSET = 10
+/** Within this many viewBox units of the right edge, a step label ends at its mark instead of centering. */
+const STEP_LABEL_EDGE_PAD = 30
 
 function describeOccurrence(occurrence: ScheduleOccurrence): string {
     const { operation, projected, addedRolloutPercentage } = occurrence
@@ -24,11 +26,15 @@ function describeOccurrence(occurrence: ScheduleOccurrence): string {
         return projected.active ? 'enabled' : 'disabled'
     }
     if (operation === ScheduledChangeOperationType.AddReleaseCondition) {
+        if (addedRolloutPercentage === null) {
+            return 'add a condition'
+        }
         // Describe the condition this change adds, not the flag's projected max rollout: the change
         // appends a condition set, so an existing higher one would otherwise be misreported here.
-        return addedRolloutPercentage !== null
-            ? `add a condition at ${addedRolloutPercentage}% rollout`
-            : 'add a condition'
+        // Say when that existing one holds the level, or the plan reads as a ramp that does not ramp.
+        return occurrence.rolloutUnchanged
+            ? `add a condition at ${addedRolloutPercentage}% rollout, no change from the ${projected.rolloutPercentage}% the flag already serves`
+            : `add a condition at ${addedRolloutPercentage}% rollout`
     }
     return `switch to ${pluralize(occurrence.projected.variantCount ?? 0, 'variant')}`
 }
@@ -245,9 +251,18 @@ export function ScheduleTimeline({
                     const blocked = occurrence.needsApproval
                     const isRolloutStep = occurrence.operation === ScheduledChangeOperationType.AddReleaseCondition
                     const rollout = occurrence.projected.rolloutPercentage
+                    // One <title> per mark: a second one is never read out.
+                    const markTitle = [
+                        blocked ? 'Needs approval' : '',
+                        occurrence.rolloutUnchanged
+                            ? `This condition sits at ${occurrence.addedRolloutPercentage}%, at or below the ${rollout}% the flag already serves`
+                            : '',
+                    ]
+                        .filter(Boolean)
+                        .join('. ')
                     return (
                         <g key={`${occurrence.schedule.id}-${occurrence.timestamp}`} opacity={blocked ? 0.5 : 1}>
-                            {blocked && <title>Needs approval</title>}
+                            {markTitle && <title>{markTitle}</title>}
                             <line
                                 x1={x}
                                 x2={x}
@@ -269,11 +284,16 @@ export function ScheduleTimeline({
                                     <text
                                         x={x}
                                         y={yForRollout(rollout) - 7}
-                                        textAnchor="middle"
+                                        // A centered label runs past the plot at the last mark, and
+                                        // the SVG clips whatever leaves the viewBox.
+                                        textAnchor={
+                                            x > MARGIN.left + PLOT_WIDTH - STEP_LABEL_EDGE_PAD ? 'end' : 'middle'
+                                        }
                                         fontSize={9}
                                         fill="var(--color-text-secondary)"
                                     >
-                                        {rollout}%{blocked ? ' (needs approval)' : ''}
+                                        {occurrence.rolloutUnchanged ? `still ${rollout}%` : `${rollout}%`}
+                                        {blocked ? ' (needs approval)' : ''}
                                     </text>
                                 </>
                             ) : (

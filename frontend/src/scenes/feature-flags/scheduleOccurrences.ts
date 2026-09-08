@@ -26,6 +26,11 @@ export interface ScheduleOccurrence {
     projected: ScheduleProjectedState
     /** Max rollout of the condition this occurrence adds; null for other operations. */
     addedRolloutPercentage: number | null
+    /**
+     * True when this occurrence adds a condition that sits at or below the rollout the flag already
+     * serves, so the projected rollout holds its level. False for every other operation.
+     */
+    rolloutUnchanged: boolean
     /** The occurrence will be skipped at fire time unless its approval request is approved first. */
     needsApproval: boolean
 }
@@ -64,6 +69,15 @@ export function maxRolloutPercentage(groups: FeatureFlagGroupType[] | undefined)
         return null
     }
     return Math.max(...groups.map((group) => group.rollout_percentage ?? 100))
+}
+
+/**
+ * Max rollout across the condition sets that no property filter narrows, so the percentage is a
+ * share of everyone rather than a share of a segment. Every condition set of a flag buckets on the
+ * same hash, so a condition at or below this level serves nobody the flag does not serve already.
+ */
+export function maxUntargetedRolloutPercentage(groups: FeatureFlagGroupType[] | undefined): number | null {
+    return maxRolloutPercentage(groups?.filter((group) => !group.properties?.length))
 }
 
 /** A paused recurring schedule keeps its recurrence config but has is_recurring=false. */
@@ -177,11 +191,13 @@ export function expandScheduleOccurrences(
     return raw.slice(0, OCCURRENCE_CAP).map(({ at, schedule, isFirst }) => {
         const { payload } = schedule
         let addedRolloutPercentage: number | null = null
+        let rolloutUnchanged = false
         if (payload.operation === ScheduledChangeOperationType.UpdateStatus) {
             active = payload.value
         } else if (payload.operation === ScheduledChangeOperationType.AddReleaseCondition) {
             addedRolloutPercentage = maxRolloutPercentage(payload.value.groups)
             if (addedRolloutPercentage !== null) {
+                rolloutUnchanged = rolloutPercentage !== null && addedRolloutPercentage <= rolloutPercentage
                 rolloutPercentage =
                     rolloutPercentage === null
                         ? addedRolloutPercentage
@@ -196,6 +212,7 @@ export function expandScheduleOccurrences(
             schedule,
             projected: { active, rolloutPercentage, variantCount },
             addedRolloutPercentage,
+            rolloutUnchanged,
             // A bound change request covers one occurrence only. The first occurrence needs approval
             // when its own request is still pending. Every later occurrence of a gated schedule
             // needs one too: regate_recurring_scheduled_change binds a fresh pending request after

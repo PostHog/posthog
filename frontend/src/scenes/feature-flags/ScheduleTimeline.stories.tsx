@@ -5,7 +5,7 @@ import { dayjs } from 'lib/dayjs'
 import { ScheduledChangeOperationType, ScheduledChangePayload, ScheduledChangeRequestState } from '~/types'
 
 import { makeScheduledChange } from './makeScheduledChange'
-import { ScheduleOccurrence, ScheduleProjectedState } from './scheduleOccurrences'
+import { maxRolloutPercentage, ScheduleOccurrence, ScheduleProjectedState } from './scheduleOccurrences'
 import { ScheduleTimeline } from './ScheduleTimeline'
 
 const MOCK_NOW = '2026-08-24T12:00:00Z'
@@ -21,7 +21,8 @@ function occurrence(
     daysFromNow: number,
     payload: ScheduledChangePayload,
     projected: ScheduleProjectedState,
-    needsApproval = false
+    needsApproval = false,
+    rolloutUnchanged = false
 ): ScheduleOccurrence {
     const timestamp = dayjs(MOCK_NOW).add(daysFromNow, 'day').toISOString()
     return {
@@ -34,7 +35,10 @@ function occurrence(
         }),
         projected,
         addedRolloutPercentage:
-            payload.operation === ScheduledChangeOperationType.AddReleaseCondition ? projected.rolloutPercentage : null,
+            payload.operation === ScheduledChangeOperationType.AddReleaseCondition
+                ? maxRolloutPercentage(payload.value.groups)
+                : null,
+        rolloutUnchanged,
         needsApproval,
     }
 }
@@ -48,6 +52,20 @@ function rolloutStep(daysFromNow: number, rollout: number, needsApproval = false
         },
         { active: true, rolloutPercentage: rollout, variantCount: null },
         needsApproval
+    )
+}
+
+/** A condition add at or below the level the flag already serves, so the step line holds its level. */
+function coveredRolloutStep(daysFromNow: number, rollout: number): ScheduleOccurrence {
+    return occurrence(
+        daysFromNow,
+        {
+            operation: ScheduledChangeOperationType.AddReleaseCondition,
+            value: { groups: [{ properties: [], rollout_percentage: rollout, variant: null }] },
+        },
+        { active: true, rolloutPercentage: 100, variantCount: null },
+        false,
+        true
     )
 }
 
@@ -90,5 +108,17 @@ export function SingleOccurrence(): JSX.Element {
             currentRolloutPercentage={100}
             timezone="UTC"
         />
+    )
+}
+
+export function CoveredRolloutRamp(): JSX.Element {
+    return (
+        <div className="max-w-3xl">
+            <ScheduleTimeline
+                occurrences={[coveredRolloutStep(1, 25), coveredRolloutStep(3, 50), coveredRolloutStep(5, 100)]}
+                currentRolloutPercentage={100}
+                timezone="UTC"
+            />
+        </div>
     )
 }

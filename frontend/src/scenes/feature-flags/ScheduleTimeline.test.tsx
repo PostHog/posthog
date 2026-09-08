@@ -15,6 +15,7 @@ function occurrence(overrides: Partial<ScheduleOccurrence> = {}): ScheduleOccurr
         schedule: makeScheduledChange({ scheduled_at: '2099-08-26T10:22:00Z' }),
         projected: { active: true, rolloutPercentage: 50, variantCount: null },
         addedRolloutPercentage: null,
+        rolloutUnchanged: false,
         needsApproval: false,
         ...overrides,
     }
@@ -76,6 +77,51 @@ describe('ScheduleTimeline', () => {
         render(<ScheduleTimeline occurrences={[addCondition]} currentRolloutPercentage={100} timezone="UTC" />)
 
         expect(screen.getByText('Next: add a condition at 10% rollout on Aug 26, 10:22 AM')).toBeInTheDocument()
+    })
+
+    it('summarizes a covered condition add as no change', () => {
+        const covered = occurrence({
+            operation: ScheduledChangeOperationType.AddReleaseCondition,
+            addedRolloutPercentage: 25,
+            rolloutUnchanged: true,
+            projected: { active: true, rolloutPercentage: 100, variantCount: null },
+        })
+        render(<ScheduleTimeline occurrences={[covered]} currentRolloutPercentage={100} timezone="UTC" />)
+
+        expect(
+            screen.getByText(
+                'Next: add a condition at 25% rollout, no change from the 100% the flag already serves on Aug 26, 10:22 AM'
+            )
+        ).toBeInTheDocument()
+    })
+
+    it('labels a step that holds its level, so a flat line does not read as broken', () => {
+        const { container } = render(
+            <ScheduleTimeline
+                occurrences={[
+                    occurrence({
+                        operation: ScheduledChangeOperationType.AddReleaseCondition,
+                        addedRolloutPercentage: 25,
+                        rolloutUnchanged: true,
+                        projected: { active: true, rolloutPercentage: 100, variantCount: null },
+                    }),
+                    occurrence({
+                        timestamp: '2099-08-28T10:22:00Z',
+                        operation: ScheduledChangeOperationType.AddReleaseCondition,
+                        addedRolloutPercentage: 50,
+                        rolloutUnchanged: true,
+                        projected: { active: true, rolloutPercentage: 100, variantCount: null },
+                    }),
+                ]}
+                currentRolloutPercentage={100}
+                timezone="UTC"
+            />
+        )
+
+        expect(screen.getAllByText('still 100%')).toHaveLength(2)
+        expect(container.querySelector('g > title')?.textContent).toEqual(
+            'This condition sits at 25%, at or below the 100% the flag already serves'
+        )
     })
 
     it('renders the step chart for two or more occurrences', () => {
