@@ -83,7 +83,7 @@ pub(super) async fn create_person_stubs(
         .collect();
     let team_ids: Vec<i32> = stubs.iter().map(|s| s.team_id as i32).collect();
 
-    let mut tx = pool.begin().await?;
+    let mut tx = super::begin_timed(pool).await?;
 
     let mut persons =
         insert_or_revive_persons(&mut tx, &tables.person, stubs, &team_ids, &uuids).await?;

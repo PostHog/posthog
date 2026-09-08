@@ -1966,6 +1966,7 @@ pub async fn prune_and_settle_tick(
 
     // Prune chunk by chunk, settling each chunk's death pairs before the
     // next, so a catch-up never materializes more than one chunk.
+    let started = Instant::now();
     let mut removed_total = 0u64;
     for (partition, committed) in &committed_offsets {
         if !cache.is_published(*partition) {
@@ -1985,6 +1986,10 @@ pub async fn prune_and_settle_tick(
     if removed_total > 0 {
         counter!("personhog_leader_dirty_index_pruned_total").increment(removed_total);
     }
+    // A long tick means the settle parked on per-key locks, not an idle
+    // pass.
+    histogram!("personhog_leader_prune_tick_duration_ms")
+        .record(started.elapsed().as_secs_f64() * 1000.0);
     Some((partitions, committed_offsets))
 }
 
