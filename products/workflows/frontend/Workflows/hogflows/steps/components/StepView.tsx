@@ -11,7 +11,7 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 
 import { workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
-import { NODE_HEIGHT, NODE_WIDTH } from '../../react_flow_utils/constants'
+import { NODE_WIDTH } from '../../react_flow_utils/constants'
 import { HogFlowAction } from '../../types'
 import { useHogFlowStep } from '../HogFlowSteps'
 import { isScheduleTrigger } from '../types'
@@ -27,8 +27,9 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
         selectedNodeCanBeDeleted,
         selectedNodeCanBeCopiedOrMoved,
         animatingEdgePair,
-        workflow,
         isZoomedOutFar,
+        showMetricsSummary,
+        nodeHeight,
     } = useValues(hogFlowEditorLogic)
     const { setSelectedNodeId, startCopyingNode, startMovingNode } = useActions(hogFlowEditorLogic)
     const { actionValidationErrorsById, logicProps, scheduleState, scheduleStartsAt, isScheduleRepeating } =
@@ -66,9 +67,6 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
         cancelEditingDescription,
     } = useActions(stepViewLogic(stepViewLogicProps))
 
-    const shouldShowMetricsSummary = mode === 'metrics' && workflow.trigger?.type !== 'batch'
-    const height = shouldShowMetricsSummary ? NODE_HEIGHT + 10 : NODE_HEIGHT
-
     const Step = useHogFlowStep(action)
     const { selectedColor, colorLight, color, icon } = useMemo(() => {
         return {
@@ -94,7 +92,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
             className="relative flex flex-col cursor-pointer rounded user-select-none bg-surface-primary transition-[border-color] duration-300"
             style={{
                 width: NODE_WIDTH,
-                height,
+                height: nodeHeight,
                 borderWidth: 1,
                 borderColor: isAnimationTarget ? 'var(--success)' : selectedColor,
                 boxShadow: `0px 2px 0px 0px ${colorLight}`,
@@ -250,7 +248,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                     <LemonBadge status="warning" size="small" content="!" position="top-right" />
                 </div>
             ) : null}
-            {shouldShowMetricsSummary && (
+            {showMetricsSummary && (
                 <div
                     style={{
                         borderTopColor: colorLight,

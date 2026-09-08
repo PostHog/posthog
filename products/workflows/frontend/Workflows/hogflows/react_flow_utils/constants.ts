@@ -1,6 +1,9 @@
 export const NODE_WIDTH = 120
 export const NODE_HEIGHT = 34
 
+// Extra height the metrics summary row needs, on top of NODE_HEIGHT.
+export const NODE_METRICS_SUMMARY_HEIGHT = 10
+
 export const NODE_NODE_GAP = 100
 
 // Minimum horizontal distance between parallel edges

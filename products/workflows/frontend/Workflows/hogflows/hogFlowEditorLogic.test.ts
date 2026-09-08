@@ -559,6 +559,25 @@ describe('hogFlowEditorLogic', () => {
             expect(byId('branch')).not.toBe(initialNodes.find((node) => node.id === 'branch'))
             expect(byId('branch')?.data.name).toBe('Renamed branch')
         })
+
+        it('stores a measured size without relaying out the graph', async () => {
+            await applyFlow(makeFlow())
+            const positionsBefore = logic.values.nodes.map((node) => node.position)
+
+            // What ReactFlow's resize observer reports. A relayout here moves the nodes it just
+            // measured, and it then measures them again.
+            await expectLogic(logic, () => {
+                logic.actions.onNodesChange([
+                    { id: 'branch', type: 'dimensions', dimensions: { width: 120, height: 44 }, resizing: false },
+                ])
+            }).toNotHaveDispatchedActions(['setNodes'])
+
+            expect(logic.values.nodes.map((node) => node.position)).toEqual(positionsBefore)
+            expect(logic.values.nodes.find((node) => node.id === 'branch')?.measured).toEqual({
+                width: 120,
+                height: 44,
+            })
+        })
     })
 
     describe('showDropzones branch-join placement', () => {
