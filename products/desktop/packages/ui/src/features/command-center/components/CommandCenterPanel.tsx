@@ -10,14 +10,18 @@ import {
   Terminal,
   X,
 } from "@phosphor-icons/react";
+import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
 import { isBrainrotCell } from "@posthog/core/command-center/grid";
+import { readRunMode } from "@posthog/core/sidebar/buildSidebarData";
+import { resolveEffectiveCloudStatus } from "@posthog/core/task-detail/cloudRunState";
 import {
+  Button,
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-  Spinner as QuillSpinner,
   Text as QuillText,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS, type WorkspaceMode } from "@posthog/shared";
@@ -28,19 +32,32 @@ import { useDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { destroyShellTerminal } from "@posthog/ui/features/terminal/destroyShellTerminal";
 import { ShellTerminal } from "@posthog/ui/features/terminal/ShellTerminal";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { secureRandomString } from "@posthog/ui/utils/random";
 import { Flex, Text } from "@radix-ui/themes";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import { useOptionalAuthenticatedClient } from "../../auth/authClient";
+import { useAuthStateValue } from "../../auth/store";
+import { useCurrentUser } from "../../auth/useCurrentUser";
+import { useAutoresearchDraftStore } from "../../autoresearch/autoresearchDraftStore";
 import { useFolders } from "../../folders/useFolders";
 import { useCloudPrUrl } from "../../git-interaction/useCloudPrUrl";
+import { useDraftStore } from "../../message-editor/draftStore";
 import { EmbeddedSessionView } from "../../sessions/components/EmbeddedSessionView";
 import { TaskIcon } from "../../sidebar/components/items/TaskIcon";
 import { useTaskPrStatus } from "../../sidebar/useTaskPrStatus";
-import { useCommandCenterStore } from "../commandCenterStore";
+import { TaskInput } from "../../task-detail/components/TaskInput";
+import { getCellSessionId, useCommandCenterStore } from "../commandCenterStore";
 import type {
   CellStatus,
   CommandCenterCellData,
@@ -89,16 +106,17 @@ function CellStatusBadge({
   if (label === null) return null;
 
   const taskRunStatus = isCloud
-    ? (session?.cloudStatus ?? task.latest_run?.status ?? undefined)
+    ? (resolveEffectiveCloudStatus(task, session) ?? undefined)
     : undefined;
 
   return (
     <span className="inline-flex items-center gap-0.5 rounded bg-gray-3 px-1 py-0.5 text-[10px] text-gray-11">
       <TaskIcon
         workspaceMode={workspaceMode ?? undefined}
-        isGenerating={session?.isPromptPending}
-        needsPermission={(session?.pendingPermissions?.size ?? 0) > 0}
+        isGenerating={status === "running"}
+        needsPermission={status === "waiting"}
         taskRunStatus={taskRunStatus}
+        runMode={readRunMode(task.latest_run?.state)}
         prState={prState}
         hasDiff={hasDiff}
         size={10}
@@ -120,15 +138,56 @@ function EnvironmentBadge({ mode }: { mode: WorkspaceMode | null }) {
   );
 }
 
-function EmptyCell({ cellIndex }: { cellIndex: number }) {
+export function CommandCenterEmptyCell({ action }: { action: ReactNode }) {
+  return (
+    <Empty className="h-full border-0 bg-gray-1">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <Plus size={20} />
+        </EmptyMedia>
+        <EmptyTitle>Empty tile</EmptyTitle>
+        <EmptyDescription>
+          Drag a task from the sidebar, or add one.
+        </EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>{action}</EmptyContent>
+    </Empty>
+  );
+}
+
+function EmptyCell({
+  cellIndex,
+  replaceExisting,
+}: {
+  cellIndex: number;
+  replaceExisting: boolean;
+}) {
   const [selectorOpen, setSelectorOpen] = useState(false);
   // The command-center terminal is unavailable on cloud-only hosts.
   const { localWorkspaces } = useHostCapabilities();
+  const composer = useCommandCenterStore((s) => s.composer);
+  const finishCreating = useCommandCenterStore((s) => s.finishCreating);
   const setBrainrotCell = useCommandCenterStore((s) => s.setBrainrotCell);
   const setTerminalCell = useCommandCenterStore((s) => s.setTerminalCell);
+  const startCreating = useCommandCenterStore((s) => s.startCreating);
+  const stopCreating = useCommandCenterStore((s) => s.stopCreating);
   const layout = useCommandCenterStore((s) => s.layout);
   const cells = useCommandCenterStore((s) => s.cells);
   const brainrotMode = useSettingsStore((s) => s.brainrotMode);
+  const authIdentity = useAuthStateValue(getAuthIdentity);
+  const client = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client });
+  const authScope =
+    authIdentity && currentUser?.uuid
+      ? `${authIdentity}:${currentUser.uuid}`
+      : null;
+  const sessionId = authScope ? getCellSessionId(authScope, cellIndex) : null;
+  const currentSessionIdRef = useRef(sessionId);
+  currentSessionIdRef.current = sessionId;
+  const isCreating =
+    sessionId !== null &&
+    composer?.cellIndex === cellIndex &&
+    composer.sessionId === sessionId;
 
   const handleBrainrot = useCallback(() => {
     track(ANALYTICS_EVENTS.BRAINROT_ACTIVATED, {
@@ -145,31 +204,108 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
     [setTerminalCell, cellIndex],
   );
 
+  const handleNewTask = useCallback(() => {
+    if (sessionId) startCreating(cellIndex, sessionId, replaceExisting);
+  }, [startCreating, cellIndex, sessionId, replaceExisting]);
+
+  // Claiming the tile is what keeps the run in the grid: without it the task
+  // exists but its session has nowhere to render.
+  const handleTaskCreated = useCallback(
+    (task: Task) => {
+      if (!sessionId) {
+        void openTask(task);
+        return;
+      }
+      if (currentSessionIdRef.current !== sessionId) {
+        stopCreating(sessionId);
+        clearComposerDraft(sessionId);
+        return;
+      }
+      const assigned = finishCreating(sessionId, task.id);
+      clearComposerDraft(sessionId);
+      // Creation may finish after the user replaced or removed the tile. The
+      // task still exists, so open it instead of overwriting newer grid state.
+      if (!assigned) void openTask(task);
+    },
+    [finishCreating, sessionId, stopCreating],
+  );
+
+  const handleCancel = useCallback(() => {
+    if (!sessionId) return;
+    stopCreating(sessionId);
+    clearComposerDraft(sessionId);
+  }, [stopCreating, sessionId]);
+
+  useEffect(() => {
+    if (
+      !composer ||
+      composer.cellIndex !== cellIndex ||
+      !sessionId ||
+      composer.sessionId === sessionId
+    ) {
+      return;
+    }
+    stopCreating(composer.sessionId);
+    clearComposerDraft(composer.sessionId);
+  }, [cellIndex, composer, sessionId, stopCreating]);
+
+  if (isCreating) {
+    return (
+      <div className="flex h-full flex-col">
+        <div className="flex shrink-0 items-center justify-between border-gray-6 border-b px-2 py-1">
+          <QuillText className="font-medium font-mono text-[11px] text-gray-11">
+            New task
+          </QuillText>
+          <button
+            type="button"
+            onClick={handleCancel}
+            className="flex h-5 w-5 items-center justify-center rounded text-gray-10 transition-colors hover:bg-gray-4 hover:text-gray-12"
+            title="Cancel"
+          >
+            <X size={12} />
+          </button>
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col">
+          <TaskInput
+            sessionId={sessionId}
+            onTaskCreated={handleTaskCreated}
+            showNewTaskSuggestions={false}
+            allowNoRepo
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <Flex align="center" justify="center" height="100%">
-      <Flex direction="column" align="center" gap="2" className="select-none">
+    <CommandCenterEmptyCell
+      action={
         <TaskSelector
           cellIndex={cellIndex}
           open={selectorOpen}
           onOpenChange={setSelectorOpen}
+          onNewTask={!composer && sessionId ? handleNewTask : undefined}
           onNewTerminal={localWorkspaces ? handleNewTerminal : undefined}
           onBrainrot={brainrotMode ? handleBrainrot : undefined}
         >
-          <button
+          <Button
             type="button"
             onClick={() => setSelectorOpen(true)}
-            className="flex items-center gap-1.5 rounded-md border border-gray-7 border-dashed px-3 py-1.5 text-[12px] text-gray-10 transition-colors hover:border-gray-9 hover:text-gray-12"
+            variant="outline"
+            size="default"
           >
             <Plus size={12} />
             Add task
-          </button>
+          </Button>
         </TaskSelector>
-        <Text className="text-[11px] text-gray-9">
-          or drag a task from the sidebar
-        </Text>
-      </Flex>
-    </Flex>
+      }
+    />
   );
+}
+
+function clearComposerDraft(sessionId: string): void {
+  useDraftStore.getState().actions.setDraft(sessionId, null);
+  useAutoresearchDraftStore.getState().clearDraft(sessionId);
 }
 
 const BRAINROT_PLAYLIST_IDS = [
@@ -318,11 +454,7 @@ function BrainrotCell({ cellIndex }: { cellIndex: number }) {
           onLoad={handleLoad}
           className="h-full w-full border-0"
         />
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center text-gray-11">
-            <QuillSpinner className="h-6 w-6" />
-          </div>
-        )}
+        {loading && <LoadingState className="absolute inset-0" />}
       </div>
     </div>
   );
@@ -443,9 +575,7 @@ function CanvasCell({
       </div>
       <div className="min-h-0 flex-1">
         {isLoading ? (
-          <div className="flex h-full items-center justify-center">
-            <QuillSpinner className="h-6 w-6" />
-          </div>
+          <LoadingState />
         ) : dashboard?.kind === "grid" ? (
           <GridCanvasView canvasId={canvasId} interactive={false} />
         ) : dashboard ? (
@@ -571,7 +701,12 @@ export function CommandCenterPanel({
   }
 
   if (!cell.taskId || !cell.task) {
-    return <EmptyCell cellIndex={cell.cellIndex} />;
+    return (
+      <EmptyCell
+        cellIndex={cell.cellIndex}
+        replaceExisting={cell.taskId !== null}
+      />
+    );
   }
 
   return (

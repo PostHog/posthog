@@ -16,7 +16,7 @@ import {
     refreshSource,
     updateSource,
 } from '../api'
-import type { CreateUrlSourcePayload, RefreshIntervalValue, UpdateSourcePayload } from '../api'
+import type { CreateUrlSourcePayload, RefreshIntervalOption, RefreshIntervalValue, UpdateSourcePayload } from '../api'
 import {
     businessKnowledgeGapSuggestionsAcceptTopicCreate,
     businessKnowledgeGapSuggestionsDismissTopicCreate,
@@ -61,6 +61,14 @@ export interface FileSourceFormValues {
 }
 
 export type CreateTab = 'text' | 'url' | 'file'
+
+export const REFRESH_INTERVAL_OPTIONS: RefreshIntervalOption[] = [
+    { value: 'manual', label: 'Manual only' },
+    { value: '1h', label: 'Every hour' },
+    { value: '6h', label: 'Every 6 hours' },
+    { value: '24h', label: 'Every day' },
+    { value: '7d', label: 'Every week' },
+]
 
 const MAX_TEXT_BYTES = 1_000_000
 

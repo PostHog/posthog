@@ -2265,6 +2265,16 @@ class TestTimeSensitivePermissions(APIBaseTest):
             )
             assert res.status_code == 200
 
+    def test_user_can_mark_a_product_intro_seen_without_recent_authentication(self):
+        now = datetime.now()
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            res = self.client.patch(
+                "/api/users/@me/product_intro_seen",
+                {"product_key": "posthog_ai_onboarding"},
+                format="json",
+            )
+            assert res.status_code == 200
+
 
 class TestTeamSecretTokenAuthentication(APIBaseTest):
     def setUp(self):

@@ -4,8 +4,9 @@ import { FeaturePreviewGateConfig } from '~/types'
 
 export const metricsFeaturePreviewGate: FeaturePreviewGateConfig = {
     flag: FEATURE_FLAGS.METRICS,
-    title: 'Metrics is in private alpha',
+    title: 'Metrics is in alpha',
     description:
-        "Metrics is available to select teams while we polish it. You can already send metrics with any OpenTelemetry client. Join the waitlist and we'll turn on the viewer for your team.",
+        'Metrics is in open alpha: things may change while we polish it. Send metrics with any OpenTelemetry client, then turn on the feature preview to open the viewer.',
     docsURL: 'https://posthog.com/docs/metrics',
+    sceneId: 'Metrics',
 }

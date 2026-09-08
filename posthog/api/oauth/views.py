@@ -2,6 +2,7 @@ import json
 import uuid
 import hashlib
 import calendar
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 from typing import TypedDict, cast
 from urllib.parse import parse_qs, urlparse
@@ -33,7 +34,7 @@ from oauth2_provider.views import (
 )
 from oauth2_provider.views.mixins import OAuthLibMixin
 from oauthlib.common import Request as OauthlibRequest
-from oauthlib.oauth2 import InvalidGrantError
+from oauthlib.oauth2 import InvalidClientIdError, InvalidGrantError
 from redis.exceptions import RedisError
 from rest_framework import serializers, status
 from rest_framework.authentication import SessionAuthentication
@@ -60,6 +61,7 @@ from posthog.api.oauth.client_assertion import (
 from posthog.api.oauth.client_auth import verify_client_secret
 from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
+from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES, WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
 from posthog.models.oauth import (
@@ -127,6 +129,38 @@ def get_region_info() -> dict | None:
         region = cloud.lower()
         return {"posthog_region": region, "posthog_base_url": settings.SITE_URL}
     return None
+
+
+# The host the other PostHog Cloud region answers on, so an unknown client_id can name it.
+_OTHER_CLOUD_REGION_HOST = {"US": "https://eu.posthog.com", "EU": "https://us.posthog.com"}
+
+
+def unknown_client_id_description(client_id: str | None) -> str:
+    """Describe an unknown `client_id` so the client can act on the 400.
+
+    An OAuth application exists in one region only, and a request sent to the other
+    region fails the client lookup with nothing to separate it from a typo. Naming the
+    region is what makes that case recognizable.
+
+    A CIMD client_id is a metadata URL resolved on demand rather than a registration
+    we hold, so it fails for a different reason and gets a different description.
+    """
+    if is_cimd_client_id(client_id):
+        return (
+            "PostHog could not read the client metadata document at this client_id. "
+            "Check that the URL is reachable over HTTPS and returns valid client metadata."
+        )
+
+    cloud = getattr(settings, "CLOUD_DEPLOYMENT", None)
+    other_host = _OTHER_CLOUD_REGION_HOST.get(cloud or "")
+    if other_host is None:
+        return "No OAuth application is registered with this client_id. Check the client_id, or register the application again."
+
+    return (
+        f"No OAuth application is registered with this client_id in the {cloud} region. "
+        f"An application belongs to the region it was created in. If you created it on {other_host}, "
+        f"send the authorization request to {other_host} instead. Otherwise check the client_id."
+    )
 
 
 # Substrings identifying transient database failures that OAuth clients should retry.
@@ -264,6 +298,48 @@ def _impersonation_ai_processing_block(
             "error": "access_denied",
             "error_description": "This organization has disabled AI data processing, so it cannot be authorized for an OAuth client while impersonating.",
         },
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
+def _gateway_blocklist_block(
+    request,
+    scopes: str | Iterable[str],
+    *,
+    access_level: str | None = None,
+    scoped_organization_ids: list[str] | None = None,
+    scoped_team_ids: list[int] | None = None,
+) -> Response | None:
+    """Refuse a blocklisted identity a grant carrying an LLM gateway scope.
+
+    Keyed on the scope rather than the wizard's client id, so another first-party
+    app whose ceiling includes it is not an evasion route.
+
+    Asked against every organization the grant would reach, so a ban naming one of
+    them refuses a credential that bundles it with others.
+
+    Refuses the whole authorization rather than dropping the scope, so a ban costs
+    a bundled client its sign-in too. Deliberate for an abuse ban, and the one
+    departure from this module's clamp-don't-reject policy. Returns a 403 to
+    short-circuit with, or None.
+    """
+    # One caller holds the scopes as a list, another as the raw space-delimited
+    # string, which a bare set() would degrade into characters matching nothing.
+    requested = set(scopes.split() if isinstance(scopes, str) else scopes)
+    if not GATEWAY_BEARING_SCOPES & requested:
+        return None
+    organization_ids = _scoped_organization_ids(request.user, access_level, scoped_organization_ids, scoped_team_ids)
+    if not wizard_identity_blocked(
+        distinct_id=str(request.user.distinct_id),
+        email=request.user.email,
+        surface="oauth_authorize",
+        user_uuid=str(request.user.uuid),
+        organization_ids=[str(organization_id) for organization_id in organization_ids],
+        team_ids=scoped_team_ids or [],
+    ):
+        return None
+    return Response(
+        {"error": "access_denied", "error_description": WIZARD_BLOCKED_DETAIL},
         status=status.HTTP_403_FORBIDDEN,
     )
 
@@ -1322,7 +1398,13 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         try:
             application = OAuthApplication.objects.get(client_id=credentials["client_id"])
         except OAuthApplication.DoesNotExist:
-            return Response({"error": "Invalid client_id"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {
+                    "error": "invalid_request",
+                    "error_description": unknown_client_id_description(credentials["client_id"]),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Track OAuth authorization attempts with the authenticated user
         registration_type = self._registration_type(application)
@@ -1363,6 +1445,8 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         if application.is_first_party:
             if block := _impersonation_ai_processing_block(request):
                 return block
+            if block := _gateway_blocklist_block(request, scope_str.split()):
+                return block
             try:
                 org_ids = request.user.organizations.values_list("id", flat=True)
                 credentials["scoped_organizations"] = [str(org_id) for org_id in org_ids]
@@ -1399,6 +1483,8 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                         # revoked on logout), so the broader check isn't worth threading the
                         # matched token's scope through — the precise check lives in the POST path.
                         if block := _impersonation_ai_processing_block(request):
+                            return block
+                        if block := _gateway_blocklist_block(request, scope_str.split()):
                             return block
                         uri, headers, body, status_code = self.create_authorization_response(
                             request=request, scopes=scope_str, credentials=credentials, allow=True
@@ -1448,7 +1534,13 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             application = OAuthApplication.objects.get(client_id=serializer.validated_data["client_id"])
         except OAuthApplication.DoesNotExist:
             logger.warning("oauth_authorize_invalid_client", client_id=serializer.validated_data["client_id"])
-            return Response({"error": "Invalid client_id"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {
+                    "error": "invalid_request",
+                    "error_description": unknown_client_id_description(serializer.validated_data["client_id"]),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         credentials = {
             "client_id": serializer.validated_data["client_id"],
@@ -1506,6 +1598,15 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
             if block := _impersonation_ai_processing_block(
                 request,
+                access_level=serializer.validated_data.get("access_level"),
+                scoped_organization_ids=serializer.validated_data.get("scoped_organizations"),
+                scoped_team_ids=serializer.validated_data.get("scoped_teams"),
+            ):
+                return block
+
+            if block := _gateway_blocklist_block(
+                request,
+                scopes,
                 access_level=serializer.validated_data.get("access_level"),
                 scoped_organization_ids=serializer.validated_data.get("scoped_organizations"),
                 scoped_team_ids=serializer.validated_data.get("scoped_teams"),
@@ -1586,6 +1687,15 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         Handle errors either by redirecting to redirect_uri with a json in the body containing
         error details or providing an error response
         """
+        # oauthlib reports every failed client lookup as "Invalid client_id parameter value.",
+        # which reads the same whether the client_id is wrong or the app lives in the other
+        # region. Replace it before the response is built so the region is named.
+        oauthlib_error = getattr(error, "oauthlib_error", None)
+        if isinstance(oauthlib_error, InvalidClientIdError):
+            # An unknown client_id is fatal, so DOT never redirects it and this description
+            # only ever reaches the JSON body.
+            oauthlib_error.description = unknown_client_id_description(self.request.query_params.get("client_id"))
+
         redirect, error_response = super().error_response(error, **kwargs)
 
         # Surface scope-ceiling rejections so on-call can alert on /authorize failing with invalid_scope.
@@ -1997,6 +2107,9 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
     if a confidential client's client_id and client_secret are provided, the request is
     authenticated using client credentials and does not require the `introspection` scope.
 
+    Either way a caller only sees tokens issued to its own application. The scope
+    grants the capability; it does not widen which tokens the capability reaches.
+
     Self-introspection: An access token can always introspect itself without
     requiring the `introspection` scope. This allows MCP clients to discover
     their own token's scopes and permissions during initialization. Refresh
@@ -2043,11 +2156,15 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             bearer_token = request.headers.get("Authorization", "")[7:]
             token_checksum = hashlib.sha256(bearer_token.encode("utf-8")).hexdigest()
             try:
-                OAuthAccessToken.objects.get(token_checksum=token_checksum)
+                request.oauth_caller_access_token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
             except OAuthAccessToken.DoesNotExist:
                 return False, request
             return True, request
-        return super().verify_request(request)
+
+        valid, oauth_request = super().verify_request(request)
+        if valid:
+            request.oauth_caller_access_token = getattr(oauth_request, "access_token", None)
+        return valid, oauth_request
 
     def authenticate_client(self, request):
         """Authenticate the client and record which application was verified.
@@ -2100,13 +2217,23 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
 
         credential_client_id = self._client_credentials_client_id(request)
 
-        # The bearer path (self-introspection or the `introspection` scope) is governed by
-        # scope, not by client identity, and never reaches here. On the client-credentials
-        # path, treating an unidentifiable caller as exempt from the ownership check below
-        # would be indistinguishable from disclosing any token to anyone.
+        # The bearer path identifies its caller through `oauth_caller_access_token` below and
+        # never reaches here. On the client-credentials path, treating an unidentifiable caller
+        # as exempt from the ownership check below would be indistinguishable from disclosing
+        # any token to anyone.
         is_client_credentials = not hasattr(request, "resource_owner")
         if is_client_credentials and credential_client_id is None:
             return JsonResponse({"active": False}, status=200)
+
+        # The bearer caller is identified by the application its own token belongs to. The
+        # `introspection` scope says a caller may introspect, not whose tokens it may read,
+        # and `/oauth/register/` hands the scope to anyone, so the scope alone would let one
+        # client read back every other client's tokens.
+        caller_token = None
+        if not is_client_credentials:
+            caller_token = getattr(request, "oauth_caller_access_token", None)
+            if caller_token is None:
+                return JsonResponse({"active": False}, status=200)
 
         # Try access token first (indexed lookup via token_checksum)
         token_checksum = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
@@ -2121,8 +2248,25 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             # issues a confidential client_id and secret to anyone who asks.
             if credential_client_id and getattr(access_token.application, "client_id", None) != credential_client_id:
                 return JsonResponse({"active": False}, status=200)
+            # `application_id` is nullable, so the primary-key match is what keeps the
+            # self-introspection carve-out in verify_request working for a token that
+            # carries no application.
+            if caller_token is not None and not (
+                access_token.pk == caller_token.pk
+                or (
+                    caller_token.application_id is not None
+                    and access_token.application_id == caller_token.application_id
+                )
+            ):
+                return JsonResponse({"active": False}, status=200)
             # RFC 7662 Section 2.2: expired tokens MUST return {"active": false}
             if not access_token.is_valid():
+                return JsonResponse({"active": False}, status=200)
+            # Deactivating a user drops their login sessions but leaves their OAuth tokens
+            # intact, and callers that authorize on this response rather than merely describe a
+            # token (the Streamlit proxy is one) would keep letting them in until it expires.
+            # `user` is null for a client-credentials grant, which has no resource owner.
+            if access_token.user is not None and not access_token.user.is_active:
                 return JsonResponse({"active": False}, status=200)
             data = {
                 "active": True,
@@ -2146,6 +2290,14 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
 
         if refresh_token:
             if credential_client_id and getattr(refresh_token.application, "client_id", None) != credential_client_id:
+                return JsonResponse({"active": False}, status=200)
+            # A refresh token is never the caller: it cannot be presented as a Bearer
+            # credential, so it has no self-introspection case to preserve.
+            if caller_token is not None and (
+                caller_token.application_id is None or refresh_token.application_id != caller_token.application_id
+            ):
+                return JsonResponse({"active": False}, status=200)
+            if not refresh_token.user.is_active:
                 return JsonResponse({"active": False}, status=200)
             # Refresh tokens lack scope and exp fields on AbstractRefreshToken,
             # so we only return the fields that are available

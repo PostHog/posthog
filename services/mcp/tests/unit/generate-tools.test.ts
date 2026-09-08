@@ -214,7 +214,7 @@ describe('generateToolCode with input_schema', () => {
             stubGetQuerySchema
         )
 
-        expect(result.code).toContain('const parsedParams = ThingsCreateSchema.parse(params)')
+        expect(result.code).toContain('const parsedParams = ThingsCreateSchema().parse(params)')
         expect(result.code).toContain('body: parsedParams')
     })
 
@@ -236,7 +236,7 @@ describe('generateToolCode with input_schema', () => {
             stubGetQuerySchema
         )
 
-        expect(result.code).toContain('const parsedParams = ThingsListSchema.parse(params)')
+        expect(result.code).toContain('const parsedParams = ThingsListSchema().parse(params)')
         expect(result.code).toContain('query: parsedParams')
     })
 
@@ -260,7 +260,7 @@ describe('generateToolCode with input_schema', () => {
         )
 
         expect(result.code).toContain(
-            "const thingsList = (): ToolBase<typeof ThingsListSchema, Omit<Schemas.ThingList, 'results'> & { results: unknown[] }>"
+            "const thingsList = (): ToolBase<ReturnType<typeof ThingsListSchema>, Omit<Schemas.ThingList, 'results'> & { results: unknown[] }>"
         )
         expect(result.code).toContain(
             "const result = await context.api.request<Omit<Schemas.ThingList, 'results'> & { results: unknown[] }>({"
@@ -1116,7 +1116,7 @@ describe('param_overrides aliases', () => {
 
         expect(result.castHelperImports.has('normalizeParamAliases')).toBe(true)
         expect(result.code).toContain(
-            "const ThingsGetSchema = z.preprocess(normalizeParamAliases({ id: ['thingId', 'thing_id'] }), ThingsRetrieveParams.omit({ project_id: true }))"
+            "const ThingsGetSchema = () => {\n    const ThingsRetrieveParams = orvalSchemas.ThingsRetrieveParams()\n    return z.preprocess(normalizeParamAliases({ id: ['thingId', 'thing_id'] }), ThingsRetrieveParams.omit({ project_id: true }))\n}"
         )
     })
 })
@@ -1720,7 +1720,9 @@ describe('generateToolCode with informational response wrapping', () => {
             stubGetQuerySchema
         )
 
-        expect(result.code).toContain('ToolBase<typeof ThingsGetSchema, WithInformationalResponse<unknown>>')
+        expect(result.code).toContain(
+            'ToolBase<ReturnType<typeof ThingsGetSchema>, WithInformationalResponse<unknown>>'
+        )
         const filteringIndex = result.code.indexOf('const filtered =')
         const wrappingIndex = result.code.indexOf('withInformationalResponse(')
         expect(filteringIndex).toBeGreaterThan(-1)

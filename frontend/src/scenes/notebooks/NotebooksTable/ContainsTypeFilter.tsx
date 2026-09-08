@@ -16,6 +16,7 @@ export const fromNodeTypeToLabel: Omit<
     | NotebookNodeType.Embed
     | NotebookNodeType.Latex
     | NotebookNodeType.MarkdownNotebook
+    | NotebookNodeType.GeneratedWidget
 > = {
     [NotebookNodeType.FeatureFlag]: 'Feature flags',
     [NotebookNodeType.FeatureFlagCodeExample]: 'Feature flag Code Examples',

@@ -7,6 +7,7 @@ const pathsWithoutProjectId = [
     'me',
     'instance',
     'organization',
+    'billing',
     'preflight',
     'login',
     'signup',

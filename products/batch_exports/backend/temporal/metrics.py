@@ -255,17 +255,19 @@ class _BatchExportsMetricsWorkflowInterceptor(WorkflowInboundInterceptor):
         interval = input.args[0].interval.replace(" ", "_")
         histogram_attributes: Attributes = {"interval": interval}
 
+        batch_export_id = getattr(input.args[0], "batch_export_id", None) or workflow_info.workflow_id
+
         model = getattr(input.args[0], "batch_export_model", None)
         _tag_span_with_batch_export_context(
             {
-                "batch_export.id": getattr(input.args[0], "batch_export_id", None),
+                "batch_export.id": batch_export_id,
                 "batch_export.destination": workflow_type.removesuffix("-export"),
                 "batch_export.interval": interval,
                 "batch_export.model": getattr(model, "name", None),
             }
         )
 
-        async with SLAWaiter(batch_export_id=workflow_info.workflow_id, sla=get_sla_from_interval(interval)):
+        async with SLAWaiter(batch_export_id=batch_export_id, sla=get_sla_from_interval(interval)):
             with ExecutionTimeRecorder(
                 "batch_exports_workflow_interval_execution_latency",
                 description="Histogram tracking execution latency for batch export workflows by interval",

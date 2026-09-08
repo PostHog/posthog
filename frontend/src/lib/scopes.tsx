@@ -61,6 +61,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'alert', objectName: 'Alert', objectPlural: 'alerts' },
     { key: 'annotation', objectName: 'Annotation', objectPlural: 'annotations' },
     { key: 'approvals', objectName: 'Approvals', objectPlural: 'approvals' },
+    { key: 'autoresearch', objectName: 'Autoresearch', objectPlural: 'autoresearch pipelines' },
     { key: 'batch_export', objectName: 'Batch export', objectPlural: 'batch exports' },
     { key: 'billing', objectName: 'Billing', objectPlural: 'billing' },
     { key: 'business_knowledge', objectName: 'Business knowledge', objectPlural: 'business knowledge' },
@@ -74,6 +75,7 @@ export const API_SCOPES: APIScope[] = [
         info: 'Programmatic access to the PostHog AI (Max) chat via the conversations API.',
     },
     { key: 'customer_analytics', objectName: 'Customer analytics', objectPlural: 'customer analytics' },
+    { key: 'customer_task', objectName: 'Customer task', objectPlural: 'customer tasks' },
     { key: 'customer_journey', objectName: 'Customer journey', objectPlural: 'customer journeys' },
     { key: 'data_catalog', objectName: 'Data catalog', objectPlural: 'data catalog' },
     {
@@ -280,11 +282,14 @@ export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, strin
     external_data_schema: 'Pending removal: covered by external_data_source; no viewset uses it.',
 }
 
+// Keep in sync with PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION in posthog/scopes.py.
+// posthog/test/test_scopes.py compares the two lists.
 export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'endpoint:read',
     'feature_flag:read',
     'account:read',
     'loop:write',
+    'experiment:read',
 ] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]

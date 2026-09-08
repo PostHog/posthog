@@ -50,7 +50,7 @@ from hogli_commands.complexity_lint import PYTHON_SCOPE, TEST_WARN_AT, TYPESCRIP
 from hogli_commands.devenv.generator import TRACKED_MPROCS_FILES
 from hogli_commands.size_lint import SCOPE as SIZE_SCOPE
 
-Requirement = Literal["node", "desktop-node", "stack", "clickhouse"]
+Requirement = Literal["node", "desktop-node", "stack", "clickhouse", "python-env"]
 
 
 @dataclass
@@ -257,6 +257,21 @@ DIFF_CHECKS: list[DiffCheck] = [
         requires=("stack",),
     ),
     DiffCheck(
+        key="taxonomy",
+        label="taxonomy JSON out of sync with posthog/taxonomy/taxonomy.py",
+        # From build.py so preflight and build:taxonomy-json can't drift on which diffs
+        # need a regen, plus the generator and its output, so an edit to any side of the
+        # relation is caught.
+        triggers=[
+            *BUILD_TRIGGERS["build:taxonomy-json"],
+            "bin/build-taxonomy-json.py",
+            "frontend/src/taxonomy/core-filter-definitions-by-group.json",
+        ],
+        verify=["hogli", "build:taxonomy-json", "--check"],
+        fix=["hogli", "build:taxonomy-json"],
+        requires=("python-env",),
+    ),
+    DiffCheck(
         key="migrations",
         label="migration conflict / orphaned migration",
         triggers=["*/migrations/*.py"],
@@ -312,12 +327,38 @@ def _port_open(port: int) -> bool:
         return False
 
 
+def _project_python_ready() -> bool:
+    """Whether the synced project environment is the `python` on PATH.
+
+    `import posthog` is the proxy for it, because it runs `posthog/__init__.py`,
+    which is where the generator fails when the environment is stale. A narrower
+    probe such as `import django` passes on a venv that has fallen behind
+    `uv.lock`, and the check then blocks the push under a drift label it never
+    measured. `cwd` is required, because `python -c` resolves `posthog` from the
+    working directory. The probe spawns the same interpreter a
+    `#!/usr/bin/env python` script gets, so probe and subject agree. A checkout
+    without the environment must read as "skipped", not "fail".
+    """
+    try:
+        probe = subprocess.run(
+            ["python", "-c", "import posthog"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return probe.returncode == 0
+
+
 def _capability_met(req: Requirement) -> bool:
     if req == "node":
         return _has_node_modules()
     if req == "desktop-node":
         # products/desktop is a nested standalone workspace with its own install.
         return (REPO_ROOT / "products" / "desktop" / "node_modules" / ".pnpm").exists()
+    if req == "python-env":
+        return _project_python_ready()
     if req == "stack":
         # Postgres reachable — proxy for "dev stack is running".
         return _port_open(5432)

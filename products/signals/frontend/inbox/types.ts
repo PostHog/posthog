@@ -2,6 +2,7 @@ import type { UserBasicType } from '~/types'
 
 import {
     type ReportChartApi,
+    type SignalReportAssignmentPrStateEnumApi,
     type SignalReportRefundApi,
     type SignalReportStateRequestApi,
     type SignalScoutRunSummaryApi,
@@ -76,7 +77,7 @@ export interface SignalReport {
     is_suggested_reviewer: boolean
     /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
     charts?: ReportChartApi[]
-    /** Questions the report's author suggests asking about it, offered above the "Ask AI" box. */
+    /** Prompts the report's author suggests sending about it (questions or next-step actions), offered above the "Ask AI" box. */
     suggested_prompts?: string[]
     /** Count of signals at the time the latest research run kicked off. */
     signals_at_run?: number
@@ -95,6 +96,8 @@ export interface SignalReport {
     /** Whether that implementation PR is merged, per the GitHub webhook. Status doesn't imply it: a
      * resolved report may have been resolved directly, without a merged PR. */
     implementation_pr_merged?: boolean
+    /** Latest known state of that PR: unknown, draft, open, closed, or merged. */
+    implementation_pr_state?: SignalReportAssignmentPrStateEnumApi | null
     /** Reason code from the latest dismissal artefact (when archived). See dismissalReasons. */
     dismissal_reason?: string | null
     /** Free-form note from the latest dismissal artefact (when archived). */
