@@ -170,6 +170,30 @@ describe('replayScannerLogic', () => {
             expect(logic.values.scanner?.query).toEqual({ kind: 'RecordingsQuery' })
         })
 
+        it('carries the drafted experiment targeting onto the form', async () => {
+            // Targeting is not part of the query, so the form is its only carrier: dropped here, the
+            // saved scanner watches every visitor of the drafted pages instead of the participants.
+            draftSpy.mockReturnValue([
+                200,
+                {
+                    name: 'New entrypoint friction',
+                    description: 'Classifies friction in the new entrypoint.',
+                    scanner_type: 'classifier',
+                    scanner_config: { prompt: 'Classify the friction.', tags: ['smooth'], multi_label: false },
+                    rationale: '',
+                    query: null,
+                    experiment_targeting: { experiment_id: 11, variant: 'test' },
+                },
+            ])
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
+
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal('friction in the new AI entrypoint')
+            ).toFinishAllListeners()
+
+            expect(logic.values.scanner?.experiment_targeting).toEqual({ experiment_id: 11, variant: 'test' })
+        })
+
         it('drops a stale draft when the user has left the template step mid-request', async () => {
             draftSpy.mockReturnValue([
                 200,
