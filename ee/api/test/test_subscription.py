@@ -147,7 +147,6 @@ class TestSubscriptionTemporal(APILicensedTest):
             "title": "My Subscription",
             "next_delivery_date": data["next_delivery_date"],
             "integration_id": None,
-            "invite_message": None,
             "delivery_config": {"post_all_insights_in_main_message": False},
             "summary": "sent every week",
             "summary_enabled": False,
@@ -317,6 +316,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         )
         updated_data = response.json()
         assert updated_data["target_value"] == "test@posthog.com,new_user@posthog.com"
+        assert "invite_message" not in updated_data
 
         self.mock_temporal_client.start_workflow.assert_called_once()
         wf_args, _ = self.mock_temporal_client.start_workflow.call_args
