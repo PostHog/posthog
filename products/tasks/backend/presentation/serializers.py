@@ -2066,13 +2066,21 @@ class TaskSearchQuerySerializer(serializers.Serializer):
 class TaskSearchResultSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Search document identifier.")
     kind = serializers.ChoiceField(
-        choices=["task", "pull_request", "artifact", "channel"], help_text="Type of matched resource."
+        choices=["task", "pull_request", "artifact", "channel", "canvas"], help_text="Type of matched resource."
     )
     title = serializers.CharField(help_text="Primary result label.")
     subtitle = serializers.CharField(allow_blank=True, help_text="Secondary result context.")
     task_id = serializers.UUIDField(allow_null=True, help_text="Containing task identifier, when applicable.")
     task_run_id = serializers.UUIDField(allow_null=True, help_text="Containing task run identifier, when applicable.")
     channel_id = serializers.UUIDField(allow_null=True, help_text="Containing space identifier, when applicable.")
+    created_by = TaskUserBasicInfoSerializer(
+        allow_null=True, help_text="Who created the containing task, when the match has one."
+    )
+    origin_product = serializers.CharField(
+        allow_null=True, allow_blank=True, help_text="What created the containing task, for example 'slack'."
+    )
+    latest_run = TaskRunSummarySerializer(allow_null=True, help_text="Status of the containing task's most recent run.")
+    updated_at = serializers.DateTimeField(help_text="When the matched resource last changed.")
     metadata = serializers.JSONField(help_text="Resource-specific navigation metadata.")
 
 
