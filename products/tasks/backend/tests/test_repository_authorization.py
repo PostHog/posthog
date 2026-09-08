@@ -4,7 +4,7 @@ import time
 from typing import get_type_hints
 from uuid import UUID
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -338,21 +338,38 @@ class TestRepositoryAuthorization(TestCase):
         personal = self._create_personal_integration()
         team_integration = self._create_team_integration(self.team)
 
-        def mutate_installation(*args: object, **kwargs: object) -> dict[str, object]:
-            personal.integration_id = "installation-2"
-            personal.save(update_fields=["integration_id", "updated_at"])
-            team_integration.integration_id = "installation-2"
-            team_integration.save(update_fields=["integration_id", "updated_at"])
-            return {
-                "full_name": "owner/repository",
-                "private": True,
-                "visibility": "private",
-                "default_branch": "main",
-            }
+        calls = 0
 
-        mock_get.side_effect = [mutate_installation, {"commit": {"sha": "f" * 40}}]
+        def live_response(*args: object, **kwargs: object) -> dict[str, object]:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                personal.integration_id = "installation-2"
+                personal.save(update_fields=["integration_id", "updated_at"])
+                team_integration.integration_id = "installation-2"
+                team_integration.save(update_fields=["integration_id", "updated_at"])
+                return {
+                    "full_name": "owner/repository",
+                    "private": True,
+                    "visibility": "private",
+                    "default_branch": "main",
+                }
+            if calls == 2:
+                return {"commit": {"sha": "f" * 40}}
+            raise AssertionError("Unexpected GitHub call")
+
+        mock_get.side_effect = live_response
 
         assert self._resolve() is None
+        assert personal.integration_id == "installation-2"
+        assert team_integration.integration_id == "installation-2"
+        mock_get.assert_has_calls(
+            [
+                call("/repos/owner/repository", endpoint="/repos/{owner}/{repo}"),
+                call("/repos/owner/repository/branches/main", endpoint="/repos/{owner}/{repo}/branches/{branch}"),
+            ]
+        )
+        assert mock_get.call_count == 2
 
     def test_dtos_do_not_expose_credentials(self) -> None:
         assert set(AuthorizableRepository.__dataclass_fields__) == {
