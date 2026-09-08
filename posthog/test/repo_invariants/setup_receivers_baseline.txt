@@ -103,6 +103,7 @@ post_delete:products.signals.backend.receivers.tombstone_report_embedding_on_har
 post_delete:products.slack_app.backend.signals.invalidate_repo_list_on_user_github_change
 post_delete:products.surveys.backend.models.survey_changed
 post_delete:products.tasks.backend.models.delete_task_session_object
+post_delete:products.tasks.backend.search_index.canvas_deleted
 post_delete:products.tasks.backend.search_index.channel_deleted
 post_delete:products.workflows.backend.models.hog_flow.hog_flow.hog_flow_deleted
 post_init:posthog.storage.gateway_credential_signal_handlers._snapshot_oauth
@@ -218,6 +219,7 @@ post_save:products.tasks.backend.models.bump_task_activity_on_run
 post_save:products.tasks.backend.models.bump_task_activity_on_thread_message
 post_save:products.tasks.backend.models.project_task_created_activity
 post_save:products.tasks.backend.models.track_task_run_completion
+post_save:products.tasks.backend.search_index.canvas_saved
 post_save:products.tasks.backend.search_index.channel_saved
 post_save:products.tasks.backend.search_index.task_artifact_saved
 post_save:products.tasks.backend.search_index.task_run_saved
