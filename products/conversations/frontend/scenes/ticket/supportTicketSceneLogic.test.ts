@@ -691,6 +691,41 @@ describe('supportTicketSceneLogic archive', () => {
         expect(logic.values.ticket?.archived_at).toBe(archivedAt)
         expect(logic.values.ticket?.updated_at).toBe('2026-02-02T10:00:00Z')
     })
+
+    // Both actions PATCH the whole ticket row, and the endpoint writes every field back from
+    // the snapshot it read. Overlapping them lets the later commit revert the earlier one, so
+    // the archive has to wait out an in-flight save rather than race it.
+    it('waits for an in-flight save before archiving', async () => {
+        let releaseSave: (ticket: Ticket) => void = () => {}
+        const savedTicket = { ...loadedTicket(), status: 'pending' } as Ticket
+        ticketUpdateMock.mockImplementationOnce(
+            () =>
+                new Promise<Ticket>((resolve) => {
+                    releaseSave = resolve
+                })
+        )
+        ticketUpdateMock.mockResolvedValue({
+            ...savedTicket,
+            archived_at: '2026-02-02T10:00:00Z',
+            updated_at: '2026-02-02T10:00:00Z',
+        })
+
+        logic.actions.updateTicket()
+        await Promise.resolve()
+        expect(ticketUpdateMock).toHaveBeenCalledTimes(1)
+
+        logic.actions.setArchived(true)
+        // The archive is queued behind the save, so it must not have reached the API yet.
+        await Promise.resolve()
+        expect(ticketUpdateMock).toHaveBeenCalledTimes(1)
+
+        releaseSave(savedTicket)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(ticketUpdateMock).toHaveBeenCalledTimes(2)
+        expect(ticketUpdateMock.mock.calls[1][2]).toEqual({ archived: true })
+        expect(logic.values.ticket?.archived_at).toBe('2026-02-02T10:00:00Z')
+    })
 })
 
 describe('supportTicketSceneLogic tag pool refresh', () => {

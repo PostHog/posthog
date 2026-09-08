@@ -1338,16 +1338,26 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setArchiving(false)
                 return
             }
+            // Same queue as updateTicket. Both PATCH the whole ticket row, and the endpoint
+            // writes back every field from the snapshot it read, so an archive overlapping a
+            // save would revert whichever request read first.
+            while (cache.ticketUpdateRequest) {
+                await cache.ticketUpdateRequest.catch(() => {})
+            }
+
+            const request = conversationsTicketsPartialUpdate(String(getCurrentTeamId()), ticketId, { archived })
+            cache.ticketUpdateRequest = request
             try {
-                const updated = await conversationsTicketsPartialUpdate(String(getCurrentTeamId()), ticketId, {
-                    archived,
-                })
+                const updated = await request
                 actions.setTicketArchivedAt(updated.archived_at, updated.updated_at)
                 lemonToast.success(archived ? 'Ticket archived' : 'Ticket restored')
                 actions.loadTickets()
             } catch {
                 lemonToast.error(archived ? 'Failed to archive ticket' : 'Failed to restore ticket')
             } finally {
+                if (cache.ticketUpdateRequest === request) {
+                    cache.ticketUpdateRequest = null
+                }
                 actions.setArchiving(false)
             }
         },
