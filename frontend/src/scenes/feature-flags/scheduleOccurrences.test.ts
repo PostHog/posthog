@@ -22,10 +22,17 @@ function change(overrides: Partial<ScheduledChangeType> & { payload: ScheduledCh
     return makeScheduledChange({ scheduled_at: NOW.add(1, 'day').toISOString(), ...overrides })
 }
 
-function conditionPayload(rolloutPercentage: number): ScheduledChangePayload {
+const PERSON_FILTER: AnyPropertyFilter = {
+    key: 'email',
+    value: 'a',
+    type: PropertyFilterType.Person,
+    operator: PropertyOperator.Exact,
+}
+
+function conditionPayload(rolloutPercentage: number, properties: AnyPropertyFilter[] = []): ScheduledChangePayload {
     return {
         operation: ScheduledChangeOperationType.AddReleaseCondition,
-        value: { groups: [{ properties: [], rollout_percentage: rolloutPercentage, variant: null }] },
+        value: { groups: [{ properties, rollout_percentage: rolloutPercentage, variant: null }] },
     }
 }
 
@@ -80,6 +87,12 @@ describe('expandScheduleOccurrences', () => {
         },
         { name: 'a ramp that overtakes the current level', current: 30, adds: [25, 50], expected: [true, false] },
         { name: 'an add that matches the current level', current: 25, adds: [25], expected: [true] },
+        {
+            name: 'an add covered by an earlier scheduled add',
+            current: 10,
+            adds: [50, 30],
+            expected: [false, true],
+        },
     ])('marks a covered condition add as no change: $name', ({ current, adds, expected }) => {
         const schedules = adds.map((rollout, index) =>
             change({ payload: conditionPayload(rollout), scheduled_at: NOW.add(index + 1, 'day').toISOString() })
@@ -92,6 +105,31 @@ describe('expandScheduleOccurrences', () => {
         )
 
         expect(occurrences.map((o) => o.rolloutUnchanged)).toEqual(expected)
+    })
+
+    it('ignores property-narrowed condition sets when marking an add as no change', () => {
+        // A narrowed set serves its percentage of one segment (internal emails, a beta cohort), not
+        // of everyone, so it cannot prove that a wider condition reaches nobody new.
+        const schedules = [
+            change({ payload: conditionPayload(100, [PERSON_FILTER]), scheduled_at: NOW.add(1, 'day').toISOString() }),
+            change({ payload: conditionPayload(50), scheduled_at: NOW.add(2, 'day').toISOString() }),
+        ]
+
+        const occurrences = expandScheduleOccurrences(
+            schedules,
+            flag({
+                filters: {
+                    groups: [
+                        { properties: [PERSON_FILTER], rollout_percentage: 100, variant: null },
+                        { properties: [], rollout_percentage: 10, variant: null },
+                    ],
+                    multivariate: null,
+                },
+            }),
+            NOW
+        )
+
+        expect(occurrences.map((o) => o.rolloutUnchanged)).toEqual([false, false])
     })
 
     it('carries status, rollout, and variant projections through a mixed plan', () => {
@@ -411,17 +449,11 @@ describe('expandScheduleOccurrences', () => {
 })
 
 describe('maxUntargetedRolloutPercentage', () => {
-    const person: AnyPropertyFilter = {
-        key: 'email',
-        value: 'a',
-        type: PropertyFilterType.Person,
-        operator: PropertyOperator.Exact,
-    }
     const cases: { name: string; groups: FeatureFlagGroupType[]; expected: number | null }[] = [
         {
             name: 'ignores a condition set a property filter narrows',
             groups: [
-                { properties: [person], rollout_percentage: 100, variant: null },
+                { properties: [PERSON_FILTER], rollout_percentage: 100, variant: null },
                 { properties: [], rollout_percentage: 20, variant: null },
             ],
             expected: 20,
@@ -433,7 +465,7 @@ describe('maxUntargetedRolloutPercentage', () => {
         },
         {
             name: 'returns null when every set is narrowed',
-            groups: [{ properties: [person], rollout_percentage: 100, variant: null }],
+            groups: [{ properties: [PERSON_FILTER], rollout_percentage: 100, variant: null }],
             expected: null,
         },
     ]

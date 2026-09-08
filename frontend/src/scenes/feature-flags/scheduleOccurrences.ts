@@ -27,8 +27,9 @@ export interface ScheduleOccurrence {
     /** Max rollout of the condition this occurrence adds; null for other operations. */
     addedRolloutPercentage: number | null
     /**
-     * True when this occurrence adds a condition that sits at or below the rollout the flag already
-     * serves, so the projected rollout holds its level. False for every other operation.
+     * True when this occurrence adds a condition at or below the rollout the flag already serves to
+     * everyone, so it reaches nobody new and the projected rollout holds its level. False for every
+     * other operation.
      */
     rolloutUnchanged: boolean
     /** The occurrence will be skipped at fire time unless its approval request is approved first. */
@@ -78,6 +79,14 @@ export function maxRolloutPercentage(groups: FeatureFlagGroupType[] | undefined)
  */
 export function maxUntargetedRolloutPercentage(groups: FeatureFlagGroupType[] | undefined): number | null {
     return maxRolloutPercentage(groups?.filter((group) => !group.properties?.length))
+}
+
+/** Raises a running max, where null means unknown rather than zero. */
+function raiseMax(current: number | null, next: number | null): number | null {
+    if (next === null) {
+        return current
+    }
+    return current === null ? next : Math.max(current, next)
 }
 
 /** A paused recurring schedule keeps its recurrence config but has is_recurring=false. */
@@ -186,6 +195,9 @@ export function expandScheduleOccurrences(
 
     let active = flag.active
     let rolloutPercentage = maxRolloutPercentage(flag.filters.groups)
+    // Only the sets that no property filter narrows can prove an added condition redundant, so they
+    // are tracked apart from the max above: a narrowed set's percentage is a share of its segment.
+    let untargetedRolloutPercentage = maxUntargetedRolloutPercentage(flag.filters.groups)
     let variantCount = flag.filters.multivariate?.variants.length ?? null
 
     return raw.slice(0, OCCURRENCE_CAP).map(({ at, schedule, isFirst }) => {
@@ -196,13 +208,15 @@ export function expandScheduleOccurrences(
             active = payload.value
         } else if (payload.operation === ScheduledChangeOperationType.AddReleaseCondition) {
             addedRolloutPercentage = maxRolloutPercentage(payload.value.groups)
-            if (addedRolloutPercentage !== null) {
-                rolloutUnchanged = rolloutPercentage !== null && addedRolloutPercentage <= rolloutPercentage
-                rolloutPercentage =
-                    rolloutPercentage === null
-                        ? addedRolloutPercentage
-                        : Math.max(rolloutPercentage, addedRolloutPercentage)
-            }
+            rolloutUnchanged =
+                addedRolloutPercentage !== null &&
+                untargetedRolloutPercentage !== null &&
+                addedRolloutPercentage <= untargetedRolloutPercentage
+            rolloutPercentage = raiseMax(rolloutPercentage, addedRolloutPercentage)
+            untargetedRolloutPercentage = raiseMax(
+                untargetedRolloutPercentage,
+                maxUntargetedRolloutPercentage(payload.value.groups)
+            )
         } else if (payload.operation === ScheduledChangeOperationType.UpdateVariants) {
             variantCount = payload.value.variants.length
         }
