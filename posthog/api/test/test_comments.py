@@ -76,7 +76,17 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
         return task
 
-    def test_task_artifact_comments_require_a_visible_owning_task(self) -> None:
+    @parameterized.expand(
+        [
+            ("null_context", None),
+            ("missing_task_id", {"anchor": {"kind": "document"}}),
+            ("null_task_id", {"taskId": None}),
+            ("empty_task_id", {"taskId": ""}),
+        ]
+    )
+    def test_task_artifact_comments_require_a_visible_owning_task(
+        self, _name: str, legacy_context: dict[str, object] | None
+    ) -> None:
         task = self._task_artifact_target()
         payload: dict[str, Any] = {
             "content": "Review this",
@@ -87,6 +97,23 @@ class TestComments(APIBaseTest, QueryMatchingTest):
 
         created = self.client.post(f"/api/projects/{self.team.id}/comments", payload)
         assert created.status_code == status.HTTP_201_CREATED
+        legacy = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task_artifact",
+            item_id="artifact-1",
+            item_context=legacy_context,
+            content="Review the earlier output",
+        )
+        other_task = self._task_artifact_target()
+        Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="task_artifact",
+            item_id="artifact-1",
+            item_context={"taskId": str(other_task.id)},
+            content="A different task's comment",
+        )
         without_task = self.client.get(f"/api/projects/{self.team.id}/comments?scope=task_artifact&item_id=artifact-1")
         assert without_task.json()["results"] == []
         unscoped = self.client.get(f"/api/projects/{self.team.id}/comments?item_id=artifact-1")
@@ -94,7 +121,15 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         with_task = self.client.get(
             f"/api/projects/{self.team.id}/comments?scope=task_artifact&item_id=artifact-1&task_id={task.id}"
         )
-        assert [row["id"] for row in with_task.json()["results"]] == [created.json()["id"]]
+        assert {row["id"] for row in with_task.json()["results"]} == {created.json()["id"], str(legacy.id)}
+
+        reply = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {**payload, "source_comment": str(legacy.id), "content": "Updated the earlier output"},
+        )
+        assert reply.status_code == status.HTTP_201_CREATED
+        assert reply.json()["source_comment"] == str(legacy.id)
+        assert reply.json()["item_context"] == {**(legacy_context or {}), "taskId": str(task.id)}
 
     @mock.patch("posthog.api.comments.send_mention_notifications")
     @mock.patch("posthog.api.comments.produce_discussion_mention_events")
@@ -509,6 +544,21 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
         }
         assert self.client.post(f"/api/projects/{self.team.id}/comments", payload).status_code == 403
+        legacy = Comment.objects.create(
+            team=self.team,
+            created_by=other,
+            scope="task_artifact",
+            item_id="artifact-1",
+            content="Earlier private comment",
+        )
+        query = f"/api/projects/{self.team.id}/comments?scope=task_artifact&item_id=artifact-1&task_id={task.id}"
+        assert self.client.get(query).json()["results"] == []
+        assert (
+            self.client.post(
+                f"/api/projects/{self.team.id}/comments", {**payload, "source_comment": str(legacy.id)}
+            ).status_code
+            == 403
+        )
 
         visible_task = self._task_artifact_target()
         payload["item_context"]["taskId"] = str(visible_task.id)
@@ -570,10 +620,18 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         created = self.client.post(f"/api/projects/{self.team.id}/comments", payload)
 
         assert created.status_code == status.HTTP_201_CREATED
+        legacy = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="desktop_canvas",
+            item_id=str(canvas.id),
+            item_context={"anchor": {"kind": "document"}},
+            content="Review the earlier canvas",
+        )
         with_task = self.client.get(
             f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={task.id}"
         )
-        assert [row["id"] for row in with_task.json()["results"]] == [created.json()["id"]]
+        assert {row["id"] for row in with_task.json()["results"]} == {created.json()["id"], str(legacy.id)}
         task_activity_model = apps.get_model("tasks", "TaskCommentActivity")
         assert (
             task_activity_model.objects.unscoped()

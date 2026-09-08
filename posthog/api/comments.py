@@ -393,6 +393,13 @@ class CommentSerializer(serializers.ModelSerializer):
             # working, but a reply's own signal keys must survive the merge.
             data["item_context"] = {
                 **{key: value for key, value in root_context.items() if key != "threadState"},
+                **(
+                    {"taskId": reply_context["taskId"]}
+                    if root.scope in {"task_artifact", "desktop_canvas"}
+                    and not root_context.get("taskId")
+                    and reply_context.get("taskId")
+                    else {}
+                ),
                 **({"is_emoji": reply_context["is_emoji"]} if "is_emoji" in reply_context else {}),
                 **(
                     {"threadState": reply_context["threadState"]}
@@ -929,7 +936,13 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                 ):
                     return queryset.none()
                 if scope != "task":
-                    queryset = queryset.filter(item_context__taskId=str(task_id))
+                    queryset = queryset.filter(
+                        Q(item_context__taskId=str(task_id))
+                        | Q(item_context__isnull=True)
+                        | ~Q(item_context__has_key="taskId")
+                        | Q(item_context__taskId=None)
+                        | Q(item_context__taskId="")
+                    )
         elif self.action in ("list", "count"):
             # Product-owned scopes require their own object-level access checks and must
             # never leak through an unscoped generic comments query.
