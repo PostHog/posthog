@@ -11,6 +11,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.activities 
     DiagnosticCounts,
     _load_snapshot,
     _parse_context_refs,
+    _ParsedContextRefs,
     _persist_ai_report,
     _report_diagnostic_counts,
     _snapshot_diagnostic_counts,
@@ -69,7 +70,11 @@ def _context_refs(delivery_id) -> list[str]:
 
 @parameterized.expand(
     [
-        ("valid", ["dashboard:123", "insight:456"], ([123], [456])),
+        (
+            "valid",
+            ["dashboard:123", "insight:456"],
+            _ParsedContextRefs(dashboard_ids=[123], insight_ids=[456]),
+        ),
         ("unknown kind", ["replay:123"], None),
         ("invalid id", ["insight:not-an-id"], None),
         ("missing separator", ["insight123"], None),

@@ -345,7 +345,7 @@ def apply_dashboard_variables_to_dict(query: dict, variables_overrides: dict[str
                     "variableId": variable_id,
                     "code_name": query_variable["code_name"],
                     "value": overriden_hogql_variable.get("value"),
-                    "isNull": overriden_hogql_variable.get("isNull"),
+                    **({"isNull": overriden_hogql_variable["isNull"]} if "isNull" in overriden_hogql_variable else {}),
                 }
 
         return {**query, "variables": query_variables}

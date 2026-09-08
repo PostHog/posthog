@@ -80,7 +80,13 @@ async def _load_snapshot(delivery_id: uuid.UUID) -> dict | None:
     return await _read()
 
 
-def _parse_context_refs(context_refs: Collection[str]) -> tuple[list[int], list[int]] | None:
+@frozen
+class _ParsedContextRefs:
+    dashboard_ids: list[int]
+    insight_ids: list[int]
+
+
+def _parse_context_refs(context_refs: Collection[str]) -> _ParsedContextRefs | None:
     dashboard_ids: list[int] = []
     insight_ids: list[int] = []
     targets = {"dashboard": dashboard_ids, "insight": insight_ids}
@@ -93,7 +99,7 @@ def _parse_context_refs(context_refs: Collection[str]) -> tuple[list[int], list[
         if separator != ":" or kind not in targets or context_id < 1:
             return None
         targets[kind].append(context_id)
-    return dashboard_ids, insight_ids
+    return _ParsedContextRefs(dashboard_ids=dashboard_ids, insight_ids=insight_ids)
 
 
 def _creator_can_access_delivery_context(subscription: Subscription, delivery_id: uuid.UUID) -> bool:
@@ -104,11 +110,10 @@ def _creator_can_access_delivery_context(subscription: Subscription, delivery_id
     parsed_refs = _parse_context_refs(context_refs)
     if parsed_refs is None:
         return False
-    dashboard_ids, insight_ids = parsed_refs
     return creator_can_access_report_context(
         subscription,
-        dashboard_ids=dashboard_ids,
-        insight_ids=insight_ids,
+        dashboard_ids=parsed_refs.dashboard_ids,
+        insight_ids=parsed_refs.insight_ids,
     )
 
 
