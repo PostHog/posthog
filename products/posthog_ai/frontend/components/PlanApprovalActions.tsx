@@ -251,6 +251,9 @@ export function PlanApprovalSelector({
     // any element outside the card keeps native Tab/Enter behavior.
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent): void => {
+            if (e.key === 'Escape' && containerRef.current?.closest('[data-run-escape-scope]')) {
+                return
+            }
             if (responding || rejectSelected || e.defaultPrevented) {
                 return
             }
@@ -350,7 +353,7 @@ export function PlanApprovalSelector({
     const approveActive = selectedIndex === 0 || hoveredIndex === 0
 
     return (
-        <div ref={containerRef} className="rounded border bg-surface-primary p-3">
+        <div ref={containerRef} tabIndex={-1} className="rounded border bg-surface-primary p-3">
             <div className="flex flex-col gap-2">
                 <span className="font-medium text-[13px] text-accent">Implementation Plan</span>
 
@@ -417,6 +420,7 @@ export function PlanApprovalSelector({
                                             onEscape={() => {
                                                 setFeedback('')
                                                 selectRow(0)
+                                                containerRef.current?.focus()
                                             }}
                                             onSubmit={submitReject}
                                         />

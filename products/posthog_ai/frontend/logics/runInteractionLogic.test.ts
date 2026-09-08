@@ -18,6 +18,7 @@ import {
 import type { PermissionRequestRecord } from '../types/streamTypes'
 import { contextItemLine } from '../utils/posthogContextBlock'
 import { attachedContextLogic } from './attachedContextLogic'
+import { runCancellationLogic } from './runCancellationLogic'
 import { runInteractionLogic } from './runInteractionLogic'
 import { runStreamLogic } from './runStreamLogic'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
@@ -50,6 +51,10 @@ jest.mock('./runStreamLogic', () => {
             cancelPermissionDelivery: true,
             clearPermissionRequest: true,
             reset: true,
+            appendEntries: true,
+            ingestAcpFrame: true,
+            closeSse: true,
+            bootstrapRun: true,
         }),
         reducers({
             currentRunStatus: [
@@ -67,6 +72,7 @@ jest.mock('./runStreamLogic', () => {
             ],
             bootstrappedRunId: [null, {}],
             bootstrappedTaskId: [null, {}],
+            log: [{ entries: [], toolUpdateIndex: new Map() }, {}],
             pendingPermissionRequest: [
                 null,
                 {
@@ -208,6 +214,69 @@ describe('runInteractionLogic', () => {
         stream?.unmount()
         project?.unmount()
         toolEvents?.unmount()
+    })
+
+    it('adopts the startup draft once and clears it after sending', async () => {
+        const onDraftAdopted = jest.fn()
+        const attached = runInteractionLogic({
+            taskId: TASK_ID,
+            runId: 'attached-run',
+            initialDraft: 'startup draft',
+            onDraftAdopted,
+        })
+        const unmount = attached.mount()
+        try {
+            expect(attached.values.composerForm.draft).toBe('startup draft')
+            expect(onDraftAdopted).toHaveBeenCalledTimes(1)
+            await expectLogic(attached, () => attached.actions.submitComposerForm()).toFinishAllListeners()
+            expect(attached.values.composerForm.draft).toBe('')
+        } finally {
+            unmount()
+        }
+    })
+
+    it.each(['queue', 'run', 'idle', 'approval'])(
+        'routes Escape for %s and preserves the unsent draft',
+        async (state) => {
+            setThinking(state !== 'idle')
+            logic.actions.setComposerFormValues({ draft: 'unsent draft' })
+            if (state === 'queue') {
+                logic.actions.enqueueMessage('saved message')
+            }
+            if (state === 'approval') {
+                stream.actions.ingestPermissionRequest({
+                    requestId: 'approval',
+                    sourceRunId: RUN_ID,
+                } as PermissionRequestRecord)
+            }
+            await expectLogic(logic, () => logic.actions.handleEscape()).toFinishAllListeners()
+            expect(logic.values.composerForm.draft).toBe('unsent draft')
+            expect(logic.values.cancellationState).toBe(['run', 'approval'].includes(state) ? 'waiting' : null)
+            if (state === 'queue') {
+                expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', TASK_ID, RUN_ID, {
+                    jsonrpc: '2.0',
+                    method: 'user_message',
+                    params: { content: 'saved message', steer: true },
+                })
+            } else {
+                expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+            }
+        }
+    )
+
+    it('blocks sends and steering while stopping without clearing either draft or queue', async () => {
+        logic.actions.setComposerFormValues({ draft: 'unsent draft' })
+        logic.actions.enqueueMessage('saved message')
+        runCancellationLogic({ streamKey: RUN_ID }).actions.requestCancellation()
+        await expectLogic(logic, () => {
+            logic.actions.handleEscape()
+            logic.actions.submitComposerForm()
+            logic.actions.steerQueue()
+            logic.actions.flushQueue()
+        }).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+        expect(logic.values.composerForm.draft).toBe('unsent draft')
+        expect(logic.values.queuedMessages).toEqual([{ id: 'queued', content: 'saved message' }])
     })
 
     it('sends immediately and echoes the message when the agent is idle', async () => {
@@ -397,33 +466,42 @@ describe('runInteractionLogic', () => {
         expect(tasksRunsCommandCreate).toHaveBeenCalledWith(...userMessageCommand('follow up'))
     })
 
-    it('defers steering through approval confirmation and sends the current saved queue once', async () => {
-        const record = { requestId: 'approval-1', sourceRunId: RUN_ID } as PermissionRequestRecord
-        stream.actions.ingestPermissionRequest(record)
-        stream.actions.deliverPermission(record, 'allow_once')
-        setThinking(true)
-        logic.actions.enqueueMessage('first')
-        logic.actions.setComposerFormValues({ draft: 'still drafting' })
-        logic.actions.steerQueue()
-        logic.actions.steerQueue()
-        logic.actions.enqueueMessage('second')
-        expect(logic.values.steerPending).toBe(true)
-        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+    it.each(['before approval', 'during confirmation'])(
+        'defers Escape steering %s and sends the current saved queue once',
+        async (phase) => {
+            const record = { requestId: 'approval-1', sourceRunId: RUN_ID } as PermissionRequestRecord
+            stream.actions.ingestPermissionRequest(record)
+            if (phase === 'during confirmation') {
+                stream.actions.deliverPermission(record, 'allow_once')
+            }
+            setThinking(true)
+            logic.actions.enqueueMessage('first')
+            logic.actions.setComposerFormValues({ draft: 'still drafting' })
+            logic.actions.handleEscape()
+            logic.actions.handleEscape()
+            logic.actions.enqueueMessage('second')
+            expect(logic.values.steerPending).toBe(true)
+            expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
 
-        await expectLogic(logic, () =>
+            if (phase === 'before approval') {
+                stream.actions.deliverPermission(record, 'allow_once')
+            }
+            expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+            await expectLogic(logic, () =>
+                stream.actions.markPermissionRequestResolved(record.requestId)
+            ).toFinishAllListeners()
             stream.actions.markPermissionRequestResolved(record.requestId)
-        ).toFinishAllListeners()
-        stream.actions.markPermissionRequestResolved(record.requestId)
-        logic.actions.steerQueue()
-        expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(1)
-        expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', TASK_ID, RUN_ID, {
-            jsonrpc: '2.0',
-            method: 'user_message',
-            params: { content: 'first\n\nsecond', steer: true },
-        })
-        expect(logic.values.composerForm.draft).toBe('still drafting')
-        expect(logic.values.queuedMessages).toEqual([])
-    })
+            logic.actions.steerQueue()
+            expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(1)
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', TASK_ID, RUN_ID, {
+                jsonrpc: '2.0',
+                method: 'user_message',
+                params: { content: 'first\n\nsecond', steer: true },
+            })
+            expect(logic.values.composerForm.draft).toBe('still drafting')
+            expect(logic.values.queuedMessages).toEqual([])
+        }
+    )
 
     it.each(['failure', 'replacement approval', 'replacement run', 'terminal', 'cancel', 'reset', 'empty', 'unmount'])(
         'cancels deferred steering on %s',

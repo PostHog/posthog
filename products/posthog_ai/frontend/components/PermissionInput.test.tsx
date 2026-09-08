@@ -66,6 +66,10 @@ describe('PermissionInput', () => {
             fireEvent.keyDown(input, { key: 'Enter' })
             expect(respondToPermission).toHaveBeenCalledTimes(2)
             expect(respondToPermission.mock.calls[1]).toEqual(respondToPermission.mock.calls[0])
+
+            rerender(<PermissionInput streamKey="run-1" request={request} disabled />)
+            fireEvent.keyDown(input, { key: 'Enter' })
+            expect(respondToPermission).toHaveBeenCalledTimes(2)
         }
     )
 })

@@ -14,6 +14,7 @@ import { QuestionField } from './QuestionField'
 interface QuestionInputProps {
     streamKey: string
     request: PermissionRequestRecord
+    disabled?: boolean
 }
 
 /** Adapt a sandbox question onto the `MultiQuestionFormQuestion` shape `QuestionField` renders. */
@@ -47,10 +48,11 @@ function selectedLabels(answer: string | string[] | undefined): string[] {
  * text — the agent reads `_meta.answers`; `optionId` only has to be a valid offered option (derived
  * from the first question's selection). `respondingToPermission` drives the loading / double-submit guard.
  */
-export function QuestionInput({ streamKey, request }: QuestionInputProps): JSX.Element | null {
+export function QuestionInput({ streamKey, request, disabled = false }: QuestionInputProps): JSX.Element | null {
     const boundLogic = runStreamLogic({ streamKey })
     const { respondToPermission } = useActions(boundLogic)
-    const { respondingToPermission } = useValues(boundLogic)
+    const { respondingToPermission: delivering } = useValues(boundLogic)
+    const respondingToPermission = delivering || disabled
 
     // Stable reference so the memoized callbacks below don't re-evaluate every render.
     const questions = useMemo(() => request.questions ?? [], [request.questions])

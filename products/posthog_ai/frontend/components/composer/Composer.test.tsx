@@ -4,8 +4,8 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createRef, useState } from 'react'
 
 import { QueuedMessageList } from '../QueuedMessageList'
+import { RunEscapeBoundary } from '../RunEscapeBoundary'
 import { Composer } from './Composer'
-import { ComposerSteerShortcut } from './ComposerSteerShortcut'
 
 describe('Composer', () => {
     const onChange = jest.fn()
@@ -14,10 +14,12 @@ describe('Composer', () => {
 
     beforeEach(() => {
         jest.clearAllMocks()
+        jest.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue({ length: 1 } as DOMRectList)
     })
 
     afterEach(() => {
         cleanup()
+        jest.restoreAllMocks()
     })
 
     const renderComposer = (props: Partial<Parameters<typeof Composer.Root>[0]> = {}): ReturnType<typeof render> =>
@@ -48,22 +50,23 @@ describe('Composer', () => {
                     steer()
                 }
                 return (
-                    <Composer.Root
-                        value="unsent draft"
-                        onChange={onChange}
-                        onSubmit={onSubmit}
-                        textAreaRef={textAreaRef}
-                    >
-                        <ComposerSteerShortcut textAreaRef={textAreaRef} onSteer={onSteer} disabled={pending} />
-                        <QueuedMessageList
-                            messages={[{ id: 'queued', content: 'saved message' }]}
-                            onUpdate={jest.fn()}
-                            onRemove={jest.fn()}
-                            onSteer={onSteer}
-                            steerPending={pending}
-                        />
-                        <Composer.Textarea data-attr="composer-input" />
-                    </Composer.Root>
+                    <RunEscapeBoundary scope="composer" textAreaRef={textAreaRef} onEscape={onSteer} disabled={pending}>
+                        <Composer.Root
+                            value="unsent draft"
+                            onChange={onChange}
+                            onSubmit={onSubmit}
+                            textAreaRef={textAreaRef}
+                        >
+                            <QueuedMessageList
+                                messages={[{ id: 'queued', content: 'saved message' }]}
+                                onUpdate={jest.fn()}
+                                onRemove={jest.fn()}
+                                onSteer={onSteer}
+                                steerPending={pending}
+                            />
+                            <Composer.Textarea data-attr="composer-input" />
+                        </Composer.Root>
+                    </RunEscapeBoundary>
                 )
             }
             render(<QueuedComposer />)
@@ -108,15 +111,22 @@ describe('Composer', () => {
         const steer = jest.fn()
         const { container } = render(
             <div hidden={reason === 'hidden'}>
-                <Composer.Root value="unsent draft" onChange={onChange} onSubmit={onSubmit} textAreaRef={textAreaRef}>
-                    <ComposerSteerShortcut
+                <RunEscapeBoundary
+                    scope="composer"
+                    textAreaRef={textAreaRef}
+                    onEscape={steer}
+                    disabled={reason === 'empty queue'}
+                >
+                    <Composer.Root
+                        value="unsent draft"
+                        onChange={onChange}
+                        onSubmit={onSubmit}
                         textAreaRef={textAreaRef}
-                        onSteer={steer}
-                        disabled={reason === 'empty queue'}
-                    />
-                    <Composer.Textarea data-attr="composer-input" />
-                    {reason === 'queue editor' && <textarea data-attr="run-queue-editor" />}
-                </Composer.Root>
+                    >
+                        <Composer.Textarea data-attr="composer-input" />
+                        {reason === 'queue editor' && <textarea data-attr="run-queue-editor" />}
+                    </Composer.Root>
+                </RunEscapeBoundary>
                 <input data-attr="other-input" />
                 {['menu', 'dialog', 'listbox'].includes(reason) && <div role={reason} />}
             </div>
@@ -212,6 +222,21 @@ describe('Composer', () => {
         fireEvent.click(getSend(container))
         expect(onSubmit).toHaveBeenCalledTimes(1)
         expect(onStop).not.toHaveBeenCalled()
+    })
+
+    it.each(['', 'follow up'])('keeps a pending stop visible and blocks sending with draft %p', (value) => {
+        const { container } = renderComposer({ value, stopLoading: true, onStop })
+        const button = getSend(container)
+        const input = screen.getByTestId('composer-input')
+        expect(button).toHaveAttribute('aria-label', 'Stopping…')
+        expect(button).toHaveAttribute('type', 'button')
+        expect(button).toHaveAttribute('aria-disabled', 'true')
+        fireEvent.click(button)
+        fireEvent.keyDown(input, { key: 'Enter' })
+        expect(onStop).not.toHaveBeenCalled()
+        expect(onSubmit).not.toHaveBeenCalled()
+        expect(input).toHaveValue(value)
+        expect(input).not.toBeDisabled()
     })
 
     it('throws when a part is rendered outside Composer.Root', () => {

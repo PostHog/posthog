@@ -167,45 +167,48 @@ describe('RunSurface', () => {
             expect(screen.getByTestId('composer')).not.toBeVisible()
         })
 
-        it('hides the approval during delivery and preserves a draft across restoration before its debounce commits', () => {
-            jest.useFakeTimers()
-            try {
-                const request = { requestId: 'r1', sourceRunId: 'run-1' } as PermissionRequestRecord
-                const surface = (): JSX.Element => (
-                    <RunSurface.Root taskId="task-1" runId="run-1" interaction="live">
-                        <RunSurface.Composer>
-                            <DraftComposer />
-                        </RunSurface.Composer>
-                    </RunSurface.Root>
-                )
-                setValues({ pendingPermissionRequest: request })
-                const { rerender } = render(surface())
-                const card = screen.getByTestId('permission')
-                const draft = screen.getByTestId('draft')
-                expect(card).toBeVisible()
-                setValues({ pendingPermissionRequest: request, respondingToPermission: true })
-                rerender(surface())
-                expect(card).not.toBeVisible()
-                expect(draft).toBeVisible()
-                fireEvent.change(draft, { target: { value: 'a newer draft' } })
-                setValues({ pendingPermissionRequest: request, respondingToPermission: false })
-                rerender(surface())
-                expect(screen.getByTestId('permission')).toBe(card)
-                expect(card).toBeVisible()
-                expect(draft).toHaveValue('a newer draft')
-                act(() => {
-                    jest.advanceTimersByTime(150)
-                })
-                setValues({ pendingPermissionRequest: null })
-                rerender(surface())
-                expect(screen.getByTestId('draft')).toBe(draft)
-                expect(draft).toBeVisible()
-                expect(draft).toHaveValue('a newer draft')
-            } finally {
-                cleanup()
-                jest.useRealTimers()
+        it.each(['delivery', 'cancellation'])(
+            'hides the approval during %s and preserves a draft across restoration before its debounce commits',
+            (transition) => {
+                jest.useFakeTimers()
+                try {
+                    const request = { requestId: 'r1', sourceRunId: 'run-1' } as PermissionRequestRecord
+                    const surface = (isStopping = false): JSX.Element => (
+                        <RunSurface.Root taskId="task-1" runId="run-1" interaction="live">
+                            <RunSurface.Composer isStopping={isStopping}>
+                                <DraftComposer />
+                            </RunSurface.Composer>
+                        </RunSurface.Root>
+                    )
+                    setValues({ pendingPermissionRequest: request })
+                    const { rerender } = render(surface())
+                    const card = screen.getByTestId('permission')
+                    const draft = screen.getByTestId('draft')
+                    expect(card).toBeVisible()
+                    setValues({ pendingPermissionRequest: request, respondingToPermission: transition === 'delivery' })
+                    rerender(surface(transition === 'cancellation'))
+                    expect(card).not.toBeVisible()
+                    expect(draft).toBeVisible()
+                    fireEvent.change(draft, { target: { value: 'a newer draft' } })
+                    setValues({ pendingPermissionRequest: request, respondingToPermission: false })
+                    rerender(surface())
+                    expect(screen.getByTestId('permission')).toBe(card)
+                    expect(card).toBeVisible()
+                    expect(draft).toHaveValue('a newer draft')
+                    act(() => {
+                        jest.advanceTimersByTime(150)
+                    })
+                    setValues({ pendingPermissionRequest: null })
+                    rerender(surface())
+                    expect(screen.getByTestId('draft')).toBe(draft)
+                    expect(draft).toBeVisible()
+                    expect(draft).toHaveValue('a newer draft')
+                } finally {
+                    cleanup()
+                    jest.useRealTimers()
+                }
             }
-        })
+        )
 
         it('renders nothing in read-only mode', () => {
             setValues({ currentRunStatus: 'in_progress' })

@@ -244,14 +244,20 @@ function RunSurfaceThread({
  * any settled run status (active runs take a follow-up, terminal runs start a fresh run from the typed
  * message), is hidden during bootstrap, and is replaced by the prompt while a request is pending.
  */
-function RunSurfaceComposer({ children }: { children?: ReactNode }): JSX.Element | null {
+function RunSurfaceComposer({
+    children,
+    isStopping = false,
+}: {
+    children?: ReactNode
+    isStopping?: boolean
+}): JSX.Element | null {
     const { interaction, streamKey } = useRunSurfaceContext()
     const { pendingPermissionRequest, respondingToPermission, currentRunStatus } = useValues(runStreamLogic)
     if (interaction !== 'live') {
         return null
     }
     const request = !isTerminalRunStatus(currentRunStatus) ? pendingPermissionRequest : null
-    const showApproval = !!request && !respondingToPermission
+    const showApproval = !!request && !respondingToPermission && !isStopping
 
     // Both inputs keep their local state through delivery and restoration, including uncommitted draft keystrokes.
     return (
@@ -260,9 +266,9 @@ function RunSurfaceComposer({ children }: { children?: ReactNode }): JSX.Element
                 <div hidden={!showApproval} className="border-t px-4 py-3" data-attr="run-approval">
                     <div key={`${request.sourceRunId}:${request.requestId}`} className="mx-auto w-full max-w-180">
                         {request.questions?.length ? (
-                            <QuestionInput streamKey={streamKey} request={request} />
+                            <QuestionInput streamKey={streamKey} request={request} disabled={isStopping} />
                         ) : (
-                            <PermissionInput streamKey={streamKey} request={request} />
+                            <PermissionInput streamKey={streamKey} request={request} disabled={isStopping} />
                         )}
                     </div>
                 </div>

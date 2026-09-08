@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useRef } from 'react'
+import { type RefObject, useEffect, useRef } from 'react'
 
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
@@ -20,9 +20,10 @@ import { AttachedContextBar } from '../../../components/composer/AttachedContext
 import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
 import { ComposerModePicker } from '../../../components/composer/ComposerModePicker'
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
-import { ComposerSteerShortcut } from '../../../components/composer/ComposerSteerShortcut'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
+import { RunEscapeBoundary, type RunEscapeBoundaryProps } from '../../../components/RunEscapeBoundary'
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
+import { runCancellationLogic } from '../../../logics/runCancellationLogic'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
 
 export interface TaskRunChatProps {
@@ -36,6 +37,10 @@ export interface TaskRunChatProps {
     streamKey?: string
     /** Called after a fresh run starts, in addition to the `taskDetailSceneLogic` re-pointing below. */
     onRunStarted?: (runId: string) => void
+    escapeScope?: RunEscapeBoundaryProps['scope']
+    initialDraft?: string
+    onDraftAdopted?: () => void
+    autoFocus?: boolean
 }
 
 /**
@@ -46,7 +51,16 @@ export interface TaskRunChatProps {
  * re-points scene selection to it. `RunSurface.Root` owns bootstrap: it reads the run status from the tasks
  * API and never opens SSE for an already-terminal run.
  */
-export function TaskRunChat({ taskId, runId, streamKey, onRunStarted }: TaskRunChatProps): JSX.Element {
+export function TaskRunChat({
+    taskId,
+    runId,
+    streamKey,
+    onRunStarted,
+    escapeScope = 'chat',
+    initialDraft,
+    onDraftAdopted,
+    autoFocus,
+}: TaskRunChatProps): JSX.Element {
     const { setSelectedRunId, loadTaskRuns } = useActions(taskDetailSceneLogic({ taskId }))
     const { selectedRun, task } = useValues(taskDetailSceneLogic({ taskId }))
     const { user } = useValues(userLogic)
@@ -57,6 +71,8 @@ export function TaskRunChat({ taskId, runId, streamKey, onRunStarted }: TaskRunC
         taskId,
         runId,
         streamKey,
+        initialDraft,
+        onDraftAdopted,
         currentModel: selectedRun?.state?.model,
         currentEffort: selectedRun?.state?.reasoning_effort,
         currentMode: selectedRun?.state?.initial_permission_mode,
@@ -72,7 +88,12 @@ export function TaskRunChat({ taskId, runId, streamKey, onRunStarted }: TaskRunC
 
     return (
         <BindLogic logic={runInteractionLogic} props={logicProps}>
-            <TaskRunChatContent logicProps={logicProps} readOnly={readOnly} />
+            <TaskRunChatContent
+                logicProps={logicProps}
+                readOnly={readOnly}
+                escapeScope={escapeScope}
+                autoFocus={autoFocus}
+            />
         </BindLogic>
     )
 }
@@ -80,10 +101,21 @@ export function TaskRunChat({ taskId, runId, streamKey, onRunStarted }: TaskRunC
 function TaskRunChatContent({
     logicProps,
     readOnly,
+    escapeScope,
+    autoFocus,
 }: {
     logicProps: RunInteractionLogicProps
     readOnly: boolean
+    escapeScope: RunEscapeBoundaryProps['scope']
+    autoFocus?: boolean
 }): JSX.Element {
+    const textAreaRef = useRef<HTMLTextAreaElement>(null)
+    const { handleEscape } = useActions(runInteractionLogic(logicProps))
+    const { cancellationState } = useValues(runInteractionLogic(logicProps))
+    const { clearCancellation } = useActions(
+        runCancellationLogic({ streamKey: logicProps.streamKey ?? logicProps.runId })
+    )
+    useEffect(() => () => clearCancellation(), [clearCancellation])
     // This surface renders the approval card, so persist tools must prompt here — register as a
     // foreground stream (same key resolution as `RunSurface.Root`). A read-only staff view omits the
     // composer and could never answer a forced prompt, so it stays a background consumer.
@@ -98,23 +130,38 @@ function TaskRunChatContent({
             streamKey={logicProps.streamKey}
             interaction="live"
         >
-            <div className="@container/thread flex flex-col h-full -mx-4">
+            <RunEscapeBoundary
+                scope={escapeScope}
+                focusKey={logicProps.streamKey ?? logicProps.runId}
+                textAreaRef={textAreaRef}
+                onEscape={handleEscape}
+                disabled={readOnly}
+                className="@container/thread flex flex-col h-full -mx-4"
+            >
                 <RunSurface.Thread className="flex-1 min-h-0" listClassName="py-4" rowClassName="px-4" />
                 {/* Stay live (stream keeps flowing) but omit the composer entirely for a read-only viewer. */}
                 {!readOnly && (
-                    <RunSurface.Composer>
+                    <RunSurface.Composer isStopping={!!cancellationState}>
                         <RunSurface.Resources />
                         {/* The composer owns the per-keystroke draft in an isolated child so typing never re-renders
                         the thread/virtualizer rendered as its sibling above — that cascade is what made the input lag. */}
-                        <LiveComposer logicProps={logicProps} />
+                        <LiveComposer logicProps={logicProps} textAreaRef={textAreaRef} autoFocus={autoFocus} />
                     </RunSurface.Composer>
                 )}
-            </div>
+            </RunEscapeBoundary>
         </RunSurface.Root>
     )
 }
 
-function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }): JSX.Element {
+function LiveComposer({
+    logicProps,
+    textAreaRef,
+    autoFocus,
+}: {
+    logicProps: RunInteractionLogicProps
+    textAreaRef: RefObject<HTMLTextAreaElement>
+    autoFocus?: boolean
+}): JSX.Element {
     const {
         composerForm,
         isSubmitting,
@@ -127,6 +174,7 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
         selectedMode,
         composerActive,
         steerPending,
+        cancellationState,
     } = useValues(runInteractionLogic(logicProps))
     const { catalogue } = useValues(modelCatalogueLogic)
     // A live run's harness is whatever it booted on; once terminal the next run follows the picked model.
@@ -134,7 +182,7 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
     const {
         setComposerFormValues,
         submitComposerForm,
-        cancelRun,
+        requestCancellation,
         updateQueuedMessage,
         removeQueuedMessage,
         setModel,
@@ -146,7 +194,6 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
     } = useActions(runInteractionLogic(logicProps))
 
     const draft = useDebouncedDraft(composerForm.draft, (value) => setComposerFormValues({ draft: value }))
-    const textAreaRef = useRef<HTMLTextAreaElement>(null)
 
     return (
         <>
@@ -154,19 +201,15 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
                 disabled={!composerActive}
                 onCycle={() => setMode(cycleMode(composerAdapter, selectedMode))}
             />
-            <ComposerSteerShortcut
-                textAreaRef={textAreaRef}
-                onSteer={steerQueue}
-                disabled={!composerActive || steerPending || !queuedMessages.length}
-            />
             <Composer.Root
                 textAreaRef={textAreaRef}
                 value={draft.value}
                 onChange={draft.onChange}
                 onSubmit={() => draft.submit(submitComposerForm)}
                 loading={isSubmitting}
+                stopLoading={!!cancellationState}
                 isTurnActive={isBusy}
-                onStop={() => cancelRun()}
+                onStop={requestCancellation}
             >
                 {queuedMessages.length > 0 && (
                     <Composer.Banner>
@@ -175,7 +218,7 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
                             onUpdate={updateQueuedMessage}
                             onRemove={removeQueuedMessage}
                             onSteer={steerQueue}
-                            steerPending={steerPending}
+                            steerPending={steerPending || !!cancellationState}
                         />
                     </Composer.Banner>
                 )}
@@ -187,7 +230,7 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
                         <Composer.Placeholder>
                             {isTerminal ? 'Send a message to start a new run…' : 'Send a follow-up message…'}
                         </Composer.Placeholder>
-                        <Composer.Textarea data-attr="sandbox-composer-input" />
+                        <Composer.Textarea data-attr="sandbox-composer-input" autoFocus={autoFocus} />
                     </Composer.Field>
                     <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
                         {/* Mode + model/effort pickers: selection lives in the bound runInteractionLogic and is

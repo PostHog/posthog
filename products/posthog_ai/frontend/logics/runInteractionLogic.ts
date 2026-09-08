@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 
@@ -36,6 +36,7 @@ import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContext
 import { submitWithWarmRunRetry } from '../utils/warmRunSubmission'
 import { attachedContextLogic } from './attachedContextLogic'
 import { modelCatalogueLogic } from './modelCatalogueLogic'
+import { type CancellationState, runCancellationLogic } from './runCancellationLogic'
 import { isTerminalRunStatus, runStreamLogic } from './runStreamLogic'
 import type { RunStatus } from './runStreamLogic'
 import { taskRunDefaultsLogic } from './taskRunDefaultsLogic'
@@ -52,6 +53,8 @@ export interface RunInteractionLogicProps {
      * `RunSurface` binds, never diverging from it. API calls still use the real `runId`.
      */
     streamKey?: string
+    initialDraft?: string
+    onDraftAdopted?: () => void
     /** The run's stored model / reasoning effort / launch mode, injected by the consumer. They seed the picker's
      * display and the config a terminal-run send launches the next run with (override ?? this ?? default). */
     currentModel?: string | null
@@ -94,6 +97,7 @@ export interface runInteractionLogicValues {
     sentContextKeysByTask: Record<string, string[]> // attachedContextLogic
     catalogue: ModelChoiceApi[] // modelCatalogueLogic
     currentProjectId: number | null // projectLogic
+    cancellationState: CancellationState // runCancellationLogic
     bootstrappedRunId: string | null // runStreamLogic
     bootstrappedTaskId: string | null // runStreamLogic
     conversationClearSupported: boolean // runStreamLogic
@@ -165,6 +169,9 @@ export interface runInteractionLogicActions {
         keys: string[]
         taskId: string
     } // attachedContextLogic
+    requestCancellation: () => {
+        value: true
+    } // runCancellationLogic
     cancelPermissionDelivery: () => {
         value: true
     } // runStreamLogic
@@ -280,6 +287,9 @@ export interface runInteractionLogicActions {
     }
     flushQueue: (steer?: boolean) => {
         steer: boolean
+    }
+    handleEscape: () => {
+        value: true
     }
     prependQueuedMessage: (content: string) => {
         content: string
@@ -426,6 +436,7 @@ export interface runInteractionLogicMeta {
         isBusy: (isThinking: boolean) => boolean
         canSend: (
             sending: boolean,
+            cancellationState: CancellationState,
             isTerminal: boolean,
             currentProjectId: number | null,
             currentRunStatus: RunStatus | null,
@@ -493,6 +504,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             ['catalogue'],
             taskRunDefaultsLogic,
             ['defaultModel', 'defaultEffort'],
+            runCancellationLogic({ streamKey: props.streamKey ?? props.runId }),
+            ['cancellationState'],
         ],
         actions: [
             runStreamLogic({ streamKey: props.streamKey ?? props.runId }),
@@ -518,6 +531,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             ['claimApplyBackTargets', 'transferApplyBackTargets', 'releaseApplyBackTargets'],
             taskWarmLogic({ taskId: props.taskId, resumeFromRunId: props.runId }),
             ['noteDraft', 'consumeWarm', 'releaseWarm'],
+            runCancellationLogic({ streamKey: props.streamKey ?? props.runId }),
+            ['requestCancellation'],
         ],
     })),
 
@@ -545,6 +560,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         // Internal: drain the staged "Up next" message when the agent is idle.
         flushQueue: (steer: boolean = false) => ({ steer }),
         steerQueue: true,
+        handleEscape: true,
         setDeferredSteer: (requestId: string | null) => ({ requestId }),
         queueDeliveryFailed: true,
         // Pick the model / reasoning effort for the next message. Selection is held client-side only and
@@ -689,7 +705,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             }),
             submit: ({ draft }) => {
                 const content = draft.trim()
-                if (!content) {
+                if (!content || values.cancellationState) {
                     return
                 }
                 if (!values.dataProcessingAccepted) {
@@ -794,6 +810,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         canSend: [
             (s, p) => [
                 s.sending,
+                s.cancellationState,
                 s.isTerminal,
                 s.currentProjectId,
                 s.currentRunStatus,
@@ -804,6 +821,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             ],
             (
                 sending: boolean,
+                cancellationState: CancellationState,
                 isTerminal: boolean,
                 currentProjectId: number | null,
                 status: RunStatus | null,
@@ -813,6 +831,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 taskId: string
             ): boolean =>
                 !sending &&
+                !cancellationState &&
                 !isTerminal &&
                 currentProjectId != null &&
                 status !== null &&
@@ -888,6 +907,16 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         }
 
         return {
+            handleEscape: () => {
+                if (values.cancellationState || values.steerPending) {
+                    return
+                }
+                if (values.queuedMessages.length > 0) {
+                    actions.steerQueue()
+                } else if (values.isBusy || (!values.composerActive && !values.isTerminal)) {
+                    actions.requestCancellation()
+                }
+            },
             submitAfterConsent: () => {
                 actions.clearConsentBlock()
                 if (values.consentBlockedSource === 'steer') {
@@ -919,7 +948,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             },
 
             steerQueue: () => {
-                if (!values.queuedMessages.length || values.steerPending || !values.canSend || !values.composerActive) {
+                if (!values.queuedMessages.length || values.steerPending || !values.canSend) {
                     return
                 }
                 if (!values.dataProcessingAccepted) {
@@ -1211,6 +1240,12 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     actions.setClearing(false)
                 }
             },
+        }
+    }),
+    afterMount(({ actions, props }) => {
+        if (props.initialDraft) {
+            actions.setComposerFormValues({ draft: props.initialDraft })
+            props.onDraftAdopted?.()
         }
     }),
 ])

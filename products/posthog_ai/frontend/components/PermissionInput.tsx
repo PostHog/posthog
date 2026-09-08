@@ -24,6 +24,7 @@ import { lookupToolRenderer } from './tool/toolRegistry'
 interface PermissionInputProps {
     streamKey: string
     request: PermissionRequestRecord
+    disabled?: boolean
 }
 
 /** Collapsed height of the payload preview, in lines — enough to scan, never enough to bury the choices. */
@@ -326,10 +327,11 @@ function PermissionOptionRows({ options, responding, onRespond }: PermissionOpti
  * `respondingToPermission` drives the loading/double-submit guard and re-enables the controls when the
  * POST fails (the pending request only clears on success).
  */
-export function PermissionInput({ streamKey, request }: PermissionInputProps): JSX.Element {
+export function PermissionInput({ streamKey, request, disabled = false }: PermissionInputProps): JSX.Element {
     const boundLogic = runStreamLogic({ streamKey })
     const { respondToPermission, cancelRun } = useActions(boundLogic)
-    const { respondingToPermission } = useValues(boundLogic)
+    const { respondingToPermission: delivering } = useValues(boundLogic)
+    const respondingToPermission = delivering || disabled
 
     // A plan approval keeps the product's Auto and Full auto wire options. If neither is offered,
     // fall through to the generic card so the request stays actionable.
