@@ -30,14 +30,13 @@ const EDITED_MARKDOWN = [
     '<SQLV2 nodeId="b" returnVariable="joined" code="select 1" />',
 ].join('\n\n')
 
-const notebookFixture = {
+const notebookFixture: NotebookType = {
     id: 'notebook-id',
     short_id: SHORT_ID,
     title: 'Dependency graph run state',
     content: buildMarkdownNotebookContent(LOADED_MARKDOWN),
     text_content: '',
     version: 1,
-    deleted: false,
     is_template: false,
     user_access_level: AccessControlLevel.Editor,
     created_at: '2025-01-01T00:00:00Z',
@@ -45,7 +44,7 @@ const notebookFixture = {
     last_modified_at: '2025-01-01T00:00:00Z',
     last_modified_by: null,
     variables: [],
-} as unknown as NotebookType
+}
 
 describe('notebook dependency graph run state', () => {
     let logic: ReturnType<typeof notebookLogic.build>
@@ -92,7 +91,13 @@ describe('notebook dependency graph run state', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(edgeTargets()).toEqual(['b'])
 
-        stalenessLogic.actions.nodeRunFinished('b', 'done', null)
+        // A failed run carries no executed document, so it must not advance the snapshot.
+        stalenessLogic.actions.nodeRunFinished('b', 'failed', null)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(edgeTargets()).toEqual(['b'])
+
+        // A successful run reports the executed document, so the snapshot refreshes and the edge drops.
+        stalenessLogic.actions.nodeRunFinished('b', 'done', buildMarkdownNotebookContent(EDITED_MARKDOWN))
         await expectLogic(logic).toFinishAllListeners()
         expect(edgeTargets()).toEqual([])
     })
