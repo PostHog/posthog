@@ -2206,30 +2206,28 @@ class TestGitHubIntegrationPullRequestBabysitSnapshot(BaseTest):
         assert [thread["id"] for thread in result["unresolved_threads"]] == ["T2"]
         assert [comment["id"] for comment in result["comments"]] == ["M3", "R2"]
 
-    def test_bot_comments_and_review_bodies_are_dropped(self):
-        """A merge-queue or CI bot comments once per event, each with a fresh id, so every one
-        of them would wake the babysit loop — and the push that follows ejects the PR from the
-        very queue the bot was reporting on."""
+    def test_bot_comments_are_dropped_and_bot_reviews_are_kept(self):
+        """A merge-queue bot comments once per submission, each with a fresh id, so every one
+        wakes the loop. A review bot writes the feedback the loop exists to act on."""
         payload = self._payload(
             comments={
                 "nodes": [
                     _babysit_feedback("M1", author="talyn-app", body="/trunk merge", is_bot=True),
-                    _babysit_feedback("M2", author="github-actions", body="## 🤖 CI report", is_bot=True),
+                    _babysit_feedback("M2", author="github-actions", body="CI report", is_bot=True),
                     _babysit_feedback("M3"),
                 ]
             },
-            reviews={"nodes": [_babysit_feedback("R1", author="stamphog", body="Approved.", is_bot=True)]},
+            reviews={"nodes": [_babysit_feedback("R1", author="review-hog", body="rename this", is_bot=True)]},
         )
 
         with patch.object(GitHubIntegration, "_gh_graphql", return_value=payload):
             result = self._github().get_pull_request_babysit_snapshot(BABYSIT_PR_URL)
 
-        assert [comment["id"] for comment in result["comments"]] == ["M3"]
+        assert [comment["id"] for comment in result["comments"]] == ["M3", "R1"]
 
-    def test_a_bot_review_thread_is_still_an_item_to_address(self):
-        """Deliberately not symmetric with the comment rule: an unresolved inline thread is work
-        somebody is waiting on, and it is keyed by its last comment id rather than re-arriving."""
-        payload = self._payload(reviewThreads={"nodes": [_babysit_thread("T1", author="review-bot", is_bot=True)]})
+    def test_a_bot_review_thread_is_kept(self):
+        """An unresolved inline thread is work somebody waits on, whoever opened it."""
+        payload = self._payload(reviewThreads={"nodes": [_babysit_thread("T1", author="review-hog", is_bot=True)]})
 
         with patch.object(GitHubIntegration, "_gh_graphql", return_value=payload):
             result = self._github().get_pull_request_babysit_snapshot(BABYSIT_PR_URL)

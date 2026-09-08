@@ -1776,22 +1776,19 @@ class GitHubIntegrationBase:
                 {**item, "id": node.get("id"), "path": node.get("path"), "last_comment_id": item["id"] or ""}
             )
 
-        # A woken agent pushes, and a push ejects the PR from the merge queue whose bot was
-        # reporting on it, taking the whole batch with it (PostHog/posthog#96393). Review
-        # threads are exempt — an unresolved one is work somebody is waiting on.
         feedback: list[dict[str, Any]] = []
         for connection in ("comments", "reviews"):
             for node in ((pr.get(connection) or {}).get("nodes")) or []:
                 if not isinstance(node, dict):
                     continue
                 item = self._feedback_item(node)
-                if (
-                    item["id"]
-                    and item["body"].strip()
-                    and item["author"] != author_login
-                    and not self._is_bot_author(node)
-                ):
-                    feedback.append(item)
+                if not (item["id"] and item["body"].strip() and item["author"] != author_login):
+                    continue
+                # A bot review is code feedback. A bot comment is merge-queue and CI chatter,
+                # and waking on it makes the agent push the PR out of the queue (#96393).
+                if connection == "comments" and self._is_bot_author(node):
+                    continue
+                feedback.append(item)
 
         rollup_nodes = ((pr.get("commits") or {}).get("nodes")) or []
         rollup = ((rollup_nodes[0] or {}).get("commit") or {}).get("statusCheckRollup") if rollup_nodes else None
