@@ -3986,12 +3986,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     endpoint: `projects/${values.currentProjectId}/feature_flags`,
                     object: { name: featureFlag.key, id: featureFlag.id },
                     undo: true,
-                    callback: (undo) => {
-                        if (undo) {
-                            deleteFromTree('feature_flag', String(featureFlag.id))
-                        } else {
-                            refreshTreeItem('feature_flag', String(featureFlag.id))
-                        }
+                    // deleteWithUndo passes back its own `undo` flag, which restore always sets, so
+                    // this runs only for a successful restore: put the flag back in the tree.
+                    callback: () => {
+                        refreshTreeItem('feature_flag', String(featureFlag.id))
                         actions.loadFeatureFlag()
                         // The flag is no longer deleted, so its real verdict may differ from the retained
                         // DELETED one. Refetch it so the banner reflects the restored flag.
