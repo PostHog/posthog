@@ -130,7 +130,7 @@ from products.feature_flags.backend.session_recording_links import (
     teams_linking_flag_in_project,
 )
 from products.feature_flags.backend.types import PropertyFilterType
-from products.feature_flags.backend.user_blast_radius import get_user_blast_radius
+from products.feature_flags.backend.user_blast_radius import get_user_blast_radius, recently_active_sizing_enabled
 from products.feature_flags.backend.version_history import (
     VersionHistoryIncomplete,
     VersionNotFound,
@@ -4552,7 +4552,12 @@ class FeatureFlagViewSet(
         request=UserBlastRadiusRequestSerializer,
         responses={200: UserBlastRadiusResponseSerializer},
     )
-    @action(methods=["POST"], detail=False, required_scopes=["feature_flag:read"])
+    @action(
+        methods=["POST"],
+        detail=False,
+        required_scopes=["feature_flag:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
     def user_blast_radius(self, request: request.Request, **kwargs):
         if "condition" not in request.data:
             raise exceptions.ValidationError("Missing condition for which to get blast radius")
@@ -4560,7 +4565,12 @@ class FeatureFlagViewSet(
         condition = request.data.get("condition") or {}
         group_type_index = request.data.get("group_type_index", None)
 
-        result = get_user_blast_radius(self.team, condition, group_type_index, recently_active_only=True)
+        result = get_user_blast_radius(
+            self.team,
+            condition,
+            group_type_index,
+            recently_active_only=recently_active_sizing_enabled(self.team),
+        )
 
         return Response({"affected": result.affected, "total": result.total})
 

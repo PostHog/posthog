@@ -7,6 +7,7 @@ from django.core.cache import cache
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils import timezone
 
+import structlog
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import PropertyOperator
@@ -30,9 +31,12 @@ from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.models.filters import Filter
 from posthog.models.property import GroupTypeIndex, Property, PropertyGroup, PropertyValidationError
 from posthog.models.team.team import Team
+from posthog.ph_client import feature_enabled_or_false
 from posthog.queries.base import relative_date_parse_for_feature_flag_matching
 
 from products.cohorts.backend.models.cohort import Cohort
+
+logger = structlog.get_logger(__name__)
 
 
 @frozen
@@ -44,6 +48,8 @@ class BlastRadiusResult:
 # Window for the blast-radius denominator. An all-time person count is inflated by anonymous,
 # one-shot persons that never return; a recent-activity window drops them and is defensible.
 RECENTLY_ACTIVE_DAYS = 60
+
+RECENTLY_ACTIVE_SIZING_FLAG = "flags-size-by-active-persons"
 
 # The recently-active count depends on the team alone, and the flag editor asks for it once per
 # empty-properties condition group on every mount, so a short TTL collapses those into one scan.
@@ -133,6 +139,34 @@ def replace_proxy_properties(team: Team, feature_flag_condition: dict):
         return Filter(data={"properties": prop_groups.to_dict()}, team=team)
     except ValueError as e:
         raise ValidationError({"filters": str(e) or "These filters cannot be evaluated."}) from e
+
+
+def recently_active_sizing_enabled(team: Team) -> bool:
+    """Kill switch for the activity window on the flags sizing endpoint.
+
+    False restores the all-time count the window replaced, which is still the behavior the
+    workflows audience preview depends on, so a disable costs accuracy and never correctness.
+    Evaluation is local-only, so a sizing request never waits on a flag fetch.
+    """
+    try:
+        return feature_enabled_or_false(
+            RECENTLY_ACTIVE_SIZING_FLAG,
+            f"team-{team.pk}",
+            groups={"project": str(team.pk)},
+            group_properties={"project": {"id": str(team.pk)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        # Log so a fleet-wide silent disable shows up in Sentry rather than as a number that
+        # quietly went back to its old value.
+        logger.warning(
+            "flag_blast_radius_sizing_flag_evaluation_failed",
+            team_id=team.pk,
+            flag=RECENTLY_ACTIVE_SIZING_FLAG,
+            exc_info=True,
+        )
+        return False
 
 
 def get_user_blast_radius(

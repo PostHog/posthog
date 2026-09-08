@@ -9369,6 +9369,17 @@ def _create_active_person(*, team_id: int, distinct_ids: list[str], **kwargs):
 
 
 class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # The activity window sits behind a kill switch that evaluates to False without a flag
+        # client, so the endpoint tests below would silently exercise the all-time path instead.
+        gate = patch(
+            "products.feature_flags.backend.api.feature_flag.recently_active_sizing_enabled",
+            return_value=True,
+        )
+        gate.start()
+        self.addCleanup(gate.stop)
+
     @snapshot_clickhouse_queries
     def test_user_blast_radius(self):
         for i in range(10):
@@ -9486,6 +9497,29 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         # send it previews enumerates persons with no activity window.
         unwindowed = get_user_blast_radius(self.team, condition)
         self.assertEqual((unwindowed.affected, unwindowed.total), (5, 6))
+
+    def test_user_blast_radius_falls_back_to_the_all_time_count_when_gated_off(self):
+        # The kill switch has to restore the count the window replaced, so a disable gives back the
+        # inactive matches rather than leaving the window half applied.
+        _create_active_person(team_id=self.team.pk, distinct_ids=["active-match"], properties={"group": "match"})
+        _create_person(team_id=self.team.pk, distinct_ids=["inactive-match"], properties={"group": "match"})
+        flush_persons_and_events()
+
+        condition = {
+            "properties": [{"key": "group", "type": "person", "value": ["match"], "operator": "exact"}],
+            "rollout_percentage": 100,
+        }
+        with patch(
+            "products.feature_flags.backend.api.feature_flag.recently_active_sizing_enabled",
+            return_value=False,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+                {"condition": condition},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": 2, "total": 2}.items(), response.json().items())
 
     def test_user_blast_radius_excludes_personless_events(self):
         # An event captured with $process_person_profile: false carries a synthetic person_id and no
