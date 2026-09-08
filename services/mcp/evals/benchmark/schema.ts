@@ -76,24 +76,31 @@ export const BenchmarkFlagFixtureSchema = z
         // an edit preserved unrelated configuration need something here to preserve.
         filters: z.record(z.string(), z.unknown()).default({}),
     })
+    .strict()
     // The API disables a flag on the way to archiving it, so a fixture asking for both would
     // describe a state the seeder cannot leave the flag in.
     .refine((fixture) => !(fixture.archived && fixture.active), 'an archived fixture flag cannot also be active')
 
-export const BenchmarkFixturesSchema = z.object({
-    feature_flags: z.array(BenchmarkFlagFixtureSchema).default([]),
-    // Keys a task is asked to create. The seeder soft-deletes each one, so the create
-    // path is exercised rather than a second run hitting an already-taken key.
-    absent_feature_flags: z.array(FixtureFlagKeySchema).default([]),
-})
+// Strict all the way down, because every fixture container defaults to empty. A misspelled
+// key would otherwise be stripped, leaving the seeder nothing to write and no error to say so.
+export const BenchmarkFixturesSchema = z
+    .object({
+        feature_flags: z.array(BenchmarkFlagFixtureSchema).default([]),
+        // Keys a task is asked to create. The seeder soft-deletes each one, so the create
+        // path is exercised rather than a second run hitting an already-taken key.
+        absent_feature_flags: z.array(FixtureFlagKeySchema).default([]),
+    })
+    .strict()
 
-export const BenchmarkFileSchema = z.object({
-    version: z.literal(2),
-    // Entities `runner/seed.ts` creates and resets before an agent-mode run, so tasks that
-    // mutate state start from a known place and score the same on a second run.
-    fixtures: BenchmarkFixturesSchema.default({ feature_flags: [], absent_feature_flags: [] }),
-    tasks: z.array(BenchmarkTaskSchema).min(1),
-})
+export const BenchmarkFileSchema = z
+    .object({
+        version: z.literal(2),
+        // Entities `runner/seed.ts` creates and resets before an agent-mode run, so tasks that
+        // mutate state start from a known place and score the same on a second run.
+        fixtures: BenchmarkFixturesSchema.default({ feature_flags: [], absent_feature_flags: [] }),
+        tasks: z.array(BenchmarkTaskSchema).min(1),
+    })
+    .strict()
 
 export type BenchmarkProbe = z.infer<typeof BenchmarkProbeSchema>
 export type BenchmarkTask = z.infer<typeof BenchmarkTaskSchema>
