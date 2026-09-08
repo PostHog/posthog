@@ -8,6 +8,8 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
 import { DataWarehouseSavedQueryIncrementalCheck } from '~/types'
 
+import { warehouseSavedQueriesCheckIncrementalCreateBodyQueryMax } from 'products/data_warehouse/frontend/generated/api.zod'
+
 export const LOOKBACK_OPTIONS = [
     { value: 0, label: 'No lookback' },
     { value: 60 * 60, label: '1 hour' },
@@ -65,6 +67,18 @@ function IneligibleBanner({ check }: { check: DataWarehouseSavedQueryIncremental
             <span className="text-xs">
                 This query is always refreshed in full.{' '}
                 {check.blockers[0] ?? 'It has no column that can track which rows are new.'}
+            </span>
+        </LemonBanner>
+    )
+}
+
+function TooLongBanner(): JSX.Element {
+    return (
+        <LemonBanner type="info" className="mt-2">
+            <span className="text-xs">
+                This query is too long to check for incremental refresh, so it is always refreshed in full. Shorten it
+                to {warehouseSavedQueriesCheckIncrementalCreateBodyQueryMax.toLocaleString()} characters or fewer to set
+                up incremental refresh.
             </span>
         </LemonBanner>
     )
@@ -179,6 +193,8 @@ function LookbackInput({ value, onChange }: { value: number; onChange: (value: n
 interface IncrementalConfigOptionsProps {
     /** Result of the backend eligibility check for the view's query. Nothing renders until it arrives. */
     check: DataWarehouseSavedQueryIncrementalCheck | null
+    /** Set when the query is longer than the check accepts, so no check could run. */
+    queryTooLongToCheck?: boolean
     draft: IncrementalConfigDraft
     onChange: (draft: Partial<IncrementalConfigDraft>) => void
 }
@@ -189,9 +205,14 @@ interface IncrementalConfigOptionsProps {
  */
 export function IncrementalConfigOptions({
     check,
+    queryTooLongToCheck,
     draft,
     onChange,
 }: IncrementalConfigOptionsProps): JSX.Element | null {
+    if (queryTooLongToCheck) {
+        return <TooLongBanner />
+    }
+
     if (!check) {
         return null
     }

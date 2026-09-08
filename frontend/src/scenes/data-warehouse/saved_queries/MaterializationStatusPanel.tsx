@@ -127,6 +127,7 @@ export function MaterializationStatusPanel({
         initialSyncFrequency,
         incrementalCheck,
         incrementalDraft,
+        queryTooLongToCheck,
     } = useValues(jobsLogic)
     const {
         loadDataModelingJobs,
@@ -167,6 +168,7 @@ export function MaterializationStatusPanel({
     const { sync, cancel, revert } = getMaterializationDisabledReasons(currentJobStatus, startingMaterialization)
     const incrementalFlagOn = kind !== 'endpoint' && !!featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]
     const showIncremental = incrementalFlagOn && !!savedQuery.incremental?.enabled
+    const showRefreshMode = !!incrementalCheck || queryTooLongToCheck
     const lastRunMode = savedQuery.incremental_state?.last_run_mode
     // Blocks the Materialize/save buttons while the incremental picks are incomplete, mirroring
     // the save-as-view form's validation.
@@ -388,11 +390,12 @@ export function MaterializationStatusPanel({
                                         )}
                                     </div>
                                 </div>
-                                {incrementalFlagOn && !savedQuery.managed_viewset_kind && incrementalCheck && (
+                                {incrementalFlagOn && !savedQuery.managed_viewset_kind && showRefreshMode && (
                                     <div className="mt-4 max-w-160">
                                         <h4 className="mb-0">Refresh mode</h4>
                                         <IncrementalConfigOptions
                                             check={incrementalCheck}
+                                            queryTooLongToCheck={queryTooLongToCheck}
                                             draft={incrementalDraft}
                                             onChange={setIncrementalDraft}
                                         />
@@ -493,6 +496,7 @@ export function MaterializationStatusPanel({
                                     <div className="max-w-160">
                                         <IncrementalConfigOptions
                                             check={incrementalCheck}
+                                            queryTooLongToCheck={queryTooLongToCheck}
                                             draft={incrementalDraft}
                                             onChange={setIncrementalDraft}
                                         />

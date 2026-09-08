@@ -7,6 +7,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { warehouseSavedQueriesCheckIncrementalCreateBodyQueryMax } from 'products/data_warehouse/frontend/generated/api.zod'
+
 import { materializationJobsLogic } from './materializationJobsLogic'
 
 const ELIGIBLE_CHECK = {
@@ -27,9 +29,11 @@ describe('materializationJobsLogic', () => {
     function apiMocks({
         isMaterialized,
         incremental = null,
+        query = 'SELECT timestamp, id FROM events',
     }: {
         isMaterialized: boolean
         incremental?: Record<string, any> | null
+        query?: string
     }): Parameters<typeof useMocks>[0] {
         return {
             get: {
@@ -40,7 +44,7 @@ describe('materializationJobsLogic', () => {
                         name: 'v1',
                         is_materialized: isMaterialized,
                         incremental,
-                        query: { kind: 'HogQLQuery', query: 'SELECT timestamp, id FROM events' },
+                        query: { kind: 'HogQLQuery', query },
                     },
                 ],
                 '/api/environments/:team_id/data_modeling_jobs': { results: [], count: 0 },
@@ -120,6 +124,24 @@ describe('materializationJobsLogic', () => {
             expect(checkCalls).toBe(checksAfterReload)
         }
     )
+
+    // Regression: a view longer than the cap used to send the request anyway and get a raw
+    // validation error back, with nothing in the panel to explain the length.
+    it('skips the eligibility check when the query is longer than the check accepts', async () => {
+        useMocks(
+            apiMocks({
+                isMaterialized: false,
+                query: 'a'.repeat(warehouseSavedQueriesCheckIncrementalCreateBodyQueryMax + 1),
+            })
+        )
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadIncrementalCheckSuccess']).toFinishAllListeners()
+        expect(checkCalls).toBe(0)
+        expect(logic.values.incrementalCheck).toBeNull()
+        expect(logic.values.queryTooLongToCheck).toBe(true)
+    })
 
     it.each([
         ['the surface is an endpoint', { kind: 'endpoint' as const, flag: true }],

@@ -29,6 +29,7 @@ import {
 } from '~/types'
 
 import { warehouseSavedQueriesResumeCreate } from 'products/data_warehouse/frontend/generated/api'
+import { warehouseSavedQueriesCheckIncrementalCreateBodyQueryMax } from 'products/data_warehouse/frontend/generated/api.zod'
 
 import type { CountedPaginatedResponse } from '../../../lib/api'
 import { EMPTY_INCREMENTAL_DRAFT, IncrementalConfigDraft } from '../editor/IncrementalConfigFields'
@@ -55,6 +56,7 @@ export interface materializationJobsLogicValues {
     incrementalDraftTouched: boolean
     initialSyncFrequency: DataModelingSyncInterval
     lastSuccessfulSyncAt: string | null
+    queryTooLongToCheck: boolean
     resumingMaterialization: boolean
     savedQuery: DataWarehouseSavedQuery | null
     savedQueryLoading: boolean
@@ -179,6 +181,7 @@ export interface materializationJobsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         hasMoreJobsToLoad: (dataModelingJobs: PaginatedResponse<DataModelingJob> | null) => boolean
         lastSuccessfulSyncAt: (dataModelingJobs: PaginatedResponse<DataModelingJob> | null) => string | null
+        queryTooLongToCheck: (savedQuery: DataWarehouseSavedQuery | null) => boolean
     }
 }
 
@@ -226,7 +229,9 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             {
                 loadIncrementalCheck: async () => {
                     const sql = values.savedQuery?.query?.query
-                    if (!sql) {
+                    // The endpoint refuses a query above its cap, so asking would only waste a
+                    // request. The panel names the length instead.
+                    if (!sql || values.queryTooLongToCheck) {
                         return null
                     }
                     // A rejected check is not the user's error, so never toast: the panel just omits the
@@ -349,6 +354,11 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             (s) => [s.dataModelingJobs],
             (dataModelingJobs: PaginatedResponse<DataModelingJob> | null) =>
                 latestSuccessfulSyncAt(dataModelingJobs?.results),
+        ],
+        queryTooLongToCheck: [
+            (s) => [s.savedQuery],
+            (savedQuery: DataWarehouseSavedQuery | null) =>
+                (savedQuery?.query?.query?.length ?? 0) > warehouseSavedQueriesCheckIncrementalCreateBodyQueryMax,
         ],
     }),
     afterMount(({ actions, props }) => {
