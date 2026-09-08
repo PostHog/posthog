@@ -1,360 +1,7 @@
-# The APM ingest chain, as dev runs it on its ingestion-apm nodes: the Kafka
-# consumers for logs, traces and metrics, their views, and the writable proxies
-# they feed. The prod envs still run this chain on their logs nodes, so an object
-# the logs role already declares is restated here rather than declared twice. dev
-# also tunes its consumers smaller than prod does.
+# What only dev's ingestion-apm nodes run: the writable proxies the ingest chain
+# feeds, and dev's own consumer tuning on top of the shared ingest layers. dev
+# runs its consumers smaller than the prod clusters do.
 database "posthog" {
-  table "kafka_logs_avro" {
-    override = true
-    settings = {
-      input_format_avro_allow_missing_fields = "1"
-    }
-    column "uuid" {
-      type = "String"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "trace_flags" {
-      type = "Int32"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "observed_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "body" {
-      type = "String"
-    }
-    column "severity_text" {
-      type = "String"
-    }
-    column "severity_number" {
-      type = "Int32"
-    }
-    column "service_name" {
-      type = "String"
-    }
-    column "resource_attributes" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "instrumentation_scope" {
-      type = "String"
-    }
-    column "event_name" {
-      type = "String"
-    }
-    column "attributes" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "retention_days" {
-      type = "Nullable(Int32)"
-    }
-    column "pattern" {
-      type = "Nullable(String)"
-    }
-    column "pattern_version" {
-      type = "Nullable(Int32)"
-    }
-    engine "kafka" {
-      collection           = "warpstream_logs"
-      topic_list           = "clickhouse_logs"
-      group_name           = "clickhouse-logs-avro-new"
-      format               = "Avro"
-      num_consumers        = 4
-      skip_broken_messages = 100
-      poll_timeout_ms      = 10000
-      poll_max_batch_size  = 1000
-      flush_interval_ms    = 10000
-      thread_per_consumer  = true
-    }
-  }
-
-  table "kafka_metrics_avro" {
-    override = true
-    settings = {
-      input_format_avro_allow_missing_fields = "1"
-    }
-    column "uuid" {
-      type = "String"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "trace_flags" {
-      type = "Nullable(Int32)"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "observed_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "service_name" {
-      type = "Nullable(String)"
-    }
-    column "metric_name" {
-      type = "Nullable(String)"
-    }
-    column "metric_type" {
-      type = "Nullable(String)"
-    }
-    column "value" {
-      type = "Nullable(Float64)"
-    }
-    column "count" {
-      type = "Nullable(Int64)"
-    }
-    column "histogram_bounds" {
-      type = "Array(Float64)"
-    }
-    column "histogram_counts" {
-      type = "Array(Int64)"
-    }
-    column "unit" {
-      type = "Nullable(String)"
-    }
-    column "aggregation_temporality" {
-      type = "Nullable(String)"
-    }
-    column "is_monotonic" {
-      type = "Nullable(UInt8)"
-    }
-    column "resource_attributes" {
-      type = "Map(String, String)"
-    }
-    column "instrumentation_scope" {
-      type = "Nullable(String)"
-    }
-    column "attributes" {
-      type = "Map(String, String)"
-    }
-    column "series_fingerprint" {
-      type = "Nullable(Int64)"
-    }
-    engine "kafka" {
-      collection           = "warpstream_metrics"
-      topic_list           = "clickhouse_metrics"
-      group_name           = "clickhouse-metrics-avro-new"
-      format               = "Avro"
-      num_consumers        = 4
-      skip_broken_messages = 100
-      poll_timeout_ms      = 10000
-      poll_max_batch_size  = 1000
-      flush_interval_ms    = 10000
-      thread_per_consumer  = true
-    }
-  }
-
-  table "kafka_trace_spans_avro" {
-    override = true
-    settings = {
-      input_format_avro_allow_missing_fields = "1"
-    }
-    column "uuid" {
-      type = "String"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "parent_span_id" {
-      type = "String"
-    }
-    column "trace_state" {
-      type = "String"
-    }
-    column "name" {
-      type = "String"
-    }
-    column "kind" {
-      type = "Int32"
-    }
-    column "flags" {
-      type = "Int32"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "end_time" {
-      type = "DateTime64(6)"
-    }
-    column "observed_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "service_name" {
-      type = "String"
-    }
-    column "resource_attributes" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "instrumentation_scope" {
-      type = "String"
-    }
-    column "attributes" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "dropped_attributes_count" {
-      type = "Int32"
-    }
-    column "events" {
-      type = "Array(String)"
-    }
-    column "dropped_events_count" {
-      type = "Int32"
-    }
-    column "links" {
-      type = "Array(String)"
-    }
-    column "dropped_links_count" {
-      type = "Int32"
-    }
-    column "status_code" {
-      type = "Int32"
-    }
-    engine "kafka" {
-      collection           = "warpstream_traces"
-      topic_list           = "clickhouse_traces"
-      group_name           = "clickhouse-traces-avro"
-      format               = "Avro"
-      num_consumers        = 4
-      skip_broken_messages = 100
-      poll_timeout_ms      = 10000
-      poll_max_batch_size  = 1000
-      flush_interval_ms    = 10000
-      thread_per_consumer  = true
-    }
-  }
-
-  table "writable_logs34" {
-    override = true
-    settings = {
-      background_insert_batch = "1"
-    }
-    column "time_bucket" {
-      type         = "DateTime"
-      materialized = "toStartOfDay(timestamp)"
-    }
-    column "original_expiry_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "uuid" {
-      type = "String"
-    }
-    column "team_id" {
-      type = "Int32"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "trace_flags" {
-      type = "Int32"
-    }
-    column "timestamp" {
-      type  = "DateTime64(6)"
-      codec = "DoubleDelta"
-    }
-    column "observed_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "created_at" {
-      type         = "DateTime64(6)"
-      materialized = "now()"
-    }
-    column "body" {
-      type = "String"
-    }
-    column "severity_text" {
-      type = "LowCardinality(String)"
-    }
-    column "severity_number" {
-      type = "Int32"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "resource_attributes" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "resource_fingerprint" {
-      type         = "UInt64"
-      materialized = "cityHash64(resource_attributes)"
-    }
-    column "instrumentation_scope" {
-      type = "String"
-    }
-    column "event_name" {
-      type = "String"
-    }
-    column "attributes_map_str" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "level" {
-      type  = "String"
-      alias = "severity_text"
-    }
-    column "mat_body_ipv4_matches" {
-      type  = "Array(String)"
-      alias = "extractAll(body, '(\\\\d\\\\.((25[0-5]|(2[0-4]|1(0, 1)[0-9])(0, 1)[0-9])\\\\.)(2, 2)([0-9]))')"
-    }
-    column "time_minute" {
-      type  = "DateTime"
-      alias = "toStartOfMinute(timestamp)"
-    }
-    column "attributes" {
-      type  = "Map(LowCardinality(String), String)"
-      alias = "mapApply((k, v) -> (left(k, -5), v), attributes_map_str)"
-    }
-    column "attributes_map_float" {
-      type         = "Map(LowCardinality(String), Float64)"
-      materialized = "mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__float'), toFloat64OrNull(v)), attributes_map_str))"
-    }
-    column "attributes_map_datetime" {
-      type         = "Map(LowCardinality(String), DateTime64(6))"
-      materialized = "mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__datetime'), parseDateTimeBestEffortOrNull(v, 6)), attributes_map_str))"
-    }
-    column "_partition" {
-      type = "UInt32"
-    }
-    column "_topic" {
-      type = "String"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    column "_bytes_uncompressed" {
-      type = "UInt64"
-    }
-    column "_bytes_compressed" {
-      type = "UInt64"
-    }
-    column "_record_count" {
-      type = "UInt64"
-    }
-    column "pattern" {
-      type = "String"
-    }
-    column "pattern_version" {
-      type = "UInt8"
-    }
-    engine "distributed" {
-      cluster_name    = "logs"
-      remote_database = "posthog"
-      remote_table    = "logs34"
-    }
-  }
 
   table "writable_metric_samples1" {
     column "team_id" {
@@ -694,6 +341,61 @@ database "posthog" {
     }
   }
 
+  patch_table "kafka_logs_avro" {
+    engine "kafka" {
+      collection           = "warpstream_logs"
+      topic_list           = "clickhouse_logs"
+      group_name           = "clickhouse-logs-avro-new"
+      format               = "Avro"
+      num_consumers        = 4
+      skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      poll_max_batch_size  = 1000
+      flush_interval_ms    = 10000
+      thread_per_consumer  = true
+    }
+  }
+
+  patch_table "kafka_metrics_avro" {
+    engine "kafka" {
+      collection           = "warpstream_metrics"
+      topic_list           = "clickhouse_metrics"
+      group_name           = "clickhouse-metrics-avro-new"
+      format               = "Avro"
+      num_consumers        = 4
+      skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      poll_max_batch_size  = 1000
+      flush_interval_ms    = 10000
+      thread_per_consumer  = true
+    }
+    settings = {
+      input_format_avro_allow_missing_fields = "1"
+    }
+  }
+
+  patch_table "kafka_trace_spans_avro" {
+    engine "kafka" {
+      collection           = "warpstream_traces"
+      topic_list           = "clickhouse_traces"
+      group_name           = "clickhouse-traces-avro"
+      format               = "Avro"
+      num_consumers        = 4
+      skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      poll_max_batch_size  = 1000
+      flush_interval_ms    = 10000
+      thread_per_consumer  = true
+    }
+    settings = {
+      input_format_avro_allow_missing_fields = "1"
+    }
+  }
+
+  # Same views as the logs role runs, with one difference a patch cannot carry:
+  # the storage tables live on the logs nodes, so these write through the writable
+  # proxies above instead of straight into local tables. patch_materialized_view has
+  # no to_table, so each is restated. See PostHog/chschema#238.
   materialized_view "kafka_logs34_avro_mv" {
     override = true
     to_table = "posthog.writable_logs34"
@@ -807,46 +509,6 @@ SQL
     }
   }
 
-  materialized_view "kafka_metrics_avro_kafka_metrics_mv" {
-    override = true
-    to_table = "posthog.writable_metrics_kafka_metrics"
-    query    = <<SQL
-SELECT
-  _partition,
-  _topic,
-  maxSimpleState(_offset) AS max_offset,
-  maxSimpleState(observed_timestamp) AS max_observed_timestamp,
-  maxSimpleState(timestamp) AS max_timestamp,
-  maxSimpleState(now()) AS max_created_at,
-  maxSimpleState(now() - observed_timestamp) AS max_lag
-FROM posthog.kafka_metrics_avro
-GROUP BY
-  _partition, _topic
-SQL
-
-    column "_partition" {
-      type = "UInt64"
-    }
-    column "_topic" {
-      type = "LowCardinality(String)"
-    }
-    column "max_offset" {
-      type = "SimpleAggregateFunction(max, UInt64)"
-    }
-    column "max_observed_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(6))"
-    }
-    column "max_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(6))"
-    }
-    column "max_created_at" {
-      type = "SimpleAggregateFunction(max, DateTime)"
-    }
-    column "max_lag" {
-      type = "SimpleAggregateFunction(max, Decimal(18, 6))"
-    }
-  }
-
   materialized_view "kafka_metrics_avro_mv" {
     override = true
     to_table = "posthog.writable_metrics1"
@@ -949,6 +611,46 @@ SQL
     }
     column "team_id" {
       type = "Int32"
+    }
+  }
+
+  materialized_view "kafka_metrics_avro_kafka_metrics_mv" {
+    override = true
+    to_table = "posthog.writable_metrics_kafka_metrics"
+    query    = <<SQL
+SELECT
+  _partition,
+  _topic,
+  maxSimpleState(_offset) AS max_offset,
+  maxSimpleState(observed_timestamp) AS max_observed_timestamp,
+  maxSimpleState(timestamp) AS max_timestamp,
+  maxSimpleState(now()) AS max_created_at,
+  maxSimpleState(now() - observed_timestamp) AS max_lag
+FROM posthog.kafka_metrics_avro
+GROUP BY
+  _partition, _topic
+SQL
+
+    column "_partition" {
+      type = "UInt64"
+    }
+    column "_topic" {
+      type = "LowCardinality(String)"
+    }
+    column "max_offset" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    column "max_observed_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(6))"
+    }
+    column "max_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(6))"
+    }
+    column "max_created_at" {
+      type = "SimpleAggregateFunction(max, DateTime)"
+    }
+    column "max_lag" {
+      type = "SimpleAggregateFunction(max, Decimal(18, 6))"
     }
   }
 

@@ -14,24 +14,6 @@ database "posthog" {
     }
   }
 
-  # dev runs the metrics consumer small: a fraction of prod volume arrives here,
-  # so it waits longer for smaller batches on fewer threads.
-  patch_table "kafka_metrics_avro" {
-    engine "kafka" {
-      collection           = "warpstream_metrics"
-      topic_list           = "clickhouse_metrics"
-      group_name           = "clickhouse-metrics-avro-new"
-      format               = "Avro"
-      num_consumers        = 2
-      max_block_size       = 4096
-      skip_broken_messages = 100
-      poll_timeout_ms      = 10000
-      poll_max_batch_size  = 4096
-      flush_interval_ms    = 10000
-      thread_per_consumer  = true
-    }
-  }
-
   patch_table "kafka_metrics_avro2" {
     engine "kafka" {
       collection           = "warpstream_metrics"
