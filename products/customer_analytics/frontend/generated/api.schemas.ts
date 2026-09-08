@@ -465,8 +465,8 @@ export interface CustomPropertyValueApi {
 export interface CustomPropertyValueWriteApi {
     /** UUID of the custom property definition whose value to set for this account. */
     definition: string
-    /** Value to store, matching the definition's type: a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, an HTTP or HTTPS URL for link properties, or text for text properties. */
-    value: string | number | boolean
+    /** Value to store, matching the definition's type: a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, an HTTP or HTTPS URL for link properties, or text for text properties. Null clears the current value while preserving its history. */
+    value: string | number | boolean | null
 }
 
 export interface AccountNotebookApi {
@@ -3928,6 +3928,38 @@ export interface PatchedGroupUsageMetricApi {
      * @nullable
      */
     math_property?: string | null
+}
+
+/**
+ * * `custom_property` - Custom property
+ * * `relationship` - Relationship
+ */
+export type PinnedAccountPropertyKindEnumApi =
+    (typeof PinnedAccountPropertyKindEnumApi)[keyof typeof PinnedAccountPropertyKindEnumApi]
+
+export const PinnedAccountPropertyKindEnumApi = {
+    CustomProperty: 'custom_property',
+    Relationship: 'relationship',
+} as const
+
+export interface PinnedAccountPropertyApi {
+    /** Definition type for this pinned account property.
+     *
+     * * `custom_property` - Custom property
+     * * `relationship` - Relationship */
+    kind: PinnedAccountPropertyKindEnumApi
+    /** Team-scoped custom property or relationship definition UUID. */
+    id: string
+}
+
+export interface UserCustomerAnalyticsConfigApi {
+    /** Account properties pinned in sidebar display order. */
+    readonly pinned_properties: readonly PinnedAccountPropertyApi[]
+}
+
+export interface PatchedUserCustomerAnalyticsConfigUpdateApi {
+    /** Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them. */
+    pinned_properties?: PinnedAccountPropertyApi[]
 }
 
 export type CustomerAnalyticsExternalAccountsRetrieveParams = {
