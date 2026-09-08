@@ -141,9 +141,10 @@ describe('onboardingLogic', () => {
         await logic.asyncActions.completeOnboarding('find_problems')
 
         expect(addIntentRequests).toBe(0)
-        expect(intents).toHaveLength(6)
-        expect(new Set(intents.map(({ product_type }) => product_type)).size).toBe(6)
+        expect(intents).toHaveLength(5)
+        expect(new Set(intents.map(({ product_type }) => product_type)).size).toBe(5)
         expect(intents).not.toContainEqual(expect.objectContaining({ product_type: ProductKey.SURVEYS }))
+        expect(intents).not.toContainEqual(expect.objectContaining({ product_type: ProductKey.METRICS }))
         expect(intents).toEqual(
             expect.arrayContaining([
                 {
