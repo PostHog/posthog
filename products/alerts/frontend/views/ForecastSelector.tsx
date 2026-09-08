@@ -159,6 +159,7 @@ export function ForecastSelector({
                     config={config}
                     insightInterval={insightInterval}
                     today={today}
+                    projectTimezone={projectTimezone}
                     onChange={onChange}
                 />
             )}
@@ -170,11 +171,13 @@ function TargetByDateFields({
     config,
     insightInterval,
     today,
+    projectTimezone,
     onChange,
 }: {
     config: Extract<ForecastConfig, { condition: ForecastConditionType.TARGET_BY_DATE }>
     insightInterval: IntervalType | null | undefined
     today: dayjs.Dayjs
+    projectTimezone?: string
     onChange: (config: ForecastConfig) => void
 }): JSX.Element {
     const targetValueError = forecastTargetValueError(config.target)
@@ -208,6 +211,9 @@ function TargetByDateFields({
                 <span className="whitespace-nowrap">on</span>
                 <LemonCalendarSelectInput
                     selectionPeriod="upcoming"
+                    // Without the project timezone the calendar draws its past/future boundary from
+                    // the browser, so it can offer a date the project-timezone validation rejects.
+                    selectionPeriodTimezone={projectTimezone}
                     buttonProps={{ fullWidth: false, 'data-attr': 'alertForm-forecast-target-date' }}
                     value={config.target_date ? dayjs(config.target_date) : null}
                     onChange={(date) =>
