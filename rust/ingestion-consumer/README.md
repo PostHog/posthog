@@ -33,8 +33,8 @@ The consumer holds the per-partition offset ledger from `common/kafka-consumer`,
 Every delivered message is charged to its partition's ledger during collection, and a committed batch completes its offsets there; the commit is then each partition's frontier, one past its longest completed prefix.
 A partition that settles without a frontier is not committed and stays on its last commit.
 A batch with no frontier on any partition is not committed at all; `ingestion_consumer_commits_skipped_total{reason}` counts those, where `rejected` means the ledger dropped every slice (expected around a rebalance) and `no_frontier` means an earlier batch is still incomplete at the front of every window the batch settled.
-Each frontier the consumer takes goes to the commit sentinel (`commit_sentinel.rs`), which checks it and passes it to the commit pacer (`commit_pacer.rs`); the loop asks the pacer on every tick and, at most once per `CONSUMER_COMMIT_INTERVAL_MS` (default 500ms), the pacer hands out the latest offset per partition and the consumer commits them in one call, so the commit rate is bounded by the interval rather than by how often frontiers move.
-The loop drains and commits once more on the way out.
+Each frontier the consumer takes goes to the commit sentinel (`commit_sentinel.rs`), which checks it and passes it to the commit pacer (`commit_pacer.rs`); after settling a poll the consumer asks the pacer what is due and commits it in one call.
+The pacer is immediate for now, so every poll commits its frontiers as it completes; an interval pacer that coalesces per partition comes with per-partition commits (see the driver-model plan, cycle 8).
 The commit pacer holds no I/O: the consumer commits what it is given, and the commit monitor (`commit_monitor.rs`) reports the broker's committed offsets to the sentinel.
 A partition that leaves the assignment drops its pending frontier with its ledger, so a later commit cannot commit under another owner.
 The ledger emits its own metrics, so any consumer built on the crate reports the same series.

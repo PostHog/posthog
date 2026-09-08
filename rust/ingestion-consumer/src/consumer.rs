@@ -12,12 +12,11 @@ use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::message::{Headers, Message};
 use rdkafka::TopicPartitionList;
 use tokio::sync::mpsc;
-use tokio::time::{Interval, MissedTickBehavior};
 use tracing::{error, info, warn};
 
 use crate::batcher::{make_batch_id, Batcher, BatcherOutputs};
 use crate::commit_monitor::spawn_commit_monitor;
-use crate::commit_pacer::CommitPacer;
+use crate::commit_pacer::ImmediateCommitPacer;
 use crate::commit_sentinel::CommitSentinel;
 use crate::config::Config;
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
@@ -27,11 +26,6 @@ use crate::grpc_transport::GrpcTransport;
 use crate::ledger_rejection::{warn_rejection, RejectedSlice};
 use crate::order_sentinel::{OffsetSpan, SentinelContext};
 use crate::types::{Accumulator, SerializedKafkaMessage};
-
-/// How often the loop reports liveness and asks the pacer while it waits on
-/// completions. While it collects a poll, the batch timeout sets that cadence
-/// instead.
-const TICK: Duration = Duration::from_millis(100);
 
 /// Batch-wide statistics gathered while collecting, used to emit parity
 /// metrics. Per-partition facts live on [`PartitionDeliveries`].
@@ -318,9 +312,7 @@ impl IngestionConsumer {
             config.consumer_batch_size,
             config.consumer_batch_size_kb,
         );
-        let commit_sentinel = Arc::new(CommitSentinel::new(CommitPacer::new(
-            Duration::from_millis(config.consumer_commit_interval_ms),
-        )));
+        let commit_sentinel = Arc::new(CommitSentinel::new(ImmediateCommitPacer::new()));
         commit_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
         let key_sentinel = batcher.key_order_sentinel();
         key_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
@@ -397,15 +389,6 @@ impl IngestionConsumer {
         );
 
         self.run(completions, errors).await;
-
-        // Frontiers handed over since the last commit are accepted work, and
-        // neither a shutdown nor a failed batch should leave them to replay.
-        let offsets = self.commit_sentinel.drain();
-        if !offsets.is_empty() {
-            if let Err(err) = self.commit_offsets(&offsets) {
-                warn!(error = %err, "Final offset commit failed");
-            }
-        }
         info!("Consumer loop stopped");
     }
 
@@ -418,24 +401,11 @@ impl IngestionConsumer {
     ) {
         let mut in_flight_polls: VecDeque<InFlightPoll> = VecDeque::new();
         let mut accepting_new_batches = true;
-        let mut tick = tokio::time::interval(TICK);
-        tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
         while accepting_new_batches || !in_flight_polls.is_empty() {
             // Consumer-level concurrency: how many Kafka batches are being
             // processed in parallel, bounded by `max_in_flight_batches`.
             gauge!("ingestion_consumer_in_flight_batches").set(in_flight_polls.len() as f64);
-
-            // Asked once per iteration, and not as a timer arm in the select
-            // below: `select!` drops the losing future, and a dropped
-            // `collect_batch` loses the messages it already pulled from the
-            // stream before they reach the ledger. The next commit would then
-            // advance past them. A collection returns within the batch
-            // timeout, so a due commit waits at most that long.
-            if let Err(err) = self.maybe_commit_offsets() {
-                self.fail_commit(err);
-                return;
-            }
 
             if accepting_new_batches && in_flight_polls.len() < self.max_in_flight_batches {
                 tokio::select! {
@@ -473,12 +443,7 @@ impl IngestionConsumer {
             }
 
             if let Err(failure) = self
-                .complete_oldest_poll(
-                    &mut in_flight_polls,
-                    &mut completions,
-                    &mut errors,
-                    &mut tick,
-                )
+                .complete_oldest_poll(&mut in_flight_polls, &mut completions, &mut errors)
                 .await
             {
                 match failure {
@@ -488,18 +453,6 @@ impl IngestionConsumer {
                 return;
             }
         }
-    }
-
-    /// Report liveness and commit if the commit pacer says a commit is due.
-    fn maybe_commit_offsets(&self) -> anyhow::Result<()> {
-        self.handle.report_healthy();
-        // The pacer owns the pacing: `take_due` hands out offsets at most
-        // once per commit interval, so calling this on every tick does not
-        // reach Kafka more often than that.
-        if let Some(offsets) = self.commit_sentinel.take_due(Instant::now()) {
-            self.commit_offsets(&offsets)?;
-        }
-        Ok(())
     }
 
     /// Submit each partition's next-to-read offset to Kafka, asynchronously.
@@ -569,12 +522,12 @@ impl IngestionConsumer {
         in_flight_polls: &mut VecDeque<InFlightPoll>,
         completions: &mut mpsc::UnboundedReceiver<GroupCompletion>,
         errors: &mut mpsc::UnboundedReceiver<String>,
-        tick: &mut Interval,
     ) -> Result<(), Failure> {
         if in_flight_polls.front().is_none() {
             return Ok(());
         }
 
+        let mut heartbeat = tokio::time::interval(Duration::from_secs(1));
         while !in_flight_polls
             .front()
             .expect("front is present")
@@ -593,7 +546,7 @@ impl IngestionConsumer {
                         "batcher error channel closed"
                     ))),
                 },
-                _ = tick.tick() => self.maybe_commit_offsets().map_err(Failure::Commit)?,
+                _ = heartbeat.tick() => self.handle.report_healthy(),
             }
         }
 
@@ -607,6 +560,9 @@ impl IngestionConsumer {
         }
 
         self.settle_poll(&poll.partitions);
+        if let Some(offsets) = self.commit_sentinel.take_due() {
+            self.commit_offsets(&offsets).map_err(Failure::Commit)?;
+        }
         emit_latest_processed_timestamp_metrics(&poll.partitions, &self.group_id);
         record_if(&self.debug_recorder, || DebugEventKind::BatchCommitted {
             batch_id: poll.poll_id.clone(),

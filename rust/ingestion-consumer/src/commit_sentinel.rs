@@ -21,21 +21,21 @@
 //! partitions and the invariant must re-baseline instead of firing false
 //! positives.
 //!
-//! The sentinel wraps the [`CommitPacer`] the consumer hands its frontiers
-//! to: every frontier passes through it on the way in, and every take passes
-//! through it on the way out. It is a pure observer: it never changes what
-//! is committed.
+//! The sentinel wraps the [`ImmediateCommitPacer`] the consumer hands its
+//! frontiers to: every frontier passes through it on the way in, and every
+//! take passes through it on the way out. It is a pure observer: it never
+//! changes what is committed.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use common_kafka_consumer::{Offset, TakenFrontier, TopicPartition};
 use metrics::{counter, gauge};
 use tracing::warn;
 
-use crate::commit_pacer::CommitPacer;
+use crate::commit_pacer::ImmediateCommitPacer;
 use crate::order_sentinel::OffsetSpan;
 
 /// How a commit violated the contiguous-monotonic invariant.
@@ -97,11 +97,11 @@ pub struct CommitSentinel {
     /// no-op and no state accumulates.
     enabled: AtomicBool,
     /// The pacer being observed.
-    inner: CommitPacer,
+    inner: ImmediateCommitPacer,
 }
 
 impl CommitSentinel {
-    pub fn new(inner: CommitPacer) -> Self {
+    pub fn new(inner: ImmediateCommitPacer) -> Self {
         Self {
             partitions: Mutex::new(HashMap::new()),
             enabled: AtomicBool::new(true),
@@ -129,12 +129,8 @@ impl CommitSentinel {
         self.inner.forget_partitions(topic_partitions);
     }
 
-    pub fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
-        self.inner.take_due(now)
-    }
-
-    pub fn drain(&self) -> HashMap<TopicPartition, Offset> {
-        self.inner.drain()
+    pub fn take_due(&self) -> Option<HashMap<TopicPartition, Offset>> {
+        self.inner.take_due()
     }
 
     /// Check a batch's offset spans against the previous commit per partition,
@@ -304,7 +300,7 @@ mod tests {
     use super::*;
 
     fn sentinel() -> CommitSentinel {
-        CommitSentinel::new(CommitPacer::new(std::time::Duration::from_millis(500)))
+        CommitSentinel::new(ImmediateCommitPacer::new())
     }
 
     #[test]

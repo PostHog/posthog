@@ -154,12 +154,6 @@ pub struct Config {
     #[envconfig(default = "500")]
     pub consumer_batch_timeout_ms: u64,
 
-    /// How often frontiers ready to commit are committed (milliseconds).
-    /// Bounds the commit rate independently of how often frontiers move,
-    /// and bounds how long accepted work waits before it is committed.
-    #[envconfig(from = "CONSUMER_COMMIT_INTERVAL_MS", default = "500")]
-    pub consumer_commit_interval_ms: u64,
-
     /// No-progress bound on flushing a batch's deferred messages
     /// (milliseconds): the deadline resets whenever any of the batch's
     /// messages are accepted, so a slow drain keeps going and the batch only

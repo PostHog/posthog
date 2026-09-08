@@ -25,14 +25,13 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use metrics::{counter, gauge};
 use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
 use rdkafka::{ClientContext, Statistics, TopicPartitionList};
 use tracing::{info, warn};
 
-use crate::commit_pacer::CommitPacer;
+use crate::commit_pacer::ImmediateCommitPacer;
 use crate::commit_sentinel::CommitSentinel;
 use crate::types::SerializedKafkaMessage;
 use common_kafka_consumer::{AssignmentEpoch, TakenFrontier, TopicOffsetLedger, TopicPartition};
@@ -363,9 +362,9 @@ impl SentinelContext {
     /// A context with its own free-standing sentinels, ledger, and commit
     /// pacer, for tests and tools that build the Kafka consumer separately
     /// from the dispatcher.
-    pub fn detached(commit_interval: Duration) -> Self {
+    pub fn detached() -> Self {
         Self::new(
-            Arc::new(CommitSentinel::new(CommitPacer::new(commit_interval))),
+            Arc::new(CommitSentinel::new(ImmediateCommitPacer::new())),
             Arc::new(KeyOrderSentinel::new()),
             Arc::new(TopicOffsetLedger::new()),
         )
