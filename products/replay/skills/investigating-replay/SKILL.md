@@ -191,7 +191,9 @@ a scanner can only observe a given session once.
    ```
 
    - Exactly one → use it.
-   - More than one → show the user the scanners (name + prompt) and ask which to use.
+   - More than one → show the user the scanners (name + description) and ask
+     which to use. The list carries no prompt; `posthog:vision-scanners-get`
+     returns it for one scanner.
    - None → no summarizer scanner exists. See
      **No summarizer scanner? Run a temporary one** below.
 

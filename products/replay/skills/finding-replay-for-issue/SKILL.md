@@ -145,8 +145,10 @@ If the user wants a narrative summary without watching, use Replay Vision —
    }
    ```
 
-   One → use it. More than one → ask the user which (show name + prompt). None →
-   offer to create one via the `creating-replay-vision-scanners` skill.
+   One → use it. More than one → ask the user which (show name + description; the
+   list carries no prompt, and `posthog:vision-scanners-get` returns it for one
+   scanner). None → offer to create one via the `creating-replay-vision-scanners`
+   skill.
 
 3. **Scan the recording** with the chosen scanner (async, several minutes):
 
