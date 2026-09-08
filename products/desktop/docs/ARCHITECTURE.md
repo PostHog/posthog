@@ -36,6 +36,11 @@ Two tRPC surfaces exist:
 
 ## New task startup
 
+New-task screens wait for the route's browser tab ID before mounting the
+composer. This keeps prefilled prompts in the tab's draft instead of a temporary
+session. Consuming a prompt clears its content, but keeps the request ID so model
+and mode settings can apply after their options load.
+
 Submitting a task keeps the composer busy until creation opens the task's chat.
 The chat displays the submitted prompt with the current startup status until
 initialization ends and the transcript or error state takes over. The waiting

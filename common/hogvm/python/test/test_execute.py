@@ -189,6 +189,11 @@ class TestBytecodeExecute:
         else:
             raise AssertionError("Expected Exception not raised")
 
+    @pytest.mark.parametrize("indirect", [False, True])
+    def test_json_has_without_path(self, indirect: bool) -> None:
+        program = "let hasPath := JSONHas; return hasPath('{}');" if indirect else "return JSONHas('{}');"
+        assert self._run_program(program) is True
+
     def test_every_builtin_tolerates_its_own_min_args(self):
         # A builtin whose fn indexes past its declared minArgs raises a bare IndexError instead of a
         # HogVMException, which callers cannot tell apart from a bug in their own code. Blocking
