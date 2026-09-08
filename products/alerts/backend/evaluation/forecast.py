@@ -207,8 +207,15 @@ def _forecast_breach(
     return AlertEvaluationResult(value=fallback_value, breaches=[], interval=interval)
 
 
+def _canonical_target_date(target_date: str) -> str:
+    # `date.fromisoformat` also accepts compact (`20261001`) and ISO week (`2026-W40-4`) dates. Those
+    # forms do not sort against the `YYYY-MM-DD` forecast bucket labels, so normalize before comparing.
+    return date.fromisoformat(target_date).isoformat()
+
+
 def _index_for_target_date(forecast_dates: list[str], target_date: str) -> int:
-    eligible = [index for index, forecast_date in enumerate(forecast_dates) if forecast_date[:10] <= target_date[:10]]
+    target = _canonical_target_date(target_date)
+    eligible = [index for index, forecast_date in enumerate(forecast_dates) if forecast_date[:10] <= target]
     if not eligible:
         raise InsufficientHistoryError("The forecast has no completed forecast bucket on or before the target date.")
     return eligible[-1]
@@ -219,7 +226,8 @@ def _evaluate_target(
     forecast: ForecastResult,
     config: TargetByDateForecastConfig,
 ) -> AlertEvaluationResult:
-    index = _index_for_target_date(forecast.dates, config.target_date)
+    target_date = _canonical_target_date(config.target_date)
+    index = _index_for_target_date(forecast.dates, target_date)
     predicted = forecast.yhat[index]
     missed = predicted < config.target if config.target_direction.value == "at_least" else predicted > config.target
     interval = result.interval_type.value if result.interval_type else None
@@ -233,13 +241,13 @@ def _evaluate_target(
         breaches=[
             f"The forecast for {result.series[0].label} is {_format_value(result, predicted)} on "
             f"{evaluated_date[:10]}, {comparison} the target of {_format_value(result, config.target)} "
-            f"for {config.target_date}."
+            f"for {target_date}."
         ],
         interval=interval,
         triggered_metadata={
             "forecast": {
                 "target": config.target,
-                "target_date": config.target_date,
+                "target_date": target_date,
                 "evaluated_date": evaluated_date,
                 "predicted_value": predicted,
                 "direction": config.target_direction.value,
@@ -340,15 +348,16 @@ def _target_projection(
 ) -> dict[str, Any] | None:
     if not isinstance(config, TargetByDateForecastConfig):
         return None
+    target_date = _canonical_target_date(config.target_date)
     try:
-        index = _index_for_target_date(forecast.dates, config.target_date)
+        index = _index_for_target_date(forecast.dates, target_date)
     except InsufficientHistoryError as error:
         raise ValueError(str(error)) from error
     predicted = forecast.yhat[index]
     return {
         "predicted": predicted,
         "target": config.target,
-        "target_date": config.target_date,
+        "target_date": target_date,
         "evaluated_date": forecast.dates[index],
         "misses_target": predicted < config.target
         if config.target_direction.value == "at_least"

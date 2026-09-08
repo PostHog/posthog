@@ -256,6 +256,8 @@ class TestTargetDateIndex:
             ("exact", ["2026-03-29", "2026-03-30", "2026-03-31"], "2026-03-31", 2),
             ("between buckets", ["2026-03-30", "2026-04-06"], "2026-04-02", 0),
             ("after last bucket", ["2026-03-28", "2026-03-29"], "2026-03-31", 1),
+            ("compact date", ["2026-03-30", "2026-04-06"], "20260402", 0),
+            ("iso week date", ["2026-03-30", "2026-04-06"], "2026-W14-4", 0),
         ]
     )
     def test_index_for_target_date(self, _name: str, forecast_dates: list[str], target: str, expected: int) -> None:
