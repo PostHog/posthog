@@ -147,11 +147,14 @@ export const sourcesDataLogic = kea<sourcesDataLogicType>([
                         //   - AbortError: abortAnyRunningQuery cancelled this request mid-flight
                         //   - ApiError with no HTTP status: handleFetch wraps native fetch
                         //     failures (offline, DNS, CORS) as ApiError(err, undefined)
+                        //   - 5xx: a backend or gateway blip, which the next poll recovers from
                         // Anything else (including kea's BreakPointException) propagates.
+                        const status = error?.status
                         const isTransient =
-                            error?.status === 403 ||
+                            status === 403 ||
                             error?.name === 'AbortError' ||
-                            (error instanceof ApiError && error.status === undefined)
+                            (error instanceof ApiError && status === undefined) ||
+                            (typeof status === 'number' && status >= 500)
                         if (!isTransient) {
                             throw error
                         }

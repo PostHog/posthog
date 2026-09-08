@@ -92,6 +92,8 @@ describe('sourcesDataLogic', () => {
         ['403 access denied', new ApiError('forbidden', 403)],
         ['network failure (no HTTP status)', new ApiError('TypeError: Failed to fetch', undefined)],
         ['aborted request', Object.assign(new Error('aborted'), { name: 'AbortError' })],
+        ['gateway 502', new ApiError('bad gateway', 502)],
+        ['backend 500', new ApiError('server error', 500)],
     ])('returns an empty paginated result on %s without surfacing loader failure', async (_label, error) => {
         jest.spyOn(api.externalDataSources, 'list').mockRejectedValue(error)
 
@@ -106,5 +108,17 @@ describe('sourcesDataLogic', () => {
                 dataWarehouseSources: emptyResponse,
                 dataWarehouseSourcesLoading: false,
             })
+    })
+
+    it('surfaces a client error as a loader failure', async () => {
+        jest.spyOn(api.externalDataSources, 'list').mockRejectedValue(new ApiError('bad request', 400))
+
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSources()
+        })
+            .toDispatchActions(['loadSources', 'loadSourcesFailure'])
+            .toNotHaveDispatchedActions(['loadSourcesSuccess'])
     })
 })
