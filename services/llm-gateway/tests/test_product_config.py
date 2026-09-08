@@ -229,6 +229,7 @@ class TestCheckProductAccess:
             "gpt-5.3-codex",
             "gpt-5.2",
             "gpt-5-mini",
+            "gpt-6-astra",
             "deepseek-ai/deepseek-v4-flash-0731",
         ],
     )
@@ -386,12 +387,30 @@ class TestCheckProductAccess:
             "gpt-5-mini",
             "gpt-5.6-luna",
             "gpt-5.6-sol",
+            "gpt-6-astra",
         ],
     )
     def test_background_agents_allows_configured_models(self, model: str):
         allowed, error = check_product_access("background_agents", "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
         assert allowed is True
         assert error is None
+
+    @pytest.mark.parametrize(
+        "product",
+        [
+            "llma_labeling",
+            "product_analytics",
+            "stamphog",
+            "subscriptions",
+            "warehouse_custom_source_builder",
+            "warehouse_semantic_enrichment",
+        ],
+    )
+    def test_gpt_6_astra_does_not_bypass_pinned_product_models(self, product: str) -> None:
+        allowed, error = check_product_access(product, "personal_api_key", None, "gpt-6-astra")
+        assert allowed is False
+        assert error is not None
+        assert "not allowed" in error
 
     def test_background_agents_rejects_api_keys(self):
         allowed, error = check_product_access("background_agents", "personal_api_key", None, None)

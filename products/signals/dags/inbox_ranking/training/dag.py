@@ -28,6 +28,7 @@ grades the model on reports it never saw, and the two are comparable because bot
 
 import json
 import datetime
+from collections.abc import Sequence
 from typing import Any
 
 import pandas as pd
@@ -546,6 +547,20 @@ def inbox_ranking_unseen_scores(context: dagster.AssetExecutionContext) -> None:
     )
 
 
+def grade_metadata(grades: Sequence[HeadGrade]) -> dict[str, dagster.MetadataValue]:
+    """One metadata entry per (head, model, metric). Counts stay ints: `MetadataValue.float` rejects them."""
+    metadata: dict[str, dagster.MetadataValue] = {}
+    for grade in grades:
+        for name, value in grade.metrics().items():
+            if value is None:
+                continue
+            key = f"{grade.head}_{grade.model_role}_{name}"
+            metadata[key] = (
+                dagster.MetadataValue.int(value) if isinstance(value, int) else dagster.MetadataValue.float(value)
+            )
+    return metadata
+
+
 @dagster.asset(
     name="inbox_ranking_unseen_graded",
     deps=[
@@ -597,17 +612,7 @@ def inbox_ranking_unseen_graded(context: dagster.AssetExecutionContext) -> None:
     for head_name, reason in skipped.items():
         context.log.info(f"{head_name}: not graded, {reason}")
 
-    context.add_output_metadata(
-        {
-            **{
-                f"{grade.head}_{grade.model_role}_{name}": dagster.MetadataValue.float(value)
-                for grade in grades
-                for name, value in grade.metrics().items()
-                if value is not None
-            },
-            "skipped_heads": dagster.MetadataValue.json(skipped),
-        }
-    )
+    context.add_output_metadata({**grade_metadata(grades), "skipped_heads": dagster.MetadataValue.json(skipped)})
     capture_training_events(
         context,
         partition_key,

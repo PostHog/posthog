@@ -929,6 +929,16 @@ class TestExtractAgentError:
         assert result == AgentError(message=message, category=None)
         assert result.describe() == message
 
+    def test_extracts_legacy_snake_case_category(self):
+        message = "API Error: Connection error"
+        log = _agent_error_line(message, category="upstream_connection_error").replace(
+            '"errorCategory":', '"error_category":'
+        )
+
+        result = _extract_agent_error(log)
+
+        assert result == AgentError(message=message, category="upstream_connection_error")
+
     def test_returns_none_when_no_error_line(self):
         log = "\n".join([_agent_message_line("hello"), _end_turn_line()])
         assert _extract_agent_error(log) is None

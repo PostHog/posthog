@@ -21,6 +21,7 @@ from products.signals.dags.inbox_ranking.dataset.dag import LABELS_TABLE, STATE_
 from products.signals.dags.inbox_ranking.training.dag import (
     _delete_other_objects,
     champion_object_key,
+    grade_metadata,
     inbox_ranking_training_examples,
     load_snapshots,
     model_object_key,
@@ -524,6 +525,11 @@ def test_head_grades_report_counts_and_a_null_auc_on_a_single_class():
         graded_rows(_scores(["e"]), _labels(["e"], open_count=[0]), head), head, scoring_partition="2026-08-10"
     )
     assert (single_class.rows, single_class.positives, single_class.auc) == (1, 0, None)
+    # Counts are ints and the null AUC is dropped: the graded asset writes these as Dagster metadata.
+    metadata = grade_metadata([grade])
+    assert metadata["open_candidate_rows"] == dagster.MetadataValue.int(2)
+    assert metadata["open_candidate_auc"] == dagster.MetadataValue.float(1.0)
+    assert "open_candidate_auc" not in grade_metadata([single_class])
 
 
 @pytest.mark.parametrize(

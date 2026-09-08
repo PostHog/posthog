@@ -2024,7 +2024,12 @@ describe("SessionService", () => {
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
       const chainEntries = Array.from({ length: 12000 }, (_, i) => ({
         timestamp: `2024-01-01T00:00:${String(i % 60).padStart(2, "0")}Z`,
-        notification: { method: `entry-${i}` },
+        notification: {
+          jsonrpc: "2.0",
+          ...(i === 2
+            ? { id: 1, method: "session/prompt", params: {} }
+            : { method: `entry-${i}` }),
+        },
       }));
       mockAuthenticatedClient.getTaskRunSessionLogsPage.mockImplementation(
         async (
@@ -2040,6 +2045,14 @@ describe("SessionService", () => {
             matchingCount: chainEntries.length,
           };
         },
+      );
+      mockConvertStoredEntriesToEvents.mockImplementation(
+        (entries: unknown[]) =>
+          entries.map((entry, index) => ({
+            type: "acp_message" as const,
+            ts: index,
+            message: (entry as (typeof chainEntries)[number]).notification,
+          })),
       );
 
       service.watchCloudTask(
@@ -2067,6 +2080,10 @@ describe("SessionService", () => {
           }),
         );
       });
+      expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
+        "run-123",
+        { firstPromptForRunId: "run-123" },
+      );
       expect(mockTrpcLogs.fetchS3Logs.query).not.toHaveBeenCalled();
       // The run's prompt sits behind the window, not missing; a pinned
       // placeholder would double it once older pages load.
@@ -2947,6 +2964,7 @@ describe("SessionService", () => {
         },
       };
       mockConvertStoredEntriesToEvents.mockReturnValueOnce([inFlightPrompt]);
+      mockHasSessionPromptEventForTaskRun.mockReturnValueOnce(true);
 
       service.watchCloudTask(
         "task-123",
@@ -2964,6 +2982,7 @@ describe("SessionService", () => {
             isPromptPending: true,
             promptStartedAt: inFlightPrompt.ts,
             currentPromptId: 42,
+            firstPromptForRunId: "run-123",
           }),
         );
       });

@@ -1830,6 +1830,57 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         # user_three is not in the cohort and converts on day 3
         assert not_in_cohort_result["data"] == [0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
+    def test_funnel_trend_cohort_breakdown_with_all_users(self):
+        _create_person(distinct_ids=["user_one"], team=self.team, properties={"key": "value"})
+        _create_person(distinct_ids=["user_two"], team=self.team, properties={"$browser": "Safari"})
+
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 2)},
+                ],
+                "user_two": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 2)},
+                ],
+            },
+            self.team,
+        )
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="test_cohort",
+            groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-07 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(event="step one"),
+                EventsNode(event="step two"),
+            ],
+            breakdownFilter=BreakdownFilter(
+                breakdown=[cohort.pk, "all"],
+                breakdown_type="cohort",
+            ),
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
+
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        breakdown_values = {r["breakdown_value"] for r in results}
+        assert breakdown_values == {"test_cohort", "all users"}
+
     def test_funnel_trend_cohort_breakdown_empty_not_in_cohort(self):
         _create_person(distinct_ids=["user_one"], team=self.team, properties={"key": "value"})
         _create_person(distinct_ids=["user_two"], team=self.team, properties={"key": "value"})

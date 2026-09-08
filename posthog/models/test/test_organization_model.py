@@ -31,6 +31,13 @@ class TestOrganization(BaseTest):
         super().setUp()
         cache.clear()
 
+    def test_new_organizations_start_on_most_specific_access_resolution(self):
+        organization = Organization.objects.create(name="Fresh org")
+        self.assertTrue(organization.uses_most_specific_access_resolution)
+
+        opted_out = Organization.objects.create(name="Opted out org", uses_most_specific_access_resolution=False)
+        self.assertFalse(opted_out.uses_most_specific_access_resolution)
+
     def test_organization_active_invites(self):
         self.assertEqual(self.organization.invites.count(), 0)
         self.assertEqual(self.organization.active_invites.count(), 0)
