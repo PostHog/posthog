@@ -638,6 +638,20 @@ SQL
     }
   }
 
+  patch_table "kafka_metrics_avro2" {
+    engine "kafka" {
+      collection           = "warpstream_metrics"
+      topic_list           = "clickhouse_metrics"
+      group_name           = "clickhouse-metrics-avro2"
+      format               = "Avro"
+      num_consumers        = 1
+      skip_broken_messages = 100
+      poll_timeout_ms      = 3000
+      poll_max_batch_size  = 1000
+      thread_per_consumer  = true
+    }
+  }
+
   patch_table "kafka_trace_spans_avro" {
     engine "kafka" {
       collection           = "warpstream_traces"
