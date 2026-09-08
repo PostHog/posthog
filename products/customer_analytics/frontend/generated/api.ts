@@ -469,8 +469,8 @@ export const accountsCustomPropertyValuesCreate = async (
     accountId: string,
     customPropertyValueWriteApi: CustomPropertyValueWriteApi,
     options?: RequestInit
-): Promise<CustomPropertyValueApi> => {
-    return apiMutator<CustomPropertyValueApi>(getAccountsCustomPropertyValuesCreateUrl(projectId, accountId), {
+): Promise<CustomPropertyValueApi | void> => {
+    return apiMutator<CustomPropertyValueApi | void>(getAccountsCustomPropertyValuesCreateUrl(projectId, accountId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

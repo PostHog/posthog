@@ -14,6 +14,7 @@ export interface AccountPinnedPropertiesProps {
     editingPropertyKey?: string | null
     savingPropertyKey?: string | null
     availableMembers?: AccountPropertyRowProps['availableMembers']
+    membersLoading?: boolean
     onConfigure: () => void
     onEdit: (property: AccountSidebarProperty) => void
     onCancelEdit: () => void
@@ -44,6 +45,7 @@ export function AccountPinnedProperties({
     editingPropertyKey = null,
     savingPropertyKey = null,
     availableMembers,
+    membersLoading,
     onConfigure,
     onEdit,
     onCancelEdit,
@@ -52,7 +54,7 @@ export function AccountPinnedProperties({
 }: AccountPinnedPropertiesProps): JSX.Element {
     return (
         <section className="flex flex-col flex-1 min-h-0 overflow-hidden" data-attr="account-pinned-properties">
-            <div className="flex items-center shrink-0 px-5 pt-4">
+            <div className="flex items-center shrink-0 px-4 pt-4">
                 <span className="secondary text-secondary">Properties</span>
                 {properties.length > 0 ? (
                     <LemonButton
@@ -69,7 +71,7 @@ export function AccountPinnedProperties({
             {properties.length === 0 ? (
                 <AccountPinnedPropertiesEmptyState onConfigure={onConfigure} />
             ) : (
-                <div className="flex flex-col gap-4 min-h-0 overflow-y-auto px-5 pt-4 pb-5">
+                <div className="flex flex-col gap-4 min-h-0 overflow-y-auto px-4 pt-4 pb-5">
                     {properties.map((property) => (
                         <AccountPropertyRow
                             key={property.key}
@@ -77,6 +79,7 @@ export function AccountPinnedProperties({
                             editing={editingPropertyKey === property.key}
                             saving={savingPropertyKey === property.key}
                             availableMembers={availableMembers}
+                            membersLoading={membersLoading}
                             onEdit={() => onEdit(property)}
                             onCancel={onCancelEdit}
                             onSaveCustomProperty={onSaveCustomProperty}
