@@ -27,9 +27,10 @@ export function ScoutSuggestionCard({ item, surface }: ScoutSuggestionCardProps)
     const { busySuggestionIds } = useValues(scoutSuggestionsLogic)
     const { dismissSuggestion, openCreateFromSuggestion } = useActions(scoutSuggestionsLogic)
     const isBusy = busySuggestionIds.includes(item.id)
-    // A canonical pick only turns a scout on, so the editor gate stops the draft path alone.
+    // A canonical pick only turns a scout on, so the editor gate stops the draft path alone. The
+    // busy guard stops both, because a repeat read can put the form back after the person closes it.
     const creationDisabledReason = useScoutCreateDisabledReason()
-    const bodyDisabled = item.kind !== 'canonical' && creationDisabledReason !== null
+    const bodyDisabled = isBusy || (item.kind !== 'canonical' && creationDisabledReason !== null)
 
     return (
         <div
