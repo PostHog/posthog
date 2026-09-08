@@ -65,8 +65,8 @@ from products.tasks.backend.constants import (
     PR_STATES as PR_STATES,  # re-exported for presentation
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
     SERVER_OWNED_RESUME_STATE_KEYS,
+    TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
     TASK_ANALYSIS_FEATURE_FLAG,
-    TASK_ANALYSIS_INSIGHTS_STATE_KEY,
     TASK_SESSION_MAX_SIZE_BYTES,
     get_required_model_flag,
     is_blocked_sandbox_env_key,
@@ -2209,11 +2209,11 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "timed_out_inactivity",
         "timed_out_wall_clock",
         "sandbox_gone",
-        TASK_ANALYSIS_INSIGHTS_STATE_KEY,
+        TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
         ANALYSIS_TARGET_TASK_ID_STATE_KEY,
         ANALYSIS_TARGET_RUN_ID_STATE_KEY,
         # Server-stamped at analysis creation (task_analysis._target_context_state) and read back
-        # at insight-report time to attribute the captured event to a repository and sandbox
+        # at activity-report time to attribute the captured event to a repository and sandbox
         # image. A PATCHable value would let the sandbox agent forge that attribution.
         ANALYSIS_TARGET_REPOSITORY_STATE_KEY,
         ANALYSIS_TARGET_IMAGE_ID_STATE_KEY,
@@ -3757,16 +3757,18 @@ def analyze_task_run(run_id: str | UUID, task_id: str | UUID, team_id: int, *, u
     return str(analysis_task.id), created
 
 
-def report_task_analysis_insight(run_id: str | UUID, task_id: str | UUID, team_id: int, *, insight: dict) -> int | None:
-    """Append one validated analysis finding to a run. Returns its index, or ``None`` if not visible."""
+def report_task_analysis_activity(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, activity: dict
+) -> int | None:
+    """Append one validated activity record to a run. Returns its index, or ``None`` if not visible."""
     from products.tasks.backend.logic.services.task_analysis import (  # noqa: PLC0415 — keep storage deps off the api import path
-        append_analysis_insight,
+        append_analysis_activity,
     )
 
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    return append_analysis_insight(run=run, insight=insight)
+    return append_analysis_activity(run=run, activity=activity)
 
 
 def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:

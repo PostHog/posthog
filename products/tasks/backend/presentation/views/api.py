@@ -137,8 +137,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskPinResponseSerializer,
     TaskPresenceBeaconRequestSerializer,
     TaskRepositoriesResponseSerializer,
-    TaskRunAnalysisInsightRequestSerializer,
-    TaskRunAnalysisInsightResponseSerializer,
+    TaskRunAnalysisActivityRequestSerializer,
+    TaskRunAnalysisActivityResponseSerializer,
     TaskRunAnalyzeResponseSerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
@@ -2494,42 +2494,45 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
     @validated_request(
-        request_serializer=TaskRunAnalysisInsightRequestSerializer,
+        request_serializer=TaskRunAnalysisActivityRequestSerializer,
         responses={
             201: OpenApiResponse(
-                response=TaskRunAnalysisInsightResponseSerializer,
-                description="Finding stored on the run",
+                response=TaskRunAnalysisActivityResponseSerializer,
+                description="Activity stored on the run, or the index of the identical activity already stored",
             ),
-            400: OpenApiResponse(description="The finding is invalid, or the run already holds the maximum"),
-            403: OpenApiResponse(description="Only the run's own analysis sandbox may report findings"),
+            400: OpenApiResponse(
+                description="The activity is invalid, overlaps a stored activity, or the run already holds the maximum"
+            ),
+            403: OpenApiResponse(description="Only the run's own analysis sandbox may report activities"),
             404: OpenApiResponse(description="Run not found"),
         },
-        summary="Report an analysis finding",
+        summary="Report an analysis activity",
         description=(
-            "Store one verified inefficiency finding on a task-analysis run. Only the run's own "
-            "task-bound sandbox agent may call it, and only on a task-analysis run. The findings "
-            "list is server-owned: it is not writable through the run update endpoint."
+            "Store one activity record on a task-analysis run. Only the run's own task-bound sandbox "
+            "agent may call it, and only on a task-analysis run. Activities arrive in log order and do "
+            "not overlap. An exact repeat of a stored activity returns its index without storing it "
+            "again. The activities list is server-owned: it is not writable through the run update endpoint."
         ),
         strict_request_validation=True,
     )
-    @action(detail=True, methods=["post"], url_path="analysis-insight", required_scopes=["task:write"])
-    def analysis_insight(self, request, pk=None, **kwargs):
+    @action(detail=True, methods=["post"], url_path="analysis-activity", required_scopes=["task:write"])
+    def analysis_activity(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
         if not self._is_sandbox_agent_request(task_id):
             return Response(
-                {"error": "Only the run's own analysis agent can report findings."},
+                {"error": "Only the run's own analysis agent can report activities."},
                 status=status.HTTP_403_FORBIDDEN,
             )
         try:
-            index = tasks_facade.report_task_analysis_insight(
-                pk, task_id, self.team_id, insight=dict(request.validated_data)
+            index = tasks_facade.report_task_analysis_activity(
+                pk, task_id, self.team_id, activity=dict(request.validated_data)
             )
         except TaskAnalysisError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         if index is None:
             raise NotFound()
         return Response(
-            TaskRunAnalysisInsightResponseSerializer({"insight_index": index}).data,
+            TaskRunAnalysisActivityResponseSerializer({"activity_index": index}).data,
             status=status.HTTP_201_CREATED,
         )
 

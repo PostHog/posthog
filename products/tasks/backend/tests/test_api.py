@@ -5597,8 +5597,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "benjamin_effective": False,
                     "usage_metrics_recorded": False,
                     "loop_terminal_bookkeeping_complete": False,
-                    # server-stamped analysis insight attribution; a forged value would
-                    # misattribute the captured insight event to another repository / image
+                    # server-stamped analysis attribution; a forged value would
+                    # misattribute the captured activity event to another repository / image
                     "analysis_target_repository": "attacker/attacker",
                     "analysis_target_custom_image_id": "img-attacker",
                     "analysis_target_custom_image_name": "attacker-image",
@@ -14546,7 +14546,7 @@ class TestTaskRunAnalyzeAPI(BaseTaskAPITest):
         self.assertEqual(TaskRun.objects.filter(task_id=analysis_task_id).count(), 1)
 
 
-class TestTaskAnalysisInsightReporting(BaseTaskAPITest):
+class _TaskAnalysisReportingTestBase(BaseTaskAPITest):
     def setUp(self):
         super().setUp()
         self.analysis_task = Task.objects.create(
@@ -14583,82 +14583,82 @@ class TestTaskAnalysisInsightReporting(BaseTaskAPITest):
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
         return client
 
+
+class TestTaskAnalysisActivityReporting(_TaskAnalysisReportingTestBase):
     def _url(self, task_id=None, run_id=None) -> str:
         return (
             f"/api/projects/@current/tasks/{task_id or self.analysis_task.id}"
-            f"/runs/{run_id or self.analysis_run.id}/analysis-insight/"
+            f"/runs/{run_id or self.analysis_run.id}/analysis-activity/"
         )
 
-    def _finding(self, **overrides) -> dict:
-        finding = {
-            "observation": (
-                "The test suite was started three times; the first two attempts failed while the "
-                "agent installed and started Postgres."
-            ),
-            "evidence": [
-                {"quote": "docker compose up -d postgres", "evidence_type": "command_output"},
-            ],
-            "category": "environment_failure",
-            "wasted_effort": {"tool_calls": 3, "seconds": 45, "output_bytes": 54000},
-            "recurrence": "every_run_in_this_repo",
-            "confidence_basis": "directly_observed",
-            "suggested_fix": {
-                "change": "Start Postgres in the sandbox image so the first test run finds it already listening.",
-                "done_when": "The test suite passes on its first attempt in a fresh sandbox.",
-            },
+    def _activity(self, **overrides) -> dict:
+        activity = {
+            "goal_kind": "verify",
+            "goal": "Run the pagination tests",
+            "outcome": "failed",
+            "blocker_kind": "service_down",
+            "blocker_name": "postgres",
+            "repair": "Started postgres with docker compose and ran the tests again.",
+            "evidence": "could not connect to server: postgres is not running",
+            "start_line": 120,
+            "end_line": 188,
+            "tool_calls": 4,
+            "failed_calls": 2,
+            "seconds": 95,
+            "idle_seconds": 0,
+            "commands": ["pytest products/tasks", "docker compose up -d postgres"],
+            "guidance_read": ["CLAUDE.md"],
         }
-        finding.update(overrides)
-        return finding
+        activity.update(overrides)
+        return activity
 
-    def test_agent_report_stores_the_finding_and_emits_one_event(self):
+    def _activity_events(self, mock_capture) -> list[dict]:
+        return [c.kwargs for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_analysis_activity"]
+
+    def _post(self, activity: dict, client: APIClient | None = None, **url_kwargs):
+        return (client or self.agent_client).post(self._url(**url_kwargs), activity, format="json")
+
+    def test_agent_report_stores_the_activity_and_emits_one_event(self):
         with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
-            response = self.agent_client.post(self._url(), self._finding(), format="json")
+            response = self._post(self._activity())
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["insight_index"], 0)
+        self.assertEqual(response.json()["activity_index"], 0)
         self.analysis_run.refresh_from_db()
-        stored = self.analysis_run.state["task_analysis_insights"]
+        stored = self.analysis_run.state["task_analysis_activities"]
         self.assertEqual(len(stored), 1)
-        self.assertEqual(stored[0]["category"], "environment_failure")
-        self.assertEqual(stored[0]["schema_version"], 1)
+        self.assertEqual(stored[0]["goal_kind"], "verify")
+        self.assertEqual(stored[0]["blocker_name"], "postgres")
+        self.assertEqual(stored[0]["schema_version"], 2)
         self.assertIn("reported_at", stored[0])
-        events = [c.kwargs for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_analysis_insight"]
+        events = self._activity_events(mock_capture)
         self.assertEqual(len(events), 1)
         props = events[0]["properties"]
-        self.assertEqual(props["category"], "environment_failure")
-        self.assertEqual(props["wasted_tool_calls"], 3)
-        self.assertEqual(props["wasted_output_bytes"], 54000)
-        self.assertEqual(props["insight_index"], 0)
+        self.assertEqual(props["goal_kind"], "verify")
+        self.assertEqual(props["blocker_kind"], "service_down")
+        self.assertEqual(props["tool_calls"], 4)
+        self.assertEqual(props["activity_index"], 0)
         self.assertEqual(props["repository"], "posthog/posthog")
         self.assertEqual(props["analysis_target_repository"], "posthog/posthog")
-        self.assertEqual(props["analysis_target_custom_image_name"], "PostHog Stack")
 
-    def test_run_patch_cannot_write_insights_or_the_target_linkage(self):
-        original_target = self.analysis_run.state["analysis_target_run_id"]
-        with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
-            response = self.client.patch(
-                f"/api/projects/@current/tasks/{self.analysis_task.id}/runs/{self.analysis_run.id}/",
-                {
-                    "state": {"analysis_target_run_id": str(uuid.uuid4())},
-                    "state_append": {"task_analysis_insights": {"category": "missing_tool", "observation": "spoofed"}},
-                },
-                format="json",
-            )
+    def test_run_patch_cannot_write_activities(self):
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{self.analysis_task.id}/runs/{self.analysis_run.id}/",
+            {"state_append": {"task_analysis_activities": self._activity()}},
+            format="json",
+        )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.analysis_run.refresh_from_db()
-        self.assertNotIn("task_analysis_insights", self.analysis_run.state)
-        self.assertEqual(self.analysis_run.state["analysis_target_run_id"], original_target)
-        events = [c.kwargs for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_analysis_insight"]
-        self.assertEqual(events, [])
+        self.assertNotIn("task_analysis_activities", self.analysis_run.state)
 
-    def test_a_human_token_cannot_report_a_finding(self):
-        response = self.client.post(self._url(), self._finding(), format="json")
+    def test_a_human_token_cannot_report_an_activity(self):
+        response = self._post(self._activity(), client=self.client)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.analysis_run.refresh_from_db()
-        self.assertNotIn("task_analysis_insights", self.analysis_run.state)
+        self.assertNotIn("task_analysis_activities", self.analysis_run.state)
 
-    def test_a_sandbox_bound_to_another_task_cannot_report(self):
+    def test_a_sandbox_bound_to_another_task_cannot_report_an_activity(self):
         other_task = Task.objects.create(
             team=self.team,
             created_by=self.user,
@@ -14666,13 +14666,12 @@ class TestTaskAnalysisInsightReporting(BaseTaskAPITest):
             description="other",
             origin_product=Task.OriginProduct.TASK_ANALYSIS,
         )
-        client = self._another_sandbox_client(other_task.id)
-        response = client.post(self._url(), self._finding(), format="json")
+        response = self._post(self._activity(), client=self._another_sandbox_client(other_task.id))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.analysis_run.refresh_from_db()
-        self.assertNotIn("task_analysis_insights", self.analysis_run.state)
+        self.assertNotIn("task_analysis_activities", self.analysis_run.state)
 
-    def test_a_non_analysis_run_cannot_hold_findings(self):
+    def test_a_non_analysis_run_cannot_hold_activities(self):
         task = Task.objects.create(
             team=self.team,
             created_by=self.user,
@@ -14681,58 +14680,91 @@ class TestTaskAnalysisInsightReporting(BaseTaskAPITest):
             origin_product=Task.OriginProduct.USER_CREATED,
         )
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-        client = self._another_sandbox_client(task.id)
-        response = client.post(self._url(task_id=task.id, run_id=run.id), self._finding(), format="json")
+        response = self._post(
+            self._activity(), client=self._another_sandbox_client(task.id), task_id=task.id, run_id=run.id
+        )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_the_server_enforces_the_per_run_finding_cap(self):
-        for index in range(5):
-            response = self.agent_client.post(self._url(), self._finding(occurrence_count=index + 1), format="json")
+    def test_the_server_enforces_the_per_run_activity_cap(self):
+        for index in range(12):
+            start = index * 10 + 1
+            response = self._post(self._activity(start_line=start, end_line=start + 9))
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        response = self.agent_client.post(self._url(), self._finding(), format="json")
+        response = self._post(self._activity(start_line=121, end_line=130))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.analysis_run.refresh_from_db()
-        self.assertEqual(len(self.analysis_run.state["task_analysis_insights"]), 5)
+        self.assertEqual(len(self.analysis_run.state["task_analysis_activities"]), 12)
+
+    def test_an_exact_repeat_returns_the_stored_index_without_a_second_event(self):
+        with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
+            first = self._post(self._activity())
+            second = self._post(self._activity())
+
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second.json()["activity_index"], first.json()["activity_index"])
+        self.analysis_run.refresh_from_db()
+        self.assertEqual(len(self.analysis_run.state["task_analysis_activities"]), 1)
+        self.assertEqual(len(self._activity_events(mock_capture)), 1)
 
     @parameterized.expand(
         [
-            ("missing_evidence", {"evidence": []}),
-            ("missing_suggested_fix", {"suggested_fix": None}),
-            ("effort_category_without_measurement", {"wasted_effort": None}),
-            ("other_without_justification", {"category": "other"}),
+            ("overlapping_range", 150),
+            ("earlier_range", 10),
         ]
     )
-    def test_the_server_rejects_a_malformed_finding(self, _name, overrides):
-        finding = self._finding()
+    def test_activities_must_arrive_in_log_order_without_overlap(self, _name, start_line):
+        self.assertEqual(self._post(self._activity()).status_code, status.HTTP_201_CREATED)
+
+        response = self._post(self._activity(goal="Read the failing test", start_line=start_line, end_line=200))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("start this one at line 189", response.json()["error"])
+        self.analysis_run.refresh_from_db()
+        self.assertEqual(len(self.analysis_run.state["task_analysis_activities"]), 1)
+
+    @parameterized.expand(
+        [
+            ("end_before_start", {"start_line": 200}),
+            ("failed_calls_above_tool_calls", {"failed_calls": 9}),
+            ("idle_above_seconds", {"idle_seconds": 500}),
+            ("blocker_kind_without_name", {"blocker_name": None}),
+            ("blocker_name_without_kind", {"blocker_kind": None}),
+            ("repair_without_blocker", {"blocker_kind": None, "blocker_name": None}),
+            ("blocker_name_absent_from_evidence", {"blocker_name": "redis"}),
+            ("blocker_name_only_as_substring", {"blocker_name": "gres"}),
+            ("unknown_goal_kind", {"goal_kind": "wander"}),
+            ("too_many_commands", {"commands": ["ls"] * 25}),
+        ]
+    )
+    def test_the_server_rejects_a_malformed_activity(self, _name, overrides):
+        activity = self._activity()
         for key, value in overrides.items():
             if value is None:
-                finding.pop(key, None)
+                activity.pop(key, None)
             else:
-                finding[key] = value
+                activity[key] = value
 
-        response = self.agent_client.post(self._url(), finding, format="json")
+        response = self._post(activity)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.analysis_run.refresh_from_db()
-        self.assertNotIn("task_analysis_insights", self.analysis_run.state)
+        self.assertNotIn("task_analysis_activities", self.analysis_run.state)
 
-    def test_the_server_rejects_a_finding_carrying_a_credential(self):
-        finding = self._finding()
-        finding["suggested_fix"]["required_services"] = ["postgres ghp_abcdefghijklmnopqrstuvwx"]
-
-        response = self.agent_client.post(self._url(), finding, format="json")
+    @parameterized.expand(
+        [
+            ("github_server_token", "ghs_abcdefghijklmnopqrstuvwx"),
+            ("github_user_token", "ghu_abcdefghijklmnopqrstuvwx"),
+            ("github_oauth_token", "gho_abcdefghijklmnopqrstuvwx"),
+            ("github_refresh_token", "ghr_abcdefghijklmnopqrstuvwx"),
+            ("posthog_personal_key", "phx_abcdefghijklmnopqrstuvwx"),
+            ("bearer_header", "Bearer abcdefghijklmnopqrstuvwxyz0123456789"),
+        ]
+    )
+    def test_the_server_rejects_an_activity_carrying_a_credential(self, _name, secret):
+        response = self._post(self._activity(repair=f"Set the token to {secret} and retried."))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.analysis_run.refresh_from_db()
-        self.assertNotIn("task_analysis_insights", self.analysis_run.state)
-
-    def test_a_no_findings_report_and_a_finding_are_mutually_exclusive(self):
-        response = self.agent_client.post(self._url(), {"no_findings_reason": "run_was_efficient"}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        response = self.agent_client.post(self._url(), self._finding(), format="json")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.analysis_run.refresh_from_db()
-        self.assertEqual(len(self.analysis_run.state["task_analysis_insights"]), 1)
+        self.assertNotIn("task_analysis_activities", self.analysis_run.state)
 
 
 class TestTaskRunPreviewAPI(BaseTaskAPITest):
