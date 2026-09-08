@@ -310,7 +310,8 @@ export async function getInsightWithRetry(
             })}`
             const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
             const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
-            const result = legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : null
+            const result =
+                legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight, 'dashboard_tile_refresh') : null
 
             if (result?.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE) {
                 attempt++
@@ -348,7 +349,10 @@ export async function getInsightWithRetry(
                                 )
                                 const legacyInsight: InsightModel | null = await getJSONOrNull(refreshedInsightResponse)
                                 if (legacyInsight) {
-                                    const queryBasedInsight = getQueryBasedInsightModel(legacyInsight)
+                                    const queryBasedInsight = getQueryBasedInsightModel(
+                                        legacyInsight,
+                                        'dashboard_tile_refresh_async'
+                                    )
                                     return { ...queryBasedInsight, query_status: finalStatus }
                                 }
                             }
