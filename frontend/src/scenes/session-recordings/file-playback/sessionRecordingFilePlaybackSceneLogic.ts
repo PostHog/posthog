@@ -6,6 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { createWindowIdRegistry } from '@posthog/replay-shared'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { metricCount } from 'lib/operationalMetrics'
 import { uuid } from 'lib/utils/dom'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -263,6 +264,7 @@ export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePl
                 return
             }
             if (!recordingDataLogic) {
+                metricCount('replay_player_load_failures', 1, { kind: 'file_playback_mount' })
                 lemonToast.error('The player did not start in time. Please try loading the file again.')
                 return
             }
