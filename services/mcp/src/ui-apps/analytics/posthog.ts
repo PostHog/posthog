@@ -38,17 +38,28 @@ export function initPostHog(appName: string, appVersion: string): void {
 
     log('Initializing PostHog client', { token: POSTHOG_TOKEN, host: POSTHOG_HOST, appName, appVersion })
     try {
+        // posthog-js-lite 4.12.0 (the pinned version) reads `window.localStorage`
+        // unguarded in its constructor, before honoring any `persistence` option,
+        // so even `persistence: 'memory'` cannot avoid the read; in a sandboxed
+        // app iframe it throws SecurityError. Analytics is optional; the app
+        // must render regardless. An upgrade that guards the read deletes this
+        // try/catch.
         client = new PostHog(POSTHOG_TOKEN, { host: POSTHOG_HOST })
+    } catch (error) {
+        log('PostHog client initialization failed', error)
+        client = null
+        return
+    }
+
+    try {
         client.register({
             $mcp_app_name: appName,
             $mcp_app_version: appVersion,
         })
     } catch (error) {
-        // posthog-js-lite 4.11.0 reads `window.localStorage` unguarded; in a
-        // sandboxed app iframe that read throws SecurityError. Analytics is
-        // optional; the app must render regardless.
-        log('PostHog client initialization failed', error)
-        client = null
+        // The client works; only its two register properties are lost. Keep it,
+        // so the app keeps its events.
+        log('PostHog register failed', error)
     }
 }
 

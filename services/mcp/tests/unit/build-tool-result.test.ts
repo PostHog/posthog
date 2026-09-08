@@ -184,7 +184,8 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
 })
 
 // Inline-exec UI-app hosts (PostHog Desktop, Claude Code, Cowork) go through the exec
-// wrapper, which sets `forceUiDataToMeta` + `includeUiResponseMeta`. The app payload
+// wrapper, which sets `forceUiDataToMeta` + `includeUiResponseMeta` +
+// `includeRenderNote`. The app payload
 // should only move onto `_meta` when a compact formatted table takes structuredContent's
 // place for the model — otherwise it stays in the standard structuredContent field so it
 // isn't duplicated under a non-standard `_meta` key.
@@ -197,6 +198,7 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
             params: {},
             forceUiDataToMeta: true,
             includeUiResponseMeta: true,
+            includeRenderNote: true,
             distinctId: 'd',
         })
 
@@ -260,6 +262,7 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
             params: {},
             forceUiDataToMeta: true,
             includeUiResponseMeta: true,
+            includeRenderNote: true,
             distinctId: 'd',
         })
 
@@ -281,13 +284,14 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
             params: {},
             forceUiDataToMeta: true,
             includeUiResponseMeta: true,
+            includeRenderNote: true,
             distinctId: 'd',
         })
 
         // The pointer text stays out of the estimate; the structured payload
         // and the render-note footer must both stay in it.
         expect(estimateResponseTokens(payload)).toBe(
-            estimateTokens(payload.structuredContent) + estimateTokens(`\n\n${UI_APP_RENDER_NOTE}`)
+            estimateTokens(payload.structuredContent) + estimateTokens(UI_APP_RENDER_NOTE)
         )
     })
 
