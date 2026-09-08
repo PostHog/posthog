@@ -808,7 +808,8 @@ describe('experimentMetricsLogic', () => {
 
             expect(logic.values.recalculationProgress).toEqual({ completed: 2, total: 2 })
             expect(logic.values.isRecalculating).toBe(false)
-            expect(logic.values.lastRefresh).toEqual(completedRecalculation.query_to)
+            expect(logic.values.lastRefresh).toEqual(completedRecalculation.completed_at)
+            expect(logic.values.dataThrough).toEqual(completedRecalculation.query_to)
         })
 
         it('defaults progress to zeroes and lastRefresh to null when there is no recalculation', () => {

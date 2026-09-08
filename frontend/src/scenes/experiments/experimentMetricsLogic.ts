@@ -108,6 +108,12 @@ const coveredMetricUuids = (recalculation: ExperimentMetricsRecalculationApi): s
     ...Object.keys((recalculation.metric_errors as Record<string, unknown> | null) ?? {}),
 ]
 
+/** Whether a run resolved every metric the experiment carries now. A gap means the run predates a metric. */
+const runCoversCurrentMetrics = (recalculation: ExperimentMetricsRecalculationApi, experiment: Experiment): boolean => {
+    const covered = new Set(coveredMetricUuids(recalculation))
+    return currentMetricUuids(experiment).every((uuid) => covered.has(uuid))
+}
+
 type MetricErrorState = { detail: string } | null
 type ResolveByUuid<T> = (uuid: string) => T
 
@@ -173,7 +179,9 @@ export interface experimentMetricsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     receivedFeatureFlags: boolean // featureFlagLogic
     currentProjectId: number | null // projectLogic
+    coversCurrentMetrics: boolean
     currentRecalculation: ExperimentMetricsRecalculationApi | null
+    dataThrough: string | null
     isMetricRecalculating: (metricUuid: string | undefined) => boolean
     isRecalculating: boolean
     lastRefresh: string | null
@@ -307,6 +315,8 @@ export interface experimentMetricsLogicMeta {
         }
         totalMetricsCount: (arg: any) => number
         lastRefresh: (currentRecalculation: ExperimentMetricsRecalculationApi | null) => string | null
+        dataThrough: (currentRecalculation: ExperimentMetricsRecalculationApi | null) => string | null
+        coversCurrentMetrics: (currentRecalculation: ExperimentMetricsRecalculationApi | null, arg: any) => boolean
         metricRetries: (
             currentRecalculation: ExperimentMetricsRecalculationApi | null
         ) => Record<string, MetricRetryInfo>
@@ -448,9 +458,26 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
             (experiment: Experiment): number =>
                 metricsInOrder(experiment, 'primary').length + metricsInOrder(experiment, 'secondary').length,
         ],
+        // When the run finished. `query_to` is a poor stand-in: a stopped experiment pins it to the end date,
+        // so it never moves however often the results are recomputed.
         lastRefresh: [
             (s) => [s.currentRecalculation],
+            (recalc: ExperimentMetricsRecalculationApi | null): string | null =>
+                recalc?.completed_at ?? recalc?.query_to ?? null,
+        ],
+        dataThrough: [
+            (s) => [s.currentRecalculation],
             (recalc: ExperimentMetricsRecalculationApi | null): string | null => recalc?.query_to ?? null,
+        ],
+        /**
+         * Whether the loaded run resolved every metric the experiment carries now. A failed recalculation
+         * create leaves the previous run in place, so a metric it never computed keeps its loading state and
+         * the reload has to stay live to close that gap.
+         */
+        coversCurrentMetrics: [
+            (s) => [s.currentRecalculation, (_, props) => props.experiment],
+            (recalc: ExperimentMetricsRecalculationApi | null, experiment: Experiment): boolean =>
+                !!recalc && runCoversCurrentMetrics(recalc, experiment),
         ],
         metricRetries: [
             (s) => [s.currentRecalculation],
@@ -720,14 +747,10 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                      * page load. Advance the window with experiment_config_change rather than reuse a cutoff that
                      * may predate the new start_date.
                      */
-                    const coveredUuids = new Set(coveredMetricUuids(recalculation))
-                    const missingCurrentMetric = currentMetricUuids(props.experiment).some(
-                        (uuid) => !coveredUuids.has(uuid)
-                    )
                     if (
                         recalculation.status === RECALCULATION_STATUSES.completed &&
                         (recalculation.completed_metrics + recalculation.failed_metrics < recalculation.total_metrics ||
-                            missingCurrentMetric)
+                            !runCoversCurrentMetrics(recalculation, props.experiment))
                     ) {
                         actions.triggerRecalculation('experiment_config_change')
                         return
