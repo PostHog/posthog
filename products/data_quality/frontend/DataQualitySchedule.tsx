@@ -1,11 +1,29 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSelect, LemonSwitch, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSelect, LemonSwitch, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
+import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 
 import { DataQualityScheduleLogicProps, dataQualityScheduleLogic } from './dataQualityScheduleLogic'
 import { DataQualityScheduleIntervalEnumApi } from './generated/api.schemas'
+
+const NEXT_RUN_LABEL_REFRESH_INTERVAL_MS = 1_000
+
+function NextRunTime({ nextRunAt }: { nextRunAt: string }): JSX.Element {
+    usePeriodicRerender(NEXT_RUN_LABEL_REFRESH_INTERVAL_MS)
+
+    if (dayjs(nextRunAt).valueOf() <= Date.now()) {
+        return (
+            <Tooltip title="Past its scheduled time. The scheduler will pick it up on its next pass.">
+                <span>due now</span>
+            </Tooltip>
+        )
+    }
+
+    return <TZLabel time={nextRunAt} />
+}
 
 export function DataQualitySchedule(props: DataQualityScheduleLogicProps): JSX.Element {
     const { schedule, scheduleLoading, scheduleError } = useValues(dataQualityScheduleLogic(props))
@@ -57,7 +75,7 @@ export function DataQualitySchedule(props: DataQualityScheduleLogicProps): JSX.E
                     schedule.enabled &&
                     schedule.next_run_at && (
                         <span className="text-secondary text-sm">
-                            Next run <TZLabel time={schedule.next_run_at} />
+                            Next run <NextRunTime nextRunAt={schedule.next_run_at} />
                         </span>
                     )
                 )}
