@@ -245,9 +245,11 @@ export interface projectNoticeLogicActions {
     } // verifyEmailLogic
     requestVerificationCodeSuccess: (
         newlyRequestedVerificationCode: boolean,
-        payload?: {
-            uuid: string
-        }
+        payload?:
+            | {
+                  uuid: string
+              }
+            | undefined
     ) => {
         newlyRequestedVerificationCode: boolean
         payload?: {
@@ -334,7 +336,7 @@ export interface projectNoticeLogicMeta {
                 searchParams: Record<string, any>
             },
             activeSceneProductKey: ProductKey | null,
-            requestingVerificationCode: boolean
+            newlyRequestedVerificationCodeLoading: boolean
         ) => ProjectNoticeBlueprint | null
     }
 }
