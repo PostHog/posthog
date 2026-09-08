@@ -12,9 +12,10 @@ local stacks converge on, so it is the one place that sees a table however it wa
 declared: directly in a local layer, or in a shared layer a local stack composes.
 
 The Python DDL builds the dev stack and does not reach that SQL, so a table whose
-CREATE hardcodes the count regresses without moving a golden. Those call sites
-must ask kafka_num_consumers() instead, which returns the tuned count on cloud and
-one everywhere else.
+CREATE hardcodes a count above one regresses without moving a golden. A call site
+that wants more than one consumer on cloud must ask kafka_num_consumers(), which
+returns the tuned count there and one everywhere else. A hardcoded one is correct
+as it stands and stays allowed.
 """
 
 import re
@@ -75,13 +76,17 @@ _HARDCODED = re.compile(r"kafka_num_consumers\s*=\s*(\d+)")
 SEARCH_ROOTS = ("posthog", "products", "ee")
 
 
-def test_python_ddl_asks_for_the_consumer_count() -> None:
+def test_python_ddl_does_not_hardcode_extra_consumers() -> None:
     offenders: list[str] = []
     for root in SEARCH_ROOTS:
         for path in sorted((REPO_ROOT / root).rglob("*.py")):
             if "test" in path.parts or path.name.startswith("test_"):
                 continue
-            for number, line in enumerate(path.read_text().splitlines(), start=1):
+            text = path.read_text()
+            # Almost no file names the setting, so read lines only for the few that do.
+            if "kafka_num_consumers" not in text:
+                continue
+            for number, line in enumerate(text.splitlines(), start=1):
                 found = _HARDCODED.search(line)
                 if found and int(found.group(1)) != 1:
                     offenders.append(f"{path.relative_to(REPO_ROOT)}:{number}")
