@@ -228,7 +228,7 @@ DIFF_CHECKS: list[DiffCheck] = [
     DiffCheck(
         key="workflow-lint",
         label="workflow-convention failure in .github/workflows",
-        triggers=[".github/workflows/*.yml", ".github/workflows/*.yaml"],
+        triggers=[".github/workflows/*.yml", ".github/workflows/*.yaml", ".github/secrets-inventory.yml"],
         verify=["hogli", "lint:workflows"],
     ),
     DiffCheck(

@@ -31,6 +31,8 @@ from hogli_commands.workflow_lint.checks.mcp_filter_coverage import McpFilterCov
 from hogli_commands.workflow_lint.checks.pr_concurrency import PrConcurrencyCheck
 from hogli_commands.workflow_lint.checks.pr_event_fanout import PrEventFanoutCheck
 from hogli_commands.workflow_lint.checks.required_gates import RequiredGateCheck
+from hogli_commands.workflow_lint.checks.reusable_secret_passthrough import ReusableSecretPassthroughCheck
+from hogli_commands.workflow_lint.checks.secret_inventory import SecretInventoryCheck
 from hogli_commands.workflow_lint.checks.semgrep_services_coverage import SemgrepServicesCoverageCheck
 from hogli_commands.workflow_lint.cli import cmd_lint_workflows
 from hogli_commands.workflow_lint.model import PR_TRIGGERS, Workflow, WorkflowParseError, read_workflows
@@ -1803,3 +1805,240 @@ class TestLiveTreeSmoke:
         workflows = list(read_workflows(workflows_dir))
         for check in CHECKS:
             assert isinstance(check.run(workflows), CheckResult)
+
+
+class TestSecretInventoryCheck:
+    @staticmethod
+    def _tree(tmp_path: Path, inventory: str | None) -> tuple[Path, Path]:
+        workflows_dir = tmp_path / ".github" / "workflows"
+        workflows_dir.mkdir(parents=True)
+        if inventory is not None:
+            _write(tmp_path / ".github", "secrets-inventory.yml", inventory)
+        return tmp_path, workflows_dir
+
+    def test_passes_when_every_store_read_is_declared(self, tmp_path: Path) -> None:
+        repo_root, workflows_dir = self._tree(
+            tmp_path,
+            """
+            secrets:
+                MY_TOKEN:
+                    store: org
+            """,
+        )
+        _write(
+            workflows_dir,
+            "wf.yml",
+            """
+            name: W
+            on: [push]
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: echo
+                    env:
+                      T: ${{ secrets.MY_TOKEN }}
+            """,
+        )
+        issues = SecretInventoryCheck(repo_root=repo_root).run(_read_all(workflows_dir)).issues
+        assert issues == [], [i.render() for i in issues]
+
+    def test_flags_an_undeclared_store_read(self, tmp_path: Path) -> None:
+        repo_root, workflows_dir = self._tree(tmp_path, "secrets:\n    OTHER:\n        store: org\n")
+        _write(
+            workflows_dir,
+            "wf.yml",
+            """
+            name: W
+            on: [push]
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: echo
+                    env:
+                      T: ${{ secrets.UNDECLARED_TOKEN }}
+            """,
+        )
+        issues = SecretInventoryCheck(repo_root=repo_root).run(_read_all(workflows_dir)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+        assert "UNDECLARED_TOKEN" in issues[0].message
+
+    def test_ignores_a_workflow_call_input(self, tmp_path: Path) -> None:
+        # A name declared under on.workflow_call.secrets is supplied by callers,
+        # so it is never read from a store and must not need a manifest entry.
+        repo_root, workflows_dir = self._tree(tmp_path, "secrets: {}\n")
+        _write(
+            workflows_dir,
+            "_reusable.yml",
+            """
+            name: R
+            on:
+              workflow_call:
+                secrets:
+                  PASSED_IN:
+                    required: false
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: echo
+                    env:
+                      T: ${{ secrets.PASSED_IN }}
+            """,
+        )
+        issues = SecretInventoryCheck(repo_root=repo_root).run(_read_all(workflows_dir)).issues
+        assert issues == [], [i.render() for i in issues]
+
+    def test_ignores_github_token(self, tmp_path: Path) -> None:
+        repo_root, workflows_dir = self._tree(tmp_path, "secrets: {}\n")
+        _write(
+            workflows_dir,
+            "wf.yml",
+            """
+            name: W
+            on: [push]
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: echo
+                    env:
+                      T: ${{ secrets.GITHUB_TOKEN }}
+            """,
+        )
+        assert SecretInventoryCheck(repo_root=repo_root).run(_read_all(workflows_dir)).issues == []
+
+    @pytest.mark.parametrize(
+        "entry,expected_fragment",
+        [
+            ("        store: nonsense", "store must be one of"),
+            ("        store: missing", "needs a note"),
+        ],
+    )
+    def test_rejects_a_malformed_entry(self, tmp_path: Path, entry: str, expected_fragment: str) -> None:
+        repo_root, workflows_dir = self._tree(tmp_path, f"secrets:\n    MY_TOKEN:\n{entry}\n")
+        issues = SecretInventoryCheck(repo_root=repo_root).run(_read_all(workflows_dir)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+        assert expected_fragment in issues[0].message
+
+    def test_accepts_missing_with_a_note(self, tmp_path: Path) -> None:
+        repo_root, workflows_dir = self._tree(
+            tmp_path,
+            """
+            secrets:
+                MY_TOKEN:
+                    store: missing
+                    note: nothing provisions it yet, so the upload is a no-op
+            """,
+        )
+        assert SecretInventoryCheck(repo_root=repo_root).run(_read_all(workflows_dir)).issues == []
+
+    def test_reports_an_absent_inventory_file(self, tmp_path: Path) -> None:
+        repo_root, workflows_dir = self._tree(tmp_path, None)
+        issues = SecretInventoryCheck(repo_root=repo_root).run(_read_all(workflows_dir)).issues
+        assert len(issues) == 1
+        assert "is missing" in issues[0].message
+
+
+class TestReusableSecretPassthroughCheck:
+    @staticmethod
+    def _callee(required: bool) -> str:
+        return f"""
+        name: R
+        on:
+          workflow_call:
+            secrets:
+              NEEDED:
+                required: {str(required).lower()}
+        jobs:
+          build:
+            runs-on: ubuntu-latest
+            timeout-minutes: 5
+            steps:
+              - run: echo
+                env:
+                  T: ${{{{ secrets.NEEDED }}}}
+        """
+
+    def test_flags_a_read_the_callee_never_declares(self, tmp_path: Path) -> None:
+        # The ci-turbo shape: `workflow_call:` with no secrets block, so the
+        # reference is empty however the caller invokes it.
+        _write(
+            tmp_path,
+            "_callee.yml",
+            """
+            name: R
+            on:
+              workflow_call:
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: echo
+                    env:
+                      T: ${{ secrets.NEVER_ARRIVES }}
+            """,
+        )
+        issues = ReusableSecretPassthroughCheck().run(_read_all(tmp_path)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+        assert "does not declare it" in issues[0].message
+
+    def test_flags_a_caller_omitting_a_required_secret(self, tmp_path: Path) -> None:
+        _write(tmp_path, "_callee.yml", self._callee(required=True))
+        _write(
+            tmp_path,
+            "caller.yml",
+            """
+            name: C
+            on: [push]
+            jobs:
+              call:
+                uses: ./.github/workflows/_callee.yml
+            """,
+        )
+        issues = ReusableSecretPassthroughCheck().run(_read_all(tmp_path)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+        assert "does not pass it" in issues[0].message
+
+    def test_allows_a_caller_omitting_an_optional_secret(self, tmp_path: Path) -> None:
+        # `required: false` is the callee sanctioning absence — rust-smoke-test-build
+        # withholds the symbol upload key on purpose.
+        _write(tmp_path, "_callee.yml", self._callee(required=False))
+        _write(
+            tmp_path,
+            "caller.yml",
+            """
+            name: C
+            on: [push]
+            jobs:
+              call:
+                uses: ./.github/workflows/_callee.yml
+            """,
+        )
+        assert ReusableSecretPassthroughCheck().run(_read_all(tmp_path)).issues == []
+
+    @pytest.mark.parametrize(
+        "secrets_block",
+        [
+            "        secrets: inherit",
+            "        secrets:\n            NEEDED: ${{ secrets.SOME_OTHER_NAME }}",
+        ],
+        ids=["inherit", "renamed-passthrough"],
+    )
+    def test_satisfied_by_inherit_or_a_renamed_passthrough(self, tmp_path: Path, secrets_block: str) -> None:
+        _write(tmp_path, "_callee.yml", self._callee(required=True))
+        _write(
+            tmp_path,
+            "caller.yml",
+            "name: C\non: [push]\njobs:\n    call:\n        uses: ./.github/workflows/_callee.yml\n"
+            + secrets_block
+            + "\n",
+        )
+        issues = ReusableSecretPassthroughCheck().run(_read_all(tmp_path)).issues
+        assert issues == [], [i.render() for i in issues]
