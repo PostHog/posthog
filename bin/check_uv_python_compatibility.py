@@ -11,11 +11,10 @@ The shape we enforce:
   breaking the moment master ships a new pin. Raise the floor only when the
   code on master genuinely requires a newer uv feature.
 
-- .github/workflows/*.yml use setup-uv with an explicit exact version literal
-  (e.g. `version: '0.11.14'`). Every workflow pins the SAME exact version so
-  CI is deterministic across jobs. The pin must satisfy the pyproject floor.
-  An exact literal also avoids the historical GH API rate-limit issue caused
-  by range resolution (astral-sh/setup-uv#325).
+- .github/actions/setup-uv/action.yml holds CI's exact uv version. Jobs that
+  check out another revision keep matching exact pins because that revision
+  may not contain the shared action. Exact pins avoid the historical GitHub
+  API rate-limit issue caused by range resolution (astral-sh/setup-uv#325).
 
 - .flox/env/manifest.toml mirrors the CI pin for parity between local dev and
   CI. Comparison is on major.minor to allow patch drift.
@@ -108,18 +107,21 @@ def get_uv_version_from_flox() -> str | None:
 
 
 def get_uv_versions_from_workflows() -> dict[str, list[str | None]]:
-    """Find all setup-uv usages in CI workflows and their version pins.
+    """Find direct setup-uv usages in CI configuration and their version pins.
 
-    Returns a dict mapping workflow filename to list of version strings (or None
-    if a usage has no pin). Every usage must be pinned with an exact literal —
-    unpinned setup-uv would resolve via GitHub API on every job and hit rate
-    limits under concurrent load (see astral-sh/setup-uv#325).
+    Returns a dict mapping each file to its direct setup-uv versions. The shared
+    action and jobs that cannot use it must have matching exact pins.
     """
-    workflows_dir = Path(__file__).parent.parent / ".github" / "workflows"
+    repo_root = Path(__file__).parent.parent
+    ci_files = [
+        repo_root / ".github" / "actions" / "setup-uv" / "action.yml",
+        *sorted((repo_root / ".github" / "workflows").glob("*.y*ml")),
+        *sorted((repo_root / ".depot" / "workflows").glob("*.y*ml")),
+    ]
     uv_usages: dict[str, list[str | None]] = {}
 
-    for workflow_file in sorted(workflows_dir.glob("*.yml")):
-        lines = workflow_file.read_text().splitlines()
+    for ci_file in ci_files:
+        lines = ci_file.read_text().splitlines()
         for i, line in enumerate(lines):
             if "setup-uv@" not in line:
                 continue
@@ -131,7 +133,8 @@ def get_uv_versions_from_workflows() -> dict[str, list[str | None]]:
                 if m:
                     version = m.group(1)
                     break
-            uv_usages.setdefault(workflow_file.name, []).append(version)
+            path = str(ci_file.relative_to(repo_root))
+            uv_usages.setdefault(path, []).append(version)
 
     return uv_usages
 
