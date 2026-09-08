@@ -509,8 +509,6 @@ export const LogsAnomaliesScanCreateBody = /* @__PURE__ */ zod.object({
  * Returns log volume over the requested window for every (namespace, environment, severity) series of one service, with a time-of-week expected band derived from the prior weeks of the volume rollup. The window defaults to the last 7 days and may span at most 7 days. Synchronous and read only.
  * @summary Per-series log volume with expected bands
  */
-export const logsAnomaliesSeriesBandsCreateBodyIntervalMinutesDefault = 60
-
 export const LogsAnomaliesSeriesBandsCreateBody = /* @__PURE__ */ zod.object({
     serviceName: zod.string().describe("Service whose per-series volume to chart (the log record's service_name)."),
     dateRange: zod
@@ -531,11 +529,15 @@ export const LogsAnomaliesSeriesBandsCreateBody = /* @__PURE__ */ zod.object({
             'Window to chart. Defaults to the last 7 days. It may span at most 7 days and start at most 35 days ago, past which the volume rollup no longer reaches.'
         ),
     intervalMinutes: zod
-        .union([zod.literal(5), zod.literal(15), zod.literal(30), zod.literal(60)])
-        .describe('\* `5` - 5\n\* `15` - 15\n\* `30` - 30\n\* `60` - 60')
-        .default(logsAnomaliesSeriesBandsCreateBodyIntervalMinutesDefault)
+        .union([
+            zod
+                .union([zod.literal(5), zod.literal(15), zod.literal(30), zod.literal(60)])
+                .describe('\* `5` - 5\n\* `15` - 15\n\* `30` - 30\n\* `60` - 60'),
+            zod.null(),
+        ])
+        .optional()
         .describe(
-            'Display grain in minutes for buckets and bands. One of 5, 15, 30, 60. The window may hold at most 500 buckets per series at the chosen grain, so a finer grain needs a shorter window.\n\n\* `5` - 5\n\* `15` - 15\n\* `30` - 30\n\* `60` - 60'
+            "Display grain in minutes for buckets and bands. One of 5, 15, 30, 60. The window may hold at most 500 buckets per series at the chosen grain, so a finer grain needs a shorter window. Omit it to let the window pick its grain, the coarsest that still cuts it into about 168 buckets. A series too sparse to read at this grain is returned at a coarser one; see each series' interval_minutes.\n\n\* `5` - 5\n\* `15` - 15\n\* `30` - 30\n\* `60` - 60"
         ),
 })
 
