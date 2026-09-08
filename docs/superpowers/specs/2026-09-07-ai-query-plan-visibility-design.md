@@ -9,6 +9,17 @@ Add a compact, read-only query plan status to AI prompt subscription details.
 The status uses an icon and tooltip to explain whether the plan is frozen, absent, or due to regenerate because the query planner changed.
 This makes the stability boundary visible without asking users to manage planner versions or query lifecycle.
 
+## Implementation notes
+
+This document is the design as it stood before implementation.
+The shipped code diverges in the places below, so read the rest of this document as design history rather than as instructions.
+
+- Placement: the status appears in delivery history beside the `Queries` label. It is not a `Query plan` item in `SubscriptionSummary`, as `User interface` describes.
+- Persistence: each AI delivery records its own status in that delivery's `content_snapshot`, and the delivery serializer reads it back. That makes the per-delivery provenance entries in `Non-goals` and `Scope ceiling` out of date.
+- Meaning of `planner_updated`: in delivery history it means that delivery already regenerated and froze a plan. The `API design` and `User interface` tables give it a pending sense, which still matches the subscription-level field.
+- Icons: implementation reversed the pin guidance in `User interface`. The delivery indicator uses a snowflake for `frozen` and a crossed-out snowflake for `not_frozen`.
+- API surface: the derived subscription-level field described here still exists. Implementation added a second, per-delivery field on the delivery serializer, which this document does not describe.
+
 ## Goals
 
 - Show whether an AI prompt subscription currently has a valid frozen query plan.
