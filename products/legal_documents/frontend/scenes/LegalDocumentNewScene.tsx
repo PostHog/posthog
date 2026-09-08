@@ -4,7 +4,6 @@ import { Form } from 'kea-forms'
 import { IconBalance, IconSend } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 
-import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -15,9 +14,10 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { ContactBillingSupportLink } from '../components/ContactBillingSupportLink'
 import { LegalDocumentsPreview } from '../components/LegalDocumentsPreview'
 import { FIELD_IDS } from './legalDocumentsConstants'
-import { DPAMode, LegalDocumentType, legalDocumentsLogic } from './legalDocumentsLogic'
+import { BAA_BLOCK_REASON_MESSAGES, DPAMode, LegalDocumentType, legalDocumentsLogic } from './legalDocumentsLogic'
 
 function buildDocumentTypeOptions(
     existingTypes: Set<LegalDocumentType>
@@ -73,7 +73,7 @@ export function LegalDocumentNewScene(): JSX.Element {
         legalDocument,
         legalDocumentHasErrors,
         isLegalDocumentSubmitting,
-        hasQualifyingBaaAddon,
+        baaBlockReason: organizationBaaBlockReason,
         isOnQualifyingAddonTrial,
         isOnEnterpriseStandardTrial,
         isDpaModeSubmittable,
@@ -83,7 +83,6 @@ export function LegalDocumentNewScene(): JSX.Element {
     const { isAdminOrOwner } = useValues(organizationLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
     const { setDocumentType, setDpaMode } = useActions(legalDocumentsLogic)
-    const { openSupportForm } = useActions(supportLogic)
 
     if (!isCloudOrDev) {
         return (
@@ -127,14 +126,14 @@ export function LegalDocumentNewScene(): JSX.Element {
     }
 
     const documentType = legalDocument.document_type
-    const baaBlocked = documentType === 'BAA' && !hasQualifyingBaaAddon
+    const baaBlockReason = documentType === 'BAA' ? organizationBaaBlockReason : null
     const headingLabel = documentType === 'BAA' ? 'New Business Associate Agreement' : 'New Data Processing Agreement'
     const submitDisabledReason = isLegalDocumentSubmitting
         ? 'Creating the PandaDoc envelope…'
         : existingDocumentOfCurrentType
           ? `Your organization already has a ${documentType}. Contact support if you need a new one.`
-          : baaBlocked
-            ? 'Subscribe to Boost, Scale, or Enterprise to generate a BAA'
+          : baaBlockReason
+            ? BAA_BLOCK_REASON_MESSAGES[baaBlockReason]
             : documentType === 'DPA' && !isDpaModeSubmittable
               ? 'Switch to one of the legally binding formats to submit for signature'
               : legalDocumentHasErrors
@@ -179,23 +178,23 @@ export function LegalDocumentNewScene(): JSX.Element {
                             />
                         </LemonField>
 
-                        {baaBlocked && (
+                        {baaBlockReason && (
                             <LemonBanner type="warning">
-                                {isOnEnterpriseStandardTrial ? (
+                                {baaBlockReason === 'startup_program' ? (
+                                    <>
+                                        BAAs aren't covered by startup program credits.{' '}
+                                        <ContactBillingSupportLink data-attr="legal-documents-startup-banner-contact-support">
+                                            Contact us
+                                        </ContactBillingSupportLink>{' '}
+                                        to discuss options for adding a BAA to your plan.
+                                    </>
+                                ) : isOnEnterpriseStandardTrial ? (
                                     <>
                                         A BAA requires an active paid subscription. Your Enterprise trial is
                                         sales-managed, so please{' '}
-                                        <Link
-                                            to=""
-                                            onClick={() =>
-                                                openSupportForm({
-                                                    billing_issue: true,
-                                                    isEmailFormOpen: true,
-                                                })
-                                            }
-                                        >
+                                        <ContactBillingSupportLink data-attr="legal-documents-enterprise-trial-contact-support">
                                             contact billing support
-                                        </Link>{' '}
+                                        </ContactBillingSupportLink>{' '}
                                         to convert your trial into a subscription, then come back here to generate your
                                         BAA.
                                     </>
