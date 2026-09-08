@@ -1,11 +1,14 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from decimal import Decimal
+from threading import Barrier
 
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
     ClickhouseTestMixin,
+    NonAtomicBaseTest,
     _create_person,
     get_index_from_explain,
     get_inner_person_subquery_clickhouse_sql,
@@ -14,7 +17,8 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
-from django.db import transaction
+from django.db import close_old_connections, connection, transaction
+from django.db.utils import IntegrityError
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -40,6 +44,7 @@ from products.conversations.backend.models import (
     EmailChannel,
     EmailChannelKind,
     EmailMessageMapping,
+    EmailOutboxMessage,
     Ticket,
     TicketAssignment,
     TicketView,
@@ -1656,6 +1661,63 @@ class TestTicketManager(BaseTest):
         self.assertEqual(ticket1.ticket_number, 1)
         self.assertEqual(ticket2.ticket_number, 2)
 
+    def test_unrelated_integrity_error_propagates(self):
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.GITHUB,
+            widget_session_id="",
+            distinct_id="github:octocat",
+            github_repo="org/repo",
+            github_issue_number=42,
+        )
+        with self.assertRaises(IntegrityError):
+            Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.GITHUB,
+                widget_session_id="",
+                distinct_id="github:octocat",
+                github_repo="org/repo",
+                github_issue_number=42,
+            )
+        remaining = Ticket.objects.get(team=self.team)
+        self.assertEqual(remaining.ticket_number, 1)
+        self.assertEqual(remaining.github_issue_number, 42)
+
+
+class TestTicketNumberAllocationConcurrency(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @patch("products.conversations.backend.signals.capture_ticket_created")
+    def test_concurrent_creates_get_unique_sequential_numbers(self, _mock_capture):
+        worker_count = 4
+        team_id = self.team.id
+        start_barrier = Barrier(worker_count)
+
+        def create_one(index: int) -> int:
+            close_old_connections()
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SET lock_timeout = '10s'")
+                    cursor.execute("SET statement_timeout = '15s'")
+                team = Team.objects.get(id=team_id)
+                start_barrier.wait(timeout=5)
+                ticket = Ticket.objects.create_with_number(
+                    team=team,
+                    channel_source=Channel.WIDGET,
+                    widget_session_id=f"session-{index}",
+                    distinct_id=f"user-{index}",
+                )
+                return ticket.ticket_number
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = [executor.submit(create_one, i) for i in range(worker_count)]
+            numbers = [future.result(timeout=20) for future in futures]
+
+        self.assertEqual(sorted(numbers), list(range(1, worker_count + 1)))
+        self.assertEqual(Ticket.objects.filter(team_id=team_id).count(), worker_count)
+
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
 class TestTicketPersonData(APIBaseTest):
@@ -2742,6 +2804,24 @@ class TestTicketReplyAPI(APIBaseTest):
         assert second.status_code == status.HTTP_200_OK
         assert second.json() == first.json()
         assert Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).count() == 1
+        mock_send_email_reply.delay.assert_called_once()
+
+    @patch("products.conversations.backend.signals.send_email_reply")
+    def test_outbox_failure_rolls_back_comment_and_allows_retry(self, mock_send_email_reply, mock_on_commit):
+        with patch(
+            "products.conversations.backend.signals.EmailOutboxMessage.objects.get_or_create",
+            side_effect=RuntimeError("outbox write failed"),
+        ):
+            response = self.client.post(self.url, {"message": "On it now"}, format="json")
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert not Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).exists()
+        assert not EmailOutboxMessage.objects.filter(ticket=self.ticket).exists()
+        mock_send_email_reply.delay.assert_not_called()
+
+        retry = self.client.post(self.url, {"message": "On it now"}, format="json")
+        assert retry.status_code == status.HTTP_201_CREATED
+        assert EmailOutboxMessage.objects.filter(ticket=self.ticket).count() == 1
         mock_send_email_reply.delay.assert_called_once()
 
     def test_reply_still_being_created_returns_a_conflict(self, mock_on_commit):
