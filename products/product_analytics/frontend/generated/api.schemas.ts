@@ -949,6 +949,8 @@ export interface ClickhouseQueryProgressApi {
 }
 
 export interface QueryStatusApi {
+    budget_remaining_bytes?: number | null
+    bytes_read?: number | null
     /** Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set. */
     complete?: boolean | null
     dashboard_id?: number | null
@@ -8869,6 +8871,11 @@ export interface PathsV2SegmentToFunnelResponseApi {
 }
 
 export type ColumnConfigurationsListParams = {
+    /**
+     * Return saved views for this context only.
+     * @minLength 1
+     */
+    context_key?: string
     /**
      * Number of results to return per page.
      */

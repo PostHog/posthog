@@ -39,7 +39,9 @@ var eventPropertyRules = makeEventPropertyRules()
 
 const (
 	// Match fastjson's parser ceiling so every stored document remains readable by the blob-cleanup UDF.
-	maxJSONDepth             = 300
+	maxJSONDepth = 300
+	// Nested arrays can amplify ClickHouse type inference even for small documents.
+	maxJSONArrayDepth        = 8
 	unparseablePropertiesKey = "$unparseable_properties"
 )
 
@@ -192,6 +194,12 @@ func (p *processor) processLine(rawLine []byte, buf *bytes.Buffer) error {
 		p.recycle(parsed)
 		return fmt.Errorf("json parse error: trailing data at byte %d", p.pos)
 	}
+	// Check before filtering so the permanent cleaner preserves rejected temporary properties.
+	if exceedsJSONArrayDepth(parsed, 0) {
+		p.recycle(parsed)
+		p.writeUnparseableProperties(buf, rawLine)
+		return nil
+	}
 
 	cleaned, err := p.cleanProperties(parsed)
 	if err != nil {
@@ -201,6 +209,12 @@ func (p *processor) processLine(rawLine []byte, buf *bytes.Buffer) error {
 			return nil
 		}
 		return fmt.Errorf("json clean error: %w", err)
+	}
+	// Normalization can decode stringified JSON and wrap objects in arrays.
+	if exceedsJSONArrayDepth(cleaned, 0) {
+		p.recycle(cleaned)
+		p.writeUnparseableProperties(buf, rawLine)
+		return nil
 	}
 
 	buf.Reset()
@@ -212,6 +226,27 @@ func (p *processor) processLine(rawLine []byte, buf *bytes.Buffer) error {
 	}
 	p.recycle(cleaned)
 	return nil
+}
+
+func exceedsJSONArrayDepth(v *value, depth int) bool {
+	if v.kind == kindArray {
+		depth++
+		if depth > maxJSONArrayDepth {
+			return true
+		}
+		for _, child := range v.values {
+			if exceedsJSONArrayDepth(child, depth) {
+				return true
+			}
+		}
+	} else if v.kind == kindObject {
+		for _, entry := range v.entries {
+			if exceedsJSONArrayDepth(entry.value, depth) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (p *processor) cleanProperties(v *value) (*value, error) {
@@ -324,6 +359,16 @@ func (p *processor) recycle(v *value) {
 	}
 	v.s = ""
 	v.b = false
+	// Keep small arrays for reuse; bound clearing work for larger ones by this row's size.
+	if cap(v.entries) > max(16, 2*len(v.entries)) {
+		v.entries = nil
+	}
+	if cap(v.values) > max(16, 2*len(v.values)) {
+		v.values = nil
+	}
+	// Truncated entries can still hold borrowed keys that retain entire input rows.
+	clear(v.entries[:cap(v.entries)])
+	clear(v.values[:cap(v.values)])
 	v.entries = v.entries[:0]
 	v.values = v.values[:0]
 	p.free = append(p.free, v)

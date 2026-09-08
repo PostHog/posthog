@@ -99,6 +99,22 @@ SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS = [
 ]
 
 
+def resolved_distinct_id_attribute_keys(team) -> list[str]:
+    """The attribute keys that link a log to a person: the team's configured keys (or the
+    default when unconfigured), then the built-in conventions the UI links regardless of
+    config. Deduped, configured keys first."""
+    config = TeamLogsConfig.objects.filter(team=team).first()
+    configured = (config.logs_distinct_id_attribute_keys if config else None) or DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS
+    return list(dict.fromkeys([*configured, *DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS]))
+
+
+def resolved_session_id_attribute_keys(team) -> list[str]:
+    """The session-ID equivalent of resolved_distinct_id_attribute_keys."""
+    config = TeamLogsConfig.objects.filter(team=team).first()
+    configured = (config.logs_session_id_attribute_keys if config else None) or DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS
+    return list(dict.fromkeys([*configured, *SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS]))
+
+
 class TeamLogsConfig(models.Model):
     # Plain `models.Model` (not `TeamScopedRootMixin`) — log emission and ingestion
     # are per-environment, and so is this config. Inheriting the root-mixin would

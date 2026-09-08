@@ -10,6 +10,7 @@ import {
     LemonSkeleton,
     LemonTag,
     LemonTagType,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
@@ -197,9 +198,11 @@ function PendingDestinations({
                     <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-sm font-medium truncate">{destination.title}</span>
-                            <LemonTag type="warning" size="small">
-                                Pending
-                            </LemonTag>
+                            <Tooltip title="Save this alert to add this destination.">
+                                <LemonTag type="warning" size="small">
+                                    Pending
+                                </LemonTag>
+                            </Tooltip>
                         </div>
                         {destination.detail ? (
                             <span className="text-xs text-muted-alt truncate block">{destination.detail}</span>

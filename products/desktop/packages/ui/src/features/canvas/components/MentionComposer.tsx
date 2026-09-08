@@ -296,7 +296,17 @@ export function MentionComposer({
           </div>
         </div>
       )}
-      <InputGroup className="h-auto cursor-text bg-card">
+      <InputGroup
+        className="h-auto cursor-text bg-card"
+        onClick={(event) => {
+          if (
+            event.target instanceof Element &&
+            !event.target.closest("button, [contenteditable]")
+          ) {
+            editor?.commands.focus("end");
+          }
+        }}
+      >
         <div
           data-slot="input-group-control"
           className={`quill-input-group__control mention-composer w-full overflow-y-auto p-0 ${inputClassName ?? ""}`}

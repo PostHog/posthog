@@ -454,6 +454,12 @@ function operationIdToPascal(operationId: string): string {
 // Schema composition — determine Orval imports and build expressions
 // ------------------------------------------------------------------
 
+/** `param_overrides.cast` value → the helper exported from `@/tools/cast-helpers`. */
+const CAST_HELPERS = {
+    'string-int': 'castStringToInt',
+    'boolean-string': 'castBooleanToString',
+} as const
+
 interface SchemaComposition {
     orvalImports: string[]
     toolInputsImports: string[]
@@ -715,7 +721,7 @@ function composeToolSchema(
                 optionalParamNames.add(paramName)
             }
 
-            const castHelper = override.cast === 'string-int' ? 'castStringToInt' : null
+            const castHelper = override.cast ? CAST_HELPERS[override.cast] : null
             if (castHelper) {
                 castHelperImports.add(castHelper)
             }

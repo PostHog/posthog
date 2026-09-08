@@ -361,8 +361,45 @@ export interface ArtifactApi {
     download_url: string | null
 }
 
+/**
+ * * `inserted` - inserted
+ * * `deleted` - deleted
+ */
+export type ShiftBandKindEnumApi = (typeof ShiftBandKindEnumApi)[keyof typeof ShiftBandKindEnumApi]
+
+export const ShiftBandKindEnumApi = {
+    Inserted: 'inserted',
+    Deleted: 'deleted',
+} as const
+
+export interface ShiftBandApi {
+    /** First row of the band, in current-image coordinates. */
+    y: number
+    /** How many rows the band covers. */
+    rows: number
+    /** 'inserted' when the current image gained these rows, 'deleted' when it lost them. A deleted band has no rows of its own in the current image, so its y is the seam the removed rows left behind.
+     *
+     * * `inserted` - inserted
+     * * `deleted` - deleted */
+    kind: ShiftBandKindEnumApi
+}
+
+export interface RowShiftApi {
+    /** Where the shift happened, in current-image coordinates. */
+    bands: ShiftBandApi[]
+    /** Rows the current image gained. */
+    inserted_rows: number
+    /** Rows the current image lost. */
+    deleted_rows: number
+    /** Percentage of pixels that differ inside the rows present in both images, 0 to 100. Excludes the shift itself. The stored diff_percentage adds the area of the rows the shift added or removed, and that combined number is what the pixel threshold judges. */
+    residual_percentage: number
+    /** Percentage of pixels that differ without alignment, which is what the shift would have cost. */
+    raw_diff_percentage: number
+}
+
 export interface SnapshotHistoryEntryApi {
     current_artifact?: ArtifactApi | null
+    row_shift?: RowShiftApi | null
     run_id: string
     snapshot_id: string
     result: string
@@ -505,6 +542,7 @@ export interface SnapshotApi {
     diff_artifact?: ArtifactApi | null
     reviewed_by?: UserBasicInfoApi | null
     cluster_summary?: ClusterSummaryApi | null
+    row_shift?: RowShiftApi | null
     id: string
     run_id: string
     identifier: string
