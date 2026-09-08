@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+import httpx
 from hogland import ExecEvent, ExecResult, NotFoundError
 from parameterized import parameterized
 
@@ -155,6 +156,20 @@ class TestHoglandSandboxExecution:
     def test_execute_timeout_raises_sandbox_timeout_error(self):
         box = _mock_box()
         box.exec.return_value = _exec_result(exit_code=-1, timed_out=True)
+        sandbox = _running_sandbox(box)
+
+        with pytest.raises(SandboxTimeoutError):
+            sandbox.execute("sleep 100", timeout_seconds=1)
+
+    @parameterized.expand(
+        [
+            ("read", httpx.ReadTimeout("timed out")),
+            ("connect", httpx.ConnectTimeout("timed out")),
+        ]
+    )
+    def test_execute_classifies_transport_timeouts_as_a_timeout(self, _name: str, error: Exception):
+        box = _mock_box()
+        box.exec.side_effect = error
         sandbox = _running_sandbox(box)
 
         with pytest.raises(SandboxTimeoutError):

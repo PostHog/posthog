@@ -533,9 +533,16 @@ class AgentServerLaunchMixin(SandboxBase):
         return self._read_health_boot_metrics(AGENT_SERVER_PORT)
 
     def _free_agent_server_port(self) -> None:
-        self.execute(
-            "pkill -TERM -f agent-server 2>/dev/null || true; "
-            "for _ in $(seq 1 10); do pgrep -f agent-server >/dev/null || break; sleep 0.5; done; "
-            "pkill -KILL -f agent-server 2>/dev/null || true",
-            timeout_seconds=15,
-        )
+        # Best-effort cleanup: every command here ends in `|| true`, so a failed exec
+        # must not abort the launch that follows either. The catch is broad because
+        # `execute` checks `is_running` before its own wrapper, so a transport error
+        # from that status refresh arrives here unwrapped.
+        try:
+            self.execute(
+                "pkill -TERM -f agent-server 2>/dev/null || true; "
+                "for _ in $(seq 1 10); do pgrep -f agent-server >/dev/null || break; sleep 0.5; done; "
+                "pkill -KILL -f agent-server 2>/dev/null || true",
+                timeout_seconds=15,
+            )
+        except Exception as e:
+            logger.warning(f"Could not free the agent-server port in sandbox {self.id}, continuing: {e}")

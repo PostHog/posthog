@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+import httpx
 from modal.exception import (
     ConnectionError as ModalConnectionError,
     InvalidError as ModalInvalidError,
@@ -25,6 +26,7 @@ from products.tasks.backend.exceptions import (
     SandboxExecutionError,
     SandboxNetworkPolicyError,
     SandboxProvisionError,
+    SandboxTimeoutError,
     SnapshotCreationError,
     SnapshotFileLimitExceededError,
     SnapshotTimeoutError,
@@ -1226,6 +1228,21 @@ class TestModalSandboxAgentServerStartupHelpers:
         command = sandbox.execute.call_args_list[0][0][0]
         assert "pkill -TERM -f agent-server" in command
         assert "pkill -KILL -f agent-server" in command
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            SandboxTimeoutError("timed out", {}, cause=RuntimeError("timed out"), capture=False),
+            # `execute` checks `is_running` before its own wrapper, so a transport error
+            # from that status refresh reaches this caller unwrapped.
+            httpx.ConnectError("connection refused"),
+        ],
+    )
+    def test_free_agent_server_port_survives_a_failed_exec(self, error: Exception):
+        sandbox = self._make_sandbox()
+        sandbox.execute = MagicMock(side_effect=error)
+
+        sandbox._free_agent_server_port()
 
 
 class TestStartupFailureDiagnostics:
