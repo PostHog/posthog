@@ -98849,6 +98849,12 @@ export namespace Schemas {
      */
     created_by_id?: number;
     /**
+     * Return each prompt at the version this label points to, e.g. 'production'. Prompts that do not carry the label are omitted. If omitted, the latest version of every prompt is returned.
+     * @minLength 1
+     * @maxLength 128
+     */
+    label?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
