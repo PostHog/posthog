@@ -1,4 +1,4 @@
-import { LogicWrapper, MakeLogicType, actions, kea, key, listeners, path, props, reducers } from 'kea'
+import { LogicWrapper, MakeLogicType, actions, beforeUnmount, kea, key, listeners, path, props, reducers } from 'kea'
 import { router } from 'kea-router'
 
 import { urls } from 'scenes/urls'
@@ -11,6 +11,8 @@ import type { ToolStreamEvent } from 'products/posthog_ai/frontend/types/streamT
 import { subscriptionsLogic } from 'products/subscriptions/frontend/components/Subscriptions/subscriptionsLogic'
 
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
+
+const TRANSIENT_HIGHLIGHT_DURATION_MS = 3000
 
 export const DASHBOARD_AI_MUTATION_TOOLS = [
     'alert-create',
@@ -1040,7 +1042,7 @@ export const dashboardAiSyncLogic: LogicWrapper<dashboardAiSyncLogicType> = kea<
             { setTransientHighlightedTileIds: (_, { tileIds }) => [...tileIds] },
         ],
     }),
-    listeners(({ actions, props, values }) => ({
+    listeners(({ actions, cache, props, values }) => ({
         applyToolCompletion: ({ event, innerInput }) => {
             const dashboard = dashboardLogic({ id: props.dashboardId }).values.dashboard
             const target = targetFromCommittedDashboard(props.dashboardId, dashboard)
@@ -1081,7 +1083,19 @@ export const dashboardAiSyncLogic: LogicWrapper<dashboardAiSyncLogicType> = kea<
                 })
 
                 const committedDashboard = dashboardLogic({ id: props.dashboardId }).values.dashboard
-                actions.setTransientHighlightedTileIds(confirmedHighlightTileIds(batch, committedDashboard))
+                const confirmedTileIds = confirmedHighlightTileIds(batch, committedDashboard)
+                if (confirmedTileIds.length > 0) {
+                    actions.setTransientHighlightedTileIds(
+                        sortedUniqueNumbers([...values.transientHighlightedTileIds, ...confirmedTileIds])
+                    )
+                    if (cache.transientHighlightTimer !== undefined) {
+                        window.clearTimeout(cache.transientHighlightTimer)
+                    }
+                    cache.transientHighlightTimer = window.setTimeout(() => {
+                        actions.setTransientHighlightedTileIds([])
+                        cache.transientHighlightTimer = undefined
+                    }, TRANSIENT_HIGHLIGHT_DURATION_MS)
+                }
             } catch {
                 // The dashboard loader keeps the last committed dashboard visible on failure.
             } finally {
@@ -1095,4 +1109,10 @@ export const dashboardAiSyncLogic: LogicWrapper<dashboardAiSyncLogicType> = kea<
             }
         },
     })),
+    beforeUnmount(({ cache }) => {
+        if (cache.transientHighlightTimer !== undefined) {
+            window.clearTimeout(cache.transientHighlightTimer)
+            cache.transientHighlightTimer = undefined
+        }
+    }),
 ])

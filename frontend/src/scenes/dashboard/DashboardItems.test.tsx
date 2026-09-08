@@ -14,6 +14,13 @@ import { DashboardMode, DashboardPlacement } from '~/types'
 
 import { DashboardItems } from './DashboardItems'
 
+jest.mock('./dashboardAiSyncLogic', () => ({
+    dashboardAiSyncLogic: jest.fn((props: { dashboardId: number }) => ({
+        __mock: 'dashboardAiSyncLogic',
+        props,
+    })),
+}))
+
 jest.mock('kea', () => ({
     ...jest.requireActual('kea'),
     useValues: jest.fn(),
@@ -250,6 +257,7 @@ let mockHighlightTileIdParam: unknown
 let mockHighlightedTileId: number | null = null
 let mockDashboardLoading = false
 let mockDashboardRevealReadyKey: string | null = null
+let mockTransientHighlightedTileIds: number[] = []
 
 type DashboardTileFixture = {
     id: number
@@ -298,6 +306,10 @@ function installDashboardValues(getTiles: () => DashboardTileFixture[]): void {
 
         if (logic === dashboardsModel) {
             return { nameSortedDashboards: [] }
+        }
+
+        if (logic?.__mock === 'dashboardAiSyncLogic') {
+            return { transientHighlightedTileIds: mockTransientHighlightedTileIds }
         }
 
         return {}
@@ -349,6 +361,7 @@ describe('DashboardItems', () => {
         mockHighlightedTileId = null
         mockDashboardLoading = false
         mockDashboardRevealReadyKey = null
+        mockTransientHighlightedTileIds = []
         installAnimationFrameMocks()
         Object.defineProperty(window, 'matchMedia', {
             configurable: true,
@@ -393,6 +406,10 @@ describe('DashboardItems', () => {
                 return {
                     nameSortedDashboards: [{ id: 6, name: 'Other dashboard' }],
                 }
+            }
+
+            if (logic?.__mock === 'dashboardAiSyncLogic') {
+                return { transientHighlightedTileIds: mockTransientHighlightedTileIds }
             }
 
             return {}
@@ -744,6 +761,32 @@ describe('DashboardItems', () => {
         expect(target).toHaveAttribute('data-dashboard-tile-highlighted', 'true')
         act(() => jest.advanceTimersByTime(1))
         expect(target).not.toHaveAttribute('data-dashboard-tile-highlighted')
+    })
+
+    it.each([
+        ['insight', { id: 41, insight: { id: 101, short_id: 'target', query: { kind: 'InsightVizNode' } } }],
+        ['text', { id: 41, text: { id: 102, body: 'Text' } }],
+        ['image', { id: 41, text: { id: 102, body: '![Image](https://example.test/image.png)' } }],
+        ['button', { id: 41, button_tile: { id: 103, text: 'Open', url: '/', style: 'primary' } }],
+        ['widget', { id: 41, widget: { id: 104, widget_type: 'error_tracking_list', config: {} } }],
+        ['error', { id: 41, error: { type: 'ValidationError', message: 'Invalid filters' } }],
+    ] as const)('renders a transient highlight without scrolling for a %s tile', (_kind, tile) => {
+        mockTransientHighlightedTileIds = [41]
+        installDashboardValues(() => [tile])
+        const scrollIntoView = jest.fn()
+        const scrollTo = jest.fn()
+        Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView })
+        Object.defineProperty(window, 'scrollTo', { configurable: true, value: scrollTo })
+
+        const { container } = render(<DashboardItems />)
+        const target = container.querySelector('[data-dashboard-tile-id="41"]') as HTMLElement
+        act(flushAllAnimationFrames)
+
+        expect(target).toHaveAttribute('data-dashboard-tile-highlighted', 'true')
+        expect(target).toHaveAttribute('tabindex', '-1')
+        expect(scrollIntoView).not.toHaveBeenCalled()
+        expect(scrollTo).not.toHaveBeenCalled()
+        expect(requestAnimationFrameCallbacks.size).toBe(0)
     })
 
     it('keeps the visual highlight for 3000ms when reduced motion is requested', () => {

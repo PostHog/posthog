@@ -41,6 +41,7 @@ import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType }
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
 
+import { dashboardAiSyncLogic } from './dashboardAiSyncLogic'
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
 
@@ -108,6 +109,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         widgetRefreshStatus,
         scrollToBottomSignal,
     } = useValues(dashboardLogic)
+    const { transientHighlightedTileIds = [] } = useValues(dashboardAiSyncLogic({ dashboardId: dashboard?.id ?? 0 }))
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
         updateLayouts,
@@ -616,6 +618,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     >
                         {tiles?.map((tile) => {
                             const { insight, text, button_tile, widget } = tile
+                            const isTileHighlighted =
+                                visuallyHighlightedTileId === tile.id || transientHighlightedTileIds.includes(tile.id)
                             const smLayout = layouts['sm']?.find((l) => {
                                 return l.i == tile.id.toString()
                             })
@@ -637,8 +641,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                             }
                             const revealProps = {
                                 'data-dashboard-tile-id': String(tile.id),
-                                'data-dashboard-tile-highlighted':
-                                    visuallyHighlightedTileId === tile.id ? 'true' : undefined,
+                                'data-dashboard-tile-highlighted': isTileHighlighted ? 'true' : undefined,
                                 tabIndex: -1,
                             }
 
@@ -687,7 +690,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         apiErrored={apiErrored}
                                         apiError={apiError}
                                         queryId={insight.query_status?.id}
-                                        highlighted={visuallyHighlightedTileId === tile.id}
+                                        highlighted={isTileHighlighted}
                                         updateColor={(color) => updateTileColor(tile.id, color)}
                                         toggleShowDescription={() => toggleTileDescription(tile.id)}
                                         ribbonColor={tile.color}
