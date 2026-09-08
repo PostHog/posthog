@@ -4,7 +4,7 @@ import zipfile
 import datetime as dt
 import tempfile
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -80,6 +80,14 @@ def fetch_data_in_yearly_chunks(
         start_date = dt.date.fromisoformat(saved_state.next_start_date)
         end_date = dt.date.fromisoformat(saved_state.end_date)
 
+    def save_progress(next_start: dt.date) -> None:
+        resumable_source_manager.save_state(
+            BingAdsResumeConfig(
+                next_start_date=next_start.isoformat(),
+                end_date=end_date.isoformat(),
+            )
+        )
+
     current_start = start_date
 
     while current_start <= end_date:
@@ -89,18 +97,21 @@ def fetch_data_in_yearly_chunks(
         )
 
         try:
+            # A narrowed chunk checkpoints each half it completes, so a worker restart resumes
+            # after the last completed range instead of replaying a request that timed out.
             yield from _fetch_range_narrowing_on_timeout(
                 client=client,
                 resource=resource,
                 account_id=account_id,
                 range_start=current_start,
                 range_end=chunk_end,
+                on_range_complete=save_progress,
             )
         except Exception as e:
             # Bing's 36-month retention boundary moves day by day, so the oldest chunk can land just
             # outside it and get rejected with InvalidCustomDateRangeEnd. That rejection is
-            # deterministic — skip the out-of-retention chunk (advancing the checkpoint below) instead
-            # of failing the whole sync. Any other error stays fatal so it can retry.
+            # deterministic — skip the out-of-retention chunk (advancing the checkpoint past it)
+            # instead of failing the whole sync. Any other error stays fatal so it can retry.
             if "InvalidCustomDateRangeEnd" not in str(e):
                 raise
             logger.warning(
@@ -109,18 +120,11 @@ def fetch_data_in_yearly_chunks(
                 chunk_start=current_start.isoformat(),
                 chunk_end=chunk_end.isoformat(),
             )
+            # No range completed, so the checkpoint must advance past the skipped chunk here.
+            save_progress(chunk_end + dt.timedelta(days=1))
 
         # Move to the day after chunk_end to avoid duplicate dates at chunk boundaries
         current_start = chunk_end + dt.timedelta(days=1)
-
-        # Checkpoint only after a chunk has been fetched, so a resume re-attempts a failed
-        # chunk rather than skipping past it.
-        resumable_source_manager.save_state(
-            BingAdsResumeConfig(
-                next_start_date=current_start.isoformat(),
-                end_date=end_date.isoformat(),
-            )
-        )
 
 
 def _fetch_range_narrowing_on_timeout(
@@ -129,12 +133,16 @@ def _fetch_range_narrowing_on_timeout(
     account_id: int,
     range_start: dt.date,
     range_end: dt.date,
+    on_range_complete: Callable[[dt.date], None],
 ) -> Iterator[list[dict]]:
     """Fetch one date range, halving it whenever Bing runs out of time to generate the report.
 
     Generation time grows with the range, so a range that times out can still succeed in halves.
     Replaying the same range would time out again and stall the sync forever. Ranges are fetched
     oldest first, and a single day that times out raises, because it cannot be narrowed further.
+
+    `on_range_complete` gets the day after each range that completes. The oldest-first order keeps
+    that date moving forward only, so the caller can save it as a resume checkpoint.
     """
     pending = [(range_start, range_end)]
 
@@ -163,6 +171,10 @@ def _fetch_range_narrowing_on_timeout(
             )
             pending.append((midpoint + dt.timedelta(days=1), end))
             pending.append((start, midpoint))
+        else:
+            # Report progress only after the range's pages are yielded, so a resume re-attempts a
+            # failed range rather than skipping past it.
+            on_range_complete(end + dt.timedelta(days=1))
 
 
 def build_report_request(

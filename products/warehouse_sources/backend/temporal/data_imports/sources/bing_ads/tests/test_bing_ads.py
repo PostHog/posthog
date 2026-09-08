@@ -252,10 +252,12 @@ class TestBingAdsHelperFunctions:
             (dt.date(2024, 1, 1), dt.date(2024, 7, 1)),
             (dt.date(2024, 7, 2), dt.date(2024, 12, 31)),
         ]
-        # The chunk completed, so the sync moves on instead of re-attempting it.
-        manager.save_state.assert_called_once_with(
-            BingAdsResumeConfig(next_start_date="2025-01-01", end_date="2024-12-31")
-        )
+        # Each half is checkpointed as it completes, so a restart resumes after the half that
+        # already landed instead of replaying the year that timed out.
+        assert [call.args[0] for call in manager.save_state.call_args_list] == [
+            BingAdsResumeConfig(next_start_date="2024-07-02", end_date="2024-12-31"),
+            BingAdsResumeConfig(next_start_date="2025-01-01", end_date="2024-12-31"),
+        ]
 
     def test_fetch_data_in_yearly_chunks_single_day_timeout_fails(self):
         # A single day is the smallest window Bing accepts. Narrowing must stop there and let the
