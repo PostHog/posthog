@@ -1386,24 +1386,32 @@ class TestPostHogFeatureFlagPermission(BaseTest):
 
 
 class TestActiveOrganizationPermission(SimpleTestCase):
-    # The permission only reads three fields off the organization, so unsaved instances are
-    # enough and this stays a no-database test.
+    # The permission reads three fields off the organization, so unsaved instances are enough.
     def setUp(self):
         self.permission = ActiveOrganizationPermission()
         self.organization = Organization(name="Test org")
         self.team = Team(organization=self.organization)
 
-    def _view(self, scope_object="insight", team=None):
+    def _view(self, scope_object="insight", team=None, basename="project_insights", action="list"):
         view = Mock()
         view.parent_query_kwargs = ["team_id"]
         view.param_derived_from_user_current_team = None
         view.team = team if team is not None else self.team
         view.scope_object = scope_object
+        view.basename = basename
+        view.action = action
         return view
 
-    def _request(self, authenticator):
+    def _root_view(self, basename="projects", action="create"):
+        view = self._view(basename=basename, action=action)
+        view.parent_query_kwargs = []
+        view.organization = self.organization
+        return view
+
+    def _request(self, authenticator, method="GET"):
         request = Mock()
         request.successful_authenticator = authenticator
+        request.method = method
         return request
 
     def _personal_api_key_auth(self):
@@ -1504,8 +1512,6 @@ class TestActiveOrganizationPermission(SimpleTestCase):
         self.assertIn("Access revoked due to unpaid balance.", str(denial.exception.detail))
 
     def test_a_second_organization_is_judged_on_its_own_state(self):
-        # The target comes from the URL, so a token whose user also belongs to a deactivated
-        # organization must still reach an active one.
         self._deactivate()
         other_team = Team(organization=Organization(name="Still active"))
 
@@ -1514,8 +1520,6 @@ class TestActiveOrganizationPermission(SimpleTestCase):
         self.assertTrue(self.permission.has_permission(self._request(self._personal_api_key_auth()), view))
 
     def test_object_level_check_covers_root_viewsets(self):
-        # Root viewsets carry no parent URL kwargs, so has_permission passes and the fetched
-        # object is what gets gated.
         self._deactivate()
         view = self._view()
         view.parent_query_kwargs = []
@@ -1526,3 +1530,29 @@ class TestActiveOrganizationPermission(SimpleTestCase):
             self.permission.has_object_permission(request, view, self.organization)
         with self.assertRaises(PermissionDenied):
             self.permission.has_object_permission(request, view, self.team)
+
+    @parameterized.expand([("post", "POST"), ("patch", "PATCH"), ("delete", "DELETE")])
+    def test_root_writes_are_blocked_for_the_current_organization(self, _name, method):
+        # DRF runs no object check for a root create, so has_permission is the only gate.
+        self._deactivate()
+        request = self._request(self._personal_api_key_auth(), method=method)
+
+        with self.assertRaises(PermissionDenied) as denial:
+            self.permission.has_permission(request, self._root_view())
+
+        self.assertEqual(self._denial_code(denial.exception), "organization_deactivated")
+
+    def test_root_reads_stay_open_so_a_member_can_switch_organization(self):
+        # Listing organizations is how a member leaves a deactivated one.
+        self._deactivate()
+        request = self._request(self._personal_api_key_auth(), method="GET")
+
+        view = self._root_view(basename="organizations", action="list")
+        self.assertTrue(self.permission.has_permission(request, view))
+
+    def test_creating_an_organization_is_not_judged_on_the_current_one(self):
+        self._deactivate()
+        request = self._request(self._personal_api_key_auth(), method="POST")
+
+        view = self._root_view(basename="organizations", action="create")
+        self.assertTrue(self.permission.has_permission(request, view))

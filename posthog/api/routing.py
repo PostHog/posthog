@@ -258,9 +258,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except NotImplementedError:
             pass
         else:
-            # Domain enforcement, the MCP cap and the organization-active check are tenant
-            # boundaries, not authorization levels. Views that shape their own permission chain
-            # cannot remove them.
+            # These are tenant boundaries, not authorization levels. Views that shape their own
+            # permission chain cannot remove them.
             return [
                 *dangerously_defined,
                 VerifiedDomainEnforcementPermission(),
@@ -295,8 +294,6 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         # its message must not disclose another organization's security settings.
         permission_classes.append(VerifiedDomainEnforcementPermission)
         permission_classes.append(MCPAccessPermission)
-        # Last of the tenant boundaries: a non-member must get the generic membership denial
-        # rather than learn that an organization they can't reach is deactivated.
         permission_classes.append(ActiveOrganizationPermission)
 
         permission_classes.extend(self.permission_classes)

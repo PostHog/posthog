@@ -263,7 +263,6 @@ class TestDeactivatedOrganizationBlocksTokens(APIBaseTest):
         self.assertEqual(response.status_code, 200)
 
     def test_a_key_still_reaches_an_active_organization_of_the_same_user(self):
-        # The block reads the organization in the URL, not user.current_organization.
         self._deactivate()
         _, _, other_team = Organization.objects.bootstrap(user=self.user)
 
@@ -271,6 +270,23 @@ class TestDeactivatedOrganizationBlocksTokens(APIBaseTest):
             f"/api/scoped_environments/{other_team.id}/scoped_foos/",
             HTTP_AUTHORIZATION=f"Bearer {self.key_value}",
         )
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_a_root_write_is_refused_for_a_deactivated_current_organization(self):
+        # A 400 here would mean the request reached the serializer, which is the bypass this guards.
+        self._deactivate()
+
+        response = self.client.post("/api/scoped_projects/", {}, HTTP_AUTHORIZATION=f"Bearer {self.key_value}")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], "organization_deactivated")
+
+    def test_a_root_read_still_works_so_a_member_can_switch_organization(self):
+        self._deactivate()
+        Organization.objects.bootstrap(user=self.user)
+
+        response = self.client.get("/api/scoped_projects/", HTTP_AUTHORIZATION=f"Bearer {self.key_value}")
 
         self.assertEqual(response.status_code, 200)
 

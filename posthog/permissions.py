@@ -253,7 +253,6 @@ class VerifiedDomainEnforcementPermission(BasePermission):
         if not isinstance(request.user, User):
             return True
 
-        # Root viewsets resolve no single target from the URL; gate on the fetched object below.
         if not view_targets_one_organization(view):
             return True
 
@@ -333,8 +332,7 @@ ORGANIZATION_PENDING_DELETION_ERROR = (
 
 
 def organization_deactivated_error(reason: Optional[str]) -> str:
-    # `Organization.DeactivationReason` values are already written for the person reading them,
-    # and the same strings render on the deactivated page in the app.
+    """The refusal shown to an API caller. `reason` is operator text, already user-facing."""
     detail = f"This organization is deactivated. {reason.strip()}" if reason else "This organization is deactivated."
     return f"{detail} API access stays blocked until it's restored. Contact support if you think this is a mistake."
 
@@ -358,22 +356,32 @@ class ActiveOrganizationPermission(BasePermission):
     current organization is a UI preference the API doesn't validate.
     """
 
-    # Billing stays reachable, otherwise a machine integration can't read the state that explains
-    # why every other request is refused.
+    # Billing stays reachable, so an integration can still read the state that explains the refusal.
     EXEMPT_SCOPE_OBJECTS = frozenset({"billing"})
 
     def has_permission(self, request: Request, view) -> bool:
         if not self._applies(request, view):
             return True
 
-        # Root viewsets resolve no single target from the URL; gate on the fetched object below.
-        if not view_targets_one_organization(view):
-            return True
-
-        organization = url_target_organization(view)
+        organization = self._target_organization(request, view)
         if organization is None:
             return True
         return self._admits(organization)
+
+    def _target_organization(self, request: Request, view) -> Optional[Organization]:
+        """The organization this request acts on, or None when it has no single target.
+
+        On a root viewset the mixin falls back to the current organization. Reads pass, because
+        listing organizations is how a member switches away from a deactivated one. Creating an
+        organization passes, because the new row lands outside the current organization.
+        """
+        if view_targets_one_organization(view):
+            return url_target_organization(view)
+        if request.method in SAFE_METHODS:
+            return None
+        if getattr(view, "basename", None) == "organizations" and getattr(view, "action", None) == "create":
+            return None
+        return url_target_organization(view)
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
         if not self._applies(request, view):
@@ -387,8 +395,6 @@ class ActiveOrganizationPermission(BasePermission):
     def _applies(self, request: Request, view) -> bool:
         if getattr(view, "scope_object", None) in self.EXEMPT_SCOPE_OBJECTS:
             return False
-        # `get_authenticator_scopes` returns None for session auth and for every other non-token
-        # authenticator, which is exactly the set this permission lets through.
         return get_authenticator_scopes(getattr(request, "successful_authenticator", None)) is not None
 
     def _admits(self, organization: Organization) -> bool:
