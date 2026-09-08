@@ -18,3 +18,7 @@ viewers can personalize their own sidebar without permission to edit account val
 
 A failed save keeps the pin selector open with the attempted selection and order.
 The user can retry the save or remove a rejected property.
+
+Legacy child-environment URLs read and update the same user configuration as their parent project.
+Successful pin saves emit `customer analytics account pinned properties saved` with aggregate
+counts only. Failed attempts do not emit a success event.
