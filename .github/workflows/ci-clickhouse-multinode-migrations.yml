@@ -15,6 +15,7 @@ on:
             - 'tools/infra-scripts/clickhouse-multinode/**'
             - 'posthog/clickhouse/hcl/**'
             - '.github/workflows/ci-clickhouse-multinode-migrations.yml'
+            - '.github/actions/setup-uv/**'
     workflow_dispatch:
 
 concurrency:

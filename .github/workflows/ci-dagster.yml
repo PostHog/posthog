@@ -201,6 +201,7 @@ jobs:
                         - 'products/web_analytics/backend/**/*.py'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-dagster.yml
+                        - .github/actions/setup-uv/**
                         # The test selector guards itself: selector changes run the
                         # suite (full mode), which executes its unit tests first
                         - tools/dagster_test_selection.py
@@ -241,6 +242,7 @@ jobs:
                         - 'posthog/dags/**'
                         - 'products/*/dags/**'
                         - .github/workflows/ci-dagster.yml
+                        - .github/actions/setup-uv/**
                         - tools/dagster_test_selection.py
                         - tools/test_dagster_test_selection.py
 

@@ -6,6 +6,7 @@ on:
             - .test_quarantine.json
             - tools/hogli-commands/hogli_commands/quarantine/**
             - .github/workflows/test-quarantine.yml
+            - .github/actions/setup-uv/**
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}

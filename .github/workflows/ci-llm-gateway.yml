@@ -50,6 +50,7 @@ jobs:
                       llm_gateway:
                         - 'services/llm-gateway/**'
                         - '.github/workflows/ci-llm-gateway.yml'
+                        - '.github/actions/setup-uv/**'
 
     llm-gateway:
         name: LLM Gateway Tests

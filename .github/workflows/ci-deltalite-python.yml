@@ -15,6 +15,7 @@ on:
         paths:
             - rust/deltalite/**
             - .github/workflows/ci-deltalite-python.yml
+            - .github/actions/setup-uv/**
             # The parity suite runs against the repo's pinned deltalake/pyarrow/duckdb, so
             # re-run it whenever those pins move.
             - pyproject.toml
@@ -25,6 +26,7 @@ on:
         paths:
             - rust/deltalite/**
             - .github/workflows/ci-deltalite-python.yml
+            - .github/actions/setup-uv/**
             - pyproject.toml
             - uv.lock
 

@@ -14,6 +14,7 @@ on:
             - 'posthog/models/cohort/**'
             - 'posthog/models/group_type_mapping.py'
             - '.github/workflows/ci-rust-flags-integration.yml'
+            - '.github/actions/setup-uv/**'
     push:
         branches:
             - master
@@ -28,6 +29,7 @@ on:
             - 'posthog/models/cohort/**'
             - 'posthog/models/group_type_mapping.py'
             - '.github/workflows/ci-rust-flags-integration.yml'
+            - '.github/actions/setup-uv/**'
 
 permissions:
     contents: read

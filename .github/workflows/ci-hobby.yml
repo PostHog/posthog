@@ -83,6 +83,7 @@ jobs:
                         - 'docker/**'
                         - uv.lock
                         - .github/workflows/ci-hobby.yml
+                        - .github/actions/setup-uv/**
                       installer:
                         - 'bin/hobby-installer/**'
 

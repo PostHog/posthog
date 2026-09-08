@@ -53,6 +53,7 @@ jobs:
                         - 'rust/**'
                         - 'proto/**'
                         - '.github/workflows/ci-rust.yml'
+                        - '.github/actions/setup-uv/**'
                         - '.github/workflows/rust.yml'
                         - '.github/workflows/rust-docker-build.yml'
                         - '.github/actions/setup-protoc/**'

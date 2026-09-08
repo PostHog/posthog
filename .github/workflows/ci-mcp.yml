@@ -134,6 +134,7 @@ jobs:
                         - 'tools/hogli-commands/hogli_commands/hints.py'
                         # CI config
                         - '.github/workflows/ci-mcp.yml'
+                        - '.github/actions/setup-uv/**'
                         - '.github/workflows/mcp-publish.yml'
                         # The integration tests drive a running Django server over HTTP and
                         # never import pytest modules, so exclude them. Narrow on purpose:

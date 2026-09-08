@@ -47,6 +47,7 @@ jobs:
                         - 'products/*/backend/max_tools.py'
                         - 'products/posthog_ai/**'
                         - '.github/workflows/ci-agent-skills.yml'
+                        - '.github/actions/setup-uv/**'
                         - 'services/mcp/schema/**'
                         # check-skills zips products/*/skills/* via `hogli build:skills`
                         # (see build.py's affected-path map), so posthog_ai's frontend

@@ -10,9 +10,12 @@
 # Intentional deltas vs canonical (everything else is kept apples-to-apples):
 # - runs-on: depot-* labels instead of ubuntu-latest
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install,
-#   setup-sqlx-cli, setup-python-cached, and paths-filter mirror the canonical
-#   composites; any deltas are documented in each mirror's header). setup-turbo has no
-#   mirror because there is nothing Depot needs to strip from it.
+#   setup-sqlx-cli, setup-python-cached, setup-uv, and paths-filter mirror the canonical
+#   composites; any deltas are documented in each mirror's header). Every local action a
+#   depot workflow uses needs a mirror even when byte-identical: Depot resolves
+#   ./.github/actions/<x> from .depot/actions/<x>, so a missing mirror fails the step at
+#   setup with "action manifest not found". setup-turbo is referenced below with no
+#   mirror and is red for exactly that reason; it needs one.
 # - permissions: pull-requests:read (no comment/auto-commit side effects)
 # - Stripped side effects: artifact uploads, CI report section posters (canonical
 #   additionally skips these on trunk-merge/** branches to save GITHUB_TOKEN budget;
@@ -408,6 +411,7 @@ jobs:
                         - 'products/*/turbo.json'
                         # Make sure we run if someone is explicitly changing the workflow
                         - .depot/workflows/ci-backend.yml
+                        - .depot/actions/setup-uv/**
                         - .github/clickhouse-versions.json
                         # We use docker compose for tests, make sure we rerun on
                         # changes to docker-compose.dev.yml e.g. dependency
@@ -458,6 +462,7 @@ jobs:
                         - 'products/*/manifest.tsx'
                         - rust/feature-flags/src/properties/property_models.rs
                         - .depot/workflows/ci-backend.yml
+                        - .depot/actions/setup-uv/**
                         - .github/clickhouse-versions.json
                         - docker-compose.dev.yml
                         - docker-compose.profiles.yml
@@ -726,7 +731,7 @@ jobs:
             # --no-project` for the dependent cascade; the script pins tach, so no
             # Python project sync is needed. A missing uv widens the cascade to
             # every product rather than failing the job.
-            - uses: ./.github/actions/setup-uv
+            - uses: ./.depot/actions/setup-uv
               continue-on-error: true
             - name: Restore test durations from cache
               # Restore fresh timings so shard counts match GitHub Actions; miss falls back to committed.
@@ -779,7 +784,7 @@ jobs:
               # selector failure does, not fail the job that gates every test job.
               continue-on-error: true
               if: env.SELECTION_APPLIES == 'true' && needs.changes.outputs.legacy == 'true' && vars.DISABLE_BACKEND_TEST_SELECTION != 'true'
-              uses: ./.github/actions/setup-uv
+              uses: ./.depot/actions/setup-uv
 
             - name: Run the backend test selector
               id: select
@@ -937,7 +942,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: ./.github/actions/setup-uv
+              uses: ./.depot/actions/setup-uv
               with:
                   enable-cache: true
                   cache-dependency-glob: uv.lock
@@ -1164,7 +1169,7 @@ jobs:
                   python-version: 3.13.13
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             - name: Install uv
-              uses: ./.github/actions/setup-uv
+              uses: ./.depot/actions/setup-uv
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
             - name: Bootstrap scaffold product
@@ -1246,7 +1251,7 @@ jobs:
                   python-version: 3.13.13
                   token: ${{ steps.app-token.outputs.token || github.token }}
             - name: Install uv
-              uses: ./.github/actions/setup-uv
+              uses: ./.depot/actions/setup-uv
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
             - name: Validate changed product.yaml owners
@@ -1327,7 +1332,7 @@ jobs:
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             - name: Install uv
               id: setup-uv
-              uses: ./.github/actions/setup-uv
+              uses: ./.depot/actions/setup-uv
               with:
                   enable-cache: true
                   cache-dependency-glob: uv.lock

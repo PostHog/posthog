@@ -13,6 +13,7 @@ on:
     pull_request:
         paths:
             - '.github/workflows/cd-sandbox-base-image.yml'
+            - '.github/actions/setup-uv/**'
             - 'products/tasks/backend/sandbox/images/**'
             - 'products/desktop/packages/agent-shadow/**'
             - 'products/posthog_ai/scripts/**'
@@ -63,6 +64,7 @@ jobs:
                   filters: |
                       sandbox_image:
                         - '.github/workflows/cd-sandbox-base-image.yml'
+                        - '.github/actions/setup-uv/**'
                         - 'products/tasks/backend/sandbox/images/**'
                         - 'products/desktop/packages/agent-shadow/**'
                         - 'products/*/skills/**'

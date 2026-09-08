@@ -9,6 +9,7 @@ on:
             - .github/scripts/**
             - .github/auto-assign-labels.json
             - .github/workflows/ci-scripts.yml
+            - .github/actions/setup-uv/**
             # trunk-impacted-targets.test.js reads proto/ and fails on a tree the
             # table does not declare, so adding one has to run these tests.
             - proto/**
