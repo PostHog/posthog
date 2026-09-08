@@ -74,10 +74,10 @@ export interface legalDocumentsLogicValues {
     currentOrganization: OrganizationType | null // organizationLogic
     currentOrganizationId: string // organizationLogic
     isAdminOrOwner: boolean | null // organizationLogic
+    baaBlockReason: BaaBlockReason | null
     deletingId: string | null
     existingDocumentOfCurrentType: LegalDocument | null
     existingDocumentTypes: Set<LegalDocumentType>
-    baaBlockReason: BaaBlockReason | null
     hasQualifyingBaaAddon: boolean
     isDpaModeSubmittable: boolean
     isLegalDocumentSubmitting: boolean
