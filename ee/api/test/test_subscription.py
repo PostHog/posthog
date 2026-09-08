@@ -29,6 +29,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import (
     SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER,
+    AIQueryPlanStatus,
     Subscription,
     SubscriptionDelivery,
 )
@@ -2904,25 +2905,33 @@ class TestAISubscriptionAPI(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("missing", None, "not_frozen"),
-            ("non_object", [], "not_frozen"),
+            ("missing", None, AIQueryPlanStatus.NOT_FROZEN),
+            ("non_object", [], AIQueryPlanStatus.NOT_FROZEN),
             (
                 "valid",
                 {"version": AI_QUERY_PLAN_VERSION, "plan": VALID_AI_QUERY_PLAN},
-                "frozen",
+                AIQueryPlanStatus.FROZEN,
             ),
-            ("stale", {"version": AI_QUERY_PLAN_VERSION - 1, "plan": {}}, "planner_updated"),
+            (
+                "stale",
+                {"version": AI_QUERY_PLAN_VERSION - 1, "plan": {}},
+                AIQueryPlanStatus.PLANNER_UPDATED,
+            ),
             (
                 "boolean_version",
                 {"version": True, "plan": VALID_AI_QUERY_PLAN},
-                "not_frozen",
+                AIQueryPlanStatus.NOT_FROZEN,
             ),
             (
                 "floating_version",
                 {"version": float(AI_QUERY_PLAN_VERSION), "plan": VALID_AI_QUERY_PLAN},
-                "not_frozen",
+                AIQueryPlanStatus.NOT_FROZEN,
             ),
-            ("malformed_current", {"version": AI_QUERY_PLAN_VERSION, "plan": {}}, "not_frozen"),
+            (
+                "malformed_current",
+                {"version": AI_QUERY_PLAN_VERSION, "plan": {}},
+                AIQueryPlanStatus.NOT_FROZEN,
+            ),
             (
                 "malformed_relevant_events",
                 {
@@ -2930,7 +2939,7 @@ class TestAISubscriptionAPI(APILicensedTest):
                     "plan": VALID_AI_QUERY_PLAN,
                     "relevant_events": [123],
                 },
-                "not_frozen",
+                AIQueryPlanStatus.NOT_FROZEN,
             ),
         ]
     )
@@ -2941,7 +2950,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         mock_sync: MagicMock,
         _name: str,
         stored: object,
-        expected: str,
+        expected: AIQueryPlanStatus,
     ) -> None:
         self._mock_temporal(mock_sync)
         sub_id = self._create_subscription_for("ai_prompt")
@@ -2950,7 +2959,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/")
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["ai_query_plan_status"] == expected
+        assert response.json()["ai_query_plan_status"] == expected.value
 
     @parameterized.expand(
         [

@@ -83,7 +83,7 @@ describe('SubscriptionAiReportDelivery helpers', () => {
         })
     })
 
-    it('labels captured query diagnostics without implying they were newly generated', () => {
+    it('shows the plan status beside the generated query diagnostics', () => {
         const row = MOCK_SUBSCRIPTION_DELIVERIES.find((delivery) => delivery.id === 'del-ai-report')
         if (!row) {
             throw new Error('Missing AI report delivery fixture')
@@ -91,9 +91,8 @@ describe('SubscriptionAiReportDelivery helpers', () => {
 
         render(<ExpandedDeliveryRow row={row} />)
 
-        expect(screen.getByText('Queries')).toBeInTheDocument()
-        expect(screen.queryByText('Generated queries')).not.toBeInTheDocument()
-        expect(screen.getByText('Queries').parentElement).toContainElement(
+        expect(screen.getByText('Generated queries')).toBeInTheDocument()
+        expect(screen.getByText('Generated queries').parentElement).toContainElement(
             screen.getByLabelText(/^This delivery's query plan was frozen for reuse\./)
         )
     })
@@ -106,7 +105,7 @@ describe('SubscriptionAiReportDelivery helpers', () => {
 
         render(<ExpandedDeliveryRow row={{ ...row, ai_query_plan_status: null }} />)
 
-        expect(screen.getByText('Queries')).toBeInTheDocument()
+        expect(screen.getByText('Generated queries')).toBeInTheDocument()
         expect(screen.queryByLabelText(/query plan/i)).not.toBeInTheDocument()
     })
 

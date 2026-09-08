@@ -110,63 +110,74 @@ class StoredPlanInvalidError(Exception):
     frozen). The caller should self-heal by re-planning live rather than failing the delivery — unlike
     `PromptRejectedError` (bad user input), this is recoverable and must not auto-disable the sub."""
 
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: AIQueryPlanStatus = AIQueryPlanStatus.NOT_FROZEN,
+    ) -> None:
+        super().__init__(message)
+        self.status = status
 
 
-def _stored_query_plan_envelope(ai_query_plan: object) -> dict[str, object]:
+@dataclass(frozen=True)
+class StoredQueryPlanEnvelope:
+    plan: QueryPlan
+    relevant_events: tuple[str, ...]
+
+
+def validate_stored_query_plan(ai_query_plan: object) -> StoredQueryPlanEnvelope:
+    """Validate untrusted JSON from the subscription row and return its reusable inputs."""
     if not isinstance(ai_query_plan, dict):
         raise StoredPlanInvalidError("Stored query plan envelope is malformed.")
-    return ai_query_plan
 
-
-def _stored_query_plan_version(envelope: dict[str, object]) -> int:
-    version = envelope.get("version")
+    version = ai_query_plan.get("version")
     # bool is an int subclass in Python, but never a meaningful compatibility version.
     if type(version) is not int:
         raise StoredPlanInvalidError("Stored query plan version is malformed.")
-    return version
-
-
-def validate_stored_query_plan(ai_query_plan: object) -> tuple[QueryPlan, list[str]]:
-    envelope = _stored_query_plan_envelope(ai_query_plan)
-    version = _stored_query_plan_version(envelope)
     if version != AI_QUERY_PLAN_VERSION:
-        raise StoredPlanInvalidError("Stored query plan version is stale.")
+        raise StoredPlanInvalidError(
+            "Stored query plan version is stale.",
+            status=AIQueryPlanStatus.PLANNER_UPDATED,
+        )
 
     try:
-        plan = QueryPlan.model_validate(envelope.get("plan"))
+        plan = QueryPlan.model_validate(ai_query_plan.get("plan"))
     except ValidationError as exc:
         raise StoredPlanInvalidError("Stored query plan is malformed.") from exc
 
-    raw_relevant_events = envelope.get("relevant_events")
+    raw_relevant_events = ai_query_plan.get("relevant_events")
     if raw_relevant_events is None:
-        relevant_events: list[str] = []
+        relevant_events: tuple[str, ...] = ()
     elif isinstance(raw_relevant_events, list) and all(isinstance(event, str) for event in raw_relevant_events):
-        relevant_events = list(raw_relevant_events)
+        relevant_events = tuple(raw_relevant_events)
     else:
         raise StoredPlanInvalidError("Stored query plan relevant events are malformed.")
 
-    return plan, relevant_events
+    return StoredQueryPlanEnvelope(plan=plan, relevant_events=relevant_events)
 
 
 def get_ai_query_plan_status(ai_query_plan: object | None) -> AIQueryPlanStatus:
-    if ai_query_plan is None:
-        return AIQueryPlanStatus.NOT_FROZEN
-
     try:
-        envelope = _stored_query_plan_envelope(ai_query_plan)
-        version = _stored_query_plan_version(envelope)
-    except StoredPlanInvalidError:
-        return AIQueryPlanStatus.NOT_FROZEN
+        validate_stored_query_plan(ai_query_plan)
+    except StoredPlanInvalidError as exc:
+        return exc.status
+    return AIQueryPlanStatus.FROZEN
 
-    # Check compatibility before the body: an older version can legitimately have an older schema.
-    if version != AI_QUERY_PLAN_VERSION:
+
+def resolve_ai_query_plan_status(
+    *,
+    initial_status: AIQueryPlanStatus,
+    freshly_planned: bool,
+    generated_plan_frozen: bool,
+) -> AIQueryPlanStatus:
+    """Resolve the immutable state recorded on a completed delivery."""
+    if not freshly_planned:
+        return AIQueryPlanStatus.FROZEN
+    if not generated_plan_frozen:
+        return AIQueryPlanStatus.NOT_FROZEN
+    if initial_status == AIQueryPlanStatus.PLANNER_UPDATED:
         return AIQueryPlanStatus.PLANNER_UPDATED
-
-    try:
-        validate_stored_query_plan(envelope)
-    except StoredPlanInvalidError:
-        return AIQueryPlanStatus.NOT_FROZEN
     return AIQueryPlanStatus.FROZEN
 
 
@@ -692,7 +703,7 @@ def build_frozen_prompt(
     the subscription.
     """
     cleaned = sanitize_prompt(prompt)
-    plan, relevant_events = validate_stored_query_plan(ai_query_plan)
+    stored_plan = validate_stored_query_plan(ai_query_plan)
     # Rebuild the property-aware blob from the events the plan was built against — without them the
     # frozen fixer would only see event names, not the per-event properties it needs to repair a
     # wrong field. The version bump guarantees pre-relevant_events envelopes re-plan rather than
@@ -700,9 +711,12 @@ def build_frozen_prompt(
     context_blob = build_context_blob(
         team,
         window,
-        relevant_events=relevant_events,
+        relevant_events=list(stored_plan.relevant_events),
         core_memory_text=_load_core_memory_text(team, user),
     )
     return EnrichedPromptSpec(
-        cleaned_prompt=cleaned, context_blob=context_blob, plan=plan, relevant_events=relevant_events
+        cleaned_prompt=cleaned,
+        context_blob=context_blob,
+        plan=stored_plan.plan,
+        relevant_events=list(stored_plan.relevant_events),
     )

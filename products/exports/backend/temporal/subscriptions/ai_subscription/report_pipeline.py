@@ -63,6 +63,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     build_enriched_prompt,
     build_frozen_prompt,
     get_ai_query_plan_status,
+    resolve_ai_query_plan_status,
 )
 from products.exports.backend.temporal.subscriptions.types import safe_query_error_details
 
@@ -322,14 +323,11 @@ async def generate_ai_report(
             trace_correlation_id=trace_correlation_id,
             chart_failure_count=chart_spec_failures,
         )
-        if not freshly_planned:
-            query_plan_status = AIQueryPlanStatus.FROZEN
-        elif plan_to_persist is None:
-            query_plan_status = AIQueryPlanStatus.NOT_FROZEN
-        elif initial_query_plan_status == AIQueryPlanStatus.PLANNER_UPDATED:
-            query_plan_status = AIQueryPlanStatus.PLANNER_UPDATED
-        else:
-            query_plan_status = AIQueryPlanStatus.FROZEN
+        query_plan_status = resolve_ai_query_plan_status(
+            initial_status=initial_query_plan_status,
+            freshly_planned=freshly_planned,
+            generated_plan_frozen=plan_to_persist is not None,
+        )
         return AiReportResult(
             markdown=report,
             diagnostics=tuple(diagnostics),

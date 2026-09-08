@@ -12,7 +12,7 @@ from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyItem, Te
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team
 
-from products.exports.backend.models.subscription import Subscription
+from products.exports.backend.models.subscription import AIQueryPlanStatus, Subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
     QueryPlan,
     QueryPlanStep,
@@ -41,6 +41,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     generate_query_plan,
     get_ai_query_plan_status,
     sanitize_prompt,
+    validate_stored_query_plan,
 )
 
 _SG = "products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator"
@@ -868,6 +869,24 @@ class TestGenerateQueryPlanSubstitution(APIBaseTest):
             generate_query_plan(cleaned_prompt="p", context_blob="c", team=self.team, user=self.user)
 
 
+class TestStoredQueryPlan:
+    def test_validated_stored_plan_exposes_named_fields(self) -> None:
+        raw_plan = QueryPlan(
+            overall_intent="count events",
+            steps=[QueryPlanStep(description="counts", hogql="SELECT count() FROM events WHERE {{date_range}}")],
+        ).model_dump()
+        stored = {
+            "version": AI_QUERY_PLAN_VERSION,
+            "plan": raw_plan,
+            "relevant_events": ["export created"],
+        }
+
+        validated = validate_stored_query_plan(stored)
+
+        assert validated.plan.model_dump() == raw_plan
+        assert validated.relevant_events == ("export created",)
+
+
 class TestBuildFrozenPrompt(APIBaseTest):
     """The deterministic reuse path: reconstruct the spec from a persisted plan with NO LLM calls."""
 
@@ -882,17 +901,17 @@ class TestBuildFrozenPrompt(APIBaseTest):
         }
 
     def test_classifies_stored_plan_lifecycle(self) -> None:
-        cases: list[tuple[object, str]] = [
-            (None, "not_frozen"),
-            ([], "not_frozen"),
-            ({"version": True, "plan": {}}, "not_frozen"),
-            ({"version": float(AI_QUERY_PLAN_VERSION), "plan": {}}, "not_frozen"),
-            ({"version": AI_QUERY_PLAN_VERSION - 1, "plan": {}}, "planner_updated"),
-            ({"version": AI_QUERY_PLAN_VERSION, "plan": {}}, "not_frozen"),
-            (self._stored_plan(), "frozen"),
+        cases: list[tuple[object, AIQueryPlanStatus]] = [
+            (None, AIQueryPlanStatus.NOT_FROZEN),
+            ([], AIQueryPlanStatus.NOT_FROZEN),
+            ({"version": True, "plan": {}}, AIQueryPlanStatus.NOT_FROZEN),
+            ({"version": float(AI_QUERY_PLAN_VERSION), "plan": {}}, AIQueryPlanStatus.NOT_FROZEN),
+            ({"version": AI_QUERY_PLAN_VERSION - 1, "plan": {}}, AIQueryPlanStatus.PLANNER_UPDATED),
+            ({"version": AI_QUERY_PLAN_VERSION, "plan": {}}, AIQueryPlanStatus.NOT_FROZEN),
+            (self._stored_plan(), AIQueryPlanStatus.FROZEN),
         ]
         for stored, expected in cases:
-            assert get_ai_query_plan_status(stored).value == expected
+            assert get_ai_query_plan_status(stored) == expected
 
     @patch(f"{_SG}.MaxChatOpenAI")
     @patch(f"{_SG}._select_relevant_events")
