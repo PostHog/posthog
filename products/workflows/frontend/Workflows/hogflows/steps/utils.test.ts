@@ -256,7 +256,7 @@ describe('utils', () => {
     describe('cohortPercentagesAddUp', () => {
         // Both directions of this have bitten: comparing against 100 exactly reports the balance
         // button's own output as unbalanced, while a tolerance wide enough to cover a hundredth of a
-        // percent hides shortfalls the runtime really does reroute to the last cohort.
+        // percent hides totals the editor should warn about.
         it.each([2, 3, 7, 8, 30, 99])('accepts the even split produced for %i cohorts', (count) => {
             expect(cohortPercentagesAddUp(normalizeCohortPercentages(count))).toBe(true)
         })
@@ -278,8 +278,8 @@ describe('utils', () => {
 
     describe('parseCohortPercentage', () => {
         // A number field accepts more than plain decimals, and its max attribute only gates form
-        // validation, which this input is not wired to. Without the clamp, "1e5" stores 100000 and
-        // every cohort after the first becomes unreachable.
+        // validation, which this input is not wired to. Without the clamp, "1e5" stores 100000, which
+        // outweighs every other cohort by a factor of a thousand.
         it.each([
             { name: 'keeps a fractional share', value: '3.3', expected: 3.3 },
             { name: 'keeps a whole share', value: '50', expected: 50 },

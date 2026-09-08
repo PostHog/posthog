@@ -1686,8 +1686,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                     }
                 )
             if branch_key == "cohorts":
-                # A cohort without a numeric percentage contributes NaN to the runtime's cumulative
-                # sum, silently routing every person to the last cohort instead of splitting.
+                # A cohort without a numeric percentage makes the runtime's weight total NaN, so the
+                # step silently sends every person down the continue edge instead of splitting.
                 for cohort in data["config"]["cohorts"]:
                     if not isinstance(cohort, dict) or not isinstance(cohort.get("percentage"), (int, float)):
                         raise serializers.ValidationError(

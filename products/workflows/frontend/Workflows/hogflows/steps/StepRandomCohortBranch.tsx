@@ -18,9 +18,9 @@ import {
     useDebouncedNameInputs,
 } from './utils'
 
-// Print enough precision that the two figures in the imbalance warning cannot contradict each other:
-// rounding a 99.996% total to hundredths would claim it adds up to 100% with 0% left over. Number()
-// then drops the zeros toFixed pads with, and clears float noise like 0.0040000000000048.
+// Print enough precision that a total and the shares derived from it cannot contradict each other:
+// rounding a 99.996% total to hundredths would claim it adds up to 100%. Number() then drops the
+// zeros toFixed pads with, and clears float noise like 0.0040000000000048.
 const formatPercentage = (value: number): string => Number(value.toFixed(10)).toString()
 
 export function StepRandomCohortBranchConfiguration({
@@ -121,7 +121,7 @@ export function StepRandomCohortBranchConfiguration({
     const percentages = cohorts.map((cohort) => cohort.percentage)
     const totalPercentage = percentages.reduce((sum, percentage) => sum + percentage, 0)
     const isBalanced = cohortPercentagesAddUp(percentages)
-    const shortfall = 100 - totalPercentage
+    const isScaled = !isBalanced && totalPercentage > 0
 
     return (
         <>
@@ -153,15 +153,26 @@ export function StepRandomCohortBranchConfiguration({
                             className="w-20 px-2 py-1 border rounded"
                         />
                         <span>%</span>
+                        {isScaled && (
+                            <span className="text-muted">
+                                = {formatPercentage((cohort.percentage / totalPercentage) * 100)}% of people
+                            </span>
+                        )}
                     </div>
                 </div>
             ))}
 
             {cohorts.length > 0 && !isBalanced && (
                 <div className="text-sm text-orange-600">
-                    {shortfall > 0
-                        ? `These add up to ${formatPercentage(totalPercentage)}%. The remaining ${formatPercentage(shortfall)}% will go to the last cohort.`
-                        : `These add up to ${formatPercentage(totalPercentage)}%. Later cohorts will get less than their share, and some may never be used.`}
+                    {isScaled ? (
+                        <>
+                            These add up to {formatPercentage(totalPercentage)}%. Each cohort gets its share of that
+                            total, so everyone lands in a cohort. To hold people back from the next steps, add a cohort
+                            for them and connect it to an exit step.
+                        </>
+                    ) : (
+                        <>These add up to 0%, so the split is skipped and everyone goes to the next step.</>
+                    )}
                 </div>
             )}
 
