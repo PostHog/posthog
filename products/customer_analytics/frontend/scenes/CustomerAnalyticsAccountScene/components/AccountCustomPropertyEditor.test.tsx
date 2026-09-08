@@ -79,10 +79,10 @@ describe('AccountCustomPropertyEditor', () => {
 
     it('refuses to save a select property with no option picked', () => {
         const onSave = jest.fn()
-        const selectDefinition = {
+        const selectDefinition: CustomPropertyDefinitionApi = {
             ...definition,
             display_type: 'select' as const,
-            options: [{ id: 'option-1', label: 'Enterprise' }],
+            options: [{ id: 'option-1', label: 'Enterprise', color: 'preset-1' }],
         }
         const { container } = render(
             <AccountCustomPropertyEditor
