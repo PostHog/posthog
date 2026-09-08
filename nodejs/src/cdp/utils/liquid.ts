@@ -4,12 +4,17 @@ import { HogFunctionInvocationGlobalsWithInputs } from '../types'
 
 // Rendering is synchronous on shared multi-tenant workers, so an unbounded template would
 // stall or OOM the whole process. These budgets make an over-budget template fail only its own invocation.
-const LIQUID_PARSE_LIMIT_CHARS = 100_000
+// Length is a weak proxy for render cost: real email bodies reach megabytes because a logo is inlined
+// as a base64 data URI, while carrying only a handful of tags. Time and memory are what bound the work,
+// so the length caps sit above the largest legitimate template rather than near the typical one.
+const LIQUID_PARSE_LIMIT_CHARS = 5_000_000
+// Charged only for values the template constructs (ranges, joins, padding, string filters), so literal
+// passthrough of a large body is free and this still catches expansion.
 const LIQUID_MEMORY_LIMIT_UNITS = 1_000_000
 // Time and output are budgeted per invocation, not per template, because one invocation renders
 // every string leaf of every liquid input and those leaves would otherwise each get a full budget.
 const LIQUID_RENDER_LIMIT_MS = 500
-const LIQUID_OUTPUT_LIMIT_CHARS = 1_000_000
+const LIQUID_OUTPUT_LIMIT_CHARS = 10_000_000
 
 const LIQUID_TAG_CLOSERS: Record<string, string> = { '{': '}}', '%': '%}' }
 

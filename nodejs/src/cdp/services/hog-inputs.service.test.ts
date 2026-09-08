@@ -199,7 +199,7 @@ describe('Hog Inputs', () => {
         })
 
         it('rejects liquid inputs whose leaves together exceed the invocation budget', async () => {
-            const leaf = `{% for i in (1..600) %}${'a'.repeat(1000)}{% endfor %}`
+            const leaf = `{% for i in (1..600) %}${'a'.repeat(10_000)}{% endfor %}`
             hogFunction = createHogFunction({
                 ...hogFunction,
                 inputs: {

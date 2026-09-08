@@ -262,14 +262,26 @@ describe('LiquidRenderer', () => {
                 '{% assign a = (1..100) %}{% for i in a %}{% for j in a %}{% for k in a %}{% for l in a %}{% endfor %}{% endfor %}{% endfor %}{% endfor %}',
                 'template render limit exceeded',
             ],
-            ['oversized template source', '{{ person.name }}'.padEnd(200_000, ' '), 'parse length limit exceeded'],
+            ['oversized template source', '{{ person.name }}'.padEnd(6_000_000, ' '), 'parse length limit exceeded'],
             [
                 'literal output amplification',
-                `{% for i in (1..2000) %}${'a'.repeat(1000)}{% endfor %}`,
+                `{% for i in (1..1100) %}${'a'.repeat(10_000)}{% endfor %}`,
                 'liquid output limit exceeded',
             ],
         ])('rejects a template with %s instead of blocking the process', (_name, template, expectedError) => {
             expect(() => LiquidRenderer.renderWithHogFunctionGlobals(template, globals)).toThrow(expectedError)
+        })
+
+        it('renders an email body whose size comes from an inlined image, not from tags', () => {
+            // Real bodies reach megabytes because a logo is inlined as a base64 data URI. They carry a
+            // handful of tags, so tightening the length caps toward the typical template breaks them.
+            const inlinedImage = `<img src="data:image/png;base64,${'A'.repeat(1_500_000)}" />`
+            const template = `<html>${inlinedImage}<p>Hello {{ person.name }}</p></html>`
+
+            const result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals)
+
+            expect(result).toContain('Hello test_person')
+            expect(result.length).toBeGreaterThan(1_500_000)
         })
 
         it('rejects expression filters, which the render deadline cannot interrupt', () => {
@@ -288,8 +300,8 @@ describe('LiquidRenderer', () => {
 
         it('shares one budget across renders when given one', () => {
             const budget = new LiquidRenderBudget()
-            const template = `{% for i in (1..600) %}${'a'.repeat(1000)}{% endfor %}`
-            expect(LiquidRenderer.renderWithHogFunctionGlobals(template, globals, budget)).toHaveLength(600_000)
+            const template = `{% for i in (1..600) %}${'a'.repeat(10_000)}{% endfor %}`
+            expect(LiquidRenderer.renderWithHogFunctionGlobals(template, globals, budget)).toHaveLength(6_000_000)
             expect(() => LiquidRenderer.renderWithHogFunctionGlobals(template, globals, budget)).toThrow(
                 'liquid output limit exceeded'
             )
@@ -297,7 +309,7 @@ describe('LiquidRenderer', () => {
 
         it('renders normally after a rejected template', () => {
             expect(() =>
-                LiquidRenderer.renderWithHogFunctionGlobals('{{ person.name }}'.padEnd(200_000, ' '), globals)
+                LiquidRenderer.renderWithHogFunctionGlobals('{{ person.name }}'.padEnd(6_000_000, ' '), globals)
             ).toThrow('parse length limit exceeded')
             expect(LiquidRenderer.renderWithHogFunctionGlobals('Hello {{ person.name }}!', globals)).toBe(
                 'Hello test_person!'
