@@ -230,9 +230,16 @@ class TestMintWizardGatewayToken:
         assert "phs_wizard_secret" not in str(raised.value)
 
 
-def _organization(*, age: timedelta = timedelta(days=30), features: list | None = None) -> Organization:
+def _organization(
+    *, age: timedelta = timedelta(days=30), features: list | None = None, subscribed: bool | None = None
+) -> Organization:
     # Unsaved: posture reads cached fields only, so no row is needed.
-    return Organization(name="org", created_at=timezone.now() - age, available_product_features=features or [])
+    return Organization(
+        name="org",
+        created_at=timezone.now() - age,
+        available_product_features=features or [],
+        has_active_subscription=subscribed,
+    )
 
 
 class TestWizardPosture:
@@ -245,10 +252,20 @@ class TestWizardPosture:
     def test_an_old_organization_with_no_event_is_active(self):
         assert wizard_posture(_organization(age=timedelta(days=8)), Team(ingested_event=False)) == "active"
 
-    def test_a_paid_plan_outranks_the_rest(self):
-        # Any granted feature is a paid plan; a young, event-less paid org is paid.
-        paid = _organization(age=timedelta(days=1), features=[{"key": "alerts", "name": "Alerts"}])
+    def test_a_subscription_outranks_the_rest(self):
+        paid = _organization(age=timedelta(days=1), subscribed=True)
         assert wizard_posture(paid, Team(ingested_event=False)) == "paid"
+
+    def test_a_cancelled_organization_keeps_its_features_but_loses_the_paid_tier(self):
+        # Billing leaves the feature list populated after a cancellation, so the
+        # feature-derived tier would go on handing it the widest limits.
+        cancelled = _organization(features=[{"key": "alerts", "name": "Alerts"}], subscribed=False)
+        assert wizard_posture(cancelled, Team(ingested_event=True)) == "active"
+
+    def test_an_unsynced_organization_falls_back_to_its_plan_tier(self):
+        licensed = _organization(features=[{"key": "alerts", "name": "Alerts"}], subscribed=None)
+        assert wizard_posture(licensed, Team(ingested_event=False)) == "paid"
+        assert wizard_posture(_organization(subscribed=None), Team(ingested_event=True)) == "active"
 
 
 class TestWizardTierLimits:
@@ -261,6 +278,13 @@ class TestWizardTierLimits:
             ttl_seconds=3600,
         )
         assert wizard_tier_limits("paid") == _TIER_FLOORS["paid"]
+
+    @override_settings(WIZARD_GATEWAY_TIERS={"new": {"cap_usd": "5", "max_cap_usd": "3"}})
+    def test_a_ceiling_under_its_own_cap_is_ignored(self):
+        # Honouring it would let a program entry tighten the cap rather than size it.
+        limits = wizard_tier_limits("new")
+        assert limits.cap_usd == Decimal("5.000000")
+        assert limits.max_cap_usd == _TIER_FLOORS["new"].max_cap_usd
 
     @pytest.mark.parametrize(
         "tiers",

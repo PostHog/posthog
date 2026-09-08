@@ -163,10 +163,14 @@ _TIER_FLOORS: dict[str, WizardTierLimits] = {
 
 def wizard_posture(organization: Organization, team: Team) -> WizardPosture:
     """`paid` outranks the rest, then anything that has ingested is `active`, and
-    only a young organization with no event is `new`. Reads cached fields only:
-    the plan tier comes from `available_product_features`, never billing.
+    only a young organization with no event is `new`. Reads cached fields only.
+
+    Billing's own subscription flag decides `paid`, because a cancelled organization
+    keeps its feature list and the feature-derived plan tier would go on handing it
+    the widest limits. A NULL flag never synced, so it falls back to that tier.
     """
-    if organization.get_plan_tier() != "free":
+    subscribed = organization.has_active_subscription
+    if subscribed if subscribed is not None else organization.get_plan_tier() != "free":
         return "paid"
     if team.ingested_event:
         return "active"
@@ -190,6 +194,15 @@ def wizard_tier_limits(posture: WizardPosture) -> WizardTierLimits:
             f"wizard_gateway_token: {posture} tier max_cap_usd out of contract, ignored",
             max_cap_usd=str(raw["max_cap_usd"]),
         )
+    if max_cap is not None and cap is not None and max_cap < cap:
+        # An entry whose ceiling sits under its own cap would let a program tighten
+        # rather than size. Ignored rather than absorbed, so the operator sees it.
+        logger.warning(
+            f"wizard_gateway_token: {posture} tier max_cap_usd below cap_usd, ignored",
+            max_cap_usd=str(max_cap),
+            cap_usd=str(cap),
+        )
+        max_cap = None
     ttl = _parse_ttl(raw["ttl_seconds"]) if "ttl_seconds" in raw else None
     if "ttl_seconds" in raw and ttl is None:
         logger.warning(
@@ -398,9 +411,7 @@ def _cap_usd(override: Decimal | None, *, program: object, posture: WizardPostur
         tier = wizard_tier_limits(posture)
         cap = wizard_program_cap(program)
         if cap is not None:
-            # A ceiling below the posture's own cap would make a program entry
-            # tighten rather than size, so the posture's cap is the floor here.
-            ceiling = max(tier.max_cap_usd, tier.cap_usd) if tier.max_cap_usd is not None else tier.cap_usd
+            ceiling = tier.max_cap_usd if tier.max_cap_usd is not None else tier.cap_usd
             if ceiling is not None:
                 cap = min(cap, ceiling)
         if cap is None:

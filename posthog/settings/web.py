@@ -1248,10 +1248,14 @@ WIZARD_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("WIZARD_GATEWAY_TOKEN_TTL_SECOND
 try:
     WIZARD_GATEWAY_TIERS = json.loads(get_from_env("WIZARD_GATEWAY_TIERS", "{}"))
 except ValueError:
+    # Empty means every posture keeps its in-code floor, which is the tighter
+    # reading. Logged because the operator meant to configure something.
+    logger.warning("WIZARD_GATEWAY_TIERS is not JSON, falling back to the in-code tier floors")
     WIZARD_GATEWAY_TIERS = {}
 try:
     WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM = json.loads(get_from_env("WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM", "{}"))
 except ValueError:
+    logger.warning("WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM is not JSON, falling back to no per-program caps")
     WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM = {}
 
 # Exact MCP endpoints that operators explicitly allow the MCP Store to reach even
