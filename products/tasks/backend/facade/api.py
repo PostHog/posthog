@@ -232,6 +232,9 @@ __all__ = [
     "task_run_preview_ready",
     "get_task_run_living_artifact",
     "capture_relay_command_telemetry",
+    "PermissionResponseUnavailable",
+    "validate_permission_response_target",
+    "classify_permission_response",
     "get_task_run_stream_info",
     "get_task_summaries",
     "is_internal_debug_team",
@@ -3915,6 +3918,33 @@ def resolve_stream_base_url(*, distinct_id: str, organization_id: str | UUID, fo
 
 
 # --- Task run commands (user_message signal + sandbox proxy) ---
+
+
+class PermissionResponseUnavailable(Exception):
+    def __init__(self, *, target_ended: bool) -> None:
+        self.code = "permission_target_ended" if target_ended else "agent_session_not_ready"
+        self.status_code = 409 if target_ended else 503
+        super().__init__("This run has ended." if target_ended else "The agent is still starting. Please try again.")
+
+
+def validate_permission_response_target(run_id: str | UUID, task_id: str | UUID, team_id: int) -> None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None or run.is_terminal:
+        raise PermissionResponseUnavailable(target_ended=True)
+
+
+def classify_permission_response(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, status_code: int, data: object
+) -> bool:
+    from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415
+        is_agent_session_not_ready,
+        permission_response_succeeded,
+    )
+
+    validate_permission_response_target(run_id, task_id, team_id)
+    if is_agent_session_not_ready(status_code, data):
+        raise PermissionResponseUnavailable(target_ended=False)
+    return 200 <= status_code < 300 and permission_response_succeeded(data)
 
 
 def validate_task_run_artifact_ids(

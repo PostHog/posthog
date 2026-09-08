@@ -2025,13 +2025,13 @@ snapshots:
     components-sample-data-state--wizard-installing--light:
         hash: v1.k794b7964.2052c49beff2e0a5c5c533ae05c73bacc2619a04053b4529acf93574160c3a66.sTXp62J02o4EVCFfSt9_QV7YwS6UN87FpVxkPGrmZ3o
     components-search--default--dark:
-        hash: v1.k794b7964.fac5f5d37c971bd086b80c74912c404fa94efd54d3f06cd9977f30dc77d3b95b.M4DujdDqdcqaMc_a55BBUsP9ba7B0GYwLzVvv9RDF30
+        hash: v1.k794b7964.4d547ac55501863b11034e51dfa0e6da46277ddb82d93dfff89bceb95ca3c457.xmcEpMR2kLjRqYgG8WhE7NMfZ4aq18g8E0y3UZTt_ek
     components-search--default--light:
-        hash: v1.k794b7964.b25ae3aeaa1f64b557faf9333a23abd452a839c362ee24206b4fa2065f669b77.gTlqMJc7-zkyELSvT2A2J3BefIk1ZN9Z26ylJRiYCmA
+        hash: v1.k794b7964.4b12fa9beacbe7bd53eceed4c9506c4b72d3f965ef420371c90fc9ff2869d0e0.kwiTpTyd5He77Bw8P62p8IH4KgzmWQ0Ny1v7MsMtLpo
     components-search--product-recents-and-starred--dark:
-        hash: v1.k794b7964.2c51029339a90ded8e9418dc7fca38b56c4933839cd2a71d9bdde2a17d874115.62fXgMoCTwdyiE8RHF1kO3XZhDQ8KJbaP6Zv2rN8St0
+        hash: v1.k794b7964.d4f3237e829a99a011fa463d061944dd2af82e010292656dde0c1052d893a2dc.dy_2uM10B_3hbRAPCMmt3tJlGObSqT5M27Tdk8BEaUw
     components-search--product-recents-and-starred--light:
-        hash: v1.k794b7964.f2c75682469c037327f94f22550286ed866d4883e03ef7c66a3f234a31b1017b.1gKkr-42m5_F8qJMq6ahElSjOFRERpPTay3A0__UOo0
+        hash: v1.k794b7964.419cabcff30a22d68b283cf59562b74ca2d4910552fc4240e95b856303622508.0xCO-YA2i8xkqSjPXRWXjmLuVEiiP11XfIC6v9y77yU
     components-search--searching--dark:
         hash: v1.k794b7964.0e06879e25784ab8baf33a0c5dcafa9594d1214c529ed1a0d4edcc64de71e848.acBWuTFeGQNg4HWk4KP4fxvj_nIIy1sGj8-j-9Y95U8
     components-search--searching--light:
@@ -5553,13 +5553,17 @@ snapshots:
     products-posthog-ai-queuedmessagelist--empty--light:
         hash: v1.k794b7964.8ff99b0d11642dd53f5f0f70fc69106ee0e0158728fd6a73cf8699c4d68f8186.BQuDnKXQn4DwravdDwbmq3GC_BR06D3nntvW0bDvyzE
     products-posthog-ai-queuedmessagelist--multiple--dark:
-        hash: v1.k794b7964.df1eade6e183882ac4d220db72d54facaef1b22f1101d78683d6f2586af645f4.VcQ01DmlP4tHpLwgl8bn3UzQSJDkSIlpim747hocONc
+        hash: v1.k794b7964.3eda7962450082ad7e2ccb00419d73cde05964c67ce755414b11e1e4aea1aa8d.sccBMURl0uxdRk2-I_rbzScJQpUb8YMXKogdqgDEen0
     products-posthog-ai-queuedmessagelist--multiple--light:
-        hash: v1.k794b7964.b9579f5c5a4eae44c5143e87c238482f1340cb42617133b88ba5d726fd6d29d6.Jfm-YMQbfiruoX3Q5A_8dWxK3oxl5ezc5esv4_M9zfU
+        hash: v1.k794b7964.b8f2bbbd52d9d6d9cf037064a8006404e4baa16713f6cfd83dada357d174228c.R1y2GmsWYktkzIyDfTGX3pFYKv-wSUj7SrIVfUA93NU
     products-posthog-ai-queuedmessagelist--single--dark:
-        hash: v1.k794b7964.0c2d1ef2f419ad132533feeab88c70b8ff71b141e579d71be1a2399a1fcd730b.Up3p6SW6AQ0hKPpnuGgk6vGU0JIwNRcDlyvbWQ3wHm8
+        hash: v1.k794b7964.dc7887592adb4bd52e26bc40b2b7d91b4f0bb30b734313a8ca4dbf51a90eba20.jQksRkqZoUKTRLj-qr3x369OJW5x1-VvIqARTVLdRrU
     products-posthog-ai-queuedmessagelist--single--light:
-        hash: v1.k794b7964.9a96b57f229ede4a08ede4e081cad6fc788244f553de1a8d945cdfe3ccb3fe1c.LdYCyr75SdQkMa9RdjmEqLD-vS6zsJxXQr33aFn4NiU
+        hash: v1.k794b7964.574947658755ff52ea706341b7733033c27284dcded89cec117e770420947f6b.wYrWBIoHgR8k8p_nv1OqlGzkyyqedwJiMzRaaamjJKA
+    products-posthog-ai-queuedmessagelist--waiting-for-approval--dark:
+        hash: v1.k794b7964.c53aea6618dc88c754e0e9f074f439dbc8e11634184680e91b00170e4f681ff5.xLAZFI1s99bnlOuZw2PXahGWRxKTy5vxGa4-n7s_RQs
+    products-posthog-ai-queuedmessagelist--waiting-for-approval--light:
+        hash: v1.k794b7964.84558994ccccfbf6b0479c05e70fa04048ecdb813a76ac4a3e689b3f3d4a3cfd.WdgXqb0eDP9c6glP6UuTXb--spzTGFym3foe4wFyEIg
     products-posthog-ai-runalertactivity--agent-crash--dark:
         hash: v1.k794b7964.eccf2dc544a4a6695a42fb347e5c87b78fe735e8ac46647d17e53bf94d25884e.-9d5PYEyERQrPQag4CvnJteuh6fkhr0vYWyTDOt0Z8E
     products-posthog-ai-runalertactivity--agent-crash--light:
@@ -5572,6 +5576,10 @@ snapshots:
         hash: v1.k794b7964.410f559d98dc233ee8047dd8cfd5ce5f16bf47298ac0f3ea7c38e21913f3e79e._jbCcWpMORUlIHh_Te_m_hWib0TJ1zlg4bw-cm35FTI
     products-posthog-ai-runalertactivity--connection-lost--light:
         hash: v1.k794b7964.6a54547f7784b2a6ddcdde131600ed37ee2abdb56180e9cff603e8a7a3e395bf.cUg8KJHc-L7D6KFrCng16YTN5A0-WRMfw75cElwkroI
+    products-posthog-ai-startup-chat--sidebar--dark:
+        hash: v1.k794b7964.97e75539fb76cb77f57dce890bba8174746a999ac0f00fa4b6c0b27b197892f6.HxsSbUTC0_6SGTHo867GUBAgfdVQGH1_mKgZxVl-k1c
+    products-posthog-ai-startup-chat--sidebar--light:
+        hash: v1.k794b7964.1447c8f9e17c9d9fc09f81ec8469ec0629bafef796c45c3c66894961ad4d978f.H-qJsZXlEGLNeIzG2_tb_L5OarwFKvYVoktKd2p6w-w
     products-posthog-ai-virtualizedthread--anchored-open--dark:
         hash: v1.k794b7964.eecc3dde9e8475fb8f20f259880edae96e2750529897fc326c44d33ce20e0885.hQlXYcfwZ9CiFajcBHUg9oY6h2QcGrm91CkXVIht-OE
     products-posthog-ai-virtualizedthread--anchored-open--light:

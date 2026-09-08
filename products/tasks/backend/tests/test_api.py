@@ -8970,7 +8970,7 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
-        self.assertEqual(len(data), 3)
+        self.assertEqual(data, entries)
         self.assertEqual(response["X-Total-Count"], "3")
         self.assertEqual(response["X-Filtered-Count"], "3")
 
@@ -11820,12 +11820,27 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     def _capture_calls_for_event(self, mock_capture, event):
         return [call for call in mock_capture.call_args_list if call.kwargs.get("event") == event]
 
+    @parameterized.expand(
+        [
+            ("accepted", {"result": {"resolved": True}}, True),
+            (
+                "rpc_error",
+                {"error": {"code": -32000, "message": "No pending permission request found for id: perm-1"}},
+                False,
+            ),
+            ("unconfirmed", {"result": {"acknowledged": True}}, False),
+            ("false", {"result": {"resolved": False}}, False),
+        ]
+    )
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
-    def test_command_emits_permission_responded_telemetry_for_posthog_ai(self, mock_post, mock_capture):
+    def test_command_emits_permission_responded_telemetry_for_posthog_ai(
+        self, _name, envelope, expected_success, mock_post, mock_capture
+    ):
         reset_sandbox_jwt_key_cache()
-        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "req-4", "result": {"acknowledged": True}})
+        payload = {"jsonrpc": "2.0", "id": "req-4", **envelope}
+        self._mock_agent_response(mock_post, payload)
         task = self._create_posthog_ai_task()
         run = self._create_run_with_sandbox(task)
 
@@ -11848,7 +11863,8 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(props["run_id"], str(run.id))
         self.assertEqual(props["request_id"], "perm-1")
         self.assertEqual(props["option_id"], "allow")
-        self.assertTrue(props["success"])
+        self.assertEqual(props["success"], expected_success)
+        self.assertEqual(response.json(), payload)
         self.assertEqual(props["surface"], "relay")
         self.assertIsNone(props["conversation_id"])
 
@@ -12226,27 +12242,116 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
         self.assertIn("Missing authorization header", response.json()["error"])
 
+    @parameterized.expand(
+        [
+            ("cancel", 400, "No active session for this run", TaskRun.Status.IN_PROGRESS, 502, None),
+            (
+                "permission_response",
+                400,
+                "No active session for this run",
+                TaskRun.Status.IN_PROGRESS,
+                503,
+                "agent_session_not_ready",
+            ),
+            ("permission_response", 404, "No active session for this run", TaskRun.Status.IN_PROGRESS, 502, None),
+            ("permission_response", 400, "Invalid command", TaskRun.Status.IN_PROGRESS, 502, None),
+            (
+                "permission_response",
+                400,
+                "No active session for this run",
+                TaskRun.Status.COMPLETED,
+                409,
+                "permission_target_ended",
+            ),
+            (
+                "permission_response",
+                400,
+                "No active session for this run",
+                TaskRun.Status.FAILED,
+                409,
+                "permission_target_ended",
+            ),
+            (
+                "permission_response",
+                400,
+                "No active session for this run",
+                TaskRun.Status.CANCELLED,
+                409,
+                "permission_target_ended",
+            ),
+        ]
+    )
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
-    def test_command_forwards_agent_server_no_session_error(self, mock_post):
+    def test_command_forwards_agent_server_no_session_error(
+        self, method, upstream_status, error, run_status, expected_status, code, mock_post
+    ):
         reset_sandbox_jwt_key_cache()
         self._mock_agent_response(
             mock_post,
-            {"error": "No active session for this run"},
-            status_code=400,
+            {"error": error},
+            status_code=upstream_status,
         )
 
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
+        run.status = run_status
+        run.save(update_fields=["status"])
 
         response = self.client.post(
             self._command_url(task, run),
-            self._make_cancel(),
+            {"jsonrpc": "2.0", "method": method, "params": {"requestId": "perm-1", "optionId": "allow"}}
+            if method == "permission_response"
+            else self._make_cancel(),
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
-        self.assertIn("No active session", response.json()["error"])
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(response.json().get("code"), code)
+        if run.is_terminal:
+            mock_post.assert_not_called()
+        elif expected_status == 503:
+            self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {"resolved": True}})
+            retry = self.client.post(
+                self._command_url(task, run),
+                {"jsonrpc": "2.0", "method": method, "params": {"requestId": "perm-1", "optionId": "allow"}},
+                format="json",
+            )
+            self.assertEqual(retry.status_code, 200)
+            self.assertEqual(mock_post.call_count, 2)
+            self.assertEqual(mock_post.call_args_list[0].args, mock_post.call_args_list[1].args)
+            self.assertEqual(mock_post.call_args_list[0].kwargs["json"], mock_post.call_args_list[1].kwargs["json"])
+
+    @parameterized.expand(
+        [
+            ("rejected", 400, {"error": "No active session for this run"}),
+            ("accepted", 200, {"jsonrpc": "2.0", "result": {"resolved": True}}),
+        ]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_permission_target_ends_during_delivery(self, _name, upstream_status, body, mock_post, mock_capture):
+        reset_sandbox_jwt_key_cache()
+        task = self._create_posthog_ai_task()
+        run = self._create_run_with_sandbox(task)
+        self._mock_agent_response(mock_post, body, status_code=upstream_status)
+
+        def end_run(*args, **kwargs):
+            TaskRun.objects.filter(id=run.id).update(status=TaskRun.Status.CANCELLED)
+            return mock_post.return_value
+
+        mock_post.side_effect = end_run
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": "permission_response", "params": {"requestId": "perm-1", "optionId": "allow"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["code"], "permission_target_ended")
+        self.assertEqual(mock_post.call_count, 1)
+        calls = self._capture_calls_for_event(mock_capture, "permission_responded")
+        self.assertFalse(calls[0].kwargs["properties"]["success"])
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
@@ -12375,9 +12480,10 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         call_kwargs = mock_post.call_args[1]
         self.assertEqual(call_kwargs["json"]["id"], 42)
 
+    @parameterized.expand([("cancel", 600), ("permission_response", 600)])
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
-    def test_command_uses_600s_timeout(self, mock_post):
+    def test_command_uses_command_timeout(self, method, timeout, mock_post):
         reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
 
@@ -12386,12 +12492,14 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.client.post(
             self._command_url(task, run),
-            self._make_cancel(),
+            {"jsonrpc": "2.0", "method": method, "params": {"requestId": "perm-1", "optionId": "allow"}}
+            if method == "permission_response"
+            else self._make_cancel(),
             format="json",
         )
 
         call_kwargs = mock_post.call_args[1]
-        self.assertEqual(call_kwargs["timeout"], 600)
+        self.assertEqual(call_kwargs["timeout"], timeout)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
