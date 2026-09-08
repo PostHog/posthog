@@ -230,7 +230,9 @@ dev = [
     "djangorestframework-stubs~=3.16.0",
     "faker==17.5.0",
     "fakeredis[lua]==2.23.3",
+    "flameprof~=0.4",
     "hypothesis~=6.151.9",
+    "pyinstrument~=5.1",
     "pytest-rerunfailures~=16.1",
     "freezegun==1.5.5",
     "grpcio-tools~=1.71.0",
@@ -490,6 +492,12 @@ ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = "posthog.hogql.grammar.*"
+ignore_errors = true
+
+# Profiling code from the nextgensquash tooling — pyinstrument/py-spy
+# wrappers do dynamic method swaps that don't fit the static stubs.
+[[tool.mypy.overrides]]
+module = "posthog.management.migration_profiling.*"
 ignore_errors = true
 
 [[tool.mypy.overrides]]
