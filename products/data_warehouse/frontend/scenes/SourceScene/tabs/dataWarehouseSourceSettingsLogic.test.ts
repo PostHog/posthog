@@ -274,7 +274,9 @@ describe('sourceSettingsLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        logic.actions.submitSourceConfig()
+        await expectLogic(logic, () => {
+            logic.actions.submitSourceConfig()
+        }).toDispatchActions(['submitSourceConfigFailure'])
         await expectLogic(logic).toFinishAllListeners()
 
         expect(successToast).not.toHaveBeenCalled()

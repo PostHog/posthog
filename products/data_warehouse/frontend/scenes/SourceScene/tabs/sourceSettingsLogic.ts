@@ -1161,6 +1161,8 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     } else {
                         lemonToast.error('Cant update source at this time')
                     }
+                    // Rethrow so kea-forms dispatches the failure action instead of success.
+                    throw e
                 }
             },
         },
