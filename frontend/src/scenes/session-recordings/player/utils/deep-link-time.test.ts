@@ -40,6 +40,8 @@ describe('parseDeepLinkTime', () => {
             expected: { kind: 'timestamp', valueMs: isoMs },
         },
         { name: 'unparseable t', timestamp: undefined, t: 'not-a-time', expected: null },
+        { name: 'zone-less datetime in t', timestamp: undefined, t: '2026-09-01T10:00:30', expected: null },
+        { name: 'date-only t', timestamp: undefined, t: '2026-09-01', expected: null },
         {
             name: 'timestamp wins over t when both are present',
             timestamp: 1756720830000,

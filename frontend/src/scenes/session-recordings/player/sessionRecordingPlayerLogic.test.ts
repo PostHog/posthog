@@ -524,9 +524,7 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.isBuffering).toBe(false)
         })
 
-        // A sidebar tab switch or inspector toggle rewrites the URL but preserves `t`, so the
-        // deep-link handler must not seek again and throw the playhead back to the linked moment.
-        it('does not re-seek when an unrelated URL param changes but the linked time stays', async () => {
+        it('re-seeks a deep link only when the linked time changes or the same URL is pushed again', async () => {
             logic.unmount()
             router.actions.push('/replay/2', { t: 5 })
             logic = sessionRecordingPlayerLogic({
@@ -538,17 +536,18 @@ describe('sessionRecordingPlayerLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['initializePlayerFromStart']).toFinishAllListeners()
 
-            // Simulate the viewer watching past the linked moment (t=5 lands at start + 5s).
             const start = logic.values.sessionPlayerData.start?.valueOf() ?? 0
             logic.actions.setCurrentTimestamp(start + 8000)
 
-            // A control (inspector toggle, tab switch) rewrites the URL but keeps `t`. The handler
-            // runs again; because the linked time is unchanged it must leave the playhead alone.
             await expectLogic(logic, () => {
-                router.actions.push('/replay/2', { t: 5, sidebarOpen: true })
+                router.actions.push('/replay/2', { t: 5, inspectorSideBar: true })
             }).toFinishAllListeners()
-
             expect(logic.values.currentTimestamp).toBe(start + 8000)
+
+            await expectLogic(logic, () => {
+                router.actions.push('/replay/2', { t: 5, inspectorSideBar: true })
+            }).toFinishAllListeners()
+            expect(logic.values.currentTimestamp).toBe(start + 5000)
         })
     })
 

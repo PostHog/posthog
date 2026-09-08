@@ -189,8 +189,7 @@ export const seekbarLogic = kea<seekbarLogicType>([
                 sessionPlayerData: import('../../../../types').SessionPlayerData
             ) => {
                 if (thumbLeftPos && slider && sessionPlayerData?.durationMs) {
-                    // Clamp the ratio: a stored thumb position read against a now-narrower slider
-                    // (e.g. after the inspector opens) can exceed the full width and overshoot duration.
+                    // thumbLeftPos is not recomputed when the slider resizes, so the ratio can exceed 1
                     return (
                         clamp((thumbLeftPos + THUMB_OFFSET) / slider.offsetWidth, 0, 1) * sessionPlayerData.durationMs
                     )
@@ -233,8 +232,7 @@ export const seekbarLogic = kea<seekbarLogicType>([
             }
             if (shouldSeek) {
                 const playerTime =
-                    clamp((thumbLeftPos + THUMB_OFFSET) / values.slider.offsetWidth, 0, 1) *
-                    values.sessionPlayerData.durationMs
+                    ((thumbLeftPos + THUMB_OFFSET) / values.slider.offsetWidth) * values.sessionPlayerData.durationMs
                 actions.seekToTime(playerTime)
             }
         },

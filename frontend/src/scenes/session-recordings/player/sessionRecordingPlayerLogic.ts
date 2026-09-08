@@ -1682,8 +1682,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     return 0
                 }
                 const time = currentTimestamp - sessionPlayerData.start.valueOf()
-                // No `|| Infinity`: while durationMs is still 0 during load the clock must read 0,
-                // not climb unbounded when the playhead is nudged forward past a stalled frame.
+                // durationMs is 0 until the recording loads; the clock must read 0 then, not run unbounded
                 return clamp(time, 0, sessionPlayerData.durationMs)
             },
         ],
@@ -3404,7 +3403,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // by the kea disposables plugin's beforeUnmount hook
 
         cache.hasInitialized = false
-        cache.lastHandledDeepLinkKey = undefined
         cache.pausedMediaElements = []
 
         actions.setPlayer(null)
@@ -3478,25 +3476,29 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         actions.schedulePlayerTimeTracking()
     }),
 
-    urlToAction(({ actions, values, cache }) => ({
-        '*': (_, searchParams, hashParams) => {
+    urlToAction(({ actions, values }) => ({
+        '*': (_, searchParams, hashParams, { pathname, search, hash }, previousLocation) => {
             const shouldPause = searchParams.pause || hashParams.pause
             if (shouldPause && !values.pauseForced) {
                 actions.forcePause()
             }
-            // This handler re-runs on every URL change, including ones that only touch an
-            // unrelated param (opening the inspector, switching a sidebar tab keep `t`). Seek
-            // only when the linked time itself changed, so a routine click does not throw the
-            // playhead back to the linked moment and interrupt playback.
-            const deepLinkKey = `${searchParams.timestamp ?? ''}|${searchParams.t ?? ''}`
-            if (deepLinkKey !== cache.lastHandledDeepLinkKey) {
-                cache.lastHandledDeepLinkKey = deepLinkKey
-                const deepLinkTime = parseDeepLinkTime(searchParams.timestamp, searchParams.t)
-                if (deepLinkTime?.kind === 'timestamp') {
-                    actions.seekToTimestamp(deepLinkTime.valueMs, true)
-                } else if (deepLinkTime?.kind === 'offset') {
-                    actions.seekToTime(deepLinkTime.valueMs)
-                }
+            // Unrelated param changes (inspector toggle, sidebar tab) keep `t`. Seek only when the
+            // linked time changed, or the same URL was pushed again so a repeat click still seeks.
+            const linkedTimeUnchanged =
+                previousLocation.searchParams.timestamp === searchParams.timestamp &&
+                previousLocation.searchParams.t === searchParams.t
+            const sameUrl =
+                previousLocation.pathname === pathname &&
+                previousLocation.search === search &&
+                previousLocation.hash === hash
+            if (linkedTimeUnchanged && !sameUrl) {
+                return
+            }
+            const deepLinkTime = parseDeepLinkTime(searchParams.timestamp, searchParams.t)
+            if (deepLinkTime?.kind === 'timestamp') {
+                actions.seekToTimestamp(deepLinkTime.valueMs, true)
+            } else if (deepLinkTime?.kind === 'offset') {
+                actions.seekToTime(deepLinkTime.valueMs)
             }
         },
     })),
