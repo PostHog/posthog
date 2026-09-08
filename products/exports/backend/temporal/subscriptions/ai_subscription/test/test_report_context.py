@@ -22,12 +22,15 @@ from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.models.subscription_context import SubscriptionContext
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
+    _TRUNCATED_CONTEXT_MARKER,
     MAX_DASHBOARD_INSIGHTS,
     InsightReportEvidence,
     InsightReportProvenance,
     ReportContextEvidence,
     _dashboard_status,
     _DashboardTile,
+    _execute_insight,
+    _PendingInsight,
     _rank_dashboard_tiles,
     _SavedInsight,
     _validated_saved_query,
@@ -160,6 +163,42 @@ class TestReportContextPureFunctions(SimpleTestCase):
         )
 
         assert _dashboard_status(insights) == expected
+
+    @parameterized.expand(
+        [
+            # The sanitizer cuts to the budget with no marker and returns a plain string, so a cut it
+            # made is invisible to every later stage. Detect it here or it is never detected.
+            ("over_budget", 200, "truncated", True),
+            ("within_budget", 10, "success", False),
+        ]
+    )
+    def test_oversized_insight_evidence_is_recorded_as_truncated(
+        self, _name: str, content_length: int, expected_status: str, expects_marker: bool
+    ) -> None:
+        budget = 20 + len(_TRUNCATED_CONTEXT_MARKER)
+        pending = _PendingInsight(
+            saved=_SavedInsight(
+                id=1,
+                short_id="1",
+                name="Wide insight",
+                description="",
+                query=None,
+                filters_override=None,
+                variables_override=None,
+                available=True,
+            ),
+            context=MagicMock(
+                team=MagicMock(pk=1),
+                execute_and_format=AsyncMock(return_value="A" * content_length),
+            ),
+        )
+
+        with patch(f"{_MODULE}.DASHBOARD_CONTEXT_CHAR_BUDGET", budget):
+            executed = async_to_sync(_execute_insight)(pending, asyncio.Semaphore(1))
+
+        assert executed.status == expected_status
+        assert len(executed.content) <= budget
+        assert executed.content.endswith(_TRUNCATED_CONTEXT_MARKER) is expects_marker
 
     def test_failed_markers_are_not_successful_computed_evidence(self) -> None:
         evidence = ReportContextEvidence(

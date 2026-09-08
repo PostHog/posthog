@@ -507,8 +507,14 @@ async def _execute_insight(pending: _PendingInsight, semaphore: asyncio.Semaphor
                     context.execute_and_format(include_prompt_framing=False),
                     timeout=CONTEXT_QUERY_TIMEOUT_SECONDS,
                 )
-        safe_content = strip_llm_framing_markers(content, max_len=DASHBOARD_CONTEXT_CHAR_BUDGET)
-        status: ReportContextStatus = "truncated" if TRUNCATED_MARKER in safe_content else "success"
+        # Sanitize uncapped (len(content) can never cut a string the sanitizer only shortens), then
+        # bound here: the sanitizer's own cut drops the tail with no marker and no signal, so an
+        # over-budget result would reach the LLM stopping mid-row and still be recorded a success.
+        cleaned = strip_llm_framing_markers(content, max_len=len(content))
+        safe_content, evidence_truncated = _truncate_content(cleaned, DASHBOARD_CONTEXT_CHAR_BUDGET)
+        status: ReportContextStatus = (
+            "truncated" if evidence_truncated or TRUNCATED_MARKER in safe_content else "success"
+        )
         return _ExecutedInsight(saved=pending.saved, status=status, content=safe_content)
     except asyncio.CancelledError:
         await asyncio.shield(cancel_query())
