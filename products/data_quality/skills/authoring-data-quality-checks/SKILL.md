@@ -2,8 +2,9 @@
 name: authoring-data-quality-checks
 description: >
   Adds and runs data quality checks (dbt-test style assertions) on a project's warehouse tables and
-  saved-query views: not-null, uniqueness, accepted values, referential integrity, row-count bounds,
-  freshness, and custom HogQL. Use when asked to test a model, validate a view, check for nulls or
+  saved-query views, and HogQL catalog metrics: not-null, uniqueness, accepted values, referential
+  integrity, row-count bounds, freshness, and custom HogQL. Metrics support custom SQL checks only.
+  Use when asked to test a model, validate a view, check for nulls or
   duplicates, add data quality checks, find out why a number looks wrong, or judge whether a warehouse
   table is trustworthy before using it in an analysis. To describe what data *means* (metrics,
   certifications, joins), see setting-up-data-catalog instead. Trigger terms: data quality, data test,
@@ -13,8 +14,8 @@ description: >
 
 # Authoring data quality checks
 
-A check is one assertion about one warehouse table or view. It compiles to a count-only HogQL query
-and **passes when it finds zero failing rows** — the same semantics as `dbt test`. Failing rows are
+A check is one assertion about one warehouse table, view, or HogQL catalog metric. It compiles to a
+count-only HogQL query and **passes when it finds zero failing rows**, like `dbt test`. Failing rows are
 never stored; only counts and the compiled query are, so to see the offending rows you re-run the
 stored query yourself.
 
@@ -45,9 +46,8 @@ WHERE table_name = 'orders'
 Re-creating a byte-identical check is a harmless no-op — checks are keyed by a fingerprint of the
 subject, type, column, and config, so an identical create upserts. A _near_-duplicate is not
 harmless: it doubles the noise for whoever reads the results. If an existing check's assertion is
-close but wrong, create the corrected check and delete the old one — the assertion (type, column,
-config) is immutable and the subject is fixed by the URL, so an update that tries to change them is
-rejected. Update is only for metadata, severity, and ownership.
+close but wrong, edit the existing check. Updates preserve its identity and history; the subject
+stays fixed by the URL. An edit that duplicates another check's assertion is rejected.
 
 ## Choosing checks
 
@@ -73,6 +73,34 @@ Call `posthog:data-quality-check-types` for each type's exact config schema rath
 Checks live on the subject they audit: create them with `data-quality-check-create-on-view`
 (`saved_query_id` path parameter) or `data-quality-check-create-on-table` (`table_id`).
 
+## Checks on catalog metrics
+
+Only metrics with a saved `HogQLQuery` definition support checks. Markdown, Trends, Funnels, event
+series, and metrics without definitions do not. A metric can return any number of rows and columns.
+
+Create a `custom_sql` check with an empty `column_name`. Include `{metric}` exactly once as a relation:
+
+```sql
+SELECT *
+FROM {metric}
+WHERE orders < 100
+```
+
+The check queries the owning metric's current saved output. The example assumes that output has an
+`orders` column. Every returned row is a failure; zero rows passes. Query `{metric}` directly or
+through a subquery. Metric check SQL cannot define CTEs, including nested CTEs and scalar `WITH`
+bindings. CTEs and saved parameters inside the metric definition remain supported. Other placeholders
+are not accepted in the check.
+
+Use the metric's Tests tab or the nested REST endpoints under
+`/api/projects/{project_id}/data_catalog/metrics/{metric_id}/checks/`. The catalog metric detail
+endpoint uses the metric name, but nested check endpoints use its UUID. The metric check-type
+endpoint offers only Custom SQL. Do not assume the table/view MCP tools accept metric subjects.
+
+Saving validates SQL composition without executing it. Run the check to verify column names and
+results. Every run reloads the saved metric: if an edit removes a column used by the check, the next
+run errors. Fix the check SQL or restore the expected metric output.
+
 ## Severity and triggers
 
 **Severity** is a decision about consequences, not about confidence. Use `error` when the failure
@@ -80,11 +108,16 @@ means downstream numbers should not be trusted — those failures mark the subje
 notify. Use `warn` for things worth surfacing that nobody would act on today. When unsure, `warn` is
 the safer default: an `error` check that cries wolf gets everything ignored.
 
-**Triggers** — there is nothing to schedule. A check runs when its subject's data changes: a
+**Table and view triggers:** A check runs when its subject's data changes: a
 materialized view's checks run as part of its refresh (and, when the team turns the gate on, a
 refresh whose error-severity checks fail is not published), a source table's checks run after each
 completed sync, and a plain view's checks run when its DAG runs. Checks on a view outside any DAG
 only run on demand.
+
+**Metric schedules:** The first saved check creates an enabled daily schedule for all checks on the
+metric. The Tests tab lets you change the interval or turn automatic runs off. Manual runs remain
+available. Scheduled checks use the latest definition author's access, falling back to the creator;
+manual runs use the initiating user's access. Underlying and additional tables must be readable.
 
 ## Verify what you wrote
 
@@ -119,8 +152,9 @@ FROM system.information_schema.data_quality_health
 - `unknown` / absent — no checks, or none have run. Absence of failures is not evidence of health.
 
 For the history behind a verdict, `system.information_schema.data_quality_check_runs` carries recent
-executions with `observed_value` recorded on passes too, so you can see when a number started
-drifting rather than just that it is wrong now.
+executions with status, failing-row count, and errors. For metric checks, the failing-row count
+describes the assertion result, not a scalar metric value. Open the failing-row query from the
+Tests tab to inspect the current rows that violate the check.
 
 ## Related
 
