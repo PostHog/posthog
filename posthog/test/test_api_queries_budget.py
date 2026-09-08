@@ -13,9 +13,8 @@ from posthog.api_queries_budget import (
     BudgetSpec,
     QueryCost,
     budget_spec_for,
-    get_api_queries_bytes,
+    debit,
     get_request_query_cost,
-    meter_query,
     record_request_query_cost,
     refill_and_read,
     reset_request_query_cost,
@@ -52,13 +51,13 @@ class TestTokenBucket(BaseTest):
 
     def test_debit_then_refill_at_rate_capped_at_capacity(self):
         refill_and_read("team-a", SPEC, now=1000.0)
-        assert meter_query("org-a", "team-a", 5000) == 2200.0
+        assert debit("team-a", 5000) == 2200.0
         assert refill_and_read("team-a", SPEC, now=1001.0) == 2201.0
         assert refill_and_read("team-a", SPEC, now=99999.0) == 7200.0
 
     def test_negative_balance_reports_seconds_until_positive(self):
         refill_and_read("team-a", SPEC, now=1000.0)
-        remaining = meter_query("org-a", "team-a", 9000)
+        remaining = debit("team-a", 9000)
         assert remaining == -1800.0
         assert seconds_until_positive(remaining, SPEC) == 1800
         assert seconds_until_positive(5.0, SPEC) == 0
@@ -66,32 +65,25 @@ class TestTokenBucket(BaseTest):
 
     def test_balance_floors_at_minus_capacity(self):
         refill_and_read("team-a", SPEC, now=1000.0)
-        assert meter_query("org-a", "team-a", 50_000) == -7200.0
+        assert debit("team-a", 50_000) == -7200.0
         assert seconds_until_positive(-7200.0, SPEC) == 7200
 
     def test_debit_before_any_read_starts_from_the_free_capacity(self):
-        assert meter_query("org-a", "team-new", 100) == 1580.0
-
-    def test_every_debit_counts_toward_the_org_month(self):
-        meter_query("org-a", "team-a", 1000)
-        meter_query("org-a", "team-b", 500)
-        assert get_api_queries_bytes("org-a") == 1500
-        assert get_api_queries_bytes("org-never-seen") == 0
+        assert debit("team-new", 100) == 1580.0
+        assert debit("team-new", 100) == 1480.0
 
     @override_settings(API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR=0)
-    def test_disabled_budget_counts_but_does_not_debit(self):
-        assert meter_query("org-a", "team-a", 1000) is None
-        assert get_api_queries_bytes("org-a") == 1000
+    def test_disabled_budget_does_not_debit(self):
+        assert debit("team-a", 1000) is None
 
     def test_redis_errors_fail_open_and_count(self):
         read_before = API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="read")._value.get()
-        meter_before = API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="meter")._value.get()
+        debit_before = API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="debit")._value.get()
         with patch("posthog.api_queries_budget.get_client", side_effect=Exception("redis down")):
             assert refill_and_read("team-a", SPEC) is None
-            assert meter_query("org-a", "team-a", 1) is None
-            assert get_api_queries_bytes("org-a") == 0
-        assert API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="read")._value.get() == read_before + 2
-        assert API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="meter")._value.get() == meter_before + 1
+            assert debit("team-a", 1) is None
+        assert API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="read")._value.get() == read_before + 1
+        assert API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="debit")._value.get() == debit_before + 1
 
 
 class TestRequestQueryCost(SimpleTestCase):
@@ -114,10 +106,10 @@ class TestChargeableQueryMetering(ClickhouseTestMixin, BaseTest):
         super().setUp()
         reset_request_query_cost()
 
-    def test_chargeable_query_debits_the_team_budget_and_counts_for_the_org(self):
+    def test_chargeable_query_debits_the_team_budget(self):
         spec = budget_spec_for(self.organization)
         refill_and_read(str(self.team.pk), spec)
-        tag_queries(chargeable=1, org_id=self.organization.id, team_id=self.team.pk)
+        tag_queries(chargeable=1, team_id=self.team.pk)
         try:
             sync_execute(self.BOUNDED_QUERY)
         finally:
@@ -125,12 +117,10 @@ class TestChargeableQueryMetering(ClickhouseTestMixin, BaseTest):
         cost = get_request_query_cost()
         assert cost is not None and cost.bytes_read > 0
         assert cost.remaining_bytes is not None and cost.remaining_bytes < spec.capacity_bytes
-        assert get_api_queries_bytes(str(self.organization.id)) == cost.bytes_read
 
     def test_untagged_query_is_not_metered(self):
         sync_execute(self.BOUNDED_QUERY)
         assert get_request_query_cost() is None
-        assert get_api_queries_bytes(str(self.organization.id)) == 0
 
 
 class QueryDied(Exception):
@@ -145,7 +135,7 @@ class TestFailedQueryMetering(BaseTest):
         fake_client.execute.side_effect = QueryDied("network down before connecting")
         pool = MagicMock()
         pool.__enter__.return_value = fake_client
-        tag_queries(chargeable=1, org_id=self.organization.id, team_id=self.team.pk)
+        tag_queries(chargeable=1, team_id=self.team.pk)
         try:
             with patch("posthog.clickhouse.client.execute.get_client_from_pool", return_value=pool):
                 with pytest.raises(QueryDied):
@@ -153,4 +143,3 @@ class TestFailedQueryMetering(BaseTest):
         finally:
             reset_query_tags()
         assert get_request_query_cost() is None
-        assert get_api_queries_bytes(str(self.organization.id)) == 0

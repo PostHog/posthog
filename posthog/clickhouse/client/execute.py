@@ -19,12 +19,7 @@ from clickhouse_driver import Client as SyncClient
 from opentelemetry import trace
 from prometheus_client import Counter
 
-from posthog.api_queries_budget import (
-    API_QUERIES_BUDGET_ERRORS_COUNTER,
-    QueryCost,
-    meter_query,
-    record_request_query_cost,
-)
+from posthog.api_queries_budget import API_QUERIES_BUDGET_ERRORS_COUNTER, QueryCost, debit, record_request_query_cost
 from posthog.clickhouse.client.connection import (
     ClickHouseUser,
     Workload,
@@ -221,12 +216,12 @@ def resolve_kill_switch_level(team_id: Optional[int]) -> KillSwitchLevel:
     return level
 
 
-def _meter_chargeable_query(org_id: str, team_id: Optional[str], query_info: Any) -> None:
+def _meter_chargeable_query(team_id: str, query_info: Any) -> None:
     # Runs after the pooled connection is released, and must never raise: a metering failure
     # is an error counter, not a failed query.
     try:
         bytes_read = int(query_info.progress.bytes or 0)
-        remaining = meter_query(org_id, team_id, bytes_read)
+        remaining = debit(team_id, bytes_read)
         record_request_query_cost(QueryCost(bytes_read=bytes_read, remaining_bytes=remaining))
     except Exception as e:
         API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="meter").inc()
@@ -565,7 +560,7 @@ def sync_execute(
                 # A query killed mid-scan (timeout, memory limit) has already cost the read, so
                 # keep the progress the server reported before it died. The Redis write happens
                 # in the outer finally, once the connection is back in the pool.
-                if tags.chargeable and tags.org_id:
+                if tags.chargeable and tags.team_id:
                     chargeable_query_info = _chargeable_query_info(client, query_info_before)
             if (
                 "INSERT INTO" in prepared_sql
@@ -586,9 +581,7 @@ def sync_execute(
     finally:
         execution_time = perf_counter() - start_time
         if chargeable_query_info is not None:
-            _meter_chargeable_query(
-                str(tags.org_id), str(tags.team_id) if tags.team_id else None, chargeable_query_info
-            )
+            _meter_chargeable_query(str(tags.team_id), chargeable_query_info)
 
         QUERY_FINISHED_COUNTER.labels(
             team_id=str(team_id or ""),

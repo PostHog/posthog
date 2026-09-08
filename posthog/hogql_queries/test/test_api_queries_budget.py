@@ -8,7 +8,7 @@ from parameterized import parameterized
 
 from posthog.schema import HogQLQuery
 
-from posthog.api_queries_budget import budget_spec_for, meter_query, refill_and_read
+from posthog.api_queries_budget import budget_spec_for, debit, refill_and_read
 from posthog.exceptions import APIQueriesBudgetExceeded
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import API_QUERIES_BUDGET_LIMITED_COUNTER, get_api_queries_budget_status
@@ -28,7 +28,7 @@ class TestApiQueriesBudgetEnforcement(BaseTest):
 
     def _drain(self) -> None:
         refill_and_read(str(self.team.pk), budget_spec_for(self.organization))
-        meter_query(str(self.organization.id), str(self.team.pk), 10_000)
+        debit(str(self.team.pk), 10_000)
 
     def test_status_reports_remaining_and_retry_after(self):
         self._drain()
