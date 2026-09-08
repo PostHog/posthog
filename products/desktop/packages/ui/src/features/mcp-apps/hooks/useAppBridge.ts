@@ -152,7 +152,6 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
     containerWidth: number;
   } | null>(null);
 
-  // Must sit above the lifecycle effect: its deps array reads these during render.
   const sendWhenReady = useCallback((fn: (bridge: AppBridge) => void) => {
     if (initializedRef.current && bridgeRef.current) {
       fn(bridgeRef.current);
