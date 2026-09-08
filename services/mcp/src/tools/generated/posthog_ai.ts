@@ -12,6 +12,29 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const AiUsageGetSchema = () => {
+    const AiUsageRetrieveQueryParams = orvalSchemas.AiUsageRetrieveQueryParams()
+    return AiUsageRetrieveQueryParams
+}
+
+const aiUsageGet = (): ToolBase<ReturnType<typeof AiUsageGetSchema>, Schemas.AIUsageResponse> => ({
+    name: 'ai-usage-get',
+    schema: AiUsageGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AiUsageGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AIUsageResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/ai_usage/`,
+            query: {
+                conversation_id: params.conversation_id,
+                conversation_started_at: params.conversation_started_at,
+                product: params.product,
+            },
+        })
+        return result
+    },
+})
+
 const ConversationsListSchema = () => {
     const ConversationsListQueryParams = orvalSchemas.ConversationsListQueryParams()
     return ConversationsListQueryParams
@@ -97,6 +120,7 @@ const conversationsRetrieve = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'ai-usage-get': aiUsageGet,
     'conversations-list': conversationsList,
     'conversations-retrieve': conversationsRetrieve,
 }

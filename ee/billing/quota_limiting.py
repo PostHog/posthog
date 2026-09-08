@@ -167,6 +167,29 @@ INFORMATIONAL_USAGE_RESOURCES = (
     "sandbox_compute_cpu_millicore_seconds",
     "sandbox_compute_memory_mib_seconds",
 )
+
+
+def resource_usage(summary: Mapping[str, Any] | None) -> float | None:
+    """usage + todays_usage, the sum the quota limiter compares against the limit.
+
+    None rather than 0 when billing has never synced the resource, so clients read
+    it as unknown, not "$0 spent". The `limited` boolean stays authoritative for
+    gating; grace periods and refund offsets live only in that limiting decision.
+    """
+    if not summary:
+        return None
+    usage = summary.get("usage")
+    todays_usage = summary.get("todays_usage")
+    if usage is None and todays_usage is None:
+        return None
+    return (usage or 0) + (todays_usage or 0)
+
+
+def organization_resource_usage(organization: Organization, resource: QuotaResource) -> float | None:
+    """What the organization has spent of one resource this billing period."""
+    return resource_usage((organization.usage or {}).get(resource.value))
+
+
 # -------------------------------------------------------------------------------------------------
 # REDIS FUNCTIONS
 # -------------------------------------------------------------------------------------------------

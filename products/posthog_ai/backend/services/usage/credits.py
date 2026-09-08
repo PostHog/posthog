@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID
@@ -41,12 +41,25 @@ CH_BILLING_SETTINGS = {
 }
 
 
-@dataclass(frozen=True)
+@frozen
 class AiUsagePeriod:
     label: str
     start: datetime
     end: datetime
     query_start: datetime
+
+
+@frozen
+class ProductUsage:
+    """Credits one product spent over the reported period.
+
+    `separate_bucket` marks a product billed against its own credit counter rather than the
+    PostHog AI one, so the message can say the number sits outside the total above it.
+    """
+
+    label: str
+    credits: int
+    separate_bucket: bool
 
 
 def _get_billing_config_payload() -> dict | None:
@@ -141,9 +154,13 @@ def get_ai_credits(
     begin: datetime,
     end: datetime,
     conversation_id: Optional[UUID] = None,
+    ai_products: Sequence[str] = POSTHOG_AI_PRODUCTS,
 ) -> int:
     """
     Calculate AI credits used for a specific team (and optionally a specific conversation) in the given time period.
+
+    `ai_products` narrows the count to one of the products that roll into the PostHog AI credit
+    bucket, for a caller reporting what a single product spent.
     """
     # Depending on the region, events are stored in different teams
     # Default to EU (team_id 1) for local dev or unknown regions
@@ -281,7 +298,7 @@ def get_ai_credits(
             "end": end,
             "markup_multiplier": 1 + AI_COST_MARKUP_PERCENT,
             "excluded_tools": AI_BILLING_EXCLUDED_TOOLS,
-            "ai_products": tuple(POSTHOG_AI_PRODUCTS),
+            "ai_products": tuple(ai_products),
             **region_filter_params,
         }
 
@@ -401,11 +418,12 @@ def get_ai_usage_period(team: "Team", billing_context: MaxBillingContext | dict[
 
 
 def format_usage_message(
-    conversation_credits: int,
+    conversation_credits: Optional[int],
     period_credits: int,
     free_tier_credits: int,
     conversation_start: Optional[datetime] = None,
     usage_period: Optional[AiUsagePeriod] = None,
+    product_usage: Optional[ProductUsage] = None,
 ) -> str:
     """
     Format the usage information into a user-friendly message with a compact layout
@@ -441,7 +459,13 @@ def format_usage_message(
     if ga_cap_active:
         period_label += f" (since {ga_launch_date.strftime('%Y-%m-%d')})"
 
-    lines.append(f"**Current conversation**: {conversation_credits:,} credits\n")
+    # A surface with no conversation in scope, such as a Slack channel command, omits the row
+    # rather than reporting a conversation that spent nothing.
+    if conversation_credits is not None:
+        lines.append(f"**Current conversation**: {conversation_credits:,} credits\n")
+    if product_usage:
+        period_phrase = "this billing period" if usage_period.label == "Billing period" else "in the past 30 days"
+        lines.append(f"**{product_usage.label} {period_phrase}**: {product_usage.credits:,} credits\n")
     lines.append(f"{period_label}: {period_credits:,} credits\n")
     lines.append(f"**Free tier limit**: {free_tier_credits:,} credits\n")
 
@@ -466,14 +490,19 @@ def format_usage_message(
 
     lines.append("")
     if usage_period.label == "Billing period":
-        lines.append(
-            "_Current conversation resets when you start a new chat; billing period usage resets at the end of this billing period._"
-        )
+        period_note = "billing period usage resets at the end of this billing period."
     else:
-        lines.append(
-            "_Current conversation resets when you start a new chat; past 30 days is rolling usage for this project because billing period information is unavailable._"
+        period_note = (
+            "past 30 days is rolling usage for this project because billing period information is unavailable."
         )
+    if conversation_credits is not None:
+        lines.append(f"_Current conversation resets when you start a new chat; {period_note}_")
+    else:
+        lines.append(f"_{period_note[0].upper()}{period_note[1:]}_")
     lines.append("_Note: Usage data depends on AI trace ingestion and may lag slightly behind real-time activity._")
+
+    if product_usage and product_usage.separate_bucket:
+        lines.append(f"_{product_usage.label} credits are billed separately from PostHog AI credits._")
 
     # Add GA cap explanation if active
     if ga_cap_active:

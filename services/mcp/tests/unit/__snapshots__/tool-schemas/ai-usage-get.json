@@ -1,0 +1,21 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "conversation_id": {
+            "description": "The conversation to report on, which is the `$ai_session_id` its generations carry: the Max conversation for a chat, the task for an agent run. Omitted, the report covers the team only.",
+            "type": "string"
+        },
+        "conversation_started_at": {
+            "description": "When the conversation started. Only a Max conversation can be looked up here, so a caller that knows its own start time passes it; without one the reported period bounds the search and a conversation older than the period is undercounted.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+        },
+        "product": {
+            "description": "The `ai_product` of the calling surface, e.g. `slack_app` or `posthog_code`. Adds a row for what that product alone spent. A product with no credit counter is reported as null.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "type": "object"
+}
