@@ -27,7 +27,7 @@ class ComparableSeries:
     is_current_interval: bool = False  # anchor is the ongoing (incomplete) interval — affects breach wording
 
 
-@dataclass
+@dataclass(frozen=False)
 class ExtractionResult:
     """Everything the comparator needs from an extractor, so the dispatcher stays kind-agnostic.
 
