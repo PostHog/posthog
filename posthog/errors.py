@@ -382,7 +382,12 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     15: ErrorCodeMeta("DUPLICATE_COLUMN"),
     16: ErrorCodeMeta("NO_SUCH_COLUMN_IN_TABLE"),
     19: ErrorCodeMeta("SIZE_OF_FIXED_STRING_DOESNT_MATCH"),
-    20: ErrorCodeMeta("NUMBER_OF_COLUMNS_DOESNT_MATCH"),
+    # Fixed message: the raw CH text quotes the generated SQL fragment and internal table
+    # aliases, which explain nothing to the author of the query that caused it.
+    20: ErrorCodeMeta(
+        "NUMBER_OF_COLUMNS_DOESNT_MATCH",
+        user_safe="A subquery returns the wrong number of columns. Select one column in a subquery that you compare with IN, or that you use where the query expects a single value.",
+    ),
     23: ErrorCodeMeta("CANNOT_READ_FROM_ISTREAM"),
     24: ErrorCodeMeta("CANNOT_WRITE_TO_OSTREAM"),
     25: ErrorCodeMeta("CANNOT_PARSE_ESCAPE_SEQUENCE"),

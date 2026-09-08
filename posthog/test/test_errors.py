@@ -40,9 +40,16 @@ class TestWrapClickhouseQueryError:
 
     @parameterized.expand(
         [
-            # These are exposed but their raw CH message embeds a per-row data value, so they carry a
-            # fixed user_safe string. The assertion guards against a revert to user_safe=True, which
-            # would pass the raw ClickHouse text (and the source value) straight through.
+            # These are exposed but their raw CH message is unsafe or unhelpful: it embeds a per-row
+            # data value, or it quotes the generated SQL. So they carry a fixed user_safe string. The
+            # assertion guards against a revert to user_safe=True, which would pass the raw
+            # ClickHouse text straight through.
+            (
+                20,
+                "NUMBER_OF_COLUMNS_DOESNT_MATCH",
+                "A subquery returns the wrong number of columns. Select one column in a subquery that you compare "
+                "with IN, or that you use where the query expects a single value.",
+            ),
             (69, "ARGUMENT_OUT_OF_BOUND", "An argument is out of bounds."),
             (
                 70,
