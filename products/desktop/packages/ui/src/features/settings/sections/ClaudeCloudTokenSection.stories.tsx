@@ -12,7 +12,7 @@ import { ClaudeCloudTokenSection } from "./ClaudeCloudTokenSection";
 const meta: Meta<typeof ClaudeCloudTokenSection> = {
   title: "Settings/ClaudeCloudTokenSection",
   component: ClaudeCloudTokenSection,
-  args: { cloudSubscriptionOn: false },
+  args: { cloudSubscriptionOn: false, onCreateToken: () => {} },
   decorators: [
     (Story, context) => {
       const { container, queryClient } = useMemo(() => {

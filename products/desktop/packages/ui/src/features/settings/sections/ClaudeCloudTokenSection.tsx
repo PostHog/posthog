@@ -8,7 +8,6 @@ import {
   isValidClaudeSetupToken,
 } from "@posthog/ui/features/settings/claudeSubscriptionTokenSettings";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
-import { CopyButton } from "@posthog/ui/primitives/CopyButton";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -16,10 +15,12 @@ import { type ReactElement, useId, useState } from "react";
 
 interface ClaudeCloudTokenSectionProps {
   cloudSubscriptionOn: boolean;
+  onCreateToken: () => void;
 }
 
 export function ClaudeCloudTokenSection({
   cloudSubscriptionOn,
+  onCreateToken,
 }: ClaudeCloudTokenSectionProps): ReactElement | null {
   const tokenStore = useServiceOptional<ClaudeSubscriptionTokenSettings>(
     CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
@@ -108,8 +109,7 @@ export function ClaudeCloudTokenSection({
         />
       </div>
       <span className="text-muted-foreground text-xs">
-        Keep Desktop open when cloud tasks start or resume. PostHog still bills
-        for compute.
+        Keep Desktop open to start or resume. Compute is billed separately.
       </span>
       {tokenQuery.isPending ? (
         <output className="text-muted-foreground text-xs">
@@ -180,30 +180,31 @@ export function ClaudeCloudTokenSection({
           )}
         </div>
       ) : (
-        <div className="flex flex-col gap-2">
-          {replacingToken ? (
+        <div className="flex flex-col gap-3 rounded-md border border-border p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-muted-foreground text-xs">
-              Your saved token is kept until you save a new one.
+              Create a token, then paste it below.
             </span>
-          ) : null}
-          <div className="text-muted-foreground text-xs">
-            Run{" "}
-            <span className="inline-flex items-center gap-1">
-              <code>claude setup-token</code>
-              <CopyButton bare text="claude setup-token" label="Copy command" />
-            </span>{" "}
-            in your terminal. Copy the token, then paste it here.
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onCreateToken}
+              disabled={!!pendingAction}
+            >
+              Create token
+            </Button>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Input
               type="password"
               autoComplete="off"
-              placeholder="sk-ant-oat01-…"
+              placeholder="Paste your Claude token"
               aria-label="Claude setup token"
               aria-invalid={validationError ? true : undefined}
               aria-describedby={validationError ? validationErrorId : undefined}
               data-attr="claude-cloud-subscription-token"
-              className="h-7 w-48 max-w-full text-xs"
+              className="h-7 min-w-40 flex-1 text-xs"
               value={tokenDraft}
               onChange={(event) => {
                 setTokenDraft(event.currentTarget.value.replace(/\s/g, ""));
@@ -213,7 +214,7 @@ export function ClaudeCloudTokenSection({
             />
             <Button
               type="button"
-              variant="outline"
+              variant="primary"
               size="sm"
               data-attr="claude-cloud-token-save"
               onClick={() => void saveToken()}
@@ -248,7 +249,7 @@ export function ClaudeCloudTokenSection({
             </span>
           ) : null}
           <span className="text-muted-foreground text-xs">
-            Your token is encrypted on this device and sent to your cloud tasks.
+            Protected by your system key store. Used only for your cloud tasks.
           </span>
         </div>
       )}

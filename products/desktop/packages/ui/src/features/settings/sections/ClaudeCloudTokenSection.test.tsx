@@ -31,6 +31,8 @@ vi.mock("@posthog/ui/shell/analytics", () => ({ track }));
 
 import { ClaudeCloudTokenSection } from "./ClaudeCloudTokenSection";
 
+const onCreateToken = vi.fn();
+
 const VALID_TOKEN = "sk-ant-oat01-fake-test-token-00000000000000";
 
 function renderSection(cloudSubscriptionOn = false): ReturnType<typeof render> {
@@ -48,7 +50,10 @@ function renderSection(cloudSubscriptionOn = false): ReturnType<typeof render> {
   return render(
     <ServiceProvider container={container}>
       <QueryClientProvider client={queryClient}>
-        <ClaudeCloudTokenSection cloudSubscriptionOn={cloudSubscriptionOn} />
+        <ClaudeCloudTokenSection
+          cloudSubscriptionOn={cloudSubscriptionOn}
+          onCreateToken={onCreateToken}
+        />
       </QueryClientProvider>
     </ServiceProvider>,
   );
@@ -106,8 +111,8 @@ describe("ClaudeCloudTokenSection", () => {
       }
 
       const input = await screen.findByLabelText("Claude setup token");
-      await user.click(screen.getByRole("button", { name: "Copy command" }));
-      expect(await navigator.clipboard.readText()).toBe("claude setup-token");
+      await user.click(screen.getByRole("button", { name: "Create token" }));
+      expect(onCreateToken).toHaveBeenCalledTimes(1);
       await user.click(input);
       await user.paste(pasted);
       await user.click(screen.getByRole("button", { name: "Save token" }));

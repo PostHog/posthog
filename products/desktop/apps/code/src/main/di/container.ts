@@ -165,7 +165,6 @@ import { authProxyModule } from "@posthog/workspace-server/services/auth-proxy/a
 import { AUTH_PROXY_AUTH } from "@posthog/workspace-server/services/auth-proxy/identifiers";
 import { browserTabsModule } from "@posthog/workspace-server/services/browser-tabs/browser-tabs.module";
 import { claudeCliSessionsModule } from "@posthog/workspace-server/services/claude-cli-sessions/claude-cli-sessions.module";
-import { CLAUDE_SUBSCRIPTION_TOKEN_STORE_KEY } from "@posthog/workspace-server/services/claude-subscription/identifiers";
 import { ConnectivityService } from "@posthog/workspace-server/services/connectivity/service";
 import { enrichmentModule } from "@posthog/workspace-server/services/enrichment/enrichment.module";
 import {
@@ -203,10 +202,7 @@ import { posthogPluginModule } from "@posthog/workspace-server/services/posthog-
 import { PROCESS_TRACKING_SERVICE } from "@posthog/workspace-server/services/process-tracking/identifiers";
 import { processTrackingModule } from "@posthog/workspace-server/services/process-tracking/process-tracking.module";
 import { releaseFeedModule } from "@posthog/workspace-server/services/release-feed/release-feed.module";
-import {
-  type ISecureStoreService,
-  SECURE_STORE_SERVICE,
-} from "@posthog/workspace-server/services/secure-store/identifiers";
+import { SECURE_STORE_SERVICE } from "@posthog/workspace-server/services/secure-store/identifiers";
 import { shellModule } from "@posthog/workspace-server/services/shell/shell.module";
 import { skillsModule } from "@posthog/workspace-server/services/skills/skills.module";
 import { skillsMarketplaceModule } from "@posthog/workspace-server/services/skills-marketplace/skills-marketplace.module";
@@ -244,6 +240,7 @@ import { ElectronAppLifecycle } from "../platform-adapters/electron-app-lifecycl
 import { ElectronAppMeta } from "../platform-adapters/electron-app-meta";
 import { ElectronAppMetrics } from "../platform-adapters/electron-app-metrics";
 import { ElectronBundledResources } from "../platform-adapters/electron-bundled-resources";
+import { ElectronClaudeSubscriptionTokenStore } from "../platform-adapters/electron-claude-subscription-token-store";
 import { ElectronClipboard } from "../platform-adapters/electron-clipboard";
 import { ElectronContextMenu } from "../platform-adapters/electron-context-menu";
 import { ElectronCrypto } from "../platform-adapters/electron-crypto";
@@ -643,28 +640,16 @@ container
   .inSingletonScope();
 container
   .bind(CLAUDE_SUBSCRIPTION_TOKEN_STORE)
-  .toDynamicValue((ctx) => {
-    const secureStore = ctx.get<ISecureStoreService>(SECURE_STORE_SERVICE);
-    return {
-      get: async () => secureStore.getItem(CLAUDE_SUBSCRIPTION_TOKEN_STORE_KEY),
-      save: async (token: string) => {
-        secureStore.setItem(CLAUDE_SUBSCRIPTION_TOKEN_STORE_KEY, token);
-        if (
-          secureStore.getItem(CLAUDE_SUBSCRIPTION_TOKEN_STORE_KEY) !== token
-        ) {
-          throw new Error("Could not save the Claude token. Try again.");
-        }
-      },
-      clear: async () => {
-        secureStore.removeItem(CLAUDE_SUBSCRIPTION_TOKEN_STORE_KEY);
-        if (secureStore.getItem(CLAUDE_SUBSCRIPTION_TOKEN_STORE_KEY) !== null) {
-          throw new Error("Could not remove the Claude token. Try again.");
-        }
-      },
-      has: async () =>
-        secureStore.getItem(CLAUDE_SUBSCRIPTION_TOKEN_STORE_KEY) !== null,
-    };
-  })
+  .toDynamicValue(
+    () =>
+      new ElectronClaudeSubscriptionTokenStore(
+        new ExternalAppsStoreImpl<Record<string, string>>({
+          name: "claude-subscription",
+          cwd: getUserDataDir(),
+          configFileMode: 0o600,
+        }),
+      ),
+  )
   .inSingletonScope();
 container.load(claudeCliSessionsModule);
 container.load(additionalDirectoriesModule);

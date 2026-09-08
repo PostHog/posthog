@@ -279,10 +279,16 @@ persisted, with caps and the no-secrets rule above.**
 
 The cloud subscription feature uses the same transport under `posthog-code-claude-own-subscription-cloud`.
 Keep the flag off until the backend and sandbox agent build are deployed.
-Desktop stores the token from `claude setup-token` in its encrypted local secure store.
-Users run the command in their own terminal, then paste the token into Cloud tasks in Settings.
+Desktop runs `claude setup-token` in the same terminal dialog used for local login.
+Users complete Claude's own login, copy the token, then paste it into Cloud tasks in Settings.
 The token field removes spaces and line breaks when users paste.
-The renderer can save, remove, and check for a token; only the main process reads it for relay.
+Desktop encrypts the token with Electron `safeStorage` and writes it to a separate file with owner-only permissions.
+On macOS, the Keychain protects the encryption key. The token itself is in the encrypted file, not a Keychain entry.
+Windows uses DPAPI. Linux uses the system secret store; Desktop rejects the `basic_text` fallback.
+If secure storage is not available, Desktop refuses to save or read the token.
+The renderer can save, remove, and check for a token. Its generic store API cannot read the saved token.
+Only the main process reads the saved token for relay.
+This protects stored data. It does not protect a token from a compromised app process or sandbox while the token is in use.
 
 A subscription run emits a `credential_request` before initializing Claude.
 Only the Desktop that explicitly starts or continues that run may answer it, scoped to the API host, project, task, and run.

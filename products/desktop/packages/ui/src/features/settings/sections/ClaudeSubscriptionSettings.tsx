@@ -166,7 +166,10 @@ export function ClaudeSubscriptionSettings(): ReactElement | null {
           </div>
         ) : null}
         {subscription.cloudFlagEnabled ? (
-          <ClaudeCloudTokenSection cloudSubscriptionOn={cloudSubscriptionOn} />
+          <ClaudeCloudTokenSection
+            cloudSubscriptionOn={cloudSubscriptionOn}
+            onCreateToken={() => setAuthAction("setup-token")}
+          />
         ) : null}
       </div>
       {authAction ? (
