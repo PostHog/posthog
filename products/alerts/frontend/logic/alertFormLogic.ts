@@ -255,6 +255,17 @@ function invalidatesForecastSimulation(name: FieldName): boolean {
     return field === 'forecast_config' || field === 'threshold' || field === 'config'
 }
 
+/** The inputs a forecast simulation is computed from. The form stays editable while the request
+ * runs, and the response echoes none of them back, so the loader compares this before and after. */
+function forecastSimulationInputs(alert: AlertFormType, simulationDateFrom: string | null): string {
+    return JSON.stringify([
+        alert.forecast_config,
+        alert.config,
+        alert.threshold,
+        simulationDateFrom ?? getDefaultSimulationRange(alert.calculation_interval),
+    ])
+}
+
 function alertToFormType(
     alert: AlertType,
     insightId: QueryBasedInsightModel['id'],
@@ -605,7 +616,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         return null
                     }
                     const formConfig = values.alertForm.config
-                    return await alertsSimulateForecastCreate(String(values.currentTeamId), {
+                    const requestedInputs = forecastSimulationInputs(values.alertForm, values.simulationDateFrom)
+                    const response = await alertsSimulateForecastCreate(String(values.currentTeamId), {
                         insight: props.insightId,
                         forecast_config: forecastConfig as unknown as ForecastConfigApi,
                         series_index: isTrendsAlertConfig(formConfig) ? formConfig.series_index : 0,
@@ -613,6 +625,11 @@ export const alertFormLogic = kea<alertFormLogicType>([
                             values.simulationDateFrom ??
                             getDefaultSimulationRange(values.alertForm.calculation_interval),
                     })
+                    // An edit during the request already cleared the preview, so a late response
+                    // must not put old forecast data back next to the new settings.
+                    return forecastSimulationInputs(values.alertForm, values.simulationDateFrom) === requestedInputs
+                        ? response
+                        : null
                 },
             },
         ],
