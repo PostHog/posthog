@@ -182,17 +182,17 @@ class TestScheduleStartTime:
             (
                 CalendarInterval.DAILY,
                 datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
-                datetime(2026, 3, 18, 9, 35, tzinfo=UTC),
+                datetime(2026, 3, 19, 9, 35, tzinfo=UTC),
             ),
             (
                 CalendarInterval.WEEKLY,
                 datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
-                datetime(2026, 3, 23, 9, 35, tzinfo=UTC),
+                datetime(2026, 3, 30, 9, 35, tzinfo=UTC),
             ),
             (
                 CalendarInterval.MONTHLY,
                 datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
-                datetime(2026, 4, 1, 9, 35, tzinfo=UTC),
+                datetime(2026, 5, 1, 9, 35, tzinfo=UTC),
             ),
         ]
     )

@@ -1267,6 +1267,37 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert response.json()["schedule_start_time"] == {"time": "08:35"}
         assert datetime.fromisoformat(response.json()["next_check_at"].replace("Z", "+00:00")) == scheduled_check
 
+    @freeze_time("2026-03-18T09:00:00Z")
+    def test_patch_schedule_start_time_with_schedule_restriction_keeps_the_current_next_check(self) -> None:
+        alert = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": self.insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "name": "scheduled alert",
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "calculation_interval": "hourly",
+                "schedule_start_time": {"time": "09:30"},
+            },
+            format="json",
+        ).json()
+        scheduled_check = datetime(2026, 3, 18, 10, 30, tzinfo=UTC)
+        AlertConfiguration.objects.filter(id=alert["id"]).update(next_check_at=scheduled_check)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}",
+            {
+                "schedule_start_time": {"time": "09:35"},
+                "schedule_restriction": {"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert datetime.fromisoformat(response.json()["next_check_at"].replace("Z", "+00:00")) == scheduled_check
+
     def test_create_alert_with_schedule_restriction(self) -> None:
         creation_request = {
             "insight": self.insight["id"],

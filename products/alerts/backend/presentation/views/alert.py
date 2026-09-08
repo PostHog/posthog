@@ -568,6 +568,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         )
         return threshold_instance
 
+    @transaction.atomic
     def create(self, validated_data: dict) -> AlertConfiguration:
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
@@ -603,6 +604,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
     @transaction.atomic
     def update(self, instance, validated_data):
+        instance = AlertConfiguration.objects.select_for_update().get(pk=instance.pk)
         enabled_changed = "enabled" in validated_data and validated_data["enabled"] != instance.enabled
         resulting_enabled = validated_data.get("enabled", instance.enabled)
         if enabled_changed and validated_data["enabled"]:
@@ -675,13 +677,16 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             )
 
         schedule_restriction_changed = False
+        schedule_start_time_changed = False
         if "schedule_restriction" in validated_data:
             new_sr = validated_data["schedule_restriction"]
             if new_sr != instance.schedule_restriction:
                 schedule_restriction_changed = True
+        if "schedule_start_time" in validated_data:
+            schedule_start_time_changed = validated_data["schedule_start_time"] != instance.schedule_start_time
 
         instance = super().update(instance, validated_data)
-        if schedule_restriction_changed:
+        if schedule_restriction_changed and not schedule_start_time_changed:
             instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
             instance.save(update_fields=["next_check_at"])
         instance.report_updated(

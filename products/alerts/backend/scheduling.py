@@ -177,22 +177,55 @@ def _next_check_at_for_schedule_start_time(
                 start_utc += timedelta(minutes=cadence_minutes)
             return start_utc
         case CalendarInterval.DAILY:
-            if start_utc <= now:
-                start_utc = _localize_wall_time(
-                    team_timezone, (start_local + timedelta(days=1)).replace(tzinfo=None)
-                ).astimezone(UTC)
-            return start_utc
+            return _next_calendar_schedule_start_time(
+                start_local,
+                now=now,
+                team_timezone=team_timezone,
+                next_check_at=next_check_at,
+                interval_delta=timedelta(days=1),
+            )
         case CalendarInterval.WEEKLY:
-            days_until_monday = (7 - start_local.weekday()) % 7
-            candidate_local = start_local + timedelta(days=days_until_monday)
-            if candidate_local <= local_now:
-                candidate_local += timedelta(days=7)
-            return _localize_wall_time(team_timezone, candidate_local.replace(tzinfo=None)).astimezone(UTC)
+            return _next_calendar_schedule_start_time(
+                start_local + timedelta(days=(7 - start_local.weekday()) % 7),
+                now=now,
+                team_timezone=team_timezone,
+                next_check_at=next_check_at,
+                interval_delta=timedelta(days=7),
+            )
         case CalendarInterval.MONTHLY:
-            candidate_local = start_local.replace(day=1)
-            if candidate_local <= local_now:
-                candidate_local = (candidate_local + relativedelta(months=1)).replace(day=1)
-            return _localize_wall_time(team_timezone, candidate_local.replace(tzinfo=None)).astimezone(UTC)
+            return _next_calendar_schedule_start_time(
+                start_local.replace(day=1),
+                now=now,
+                team_timezone=team_timezone,
+                next_check_at=next_check_at,
+                interval_delta=relativedelta(months=1),
+            )
+
+
+def _next_calendar_schedule_start_time(
+    first_candidate_local: datetime,
+    *,
+    now: datetime,
+    team_timezone: BaseTzInfo,
+    next_check_at: datetime | None,
+    interval_delta: timedelta | relativedelta,
+) -> datetime:
+    earliest_allowed = now
+    if next_check_at is not None:
+        earliest_allowed = max(
+            earliest_allowed,
+            _localize_wall_time(
+                team_timezone,
+                (next_check_at.astimezone(team_timezone) + interval_delta).replace(tzinfo=None),
+            ).astimezone(UTC),
+        )
+
+    candidate_local = first_candidate_local
+    candidate_utc = _localize_wall_time(team_timezone, candidate_local.replace(tzinfo=None)).astimezone(UTC)
+    while candidate_utc <= now or candidate_utc < earliest_allowed:
+        candidate_local += interval_delta
+        candidate_utc = _localize_wall_time(team_timezone, candidate_local.replace(tzinfo=None)).astimezone(UTC)
+    return candidate_utc
 
 
 def next_calendar_check_time(
