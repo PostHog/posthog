@@ -25,6 +25,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
@@ -262,6 +263,23 @@ export function ReplayScannersScene(): JSX.Element {
                 }
             />
 
+            {/* The scene title pins itself over anything that scrolls under it, so the tab row has to pin
+                too or it becomes unreachable. The banners sit below the row because they load
+                asynchronously, and above it they would move the row after the user has aimed at a tab. */}
+            <SceneStickyBar showBorderBottom={false}>
+                <LemonTabs
+                    activeKey={
+                        [ReplayScannerTab.Search, 'usage'].includes(searchParams.tab) ? searchParams.tab : 'scanners'
+                    }
+                    onChange={(tab) => push(urls.replayVision(), tab === 'scanners' ? {} : { tab })}
+                    tabs={[
+                        { key: 'scanners', label: 'Scanners', content: <></> },
+                        { key: ReplayScannerTab.Search, label: 'Search', content: <></> },
+                        { key: 'usage', label: 'Usage', content: <></> },
+                    ]}
+                />
+            </SceneStickyBar>
+
             <IngestionLimitBanner />
 
             {(scannerStats?.total ?? 0) - (scannerStats?.enabled ?? 0) > 0 && (
@@ -274,18 +292,6 @@ export function ReplayScannersScene(): JSX.Element {
                     in the docs, or check the Usage tab for current spend.
                 </LemonBanner>
             )}
-
-            <LemonTabs
-                activeKey={
-                    [ReplayScannerTab.Search, 'usage'].includes(searchParams.tab) ? searchParams.tab : 'scanners'
-                }
-                onChange={(tab) => push(urls.replayVision(), tab === 'scanners' ? {} : { tab })}
-                tabs={[
-                    { key: 'scanners', label: 'Scanners', content: <></> },
-                    { key: ReplayScannerTab.Search, label: 'Search', content: <></> },
-                    { key: 'usage', label: 'Usage', content: <></> },
-                ]}
-            />
 
             {searchParams.tab === ReplayScannerTab.Search ? (
                 <ObservationSearchTab scanner={null} />
