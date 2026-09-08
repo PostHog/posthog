@@ -2,7 +2,7 @@ import time
 import dataclasses
 
 from django.conf import settings
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 import structlog
 
@@ -102,23 +102,22 @@ class Command(BaseCommand):
             current_template_ids.add(default_dict["id"])
 
         # Process templates from Node.js
+        nodejs_error: str | None = None
         try:
             response = get_hog_function_templates()
-            if response.status_code == 200:
-                nodejs_templates_json = response.json()
-                for template_data in nodejs_templates_json:
-                    if not self.should_include_nodejs_template(template_data):
-                        continue
-
-                    all_templates.append(template_data)
-                    current_template_ids.add(template_data["id"])
-            else:
-                self.stdout.write(
-                    self.style.WARNING(f"Failed to fetch Node.js templates. Status code: {response.status_code}")
-                )
+            if response.status_code != 200:
                 raise Exception(f"Failed to fetch Node.js templates. Status code: {response.status_code}")
+
+            for template_data in response.json():
+                if not self.should_include_nodejs_template(template_data):
+                    continue
+
+                total_templates += 1
+                all_templates.append(template_data)
+                current_template_ids.add(template_data["id"])
         except Exception as e:
-            self.stdout.write(self.style.ERROR(f"Error fetching Node.js templates: {str(e)}"))
+            nodejs_error = str(e)
+            self.stdout.write(self.style.ERROR(f"Error fetching Node.js templates: {nodejs_error}"))
 
         for template_data in all_templates:
             try:
@@ -134,33 +133,43 @@ class Command(BaseCommand):
                     exc_info=True,
                 )
 
-        try:
-            existing_templates = HogFunctionTemplate.objects.values_list("template_id", flat=True).distinct()
+        # Every coming-soon template comes from the Node.js service. If that fetch failed,
+        # current_template_ids holds none of them, and the cleanup below would delete every
+        # coming-soon template in the database.
+        if nodejs_error:
+            self.stdout.write(
+                self.style.WARNING("Skipping cleanup of unused templates because the Node.js fetch failed")
+            )
+        else:
+            try:
+                existing_templates = HogFunctionTemplate.objects.values_list("template_id", flat=True).distinct()
 
-            candidates_for_deletion = {
-                tid for tid in existing_templates if tid.startswith("coming-soon-")
-            } - current_template_ids
+                candidates_for_deletion = {
+                    tid for tid in existing_templates if tid.startswith("coming-soon-")
+                } - current_template_ids
 
-            if candidates_for_deletion:
-                templates_to_delete = HogFunctionTemplate.objects.filter(template_id__in=candidates_for_deletion)
-                deleted_count += templates_to_delete.delete()[0]
+                if candidates_for_deletion:
+                    templates_to_delete = HogFunctionTemplate.objects.filter(template_id__in=candidates_for_deletion)
+                    deleted_count += templates_to_delete.delete()[0]
 
-                self.stdout.write(
-                    self.style.WARNING(
-                        f"Deleted {deleted_count} unused templates: {', '.join(candidates_for_deletion)}"
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f"Deleted {deleted_count} unused templates: {', '.join(candidates_for_deletion)}"
+                        )
                     )
-                )
-        except Exception as e:
-            logger.error("Error checking for unused templates", error=str(e), exc_info=True)
+            except Exception as e:
+                logger.error("Error checking for unused templates", error=str(e), exc_info=True)
 
         # Output summary
         duration = time.time() - start_time
-        self.stdout.write(
-            self.style.SUCCESS(
-                f"Hog function template sync complete in {duration:.2f}s. "
-                f"Templates: {total_templates}, "
-                f"Created or updated: {updated_count}, "
-                f"Deleted: {deleted_count}, "
-                f"Errors: {error_count}"
-            )
+        summary = (
+            f"Hog function template sync complete in {duration:.2f}s. "
+            f"Templates: {total_templates}, "
+            f"Created or updated: {updated_count}, "
+            f"Deleted: {deleted_count}, "
+            f"Errors: {error_count}"
         )
+        self.stdout.write(self.style.ERROR(summary) if nodejs_error else self.style.SUCCESS(summary))
+
+        if nodejs_error:
+            raise CommandError(f"Node.js templates were not synced: {nodejs_error}")
