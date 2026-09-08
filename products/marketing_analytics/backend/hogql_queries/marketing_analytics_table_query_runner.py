@@ -492,7 +492,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
     def _non_integrated_rows_excluded(self) -> bool:
         """True when the user cleared the filter's non-integrated option."""
         integration_filter = getattr(self.query, "integrationFilter", None)
-        return bool(integration_filter) and integration_filter.includeNonIntegrated is False
+        return integration_filter is not None and integration_filter.includeNonIntegrated is False
 
     def _build_order_by_exprs(self, select_columns: list[str]) -> list[ast.OrderExpr]:
         """Build ORDER BY expressions from query orderBy with proper null handling"""
