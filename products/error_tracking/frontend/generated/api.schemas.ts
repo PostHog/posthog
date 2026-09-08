@@ -1040,6 +1040,8 @@ export interface ErrorTrackingIssueMergeRequestApi {
 export interface ErrorTrackingIssueMergeResponseApi {
     /** Whether the merge completed successfully. */
     success: boolean
+    /** ID of the issue the other issues were merged into. This is the requested issue, unless that issue was merged away already, in which case it is one of the other requested issues. */
+    target_issue_id: string
 }
 
 export interface ErrorTrackingIssueSplitFingerprintApi {

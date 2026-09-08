@@ -387,19 +387,38 @@ class TestErrorTracking(APIBaseTest):
         assert not ErrorTrackingIssue.objects.filter(id=live_source.id).exists()
         assert ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fingerprint_live").issue_id == target.id
 
-    def test_issue_merge_returns_not_found_when_target_issue_is_stale(self):
-        target = self.create_issue(fingerprints=["fingerprint_target"])
-        source = self.create_issue(fingerprints=["fingerprint_source"])
-        ErrorTrackingIssue.objects.filter(id=target.id).delete()
+    def test_issue_merge_uses_a_live_issue_when_the_target_is_stale(self):
+        # The list reads from ClickHouse, so a user can still select an issue that Postgres deleted.
+        # The merge has to work on the rest of the selection, or every retry fails the same way.
+        stale_target = self.create_issue(fingerprints=["fingerprint_target"])
+        source_one = self.create_issue(fingerprints=["fingerprint_source_one"])
+        source_two = self.create_issue(fingerprints=["fingerprint_source_two"])
+        ErrorTrackingIssue.objects.filter(id=stale_target.id).delete()
 
         response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/issues/{target.id}/merge",
-            data={"ids": [source.id]},
+            f"/api/environments/{self.team.id}/error_tracking/issues/{stale_target.id}/merge",
+            data={"ids": [source_one.id, source_two.id]},
         )
 
-        assert response.status_code == 404
-        assert ErrorTrackingIssue.objects.filter(id=source.id).exists()
-        assert ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fingerprint_source").issue_id == source.id
+        assert response.status_code == 200, response.json()
+        assert response.json() == {"success": True, "target_issue_id": str(source_one.id)}
+        assert not ErrorTrackingIssue.objects.filter(id=source_two.id).exists()
+        assert (
+            ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fingerprint_source_two").issue_id == source_one.id
+        )
+
+    def test_issue_merge_reports_a_conflict_when_every_selected_issue_is_stale(self):
+        stale_target = self.create_issue(fingerprints=["fingerprint_target"])
+        stale_source = self.create_issue(fingerprints=["fingerprint_source"])
+        ErrorTrackingIssue.objects.filter(id__in=[stale_target.id, stale_source.id]).delete()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{stale_target.id}/merge",
+            data={"ids": [stale_source.id]},
+        )
+
+        assert response.status_code == 409
+        assert "merged already" in response.json()["detail"]
 
     def test_issue_merge_requires_ids(self):
         issue = self.create_issue(fingerprints=["fingerprint_one"])

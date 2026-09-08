@@ -10,13 +10,16 @@ from uuid import UUID
 
 from posthog.models.user import User
 
+from .. import models as _models
 from ..logic import issue_mutations as _mutations
-from ..models import ErrorTrackingIssueMergeResult
+from ..logic.issue_mutations import MergeIssuesOutcome
 from . import api, contracts
 
 CohortNotFoundError = _mutations.CohortNotFoundError
 AssigneeValidationError = _mutations.AssigneeValidationError
 InvalidIssueStatusError = _mutations.InvalidIssueStatusError
+MergeTargetsStaleError = _mutations.MergeTargetsStaleError
+ErrorTrackingIssueMergeResult = _models.ErrorTrackingIssueMergeResult
 
 
 def update_issue(
@@ -28,7 +31,7 @@ def update_issue(
 
 def merge_issues(
     team_id: int, issue_id: UUID, source_ids: list[str], *, user: User, was_impersonated: bool
-) -> ErrorTrackingIssueMergeResult:
+) -> MergeIssuesOutcome:
     return _mutations.merge_issues(team_id, issue_id, source_ids, user=user, was_impersonated=was_impersonated)
 
 

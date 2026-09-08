@@ -2,9 +2,11 @@ import { MakeLogicType, actions, kea, listeners, path, reducers } from 'kea'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { createCohortFormData } from 'scenes/cohorts/cohortUtils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -18,7 +20,7 @@ import type {
     ErrorTrackingIssueStatus,
     ErrorTrackingQueryIssueSeverity,
 } from '../../../../../frontend/src/queries/schema/schema-general'
-import { errorTrackingIssuesPartialUpdate } from '../../generated/api'
+import { errorTrackingIssuesMergeCreate, errorTrackingIssuesPartialUpdate } from '../../generated/api'
 import { pendingFingerprintIssueStateUpdateLogic } from '../../logics/pendingFingerprintIssueStateUpdateLogic'
 
 const pendingUpdateActions = ():
@@ -60,6 +62,15 @@ export interface issueActionsLogicActions {
     }
     mergeIssues: (ids: string[]) => {
         ids: string[]
+    }
+    mergeIssuesSuccess: (
+        primaryId: string,
+        targetId: string,
+        merged: boolean
+    ) => {
+        merged: boolean
+        primaryId: string
+        targetId: string
     }
     mutationFailure: (
         mutationName: string,
@@ -160,6 +171,11 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
         createIssueCohort: (id: string, name: string, description: string) => ({ id, name, description }),
 
         splitIssueSuccess: (newIssueIds: string[]) => ({ newIssueIds }),
+        mergeIssuesSuccess: (primaryId: string, targetId: string, merged: boolean) => ({
+            primaryId,
+            targetId,
+            merged,
+        }),
         mutationSuccess: (mutationName: string) => ({ mutationName }),
         mutationFailure: (mutationName: string, error: unknown) => ({ mutationName, error }),
         clearNeedsReload: true,
@@ -183,15 +199,15 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
     }),
 
     listeners(({ actions }) => {
-        async function runMutation(
+        async function runMutation<T>(
             mutationName: string,
-            cb: () => Promise<void>,
-            onSuccess?: () => Promise<void>
+            cb: () => Promise<T>,
+            onSuccess?: (result: T) => Promise<void>
         ): Promise<void> {
             try {
-                await cb()
+                const result = await cb()
                 if (onSuccess) {
-                    await onSuccess()
+                    await onSuccess(result)
                 }
                 actions.mutationSuccess(mutationName)
             } catch (e: unknown) {
@@ -206,9 +222,26 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                         'mergeIssues',
                         async () => {
                             posthog.capture('error_tracking_issue_merged', { primary: firstId })
-                            await api.errorTracking.mergeInto(firstId, otherIds)
+                            // The issues route is nested under team_id, so the path segment is the
+                            // active environment, not the project it belongs to.
+                            return await errorTrackingIssuesMergeCreate(
+                                String(teamLogic.values.currentTeamIdStrict),
+                                firstId,
+                                { ids: otherIds }
+                            )
                         },
-                        async () => pendingUpdateActions()?.captureMergePendingUpdates(firstId, otherIds)
+                        async ({ success, target_issue_id }) => {
+                            // The backend merges into another selected issue when the first one was
+                            // merged away already, so the overlay follows the issue it wrote into.
+                            const targetId = target_issue_id || firstId
+                            await pendingUpdateActions()?.captureMergePendingUpdates(
+                                targetId,
+                                ids.filter((id) => id !== targetId)
+                            )
+                            // Announced after the overlay, because a reload without it reads the
+                            // merged rows back out of ClickHouse.
+                            actions.mergeIssuesSuccess(firstId, targetId, success)
+                        }
                     )
                 }
             },
@@ -302,10 +335,44 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                 if (mutationName === 'updateIssueAssignee' || mutationName === 'assignIssues') {
                     tryShowMCPHint('error_tracking.assign')
                 }
+                // The cohort dialog cannot see whether the mutation failed, so it must not
+                // announce the cohort itself.
+                if (mutationName === 'createIssueCohort') {
+                    lemonToast.success('Cohort created')
+                }
+            },
+            mergeIssuesSuccess: ({ merged }) => {
+                if (!merged) {
+                    lemonToast.info('These issues were merged already. The list now shows the current issues.')
+                }
+            },
+            mutationFailure: ({ mutationName, error }) => {
+                lemonToast.error(mutationFailureMessage(mutationName, error))
             },
         }
     }),
 ])
+
+const MUTATION_FAILURE_MESSAGES: Record<string, string> = {
+    mergeIssues: 'Could not merge these issues.',
+    splitIssues: 'Could not unmerge this fingerprint.',
+    resolveIssues: 'Could not resolve these issues.',
+    suppressIssues: 'Could not suppress these issues.',
+    activateIssues: 'Could not activate these issues.',
+    assignIssues: 'Could not assign these issues.',
+    updateIssueAssignee: 'Could not assign this issue.',
+    updateIssueStatus: 'Could not update the status of this issue.',
+    updateIssueSeverity: 'Could not update the severity of this issue.',
+    updateIssueName: 'Could not rename this issue.',
+    updateIssueDescription: 'Could not update the description of this issue.',
+    createIssueCohort: 'Could not create a cohort for this issue.',
+}
+
+function mutationFailureMessage(mutationName: string, error: unknown): string {
+    const failed = MUTATION_FAILURE_MESSAGES[mutationName] ?? 'Could not update these issues.'
+    const detail = error instanceof ApiError ? error.detail : null
+    return detail ? `${failed} ${detail}` : `${failed} Try again, and if it keeps happening contact support.`
+}
 
 function createCohortParams(name: string, description: string, issueId: string): CohortType {
     return {
