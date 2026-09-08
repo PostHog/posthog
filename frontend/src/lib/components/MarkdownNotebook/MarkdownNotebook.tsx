@@ -5053,9 +5053,21 @@ function MarkdownNotebookEditor({
         const nodes = documentRef.current.nodes
         const activeElement = window.document.activeElement
         if (activeElement instanceof HTMLElement) {
-            const focusedNode = nodes.find((node) => blockRefs.current[node.id] === activeElement)
-            if (focusedNode) {
-                return focusedNode.id
+            const nodeIdsByElement = new Map<HTMLElement, string>()
+            for (const node of nodes) {
+                const blockElement = blockRefs.current[node.id]
+                if (blockElement) {
+                    nodeIdsByElement.set(blockElement, node.id)
+                }
+            }
+
+            // Focus often sits on a control inside the block rather than on the block itself, such as
+            // a cell's Run button, so the owning block is the nearest one above the focused element.
+            for (let element: HTMLElement | null = activeElement; element; element = element.parentElement) {
+                const focusedNodeId = nodeIdsByElement.get(element)
+                if (focusedNodeId) {
+                    return focusedNodeId
+                }
             }
         }
 

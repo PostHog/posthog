@@ -477,6 +477,34 @@ function createTouchList(touches: Touch[]): TouchList {
 }
 
 describe('MarkdownNotebook', () => {
+    it('moves a component block whose own control holds focus', () => {
+        // A cell's Run button takes focus on click, so the block element itself is not the active
+        // element. Resolving only exact matches moved whatever block still held the caret.
+        const onChange = jest.fn()
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Embed',
+                label: 'Embed',
+                category: 'Media',
+                ViewComponent: () => createElement('button', { type: 'button', 'data-attr': 'embed-run' }, 'Run'),
+            },
+        ])
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('First\n\n<Embed url="https://posthog.com" />'),
+                onChange,
+                registry,
+            })
+        )
+
+        const embedControl = container.querySelector('[data-attr="embed-run"]') as HTMLButtonElement
+        embedControl.focus()
+
+        fireEvent.keyDown(embedControl, { key: 'ArrowUp', altKey: true })
+
+        expect(onChange).toHaveBeenLastCalledWith(withNotebookTitle('<Embed url="https://posthog.com" />\n\nFirst'))
+    })
+
     it('moves the focused block past its neighbour with Alt+Up and Alt+Down', () => {
         const onChange = jest.fn()
         const { container } = render(
