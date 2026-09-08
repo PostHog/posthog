@@ -213,6 +213,17 @@ export function truncateBridgedContent(
   });
 }
 
+/**
+ * Structured fields of a `tools/call` result that pi never surfaces to the
+ * model, but a host UI needs: an inline UI app rides its payload on
+ * `structuredContent` and `_meta` (see the MCP `ui` extension). Callers put
+ * them on the tool result's `details`, which stay out of the model context.
+ */
+export interface McpResultMeta {
+  structuredContent?: Record<string, unknown>;
+  _meta?: Record<string, unknown>;
+}
+
 export async function invokeTool(
   client: Client,
   serverName: string,
@@ -220,7 +231,7 @@ export async function invokeTool(
   args: Record<string, unknown>,
   timeoutMs: number,
   signal?: AbortSignal,
-): Promise<{ content: BridgedContent[] }> {
+): Promise<{ content: BridgedContent[] } & McpResultMeta> {
   if (signal?.aborted) {
     return { content: [{ type: "text", text: "Cancelled" }] };
   }
@@ -244,7 +255,15 @@ export async function invokeTool(
       throw new McpError(text || "Tool reported an error", serverName, "tool");
     }
 
-    return { content };
+    return {
+      content,
+      ...(result.structuredContent !== undefined && {
+        structuredContent: result.structuredContent as Record<string, unknown>,
+      }),
+      ...(result._meta !== undefined && {
+        _meta: result._meta as Record<string, unknown>,
+      }),
+    };
   } catch (err) {
     if (err instanceof McpError) throw err;
     throw new McpError(
@@ -541,7 +560,7 @@ export class ToolBridge {
 
       async execute(_toolCallId, params, signal) {
         onToolUsed?.(serverName);
-        const { content } = await invokeTool(
+        const { content, structuredContent, _meta } = await invokeTool(
           client,
           serverName,
           tool.name,
@@ -552,7 +571,22 @@ export class ToolBridge {
         return {
           content,
           details: {
-            posthog: { mcp: { server: serverName, tool: tool.name } },
+            posthog: {
+              mcp: {
+                server: serverName,
+                tool: tool.name,
+                ...(structuredContent !== undefined || _meta !== undefined
+                  ? {
+                      result: {
+                        ...(structuredContent !== undefined && {
+                          structuredContent,
+                        }),
+                        ...(_meta !== undefined && { _meta }),
+                      },
+                    }
+                  : {}),
+              },
+            },
           },
         };
       },

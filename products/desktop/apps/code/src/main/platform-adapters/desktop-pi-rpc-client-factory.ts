@@ -9,15 +9,21 @@ import {
 import type { TaskContext } from "@posthog/agent/pi/task-system-prompt";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
-import { type CloudRegion, getCloudUrlFromRegion } from "@posthog/shared";
+import {
+  type CloudRegion,
+  getCloudUrlFromRegion,
+  type McpServerConnection,
+} from "@posthog/shared";
 import { buildPosthogScopedPropertyHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import { prepareContextWiki } from "@posthog/workspace-server/services/agent/context-wiki";
 import {
   AGENT_AUTH,
+  AGENT_MCP_APPS,
   MCP_SERVER_CONNECTION_SOURCE,
 } from "@posthog/workspace-server/services/agent/identifiers";
 import type {
   AgentAuth,
+  AgentMcpApps,
   McpServerConnectionSource,
 } from "@posthog/workspace-server/services/agent/ports";
 import type { AuthProxyService } from "@posthog/workspace-server/services/auth-proxy/auth-proxy";
@@ -35,6 +41,7 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
     private readonly authProxy: AuthProxyService,
     @inject(MCP_SERVER_CONNECTION_SOURCE)
     private readonly mcpServerSource: McpServerConnectionSource,
+    @inject(AGENT_MCP_APPS) private readonly mcpApps: AgentMcpApps,
     @inject(ROOT_LOGGER) private readonly rootLogger: RootLogger,
   ) {}
 
@@ -67,6 +74,7 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
       ...createRuntimeMcpServers(mcpConfiguration.servers),
       ...createLocalRuntimeMcpServers(input.taskContext.cwd),
     };
+    this.registerMcpAppsServers(mcpConfiguration.servers);
     const taskContext: TaskContext = {
       projectId,
       apiHost: access.apiHost,
@@ -94,6 +102,36 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
       extensions: ["context-wiki"],
       contextWikiPath,
     });
+  }
+
+  /**
+   * Pi sessions don't go through AgentService, so nothing registers the MCP
+   * server configs with the MCP Apps service. A tool result that carries a
+   * UI resource then fails with "No server config for: posthog" and the
+   * interactive view never renders. Register the same server list the
+   * session connects to, then run discovery so the exec tool definition and
+   * tool-to-UI associations resolve. Best-effort: failures log and the
+   * session still starts, with tool results rendered as text.
+   */
+  private registerMcpAppsServers(servers: McpServerConnection[]): void {
+    this.mcpApps.addServerConfigs(
+      servers.map((server) => ({
+        name: server.name,
+        url: server.url,
+        headers: Object.fromEntries(
+          (server.headers ?? []).map((header) => [header.name, header.value]),
+        ),
+      })),
+    );
+    this.mcpApps
+      .handleDiscovery(servers.map((server) => server.name))
+      .catch((err) => {
+        this.rootLogger
+          .scope("pi-mcp-apps")
+          .warn("MCP Apps discovery failed for a Pi session", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+      });
   }
 
   /**

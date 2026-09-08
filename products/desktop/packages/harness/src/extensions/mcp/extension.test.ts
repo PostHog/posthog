@@ -23,7 +23,10 @@ interface RegisteredTool {
     toolCallId: string,
     params: unknown,
     signal?: AbortSignal,
-  ) => Promise<{ content: Array<{ type: string; text?: string }> }>;
+  ) => Promise<{
+    content: Array<{ type: string; text?: string }>;
+    details?: unknown;
+  }>;
 }
 
 function fakePi() {
@@ -203,6 +206,51 @@ describe("createMcpExtension", () => {
 
     await emit("session_shutdown", { reason: "quit" }, ctx);
     expect(getActive()).not.toContain("mcp_demo_echo");
+    await mock.close();
+  });
+
+  it("forwards a directly-registered tool's structured fields on details (regression)", async () => {
+    const UI_TOOL = {
+      name: "exec",
+      description: "Run a PostHog tool",
+      inputSchema: {
+        type: "object",
+        properties: { command: { type: "string" } },
+      },
+      handler: () => ({
+        content: [
+          { type: "text", text: "Full result is in structuredContent." },
+        ],
+        structuredContent: { results: [7] },
+        _meta: { ui: { resourceUri: "ui://posthog/analytics" } },
+      }),
+    };
+    const mock = createMockMcpServer([UI_TOOL]);
+    const { emit, tools } = setup({ mock });
+    const { ctx } = fakeCtx();
+
+    await emit("session_start", { reason: "startup" }, ctx);
+
+    const result = await tools.get("mcp_demo_exec")?.execute("id-1", {
+      command: "tools",
+    });
+    expect(result?.content).toEqual([
+      { type: "text", text: "Full result is in structuredContent." },
+    ]);
+    expect(result?.details).toEqual({
+      posthog: {
+        mcp: {
+          server: "demo",
+          tool: "exec",
+          result: {
+            structuredContent: { results: [7] },
+            _meta: { ui: { resourceUri: "ui://posthog/analytics" } },
+          },
+        },
+      },
+    });
+
+    await emit("session_shutdown", { reason: "quit" }, ctx);
     await mock.close();
   });
 
