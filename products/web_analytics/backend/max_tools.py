@@ -153,11 +153,14 @@ class WebAnalyticsFilterNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgent
         return AssistantNodeName.WEB_ANALYTICS_FILTER
 
     def _filter_properties_by_type(self, property_group: str) -> list[tuple[str, str]]:
-        """Extract properties from CORE_FILTER_DEFINITIONS_BY_GROUP for a given property group."""
+        """Extract properties from CORE_FILTER_DEFINITIONS_BY_GROUP for a given property group.
+
+        Properties without an explicit `type` are included with a default of "String"
+        so they reach the assistant's system prompt instead of being silently dropped.
+        """
         return [
-            (prop_name, prop["type"])
+            (prop_name, prop.get("type") or "String")
             for prop_name, prop in CORE_FILTER_DEFINITIONS_BY_GROUP.get(property_group, {}).items()
-            if prop.get("type") is not None
         ]
 
     def _get_system_prompt(self) -> ChatPromptTemplate:
