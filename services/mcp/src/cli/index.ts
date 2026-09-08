@@ -69,6 +69,10 @@ function printResult(result: unknown): void {
 
 function buildStaticExec(): BuiltStaticExec {
     const tools = getCliTools()
+    // `tools`, `search`, `info`, and `schema` all run here rather than on `buildExec`, and this
+    // builder has no context to capture through. Pass the descriptor without a reporter: the
+    // discovery verbs can describe the tool, and `call` still leaves the name unknown here.
+    const virtualTool = missingCapabilityDescriptor(getPostHogClient())
     const execTool = createExecTool(
         tools,
         undefined,
@@ -77,7 +81,10 @@ function buildStaticExec(): BuiltStaticExec {
         'posthog-cli',
         undefined,
         [],
-        { requireDestructiveConfirmation: true }
+        {
+            requireDestructiveConfirmation: true,
+            ...(virtualTool ? { missingCapability: { descriptor: virtualTool } } : {}),
+        }
     )
 
     return { execTool, tools }
@@ -86,7 +93,7 @@ function buildStaticExec(): BuiltStaticExec {
 async function buildExec(config: CliConfig = resolveCliConfig()): Promise<BuiltExec> {
     const context = await buildCliContext(config)
     // The CLI serves no `tools/list`, so `exec` is the only place the SDK's virtual tool can
-    // be reached here.
+    // be reached here. This builder serves `call`, so it also carries the reporter.
     const virtualTool = missingCapabilityDescriptor(getPostHogClient())
     const aiConsentGiven = await context.stateManager.getAiConsentGiven()
     const tools = getCliTools({ aiConsentGiven })

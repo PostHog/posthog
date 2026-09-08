@@ -8,6 +8,7 @@ import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import { ExecCommandError, findRecoverableApiError, PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
+import type { MissingCapabilityDescriptor } from '@/lib/posthog/analytics'
 import { formatResponse } from '@/lib/response'
 
 import type { ExecHelpCatalog } from './exec-help'
@@ -117,18 +118,6 @@ export interface ExecCommandMeta {
 
 export type ExecCommandTracker = (meta: ExecCommandMeta) => void
 
-/**
- * The analytics SDK's descriptor for its virtual tool, in the shape `tools/list` carries it.
- * Declared structurally rather than imported, so `exec` stays independent of the SDK and of
- * whichever runtime holds the client.
- */
-export type MissingCapabilityDescriptor = {
-    name: string
-    description?: string
-    inputSchema?: { type?: string; properties?: Record<string, unknown>; required?: string[] }
-    annotations?: Record<string, unknown> & { title?: string }
-}
-
 export interface ExecToolOptions {
     requireDestructiveConfirmation?: boolean
     helpCatalog?: ExecHelpCatalog
@@ -166,8 +155,13 @@ export interface ExecToolOptions {
          * exactly the name and input schema that `tools/list` advertised.
          */
         descriptor: MissingCapabilityDescriptor
-        /** Records the agent's description of the gap. */
-        report: (context: string) => void
+        /**
+         * Records the agent's description of the gap. Absent on a runtime that can describe the
+         * tool but cannot capture — the CLI's unauthenticated static exec, which serves the
+         * discovery verbs. `call` then leaves the name unknown rather than accepting a report it
+         * would silently drop.
+         */
+        report?: (context: string) => void
     }
 }
 
@@ -857,10 +851,7 @@ function stripOutputFormatProperty(jsonSchema: Record<string, unknown>): Record<
  * gets the same usage error a real tool would raise for a missing required field, because a
  * blank report cannot be read on the missing-capabilities feed.
  */
-function handleMissingCapabilityCall(
-    missingCapability: NonNullable<ExecToolOptions['missingCapability']>,
-    jsonBody: string
-): string {
+function handleMissingCapabilityCall(toolName: string, report: (context: string) => void, jsonBody: string): string {
     let input: Record<string, unknown> | null
     try {
         input = jsonBody ? (JSON.parse(jsonBody) as Record<string, unknown> | null) : {}
@@ -872,12 +863,12 @@ function handleMissingCapabilityCall(
     const context = typeof input?.context === 'string' ? input.context.trim() : ''
     if (!context) {
         throw new ExecCommandError(
-            `Usage: call ${missingCapability.descriptor.name} {"context": "<what you wanted to do and could not>"}`,
+            `Usage: call ${toolName} {"context": "<what you wanted to do and could not>"}`,
             'usage'
         )
     }
 
-    missingCapability.report(context)
+    report(context)
     // The SDK returns MCP content blocks; exec answers with a plain string.
     return getMoreToolsResult()
         .content.map((block) => block.text)
@@ -885,21 +876,20 @@ function handleMissingCapabilityCall(
 }
 
 /**
- * Renders the SDK's descriptor in the shape `info` uses for a catalog tool. The virtual tool
- * reaches no roster, so without this `info` would reject the name `tools/list` just advertised
- * while `call` accepted it.
+ * The SDK's virtual tool when `name` is the one it advertises, for the verbs that only describe
+ * a tool. Those need the descriptor alone; `call` additionally needs a reporter, so it gates on
+ * that instead.
  */
-function describeMissingCapabilityTool(descriptor: MissingCapabilityDescriptor, forceJson: boolean): string {
-    const topShape = {
-        name: descriptor.name,
-        title: descriptor.annotations?.title,
-        description: descriptor.description,
-        annotations: descriptor.annotations,
-    }
-    if (forceJson) {
-        return JSON.stringify({ ...topShape, inputSchema: descriptor.inputSchema })
-    }
-    return stringifyYaml({ ...topShape, inputSchema: JSON.stringify(descriptor.inputSchema) }, { lineWidth: 0 })
+function resolveVirtualTool(
+    missingCapability: ExecToolOptions['missingCapability'],
+    name: string
+): MissingCapabilityDescriptor | undefined {
+    return missingCapability && name === missingCapability.descriptor.name ? missingCapability.descriptor : undefined
+}
+
+/** The descriptor's JSON Schema, in the shape the schema helpers expect. */
+function virtualInputSchema(descriptor: MissingCapabilityDescriptor): Record<string, unknown> {
+    return (descriptor.inputSchema ?? { type: 'object', properties: {} }) as Record<string, unknown>
 }
 
 /** A lowercase hyphenated token, the shape every name in the tool catalog takes. */
@@ -1166,19 +1156,23 @@ export function createExecTool(
                     if (!infoArgs) {
                         throw new ExecCommandError('Usage: info [--json] <tool_name>', 'usage')
                     }
-                    if (options.missingCapability && infoArgs === options.missingCapability.descriptor.name) {
-                        return describeMissingCapabilityTool(options.missingCapability.descriptor, forceJson)
-                    }
-                    const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, infoArgs)
+                    // The virtual tool is advertised outside the roster, so source its shape from
+                    // the descriptor and then run the same pipeline a catalog tool runs. Sharing the
+                    // pipeline rather than answering separately is what keeps the two from drifting.
+                    const infoVirtual = resolveVirtualTool(options.missingCapability, infoArgs)
+                    const infoTool = infoVirtual
+                        ? undefined
+                        : findTool(await resolveTools(), scopeGatedTools, flagGatedTools, infoArgs)
                     // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
                     // validation: fields with a Zod `.default()` (e.g. a query `kind` discriminator)
                     // are optional and auto-filled. The default `io: 'output'` would list them as
                     // required, misrepresenting them as mandatory input the caller must supply.
-                    const fullSchema =
-                        tool.rawInputSchema ??
-                        stripOutputFormatProperty(
-                            z.toJSONSchema(tool.schema, { io: 'input' }) as Record<string, unknown>
-                        )
+                    const fullSchema = infoVirtual
+                        ? virtualInputSchema(infoVirtual)
+                        : (infoTool!.rawInputSchema ??
+                          stripOutputFormatProperty(
+                              z.toJSONSchema(infoTool!.schema, { io: 'input' }) as Record<string, unknown>
+                          ))
                     // YAML for the top shape, but inputSchema stays as a JSON
                     // string dumped inside the YAML — JSON Schema is conventionally
                     // JSON and converting it to YAML obscures `$ref`, `oneOf`, etc.
@@ -1189,12 +1183,19 @@ export function createExecTool(
                         return stringifyYaml({ ...payload, inputSchema: JSON.stringify(schema) }, { lineWidth: 0 })
                     }
 
-                    const topShape = {
-                        name: tool.name,
-                        title: tool.title,
-                        description: tool.description,
-                        annotations: tool.annotations,
-                    }
+                    const topShape = infoVirtual
+                        ? {
+                              name: infoVirtual.name,
+                              title: infoVirtual.annotations?.title,
+                              description: infoVirtual.description,
+                              annotations: infoVirtual.annotations,
+                          }
+                        : {
+                              name: infoTool!.name,
+                              title: infoTool!.title,
+                              description: infoTool!.description,
+                              annotations: infoTool!.annotations,
+                          }
                     const fullOutput = serialize(topShape, fullSchema)
 
                     if (fullOutput.length <= TOKEN_CHAR_LIMIT) {
@@ -1205,7 +1206,7 @@ export function createExecTool(
                     // Each complex field's `hint` carries the imperative to run
                     // `schema` before populating it, so no separate directive is
                     // needed here.
-                    const summary = summarizeSchema(fullSchema as Record<string, unknown>, tool.name)
+                    const summary = summarizeSchema(fullSchema as Record<string, unknown>, infoArgs)
                     return serialize(topShape, summary)
                 }
 
@@ -1214,17 +1215,18 @@ export function createExecTool(
                         throw new ExecCommandError('Usage: schema <tool_name> [field_path]', 'usage')
                     }
                     const { verb: schemaToolName, rest: fieldPath } = parseCommand(rest)
-                    if (options.missingCapability && schemaToolName === options.missingCapability.descriptor.name) {
-                        return JSON.stringify(options.missingCapability.descriptor.inputSchema ?? {})
-                    }
-                    const schemaTool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, schemaToolName)
+                    const schemaVirtual = resolveVirtualTool(options.missingCapability, schemaToolName)
+                    const schemaTool = schemaVirtual
+                        ? undefined
+                        : findTool(await resolveTools(), scopeGatedTools, flagGatedTools, schemaToolName)
                     // See the `info` command: `io: 'input'` keeps this in sync with the advertised
                     // schema and validation, so `.default()` fields aren't shown as required.
-                    const fullJsonSchema =
-                        schemaTool.rawInputSchema ??
-                        stripOutputFormatProperty(
-                            z.toJSONSchema(schemaTool.schema, { io: 'input' }) as Record<string, unknown>
-                        )
+                    const fullJsonSchema = schemaVirtual
+                        ? virtualInputSchema(schemaVirtual)
+                        : (schemaTool!.rawInputSchema ??
+                          stripOutputFormatProperty(
+                              z.toJSONSchema(schemaTool!.schema, { io: 'input' }) as Record<string, unknown>
+                          ))
 
                     if (!fieldPath) {
                         // The bare `schema <tool>` view is always a summary. Any
@@ -1274,8 +1276,9 @@ export function createExecTool(
                         throw new ExecCommandError('Usage: call [--json] [--confirm] <tool_name> <json_input>', 'usage')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
-                    if (options.missingCapability && toolName === options.missingCapability.descriptor.name) {
-                        return handleMissingCapabilityCall(options.missingCapability, jsonBody)
+                    const missingCapabilityReport = options.missingCapability?.report
+                    if (missingCapabilityReport && toolName === options.missingCapability?.descriptor.name) {
+                        return handleMissingCapabilityCall(toolName, missingCapabilityReport, jsonBody)
                     }
                     const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, toolName)
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {

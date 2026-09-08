@@ -186,6 +186,20 @@ describe('ToolExecutor', () => {
             expect(result.tools.map((t) => t.name)).toEqual([MISSING_CAPABILITY_TOOL_NAME])
         })
 
+        // `MissingCapabilityDescriptor` is declared by hand, because the SDK exports no matching
+        // type and casts internally, so the compiler cannot check the claim. Pin it against what
+        // the SDK really advertises: a rename upstream would otherwise empty out `exec info`
+        // while every hand-built fixture in the unit tests kept passing.
+        it('advertises it with the fields the descriptor type declares', async () => {
+            const result = await executor.handleToolsList(makeState([]))
+
+            expect(result.tools[0]).toMatchObject({
+                name: MISSING_CAPABILITY_TOOL_NAME,
+                description: expect.any(String),
+                inputSchema: { type: 'object', required: ['context'] },
+            })
+        })
+
         it('returns the exec tool entry beside the missing-capability tool when useSingleExec is true', async () => {
             const state = makeState(
                 catalog

@@ -1,6 +1,17 @@
 import type { PostHogMCP } from '@posthog/mcp-analytics'
 
-import type { MissingCapabilityDescriptor } from '@/tools/exec'
+/**
+ * The analytics SDK's descriptor for its virtual tool, in the shape `tools/list` carries it.
+ * Declared here rather than imported: the SDK exports `getMoreToolsResult` and no matching
+ * type. Keep it a `type` and not an `interface` — `prepareToolList` constrains its generic
+ * with an index signature, which only an object literal type satisfies implicitly.
+ */
+export type MissingCapabilityDescriptor = {
+    name: string
+    description?: string
+    inputSchema?: { type?: string; properties?: Record<string, unknown>; required?: string[] }
+    annotations?: Record<string, unknown> & { title?: string }
+}
 
 export enum AnalyticsEvent {
     MCP_PROJECT_SWITCHED = 'mcp project switched',

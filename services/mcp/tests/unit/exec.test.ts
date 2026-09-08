@@ -147,12 +147,74 @@ describe('exec tool', () => {
             })
         })
 
-        it('answers schema for the virtual tool with the advertised input schema', async () => {
+        it('summarizes the virtual tool schema the way it summarizes a catalog tool', async () => {
             const exec = createExecWithReporter([])
 
             const result = await exec.handler(mockContext, { command: 'schema get_more_tools' })
 
-            expect(JSON.parse(String(result))).toEqual(descriptor.inputSchema)
+            // `summarizeSchema` marks each property, so a raw echo of the descriptor fails here.
+            expect(JSON.parse(String(result))).toMatchObject({
+                properties: { context: { type: 'string', required: true } },
+            })
+        })
+
+        // A field path was parsed and then dropped, so `schema <tool> <anything>` answered with
+        // the whole schema and told an agent that a field it invented had resolved.
+        it('resolves a field path on the virtual tool', async () => {
+            const exec = createExecWithReporter([])
+
+            const result = await exec.handler(mockContext, { command: 'schema get_more_tools context' })
+
+            expect(JSON.parse(String(result))).toEqual({
+                field: 'context',
+                schema: { type: 'string', description: 'What you wanted to do.' },
+            })
+        })
+
+        it('rejects an unknown field path on the virtual tool', async () => {
+            const exec = createExecWithReporter([])
+
+            await expect(exec.handler(mockContext, { command: 'schema get_more_tools nope' })).rejects.toThrow(
+                'Unknown path "nope". Available: context'
+            )
+        })
+
+        // The exec guide tells an agent to run `info <tool_name>`, without `--json`, so the YAML
+        // branch is the one it actually reaches.
+        it('describes the virtual tool in the default YAML shape', async () => {
+            const exec = createExecWithReporter([])
+
+            const result = await exec.handler(mockContext, { command: 'info get_more_tools' })
+
+            expect(String(result)).toContain('name: get_more_tools')
+            expect(String(result)).toContain('Report a capability this server does not have.')
+        })
+
+        // What the CLI's unauthenticated static exec passes: it serves the discovery verbs but
+        // has no context to capture through, so it must describe the tool without accepting a
+        // report it would drop.
+        describe('a runtime that can describe but not record', () => {
+            function createExecWithoutReporter(): Tool<any> {
+                return createExec([makeMockTool()], undefined, { missingCapability: { descriptor } })
+            }
+
+            it.each([
+                { verb: 'tools', command: 'tools', expected: 'get_more_tools' },
+                { verb: 'info', command: 'info get_more_tools', expected: 'get_more_tools' },
+                { verb: 'schema', command: 'schema get_more_tools', expected: 'context' },
+            ])('still answers $verb', async ({ command, expected }) => {
+                const result = await createExecWithoutReporter().handler(mockContext, { command })
+
+                expect(String(result)).toContain(expected)
+            })
+
+            it('leaves call unknown rather than dropping the report', async () => {
+                await expect(
+                    createExecWithoutReporter().handler(mockContext, {
+                        command: 'call get_more_tools {"context":"anything"}',
+                    })
+                ).rejects.toThrow('Unknown tool')
+            })
         })
 
         it.each([
