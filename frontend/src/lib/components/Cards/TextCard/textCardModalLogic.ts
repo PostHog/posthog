@@ -17,13 +17,11 @@ export interface TextTileForm {
     transparent_background: boolean
 }
 
-export type TextCardTileType = 'text' | 'image'
-
 export interface TextCardModalProps {
     dashboard: DashboardType<QueryBasedInsightModel>
     textTileId: DashboardTileIdOrNew
     onClose: () => void
-    tileType: TextCardTileType
+    tileType: 'text' | 'image'
 }
 
 const MAX_TEXT_CARD_BODY_LENGTH = 4000
@@ -145,12 +143,17 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
             actions.resetTextTile()
             props?.onClose?.()
 
+            let contentType = 'text'
+            if (getImageOnlyTextCardImage(textCardConverter, textTile.body)) {
+                contentType = 'image'
+            }
+
             posthog.capture('dashboard text tile saved', {
                 dashboard_id: props.dashboard.id,
                 text_tile_id: props.textTileId,
                 is_new: props.textTileId === null,
                 body_length: textTile.body.length,
-                content_type: getImageOnlyTextCardImage(textCardConverter, textTile.body) ? 'image' : 'text',
+                content_type: contentType,
             })
         },
     })),
@@ -158,7 +161,10 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
         textTile: {
             defaults: (props.textTileId !== null
                 ? getExistingTextTile(props.dashboard, props.textTileId)
-                : { body: '', transparent_background: props.tileType === 'image' }) as TextTileForm,
+                : {
+                      body: '',
+                      transparent_background: props.tileType === 'image',
+                  }) as TextTileForm,
             errors: ({ body }) => {
                 return {
                     body: !body.trim()
@@ -181,7 +187,7 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
                         id: props.dashboard.id,
                         tiles: [
                             {
-                                text: { body: formValues.body },
+                                text: { body: formValues.body, tile_type: props.tileType },
                                 transparent_background: formValues.transparent_background,
                             },
                         ],

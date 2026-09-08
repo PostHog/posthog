@@ -25,6 +25,7 @@ export interface TileLayout {
 const MIN_TILE_DIMENSIONS = {
     default: { w: 2, h: 2 },
     image: { w: 1, h: 2 },
+    separator: { w: 2, h: 1 },
     text: { w: 1, h: 1 },
     button: { w: 1, h: 1 },
     widget: { w: 3, h: 4 },
@@ -227,9 +228,13 @@ export const calculateLayouts = (
     const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout>> = {}
     const imageTileIds = new Set(
         tiles
-            .filter((tile) => !!tile.text && !!getImageOnlyTextCardImage(textCardConverter, tile.text.body))
+            .filter(
+                (tile) =>
+                    tile.text?.tile_type === 'image' || getImageOnlyTextCardImage(textCardConverter, tile.text?.body)
+            )
             .map((tile) => tile.id)
     )
+    const separatorTileIds = new Set(tiles.filter((tile) => tile.text?.tile_type === 'divider').map((tile) => tile.id))
 
     // Always calculate sm layout first to establish reference order
     let referenceOrder: number[] | undefined = undefined
@@ -284,12 +289,16 @@ export const calculateLayouts = (
 
             const isTextTile = !!tile.text
             const isImageTile = imageTileIds.has(tile.id)
+            const isSeparatorTile = separatorTileIds.has(tile.id)
             const isButtonTile = !!tile.button_tile
             const isWidgetTile = !!tile.widget
             let tileLayoutKind: TileLayoutKind
             switch (true) {
                 case isImageTile:
                     tileLayoutKind = 'image'
+                    break
+                case isSeparatorTile:
+                    tileLayoutKind = 'separator'
                     break
                 case isTextTile:
                     tileLayoutKind = 'text'
@@ -311,6 +320,9 @@ export const calculateLayouts = (
             if (isButtonTile) {
                 defaultW = 2
                 defaultH = 1
+            } else if (isSeparatorTile) {
+                defaultW = columnCount
+                defaultH = 1
             } else if (isWidgetTile) {
                 defaultW = widgetCatalogLayout?.w ?? 6
                 defaultH = widgetCatalogLayout?.h ?? 5
@@ -322,8 +334,9 @@ export const calculateLayouts = (
                 tileLayoutKind,
                 widgetCatalogLayout,
             })
-            const constrainedW = isImageTile ? Math.max(realW, minW) : realW
-            const constrainedH = isImageTile ? Math.max(realH, minH) : realH
+            const effectiveMinW = Math.min(minW, columnCount)
+            const constrainedW = isImageTile || isSeparatorTile ? Math.max(realW, effectiveMinW) : realW
+            const constrainedH = isImageTile || isSeparatorTile ? Math.max(realH, minH) : realH
 
             return {
                 i: tile.id?.toString(),
@@ -331,7 +344,7 @@ export const calculateLayouts = (
                 y: y != null && Number.isInteger(y) ? y : Infinity,
                 w: constrainedW,
                 h: constrainedH,
-                minW,
+                minW: effectiveMinW,
                 minH,
             }
         })

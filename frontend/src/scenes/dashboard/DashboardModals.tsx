@@ -82,7 +82,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
             />
             {canEditDashboard && (
                 <>
-                    {shouldShowImageTileModal ? (
+                    {shouldShowImageTileModal && (
                         <ImageTileModal
                             key={selectedImageTileId ?? 'new'}
                             isOpen={shouldShowImageTileModal}
@@ -90,7 +90,8 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
                             dashboard={dashboard}
                             imageTileId={selectedImageTileId}
                         />
-                    ) : (
+                    )}
+                    {!shouldShowImageTileModal && (
                         <TextCardModal
                             isOpen={showTextTileModal && (isCreatingTextTile || !!textRouteTile?.text)}
                             onClose={() => push(urls.dashboard(dashboard.id))}

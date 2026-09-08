@@ -146,9 +146,11 @@ describe('EmptyDashboardComponent', () => {
         await openAddFirstChartDropdown()
 
         expect(screen.getByText('Content')).toBeInTheDocument()
+        expect(screen.getByText('Organize')).toBeInTheDocument()
         expect(screen.getByText('Charts')).toBeInTheDocument()
         expect(screen.getByText('Add text')).toBeInTheDocument()
         expect(screen.getByText('Image')).toBeInTheDocument()
+        expect(screen.getByText('Divider')).toBeInTheDocument()
         expect(screen.getByText('Button')).toBeInTheDocument()
         expect(screen.getByText('Widget')).toBeInTheDocument()
         expect(screen.getByText('BETA')).toBeInTheDocument()

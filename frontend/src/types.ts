@@ -2605,6 +2605,7 @@ export interface DashboardWidgetInterface {
 export interface TextModel extends DashboardWidgetInterface {
     body: string
     last_modified_at: string
+    tile_type?: 'text' | 'image' | 'divider'
 }
 
 export interface ButtonTileModel extends DashboardWidgetInterface {
