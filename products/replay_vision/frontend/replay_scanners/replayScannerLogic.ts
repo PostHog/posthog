@@ -2287,7 +2287,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             actions.loadObservations()
             actions.loadObservationStats()
         }
-        // Re-runs when the tab becomes visible again, picking up test account filters configured in another tab
+        // Setup re-runs when the tab becomes visible
         cache.disposables.add(() => {
             const team = teamLogic.findMounted()
             if (cache.teamRefreshArmed && team && !team.values.currentTeamLoading) {

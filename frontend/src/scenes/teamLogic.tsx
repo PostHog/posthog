@@ -393,7 +393,6 @@ export const teamLogic = kea<teamLogicType>([
                     }
                     try {
                         const team = await api.get('api/environments/@current')
-                        // A different id means the user switched projects in another tab
                         return team?.id === values.currentTeam?.id ? team : values.currentTeam
                     } catch {
                         return values.currentTeam
