@@ -210,6 +210,7 @@ export interface supportTicketsSceneLogicValues {
     activeView: SavedTicketView | null
     aiEnabled: boolean
     aiTriageResultFilter: AITriageFilterValue[]
+    allEditableSelectedArchived: boolean
     archivedFilter: TicketArchivedFilter
     assigneeFilter: AssigneeFilterEntry[]
     assigneeFilterEntries: AssigneeFilterEntry[]
@@ -225,6 +226,7 @@ export interface supportTicketsSceneLogicValues {
     } | null
     dateTo: string | null
     editableSelectedTicketIds: string[]
+    editableSelectedTickets: Ticket[]
     hasActiveFilters: boolean
     orderBy: string
     priorityFilter: TicketPriority[]
@@ -366,7 +368,9 @@ export interface supportTicketsSceneLogicMeta {
         aiEnabled: (currentTeam: TeamType | null | import('~/types').TeamPublicType) => boolean
         orderBy: (sorting: Sorting | null) => string
         selectedTickets: (tickets: Ticket[], selectedTicketIds: string[]) => Ticket[]
-        editableSelectedTicketIds: (selectedTickets: Ticket[]) => string[]
+        editableSelectedTickets: (selectedTickets: Ticket[]) => Ticket[]
+        editableSelectedTicketIds: (editableSelectedTickets: Ticket[]) => string[]
+        allEditableSelectedArchived: (editableSelectedTickets: Ticket[]) => boolean
         assigneeFilterEntries: (assigneeFilter: AssigneeFilterEntry[]) => AssigneeFilterEntry[]
         hasActiveFilters: (
             statusFilter: TicketStatus[],
@@ -647,20 +651,29 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 return tickets.filter((t) => idSet.has(t.id))
             },
         ],
-        editableSelectedTicketIds: [
+        editableSelectedTickets: [
             (s) => [s.selectedTickets],
-            (selectedTickets: Ticket[]): string[] =>
-                selectedTickets
-                    .filter(
-                        (ticket) =>
-                            !ticket.user_access_level ||
-                            accessLevelSatisfied(
-                                AccessControlResourceType.Ticket,
-                                ticket.user_access_level,
-                                AccessControlLevel.Editor
-                            )
-                    )
-                    .map((ticket) => ticket.id),
+            (selectedTickets: Ticket[]): Ticket[] =>
+                selectedTickets.filter(
+                    (ticket) =>
+                        !ticket.user_access_level ||
+                        accessLevelSatisfied(
+                            AccessControlResourceType.Ticket,
+                            ticket.user_access_level,
+                            AccessControlLevel.Editor
+                        )
+                ),
+        ],
+        editableSelectedTicketIds: [
+            (s) => [s.editableSelectedTickets],
+            (editableSelectedTickets: Ticket[]): string[] => editableSelectedTickets.map((ticket) => ticket.id),
+        ],
+        // Reads the editable subset, not the whole selection: a ticket the bulk request
+        // will skip must not decide whether the action archives or restores.
+        allEditableSelectedArchived: [
+            (s) => [s.editableSelectedTickets],
+            (editableSelectedTickets: Ticket[]): boolean =>
+                editableSelectedTickets.length > 0 && editableSelectedTickets.every((ticket) => !!ticket.archived_at),
         ],
         assigneeFilterEntries: [
             (s) => [s.assigneeFilter],

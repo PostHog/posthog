@@ -9,7 +9,7 @@ import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSce
 import { type TicketStatus, statusOptionsWithoutAll } from '../../types'
 
 export function TicketListBulkActions(): JSX.Element {
-    const { selectedTicketIds, selectedTickets, editableSelectedTicketIds, bulkUpdating } =
+    const { selectedTicketIds, selectedTickets, editableSelectedTicketIds, allEditableSelectedArchived, bulkUpdating } =
         useValues(supportTicketsSceneLogic)
     const { bulkUpdateStatus, bulkArchive, clearSelectedTickets, loadTickets } = useActions(supportTicketsSceneLogic)
 
@@ -29,9 +29,6 @@ export function TicketListBulkActions(): JSX.Element {
         : editableTicketIds.length === 0
           ? "You don't have edit access to any of the selected tickets"
           : undefined
-    // Restore only when the whole selection is archived, because a mixed selection more
-    // likely means "archive these".
-    const allArchived = selectedTickets.length > 0 && selectedTickets.every((t) => !!t.archived_at)
     const restrictedSelectionTooltip =
         hasRestrictedSelection && editableTicketIds.length > 0
             ? `${selectedTicketIds.length - editableTicketIds.length} selected ticket(s) will be skipped because you don't have edit access to them`
@@ -57,23 +54,23 @@ export function TicketListBulkActions(): JSX.Element {
             <LemonButton
                 type="secondary"
                 size="small"
-                icon={allArchived ? <IconUndo /> : <IconArchive />}
+                icon={allEditableSelectedArchived ? <IconUndo /> : <IconArchive />}
                 loading={bulkUpdating}
                 disabledReason={bulkUpdating ? 'Updating…' : noEditableSelectionReason}
                 tooltip={
                     restrictedSelectionTooltip ??
-                    (allArchived
+                    (allEditableSelectedArchived
                         ? 'Put these tickets back in the ticket list'
                         : 'Hide these tickets from the ticket list. Nothing is deleted, and you can restore them from the Archived filter.')
                 }
                 onClick={() => {
                     if (editableTicketIds.length > 0) {
-                        bulkArchive(editableTicketIds, !allArchived)
+                        bulkArchive(editableTicketIds, !allEditableSelectedArchived)
                     }
                 }}
                 data-attr="bulk-archive-tickets"
             >
-                {allArchived ? 'Restore' : 'Archive'}
+                {allEditableSelectedArchived ? 'Restore' : 'Archive'}
             </LemonButton>
             <BulkUpdateTagsButton
                 resource="conversations/tickets"

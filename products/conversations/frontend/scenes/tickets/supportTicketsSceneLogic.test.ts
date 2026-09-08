@@ -103,6 +103,31 @@ describe('supportTicketsSceneLogic', () => {
                 editableSelectedTicketIds: [a.id, b.id],
             })
         })
+
+        // Regression: the bulk archive button picks its verb from the tickets the request
+        // will touch. A live view-only ticket used to flip it back to Archive, which then
+        // sent an archive request against tickets that were already archived.
+        it('judges the archive state from the editable selection only', () => {
+            const archivedEditable = {
+                ...makeTicket('archived-editable', AccessControlLevel.Editor),
+                archived_at: '2026-06-12T00:00:00Z',
+            }
+            const liveViewerOnly = makeTicket('live-viewer-only', AccessControlLevel.Viewer)
+            const liveEditable = makeTicket('live-editable', AccessControlLevel.Editor)
+
+            expectLogic(logic, () => {
+                logic.actions.setTickets([archivedEditable, liveViewerOnly, liveEditable])
+                logic.actions.setSelectedTicketIds([archivedEditable.id, liveViewerOnly.id])
+            }).toMatchValues({
+                allEditableSelectedArchived: true,
+            })
+
+            expectLogic(logic, () => {
+                logic.actions.setSelectedTicketIds([archivedEditable.id, liveEditable.id])
+            }).toMatchValues({
+                allEditableSelectedArchived: false,
+            })
+        })
     })
 
     describe('normalizeAssigneeFilter', () => {
