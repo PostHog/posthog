@@ -6,7 +6,6 @@ import {
   PencilSimpleIcon,
   ShapesIcon,
   SidebarSimpleIcon,
-  SpinnerGapIcon,
   WarningIcon,
 } from "@phosphor-icons/react";
 import {
@@ -54,6 +53,8 @@ import {
 } from "@posthog/quill";
 import { CANVAS_COMPONENT_PATH, formatRelativeAge } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import {
   isCanvasGenerating,
   isCanvasGenerationRunning,
@@ -83,8 +84,9 @@ import {
 import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import { useSessionForTask } from "@posthog/ui/features/sessions/useSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
-import { Spin } from "@posthog/ui/primitives/Spinner";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import {
@@ -107,6 +109,7 @@ import { CanvasGenerateHero } from "./CanvasGenerateHero";
 import { CanvasPermissionDialog } from "./CanvasPermissionDialog";
 import { CanvasSelectionCommentAction } from "./CanvasSelectionCommentAction";
 import { CanvasSidePanel } from "./CanvasSidePanel";
+import { canvasChatTaskId } from "./canvasChatTask";
 import { canvasCommentTaskId } from "./canvasCommentTask";
 import { canvasRuntimeErrorAnalytics } from "./canvasRuntimeError";
 import { canvasSidePanelVisibility } from "./canvasSidePanelVisibility";
@@ -195,6 +198,7 @@ export function FreeformCanvasView({
 
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
+  const authenticatedClient = useOptionalAuthenticatedClient();
 
   // The generation-task association lives in the canvas record's meta. Poll it
   // while a task is running so the fresh head version + the cleared association
@@ -251,12 +255,6 @@ export function FreeformCanvasView({
     latestRun: genTask?.latest_run,
     session: genSession,
   });
-  // The run whose live chat the panel shows: only one that is still in flight.
-  // The record keeps a finished run's id (comments hang off it), but its chat
-  // is not reopened, so every visit starts a fresh run from the composer.
-  const chatTaskId =
-    startedTaskId ?? (isGenerating && !genTaskLoading ? genTaskId : null);
-
   // Poll the record while the session is alive so a just-published head version
   // appears (the publish lands while the prompt is still pending).
   useQuery(
@@ -335,6 +333,17 @@ export function FreeformCanvasView({
     interactive ? dashboardId : undefined,
   );
   const commentTaskId = canvasCommentTaskId(genTaskId, versions);
+  // The run whose chat the panel shows: this person's own run on the canvas,
+  // found through the record's task or the versions they published. Another
+  // person's run never shows, so each editor keeps their own conversation.
+  const { data: currentUser } = useCurrentUser({ client: authenticatedClient });
+  const chatTaskId = canvasChatTaskId({
+    startedTaskId,
+    generationTaskId: genTaskId,
+    generationTaskCreatorUuid: genTask?.created_by?.uuid,
+    versions,
+    currentUserUuid: currentUser?.uuid,
+  });
   // The browsed version is a draft preview when it matches a staged draft
   // rather than a published version. Drives the Draft label and Promote action.
   const browsingDraft = drafts.some(
@@ -784,12 +793,12 @@ export function FreeformCanvasView({
   const [generatingPanelDismissed, setGeneratingPanelDismissed] =
     useState(false);
   useEffect(() => {
-    if (effectiveTaskId) setGeneratingPanelDismissed(false);
-  }, [effectiveTaskId]);
+    if (chatTaskId) setGeneratingPanelDismissed(false);
+  }, [chatTaskId]);
   const generatingPanelOpen =
     !embedded &&
     isGenerating &&
-    !!effectiveTaskId &&
+    !!chatTaskId &&
     !pinnedArtifact &&
     !headCode &&
     !generatingPanelDismissed;
@@ -829,9 +838,9 @@ export function FreeformCanvasView({
           would have nowhere to go, so surface it as a modal. When the panel is
           open, the chat handles it. */}
       {interactive &&
-        effectiveTaskId &&
+        chatTaskId &&
         ((collapsed && !generatingPanelOpen) || waitingForHeroExit) && (
-          <CanvasPermissionDialog taskId={effectiveTaskId} />
+          <CanvasPermissionDialog taskId={chatTaskId} />
         )}
       <Flex
         direction="column"
@@ -982,9 +991,7 @@ export function FreeformCanvasView({
               {interactive &&
                 (isGenerating && effectiveTaskId ? (
                   <>
-                    <Spin className="text-accent-9">
-                      <SpinnerGapIcon size={14} />
-                    </Spin>
+                    <Spinner size="md" className="text-accent-9" />
                     <Text size="1" className="text-gray-10">
                       Generating
                     </Text>
@@ -1143,7 +1150,7 @@ export function FreeformCanvasView({
               </Flex>
             ) : buildsLoading ? (
               <ScrollArea className="h-full">
-                <LoadingState />
+                <LoadingState label="Loading canvas" />
               </ScrollArea>
             ) : (
               <ScrollArea className="h-full">
@@ -1242,7 +1249,10 @@ export function FreeformCanvasView({
                   taskId={effectiveTaskId ?? ""}
                 />
               ) : dashboardLoading || buildsLoading || headSourceLoading ? (
-                <LoadingState />
+                // Shown while the canvas record is still loading, so a canvas
+                // that actually has content doesn't flash the empty state
+                // before its source/builds resolve.
+                <LoadingState label="Loading canvas" />
               ) : hasSource ? (
                 // Source exists but nothing is renderable yet: a multi-file
                 // project whose build hasn't succeeded. The toolbar's build
@@ -1359,23 +1369,6 @@ export function FreeformCanvasView({
   );
 }
 
-// Shown while the canvas record is still loading, so a canvas that actually has
-// content doesn't flash the empty state before its source/builds resolve.
-function LoadingState() {
-  return (
-    <Empty className="h-full">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          <Spin className="text-accent-9">
-            <SpinnerGapIcon size={18} />
-          </Spin>
-        </EmptyMedia>
-        <EmptyTitle>Loading canvas</EmptyTitle>
-      </EmptyHeader>
-    </Empty>
-  );
-}
-
 // Centered status shown while a generation task runs on an empty canvas, with a
 // button to jump to the task doing the work.
 function GeneratingState({
@@ -1389,9 +1382,7 @@ function GeneratingState({
     <Empty className="h-full border-0">
       <EmptyHeader>
         <EmptyMedia variant="icon">
-          <Spin className="text-accent-9">
-            <SpinnerGapIcon size={18} />
-          </Spin>
+          <Spinner size="md" className="text-accent-9" />
         </EmptyMedia>
         <EmptyTitle>Generating</EmptyTitle>
         <EmptyDescription>An agent is building this canvas.</EmptyDescription>

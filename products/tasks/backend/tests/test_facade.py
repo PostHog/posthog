@@ -1399,10 +1399,20 @@ class TestSignalTaskRunUserMessage(TestCase):
         with patch("products.tasks.backend.temporal.client.signal_task_followup_message"):
             return facade.signal_task_run_user_message(run.id, run.task_id, self.team.id, **{**defaults, **kwargs})
 
-    def test_records_the_message_so_a_reload_can_show_it_before_the_agent_takes_it(self):
+    @parameterized.expand([(None,), (True,), (False,)])
+    def test_records_the_message_so_a_reload_can_show_it_before_the_agent_takes_it(self, subscription_owner):
         run = self._run()
+        if subscription_owner is not None:
+            run.state = {"claude_model_access": "own-subscription", "claude_subscription_user_id": self.user.id}
+            run.save(update_fields=["state"])
+        if subscription_owner is False:
+            with self.assertRaises(facade.PermissionDenied):
+                self._signal(run, actor_user_id=self.user.id + 1)
+            run.refresh_from_db()
+            self.assertNotIn("pending_followup_messages", run.state)
+            return
 
-        self.assertTrue(self._signal(run))
+        self.assertTrue(self._signal(run, actor_user_id=self.user.id))
 
         run.refresh_from_db()
         recorded = run.state["pending_followup_messages"]

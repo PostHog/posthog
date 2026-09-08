@@ -109,7 +109,7 @@ export function PiModelSelector({
                 <span className="text-muted-foreground">
                   <PiIcon size={14} weight="bold" className="translate-y-px" />
                 </span>
-                <Spinner size={12} />
+                <Spinner size="sm" />
                 Loading...
               </Button>
             }
@@ -121,7 +121,7 @@ export function PiModelSelector({
             className="min-w-[230px]"
           >
             <DropdownMenuItem disabled>
-              <Spinner size={12} />
+              <Spinner size="sm" />
               Loading models...
             </DropdownMenuItem>
             {onHarnessChange && (
