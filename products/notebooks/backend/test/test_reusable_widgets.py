@@ -4,13 +4,18 @@ from uuid import UUID, uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework.exceptions import PermissionDenied
 
-from posthog.models import Team
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, Team
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token, hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend.notebook_integration import CanvasGenerationState, NotebookCanvasVersion
 from products.notebooks.backend.models import (
     GeneratedWidget,
@@ -182,10 +187,22 @@ class TestReusableWidgets(APIBaseTest):
         assert self.widget.current_version_id == self.version.id
         assert self.widget.pending_version_id == draft.id
 
-    def test_publish_saves_demo_data_and_unpins_the_source_instance(self) -> None:
+    @parameterized.expand([("direct", False), ("mapped_fork", True)])
+    def test_publish_saves_demo_data_and_unpins_the_source_instance(self, _name: str, mapped: bool) -> None:
+        if mapped:
+            self.node_run.envelope["types"] = [["tier", "string"], ["amount", "float64"]]
+            self.node_run.save(update_fields=["envelope"])
+            self.instance.input_bindings = {
+                self.input_name: {
+                    "source": self.input_name,
+                    "hog": "return arrayMap(row -> {'plan': row.tier, 'revenue': row.amount / 100}, rows)",
+                }
+            }
+            self.instance.save(update_fields=["input_bindings"])
+        bindings = self.instance.input_bindings
         response = self._publish()
 
-        assert response.status_code == 201
+        assert response.status_code == 201, response.json()
         assert response.json()["name"] == "Revenue by plan"
         assert response.json()["tags"] == ["Revenue", "Plans"]
         self.widget.refresh_from_db()
@@ -205,7 +222,10 @@ class TestReusableWidgets(APIBaseTest):
         )
         rows = frame.frame["rows"]
         assert isinstance(rows, list)
-        assert rows[0] == ["Plan 0", 0]
+        assert rows[1] == ["Plan 1", 1 if mapped else 100]
+        assert frame.frame["columns"] == self.version.input_contract[0]["columns"]
+        if mapped:
+            assert self.instance.input_bindings == bindings
 
     @parameterized.expand([("published", False), ("draft", True)])
     def test_demo_edits_update_only_the_selected_preview(self, _name: str, edit_draft: bool) -> None:
@@ -278,6 +298,73 @@ class TestReusableWidgets(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         self.version.refresh_from_db()
         assert self.version.demo_data == original_demo
+
+    @parameterized.expand([("session_read", False, False), ("session_edit", False, True), ("token_read", True, False)])
+    def test_demo_rows_require_query_access(self, _name: str, token: bool, edit: bool) -> None:
+        self._publish()
+        if token:
+            token_value = generate_random_token()
+            PersonalAPIKey.objects.create(
+                user=self.user,
+                label="Notebook only",
+                scopes=["notebook:read"],
+                secure_value=hash_key_value(token_value),
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token_value}")
+        else:
+            self._restrict_resource_access("query")
+        url = f"/api/projects/{self.team.id}/notebook_widgets/{self.widget.id}/"
+        if edit:
+            response = self.client.post(
+                url + "demo-data/",
+                {"version_id": str(self.version.id), "frame_name": self.input_name, "rows": [["Example", 1]]},
+                format="json",
+            )
+        else:
+            response = self.client.get(url + f"frames/{self.input_name}/")
+        assert response.status_code == 403
+
+    def _restrict_resource_access(self, resource: str) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource=resource,
+            resource_id=None,
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        cache.clear()
+
+    @parameterized.expand(
+        [
+            ("read", ""),
+            ("generate", "generate/"),
+            ("save", "save-version/"),
+            ("discard", "discard-version/"),
+            ("restore", "restore/"),
+            ("demo", "demo-data/"),
+        ]
+    )
+    def test_single_notebook_editor_cannot_control_the_catalog(self, _name: str, action: str) -> None:
+        self._publish()
+        self._restrict_resource_access("notebook")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="notebook",
+            resource_id=str(self.notebook.id),
+            organization_member=self.organization_membership,
+            access_level="editor",
+        )
+        cache.clear()
+        url = f"/api/projects/{self.team.id}/notebook_widgets/{self.widget.id}/{action}"
+        response = self.client.post(url, {}, format="json") if action else self.client.get(url)
+        assert response.status_code == 403
 
     def test_catalog_lists_only_published_widgets_for_the_team(self) -> None:
         assert list_reusable_widgets(team_id=self.team.id).count == 0
@@ -610,7 +697,8 @@ class TestReusableWidgets(APIBaseTest):
             expected_current_version_id=self.version.canvas_source_version_id,
         )
 
-    def test_discarding_a_review_draft_keeps_the_published_version(self) -> None:
+    @patch("products.canvas.backend.notebook_integration.discard_notebook_canvas_draft")
+    def test_discarding_a_review_draft_keeps_the_published_version(self, discard) -> None:
         self._publish()
         candidate = GeneratedWidgetVersion.objects.for_team(self.team.id).create(
             team_id=self.team.id,
@@ -644,6 +732,9 @@ class TestReusableWidgets(APIBaseTest):
         assert response.status_code == 200
         assert response.json()["current_version"]["id"] == str(self.version.id)
         assert response.json()["pending_version"] is None
+        discard.assert_called_once_with(
+            team_id=self.team.id, canvas_id=self.widget.canvas_id, version_id=candidate.canvas_source_version_id
+        )
         self.widget.refresh_from_db()
         assert self.widget.current_version_id == self.version.id
         assert self.widget.pending_version_id is None

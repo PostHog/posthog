@@ -349,6 +349,36 @@ describe('Tool Filtering - API Scopes', () => {
         }
     })
 
+    it.each([
+        ['notebooks-widget-generate', ['notebook:write', 'query:read']],
+        ['notebooks-widget-status', ['notebook:read']],
+        ['notebooks-widget-cancel', ['notebook:write']],
+    ] satisfies [string, string[]][])(
+        'exposes %s only with notebook widgets enabled and the required scopes',
+        async (toolName, scopes) => {
+            const context = createMockContext(scopes)
+            const enabledOptions = { featureFlags: { 'notebook-generated-widgets': true }, aiConsentGiven: true }
+            const enabled = await getToolsFromContext(context, enabledOptions)
+            expect(enabled.map((tool) => tool.name)).toContain(toolName)
+
+            for (const flagValue of [false, undefined]) {
+                const disabled = await getToolsFromContext(context, {
+                    ...enabledOptions,
+                    featureFlags: { 'notebook-generated-widgets': flagValue },
+                })
+                expect(disabled.map((tool) => tool.name)).not.toContain(toolName)
+            }
+
+            for (const missingScope of scopes) {
+                const denied = await getToolsFromContext(
+                    createMockContext(scopes.filter((scope) => scope !== missingScope)),
+                    enabledOptions
+                )
+                expect(denied.map((tool) => tool.name)).not.toContain(toolName)
+            }
+        }
+    )
+
     it('should return only tools with no required scopes when user has no matching scopes', async () => {
         const context = createMockContext(['some:unknown'])
         const tools = await getToolsFromContext(context)
@@ -922,6 +952,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'notebooks-collaboration',
                 'notebook-generated-widgets',
                 'revamped-py-notebooks',
+                'notebook-generated-widgets',
                 'tasks',
                 'dashboard-widgets',
                 'marketing-analytics-mcp',

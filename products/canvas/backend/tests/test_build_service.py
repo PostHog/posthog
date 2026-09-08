@@ -1,5 +1,6 @@
 import hashlib
 from datetime import timedelta
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -10,6 +11,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
+from posthog.storage.object_storage import ObjectStorageError
 
 from products.canvas.backend import build_service
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
@@ -122,7 +124,18 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
             project=project,
             has_expected_version=True,
             expected_version_id=str(published_version_id),
+            source_upload_id=uuid4(),
         )
+        concurrent = build_service.prepare_source_project_publish(
+            self.canvas,
+            project=project,
+            has_expected_version=True,
+            expected_version_id=str(published_version_id),
+            source_upload_id=uuid4(),
+        )
+        assert prepared.source_upload.key != concurrent.source_upload.key
+        assert prepared.source_upload.digest == concurrent.source_upload.digest
+        self.storage.delete_objects([concurrent.source_upload.key])
 
         draft, _build = build_service.commit_source_project_draft(
             self.canvas,
@@ -138,6 +151,7 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         assert draft.draft is True
         assert draft.parent_version_id == published_version_id
         assert self.canvas.current_source_version_id == published_version_id
+        assert build_service.read_source_project(draft) == project
 
     def test_stale_head_does_not_advance_pointer(self):
         build = self._publish()
@@ -251,7 +265,8 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         build.refresh_from_db()
         assert build.status == CanvasBuild.STATUS_READY
 
-    def test_finalize_does_not_clobber_a_concurrent_cancel(self):
+    @parameterized.expand([("finalize", False), ("storage_retry", True)])
+    def test_finalize_does_not_clobber_a_concurrent_cancel(self, _name: str, storage_failure: bool):
         # The finalize transaction must re-claim the build row before marking it
         # READY: a cancel that lands during the long build/upload phase (after the
         # claim lock was released) turns the build FAILED/terminal, and the stale
@@ -269,15 +284,25 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
                 finished_at=timezone.now(),
                 lease_expires_at=None,
             )
+            if storage_failure:
+                raise ObjectStorageError("Storage unavailable")
             return original_finalize(*args, **kwargs)
 
         with (
             patch.object(
                 build_service, "run_cloud_builder", return_value=_builder_result({"index.html": "<html></html>"})
             ),
-            patch.object(build_service, "_finalize_ready", side_effect=cancel_mid_finalize),
+            patch.object(
+                build_service.object_storage if storage_failure else build_service,
+                "write" if storage_failure else "_finalize_ready",
+                side_effect=cancel_mid_finalize,
+            ),
         ):
-            build_service.run_canvas_build(self.team.id, str(build.id))
+            if storage_failure:
+                with self.assertRaises(ObjectStorageError):
+                    build_service.run_canvas_build(self.team.id, str(build.id))
+            else:
+                build_service.run_canvas_build(self.team.id, str(build.id))
 
         build.refresh_from_db()
         self.canvas.refresh_from_db()

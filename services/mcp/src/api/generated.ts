@@ -17830,6 +17830,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `sparse` - sparse
+     * * `quiet` - quiet
+     */
+    export type CoarsenedReasonEnum = typeof CoarsenedReasonEnum[keyof typeof CoarsenedReasonEnum];
+
+
+    export const CoarsenedReasonEnum = {
+      Sparse: 'sparse',
+      Quiet: 'quiet',
+    } as const;
+
+    /**
      * * `dataset_archived` - dataset_archived
      * * `dataset_name_conflict` - dataset_name_conflict
      * * `dataset_item_archived` - dataset_item_archived
@@ -45590,6 +45602,8 @@ export namespace Schemas {
       order_direction?: RecordingOrderDirection | null;
       person_uuid?: string | null;
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+      /** Restrict results to recordings above the replay relevance threshold. */
+      recommended_only?: boolean | null;
       response?: RecordingsQueryResponse | null;
       session_ids?: string[] | null;
       /** If provided, this recording will be fetched and prepended to the results, even if it doesn't match the filters */
@@ -49887,7 +49901,14 @@ export namespace Schemas {
          * @nullable
          */
       band_ready_at: string | null;
-      /** One entry per display bucket across the whole window, oldest first, zero-filled. */
+      /** Grain of this series' buckets, in minutes. Equals the response interval_minutes unless the series was too sparse at that grain and was coarsened to the next rung it is dense enough to read at. */
+      interval_minutes: number;
+      /** Why this series was too thin to read at the requested grain, or null when it was not. sparse: fewer than 20% of its buckets held any records. quiet: its non-empty buckets averaged under 5 records. A series that fails every rung is returned at the coarsest one. A series that a coarser rung has no rows for, or that the request's time budget cannot refetch, keeps the requested grain and still carries its reason.
+       *
+       * * `sparse` - sparse
+       * * `quiet` - quiet */
+      coarsened_reason: CoarsenedReasonEnum | null;
+      /** One entry per display bucket across the window at this series' interval_minutes, oldest first, zero-filled. A coarsened series' window is snapped to its grain, so it can end short of window_end. */
       buckets: LogsSeriesBandBucket[];
     }
 
@@ -49914,13 +49935,13 @@ export namespace Schemas {
       serviceName: string;
       /** Window to chart. Defaults to the last 7 days. It may span at most 7 days and start at most 35 days ago, past which the volume rollup no longer reaches. */
       dateRange?: _SeriesBandsDateRange;
-      /** Display grain in minutes for buckets and bands. One of 5, 15, 30, 60. The window may hold at most 500 buckets per series at the chosen grain, so a finer grain needs a shorter window.
+      /** Display grain in minutes for buckets and bands. One of 5, 15, 30, 60. The window may hold at most 500 buckets per series at the chosen grain, so a finer grain needs a shorter window. Omit it to let the window pick its grain, the coarsest that still cuts it into about 168 buckets. A series too sparse to read at this grain is returned at a coarser one; see each series' interval_minutes.
        *
        * * `5` - 5
        * * `15` - 15
        * * `30` - 30
        * * `60` - 60 */
-      intervalMinutes?: IntervalMinutesEnum;
+      intervalMinutes?: IntervalMinutesEnum | null;
     }
 
     export interface LogsSeriesBandsResponse {
@@ -49930,7 +49951,7 @@ export namespace Schemas {
       window_start: string;
       /** End of the observed window (UTC, exclusive). */
       window_end: string;
-      /** Display grain of the buckets, in minutes. */
+      /** Display grain requested, or picked to cut the window into about 168 buckets when the request left it out. */
       interval_minutes: number;
       /** True when the service has more series than the response carries; the quietest were dropped. */
       series_truncated: boolean;
@@ -53987,6 +54008,12 @@ export namespace Schemas {
     }
 
     export interface OnboardingSessionTest {
+      /**
+         * Optional LLM model identifier for the test session. Omit to use the plan default.
+         * @maxLength 255
+         * @nullable
+         */
+      model?: string | null;
       /**
          * Company domain to research. Blank simulates a personal email address.
          * @maxLength 253
@@ -58324,8 +58351,46 @@ export namespace Schemas {
       results: SignalSourceConfig[];
     }
 
+    /**
+     * * `inserted` - inserted
+     * * `deleted` - deleted
+     */
+    export type ShiftBandKindEnum = typeof ShiftBandKindEnum[keyof typeof ShiftBandKindEnum];
+
+
+    export const ShiftBandKindEnum = {
+      Inserted: 'inserted',
+      Deleted: 'deleted',
+    } as const;
+
+    export interface ShiftBand {
+      /** First row of the band, in current-image coordinates. */
+      y: number;
+      /** How many rows the band covers. */
+      rows: number;
+      /** 'inserted' when the current image gained these rows, 'deleted' when it lost them. A deleted band has no rows of its own in the current image, so its y is the seam the removed rows left behind.
+       *
+       * * `inserted` - inserted
+       * * `deleted` - deleted */
+      kind: ShiftBandKindEnum;
+    }
+
+    export interface RowShift {
+      /** Where the shift happened, in current-image coordinates. */
+      bands: ShiftBand[];
+      /** Rows the current image gained. */
+      inserted_rows: number;
+      /** Rows the current image lost. */
+      deleted_rows: number;
+      /** Percentage of pixels that differ inside the rows present in both images, 0 to 100. Excludes the shift itself. The stored diff_percentage adds the area of the rows the shift added or removed, and that combined number is what the pixel threshold judges. */
+      residual_percentage: number;
+      /** Percentage of pixels that differ without alignment, which is what the shift would have cost. */
+      raw_diff_percentage: number;
+    }
+
     export interface SnapshotHistoryEntry {
       current_artifact?: Artifact | null;
+      row_shift?: RowShift | null;
       run_id: string;
       snapshot_id: string;
       result: string;
@@ -58360,6 +58425,7 @@ export namespace Schemas {
       diff_artifact?: Artifact | null;
       reviewed_by?: UserBasicInfo | null;
       cluster_summary?: ClusterSummary | null;
+      row_shift?: RowShift | null;
       id: string;
       run_id: string;
       identifier: string;

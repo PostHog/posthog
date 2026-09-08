@@ -398,7 +398,8 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
                             </span>
                             <LemonButton onClick={openSourceModal}>View source</LemonButton>
                         </div>
-                    ) : !trust.buildTrusted && version.security_review?.severity !== 'none' ? (
+                    ) : !trust.buildTrusted &&
+                      (version.security_review?.severity !== 'none' || version.frame_names.length > 0) ? (
                         trustControls('gate')
                     ) : (
                         <>

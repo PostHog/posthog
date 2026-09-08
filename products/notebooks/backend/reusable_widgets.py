@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Protocol, cast
 from uuid import UUID
 
@@ -296,7 +296,13 @@ def _fit_demo_data(frames: dict[str, dict[str, object]]) -> dict[str, dict[str, 
 
 
 def _capture_demo_data(
-    *, notebook: Notebook, node_id: str, version: GeneratedWidgetVersion, authorize_run, user: User | None
+    *,
+    notebook: Notebook,
+    node_id: str,
+    version: GeneratedWidgetVersion,
+    authorize_run,
+    user: User | None,
+    input_bindings: dict[str, object],
 ) -> dict[str, dict[str, object]]:
     frames: dict[str, dict[str, object]] = {}
     for contract_item in _input_contract(version.input_contract):
@@ -312,10 +318,62 @@ def _capture_demo_data(
             version_id=version.id,
             limit=MAX_REUSABLE_WIDGET_DEMO_ROWS,
         ).frame
+        frame = _map_demo_frame(frame, slot, contract_item, input_bindings.get(slot))
         frame["runId"] = str(frame["runId"])
         frame["nextOffset"] = None
         frames[slot] = frame
     return _fit_demo_data(frames)
+
+
+def _map_demo_frame(
+    frame: dict[str, object], slot: str, contract: dict[str, object], binding: object
+) -> dict[str, object]:
+    if not isinstance(binding, dict) or not (binding.get("hog") or binding.get("bytecode")):
+        return frame
+
+    # Compile and run only when publishing so the VM stays off Django's startup path.
+    from posthog.hogql.compiler.bytecode import create_bytecode  # noqa: PLC0415
+    from posthog.hogql.errors import ExposedHogQLError  # noqa: PLC0415
+    from posthog.hogql.parser import parse_program  # noqa: PLC0415
+
+    from common.hogvm.python.execute import execute_bytecode  # noqa: PLC0415
+    from common.hogvm.python.stl import BLOCKING_FUNCTIONS  # noqa: PLC0415
+    from common.hogvm.python.utils import HogVMException  # noqa: PLC0415
+
+    columns = cast(list[dict[str, object]], frame["columns"])
+    source_rows = [
+        {str(column["name"]): row[index] if index < len(row) else None for index, column in enumerate(columns)}
+        for row in cast(list[list[object]], frame["rows"])
+    ]
+    try:
+        bytecode = binding.get("bytecode")
+        if not isinstance(bytecode, list):
+            bytecode = create_bytecode(parse_program(str(binding["hog"]))).bytecode
+        mapped = execute_bytecode(
+            bytecode,
+            globals={"rows": source_rows, "columns": columns, "frame": {**frame, "rows": source_rows}},
+            functions={},
+            timeout=timedelta(milliseconds=100),
+            disallowed_functions=BLOCKING_FUNCTIONS,
+        ).result
+    except (ExposedHogQLError, HogVMException) as error:
+        raise WidgetError(f'The input mapping for "{slot}" could not be evaluated.', "binding_hog_invalid") from error
+    expected_columns = cast(list[dict[str, object]], contract.get("columns", []))
+    if not isinstance(mapped, list) or any(
+        not isinstance(row, dict) or any(column["name"] not in row for column in expected_columns) for row in mapped
+    ):
+        raise WidgetError(
+            f'The input mapping for "{slot}" must return row objects with every input column.', "binding_hog_invalid"
+        )
+    rows = [[row[column["name"]] for column in expected_columns] for row in mapped[:MAX_REUSABLE_WIDGET_DEMO_ROWS]]
+    return {
+        **frame,
+        "name": slot,
+        "columns": expected_columns,
+        "rows": rows,
+        "includedRowCount": len(rows),
+        "truncated": bool(frame.get("truncated")) or len(mapped) > len(rows),
+    }
 
 
 def publish_reusable_widget(
@@ -346,9 +404,12 @@ def publish_reusable_widget(
         version=version,
         authorize_run=authorize_run,
         user=user,
+        input_bindings=instance.input_bindings,
     )
     original_bindings = {
-        str(item["slot"]): {"source": str(item.get("sourceName") or item["slot"])}
+        str(item["slot"]): instance.input_bindings.get(
+            str(item["slot"]), {"source": str(item.get("sourceName") or item["slot"])}
+        )
         for item in _input_contract(version.input_contract)
         if item.get("slot")
     }
@@ -367,6 +428,8 @@ def publish_reusable_widget(
             raise WidgetConflictError(
                 "This widget changed while it was being made reusable. Try again.", "publication_conflict"
             )
+        if locked_instance.input_bindings != instance.input_bindings:
+            raise WidgetConflictError("The widget's input mappings changed. Try again.", "publication_conflict")
         widget.name = name
         widget.description = description
         widget.tags = tags
@@ -718,6 +781,9 @@ def save_reusable_widget_version(
 def discard_reusable_widget_version(
     *, team_id: int, widget_id: UUID, pending_version_id: UUID, expected_current_version_id: UUID
 ) -> ReusableWidgetDetail:
+    # Keep Canvas build dependencies off notebook startup.
+    from products.canvas.backend import notebook_integration as canvas_facade  # noqa: PLC0415
+
     with transaction.atomic():
         widget = (
             _published_widgets(team_id)
@@ -736,6 +802,12 @@ def discard_reusable_widget_version(
         if widget.pending_version is None or widget.pending_version_id != pending_version_id:
             raise WidgetConflictError("This draft is no longer waiting for review.", "review_conflict")
         candidate = widget.pending_version
+        try:
+            canvas_facade.discard_notebook_canvas_draft(
+                team_id=team_id, canvas_id=widget.canvas_id, version_id=candidate.canvas_source_version_id
+            )
+        except canvas_facade.NotebookCanvasError as error:
+            raise WidgetError("This reusable widget draft could not be discarded.", "review_discard_failed") from error
         widget.pending_version = None
         widget.save(update_fields=["pending_version"])
         candidate.delete()

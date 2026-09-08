@@ -10,12 +10,16 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
+from posthog.storage.object_storage import ObjectStorageError
 
-from products.canvas.backend.models import Canvas, CanvasSourceVersion
+from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.notebook_integration import (
     NotebookCanvasNotFoundError,
+    cleanup_discarded_notebook_canvas_draft,
     create_notebook_canvas,
+    discard_notebook_canvas_draft,
     get_notebook_canvas_source,
+    requeue_discarded_notebook_canvas_drafts,
     validate_notebook_canvas_source,
 )
 from products.tasks.backend.models import Channel
@@ -88,6 +92,77 @@ class TestNotebookCanvasCreation(APIBaseTest):
         source_versions[1].refresh_from_db()
         assert canvas.current_source_version_id == source_versions[0].id
         assert source_versions[1].draft
+
+    @parameterized.expand(
+        [
+            ("queued", CanvasBuild.STATUS_QUEUED, False, False),
+            ("building", CanvasBuild.STATUS_BUILDING, False, False),
+            ("shared_source", CanvasBuild.STATUS_READY, True, False),
+            ("storage_retry", CanvasBuild.STATUS_READY, False, True),
+        ]
+    )
+    def test_discard_cleans_up_only_the_abandoned_draft(
+        self, _name: str, status: str, shared_source: bool, retry: bool
+    ) -> None:
+        channel = Channel.objects.for_team(self.team.id).create(team=self.team, name="Draft cleanup")
+        canvas = Canvas.objects.for_team(self.team.id).create(
+            team=self.team, channel=channel, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET
+        )
+        published = CanvasSourceVersion.objects.for_team(self.team.id).create(
+            team=self.team,
+            canvas=canvas,
+            source_hash="a" * 64,
+            source_object_key="canvas_source/published.json.gz",
+            source_size=1,
+        )
+        canvas.current_source_version = published
+        canvas.save(update_fields=["current_source_version"])
+        draft = CanvasSourceVersion.objects.for_team(self.team.id).create(
+            team=self.team,
+            canvas=canvas,
+            draft=True,
+            source_hash="b" * 64,
+            source_object_key=published.source_object_key if shared_source else "canvas_source/draft.json.gz",
+            source_size=1,
+        )
+        build = CanvasBuild.objects.for_team(self.team.id).create(
+            team=self.team,
+            canvas=canvas,
+            source_version=draft,
+            status=status,
+            artifact_object_prefix="canvas_artifact/draft" if status == CanvasBuild.STATUS_READY else None,
+            manifest={"assets": [{"path": "index.html"}]},
+        )
+        with (
+            patch("products.canvas.backend.tasks.cleanup_notebook_canvas_draft.delay") as enqueue,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            discard_notebook_canvas_draft(team_id=self.team.id, canvas_id=canvas.id, version_id=draft.id)
+        enqueue.assert_called_once_with(self.team.id, str(canvas.id), str(draft.id))
+        build.refresh_from_db()
+        assert build.status == CanvasBuild.STATUS_FAILED
+        with patch("posthog.storage.object_storage.delete_objects") as delete_objects:
+            if retry:
+                delete_objects.side_effect = ObjectStorageError("Storage temporarily unavailable")
+                with self.assertRaises(ObjectStorageError):
+                    cleanup_discarded_notebook_canvas_draft(
+                        team_id=self.team.id, canvas_id=canvas.id, version_id=draft.id
+                    )
+                assert CanvasSourceVersion.objects.for_team(self.team.id).filter(id=draft.id).exists()
+                with patch("products.canvas.backend.tasks.cleanup_notebook_canvas_draft.delay") as requeue:
+                    requeue_discarded_notebook_canvas_drafts()
+                requeue.assert_called_once_with(self.team.id, str(canvas.id), str(draft.id))
+                delete_objects.side_effect = None
+            cleanup_discarded_notebook_canvas_draft(team_id=self.team.id, canvas_id=canvas.id, version_id=draft.id)
+            deleted = delete_objects.call_args.args[0]
+            assert (draft.source_object_key in deleted) is not shared_source
+            assert ("canvas_artifact/draft/index.html" in deleted) is (status == CanvasBuild.STATUS_READY)
+        assert not CanvasSourceVersion.objects.for_team(self.team.id).filter(id=draft.id).exists()
+        assert not CanvasBuild.objects.for_team(self.team.id).filter(id=build.id).exists()
+        canvas.refresh_from_db()
+        assert canvas.current_source_version_id == published.id
+        with self.assertRaises(NotebookCanvasNotFoundError):
+            discard_notebook_canvas_draft(team_id=self.team.id, canvas_id=canvas.id, version_id=published.id)
 
     def test_rejects_another_users_personal_channel(self) -> None:
         other_user = self._create_user("notebook-widget-channel-owner@example.com")

@@ -53,6 +53,11 @@ from products.notebooks.backend.presentation.widget_serializers import (
 class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "notebook"
     required_scopes = ["notebook:read"]
+    requires_resource_level_access = True
+
+    def _require_query_access(self) -> None:
+        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+            raise PermissionDenied("You need query access to read or edit widget demo data.")
 
     def _require_feature(self) -> None:
         user = self.request.user
@@ -185,10 +190,11 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         methods=["GET"],
         detail=True,
         url_path="frames/(?P<frame_name>[^/.]+)",
-        required_scopes=["notebook:read"],
+        required_scopes=["notebook:read", "query:read"],
     )
     def demo_frame(self, request: Request, frame_name: str | None = None, **kwargs) -> Response:
         self._require_feature()
+        self._require_query_access()
         if frame_name is None:
             raise Http404()
         query = WidgetSourceQuerySerializer(data=request.query_params)
@@ -214,9 +220,10 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             409: WidgetErrorSerializer,
         },
     )
-    @action(methods=["POST"], detail=True, url_path="demo-data", required_scopes=["notebook:write"])
+    @action(methods=["POST"], detail=True, url_path="demo-data", required_scopes=["notebook:write", "query:read"])
     def update_demo_data(self, request: Request, **kwargs) -> Response:
         self._require_feature()
+        self._require_query_access()
         serializer = ReusableWidgetDemoDataRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:

@@ -312,8 +312,13 @@ def artifact_object_prefix(team_id: int, canvas_id: str | UUID, build_id: str | 
     return f"canvas_artifact/team_{team_id}/{canvas_id}/{build_id}"
 
 
-def upload_source_project(team_id: int, canvas_id: str | UUID, project: dict[str, Any]) -> tuple[str, str, int]:
-    """Upload the serialized project (idempotent — the key is content-addressed).
+def upload_source_project(
+    team_id: int, canvas_id: str | UUID, project: dict[str, Any], *, upload_id: UUID | None = None
+) -> tuple[str, str, int]:
+    """Upload the serialized project under its content hash and optional upload ID.
+
+    Independent upload IDs let draft cleanup remove one upload while another
+    publish stages identical source outside the metadata transaction.
 
     Returns (object key, source hash, canonical size). Raises
     ObjectStorageError when storage is unavailable — a publish cannot proceed
@@ -321,6 +326,8 @@ def upload_source_project(team_id: int, canvas_id: str | UUID, project: dict[str
     """
     payload, digest, size = serialize_source_project(project)
     key = source_object_key(team_id, canvas_id, digest)
+    if upload_id is not None:
+        key = key.removesuffix(".json.gz") + f"/{upload_id}.json.gz"
     object_storage.write(key, payload, extras={"ContentType": "application/gzip"})
     return key, digest, size
 
@@ -471,6 +478,7 @@ def prepare_source_project_publish(
     project: dict[str, Any],
     has_expected_version: bool,
     expected_version_id: str | None,
+    source_upload_id: UUID | None = None,
 ) -> PreparedSourceProjectPublish:
     """Upload a source project before the metadata transaction begins.
 
@@ -490,7 +498,7 @@ def prepare_source_project_publish(
             raise CanvasVersionConflict(current_id)
         _assert_build_capacity(canvas.team_id)
 
-    key, digest, size = upload_source_project(canvas.team_id, canvas.id, project)
+    key, digest, size = upload_source_project(canvas.team_id, canvas.id, project, upload_id=source_upload_id)
     source_upload = SourceProjectUpload(key=key, digest=digest, size=size)
 
     # A migrated canvas's pre-relational source must survive its first publish:
@@ -1252,7 +1260,7 @@ def _requeue_or_fail(build: CanvasBuild, *, code: str, message: str) -> None:
     error diagnostic.
     """
     if build.attempt_count < MAX_BUILD_ATTEMPTS:
-        CanvasBuild.objects.for_team(build.team_id).filter(id=build.id).update(
+        CanvasBuild.objects.for_team(build.team_id).filter(id=build.id, status=CanvasBuild.STATUS_BUILDING).update(
             status=CanvasBuild.STATUS_QUEUED, lease_expires_at=None
         )
         raise  # noqa: PLE0704 — re-raises the caller's in-flight ObjectStorageError
