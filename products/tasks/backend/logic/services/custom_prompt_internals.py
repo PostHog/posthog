@@ -59,9 +59,9 @@ STALE_TURN_SALVAGE_SECONDS = 300
 # between the workflow's boundary progress events — longer than any floor below the poll budget. No
 # prompt echo lands until provisioning finishes, so the floor cannot fire there. The window then
 # measures silence over *any* log growth, so a live agent still emitting side-channel or streamed
-# output never trips it. Sized well below STALE_TURN_SALVAGE_SECONDS so it never pre-empts the
-# dropped-finalization salvage, which only applies to turns that produced output and then went quiet.
-NO_TURN_OUTPUT_FLOOR_SECONDS = 180
+# output never trips it. The floor outlasts the relay's five-minute SSE read window by one poll, so
+# the relay can record a stream timeout before the poller classifies the turn as stalled.
+NO_TURN_OUTPUT_FLOOR_SECONDS = 5 * 60 + POLL_INTERVAL_SECONDS
 
 # Notification method the sandbox agent emits on a terminal failure. The agent
 # classifies upstream failures (rate limits, stream/connection drops, provider
@@ -93,6 +93,8 @@ FAILED_PROGRESS_STATUS = "failed"
 # input, not agent output, so the turn-relevant growth counting discounts them like the transient
 # side-channels above.
 _PROMPT_ECHO_UPDATES = frozenset({"user_message", "user_message_chunk"})
+_LIFECYCLE_SESSION_UPDATES = frozenset({"available_commands_update", "current_mode_update"})
+_TRANSIENT_SESSION_UPDATES = _PROMPT_ECHO_UPDATES | _LIFECYCLE_SESSION_UPDATES
 
 
 @dataclass(frozen=True)
@@ -200,7 +202,7 @@ POLL_TIMEOUT_ACTIVE_AT_BUDGET = "active_at_budget"
 
 
 def _raise_poll_timeout(
-    task_run,
+    task_run: TaskRun,
     *,
     stage: str,
     elapsed: int,
@@ -985,7 +987,7 @@ def _has_prompt_echo(lines: list[str]) -> bool:
 
 def _transient_growth(lines: list[str]) -> int:
     """Count how many of `lines` carry no agent turn-state: transient relay side-channels (network
-    audits, credential refreshes, sandbox stdout, informational progress) and echoed prompts. The
+    audits, credential refreshes, sandbox stdout, informational progress), lifecycle updates, and echoed prompts. The
     relay echoes the user's own message into the turn log, so without discounting it every turn
     counts at least one "turn-relevant" line and the `no_turn_output` timeout classification —
     the agent never got going at all — could never fire. A failed progress line is not transient —
@@ -1004,7 +1006,7 @@ def _transient_growth(lines: list[str]) -> int:
         method = notification.get("method")
         if method == "session/update":
             update = (notification.get("params") or {}).get("update")
-            if isinstance(update, dict) and update.get("sessionUpdate") in _PROMPT_ECHO_UPDATES:
+            if isinstance(update, dict) and update.get("sessionUpdate") in _TRANSIENT_SESSION_UPDATES:
                 count += 1
             continue
         if method not in TRANSIENT_SIDE_CHANNEL_METHODS:
