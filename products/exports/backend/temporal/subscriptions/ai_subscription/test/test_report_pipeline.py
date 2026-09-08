@@ -691,6 +691,7 @@ async def test_computed_context_replans_without_freezing_a_stale_plan(
     mock_frozen.assert_not_called()
     mock_bep.assert_called_once()
     assert mock_bep.call_args.kwargs["context_events"] == ("user signed up",)
+    assert mock_bep.call_args.kwargs["has_successful_context"] is True
     assert result.plan_to_persist is None
     assert result.context.contexts == context
     assert result.authorized_context_refs == ("insight:1",)
@@ -719,6 +720,7 @@ async def test_all_failed_context_is_visible_and_marks_report_degraded(
         report_context=report_context,
     )
 
+    assert mock_bep.call_args.kwargs["has_successful_context"] is False
     assert result.markdown == _all_contexts_failed_notice() + "# Report"
     props = _slo_completed(mock_capture)
     assert props["degraded"] is True

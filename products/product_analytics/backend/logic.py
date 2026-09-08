@@ -123,6 +123,22 @@ def recent_unique_viewer_counts_by_insight(
     )
 
 
+def recent_unique_viewer_counts_by_insight_for_project(
+    *, project_id: int, insight_ids: Collection[int], since: datetime
+) -> dict[int, int]:
+    return dict(
+        InsightViewed.objects.filter(
+            team__project_id=project_id,
+            insight_id__in=insight_ids,
+            last_viewed_at__gte=since,
+            user_id__isnull=False,
+        )
+        .values("insight_id")
+        .annotate(viewer_count=Count("user_id", distinct=True))
+        .values_list("insight_id", "viewer_count")
+    )
+
+
 def map_stale_to_latest(stale_variables: dict, latest_variables: list[InsightVariableDefinition]) -> dict:
     # Keep the variables in an insight up to date based on variable code names that exist
     current_variables = stale_variables

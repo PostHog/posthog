@@ -15,6 +15,7 @@ from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
     insights_including_soft_deleted_for_team,
     recent_unique_viewer_counts_by_insight,
+    recent_unique_viewer_counts_by_insight_for_project,
     record_insight_view,
 )
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
@@ -107,6 +108,34 @@ class TestRecordInsightView(BaseTest):
         assert len(queries) == 1
         assert 'COUNT(DISTINCT "posthog_insightviewed"."user_id")' in queries[0]["sql"]
         assert counts == {self.insight.pk: 2}
+
+    def test_project_viewer_counts_combine_environments_and_deduplicate_people(self) -> None:
+        since = now() - timedelta(days=7)
+        environment = Team.objects.create(
+            organization=self.organization,
+            project=self.project,
+            parent_team=self.team,
+        )
+        other_project_team = Team.objects.create(organization=self.organization)
+        second_viewer = User.objects.create_user(
+            email="project-viewer@example.com", first_name="Project", password="password"
+        )
+        InsightViewed.objects.bulk_create(
+            [
+                InsightViewed(team=self.team, user=self.user, insight=self.insight, last_viewed_at=now()),
+                InsightViewed(team=environment, user=self.user, insight=self.insight, last_viewed_at=now()),
+                InsightViewed(team=environment, user=second_viewer, insight=self.insight, last_viewed_at=now()),
+                InsightViewed(team=other_project_team, user=second_viewer, insight=self.insight, last_viewed_at=now()),
+            ]
+        )
+
+        counts = recent_unique_viewer_counts_by_insight_for_project(
+            project_id=self.project.id,
+            insight_ids={self.insight.id},
+            since=since,
+        )
+
+        assert counts == {self.insight.id: 2}
 
 
 class TestInsightReads(BaseTest):

@@ -132,20 +132,23 @@ def _split_text_into_chunks(text: str, limit: int = SLACK_MRKDWN_SECTION_LIMIT) 
 
 def _last_scheduled_report_cutoff(subscription: Subscription) -> datetime | None:
     try:
-        row = (
-            SubscriptionDelivery.objects.filter(
-                subscription_id=subscription.id,
-                status=SubscriptionDelivery.Status.COMPLETED,
-                # Only real scheduled sends move the anchor: a manual "Test delivery" (or an immediate
-                # target-change confirmation) right before a run would otherwise shrink its window to
-                # near-empty — a test is a preview, not a send.
-                trigger_type=SubscriptionTriggerType.SCHEDULED,
-                finished_at__isnull=False,
+        # Savepoint: the caller reads this inside its own transaction, and a statement error left
+        # un-rolled-back would abort every later query there instead of degrading to the fallback.
+        with transaction.atomic():
+            row = (
+                SubscriptionDelivery.objects.filter(
+                    subscription_id=subscription.id,
+                    status=SubscriptionDelivery.Status.COMPLETED,
+                    # Only real scheduled sends move the anchor: a manual "Test delivery" (or an immediate
+                    # target-change confirmation) right before a run would otherwise shrink its window to
+                    # near-empty — a test is a preview, not a send.
+                    trigger_type=SubscriptionTriggerType.SCHEDULED,
+                    finished_at__isnull=False,
+                )
+                .order_by("-finished_at")
+                .values_list("finished_at", "content_snapshot")
+                .first()
             )
-            .order_by("-finished_at")
-            .values_list("finished_at", "content_snapshot")
-            .first()
-        )
         if row is None:
             return None
         finished_at, snapshot = row
@@ -182,13 +185,19 @@ class SubscriptionReportContext:
     creator_can_query: bool
 
 
+class QueryAccessRevokedError(PromptRejectedError):
+    pass
+
+
 def _resolve_subscription_context(subscription: Subscription) -> SubscriptionReportContext:
     # team/created_by are FK relations and the last-delivery lookup hits the DB; resolving the window
     # here keeps all ORM access (and the timezone math) off the event loop in one sync hop. The frozen
     # plan (if any) is read here too so the generation path stays free of ORM access.
     with transaction.atomic():
+        # of=("self",) keeps the lock on the subscription row: created_by is nullable, so
+        # select_related joins it as an outer join, and Postgres refuses a lock that reaches it.
         current = (
-            Subscription.objects.select_for_update()
+            Subscription.objects.select_for_update(of=("self",))
             .select_related("team", "created_by")
             .get(id=subscription.id, team_id=subscription.team_id)
         )
@@ -252,7 +261,7 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
     if context.user is None:
         raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot deliver.")
     if not context.creator_can_query:
-        raise PromptRejectedError("AI subscription creator no longer has query access; cannot deliver.")
+        raise QueryAccessRevokedError("AI subscription creator no longer has query access; cannot deliver.")
 
     report_context = await resolve_report_context(subscription, context.context_selection)
 

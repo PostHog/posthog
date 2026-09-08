@@ -58,6 +58,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.activities 
     _skip_ai_delivery_over_credit_limit_sync,
     generate_ai_subscription_report,
 )
+from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import QueryAccessRevokedError
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     AiReportResult,
     QueryStepDiagnostic,
@@ -88,7 +89,11 @@ from products.exports.backend.temporal.subscriptions.workflows import (
 )
 from products.product_analytics.backend.facade.models import Insight
 
-from ee.tasks.subscriptions.auto_disable import AI_CONSENT_REVOKED_DISABLE_REASON, SLACK_DISCONNECTED_DISABLE_REASON
+from ee.tasks.subscriptions.auto_disable import (
+    AI_CONSENT_REVOKED_DISABLE_REASON,
+    AI_QUERY_ACCESS_REVOKED_DISABLE_REASON,
+    SLACK_DISCONNECTED_DISABLE_REASON,
+)
 from ee.tasks.subscriptions.slack_subscriptions import SlackDeliveryResult
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
@@ -2566,6 +2571,26 @@ async def test_generate_ai_report_prompt_rejected_aborts_and_auto_disables(team,
     )
     await sync_to_async(sub.refresh_from_db)()
     assert sub.enabled is False
+
+
+async def test_generate_ai_report_query_access_revoked_uses_distinct_disable_reason(team, user):
+    await _set_ai_consent(team, True)
+    sub = await _create_ai_subscription(team, user)
+    delivery = await _create_ai_delivery(sub)
+
+    with (
+        patch(_GENERATE_REPORT, side_effect=QueryAccessRevokedError("Creator no longer has query access.")),
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
+    ):
+        result = await ActivityEnvironment().run(
+            generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
+        )
+
+    assert result.aborted is True
+    assert any(
+        recipient.error and recipient.error.get("type") == AI_QUERY_ACCESS_REVOKED_DISABLE_REASON.key
+        for recipient in result.recipient_results
+    )
 
 
 async def test_generate_ai_report_persists_report_for_delivery(team, user):

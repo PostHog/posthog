@@ -328,6 +328,7 @@ async def generate_ai_report(
         compact_report_context(report_context) if report_context is not None else EMPTY_AI_REPORT_CONTEXTS
     )
     context_events = report_context.relevant_events if report_context is not None else ()
+    has_successful_context = context_provenance.has_successful_evidence
 
     with slo_operation(
         spec=SloSpec(
@@ -364,6 +365,7 @@ async def generate_ai_report(
                         window=window,
                         trace_id=trace_correlation_id,
                         formatted_context=formatted_context,
+                        has_successful_context=has_successful_context,
                         context_events=context_events,
                     )
                     freshly_planned = True
@@ -375,6 +377,7 @@ async def generate_ai_report(
                     window=window,
                     trace_id=trace_correlation_id,
                     formatted_context=formatted_context,
+                    has_successful_context=has_successful_context,
                     context_events=context_events,
                 )
                 freshly_planned = True
@@ -552,6 +555,7 @@ async def _plan(
     window: ReportWindow,
     trace_id: Optional[Union[int, str]],
     formatted_context: str = "",
+    has_successful_context: bool = True,
     context_events: Sequence[str] = (),
 ) -> EnrichedPromptSpec:
     try:
@@ -562,6 +566,7 @@ async def _plan(
             window=window,
             trace_correlation_id=trace_id,
             formatted_context=formatted_context,
+            has_successful_context=has_successful_context,
             context_events=context_events,
         )
     except PromptRejectedError:

@@ -17,7 +17,6 @@ from posthog.clickhouse.query_tagging import tags_context
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.query_metadata import QueryEventsExtractor
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.security.llm_prompt_sanitization import sanitize_user_text, strip_llm_framing_markers
@@ -30,7 +29,7 @@ from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.models.subscription_context import SubscriptionContext
 from products.product_analytics.backend.facade.api import (
     insights_including_soft_deleted_for_team,
-    recent_unique_viewer_counts_by_insight,
+    recent_unique_viewer_counts_by_insight_for_project,
 )
 from products.product_analytics.backend.facade.models import Insight
 
@@ -47,6 +46,8 @@ MAX_DASHBOARD_INSIGHTS = 6
 MAX_CONCURRENT_CONTEXT_QUERIES = 5
 CONTEXT_QUERY_TIMEOUT_SECONDS = 45
 CONTEXT_RESOLUTION_TIMEOUT_SECONDS = 240
+CONTEXT_QUERY_CANCELLATION_TIMEOUT_SECONDS = 5
+CONTEXT_CLEANUP_TIMEOUT_SECONDS = 6
 CONTEXT_NAME_MAX_LENGTH = 120
 CONTEXT_DESCRIPTION_MAX_LENGTH = 300
 
@@ -144,6 +145,7 @@ class _SavedInsight:
     filters_override: JsonObject | None
     variables_override: JsonObject | None
     available: bool
+    relevant_events: tuple[str, ...] = ()
 
 
 @frozen
@@ -197,6 +199,13 @@ class _UnboundedDashboardEvidence:
 
 def _safe_text(value: str | None, max_length: int, fallback: str) -> str:
     return sanitize_user_text(value or "", max_length) or fallback
+
+
+def _saved_query_events(insight: Insight) -> tuple[str, ...]:
+    metadata = insight.query_metadata
+    if not isinstance(metadata, dict) or not isinstance(metadata.get("events"), list):
+        return ()
+    return tuple(dict.fromkeys(event for event in metadata["events"] if isinstance(event, str) and event))
 
 
 def _validated_saved_query(insight: Insight) -> BaseModel | None:
@@ -289,6 +298,7 @@ def _load_saved_insight(
         filters_override=filters_override,
         variables_override=variables_override,
         available=True,
+        relevant_events=_saved_query_events(insight),
     )
 
 
@@ -362,8 +372,8 @@ def _load_dashboard(
     viewer_counts: dict[int, int] = {}
     if candidates:
         try:
-            viewer_counts = recent_unique_viewer_counts_by_insight(
-                team_id=context_team_id,
+            viewer_counts = recent_unique_viewer_counts_by_insight_for_project(
+                project_id=team.project_id,
                 insight_ids=[tile.insight.id for tile in candidates],
                 since=popularity_since,
             )
@@ -487,17 +497,22 @@ async def _execute_insight(pending: _PendingInsight, semaphore: asyncio.Semaphor
         return _ExecutedInsight(saved=pending.saved, status="failed", content=_UNAVAILABLE_INSIGHT_MARKER)
     context = pending.context
     client_query_id = f"ai-subscription-context-{uuid.uuid4().hex}"
+    query_started = False
 
     async def cancel_query() -> None:
         try:
-            await database_sync_to_async(cancel_query_on_cluster, thread_sensitive=False)(
-                context.team.pk, client_query_id
+            await asyncio.wait_for(
+                database_sync_to_async(cancel_query_on_cluster, thread_sensitive=False)(
+                    context.team.pk, client_query_id
+                ),
+                timeout=CONTEXT_QUERY_CANCELLATION_TIMEOUT_SECONDS,
             )
         except Exception as err:
             capture_exception(err)
 
     try:
         async with semaphore:
+            query_started = True
             with tags_context(
                 client_query_id=client_query_id,
                 team_id=context.team.pk,
@@ -507,11 +522,18 @@ async def _execute_insight(pending: _PendingInsight, semaphore: asyncio.Semaphor
                     context.execute_and_format(include_prompt_framing=False),
                     timeout=CONTEXT_QUERY_TIMEOUT_SECONDS,
                 )
-        safe_content = strip_llm_framing_markers(content, max_len=DASHBOARD_CONTEXT_CHAR_BUDGET)
-        status: ReportContextStatus = "truncated" if TRUNCATED_MARKER in safe_content else "success"
+        # Sanitize uncapped (len(content) can never cut a string the sanitizer only shortens), then
+        # bound here: the sanitizer's own cut drops the tail with no marker and no signal, so an
+        # over-budget result would reach the LLM stopping mid-row and still be recorded a success.
+        cleaned = strip_llm_framing_markers(content, max_len=len(content))
+        safe_content, evidence_truncated = _truncate_content(cleaned, DASHBOARD_CONTEXT_CHAR_BUDGET)
+        status: ReportContextStatus = (
+            "truncated" if evidence_truncated or TRUNCATED_MARKER in safe_content else "success"
+        )
         return _ExecutedInsight(saved=pending.saved, status=status, content=safe_content)
     except asyncio.CancelledError:
-        await asyncio.shield(cancel_query())
+        if query_started:
+            await asyncio.shield(cancel_query())
         raise
     except TimeoutError as err:
         await cancel_query()
@@ -533,10 +555,12 @@ def _to_insight_provenance(executed: _ExecutedInsight) -> InsightReportProvenanc
 def _dashboard_status(insights: Sequence[InsightReportProvenance]) -> ReportContextStatus:
     if not insights:
         return "failed"
-    if any(insight.status == "truncated" for insight in insights):
-        return "truncated"
-    if insights and all(insight.status == "failed" for insight in insights):
+    if all(insight.status == "failed" for insight in insights):
         return "failed"
+    # Any tile short of a clean success leaves the dashboard's evidence incomplete, which is what the
+    # dashboard-level "truncated" already reports for tiles dropped to fit the budget.
+    if any(insight.status != "success" for insight in insights):
+        return "truncated"
     return "success"
 
 
@@ -769,7 +793,13 @@ async def resolve_report_context(
         for task in unfinished:
             task.cancel()
         if unfinished:
-            await asyncio.gather(*unfinished, return_exceptions=True)
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*unfinished, return_exceptions=True),
+                    timeout=CONTEXT_CLEANUP_TIMEOUT_SECONDS,
+                )
+            except TimeoutError as err:
+                capture_exception(err)
     executed_by_pending = {id(pending): result for pending, result in zip(all_pending, executed, strict=True)}
 
     dashboard_evidence: list[_UnboundedDashboardEvidence] = []
@@ -802,7 +832,6 @@ async def resolve_report_context(
 
     standalone_evidence = [executed_by_pending[id(pending)] for pending in standalone_pending]
     bounded_dashboards, bounded_insights = _bound_evidence(dashboard_evidence, standalone_evidence)
-    query_events = QueryEventsExtractor(team=loaded.team)
     relevant_events = tuple(
         dict.fromkeys(
             event
@@ -810,8 +839,7 @@ async def resolve_report_context(
                 *(insight for dashboard in loaded.dashboards if dashboard.available for insight in dashboard.insights),
                 *(insight for insight in loaded.insights if insight.available),
             )
-            if insight.query is not None
-            for event in query_events.extract_events(insight.query)
+            for event in insight.relevant_events
         )
     )
     authorized_context_refs = (

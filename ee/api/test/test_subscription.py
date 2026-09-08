@@ -3660,6 +3660,30 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
         assert "prompt" in str(patch_resp.json()).lower(), patch_resp.json()
 
+    def test_re_enabling_ai_sub_without_original_creator_query_access_is_rejected(
+        self, mock_is_cloud, mock_flag, mock_sync
+    ) -> None:
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        create_resp = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(),
+        )
+        sub_id = create_resp.json()["id"]
+        Subscription.objects.filter(pk=sub_id).update(enabled=False)
+
+        with patch(
+            "ee.api.subscription.UserAccessControl.check_access_level_for_resource",
+            return_value=False,
+        ):
+            patch_resp = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+                {"enabled": True},
+            )
+
+        assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
+        assert "query access" in str(patch_resp.json()).lower(), patch_resp.json()
+
     @parameterized.expand(
         [
             ("last_n_days_missing_start", {"mode": "last_n_days"}, "start_days_ago"),
