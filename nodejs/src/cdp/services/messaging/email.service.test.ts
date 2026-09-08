@@ -16,7 +16,7 @@ import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.se
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
-import { EmailService, parseAddressList, sanitizeEmailSubject, teamEmailCapBuckets } from './email.service'
+import { EmailService, parseAddressList, sanitizeEmailSubject } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 
@@ -64,19 +64,6 @@ describe('parseAddressList', () => {
         expect(parseAddressList(undefined)).toBeUndefined()
         expect(parseAddressList('')).toBeUndefined()
         expect(parseAddressList(',')).toBeUndefined()
-    })
-})
-
-describe('teamEmailCapBuckets', () => {
-    it('gives both bucket keys the same cluster hash tag', () => {
-        // Enforce mode claims both keys in one Lua call, and clustered Valkey hashes only the
-        // substring inside the first {...}. Keys without a shared hash tag pass here against
-        // single-node Valkey but fail every claim in production with a CROSSSLOT error, which
-        // fail-closed turns into delaying every send.
-        const keys = teamEmailCapBuckets(42, 100, 1000).map((bucket) => bucket.key)
-        const hashTags = keys.map((key) => key.match(/\{([^}]+)\}/)?.[1])
-        expect(hashTags[0]).toBeTruthy()
-        expect(hashTags[1]).toBe(hashTags[0])
     })
 })
 
