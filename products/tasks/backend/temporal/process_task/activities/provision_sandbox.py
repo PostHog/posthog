@@ -304,6 +304,12 @@ def _prewarmed_resume_needs_fresh_agent(
     (``snapshot_external_id``), so it supplies the snapshot's own agent binary too and needs the
     same probe. Only a directory restore keeps the vetted image's agent.
     """
+    # `prewarmedResumeMessageDriven` is an ACP capability, advertised and consumed only by the
+    # ACP agent server. The Pi server dispatches no startup turn and downloads its session
+    # history from the API instead of the snapshot, so probing a Pi bundle for the string
+    # rejects a healthy snapshot and re-clones the repository for no behavior change.
+    if ctx.task_runtime == Task.Runtime.PI:
+        return False
     if (
         not used_snapshot
         or (prepared.snapshot_external_id is None and prepared.snapshot_id is None)

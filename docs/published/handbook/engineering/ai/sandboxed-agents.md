@@ -492,6 +492,9 @@ user message echoes. Existing unmarked transcript entries are unchanged.
 Full filesystem snapshots contain an agent binary. Prewarmed resumes require its
 `prewarmedResumeMessageDriven` capability; the older `prewarmedResumeIdle` capability
 alone is insufficient. An incompatible snapshot uses the existing fresh-agent fallback.
+The check applies to ACP runs, because the capability belongs to the ACP agent server.
+Pi runs keep their snapshot, because the Pi server starts no turn of its own and loads
+its session history from the API.
 Publish the updated agent and rebuild sandbox images before deploying the stricter
 backend capability gate, so the fallback supplies a compatible agent.
 

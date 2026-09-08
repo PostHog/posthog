@@ -157,9 +157,10 @@ def test_sandbox_image_kind(image_source: str, custom_image_name: str | None, ex
 
 
 @pytest.mark.parametrize(
-    "snapshot_id, snapshot_external_id, snapshot_kind, state, capability, expected",
+    "task_runtime, snapshot_id, snapshot_external_id, snapshot_kind, state, capability, expected",
     [
         (
+            Task.Runtime.ACP,
             None,
             "snapshot-1",
             SNAPSHOT_KIND_FILESYSTEM,
@@ -168,6 +169,7 @@ def test_sandbox_image_kind(image_source: str, custom_image_name: str | None, ex
             True,
         ),
         (
+            Task.Runtime.ACP,
             None,
             "snapshot-1",
             SNAPSHOT_KIND_FILESYSTEM,
@@ -176,6 +178,7 @@ def test_sandbox_image_kind(image_source: str, custom_image_name: str | None, ex
             False,
         ),
         (
+            Task.Runtime.ACP,
             None,
             "snapshot-1",
             SNAPSHOT_KIND_DIRECTORY,
@@ -183,8 +186,17 @@ def test_sandbox_image_kind(image_source: str, custom_image_name: str | None, ex
             False,
             False,
         ),
-        (None, "snapshot-1", SNAPSHOT_KIND_FILESYSTEM, {"resume_from_run_id": "previous-run"}, False, False),
         (
+            Task.Runtime.ACP,
+            None,
+            "snapshot-1",
+            SNAPSHOT_KIND_FILESYSTEM,
+            {"resume_from_run_id": "previous-run"},
+            False,
+            False,
+        ),
+        (
+            Task.Runtime.ACP,
             "snapshot-row-1",
             None,
             SNAPSHOT_KIND_FILESYSTEM,
@@ -193,9 +205,19 @@ def test_sandbox_image_kind(image_source: str, custom_image_name: str | None, ex
             True,
         ),
         (
+            Task.Runtime.ACP,
             "snapshot-row-1",
             None,
             SNAPSHOT_KIND_DIRECTORY,
+            {"prewarmed": True, "resume_from_run_id": "previous-run"},
+            False,
+            False,
+        ),
+        (
+            Task.Runtime.PI,
+            None,
+            "snapshot-1",
+            SNAPSHOT_KIND_FILESYSTEM,
             {"prewarmed": True, "resume_from_run_id": "previous-run"},
             False,
             False,
@@ -203,9 +225,10 @@ def test_sandbox_image_kind(image_source: str, custom_image_name: str | None, ex
     ],
 )
 def test_old_full_snapshot_agent_is_rejected_only_for_prewarmed_resume(
-    mocker, snapshot_id, snapshot_external_id, snapshot_kind, state, capability, expected
+    mocker, task_runtime, snapshot_id, snapshot_external_id, snapshot_kind, state, capability, expected
 ):
     context = _context_for_desktop_bootstrap()
+    context.task_runtime = task_runtime
     context.state = state
     prepared = PrepareSandboxForRepositoryOutput(
         sandbox_name="task-sandbox-task-id",
