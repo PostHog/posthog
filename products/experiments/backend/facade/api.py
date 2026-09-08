@@ -18,7 +18,13 @@ from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import Experiment as ExperimentModel
 from products.feature_flags.backend.models.feature_flag import FeatureFlag as FeatureFlagModel
 
-from .contracts import CreateExperimentInput, Experiment, PulseExperimentDraftInput, PulseExperimentDraftResult
+from .contracts import (
+    CreateExperimentInput,
+    Experiment,
+    PulseExperimentDraftInput,
+    PulseExperimentDraftResult,
+    PulseExperimentLifecycleResult,
+)
 
 _PULSE_DRAFT_PARAMETERS_KEY = "pulse_draft"
 _PULSE_DRAFT_STATE = "draft"
@@ -131,6 +137,23 @@ def create_pulse_experiment_draft(input: PulseExperimentDraftInput) -> PulseExpe
             if replay is not None:
                 return replay
         raise ValueError("Pulse experiment draft key collides with another resource.") from err
+
+
+def get_pulse_experiment_lifecycle(*, team_id: int, experiment_id: int) -> PulseExperimentLifecycleResult:
+    """Read the lifecycle of one team-owned Pulse experiment without changing it."""
+    experiment = (
+        ExperimentModel.objects.filter(id=experiment_id, team_id=team_id, deleted=False)
+        .values("id", "start_date")
+        .first()
+    )
+    if experiment is None:
+        return PulseExperimentLifecycleResult(experiment_id=experiment_id, state="unknown", start_date=None)
+    start_date = experiment["start_date"]
+    return PulseExperimentLifecycleResult(
+        experiment_id=experiment["id"],
+        state="activated" if start_date is not None else "draft",
+        start_date=start_date,
+    )
 
 
 def _create_or_replay_pulse_experiment_draft(

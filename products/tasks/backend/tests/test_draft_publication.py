@@ -22,6 +22,7 @@ from posthog.models.user import User
 from products.tasks.backend.facade.draft_publication import (
     DraftPublicationRequest,
     InvalidDraftPublicationError,
+    get_draft_publication_lifecycle,
     publish_draft_publication,
     reserve_draft_publication,
     revoke_draft_publication,
@@ -142,6 +143,8 @@ class _LifecycleGitHub:
                 },
             }
             return self.pull_request
+        if method == "GET" and "/pulls/" in path:
+            return self.pull_request or {}
         if method == "GET" and path.endswith("/pulls"):
             return [self.pull_request] if self.pull_request else []
         raise AssertionError(f"unexpected request: {method} {path}")
@@ -503,6 +506,56 @@ class TestDraftPublication(TestCase):
 
         publication.refresh_from_db()
         assert publication.status == TaskDraftPublication.Status.BLOCKED
+
+    @parameterized.expand(
+        [
+            ("merged", "2026-09-08T10:30:00Z", "merged", datetime(2026, 9, 8, 10, 30, tzinfo=UTC)),
+            ("missing_timestamp", None, "unknown", None),
+            ("malformed_timestamp", "not-a-timestamp", "unknown", None),
+            ("naive_timestamp", "2026-09-08T10:30:00", "unknown", None),
+        ]
+    )
+    def test_publication_lifecycle_exposes_only_validated_merge_evidence(
+        self, _name: str, merged_at: str | None, expected_state: str, expected_merged_at: datetime | None
+    ) -> None:
+        reserved = reserve_draft_publication(self._request())
+        publication = TaskDraftPublication.objects.for_team(self.team.id).get(id=reserved.publication_id)
+        publication.status = TaskDraftPublication.Status.PUBLISHED
+        publication.pr_number = 17
+        publication.pr_url = "https://github.com/Example/Repository/pull/17"
+        publication.github_commit_sha = "d" * 40
+        publication.save(update_fields=["status", "pr_number", "pr_url", "github_commit_sha"])
+        github = _LifecycleGitHub()
+        github.pull_request = {
+            "number": 17,
+            "html_url": publication.pr_url,
+            "state": "closed",
+            "merged": True,
+            "merged_at": merged_at,
+            "base": {"ref": publication.base_branch, "repo": {"full_name": "Example/Repository"}},
+            "head": {
+                "ref": publication.head_branch,
+                "sha": publication.github_commit_sha,
+                "repo": {"full_name": "Example/Repository"},
+            },
+        }
+
+        with (
+            patch(
+                "products.tasks.backend.logic.services.publication_service._get_github_token",
+                return_value="server-token",
+            ),
+            patch(
+                "products.tasks.backend.logic.services.publication_service.ServerGitHubPublicationClient",
+                return_value=github,
+            ),
+        ):
+            lifecycle = get_draft_publication_lifecycle(
+                team_id=self.team.id, caller_id=self.caller_id, publication_id=publication.id
+            )
+
+        assert lifecycle.remote_state == expected_state
+        assert lifecycle.merged_at == expected_merged_at
 
     @parameterized.expand(
         [

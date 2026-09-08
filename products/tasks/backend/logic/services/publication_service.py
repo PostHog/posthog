@@ -36,7 +36,7 @@ from products.tasks.backend.logic.services.publication_transport import (
     create_draft_pull_request,
     create_server_branch,
     create_server_commit,
-    read_draft_pull_request_state,
+    read_draft_pull_request_lifecycle,
     reconcile_draft_pull_request,
     reconcile_server_branch,
 )
@@ -236,7 +236,7 @@ def get_publication_lifecycle(
             title=publication.pr_title,
             body=publication.pr_body,
         )
-        remote_state = read_draft_pull_request_state(
+        lifecycle = read_draft_pull_request_lifecycle(
             ServerGitHubPublicationClient(installation_id=publication.github_installation_id, token=token),
             transport_input,
             pr_number=publication.pr_number,
@@ -248,9 +248,10 @@ def get_publication_lifecycle(
     return DraftPublicationLifecycleResult(
         publication_id=publication.id,
         local_status=local_status,
-        remote_state=remote_state,
+        remote_state=lifecycle.state,
         pr_number=publication.pr_number,
         pr_url=publication.pr_url,
+        merged_at=lifecycle.merged_at,
     )
 
 
