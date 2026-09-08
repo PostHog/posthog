@@ -1,0 +1,775 @@
+"""Find SELECTs that read `events` in a way ClickHouse cannot prune.
+
+The events table is sorted by (team, day, event name). A filter on the event name or a lower
+timestamp bound is answered from that index. A filter on a property is not: every row in the
+range is read to check it. So a SELECT that reads `events` with a property filter and no event
+name filter scans its whole date range, and one with no timestamp bound scans the whole history.
+
+A row limit is not a bound. ClickHouse reads at least one granule of every selected column in
+every stream before it can stop, so `SELECT * FROM events LIMIT 101` measures at about 1.7 GiB on
+a large team. `LIMIT` caps what comes back, not what is read, and no limit exempts a query here.
+
+What the check cannot see is how much data the team has: the same SELECT is free on a project with
+a thousand events and expensive on one with billions. Warning by query shape alone therefore
+reaches projects the advice does not apply to. A size threshold is the missing input.
+"""
+
+import dataclasses
+from collections.abc import Callable
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any
+
+from posthog.schema import EventsScanWarning
+
+from posthog.hogql import ast
+from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
+
+from posthog.dataclasses import frozen
+from posthog.ph_client import feature_enabled_or_false
+
+if TYPE_CHECKING:
+    from posthog.hogql.database.database import Database
+
+    from posthog.models import Team
+
+
+def events_scan_warnings_enabled(team: "Team") -> bool:
+    """The warning fires on query shape alone, without knowing how much data the project holds.
+
+    On a small project the advice is noise, and the editor marks a query that costs nothing. Roll
+    out per team so that intrusiveness can be watched where the queries are real, and keep it off
+    until a size threshold replaces the guess.
+    """
+    return feature_enabled_or_false(
+        "hogql-events-scan-warning",
+        str(team.uuid),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id)},
+        },
+    )
+
+
+_PROPERTIES = "properties"
+_EVENT = "event"
+_TIMESTAMP = "timestamp"
+
+# Comparisons on the event name that the primary index answers. Negations and pattern matches do not.
+_EVENT_NAME_OPS = frozenset({ast.CompareOperationOp.Eq, ast.CompareOperationOp.In, ast.CompareOperationOp.GlobalIn})
+_EVENT_NAME_FUNCTIONS = frozenset({"equals", "in", "globalIn"})
+# `timestamp >= x`, `timestamp = x`, `timestamp IN (...)`
+_LOWER_BOUND_OPS_TIMESTAMP_LEFT = frozenset(
+    {ast.CompareOperationOp.Gt, ast.CompareOperationOp.GtEq, ast.CompareOperationOp.Eq, ast.CompareOperationOp.In}
+)
+# `x <= timestamp`, `x = timestamp`
+_LOWER_BOUND_OPS_TIMESTAMP_RIGHT = frozenset(
+    {ast.CompareOperationOp.Lt, ast.CompareOperationOp.LtEq, ast.CompareOperationOp.Eq}
+)
+_LOWER_BOUND_FUNCTIONS_TIMESTAMP_FIRST = frozenset({"greater", "greaterOrEquals", "equals"})
+_LOWER_BOUND_FUNCTIONS_TIMESTAMP_SECOND = frozenset({"less", "lessOrEquals", "equals"})
+# Wrappers ClickHouse treats as monotonic, so a bound on them still prunes by the sort key.
+# Lowercase because ClickHouse resolves function names case-insensitively.
+_MONOTONIC_TIMESTAMP_FUNCTIONS = frozenset(
+    {
+        "todate",
+        "todatetime",
+        "todatetime64",
+        "tomonday",
+        "totimezone",
+        "tounixtimestamp",
+        "toyear",
+        "toyyyymm",
+        "toyyyymmdd",
+    }
+)
+_MONOTONIC_TIMESTAMP_PREFIX = "tostartof"
+_FILTERS_PLACEHOLDER = "filters"
+# An alias can name other aliases, and every reference expands on its own, so `a2 = plus(a1, a1)`
+# doubles what `a1` expands to. A short query can then describe a huge predicate, so stop here.
+_MAX_ALIAS_EXPANSION_NODES = 10_000
+# Comparisons an `event IN (...)` list could stand in for. Exclusions like NOT IN or != cannot.
+_POSITIVE_COMPARE_OPS = frozenset(
+    {
+        ast.CompareOperationOp.Eq,
+        ast.CompareOperationOp.In,
+        ast.CompareOperationOp.GlobalIn,
+        ast.CompareOperationOp.Like,
+        ast.CompareOperationOp.ILike,
+    }
+)
+_POSITIVE_COMPARE_FUNCTIONS = frozenset({"equals", "in", "globalIn", "like", "ilike"})
+_NEGATION_FUNCTION = "not"
+# A query can filter on any number of properties; the message names enough to act on
+_MAX_LOOKUP_PROPERTIES = 5
+# Join words that keep every row of a side, so an ON condition there filters nothing on it
+_LEFT_PRESERVING_JOINS = frozenset({"LEFT", "FULL"})
+_RIGHT_PRESERVING_JOINS = frozenset({"RIGHT", "FULL"})
+_SEMI_JOIN = "SEMI"
+
+
+class EventsScanSource(StrEnum):
+    """What put the unprunable filter into the query that runs."""
+
+    QUERY = "query"
+    TEST_ACCOUNT_FILTERS = "test_account_filters"
+    UI_FILTERS = "filters"
+    UNKNOWN = "unknown"
+
+
+class EventsScanReason(StrEnum):
+    PROPERTY_FILTER_WITHOUT_EVENT = "property_filter_without_event"
+    NO_TIME_BOUND = "no_time_bound"
+    NO_EVENT_FILTER = "no_event_filter"
+
+
+@frozen
+class EventsScanFinding:
+    reason: EventsScanReason
+    # Offsets of the `events` reference in the query text; None when the AST was built in code
+    start: int | None
+    end: int | None
+    # Event property names the SELECT filters on, for the "events seen with" hint
+    property_names: tuple[str, ...] = ()
+    source: EventsScanSource = EventsScanSource.QUERY
+
+
+def find_events_scans(query: ast.SelectQuery | ast.SelectSetQuery, database: "Database") -> list[EventsScanFinding]:
+    """`database` resolves table names, so `posthog.events` and the persons-on-events subtables count too."""
+    visitor = _EventsScanVisitor(database, _referenced_names(query))
+    visitor.visit(query)
+    return visitor.findings
+
+
+def attributed_events_scans(
+    query: ast.SelectQuery | ast.SelectSetQuery,
+    database: "Database",
+    as_written: ast.SelectQuery | ast.SelectSetQuery | None = None,
+    without_test_accounts: "Callable[[], ast.SelectQuery | ast.SelectSetQuery | None] | None" = None,
+) -> list[EventsScanFinding]:
+    """The findings on `query`, each tagged with what put it there.
+
+    `query` is what runs. When `as_written` is given, findings it does not share are attributed to the
+    filters the UI expanded into the query; `without_test_accounts` re-expands with the test-account
+    filters off, which tells that source apart from the insight or dashboard filters. It is a callable
+    because re-expanding costs a filter rebuild, and a clean query needs no attribution at all.
+    """
+    findings = find_events_scans(query, database)
+    if not findings or as_written is None:
+        return findings
+    written = find_events_scans(as_written, database)
+    alternative = without_test_accounts() if without_test_accounts is not None else None
+    return attribute_findings(
+        findings,
+        written,
+        find_events_scans(alternative, database) if alternative is not None else None,
+    )
+
+
+def events_scan_warnings(
+    query: ast.SelectQuery | ast.SelectSetQuery,
+    database: "Database",
+    as_written: ast.SelectQuery | ast.SelectSetQuery | None = None,
+    without_test_accounts: "Callable[[], ast.SelectQuery | ast.SelectSetQuery | None] | None" = None,
+) -> list[EventsScanWarning]:
+    """The missing event-name and time-range bounds, shaped for a query response's `warnings`."""
+    findings = attributed_events_scans(query, database, as_written, without_test_accounts)
+    return [
+        EventsScanWarning(
+            type="events_scan",
+            reason=finding.reason.value,
+            source=finding.source.value,
+            message=finding_message(finding),
+            start=finding.start,
+            end=finding.end,
+        )
+        for finding in findings
+    ]
+
+
+def attribute_findings(
+    expanded: list[EventsScanFinding],
+    as_written: list[EventsScanFinding],
+    without_test_accounts: list[EventsScanFinding] | None,
+) -> list[EventsScanFinding]:
+    """Tag each finding on the expanded query with what put it there.
+
+    A finding the query text already has is the user's own. One that only the expanded query has came
+    from a filter the UI added; when it disappears with the test-account filters off, that setting is
+    the source, otherwise the insight or dashboard filters are. With no way to re-expand, the source
+    stays unknown.
+    """
+    written = {_finding_key(finding): finding for finding in as_written}
+    without = (
+        {_finding_key(finding) for finding in without_test_accounts} if without_test_accounts is not None else None
+    )
+    attributed: list[EventsScanFinding] = []
+    for finding in expanded:
+        key = _finding_key(finding)
+        if key in written:
+            attributed.append(written[key])
+            continue
+        if without is None:
+            source = EventsScanSource.UNKNOWN
+        elif key not in without:
+            source = EventsScanSource.TEST_ACCOUNT_FILTERS
+        else:
+            source = EventsScanSource.UI_FILTERS
+        # The hint lists the properties the user wrote; an injected filter is not theirs to replace
+        attributed.append(dataclasses.replace(finding, source=source, property_names=()))
+    return attributed
+
+
+@frozen
+class _FindingKey:
+    """Identity of a finding across expansions of the same query: same reason on the same `events` reference."""
+
+    reason: EventsScanReason
+    start: int | None
+    end: int | None
+
+
+def _finding_key(finding: EventsScanFinding) -> _FindingKey:
+    return _FindingKey(reason=finding.reason, start=finding.start, end=finding.end)
+
+
+EVENT_FILTER_ADVICE = (
+    "This query reads every event in its date range. "
+    "Limit it to the events you need, with event = '...' or event IN (...). "
+    "In PostHog, filtering by event name is the most effective way to make a query fast."
+)
+
+
+def finding_message(finding: EventsScanFinding) -> str:
+    if finding.source == EventsScanSource.TEST_ACCOUNT_FILTERS:
+        return (
+            'The "Filter out internal and test users" setting adds a property filter to this query, so it reads '
+            "every event in its date range. Limit the query to the events you need, or turn that setting off here."
+        )
+    if finding.source == EventsScanSource.UI_FILTERS:
+        if finding.reason == EventsScanReason.NO_TIME_BOUND:
+            return (
+                "No date range is applied to this query, so it reads your whole event history. "
+                "Set a date range, or add a timestamp filter to the query."
+            )
+        return (
+            "A filter applied to this insight or dashboard adds a property filter, so this query reads every "
+            "event in its date range. Limit the query to the events you need, or remove that filter."
+        )
+    if finding.source == EventsScanSource.UNKNOWN:
+        return (
+            "Filters applied outside the query text make it read every event in its date range. "
+            "Limit the query to the events you need. If you cannot find those filters, contact PostHog support."
+        )
+    if finding.reason == EventsScanReason.NO_TIME_BOUND:
+        return (
+            "This query has no timestamp filter on events, so it reads your whole event history. "
+            "Add one, such as a filter for the last 7 days."
+        )
+    message = EVENT_FILTER_ADVICE
+    lookup = property_lookup_query(finding.property_names)
+    if lookup:
+        message += f" To find which events carry the properties you filter on, run: {lookup}"
+    return message
+
+
+def property_lookup_query(property_names: tuple[str, ...]) -> str | None:
+    """SQL that answers which events carry the filtered properties.
+
+    The answer used to be read from the ingestion-time associations and pasted into the message.
+    That cost a Postgres query with no index behind it on every keystroke in the editor, for a
+    hint. Handing over the query instead costs nothing until somebody wants the answer.
+    """
+    if not property_names:
+        return None
+    conditions = " OR ".join(f"properties.{name} IS NOT NULL" for name in property_names[:_MAX_LOOKUP_PROPERTIES])
+    return f"SELECT event, count() FROM events WHERE ({conditions}) AND <the same date range> GROUP BY event"
+
+
+def finding_fix(finding: EventsScanFinding) -> str | None:
+    """A `HogQLNotice.fix` in its `ai_prompt:` form: the editor offers it as a "Fix with AI" action."""
+    if finding.source != EventsScanSource.QUERY:
+        # Nothing in the SQL text to change
+        return None
+    if finding.reason == EventsScanReason.PROPERTY_FILTER_WITHOUT_EVENT:
+        return (
+            "ai_prompt:Limit every part of this query that reads the events table to the events it needs, "
+            "with event = '...' or event IN (...), without changing the results. If you do not know which "
+            "events carry a filtered property, find out first with "
+            "SELECT event, count() FROM events WHERE properties.<name> IS NOT NULL AND <the same date range> "
+            "GROUP BY event."
+        )
+    if finding.reason == EventsScanReason.NO_TIME_BOUND:
+        return (
+            "ai_prompt:Add a lower timestamp bound to every part of this query that reads the events table, "
+            "matching the period the question is about."
+        )
+    return None
+
+
+class _ReferencedNames(TraversingVisitor):
+    """Every bare name the query reads, wherever it reads it."""
+
+    def __init__(self) -> None:
+        self.names: set[str] = set()
+
+    def visit_field(self, node: ast.Field) -> None:
+        if len(node.chain) == 1:
+            self.names.add(str(node.chain[0]))
+
+
+def _referenced_names(query: ast.SelectQuery | ast.SelectSetQuery) -> set[str]:
+    visitor = _ReferencedNames()
+    visitor.visit(query)
+    return visitor.names
+
+
+class _EventsScanVisitor(TraversingVisitor):
+    def __init__(self, database: "Database", referenced_names: set[str]) -> None:
+        self.database = database
+        self.findings: list[EventsScanFinding] = []
+        # A CTE nobody names is never substituted, so its body reads nothing. Collected for the
+        # whole query, so a name that only one branch or one subquery reads still counts.
+        self.referenced_names = referenced_names
+        self._cte_scopes: list[set[str]] = []
+        self._branch_with_pushed_ctes: ast.SelectQuery | ast.SelectSetQuery | None = None
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        # The set query above pushed this branch's CTE names already, so the other branches see
+        # them. A second copy here would survive the one `visit_cte` clears, and the CTE body would
+        # read its own name as the CTE instead of the events table.
+        already_pushed = node is self._branch_with_pushed_ctes
+        self._branch_with_pushed_ctes = None
+        self._cte_scopes.append(set() if already_pushed else set(node.ctes.keys()) if node.ctes else set())
+        try:
+            self._check(node)
+            super().visit_select_query(node)
+        finally:
+            self._cte_scopes.pop()
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        # The parser hangs a root WITH on the first branch; the other branches see those names too
+        initial = node.initial_select_query
+        names = set(initial.ctes.keys()) if isinstance(initial, ast.SelectQuery) and initial.ctes else set()
+        self._cte_scopes.append(names)
+        self._branch_with_pushed_ctes = initial if names else None
+        try:
+            super().visit_select_set_query(node)
+        finally:
+            self._cte_scopes.pop()
+
+    def visit_cte(self, node: ast.CTE) -> None:
+        if node.name not in self.referenced_names:
+            return
+        # Inside its own body a CTE name still means the table
+        scope = next((scope for scope in reversed(self._cte_scopes) if node.name in scope), None)
+        if scope is None:
+            super().visit_cte(node)
+            return
+        scope.discard(node.name)
+        try:
+            super().visit_cte(node)
+        finally:
+            scope.add(node.name)
+
+    def _check(self, node: ast.SelectQuery) -> None:
+        references = _events_references(node.select_from, self.database, self._cte_scopes)
+        if not references:
+            return
+        predicates = [
+            dataclasses.replace(predicate, expr=_expand_select_aliases(predicate.expr, node))
+            for predicate in _row_predicates(node)
+        ]
+        # The message names every property the SELECT filters on, wherever it filters on it
+        everything = _combine([predicate.expr for predicate in predicates])
+        fields = _PredicateFields.collect(everything) if everything is not None else _PredicateFields()
+        all_aliases = {alias for alias, _ in references}
+
+        # Each read of events is checked against the predicates that constrain its own alias. A
+        # self-join where one side is filtered still reads the other side in full.
+        for alias, reference in references:
+            scope = {alias}
+            predicate = _row_predicate(predicates, alias)
+            if predicate is None or not _constrains_event(predicate, scope):
+                reason = (
+                    EventsScanReason.PROPERTY_FILTER_WITHOUT_EVENT
+                    if fields.references_properties(scope, all_aliases)
+                    else EventsScanReason.NO_EVENT_FILTER
+                )
+                self.findings.append(
+                    EventsScanFinding(
+                        reason=reason,
+                        start=reference.start,
+                        end=reference.end,
+                        property_names=fields.event_property_names(scope),
+                    )
+                )
+            if predicate is None or not _bounds_timestamp(predicate, scope):
+                self.findings.append(
+                    EventsScanFinding(reason=EventsScanReason.NO_TIME_BOUND, start=reference.start, end=reference.end)
+                )
+
+
+def _events_references(
+    join: ast.JoinExpr | None, database: "Database", cte_scopes: list[set[str]]
+) -> list[tuple[str, ast.Field]]:
+    references: list[tuple[str, ast.Field]] = []
+    while join is not None:
+        if isinstance(join.table, ast.Field) and _is_events_table(join.table.chain, database, cte_scopes):
+            references.append((join.alias or str(join.table.chain[-1]), join.table))
+        join = join.next_join
+    return references
+
+
+def _is_events_table(chain: list[str | int], database: "Database", cte_scopes: list[set[str]]) -> bool:
+    # `WITH events AS (...)` makes `FROM events` read the CTE, not the table
+    if len(chain) == 1 and any(str(chain[0]) in scope for scope in cte_scopes):
+        return False
+    try:
+        table = database.get_table([str(part) for part in chain])
+    except Exception:
+        # An unknown or inaccessible table is the resolver's error to report, not a scan
+        return False
+    return isinstance(table, EVENTS_TABLE_TYPES)
+
+
+class _AliasExpansionTooLarge(Exception):
+    """The expanded predicate passed `_MAX_ALIAS_EXPANSION_NODES`."""
+
+
+class _SelectAliasExpander(CloningVisitor):
+    """Replace a bare name in a predicate with the select-list expression behind it.
+
+    HogQL resolves a name in a predicate against the select aliases before the table's columns, so
+    `SELECT toStartOfDay(timestamp) AS day FROM events WHERE day >= now() - INTERVAL 7 DAY` does
+    bound the read. The checks here read field chains, so an alias would hide the bound and the
+    query would be reported as unbounded when it is not.
+    """
+
+    def __init__(self, aliases: dict[str, ast.Expr]) -> None:
+        super().__init__(clear_types=False, clear_locations=False)
+        self.aliases = aliases
+        self.expanding: set[str] = set()
+        self.remaining = _MAX_ALIAS_EXPANSION_NODES
+
+    def visit(self, node: ast.AST | None) -> Any:
+        # Charge only what an expansion adds. The predicate as written is already bounded by the query.
+        if node is not None and self.expanding:
+            self.remaining -= 1
+            if self.remaining < 0:
+                raise _AliasExpansionTooLarge
+        return super().visit(node)
+
+    def visit_field(self, node: ast.Field) -> ast.Expr:
+        if len(node.chain) != 1:
+            return super().visit_field(node)
+        name = str(node.chain[0])
+        # `SELECT x AS x`, and aliases that name each other, would expand forever
+        if name in self.expanding or name not in self.aliases:
+            return super().visit_field(node)
+        self.expanding.add(name)
+        try:
+            return self.visit(self.aliases[name])
+        finally:
+            self.expanding.discard(name)
+
+
+def _expand_select_aliases(predicate: ast.Expr, node: ast.SelectQuery) -> ast.Expr:
+    aliases = {expr.alias: expr.expr for expr in node.select or [] if isinstance(expr, ast.Alias)}
+    if not aliases:
+        return predicate
+    try:
+        return _SelectAliasExpander(aliases).visit(predicate)
+    except _AliasExpansionTooLarge:
+        # Read the predicate as written. A bound behind an alias is then missed, and the query is
+        # reported as unbounded, which is the safe direction: the warning does not block the run.
+        return predicate
+
+
+@frozen
+class _RowPredicate:
+    expr: ast.Expr
+    # The events aliases the predicate can remove rows from; None when it filters every row read
+    aliases: frozenset[str] | None = None
+
+
+def _row_predicates(node: ast.SelectQuery) -> list[_RowPredicate]:
+    """The predicates that remove rows, each with the join sides it removes them from.
+
+    WHERE and PREWHERE filter every row the SELECT reads. An ON condition only filters the side a
+    join does not preserve: a LEFT JOIN returns every left row whatever its ON condition says, so a
+    bound written there still leaves the left side read in full.
+    """
+    predicates = [_RowPredicate(expr=part) for part in (node.where, node.prewhere) if part is not None]
+    join = node.select_from
+    left: set[str] = set()
+    while join is not None:
+        alias = _join_alias(join)
+        if join.constraint is not None and join.constraint.constraint_type == "ON":
+            scope = _on_scope(join.join_type, left, alias)
+            predicates.append(_RowPredicate(expr=join.constraint.expr, aliases=scope))
+        if alias is not None:
+            left.add(alias)
+        join = join.next_join
+    return predicates
+
+
+def _join_alias(join: ast.JoinExpr) -> str | None:
+    if join.alias:
+        return join.alias
+    return str(join.table.chain[-1]) if isinstance(join.table, ast.Field) else None
+
+
+def _on_scope(join_type: str | None, left: set[str], right: str | None) -> frozenset[str]:
+    """The aliases an ON condition on this join can remove rows from.
+
+    An outer join keeps every row of the side it preserves, so a condition on that side decides
+    whether the other side matches, not whether the row is read. A semi join returns only matching
+    rows on both sides, so its condition does filter both.
+    """
+    words = set(join_type.upper().split()) if join_type else set()
+    semi = _SEMI_JOIN in words
+    aliases: set[str] = set()
+    if semi or not words & _LEFT_PRESERVING_JOINS:
+        aliases |= left
+    if right is not None and (semi or not words & _RIGHT_PRESERVING_JOINS):
+        aliases.add(right)
+    return frozenset(aliases)
+
+
+def _combine(exprs: list[ast.Expr]) -> ast.Expr | None:
+    if not exprs:
+        return None
+    return exprs[0] if len(exprs) == 1 else ast.And(exprs=exprs)
+
+
+def _row_predicate(predicates: list[_RowPredicate], alias: str) -> ast.Expr | None:
+    """What constrains the rows read through `alias`."""
+    return _combine([p.expr for p in predicates if p.aliases is None or alias in p.aliases])
+
+
+def _is_event_field(node: ast.Expr, aliases: set[str]) -> bool:
+    if not isinstance(node, ast.Field):
+        return False
+    chain = node.chain
+    return chain == [_EVENT] or (len(chain) == 2 and chain[0] in aliases and chain[1] == _EVENT)
+
+
+def _is_timestamp_expr(node: ast.Expr, aliases: set[str]) -> bool:
+    if isinstance(node, ast.Field):
+        chain = node.chain
+        return chain == [_TIMESTAMP] or (len(chain) == 2 and chain[0] in aliases and chain[1] == _TIMESTAMP)
+    if isinstance(node, ast.Call) and node.args:
+        name = node.name.lower()
+        if name == "datetrunc" and len(node.args) >= 2:
+            return _is_timestamp_expr(node.args[1], aliases)
+        if name in _MONOTONIC_TIMESTAMP_FUNCTIONS or name.startswith(_MONOTONIC_TIMESTAMP_PREFIX):
+            return _is_timestamp_expr(node.args[0], aliases)
+    return False
+
+
+class _ColumnRead(TraversingVisitor):
+    """Whether an expression reads a column, ignoring subqueries, which resolve before the scan."""
+
+    def __init__(self) -> None:
+        self.found = False
+
+    def visit_field(self, node: ast.Field) -> None:
+        self.found = True
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        return None
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        return None
+
+
+def _is_fixed_bound(node: ast.Expr) -> bool:
+    """Whether the operand holds one value for the whole read, so the sort key can range over it.
+
+    Another column gives no range: ClickHouse reads every row to compare the two. A scalar subquery
+    does give one, because ClickHouse runs it before the scan.
+    """
+    visitor = _ColumnRead()
+    visitor.visit(node)
+    return not visitor.found
+
+
+def _is_filters_placeholder(node: ast.Expr) -> bool:
+    """`{filters}` becomes the UI's date range and property filters, so it bounds the read without being the user's own filter."""
+    if not isinstance(node, ast.Placeholder) or not node.chain:
+        return False
+    return str(node.chain[0]) == _FILTERS_PLACEHOLDER
+
+
+def _constrains_event(expr: ast.Expr, aliases: set[str]) -> bool:
+    """Whether the predicate pins the event name for every row it lets through."""
+    match expr:
+        case ast.Alias(expr=inner):
+            return _constrains_event(inner, aliases)
+        case ast.And(exprs=exprs):
+            return any(_constrains_event(part, aliases) for part in exprs)
+        case ast.Or(exprs=exprs):
+            return len(exprs) > 0 and all(_constrains_event(part, aliases) for part in exprs)
+        case ast.CompareOperation(op=op, left=left, right=right):
+            if op not in _EVENT_NAME_OPS:
+                return False
+            return (_is_event_field(left, aliases) and _is_fixed_bound(right)) or (
+                _is_event_field(right, aliases) and _is_fixed_bound(left)
+            )
+        case ast.Call(name="and", args=args):
+            return any(_constrains_event(part, aliases) for part in args)
+        case ast.Call(name="or", args=args):
+            return len(args) > 0 and all(_constrains_event(part, aliases) for part in args)
+        case ast.Call(name=name, args=args):
+            if name in _EVENT_NAME_FUNCTIONS and len(args) == 2:
+                return (_is_event_field(args[0], aliases) and _is_fixed_bound(args[1])) or (
+                    _is_event_field(args[1], aliases) and _is_fixed_bound(args[0])
+                )
+            if name == "has" and len(args) == 2:
+                return _is_event_field(args[1], aliases) and _is_fixed_bound(args[0])
+            return False
+        case _:
+            return False
+
+
+def _bounds_timestamp(expr: ast.Expr, aliases: set[str]) -> bool:
+    """Whether the predicate gives every row a lower timestamp bound the sort key can use."""
+    match expr:
+        case ast.Alias(expr=inner):
+            return _bounds_timestamp(inner, aliases)
+        case ast.And(exprs=exprs):
+            return any(_bounds_timestamp(part, aliases) for part in exprs)
+        case ast.Or(exprs=exprs):
+            return len(exprs) > 0 and all(_bounds_timestamp(part, aliases) for part in exprs)
+        case ast.CompareOperation(op=op, left=left, right=right):
+            if _is_timestamp_expr(left, aliases) and op in _LOWER_BOUND_OPS_TIMESTAMP_LEFT:
+                return _is_fixed_bound(right)
+            return (
+                _is_timestamp_expr(right, aliases) and op in _LOWER_BOUND_OPS_TIMESTAMP_RIGHT and _is_fixed_bound(left)
+            )
+        case ast.BetweenExpr(expr=inner, low=low, negated=negated):
+            return not negated and _is_timestamp_expr(inner, aliases) and _is_fixed_bound(low)
+        case ast.Placeholder():
+            return _is_filters_placeholder(expr)
+        case ast.Call(name="and", args=args):
+            return any(_bounds_timestamp(part, aliases) for part in args)
+        case ast.Call(name="or", args=args):
+            return len(args) > 0 and all(_bounds_timestamp(part, aliases) for part in args)
+        case ast.Call(name=name, args=args):
+            if len(args) != 2:
+                return False
+            if name in _LOWER_BOUND_FUNCTIONS_TIMESTAMP_FIRST and _is_timestamp_expr(args[0], aliases):
+                return _is_fixed_bound(args[1])
+            return (
+                name in _LOWER_BOUND_FUNCTIONS_TIMESTAMP_SECOND
+                and _is_timestamp_expr(args[1], aliases)
+                and _is_fixed_bound(args[0])
+            )
+        case _:
+            return False
+
+
+class _PredicateFields(TraversingVisitor):
+    """The fields a predicate reads, without descending into subqueries, which filter their own tables.
+
+    Fields under a positive comparison are kept apart: those are the properties an event list could
+    replace, so only they feed the "events seen with" hint.
+    """
+
+    def __init__(self) -> None:
+        self.fields: list[ast.Field] = []
+        self.positive_fields: list[ast.Field] = []
+        self.positive_array_accesses: list[ast.ArrayAccess] = []
+        self._positive_depth = 0
+        self._negated_depth = 0
+
+    @classmethod
+    def collect(cls, predicate: ast.Expr) -> "_PredicateFields":
+        collector = cls()
+        collector.visit(predicate)
+        return collector
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        return None
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        return None
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        self._visit_comparison(
+            node.op in _POSITIVE_COMPARE_OPS, lambda: super(_PredicateFields, self).visit_compare_operation(node)
+        )
+
+    def visit_call(self, node: ast.Call) -> None:
+        # The parser gives `NOT x` as a call, not an ast.Not
+        if node.name.lower() == _NEGATION_FUNCTION:
+            self._visit_negation(lambda: super(_PredicateFields, self).visit_call(node))
+            return
+        positive = node.name in _POSITIVE_COMPARE_FUNCTIONS and len(node.args) == 2
+        self._visit_comparison(positive, lambda: super(_PredicateFields, self).visit_call(node))
+
+    def visit_not(self, node: ast.Not) -> None:
+        self._visit_negation(lambda: super(_PredicateFields, self).visit_not(node))
+
+    def _visit_negation(self, visit_children: Callable[[], None]) -> None:
+        # Everything under a negation is an exclusion, whatever the comparisons inside it say
+        self._negated_depth += 1
+        try:
+            visit_children()
+        finally:
+            self._negated_depth -= 1
+
+    def _visit_comparison(self, positive: bool, visit_children: Callable[[], None]) -> None:
+        if positive:
+            self._positive_depth += 1
+        try:
+            visit_children()
+        finally:
+            if positive:
+                self._positive_depth -= 1
+
+    @property
+    def _is_positive(self) -> bool:
+        return bool(self._positive_depth) and not self._negated_depth
+
+    def visit_field(self, node: ast.Field) -> None:
+        self.fields.append(node)
+        if self._is_positive:
+            self.positive_fields.append(node)
+
+    def visit_array_access(self, node: ast.ArrayAccess) -> None:
+        if self._is_positive:
+            self.positive_array_accesses.append(node)
+        super().visit_array_access(node)
+
+    def references_properties(self, aliases: set[str], all_aliases: set[str]) -> bool:
+        """Whether a property filter applies to these aliases.
+
+        A field qualified with another events alias belongs to that read, not this one. One with no
+        qualifier, or one from a joined table, could apply here, so it counts.
+        """
+        return any(
+            _PROPERTIES in field.chain
+            and bool(field.chain)
+            and (field.chain[0] in aliases or field.chain[0] not in all_aliases)
+            for field in self.fields
+        )
+
+    def event_property_names(self, aliases: set[str]) -> tuple[str, ...]:
+        names: dict[str, None] = {}
+        for field in self.positive_fields:
+            chain = field.chain
+            if len(chain) == 2 and chain[0] == _PROPERTIES:
+                names[str(chain[1])] = None
+            elif len(chain) == 3 and chain[0] in aliases and chain[1] == _PROPERTIES:
+                names[str(chain[2])] = None
+        for access in self.positive_array_accesses:
+            array, key = access.array, access.property
+            if not isinstance(array, ast.Field) or not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+                continue
+            chain = array.chain
+            if chain == [_PROPERTIES] or (len(chain) == 2 and chain[0] in aliases and chain[1] == _PROPERTIES):
+                names[key.value] = None
+        return tuple(names)

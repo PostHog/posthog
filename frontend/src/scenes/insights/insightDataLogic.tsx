@@ -313,6 +313,14 @@ export interface insightDataLogicActions {
             user_access_level: AccessControlLevel
             view_count?: number | undefined
             viewers?: UserBasicType[] | undefined
+            warnings?:
+                | (
+                      | import('~/queries/schema/schema-general').AccessControlFilterWarning
+                      | import('~/queries/schema/schema-general').DataWarehouseSyncWarning
+                      | import('~/queries/schema/schema-general').EventsScanWarning
+                  )[]
+                | null
+                | undefined
         },
         payload?:
             | {
@@ -362,6 +370,14 @@ export interface insightDataLogicActions {
             user_access_level: AccessControlLevel
             view_count?: number | undefined
             viewers?: UserBasicType[] | undefined
+            warnings?:
+                | (
+                      | import('~/queries/schema/schema-general').AccessControlFilterWarning
+                      | import('~/queries/schema/schema-general').DataWarehouseSyncWarning
+                      | import('~/queries/schema/schema-general').EventsScanWarning
+                  )[]
+                | null
+                | undefined
         }
         payload?: {
             filtersOverride: DashboardFilter | null | undefined

@@ -3,11 +3,14 @@ from datetime import datetime
 from functools import cached_property
 from typing import Any, Optional, cast
 
+import structlog
+
 from posthog.schema import (
     CachedHogQLQueryResponse,
     CacheMissResponse,
     DashboardFilter,
     DateRange,
+    EventsScanWarning,
     HogQLFilters,
     HogQLQuery,
     HogQLQueryModifiers,
@@ -20,6 +23,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.database.schema.activity_log_visibility import activity_log_visibility_policy_version
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.events_scan import events_scan_warnings, events_scan_warnings_enabled
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import CacheOrigin, parse_select
@@ -42,6 +46,9 @@ from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLM
 
 _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
 _ACTIVITY_LOGS_TABLE = "system.activity_logs"
+
+
+logger = structlog.get_logger(__name__)
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
@@ -195,16 +202,23 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return parsed_select, values
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        return self._expand_query(self.query.filters)
+
+    def _expand_query(self, filters: HogQLFilters | None) -> ast.SelectQuery | ast.SelectSetQuery:
+        """The query as it runs, with `filters`, variables and placeholders applied."""
         parsed_select, values = self._parse_query()
 
         finder = find_placeholders(parsed_select)
         with self.timings.measure("filters"):
-            if self.query.filters and finder.has_filters:
+            # Expand even without filters, because the executor does: no filters makes `{filters}`
+            # true, so the query runs unbounded. Leaving the placeholder here would describe a
+            # query with a date range that never had one.
+            if finder.has_filters:
                 # Resolve {filters} against the shared database so a filtered query builds the schema
                 # once, instead of replace_filters building a throwaway one. With a connection id the
                 # schema is the external connection's, so keep the per-call build there.
                 database = self.shared_database if self.query.connectionId is None else None
-                parsed_select = replace_filters(parsed_select, self.query.filters, self.team, database)
+                parsed_select = replace_filters(parsed_select, filters, self.team, database)
         if self.query.variables:
             with self.timings.measure("replace_variables"):
                 parsed_select = replace_variables(parsed_select, list(self.query.variables.values()), self.team)
@@ -299,7 +313,37 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         )
         if paginator:
             response = response.model_copy(update={**paginator.response_params(), "results": paginator.results})
+        scan_warnings = self._events_scan_warnings(query)
+        if scan_warnings:
+            response.warnings = [*(response.warnings or []), *scan_warnings]
         return response
+
+    def _events_scan_warnings(self, query: ast.SelectQuery | ast.SelectSetQuery) -> list[EventsScanWarning]:
+        """Advisory warnings on the query that runs, with `{filters}` and variables applied: what ClickHouse
+        reads is what counts, whichever part of the UI put the filter there. An external connection has no
+        events table."""
+        if self.query.connectionId is not None or not events_scan_warnings_enabled(self.team):
+            return []
+        try:
+            as_written, _ = self._parse_query()
+            filters = self.query.filters
+            without_test_accounts: Callable[[], ast.SelectQuery | ast.SelectSetQuery | None] | None = None
+            if find_placeholders(as_written).has_filters:
+                # Without a filters object the placeholder still became `true`, so the finding belongs to
+                # the filters the UI did not supply, not to a filter nobody can find.
+                plain_filters = (
+                    filters.model_copy(update={"filterTestAccounts": False})
+                    if filters is not None and filters.filterTestAccounts
+                    else None
+                )
+                # Called only when there is a finding to attribute, so a clean query pays no second expansion
+                without_test_accounts = (
+                    (lambda: self._expand_query(plain_filters)) if plain_filters is not None else (lambda: query)
+                )
+            return events_scan_warnings(query, self.shared_database, as_written, without_test_accounts)
+        except Exception:
+            logger.exception("hogql_events_scan_check_failed", team_id=self.team.pk)
+            return []
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         self.query.filters = self.query.filters or HogQLFilters()

@@ -12,6 +12,7 @@ import { performQuery } from '~/queries/query'
 import {
     AccessControlFilterWarning,
     DataWarehouseSyncWarning,
+    EventsScanWarning,
     HogQLQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -81,6 +82,8 @@ export interface CustomSqlPreview {
     hasMore: boolean
     /** Sources this query read that are stale, or resources access control filtered out, so the verdict is not final. */
     warnings: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
+    /** Reads of `events` the sort key cannot prune. The verdict stands; the query is expensive to run on a schedule. */
+    scanWarnings: EventsScanWarning[]
 }
 
 export interface DataQualityCheckEditorLogicProps {
@@ -489,13 +492,20 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                     }
                     // Same guard on the success path: a superseded result must not overwrite the newer one.
                     breakpoint()
+                    const warnings = response.warnings ?? []
                     return {
                         sql,
                         columns: response.columns ?? [],
                         rows: response.results.slice(0, 10) as unknown[][],
                         rowCount: response.results.length,
                         hasMore: !!response.hasMore,
-                        warnings: response.warnings ?? [],
+                        warnings: warnings.filter(
+                            (warning): warning is DataWarehouseSyncWarning | AccessControlFilterWarning =>
+                                warning.type !== 'events_scan'
+                        ),
+                        scanWarnings: warnings.filter(
+                            (warning): warning is EventsScanWarning => warning.type === 'events_scan'
+                        ),
                     }
                 },
             },

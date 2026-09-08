@@ -3079,6 +3079,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "user_access_level": "manager",
                     "hogql": ANY,
                     "types": ANY,
+                    "warnings": None,
                 },
                 "button_tile": None,
                 "is_cached": False,

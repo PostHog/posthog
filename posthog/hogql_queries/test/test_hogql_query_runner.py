@@ -8,6 +8,10 @@ from parameterized import parameterized
 
 from posthog.schema import (
     CachedHogQLQueryResponse,
+    DateRange,
+    EventsScanWarning,
+    EventsScanWarningReason,
+    EventsScanWarningSource,
     HogQLFilters,
     HogQLPropertyFilter,
     HogQLQuery,
@@ -67,6 +71,10 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         self.random_uuid = self._create_random_persons()
+        # The events scan check ships behind a per-team flag, off everywhere until it is rolled out
+        scan_flag = patch("posthog.hogql.events_scan.feature_enabled_or_false", return_value=True)
+        scan_flag.start()
+        self.addCleanup(scan_flag.stop)
 
     def test_calculate_with_query_modifiers_matches_unthreaded_executor_sql(self):
         # The runner hands the executor a context wired to its shared database, which is
@@ -524,3 +532,67 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = runner.calculate()
         self.assertEqual(len(response.results), 5)
+
+    def test_response_says_nothing_about_scans_until_the_team_has_the_flag(self):
+        with patch("posthog.hogql.events_scan.feature_enabled_or_false", return_value=False):
+            response = HogQLQueryRunner(
+                query=HogQLQuery(query="SELECT count() FROM events WHERE properties.plan = 'pro'"), team=self.team
+            ).calculate()
+
+        self.assertEqual([w for w in response.warnings or [] if isinstance(w, EventsScanWarning)], [])
+
+    def test_response_warns_about_events_scans_from_the_sql_as_written(self):
+        query = "SELECT count() FROM events WHERE properties.plan = 'pro' AND {filters}"
+        response = HogQLQueryRunner(
+            query=HogQLQuery(query=query, filters=HogQLFilters(dateRange=DateRange(date_from="-7d"))), team=self.team
+        ).calculate()
+
+        # The check runs on the expanded query: `{filters}` became the date range, so only the event name is missing
+        scan_warnings = [warning for warning in response.warnings or [] if isinstance(warning, EventsScanWarning)]
+        self.assertEqual(
+            [warning.reason for warning in scan_warnings], [EventsScanWarningReason.PROPERTY_FILTER_WITHOUT_EVENT]
+        )
+        self.assertEqual(query[scan_warnings[0].start : scan_warnings[0].end], "events")
+
+        all_events_response = HogQLQueryRunner(
+            query=HogQLQuery(
+                query="SELECT event, count() FROM events WHERE {filters} GROUP BY event",
+                filters=HogQLFilters(dateRange=DateRange(date_from="-7d")),
+            ),
+            team=self.team,
+        ).calculate()
+        all_events_warnings = [
+            warning for warning in all_events_response.warnings or [] if isinstance(warning, EventsScanWarning)
+        ]
+        self.assertEqual([warning.reason for warning in all_events_warnings], [EventsScanWarningReason.NO_EVENT_FILTER])
+
+    def test_response_warns_when_filters_are_absent_and_the_query_runs_unbounded(self):
+        # No filters object makes `{filters}` true at execution, so the read has no date range.
+        # An empty filters object runs the same query, so both have to warn the same way.
+        for filters in (None, HogQLFilters()):
+            response = HogQLQueryRunner(
+                query=HogQLQuery(query="SELECT count() FROM events WHERE event = 'x' AND {filters}", filters=filters),
+                team=self.team,
+            ).calculate()
+
+            scan_warnings = [warning for warning in response.warnings or [] if isinstance(warning, EventsScanWarning)]
+            self.assertEqual([warning.reason for warning in scan_warnings], [EventsScanWarningReason.NO_TIME_BOUND])
+            self.assertEqual([warning.source for warning in scan_warnings], [EventsScanWarningSource.FILTERS])
+            self.assertIn("No date range is applied to this query", scan_warnings[0].message)
+
+    def test_response_blames_the_test_account_setting_for_a_filter_it_added(self):
+        self.team.test_account_filters = [
+            {"key": "$host", "type": "event", "value": ["localhost"], "operator": "is_not"}
+        ]
+        self.team.save()
+        query = "SELECT count() FROM events WHERE {filters}"
+        response = HogQLQueryRunner(
+            query=HogQLQuery(
+                query=query, filters=HogQLFilters(dateRange=DateRange(date_from="-7d"), filterTestAccounts=True)
+            ),
+            team=self.team,
+        ).calculate()
+
+        scan_warnings = [warning for warning in response.warnings or [] if isinstance(warning, EventsScanWarning)]
+        self.assertEqual([warning.source for warning in scan_warnings], ["test_account_filters"])
+        self.assertIn("Filter out internal and test users", scan_warnings[0].message)

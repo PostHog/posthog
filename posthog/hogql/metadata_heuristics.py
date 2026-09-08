@@ -1,9 +1,24 @@
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from posthog.schema import HogQLNotice
 
 from posthog.hogql import ast
+from posthog.hogql.events_scan import (
+    attributed_events_scans,
+    events_scan_warnings_enabled,
+    finding_fix,
+    finding_message,
+)
+
+from posthog.dataclasses import frozen
+
+if TYPE_CHECKING:
+    from posthog.hogql.database.database import Database
+
+    from posthog.models import Team
 
 
 @dataclass(frozen=True)
@@ -12,16 +27,22 @@ class SubqueryFingerprint:
     where: str | None
 
 
+@frozen
+class MetadataHeuristicNotices:
+    warnings: list[HogQLNotice]
+    notices: list[HogQLNotice]
+
+
 class MetadataHeuristic:
-    def run(self, query: ast.SelectQuery | ast.SelectSetQuery) -> list[HogQLNotice]:
+    def run(self, query: ast.SelectQuery | ast.SelectSetQuery) -> MetadataHeuristicNotices:
         raise NotImplementedError()
 
 
 class SimilarSubqueryHeuristic(MetadataHeuristic):
-    def run(self, query: ast.SelectQuery | ast.SelectSetQuery) -> list[HogQLNotice]:
+    def run(self, query: ast.SelectQuery | ast.SelectSetQuery) -> MetadataHeuristicNotices:
         subqueries = _collect_join_subqueries(query)
         if not subqueries:
-            return []
+            return MetadataHeuristicNotices(warnings=[], notices=[])
 
         grouped: dict[SubqueryFingerprint, list[ast.SelectQuery]] = defaultdict(list)
         for subquery in subqueries:
@@ -50,17 +71,60 @@ class SimilarSubqueryHeuristic(MetadataHeuristic):
                     )
                 )
 
-        return warnings
+        return MetadataHeuristicNotices(warnings=warnings, notices=[])
 
 
-def run_metadata_heuristics(query: ast.SelectQuery | ast.SelectSetQuery) -> list[HogQLNotice]:
+class EventsScanHeuristic(MetadataHeuristic):
+    """Warn when a SELECT reads `events` without a filter the sort key can use.
+
+    Event name and lower timestamp bounds are independent. Report each missing bound so the
+    user knows which axis of the events sort key the query does not constrain.
+    """
+
+    def __init__(
+        self,
+        database: "Database",
+        as_written: ast.SelectQuery | ast.SelectSetQuery | None = None,
+        without_test_accounts: Callable[[], ast.SelectQuery | ast.SelectSetQuery | None] | None = None,
+    ) -> None:
+        self.database = database
+        # The query text and its expansion with the test-account filters off, to say where an injected filter came from
+        self.as_written = as_written
+        self.without_test_accounts = without_test_accounts
+
+    def run(self, query: ast.SelectQuery | ast.SelectSetQuery) -> MetadataHeuristicNotices:
+        findings = attributed_events_scans(query, self.database, self.as_written, self.without_test_accounts)
+        result = MetadataHeuristicNotices(warnings=[], notices=[])
+        for finding in findings:
+            notice = HogQLNotice(
+                message=finding_message(finding),
+                start=finding.start,
+                end=finding.end,
+                fix=finding_fix(finding),
+            )
+            result.warnings.append(notice)
+        return result
+
+
+def run_metadata_heuristics(
+    query: ast.SelectQuery | ast.SelectSetQuery,
+    team: "Team | None" = None,
+    database: "Database | None" = None,
+    as_written: ast.SelectQuery | ast.SelectSetQuery | None = None,
+    without_test_accounts: Callable[[], ast.SelectQuery | ast.SelectSetQuery | None] | None = None,
+) -> MetadataHeuristicNotices:
     heuristics: list[MetadataHeuristic] = [SimilarSubqueryHeuristic()]
-    warnings: list[HogQLNotice] = []
+    # The events scan check resolves table names, which needs a database not every caller has
+    if database is not None and team is not None and events_scan_warnings_enabled(team):
+        heuristics.append(EventsScanHeuristic(database, as_written, without_test_accounts))
+    result = MetadataHeuristicNotices(warnings=[], notices=[])
 
     for heuristic in heuristics:
-        warnings.extend(heuristic.run(query))
+        heuristic_result = heuristic.run(query)
+        result.warnings.extend(heuristic_result.warnings)
+        result.notices.extend(heuristic_result.notices)
 
-    return warnings
+    return result
 
 
 def _collect_join_subqueries(query: ast.SelectQuery | ast.SelectSetQuery) -> list[ast.SelectQuery]:
