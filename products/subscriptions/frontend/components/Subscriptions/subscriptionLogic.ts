@@ -692,8 +692,13 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 ),
                 dashboard_export_insights: validateDashboardExportInsights(subscription, props.dashboardId),
             }),
-            submit: async (subscription, breakpoint) => {
+            // kea-forms snapshots the form before it calls submit, so waiting there would delay the
+            // request without picking up a context the prefill is still fetching. preSubmit runs
+            // before that snapshot is taken.
+            preSubmit: async () => {
                 await (cache.contextPrefillPromise as Promise<void> | undefined)
+            },
+            submit: async (subscription, breakpoint) => {
                 const isAi = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
                 const insightId = !isAi && props.insightShortId ? await getInsightId(props.insightShortId) : undefined
 

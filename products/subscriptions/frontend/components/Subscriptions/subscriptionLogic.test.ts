@@ -1050,6 +1050,54 @@ describe('subscriptionLogic', () => {
         expect(existingLogic.values.subscriptionValidationErrors.target_value).toBe('A webhook URL is required')
     })
 
+    it('waits for an in-flight context prefill before it builds the create payload', async () => {
+        // Submitting while the insight lookup is still running must not save the report without the
+        // context the prefill is about to add.
+        let releaseInsightLookup: () => void = () => {}
+        const insightLookup = new Promise<void>((resolve) => {
+            releaseInsightLookup = resolve
+        })
+        let capturedBody: Record<string, unknown> | undefined
+        useMocks({
+            get: {
+                '/api/environments/:team/insights/': async () => {
+                    await insightLookup
+                    return [200, { results: [{ id: 12 }] }]
+                },
+            },
+            post: {
+                '/api/environments/:team/subscriptions': async ({ request }) => {
+                    capturedBody = (await request.json()) as Record<string, unknown>
+                    return [200, { id: 45, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        const raceLogic = subscriptionLogic({
+            id: 'new',
+            insightShortId: 'signup-conversion' as InsightShortId,
+            insightName: 'Signup conversion',
+        })
+        raceLogic.mount()
+        router.actions.push('/insights/signup-conversion/subscriptions/new')
+        await expectLogic(raceLogic).toFinishAllListeners()
+
+        raceLogic.actions.setSubscriptionValue('resource_type', 'ai_prompt')
+        raceLogic.actions.setSubscriptionValues({
+            prompt: 'Compare activation and signup conversion',
+            title: 'Activation report',
+            target_type: 'email',
+            target_value: 'reports@example.com',
+        })
+        expect(raceLogic.values.subscription.contexts).toEqual([])
+
+        raceLogic.actions.submitSubscription()
+        releaseInsightLookup()
+        await expectLogic(raceLogic).toFinishAllListeners().toDispatchActions(['submitSubscriptionSuccess'])
+
+        expect(capturedBody?.contexts).toEqual([{ insight_id: 12 }])
+        raceLogic.unmount()
+    })
+
     it('drops a stale prompt when saving a non-AI subscription', async () => {
         // Toggling resource_type back to insight after typing a prompt leaves it in form state;
         // it must not be sent, else the backend rejects a non-AI sub that carries a prompt.
