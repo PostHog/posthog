@@ -41,7 +41,7 @@ from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG
 from products.signals.backend.scout_harness.fleet_sync import SYNC_SURFACES
 from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCES
-from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
+from products.signals.backend.scout_harness.skill_loader import reserved_scout_name_error
 from products.signals.backend.scout_harness.slack_delivery import MAX_SCOUT_SLACK_DM_TARGETS
 from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.tools.emit import (
@@ -886,7 +886,7 @@ class ScoutNoteSerializer(serializers.Serializer):
     skill_name = serializers.CharField(
         allow_blank=True,
         help_text=(
-            "Who the note is addressed to: a scout skill (`signals-scout-*`), a pipeline audience "
+            "Who the note is addressed to: a configured scout's skill name, a pipeline audience "
             "(`pipeline:*`, e.g. `pipeline:report-research`), or blank for a general note every scout sees."
         ),
     )
@@ -931,7 +931,7 @@ class ScoutNotesQuerySerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Return the notes addressed to this target plus the general (blank-target) notes for "
-            "the whole fleet. Pass a scout skill (`signals-scout-*`) or a pipeline audience "
+            "the whole fleet. Pass a configured scout's skill name or a pipeline audience "
             "(`pipeline:report-research`). Omit to browse every note on the project."
         ),
     )
@@ -991,8 +991,8 @@ class ScoutNoteCreateRequestSerializer(serializers.Serializer):
         allow_blank=True,
         max_length=200,
         help_text=(
-            "Address the note to one scout by its skill name (`signals-scout-*`, exact match against "
-            "an existing scout skill on the project — check `scout-config-list` for the roster), or to "
+            "Address the note to one scout by its skill name (exact match against a configured "
+            "scout on the project — check `scout-config-list` for the roster), or to "
             "one stage of the report pipeline by its reserved audience "
             f"({_PIPELINE_AUDIENCE_LIST}). Use a pipeline audience for guidance about how "
             "reports get researched rather than about what the scouts watch, so it reaches that stage "
@@ -1526,7 +1526,7 @@ class EmitEligibilitySerializer(serializers.Serializer):
 class ScoutFleetEntrySerializer(serializers.Serializer):
     """One scout in either bucket of `inventory.scout_fleet`."""
 
-    skill_name = serializers.CharField(help_text="The `signals-scout-*` skill this config schedules.")
+    skill_name = serializers.CharField(help_text="The skill this config schedules as a scout.")
     run_interval_minutes = serializers.IntegerField(
         help_text="Minutes between runs when no cron schedule is set (default 1440, every 24 hours).",
     )
@@ -2519,13 +2519,13 @@ class ScoutOrigin(models.TextChoices):
 class SignalScoutConfigSerializer(serializers.ModelSerializer):
     """Read shape for a per-(team, skill) scout config.
 
-    One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
+    One row per scout skill on the team. The coordinator auto-creates a row
     when it discovers a scout skill; this serializer lets agents tune the row.
     """
 
     skill_name = serializers.CharField(
         read_only=True,
-        help_text="The `signals-scout-*` skill this config controls. Set at creation, not editable.",
+        help_text="The skill this config controls as a scout. Set at creation, not editable.",
     )
     description = serializers.SerializerMethodField(
         help_text=(
@@ -3061,16 +3061,20 @@ class SignalScoutConfigCreateSerializer(SignalScoutConfigOptionsSerializer):
     skill_name = serializers.CharField(
         max_length=200,
         help_text=(
-            "The `signals-scout-*` skill to register a config for. The skill must already "
-            "exist on this project — author it via the skills store first."
+            "The skill to register a config for. Any valid skill name works — the config row is "
+            "what makes a skill a scout. The skill must already exist on this project — author it "
+            "via the skills store first."
         ),
     )
 
     def validate_skill_name(self, value: str) -> str:
-        # A config for a non-scout skill would never dispatch (the coordinator only considers
-        # `signals-scout-*` names), so reject it here instead of minting an invisible orphan.
-        if not value.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
-            raise serializers.ValidationError(f"Scout skill names must start with '{SIGNALS_SCOUT_SKILL_PREFIX}'.")
+        # The generic skill-name contract first, like the sibling create serializer. Nothing
+        # downstream re-checks it: the model column carries no validator, `create_skill` skips the
+        # pattern, and the view's existence check only proves a row exists. It is also what keeps
+        # scout names and the `pipeline:` note audiences disjoint (see `note_targets`).
+        value = validate_skill_name_value(value)
+        if error := reserved_scout_name_error(value):
+            raise serializers.ValidationError(error)
         return value
 
 
@@ -3080,8 +3084,8 @@ class SignalScoutCreateSerializer(serializers.Serializer):
     name = serializers.CharField(
         max_length=64,
         help_text=(
-            "Unique scout name. Must start with `signals-scout-` and contain only lowercase letters, "
-            "numbers, and hyphens."
+            "Unique scout name, containing only lowercase letters, numbers, and hyphens. The "
+            "`signals-scout-` prefix is optional."
         ),
     )
     description = serializers.CharField(
@@ -3118,8 +3122,8 @@ class SignalScoutCreateSerializer(serializers.Serializer):
 
     def validate_name(self, value: str) -> str:
         value = validate_skill_name_value(value)
-        if not value.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
-            raise serializers.ValidationError(f"Scout names must start with '{SIGNALS_SCOUT_SKILL_PREFIX}'.")
+        if error := reserved_scout_name_error(value):
+            raise serializers.ValidationError(error)
         return value
 
     def validate_body(self, value: str) -> str:

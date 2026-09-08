@@ -84,6 +84,75 @@ describe("PostHogAPIClient", () => {
     });
   });
 
+  describe("getLlmSkillByName", () => {
+    // The endpoint pages a body over 8,000 characters, so a single request
+    // returns instructions that stop mid-skill.
+    it("follows body_next_offset until the whole body is fetched", async () => {
+      const body = `${"x".repeat(8000)}final instruction`;
+      const fetch = vi.fn().mockImplementation((url: URL) => {
+        const offset = Number(url.searchParams.get("body_offset") ?? "0");
+        const page = body.slice(offset, offset + 8000);
+        const next = offset + 8000 < body.length ? offset + 8000 : null;
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              name: "pr-shepherd",
+              version: 3,
+              body: page,
+              body_total_length: body.length,
+              body_next_offset: next,
+              files: [],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      });
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      const skill = await client.getLlmSkillByName("pr-shepherd");
+
+      expect(skill.body).toBe(body);
+      // The continuation pins the version, so a publish between pages cannot
+      // splice two bodies together.
+      const second = fetch.mock.calls[1][0] as URL;
+      expect(second.searchParams.get("body_offset")).toBe("8000");
+      expect(second.searchParams.get("version")).toBe("3");
+    });
+
+    it("rejects a body that arrives shorter than the server reports", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            name: "pr-shepherd",
+            version: 3,
+            body: "# Body",
+            body_total_length: 9689,
+            body_next_offset: null,
+            files: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(client.getLlmSkillByName("pr-shepherd")).rejects.toThrow(
+        "got 6 of 9689 characters",
+      );
+    });
+  });
+
   describe("getInsightDefinition", () => {
     it("loads the saved insight with a blocking refresh and returns its result", async () => {
       const fetch = vi.fn().mockResolvedValue(

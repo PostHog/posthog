@@ -71,6 +71,7 @@ import type {
   TaskRun,
   TaskRunArtefact,
   TaskRunArtifact,
+  TaskSearchResultRun,
   TaskThreadMessage,
   UserBasic,
 } from "@posthog/shared/domain-types";
@@ -88,6 +89,7 @@ import {
   formatDay,
   gridRows,
   hogqlEscape,
+  referencedCohortIds,
   shapeActionPreview,
   shapeCohortPreview,
   shapeDashboardPreview,
@@ -111,6 +113,7 @@ import {
   type FetchImplementation,
   requestErrorStatus,
 } from "./fetcher";
+import { type ResolvedPerson, targetedDistinctIds } from "./flag-audience";
 import { createApiClient, type Schemas } from "./generated";
 import type {
   McpAgentGrantScope,
@@ -214,6 +217,60 @@ export interface TaskRunSessionLogsResult {
   truncatedHeadCount: number;
 }
 
+interface RecordingExportRow {
+  id: number;
+  has_content?: boolean;
+  export_context?: {
+    start_offset_s?: number | null;
+    end_offset_s?: number | null;
+    timestamp?: number | null;
+    duration?: number | null;
+    video_duration_s?: number | null;
+    truncated?: boolean | null;
+    inactivity_periods?: Array<{
+      ts_from_s?: number | null;
+      ts_to_s?: number | null;
+      active?: boolean | null;
+      recording_ts_from_s?: number | null;
+      recording_ts_to_s?: number | null;
+    }> | null;
+  } | null;
+}
+
+/**
+ * One stretch of the session, and where it landed in the rendered clip. An
+ * idle stretch is dropped from the render, so it occupies no clip time and its
+ * two clip values are equal.
+ */
+export interface RecordingClipSegment {
+  /** Session time the stretch covers, in seconds from the session start. */
+  sessionFromSeconds: number;
+  sessionToSeconds: number | null;
+  /** Where the stretch sits in the rendered clip, in seconds. */
+  clipFromSeconds: number;
+  clipToSeconds: number;
+  active: boolean;
+}
+
+/** A rendered mp4 of a session recording. */
+export interface RecordingExport {
+  id: number;
+  /** Where the clip starts in the session, in seconds from the session start. */
+  startOffsetSeconds: number;
+  /** Where the clip ends in the session. Null when the render did not record it. */
+  endOffsetSeconds: number | null;
+  /** Rendered length of the clip. Null on a render that did not record it. */
+  clipDurationSeconds: number | null;
+  /** The render stopped early, so the clip can end before the session does. */
+  truncated: boolean;
+  /**
+   * Session time to clip time, stretch by stretch. The render drops the idle
+   * stretches of a session, so clip time runs behind session time by however
+   * much idle time came before it. Empty on a render that kept every stretch.
+   */
+  segments: RecordingClipSegment[];
+}
+
 type SessionLogsPage =
   | { ok: true; entries: StoredLogEntry[]; headers: Headers }
   | { ok: false; status: number; statusText: string };
@@ -266,12 +323,16 @@ export interface TaskListOptions {
 
 export interface TaskSearchResult {
   id: string;
-  kind: "task" | "pull_request" | "artifact" | "channel";
+  kind: "task" | "pull_request" | "artifact" | "channel" | "canvas";
   title: string;
   subtitle: string;
   task_id: string | null;
   task_run_id: string | null;
   channel_id: string | null;
+  created_by?: UserBasic | null;
+  origin_product?: string | null;
+  latest_run?: TaskSearchResultRun | null;
+  updated_at: string;
   metadata: Record<string, unknown>;
 }
 
@@ -350,17 +411,11 @@ export interface CreateResourceCommentRequest {
 export class CloudUsageLimitError extends Error {
   limitType: UsageLimitType;
   resetAt: string | null;
-  isPro: boolean;
-  constructor(params: {
-    limitType: UsageLimitType;
-    resetAt: string | null;
-    isPro: boolean;
-  }) {
+  constructor(params: { limitType: UsageLimitType; resetAt: string | null }) {
     super(CLOUD_USAGE_LIMIT_ERROR_MESSAGE);
     this.name = "CloudUsageLimitError";
     this.limitType = params.limitType;
     this.resetAt = params.resetAt;
-    this.isPro = params.isPro;
   }
 }
 
@@ -475,6 +530,10 @@ export interface LlmSkillListItem {
 export interface LlmSkill extends LlmSkillListItem {
   /** The SKILL.md markdown content. */
   body: string;
+  /** Length of the whole body, whatever slice of it `body` holds. */
+  body_total_length?: number;
+  /** Offset of the next body page, or null once `body` reaches the end. */
+  body_next_offset?: number | null;
   /** Companion file manifest (paths only; fetch contents separately). */
   files: LlmSkillFileManifest[];
 }
@@ -1199,6 +1258,17 @@ function optionalString(value: unknown): string | null {
 // alike — never a business-specific message, so it's less actionable than the
 // endpoint's own fallback plus status code.
 const DRF_GENERIC_NOT_FOUND_DETAIL = "Not found.";
+/** One request per targeted distinct id; flags listing more stay raw past this. */
+const MAX_RESOLVED_FLAG_PEOPLE = 10;
+const MAX_RESOLVED_COHORTS = 10;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isPropertyRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 /** Unwrap the shared fetcher's `Failed request: [<status>] <json>` into the endpoint's clean message. */
 function extractRequestErrorMessage(error: unknown, fallback: string): string {
@@ -3178,27 +3248,73 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskChannel[];
   }
 
-  // Resolve-or-create a public channel by name (idempotent server-side). `star`
-  // only applies when this call creates the channel; an existing one keeps the
-  // requester's star as it was.
+  // Create a channel. A public channel (default) is resolve-or-create by name
+  // (idempotent server-side). A private channel is always created fresh with the
+  // requester plus `memberIds` as its members. `star` only applies when this call
+  // creates the channel; an existing public one keeps the requester's star as it was.
   async resolveTaskChannel(
     name: string,
-    options: { star: boolean },
+    options: {
+      star: boolean;
+      channelType?: "public" | "private";
+      memberIds?: number[];
+    },
   ): Promise<TaskChannel> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/`;
+    const body: Record<string, unknown> = { name, star: options.star };
+    if (options.channelType === "private") {
+      body.channel_type = "private";
+      body.member_ids = options.memberIds ?? [];
+    }
     const response = await this.api.fetcher.fetch({
       method: "post",
       url: new URL(`${this.api.baseUrl}${urlPath}`),
       path: urlPath,
       overrides: {
-        body: JSON.stringify({ name, star: options.star }),
+        body: JSON.stringify(body),
       },
     });
     if (!response.ok) {
       throw new Error(`Failed to resolve task channel: ${response.statusText}`);
     }
     return (await response.json()) as TaskChannel;
+  }
+
+  // The members of a private channel. Public and personal channels have no
+  // members and read as an empty list.
+  async listTaskChannelMembers(id: string): Promise<UserBasic[]> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/members/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch space members: ${response.statusText}`);
+    }
+    return (await response.json()) as UserBasic[];
+  }
+
+  // Replace a private channel's member set. The creator is always kept, whatever
+  // `userIds` holds. Returns the updated members.
+  async setTaskChannelMembers(
+    id: string,
+    userIds: number[],
+  ): Promise<UserBasic[]> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/members/`;
+    const response = await this.api.fetcher.fetch({
+      method: "put",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify({ user_ids: userIds }) },
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to update space members: ${response.statusText}`);
+    }
+    return (await response.json()) as UserBasic[];
   }
 
   async renameTaskChannel(id: string, name: string): Promise<TaskChannel> {
@@ -3316,6 +3432,26 @@ export class PostHogAPIClient {
     if (!response.ok) {
       throw new Error(
         `Failed to update space repositories: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as TaskChannel;
+  }
+
+  async updateTaskChannelType(
+    id: string,
+    channelType: "public" | "private",
+  ): Promise<TaskChannel> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "patch",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify({ channel_type: channelType }) },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to update space visibility: ${response.statusText}`,
       );
     }
     return (await response.json()) as TaskChannel;
@@ -6370,7 +6506,6 @@ export class PostHogAPIClient {
           typeof parsed.body.reset_at === "string"
             ? parsed.body.reset_at
             : null,
-        isPro: parsed.body.is_pro === true,
       });
     }
   }
@@ -6681,11 +6816,66 @@ export class PostHogAPIClient {
     }
   }
 
-  /** Find an exported asset by session recording ID. */
-  async findExportBySessionRecordingId(
+  /**
+   * Read the clip window and the session-to-clip time map off an export row.
+   * The render drops the idle stretches of a session, so a caller cannot treat
+   * a session offset as a clip time.
+   */
+  private parseRecordingExport(row: RecordingExportRow): RecordingExport {
+    const context = row.export_context ?? {};
+    const startOffsetSeconds = context.start_offset_s ?? context.timestamp ?? 0;
+    const endOffsetSeconds =
+      context.end_offset_s ??
+      (context.duration != null ? startOffsetSeconds + context.duration : null);
+
+    const segments: RecordingClipSegment[] = [];
+    for (const period of context.inactivity_periods ?? []) {
+      if (period.ts_from_s == null || period.recording_ts_from_s == null) {
+        continue;
+      }
+      segments.push({
+        sessionFromSeconds: period.ts_from_s,
+        sessionToSeconds: period.ts_to_s ?? null,
+        clipFromSeconds: period.recording_ts_from_s,
+        clipToSeconds: period.recording_ts_to_s ?? period.recording_ts_from_s,
+        active: period.active !== false,
+      });
+    }
+    segments.sort((a, b) => a.sessionFromSeconds - b.sessionFromSeconds);
+
+    return {
+      id: row.id,
+      startOffsetSeconds,
+      endOffsetSeconds,
+      clipDurationSeconds: context.video_duration_s ?? null,
+      truncated: context.truncated === true,
+      segments,
+    };
+  }
+
+  /** Get one exported recording clip, with the window of the session it covers. */
+  async getRecordingExport(
+    projectId: number,
+    exportId: number,
+  ): Promise<RecordingExport | null> {
+    const urlPath = `/api/projects/${projectId}/exports/${exportId}/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) return null;
+    const row = (await response.json()) as RecordingExportRow;
+    if (row.has_content === false) return null;
+    return this.parseRecordingExport(row);
+  }
+
+  /** Find the rendered clip for a session recording, with the window it covers. */
+  async findRecordingExport(
     projectId: number,
     sessionRecordingId: string,
-  ): Promise<number | null> {
+  ): Promise<RecordingExport | null> {
     const urlPath = `/api/projects/${projectId}/exports/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
     url.searchParams.set("session_recording_id", sessionRecordingId);
@@ -6697,10 +6887,10 @@ export class PostHogAPIClient {
     });
     if (!response.ok) return null;
     const data = (await response.json()) as {
-      results?: Array<{ id: number; has_content: boolean }>;
+      results?: RecordingExportRow[];
     };
     const match = data.results?.find((e) => e.has_content);
-    return match?.id ?? null;
+    return match ? this.parseRecordingExport(match) : null;
   }
 
   /** Get the presigned content URL for an exported asset (e.g. rasterized recording). */
@@ -6834,11 +7024,49 @@ export class PostHogAPIClient {
     return data.results ?? [];
   }
 
-  /** Fetches the latest version of a team skill, including body and file manifest. */
+  /**
+   * Fetches the latest version of a team skill, including body and file manifest.
+   * The endpoint caps an unpaged body at its own page length, so follow
+   * `body_next_offset` to the end and return the whole body to every caller.
+   */
   async getLlmSkillByName(name: string): Promise<LlmSkill> {
+    const first = await this.getLlmSkillBodyPage(name);
+    const pages = [first.body];
+    let offset = first.body_next_offset;
+    while (offset != null) {
+      // Pin the version: a publish between pages would otherwise splice two bodies.
+      const page = await this.getLlmSkillBodyPage(name, {
+        offset,
+        version: first.version,
+      });
+      pages.push(page.body);
+      // An offset that does not advance would page forever; the length check below
+      // then reports the short body.
+      const next = page.body_next_offset;
+      offset = next != null && next > offset ? next : null;
+    }
+
+    const body = pages.join("");
+    const total = first.body_total_length;
+    if (total != null && body.length !== total) {
+      throw new Error(
+        `Failed to fetch team skill: got ${body.length} of ${total} characters of the body of "${name}"`,
+      );
+    }
+    return { ...first, body, body_next_offset: null };
+  }
+
+  private async getLlmSkillBodyPage(
+    name: string,
+    paging?: { offset: number; version: number },
+  ): Promise<LlmSkill> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/environments/${teamId}/llm_skills/name/${encodeURIComponent(name)}`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    if (paging) {
+      url.searchParams.set("body_offset", String(paging.offset));
+      url.searchParams.set("version", String(paging.version));
+    }
     const response = await this.api.fetcher.fetch({
       method: "get",
       url,
@@ -7029,6 +7257,78 @@ export class PostHogAPIClient {
    * back to a static reference. Query-backed kinds (hogql, insight) resolve
    * in the UI instead, where chart shaping lives.
    */
+  /** Names of the cohorts a cohort's criteria reference, so the criteria read as prose. */
+  private async resolveCohortNames(
+    projectId: string,
+    filters: unknown,
+  ): Promise<Map<string, string>> {
+    const ids = referencedCohortIds(filters).slice(0, MAX_RESOLVED_COHORTS);
+    const entries = await Promise.all(
+      ids.map((id) =>
+        this.api
+          .get("/api/projects/{project_id}/cohorts/{id}/", {
+            path: { project_id: projectId, id: Number(id) },
+          })
+          .then((cohort) => [id, cohort.name ?? id] as const)
+          .catch(() => null),
+      ),
+    );
+    return new Map(entries.filter((entry) => entry !== null));
+  }
+
+  /**
+   * People behind the distinct ids a flag targets, keyed by distinct id. A
+   * lookup that fails leaves its id unresolved so the raw id still renders.
+   */
+
+  private async resolveFlagPeople(
+    projectId: string,
+    flag: Schemas.FeatureFlag,
+  ): Promise<Map<string, ResolvedPerson>> {
+    const ids = targetedDistinctIds(flag).slice(0, MAX_RESOLVED_FLAG_PEOPLE);
+    if (ids.length === 0) return new Map();
+    try {
+      // One batched call instead of one request per id: the persons list
+      // endpoint hydrates an actors query per call and shares a per-user
+      // throttle with every other person preview.
+      const response = await this.api.post(
+        "/api/projects/{project_id}/persons/batch_by_distinct_ids/",
+        {
+          path: { project_id: projectId },
+          query: {},
+          // The spec mislabels the body as a full person record; the endpoint
+          // reads a distinct_ids array.
+          body: { distinct_ids: ids } as unknown as Schemas.PersonRecord,
+        },
+      );
+      const results =
+        response && typeof response === "object" && "results" in response
+          ? (response as { results: Record<string, unknown> }).results
+          : {};
+      const people = new Map<string, ResolvedPerson>();
+      for (const distinctId of ids) {
+        const person = results[distinctId];
+        if (!isRecord(person)) continue;
+        const uuid = typeof person.uuid === "string" ? person.uuid : null;
+        if (!uuid) continue;
+        const properties = isPropertyRecord(person.properties)
+          ? person.properties
+          : {};
+        const email =
+          typeof properties.email === "string" ? properties.email : null;
+        const name = typeof person.name === "string" ? person.name : null;
+        people.set(distinctId, {
+          uuid,
+          name: name || email || distinctId,
+          email,
+        });
+      }
+      return people;
+    } catch {
+      return new Map();
+    }
+  }
+
   async getEvidencePreview(
     kind: string,
     id: string,
@@ -7054,9 +7354,10 @@ export class PostHogAPIClient {
           flag = page.results.find((entry) => entry.key === id);
         }
         if (!flag) return null;
-        // Depth: PostHog's own staleness verdict, and whether anything still
-        // evaluates the flag (7-day call volume).
-        const [status, volume] = await Promise.all([
+        // Depth: PostHog's own staleness verdict, whether anything still
+        // evaluates the flag (7-day call volume), and the people behind any
+        // distinct ids the flag targets directly, so the page can name them.
+        const [status, volume, people] = await Promise.all([
           this.api
             .get("/api/projects/{project_id}/feature_flags/{id}/status/", {
               path: { project_id: projectId, id: flag.id },
@@ -7066,9 +7367,10 @@ export class PostHogAPIClient {
             kind: "HogQLQuery",
             query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE event = '$feature_flag_called' AND properties.$feature_flag = '${hogqlEscape(flag.key)}' AND timestamp >= now() - INTERVAL 7 DAY GROUP BY day ORDER BY day`,
           }).catch(() => ({})),
+          this.resolveFlagPeople(projectId, flag),
         ]);
         return decorateFlagPreview(
-          shapeFlagPreview(flag),
+          shapeFlagPreview(flag, people),
           status,
           gridRows(volume),
         );
@@ -7327,7 +7629,10 @@ export class PostHogAPIClient {
           "/api/projects/{project_id}/cohorts/{id}/",
           { path: { project_id: projectId, id: numericId } },
         );
-        return shapeCohortPreview(cohort);
+        return shapeCohortPreview(
+          cohort,
+          await this.resolveCohortNames(projectId, cohort.filters),
+        );
       }
       case "action": {
         if (numericId === null) return null;

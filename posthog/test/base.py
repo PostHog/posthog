@@ -6,9 +6,10 @@ import inspect
 import logging
 import datetime as dt
 import resource
+import threading
 from collections.abc import Callable, Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import ExitStack, contextmanager
+from contextlib import AbstractContextManager, ExitStack, contextmanager
 from functools import wraps
 from typing import Any, Optional, Union, cast
 
@@ -2305,6 +2306,9 @@ def snapshot_hogql_queries(fn_or_class):
     @wraps(fn_or_class)
     def wrapped(self, *args, **kwargs):
         captured_queries = []
+        # A paginator call reaches the executor with the page limit added, so the executor skips it.
+        # Thread-local because a runner may execute its series on worker threads.
+        paginating = threading.local()
 
         # Patch the execute_hogql_query method on the paginator to capture queries before resolution
         original_paginator_method = HogQLHasMorePaginator.execute_hogql_query
@@ -2314,52 +2318,29 @@ def snapshot_hogql_queries(fn_or_class):
             if isinstance(query, ast.SelectQuery | ast.SelectSetQuery):
                 captured_queries.append(clone_expr(query))
 
-            return original_paginator_method(paginator_self, query=query, **exec_kwargs)
+            paginating.active = True
+            try:
+                return original_paginator_method(paginator_self, query=query, **exec_kwargs)
+            finally:
+                paginating.active = False
 
-        # Patch the module-level execute_hogql_query function for direct calls
-        # We need to patch it in modules that import it directly
-        original_module_function = hogql_query_module.execute_hogql_query
+        # Patch the executor every call reaches, whichever way its caller imported execute_hogql_query
+        original_executor_method = hogql_query_module.HogQLQueryExecutor.execute
 
-        def capture_module_execute(*exec_args, **exec_kwargs):
-            # Extract the query parameter - it can be positional or keyword
-            query = exec_kwargs.get("query") if "query" in exec_kwargs else (exec_args[0] if exec_args else None)
-
+        def capture_executor_execute(executor_self):
             # Capture the query AST before it gets resolved
-            if query and isinstance(query, ast.SelectQuery | ast.SelectSetQuery):
-                captured_queries.append(clone_expr(query))
+            if not getattr(paginating, "active", False) and isinstance(
+                executor_self.query, ast.SelectQuery | ast.SelectSetQuery
+            ):
+                captured_queries.append(clone_expr(executor_self.query))
 
-            return original_module_function(*exec_args, **exec_kwargs)
+            return original_executor_method(executor_self)
 
-        # Import modules that use execute_hogql_query directly
-        patches = [
+        # Annotated because the two patches have different types, which join to object.
+        patches: list[AbstractContextManager[Any]] = [
             patch.object(HogQLHasMorePaginator, "execute_hogql_query", capture_paginator_execute),
-            patch.object(hogql_query_module, "execute_hogql_query", capture_module_execute),
+            patch.object(hogql_query_module.HogQLQueryExecutor, "execute", capture_executor_execute),
         ]
-
-        # Add patches for modules that import execute_hogql_query directly
-        try:
-            from products.web_analytics.backend.hogql_queries import web_overview
-
-            if hasattr(web_overview, "execute_hogql_query"):
-                patches.append(patch.object(web_overview, "execute_hogql_query", capture_module_execute))
-        except ImportError:
-            pass
-
-        try:
-            from products.web_analytics.backend.hogql_queries import stats_table
-
-            if hasattr(stats_table, "execute_hogql_query"):
-                patches.append(patch.object(stats_table, "execute_hogql_query", capture_module_execute))
-        except ImportError:
-            pass
-
-        try:
-            from posthog.hogql_queries.insights.trends import trends_query_runner
-
-            if hasattr(trends_query_runner, "execute_hogql_query"):
-                patches.append(patch.object(trends_query_runner, "execute_hogql_query", capture_module_execute))
-        except ImportError:
-            pass
 
         # Apply all patches
         with ExitStack() as stack:

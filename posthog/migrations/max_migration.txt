@@ -1,1 +1,1 @@
-1342_drop_cimd_blocklist_table
+1345_squash_2026_09_07_schema_addons

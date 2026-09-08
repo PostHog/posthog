@@ -18,6 +18,7 @@ import {
   useCurrentUser,
 } from "@posthog/ui/features/auth/authQueries";
 import { useLogoutMutation } from "@posthog/ui/features/auth/useAuthMutations";
+import { useClearGithubUserIntegrations } from "@posthog/ui/features/integrations/useClearGithubUserIntegrations";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
@@ -43,6 +44,7 @@ import {
   Cpu,
   FileText,
   FolderOpen,
+  GitBranch,
   Globe,
   LayoutGrid,
   MemoryStick,
@@ -361,6 +363,7 @@ function UserMenu() {
   const client = useOptionalAuthenticatedClient();
   const { data: user } = useCurrentUser({ client, enabled: isAuthenticated });
   const logoutMutation = useLogoutMutation();
+  const clearGithubIntegration = useClearGithubUserIntegrations();
 
   const handleResetOnboarding = () => {
     useOnboardingStore.getState().resetOnboarding();
@@ -426,6 +429,13 @@ function UserMenu() {
           <DropdownMenuItem onClick={handleResetTours}>
             <RotateCcw size={12} className="mr-2 text-muted-foreground" />
             Reset product tours
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={clearGithubIntegration.isPending}
+            onClick={() => clearGithubIntegration.mutate()}
+          >
+            <GitBranch size={12} className="mr-2 text-muted-foreground" />
+            Clear GitHub integration
           </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />

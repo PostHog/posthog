@@ -304,7 +304,17 @@ impl CommitSentinel {
     pub fn forget_partitions<'a>(&self, revoked: impl IntoIterator<Item = (&'a str, i32)>) {
         let mut partitions = self.partitions.lock().unwrap();
         for (topic, partition) in revoked {
-            partitions.remove(&(topic.to_string(), partition));
+            let forgotten = partitions.remove(&(topic.to_string(), partition));
+            if forgotten.is_some_and(|state| state.attempted.is_some()) {
+                let topic: Arc<str> = Arc::from(topic);
+                let partition: Arc<str> = Arc::from(partition.to_string());
+                gauge!(
+                    "ingestion_consumer_commit_confirmation_lag",
+                    "topic" => topic,
+                    "partition" => partition,
+                )
+                .set(0.0);
+            }
         }
     }
 }

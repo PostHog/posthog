@@ -84,6 +84,7 @@ from .skill_serializers import (
     LLMSkillMarketplaceIssueSerializer,
     LLMSkillPublishSerializer,
     LLMSkillPublishToCommunitySerializer,
+    LLMSkillRenameSerializer,
     LLMSkillResolveQuerySerializer,
     LLMSkillResolveResponseSerializer,
     LLMSkillSerializer,
@@ -102,6 +103,7 @@ from .skill_services import (
     LLMSkillFilePathConflictError,
     LLMSkillNotFoundError,
     LLMSkillOwnerNotFoundError,
+    LLMSkillRenameNotAllowedError,
     LLMSkillVersionConflictError,
     LLMSkillVersionLimitError,
     archive_skill,
@@ -113,6 +115,7 @@ from .skill_services import (
     get_latest_skills_queryset,
     get_skill_by_name_from_db,
     publish_skill_version,
+    rename_skill,
     rename_skill_file,
     resolve_owner_users,
     resolve_skill_owners,
@@ -1191,6 +1194,63 @@ class LLMSkillViewSet(
             request=request,
         )
         return Response(self._serialize_skill(new_skill), status=status.HTTP_201_CREATED)
+
+    @extend_schema(request=LLMSkillRenameSerializer, responses={200: LLMSkillSerializer})
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path=r"name/(?P<skill_name>[^/]+)/rename",
+        required_scopes=["llm_skill:write"],
+    )
+    @llma_track_latency("llma_skills_rename")
+    @monitor(feature=None, endpoint="llma_skills_rename", method="POST")
+    def rename(self, request: Request, skill_name: str = "", **kwargs) -> Response:
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        payload = LLMSkillRenameSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        new_name = payload.validated_data["new_name"]
+
+        try:
+            renamed_skill = rename_skill(self.team, skill_name=skill_name, new_name=new_name)
+        except LLMSkillNotFoundError:
+            return self._skill_not_found_response(skill_name)
+        except LLMSkillDuplicateNameConflictError:
+            raise serializers.ValidationError(
+                {"new_name": "A skill with this name already exists."},
+                code="unique",
+            )
+        except LLMSkillRenameNotAllowedError as err:
+            raise serializers.ValidationError(
+                {
+                    "new_name": (
+                        f"Names starting with '{err.prefix}' keep product settings under the skill name, "
+                        "so a skill can't be renamed into or out of them. Duplicate the skill instead."
+                    )
+                },
+                code="reserved_prefix",
+            )
+
+        props = {
+            **_skill_analytics_props(renamed_skill),
+            "previous_skill_name": skill_name,
+        }
+        logger.info(
+            "llma_skill_renamed",
+            team_id=self.team.id,
+            user_id=cast(User, request.user).id,
+            **props,
+        )
+        report_user_action(
+            cast(User, request.user),
+            "llma skill renamed",
+            props,
+            team=self.team,
+            request=request,
+        )
+        return Response(self._serialize_skill(renamed_skill))
 
     @extend_schema(request=LLMSkillPublishToCommunitySerializer, responses={201: CommunitySkillPublishResultSerializer})
     @action(

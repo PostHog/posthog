@@ -20,7 +20,7 @@ from products.conversations.backend.support_teams import (
     is_trusted_teams_service_url,
     validate_teams_request,
 )
-from products.conversations.backend.tasks import is_duplicate_teams_event, process_teams_event, send_teams_help
+from products.conversations.backend.tasks.teams import is_duplicate_teams_event, process_teams_event, send_teams_help
 from products.conversations.backend.teams import is_bot_added_event, is_command_message
 
 logger = structlog.get_logger(__name__)

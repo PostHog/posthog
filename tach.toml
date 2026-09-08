@@ -79,6 +79,7 @@ layer = "modules"
 [[modules]]
 path = "posthog"
 depends_on = [
+    "products.autoresearch",
     "products.cohorts",
     "ee",
     "products.access_control",
@@ -191,6 +192,7 @@ layer = "modules"
 path = "products.autoresearch"
 depends_on = [
     "posthog",
+    "products.actions",
     "products.feature_flags",
 ]
 layer = "modules"
