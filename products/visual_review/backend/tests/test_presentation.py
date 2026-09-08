@@ -546,6 +546,45 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
                 }
             },
         )
+        # Master keeps absorbing the same shift against the same baseline:
+        # the current image did not change, so this is not a second entry.
+        self._seed_history_row(
+            sha="ddd0002",
+            branch="master",
+            content_hash="hash-shift",
+            baseline_content_hash="base-2",
+            diff_metadata={
+                "row_shift": {
+                    "inserted_rows": 1,
+                    "deleted_rows": 0,
+                    "changed_rows": 0,
+                    "residual_pixel_count": 0,
+                    "residual_percentage": 0.0,
+                    "raw_diff_percentage": 3.2,
+                    "bands": [{"y": 20, "rows": 1, "kind": "inserted"}],
+                }
+            },
+        )
+        # An actionable layout change recurs on every run until its baseline
+        # moves, so it rides the baseline transition instead of its shift.
+        self._seed_history_row(
+            sha="ddd0003",
+            branch="master",
+            content_hash="hash-layout",
+            baseline_content_hash="base-2",
+            result=SnapshotResult.CHANGED,
+            diff_metadata={
+                "row_shift": {
+                    "inserted_rows": 40,
+                    "deleted_rows": 0,
+                    "changed_rows": 0,
+                    "residual_pixel_count": 0,
+                    "residual_percentage": 0.0,
+                    "raw_diff_percentage": 12.0,
+                    "bands": [{"y": 80, "rows": 40, "kind": "inserted"}],
+                }
+            },
+        )
 
         # PR-branch run — filtered out by branch.
         self._seed_history_row(
