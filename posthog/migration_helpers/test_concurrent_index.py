@@ -389,6 +389,29 @@ def test_safe_add_index_concurrently_reverse_drops_index(temp_model):
     assert not _index_exists(idx_name)
 
 
+@pytest.mark.django_db
+def test_safe_add_index_concurrently_reverse_drops_index_inside_a_transaction(temp_model):
+    """A TestMigrations rollback unapplies this op inside the TestCase transaction.
+
+    Note the atomic django_db mark: unlike its siblings this test wants in_atomic_block
+    True, because that is the only case the fallback covers.
+    """
+    table, state = temp_model
+    idx_name = f"{table}_col_idx"
+    op = SafeAddIndexConcurrently(model_name=MODEL_NAME, index=models.Index(fields=["col"], name=idx_name))
+
+    # Built without CONCURRENTLY: the forward path could not run in here either.
+    with connection.cursor() as cursor:
+        cursor.execute(f'CREATE INDEX "{idx_name}" ON "{table}" ("col")')
+    assert connection.in_atomic_block
+
+    _apply_backwards(op, state)
+    assert not _index_exists(idx_name)
+
+    _apply_backwards(op, state)  # idempotent: nothing left to drop
+    assert not _index_exists(idx_name)
+
+
 @pytest.mark.django_db(transaction=True)
 def test_safe_remove_index_concurrently_removes_index(temp_model):
     table, state = temp_model
