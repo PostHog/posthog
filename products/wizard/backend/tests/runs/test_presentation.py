@@ -1,3 +1,4 @@
+from hashlib import sha256
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest
@@ -441,7 +442,8 @@ class TestWizardRunViewSet(APIBaseTest):
             "products.wizard.backend.temporal.client.cancel_wizard_run_workflow",
             create=True,
         ) as cancel_workflow:
-            response = self.client.patch(self._url(created["id"]), {"status": "cancelled"}, format="json")
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.patch(self._url(created["id"]), {"status": "cancelled"}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["status"], "cancelled")
@@ -495,7 +497,7 @@ class TestWizardRunViewSet(APIBaseTest):
         self.assertEqual(response["Content-Type"], "text/x-diff; charset=utf-8")
         self.assertEqual(response["Cache-Control"], "private, no-store")
         read_bytes.assert_called_once_with(
-            f"projects/{self.team.id}/wizard-runs/{created['id']}/artifacts/git-diff.patch",
+            f"projects/{self.team.id}/wizard-runs/{created['id']}/artifacts/git-diff-{sha256(diff).hexdigest()}.patch",
             bucket=settings.WIZARD_RUN_ARTIFACTS_S3_BUCKET,
             missing_ok=True,
         )
