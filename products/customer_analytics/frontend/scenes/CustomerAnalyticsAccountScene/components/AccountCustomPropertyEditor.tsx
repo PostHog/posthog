@@ -18,6 +18,34 @@ const NUMERIC_DISPLAY_TYPES = new Set(['number', 'currency', 'percent'])
 // decimal places, keep very small fractions intact.
 const clearFloatArtifacts = (value: number): number => Number(value.toPrecision(15))
 
+const isHttpUrl = (value: string): boolean => {
+    try {
+        const { protocol } = new URL(value)
+        return protocol === 'http:' || protocol === 'https:'
+    } catch {
+        return false
+    }
+}
+
+// The server coerces each value to its display type and rejects a mismatch, so Save applies the
+// same rules first. The checks stay no stricter than the server's, because a client that refuses a
+// value the API would accept is worse than one that lets a rare rejection through.
+const saveErrorFor = (draft: string | boolean, definition: CustomPropertyDefinitionApi): string | undefined => {
+    if (typeof draft === 'boolean') {
+        return undefined
+    }
+    if (NUMERIC_DISPLAY_TYPES.has(definition.display_type)) {
+        return draft !== '' && Number.isFinite(Number(draft)) ? undefined : 'Enter a number to save'
+    }
+    if (definition.display_type === 'link') {
+        return isHttpUrl(draft) ? undefined : 'Enter a valid HTTP or HTTPS URL'
+    }
+    if (definition.display_type === 'select') {
+        return (definition.options ?? []).some((option) => option.label === draft) ? undefined : 'Pick an option'
+    }
+    return undefined
+}
+
 export interface AccountCustomPropertyEditorProps {
     definition: CustomPropertyDefinitionApi
     value: AccountCustomPropertyValue
@@ -43,9 +71,12 @@ export function AccountCustomPropertyEditor({
     const isDate = definition.display_type === 'date' || definition.display_type === 'datetime'
     const isNumeric = NUMERIC_DISPLAY_TYPES.has(definition.display_type)
     const numericDraft = typeof draft === 'string' && draft !== '' ? Number(draft) : undefined
-    const canSave = !isNumeric || (numericDraft !== undefined && Number.isFinite(numericDraft))
+    const saveError = saveErrorFor(draft, definition)
 
     const save = (): void => {
+        if (saveError) {
+            return
+        }
         if (typeof draft === 'boolean') {
             onSave(draft)
         } else if (isNumeric && numericDraft !== undefined && Number.isFinite(numericDraft)) {
@@ -138,6 +169,7 @@ export function AccountCustomPropertyEditor({
                     value={typeof draft === 'string' ? draft : ''}
                     onChange={setDraft}
                     onPressEnter={save}
+                    status={definition.display_type === 'link' && draft !== '' && saveError ? 'danger' : 'default'}
                     size="small"
                     fullWidth
                     autoFocus
@@ -162,7 +194,7 @@ export function AccountCustomPropertyEditor({
                     size="xsmall"
                     onClick={save}
                     loading={saving}
-                    disabledReason={!canSave ? 'Enter a number to save' : undefined}
+                    disabledReason={saveError}
                     data-attr="account-property-save"
                 >
                     Save
