@@ -105,7 +105,8 @@ export const getShopifyEcommerceStep = (ctx: OnboardingComponentsContext): StepD
                                             variant_id: line?.merchandise?.id,
                                             variant_title: line?.merchandise?.title,
                                             quantity: line?.quantity,
-                                            price: line?.cost?.totalAmount?.amount,
+                                            price: line?.merchandise?.price?.amount,
+                                            line_total: line?.cost?.totalAmount?.amount,
                                             currency: line?.cost?.totalAmount?.currencyCode
                                         })
                                     })
