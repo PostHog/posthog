@@ -33,6 +33,7 @@ from posthog.schema import HogQLQuery
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.autoresearch.backend.dataset.labeling import _identified_users_and_clause
 from products.autoresearch.backend.query import run_hogql_rows
@@ -169,7 +170,7 @@ TEMPLATES: dict[str, AutoresearchTemplate] = {
 }
 
 
-def resolve_activity_event(team: Team) -> tuple[str, list[str]]:
+def resolve_activity_event(team: Team, user: Optional[User] = None) -> tuple[str, list[str]]:
     """
     Discover the best activity event for universal activity templates.
 
@@ -178,7 +179,8 @@ def resolve_activity_event(team: Team) -> tuple[str, list[str]]:
     highest-volume non-noisy event if none of the preferred events exist.
 
     Returns (resolved_event, alternatives) where alternatives are other viable
-    events the user can choose as an override.
+    events the user can choose as an override. `user` is the person HogQL applies
+    access control for; see `query.run_hogql`.
     """
     try:
         # Training and scoring only ever see identified users, so rank candidates on that
@@ -196,7 +198,7 @@ def resolve_activity_event(team: Team) -> tuple[str, list[str]]:
             """,
         )
         tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
-        rows = run_hogql_rows(team=team, query=query)
+        rows = run_hogql_rows(team=team, query=query, user=user)
 
         seen: dict[str, int] = {}
         if rows:
@@ -246,6 +248,7 @@ def resolve_template(
     template_key: str,
     target_event_override: Optional[str] = None,
     horizon_days_override: Optional[int] = None,
+    user: Optional[User] = None,
 ) -> ResolvedTemplate:
     """
     Resolve a template key + optional overrides into a concrete pipeline config.
@@ -267,7 +270,7 @@ def resolve_template(
     alternatives: list[str] = []
 
     if template.requires_activity_resolution:
-        resolved_activity, alternatives = resolve_activity_event(team)
+        resolved_activity, alternatives = resolve_activity_event(team, user=user)
         target_event = target_event_override or resolved_activity
     else:
         target_event = target_event_override or ""

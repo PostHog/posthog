@@ -78,13 +78,15 @@ class TestResolveActivityEvent(TestCase):
         # traffic emits must not be chosen as the activity signal.
         team = MagicMock()
         team.pk = 1
+        user = MagicMock()
         with patch(
             "products.autoresearch.backend.dataset.templates.run_hogql_rows",
             return_value=[["$pageview", 10]],
         ) as mock_run:
-            resolved, _alternatives = resolve_activity_event(team)
+            resolved, _alternatives = resolve_activity_event(team, user=user)
         self.assertEqual(resolved, "$pageview")
         self.assertIn("person.is_identified", mock_run.call_args.kwargs["query"].query)
+        self.assertIs(mock_run.call_args.kwargs["user"], user)
 
 
 class TestResolveTemplate(TestCase):
@@ -111,7 +113,9 @@ class TestResolveTemplate(TestCase):
     )
     def test_likely_active_soon_resolves(self, mock_resolve: MagicMock) -> None:
         team = self._make_team()
-        result = resolve_template(team, "likely_active_soon")
+        user = MagicMock()
+        result = resolve_template(team, "likely_active_soon", user=user)
+        mock_resolve.assert_called_once_with(team, user=user)
         self.assertIsInstance(result, ResolvedTemplate)
         self.assertEqual(result.target_event, "$pageview")
         self.assertEqual(result.resolved_activity_event, "$pageview")
