@@ -202,6 +202,7 @@ def update_team_marketing_analytics_config(team: Team, validated_data: dict[str,
         ),
         "attribution_window_days": team.marketing_analytics_config.attribution_window_days,
         "attribution_mode": team.marketing_analytics_config.attribution_mode,
+        "filter_test_accounts": team.marketing_analytics_config.filter_test_accounts,
     }
 
     marketing_serializer = TeamMarketingAnalyticsConfigSerializer(
@@ -219,6 +220,7 @@ def update_team_marketing_analytics_config(team: Team, validated_data: dict[str,
         "sources_map": validated_data.get("sources_map", {}),
         "attribution_window_days": validated_data.get("attribution_window_days"),
         "attribution_mode": validated_data.get("attribution_mode"),
+        "filter_test_accounts": validated_data.get("filter_test_accounts"),
     }
 
     capture_team_config_diff(team, "marketing_analytics_config", old_config, new_config, context=context)
@@ -552,11 +554,19 @@ def team_evaluation_context_suggestions_view(team: Team, request: request.Reques
     return response.Response({"success": True, "name": context_name, "hidden_from_suggestions": hidden})
 
 
-class ProjectSerializer(serializers.ModelSerializer):
+class ProjectSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+    """The project as the app context serves it, which is where the frontend reads it on page load.
+
+    projectLogic bootstraps `currentProject` from the app context and only calls the API when that
+    is missing, so a field left out here is invisible to the app until something refetches.
+    """
+
+    tags = project_tags.tags_field()
+
     class Meta:
         model = Project
         # Keep this serializer narrow; legacy Team-compatible fields live on ProjectBackwardCompatSerializer.
-        fields = ["id", "organization_id", "name", "product_description", "created_at", "is_pending_deletion"]
+        fields = ["id", "organization_id", "name", "product_description", "created_at", "is_pending_deletion", "tags"]
         read_only_fields = ["id", "organization_id", "created_at", "is_pending_deletion"]
 
 

@@ -37,7 +37,6 @@ import {
   useUserRepositoryIntegration,
 } from "@posthog/ui/features/integrations/useIntegrations";
 import { toastError } from "@posthog/ui/features/notifications/errorDetails";
-import { ScoutsFleetSection } from "@posthog/ui/features/scouts/components/ScoutsFleetSection";
 import { SettingsSubsection } from "@posthog/ui/features/settings/components/SettingsSubsection";
 import { DailyReportLimitSettings } from "@posthog/ui/features/settings/sections/DailyReportLimitSettings";
 import { GitHubIntegrationSection } from "@posthog/ui/features/settings/sections/GitHubIntegrationSection";
@@ -136,27 +135,6 @@ export function ConfigureAgentsSection() {
           isLoading={isLoadingIntegrations}
           showBottomBorder={false}
         />
-      </SettingsSubsection>
-
-      <SettingsSubsection
-        title="Scouts"
-        description={
-          <>
-            Scheduled agents that sweep this project on a cadence and emit
-            signals to Self-driving.{" "}
-            {/* Placeholder docs link until a dedicated scouts page exists. */}
-            <a
-              href="https://posthog.com/blog/self-driving-product"
-              target="_blank"
-              rel="noreferrer"
-              className="text-accent-11 no-underline hover:text-accent-12"
-            >
-              Learn more
-            </a>
-          </>
-        }
-      >
-        <ScoutsFleetSection />
       </SettingsSubsection>
 
       <SettingsSubsection

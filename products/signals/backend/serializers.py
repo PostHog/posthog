@@ -3,27 +3,33 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import cast
 
-from django.db.models import Q
+from django.db.models import TextChoices
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
 
+from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 
 from products.signals.backend import contracts
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import DEFAULT_NOT_ACTIONABLE_KEY, STEERING_KEY, STEERING_MAX_LENGTH
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
 from .daily_limit import reports_generated_today, team_day_start
 from .models import (
     AutonomyPriority,
+    SignalActorKind,
     SignalReport,
     SignalReportArtefact,
+    SignalReportAssignment,
     SignalReportRefund,
+    SignalReportWorkState,
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
@@ -34,13 +40,57 @@ from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_
 DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
 
 
-# Maps (source_product, source_type) → (ExternalDataSourceType value, schema name)
-_DATA_IMPORT_SOURCE_MAP: dict[tuple[str, str], tuple[str, str]] = {
-    (SignalSourceConfig.SourceProduct.GITHUB, SignalSourceConfig.SourceType.ISSUE): ("Github", "issues"),
-    (SignalSourceConfig.SourceProduct.LINEAR, SignalSourceConfig.SourceType.ISSUE): ("Linear", "issues"),
-    (SignalSourceConfig.SourceProduct.ZENDESK, SignalSourceConfig.SourceType.TICKET): ("Zendesk", "tickets"),
-    (SignalSourceConfig.SourceProduct.PGANALYZE, SignalSourceConfig.SourceType.ISSUE): ("PgAnalyze", "issues"),
+@frozen
+class _DataImportSchema:
+    """The warehouse source type and schema name a signal source reads its sync status from."""
+
+    source_type: str
+    schema_name: str
+
+    def matches(self, source_type: str, name: str) -> bool:
+        # A repo-qualified schema reads as `<owner>/<repo>.<endpoint>`, a legacy one as the bare
+        # endpoint name.
+        return source_type == self.source_type and (name == self.schema_name or name.endswith(f".{self.schema_name}"))
+
+
+# Maps (source_product, source_type) → the warehouse schema carrying that source's sync status
+_DATA_IMPORT_SOURCE_MAP: dict[tuple[str, str], _DataImportSchema] = {
+    (SignalSourceConfig.SourceProduct.GITHUB, SignalSourceConfig.SourceType.ISSUE): _DataImportSchema(
+        source_type="Github", schema_name="issues"
+    ),
+    (SignalSourceConfig.SourceProduct.LINEAR, SignalSourceConfig.SourceType.ISSUE): _DataImportSchema(
+        source_type="Linear", schema_name="issues"
+    ),
+    (SignalSourceConfig.SourceProduct.ZENDESK, SignalSourceConfig.SourceType.TICKET): _DataImportSchema(
+        source_type="Zendesk", schema_name="tickets"
+    ),
+    (SignalSourceConfig.SourceProduct.PGANALYZE, SignalSourceConfig.SourceType.ISSUE): _DataImportSchema(
+        source_type="PgAnalyze", schema_name="issues"
+    ),
 }
+
+_DATA_IMPORT_EXTERNAL_SOURCE_TYPES = sorted({schema.source_type for schema in _DATA_IMPORT_SOURCE_MAP.values()})
+
+
+def _read_data_import_statuses(team_id: int) -> dict[_DataImportSchema, set[str]]:
+    """Every data-import schema on a team in one query, bucketed by `_DATA_IMPORT_SOURCE_MAP` value."""
+    rows = (
+        ExternalDataSchema.objects.filter(
+            team_id=team_id,
+            source__source_type__in=_DATA_IMPORT_EXTERNAL_SOURCE_TYPES,
+        )
+        .exclude(source__deleted=True)
+        .values_list("source__source_type", "name", "status")
+    )
+    statuses: dict[_DataImportSchema, set[str]] = {}
+    for row_source_type, row_name, row_status in rows:
+        # `status` is nullable. A row without one matches none of the ranked states below.
+        if row_status is None:
+            continue
+        for schema in _DATA_IMPORT_SOURCE_MAP.values():
+            if schema.matches(row_source_type, row_name):
+                statuses.setdefault(schema, set()).add(row_status)
+    return statuses
 
 
 _SOURCE_CONFIG_HELP_TEXT = (
@@ -71,7 +121,13 @@ class _SourceConfigField(serializers.JSONField):
 
 
 class SignalSourceConfigSerializer(serializers.ModelSerializer):
-    status = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField(
+        help_text=(
+            "Sync state of the warehouse import behind this source: `running`, `failed`, or "
+            "`completed`. Null for a source that imports nothing from the warehouse, for an "
+            "import that has never synced, and when the sync state could not be read."
+        ),
+    )
     config = _SourceConfigField(required=False, help_text=_SOURCE_CONFIG_HELP_TEXT)
 
     class Meta:
@@ -88,25 +144,19 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "updated_at", "status"]
 
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        # Absent key means "not read yet", a `None` value means the read failed.
+        self._data_import_statuses_by_team: dict[int, dict[_DataImportSchema, set[str]] | None] = {}
+
     def get_status(self, obj: SignalSourceConfig) -> str | None:
-        mapping = _DATA_IMPORT_SOURCE_MAP.get((obj.source_product, obj.source_type))
-        if mapping is None:
+        schema = _DATA_IMPORT_SOURCE_MAP.get((obj.source_product, obj.source_type))
+        if schema is None:
             return None
-        ext_source_type, schema_name = mapping
-        return self._get_data_import_status(obj.team_id, ext_source_type, schema_name)
-
-    def _get_data_import_status(self, team_id: int, ext_source_type: str, schema_name: str) -> str | None:
-        from products.warehouse_sources.backend.facade.models import ExternalDataSchema
-
-        statuses = set(
-            ExternalDataSchema.objects.filter(
-                Q(name=schema_name) | Q(name__endswith=f".{schema_name}"),
-                team_id=team_id,
-                source__source_type=ext_source_type,
-            )
-            .exclude(source__deleted=True)
-            .values_list("status", flat=True)
-        )
+        statuses_by_schema = self._data_import_statuses(obj.team_id)
+        if statuses_by_schema is None:
+            return None
+        statuses = statuses_by_schema.get(schema, set())
         if ExternalDataSchemaStatus.RUNNING in statuses:
             return "running"
         # One failing repo outranks its siblings' success, so a broken repo is never hidden.
@@ -119,6 +169,24 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         if ExternalDataSchemaStatus.COMPLETED in statuses:
             return "completed"
         return None
+
+    def _data_import_statuses(self, team_id: int) -> dict[_DataImportSchema, set[str]] | None:
+        """Sync statuses of every data-import source on a team, keyed as `_DATA_IMPORT_SOURCE_MAP` values.
+
+        The inbox reads this list on load, and DRF reuses one child serializer across a list,
+        so the first row that needs a status resolves every row's in one query. A `None` return
+        means the warehouse read raised. Those rows then report no status, which keeps the
+        response a 200 so a person can still configure their sources.
+        """
+        if team_id in self._data_import_statuses_by_team:
+            return self._data_import_statuses_by_team[team_id]
+        try:
+            statuses = _read_data_import_statuses(team_id)
+        except Exception as exc:
+            capture_exception(exc)
+            statuses = None
+        self._data_import_statuses_by_team[team_id] = statuses
+        return statuses
 
     def validate(self, attrs: dict) -> dict:
         source_product = attrs.get("source_product", getattr(self.instance, "source_product", None))
@@ -298,6 +366,31 @@ class _UserSerializer(serializers.ModelSerializer):
         model = User
         fields = ["id", "uuid", "first_name", "last_name", "email"]
         read_only_fields = fields
+
+
+class SignalReportClaimSerializer(serializers.Serializer):
+    pr_url = serializers.URLField(
+        required=False,
+        help_text=("Optional GitHub pull request to attach to the claim. The report may be claimed without one."),
+    )
+    release = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Release ownership while preserving any attached pull request.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("release") and "pr_url" in attrs:
+            raise serializers.ValidationError("release and pr_url cannot be supplied together.")
+        return attrs
+
+
+class SignalReportAssigneeSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=SignalActorKind.choices)
+    user = _UserSerializer(allow_null=True)
+    task_id = serializers.UUIDField(allow_null=True)
+    agent = serializers.CharField(allow_null=True)
+    claimed_at = serializers.DateTimeField(allow_null=True)
 
 
 class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
@@ -531,7 +624,10 @@ class SignalReportSerializer(serializers.ModelSerializer):
         help_text="skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.",
     )
     implementation_pr_url = serializers.SerializerMethodField(
-        help_text="PR URL from the latest implementation task run, if available.",
+        help_text="Pull request attached to this report's claim, if available.",
+    )
+    implementation_pr_state = serializers.SerializerMethodField(
+        help_text="Latest known pull request state: unknown, draft, open, closed, or merged.",
     )
     implementation_pr_merged = serializers.SerializerMethodField(
         help_text=(
@@ -539,6 +635,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been "
             "resolved directly, without a merged PR."
         ),
+    )
+    work_state = serializers.SerializerMethodField(
+        help_text="Derived remediation state: unclaimed, working, in_review, or done.",
+    )
+    assignee = serializers.SerializerMethodField(
+        help_text="Current user, internal task, or external agent claim owner. Null when unclaimed.",
     )
     refund = serializers.SerializerMethodField(
         help_text="The report's PR refund, when one exists. One refund per report, ever.",
@@ -576,7 +678,10 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "source_products",
             "scout_name",
             "implementation_pr_url",
+            "implementation_pr_state",
             "implementation_pr_merged",
+            "work_state",
+            "assignee",
             "refund",
             "refund_ineligibility_reason",
             "billing_exempt_reason",
@@ -688,19 +793,77 @@ class SignalReportSerializer(serializers.ModelSerializer):
         return None
 
     def get_implementation_pr_url(self, obj: SignalReport) -> str | None:
+        assignment = self._get_assignment(obj)
+        if assignment is not None and assignment.pr_url:
+            return assignment.pr_url
         implementation_pr_url_map: dict[str, str] | None = self.context.get("implementation_pr_url_map")
-        if implementation_pr_url_map is not None:
-            return implementation_pr_url_map.get(str(obj.id))
-        value = getattr(obj, "implementation_pr_url", None)
-        return value if isinstance(value, str) else None
+        return implementation_pr_url_map.get(str(obj.id)) if implementation_pr_url_map is not None else None
+
+    @extend_schema_field(serializers.ChoiceField(choices=SignalReportAssignment.PrState.choices, allow_null=True))
+    def get_implementation_pr_state(self, obj: SignalReport) -> str | None:
+        assignment = self._get_assignment(obj)
+        if assignment is not None and assignment.pr_url:
+            return assignment.pr_state or SignalReportAssignment.PrState.UNKNOWN
+        implementation_pr_state_map: dict[str, str] | None = self.context.get("implementation_pr_state_map")
+        return implementation_pr_state_map.get(str(obj.id)) if implementation_pr_state_map is not None else None
 
     def get_implementation_pr_merged(self, obj: SignalReport) -> bool:
+        assignment = self._get_assignment(obj)
+        if assignment is not None and assignment.pr_url:
+            return assignment.pr_merged
         merged_report_ids: set[str] | None = self.context.get("implementation_pr_merged_ids")
-        if merged_report_ids is not None:
-            return str(obj.id) in merged_report_ids
-        # Annotated path: the JSON flag arrives as text, and NULL means no PR-bearing run at all.
-        value = getattr(obj, "implementation_pr_merged", None)
-        return value in (True, "true", "True")
+        return str(obj.id) in merged_report_ids if merged_report_ids is not None else False
+
+    @extend_schema_field(serializers.ChoiceField(choices=SignalReportWorkState.choices))
+    def get_work_state(self, obj: SignalReport) -> str:
+        if obj.status == SignalReport.Status.RESOLVED:
+            return "done"
+        assignment = self._get_assignment(obj)
+        if (
+            assignment is not None
+            and assignment.pr_url
+            and assignment.pr_state
+            in {
+                SignalReportAssignment.PrState.UNKNOWN,
+                SignalReportAssignment.PrState.DRAFT,
+                SignalReportAssignment.PrState.OPEN,
+            }
+        ):
+            return "in_review"
+        fallback_url_map: dict[str, str] | None = self.context.get("implementation_pr_url_map")
+        fallback_state_map: dict[str, str] | None = self.context.get("implementation_pr_state_map")
+        report_id = str(obj.id)
+        if (
+            fallback_url_map
+            and fallback_url_map.get(report_id)
+            and (fallback_state_map or {}).get(report_id)
+            in {
+                SignalReportAssignment.PrState.UNKNOWN,
+                SignalReportAssignment.PrState.DRAFT,
+                SignalReportAssignment.PrState.OPEN,
+            }
+        ):
+            return "in_review"
+        if assignment is not None and assignment.actor_kind:
+            return "working"
+        return "unclaimed"
+
+    @extend_schema_field(SignalReportAssigneeSerializer(allow_null=True))
+    def get_assignee(self, obj: SignalReport) -> dict | None:
+        assignment = self._get_assignment(obj)
+        if assignment is None or not assignment.actor_kind:
+            return None
+        return {
+            "kind": assignment.actor_kind,
+            "user": _UserSerializer(assignment.actor_user).data if assignment.actor_user else None,
+            "task_id": str(assignment.actor_task_id) if assignment.actor_task_id else None,
+            "agent": assignment.actor_agent,
+            "claimed_at": assignment.claimed_at,
+        }
+
+    @staticmethod
+    def _get_assignment(obj: SignalReport) -> SignalReportAssignment | None:
+        return getattr(obj, "assignment", None)
 
     @extend_schema_field(SignalReportRefundSerializer(allow_null=True))
     def get_refund(self, obj: SignalReport) -> dict | None:
@@ -842,18 +1005,42 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
     created_by = _UserSerializer(
         read_only=True,
         allow_null=True,
-        help_text="User the artefact is attributed to, when a user produced it. Null for task/system writes.",
+        help_text=(
+            "Authenticated user principal for user or external agent writes. Null for internal task and system writes."
+        ),
     )
     task_id = serializers.UUIDField(
         read_only=True,
         allow_null=True,
-        help_text="Task the artefact is attributed to, when an agent produced it. Null for user/system writes.",
+        help_text="Internal task the artefact is attributed to. Null for user, external agent, and system writes.",
+    )
+    actor_kind = serializers.SerializerMethodField(
+        help_text="Actor kind. Legacy rows without attribution are returned as system.",
+    )
+    actor_agent = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="MCP client name when an external agent produced the artefact.",
     )
 
     class Meta:
         model = SignalReportArtefact
-        fields = ["id", "type", "content", "created_at", "updated_at", "created_by", "task_id"]
+        fields = [
+            "id",
+            "type",
+            "content",
+            "created_at",
+            "updated_at",
+            "actor_kind",
+            "actor_agent",
+            "created_by",
+            "task_id",
+        ]
         read_only_fields = fields
+
+    @extend_schema_field(serializers.ChoiceField(choices=SignalActorKind.choices))
+    def get_actor_kind(self, obj: SignalReportArtefact) -> str:
+        return obj.actor_kind or SignalActorKind.SYSTEM
 
     def get_content(self, obj: SignalReportArtefact) -> dict | list:
         try:
@@ -1062,6 +1249,40 @@ class PullRequestChecksResponseSerializer(serializers.Serializer):
     """Response for the PR checks endpoint — the CI status of a report's implementation PR."""
 
     checks = PullRequestCheckSerializer(many=True, read_only=True)
+
+
+class PullRequestCiStatus(TextChoices):
+    """Coarse rollup of a pull request's checks, as mapped from GitHub's status check rollup."""
+
+    PASSING = "passing", "Passing"
+    FAILING = "failing", "Failing"
+    PENDING = "pending", "Pending"
+    NONE = "none", "No checks"
+
+
+class PullRequestCiStatusSerializer(serializers.Serializer):
+    """The CI rollup of one report's implementation pull request."""
+
+    report_id = serializers.UUIDField(
+        read_only=True, help_text="Report whose implementation pull request this status describes."
+    )
+    ci_status = serializers.ChoiceField(
+        read_only=True,
+        choices=PullRequestCiStatus.choices,
+        help_text="Rollup of the pull request's checks on its head commit: 'passing' (nothing failed), "
+        "'failing', 'pending' (checks are still running), or 'none' (the head commit has no checks).",
+    )
+
+
+class PullRequestCiStatusesResponseSerializer(serializers.Serializer):
+    """Response for the batch PR CI status endpoint, for painting CI state onto a list of reports."""
+
+    statuses = PullRequestCiStatusSerializer(
+        many=True,
+        read_only=True,
+        help_text="One entry per requested report whose CI state resolved. Reports without an open "
+        "implementation pull request, and reports GitHub could not answer for, are left out.",
+    )
 
 
 class PullRequestCommentReactionSerializer(serializers.Serializer):

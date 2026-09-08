@@ -1,1 +1,1 @@
-0088_remap_scanner_models_gemini_3_8
+0091_squash_2026_09_07_schema_addons

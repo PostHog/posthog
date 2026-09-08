@@ -431,3 +431,35 @@ async def test_resume_point_trimmed_false_when_stream_empty() -> None:
         assert await redis_stream.resume_point_trimmed("123-0") is False
     finally:
         await redis_stream.delete_stream()
+
+
+@pytest.mark.asyncio
+async def test_thin_tail_trims_only_id_carrying_events() -> None:
+    redis_stream = TaskRunRedisStream(f"task-run-stream:test:{uuid4()}", thin_tail=True)
+    try:
+        with patch("products.tasks.backend.logic.stream.redis_stream.TASK_RUN_STREAM_THIN_MAX_LENGTH", 2):
+            for sequence in range(1, 5):
+                await redis_stream.write_event_with_sequence(
+                    {"type": "notification", "event_id": f"boot1-{sequence}"}, sequence
+                )
+            events = await _read_stream_events(redis_stream)
+            assert [event["event_id"] for event in events] == ["boot1-3", "boot1-4"]
+
+            await redis_stream.write_event_with_sequence({"type": "notification"}, 5)
+            assert len(await _read_stream_events(redis_stream)) == 3
+    finally:
+        await redis_stream.delete_stream()
+
+
+@pytest.mark.asyncio
+async def test_thin_tail_off_keeps_full_window_for_id_carrying_events() -> None:
+    redis_stream = _new_stream()
+    try:
+        with patch("products.tasks.backend.logic.stream.redis_stream.TASK_RUN_STREAM_THIN_MAX_LENGTH", 2):
+            for sequence in range(1, 5):
+                await redis_stream.write_event_with_sequence(
+                    {"type": "notification", "event_id": f"boot1-{sequence}"}, sequence
+                )
+            assert len(await _read_stream_events(redis_stream)) == 4
+    finally:
+        await redis_stream.delete_stream()

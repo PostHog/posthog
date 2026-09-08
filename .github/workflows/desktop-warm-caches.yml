@@ -23,6 +23,11 @@ concurrency:
     # the older run's, so cancelling that run loses nothing.
     cancel-in-progress: true
 
+env:
+    # npm's audit blocks the pnpm bootstrap. See .github/actions/pnpm-install for why.
+    NPM_CONFIG_AUDIT: 'false'
+    NPM_CONFIG_FUND: 'false'
+
 jobs:
     linux:
         runs-on: depot-ubuntu-24.04-4

@@ -13,7 +13,13 @@ import type { RequestProperties } from '@/lib/request-properties'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
 import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
-import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
+import {
+    type FlagGatedTool,
+    getFlagGatedTools,
+    getRequiredFeatureFlags,
+    getScopeGatedTools,
+    type ScopeGatedTool,
+} from '@/tools/toolDefinitions'
 import type { Context, Tool, Env, ZodObjectAny } from '@/tools/types'
 
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
@@ -41,6 +47,7 @@ export interface ResolvedState {
     sessionContext: MCPSessionContext | null
     allTools: Tool<ZodObjectAny>[]
     scopeGatedTools: ScopeGatedTool[]
+    flagGatedTools: FlagGatedTool[]
     /**
      * Whether the caller's team may reach third-party MCP tools through `exec`.
      * Gated on the same flag as the gateway UI — the tools are the gateway's payoff,
@@ -240,6 +247,8 @@ export class RequestStateResolver {
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
         const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
+        // Only exec redirects a call to a gated tool; tools mode just omits it.
+        const flagGatedTools = useSingleExec ? getFlagGatedTools(filterOptions) : []
 
         const [groupTypes, metadata, metadataCompact] = await Promise.all([
             cachedProjectId && hasScope(apiKeyScopes, 'group:read')
@@ -261,6 +270,7 @@ export class RequestStateResolver {
             sessionContext,
             allTools,
             scopeGatedTools,
+            flagGatedTools,
             gatewayToolsEnabled:
                 useSingleExec &&
                 !readOnly &&

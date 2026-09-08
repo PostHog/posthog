@@ -161,7 +161,7 @@ The bar trades off:
 
 Then, for each candidate that clears the bar:
 
-- **Edit** when a still-live report already recommends this gap and its evidence has only moved (volume climbed further, reach widened) — `append_note` the fresh numbers rather than minting a near-duplicate.
+- **Edit** when a still-live report already recommends this gap and its evidence has only moved (volume climbed further, reach widened) — add the fresh numbers with `append_evidence` rather than minting a near-duplicate.
 - **Author** a fresh report only when nothing live covers the gap. Recommendations are investigations, not code fixes → `actionability=requires_human_input` + `repository=NO_REPO`. Priority is almost always **P3** (a suggestion); a critical failure-semantics event (family 3 — `payment_failed`, `*_error`, `*_blocked`) firing with zero alert coverage is **P2**.
 - **Remember / Park** a below-bar candidate via the watch lifecycle below.
 - **Skip** with a one-line note if a `noise:` / `addressed:` / `dedupe:` entry, or an existing inbox report, already covers it.

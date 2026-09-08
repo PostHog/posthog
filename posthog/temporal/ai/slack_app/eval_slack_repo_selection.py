@@ -60,7 +60,7 @@ import sys
 import asyncio
 import argparse
 import textwrap
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal
 
@@ -84,6 +84,7 @@ from posthog.temporal.ai.slack_app import POSTHOG_CODE_SLACK_MENTION_PICKER_GUID
 from posthog.temporal.ai.slack_app.activities.classifiers import classify_task_needs_repo
 
 from products.slack_app.backend.api import _extract_explicit_repo, _extract_explicit_repo_from_thread
+from products.slack_app.backend.services.slack_messages import SlackThreadMessage
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.repo_selection import (
     RepoSelectionRejectedError,
@@ -112,7 +113,7 @@ class Case:
     description: str
     # `{first_repo}` is substituted with the team's first connected repo for the explicit case.
     text_template: str
-    thread_messages: list[dict[str, str]]
+    thread_messages: list[SlackThreadMessage]
     expected_stage: Stage
     expected_outcome: Outcome
     # Optional human note explaining current behavior quirks.
@@ -144,7 +145,9 @@ CASES: list[Case] = [
         name="explicit_mention",
         description="Cascade picks the repo directly when the text contains a connected org/repo.",
         text_template="@PostHog can you look at {first_repo} and fix the readme typo",
-        thread_messages=[{"user": "tester", "text": "@PostHog can you look at {first_repo} and fix the readme typo"}],
+        thread_messages=[
+            SlackThreadMessage(user="tester", text="@PostHog can you look at {first_repo} and fix the readme typo")
+        ],
         expected_stage="cascade",
         expected_outcome="auto",
     ),
@@ -153,10 +156,9 @@ CASES: list[Case] = [
         description="Cascade reads the repo out of a workflow-run link, so a CI ask never reaches the agent.",
         text_template="@PostHog is this flaky? https://github.com/{first_repo}/actions/runs/30560492835",
         thread_messages=[
-            {
-                "user": "tester",
-                "text": "@PostHog is this flaky? https://github.com/{first_repo}/actions/runs/30560492835",
-            }
+            SlackThreadMessage(
+                user="tester", text="@PostHog is this flaky? https://github.com/{first_repo}/actions/runs/30560492835"
+            )
         ],
         expected_stage="cascade",
         expected_outcome="auto",
@@ -166,11 +168,10 @@ CASES: list[Case] = [
         description="Cascade reads the repo from a link someone posted before the mention, the usual shape of a CI ask.",
         text_template="@PostHog is this one flaky?",
         thread_messages=[
-            {
-                "user": "tester",
-                "text": "https://github.com/{first_repo}/actions/runs/30560492835 went red again",
-            },
-            {"user": "tester", "text": "@PostHog is this one flaky?"},
+            SlackThreadMessage(
+                user="tester", text="https://github.com/{first_repo}/actions/runs/30560492835 went red again"
+            ),
+            SlackThreadMessage(user="tester", text="@PostHog is this one flaky?"),
         ],
         expected_stage="cascade",
         expected_outcome="auto",
@@ -180,7 +181,9 @@ CASES: list[Case] = [
         name="billing_question",
         description="Haiku LLM should classify as no-repo (billing/account question).",
         text_template="@PostHog how do I update the credit card on our subscription?",
-        thread_messages=[{"user": "tester", "text": "@PostHog how do I update the credit card on our subscription?"}],
+        thread_messages=[
+            SlackThreadMessage(user="tester", text="@PostHog how do I update the credit card on our subscription?")
+        ],
         expected_stage="haiku",
         expected_outcome="no_repo",
     ),
@@ -189,7 +192,9 @@ CASES: list[Case] = [
         description="Haiku heuristic short-circuits on 'dashboard' with no explicit code pattern.",
         text_template="@PostHog the dashboard tile filters are not persisting across refreshes",
         thread_messages=[
-            {"user": "tester", "text": "@PostHog the dashboard tile filters are not persisting across refreshes"}
+            SlackThreadMessage(
+                user="tester", text="@PostHog the dashboard tile filters are not persisting across refreshes"
+            )
         ],
         expected_stage="haiku",
         expected_outcome="no_repo",
@@ -199,8 +204,8 @@ CASES: list[Case] = [
         description="Perf complaint about a site the team likely owns code for — agent should route to docs/marketing repo.",
         text_template="@PostHog the docs site loads really slowly on mobile",
         thread_messages=[
-            {"user": "tester", "text": "@PostHog the docs site loads really slowly on mobile"},
-            {"user": "other", "text": "yeah I noticed the same on /docs/getting-started"},
+            SlackThreadMessage(user="tester", text="@PostHog the docs site loads really slowly on mobile"),
+            SlackThreadMessage(user="other", text="yeah I noticed the same on /docs/getting-started"),
         ],
         expected_stage="agent",
         expected_outcome="found",
@@ -210,8 +215,10 @@ CASES: list[Case] = [
         description="App/SDK crash with stack trace — agent should route to the relevant SDK repo (e.g. posthog-ios).",
         text_template="@PostHog the iOS SDK is crashing on app launch after upgrade to 3.19",
         thread_messages=[
-            {"user": "tester", "text": "@PostHog the iOS SDK is crashing on app launch after upgrade to 3.19"},
-            {"user": "other", "text": "stack trace shows PostHogReplay.start() failing"},
+            SlackThreadMessage(
+                user="tester", text="@PostHog the iOS SDK is crashing on app launch after upgrade to 3.19"
+            ),
+            SlackThreadMessage(user="other", text="stack trace shows PostHogReplay.start() failing"),
         ],
         expected_stage="agent",
         expected_outcome="found",
@@ -221,8 +228,8 @@ CASES: list[Case] = [
         description="Complaint about a PostHog product page hanging — looks like 'broken page' but it's the SaaS, not the team's code.",
         text_template="@PostHog the trends page hangs forever when I add 10+ series",
         thread_messages=[
-            {"user": "tester", "text": "@PostHog the trends page hangs forever when I add 10+ series"},
-            {"user": "other", "text": "tried Firefox and Chrome, just a spinner"},
+            SlackThreadMessage(user="tester", text="@PostHog the trends page hangs forever when I add 10+ series"),
+            SlackThreadMessage(user="other", text="tried Firefox and Chrome, just a spinner"),
         ],
         expected_stage="haiku",
         expected_outcome="no_repo",
@@ -233,11 +240,11 @@ CASES: list[Case] = [
         description="PostHog SDK behaving oddly on the team's own site — the issue is in their code, not in PostHog.",
         text_template="@PostHog autocapture isn't picking up clicks on our checkout button, other buttons work",
         thread_messages=[
-            {
-                "user": "tester",
-                "text": "@PostHog autocapture isn't picking up clicks on our checkout button, other buttons work",
-            },
-            {"user": "other", "text": "we just shipped a redesign yesterday"},
+            SlackThreadMessage(
+                user="tester",
+                text="@PostHog autocapture isn't picking up clicks on our checkout button, other buttons work",
+            ),
+            SlackThreadMessage(user="other", text="we just shipped a redesign yesterday"),
         ],
         expected_stage="agent",
         expected_outcome="found",
@@ -247,11 +254,11 @@ CASES: list[Case] = [
         description="'Wrong data in PostHog' — almost always a tracking bug in the team's own code, not PostHog.",
         text_template="@PostHog we're not seeing any signup_completed events even though we tested signups today",
         thread_messages=[
-            {
-                "user": "tester",
-                "text": "@PostHog we're not seeing any signup_completed events even though we tested signups today",
-            },
-            {"user": "other", "text": "the funnel shows 0 conversions but our team manually completed 5"},
+            SlackThreadMessage(
+                user="tester",
+                text="@PostHog we're not seeing any signup_completed events even though we tested signups today",
+            ),
+            SlackThreadMessage(user="other", text="the funnel shows 0 conversions but our team manually completed 5"),
         ],
         expected_stage="agent",
         expected_outcome="found",
@@ -261,7 +268,9 @@ CASES: list[Case] = [
         description="Vague but code-flavored; agent should disambiguate from cache.",
         text_template="@PostHog there's a bug in how we render user signup, can you fix it",
         thread_messages=[
-            {"user": "tester", "text": "@PostHog there's a bug in how we render user signup, can you fix it"}
+            SlackThreadMessage(
+                user="tester", text="@PostHog there's a bug in how we render user signup, can you fix it"
+            )
         ],
         expected_stage="agent",
         expected_outcome="found",
@@ -271,7 +280,9 @@ CASES: list[Case] = [
         description="Explicit code pattern ('viewset') bypasses heuristic; agent picks the API repo.",
         text_template="@PostHog the /api/projects/ viewset crashes on large payloads, can you fix it",
         thread_messages=[
-            {"user": "tester", "text": "@PostHog the /api/projects/ viewset crashes on large payloads, can you fix it"}
+            SlackThreadMessage(
+                user="tester", text="@PostHog the /api/projects/ viewset crashes on large payloads, can you fix it"
+            )
         ],
         expected_stage="agent",
         expected_outcome="found",
@@ -281,7 +292,9 @@ CASES: list[Case] = [
         description="Explicit '.tsx' file extension bypasses heuristic; agent picks the frontend repo.",
         text_template="@PostHog add a Cancel button to the signup form in the .tsx component",
         thread_messages=[
-            {"user": "tester", "text": "@PostHog add a Cancel button to the signup form in the .tsx component"}
+            SlackThreadMessage(
+                user="tester", text="@PostHog add a Cancel button to the signup form in the .tsx component"
+            )
         ],
         expected_stage="agent",
         expected_outcome="found",
@@ -291,7 +304,9 @@ CASES: list[Case] = [
         description="No debug terms, code-flavored verb; Haiku LLM should allow, agent picks.",
         text_template="@PostHog please refactor the user permission check into a single helper",
         thread_messages=[
-            {"user": "tester", "text": "@PostHog please refactor the user permission check into a single helper"}
+            SlackThreadMessage(
+                user="tester", text="@PostHog please refactor the user permission check into a single helper"
+            )
         ],
         expected_stage="agent",
         expected_outcome="found",
@@ -445,7 +460,7 @@ class Command:
     def _run_case(self, case: Case, *, ctx: TeamContext, flags: RunFlags) -> CaseResult:
         text = case.text_template.format(first_repo=ctx.first_repo)
         thread_messages = [
-            {**msg, "text": msg["text"].format(first_repo=ctx.first_repo)} for msg in case.thread_messages
+            replace(msg, text=msg.text.format(first_repo=ctx.first_repo)) for msg in case.thread_messages
         ]
 
         self.stdout.write(self.style.MIGRATE_HEADING(f"── {case.name} ──"))
@@ -479,7 +494,7 @@ class Command:
 
         # Stage 3: discovery agent (full sandbox)
         self.stdout.write("  agent → running (30-60s)...")
-        context = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
+        context = "\n".join(f"{msg.user}: {msg.text}" for msg in thread_messages)
         try:
             result: RepoSelectionResult = asyncio.run(
                 select_repository(
