@@ -270,7 +270,7 @@ export function makeSkillFile(path: string, content: string, contentType?: strin
     return {
         path,
         content,
-        lineCount: splitLines(content).length,
+        lineCount: countLines(content),
         charCount: content.length,
         kind,
     }
@@ -325,15 +325,24 @@ export function formatLearnFile(identifier: string, file: SkillFile): string {
 }
 
 function formatOversizedFile(identifier: string, file: SkillFile, manifest?: string): string {
-    const headings = splitLines(file.content)
-        .map((line, index) => ({ line, number: index + 1 }))
-        .filter(({ line }) => /^#{1,6}\s+/.test(line))
-        .map(({ line, number }) => `${number}: ${line}`)
-    const outline = headings.length > 0 ? headings.join('\n') : '(No Markdown headings found.)'
     const scope = manifest ? `${manifest}\n\n` : ''
-    return fitLearnOutput(
-        `File: ${identifier}/${file.path} (${file.lineCount} lines, ${file.charCount} chars)\nThis file is too large to return in full. Use \`learn ${identifier} ${file.path} -s <query>\` or \`learn ${identifier} ${file.path} --lines <start>:<end>\`.\n\n${scope}Heading outline:\n${outline}`
+    let output = appendLearnOutput(
+        '',
+        `File: ${identifier}/${file.path} (${file.lineCount} lines, ${file.charCount} chars)\nThis file is too large to return in full. Use \`learn ${identifier} ${file.path} -s <query>\` or \`learn ${identifier} ${file.path} --lines <start>:<end>\`.\n\n${scope}Heading outline:\n`
     )
+    let hasHeadings = false
+    for (const line of scanLines(file.content)) {
+        if (output.length > LEARN_OUTPUT_CHAR_LIMIT) {
+            break
+        }
+        const text = file.content.slice(line.start, line.end)
+        if (/^#{1,6}\s+/.test(text)) {
+            output = appendLearnOutput(output, `${hasHeadings ? '\n' : ''}${line.number}: `)
+            output = appendLearnOutput(output, text)
+            hasHeadings = true
+        }
+    }
+    return fitLearnOutput(hasHeadings ? output : appendLearnOutput(output, '(No Markdown headings found.)'))
 }
 
 export function searchLearnFile(identifier: string, file: SkillFile, query: string): string {
@@ -342,45 +351,63 @@ export function searchLearnFile(identifier: string, file: SkillFile, query: stri
     }
 
     const normalizedQuery = normalizeQuery(query)
-    const lines = splitLines(file.content)
-    const matchingLines = lines
-        .map((line, index) => ({ line, index }))
-        .filter(({ line }) => matchesQuery(line, normalizedQuery))
-        .slice(0, MAX_SCOPED_MATCHES)
+    let output = appendLearnOutput('', `Matches in ${identifier}/${file.path}:\n\n`)
+    let matches = 0
+    const previousStarts: number[] = []
+    for (const line of scanLines(file.content)) {
+        if (matchesQuery(file.content.slice(line.start, line.end), normalizedQuery)) {
+            if (matches > 0) {
+                output = appendLearnOutput(output, '\n\n')
+            }
+            const startNumber = line.number - previousStarts.length
+            for (const context of scanLines(file.content, previousStarts[0] ?? line.start, startNumber)) {
+                output = appendLearnOutput(output, `${context.number === startNumber ? '' : '\n'}${context.number}: `)
+                output = appendLearnOutput(output, file.content.slice(context.start, context.end))
+                if (context.number === line.number + SEARCH_CONTEXT_LINES || output.length > LEARN_OUTPUT_CHAR_LIMIT) {
+                    break
+                }
+            }
+            matches += 1
+            if (matches === MAX_SCOPED_MATCHES || output.length > LEARN_OUTPUT_CHAR_LIMIT) {
+                break
+            }
+        }
+        previousStarts.push(line.start)
+        if (previousStarts.length > SEARCH_CONTEXT_LINES) {
+            previousStarts.shift()
+        }
+    }
 
-    if (matchingLines.length === 0) {
+    if (matches === 0) {
         return (
             `No matches for "${query}" in ${identifier}/${file.path}.\n` +
             `Read it with \`learn ${identifier} ${file.path}\` (${file.lineCount} lines, ${file.charCount} chars) or \`learn ${identifier} ${file.path} --lines <start>:<end>\`.`
         )
     }
 
-    const blocks = matchingLines.map(({ index }) => {
-        const start = Math.max(0, index - SEARCH_CONTEXT_LINES)
-        const end = Math.min(lines.length - 1, index + SEARCH_CONTEXT_LINES)
-        return lines
-            .slice(start, end + 1)
-            .map((line, offset) => `${start + offset + 1}: ${line}`)
-            .join('\n')
-    })
-    return fitLearnOutput(`Matches in ${identifier}/${file.path}:\n\n${blocks.join('\n\n')}`)
+    return fitLearnOutput(output)
 }
 
 export function readLearnLines(identifier: string, file: SkillFile, start: number, end: number): string {
-    const lines = splitLines(file.content)
-    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start || end > lines.length) {
-        throw new Error(`Invalid line range ${start}:${end}. ${identifier}/${file.path} has ${lines.length} lines.`)
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start || end > file.lineCount) {
+        throw new Error(`Invalid line range ${start}:${end}. ${identifier}/${file.path} has ${file.lineCount} lines.`)
     }
 
-    const body = lines
-        .slice(start - 1, end)
-        .map((line, index) => `${start + index}: ${line}`)
-        .join('\n')
-    const result = `File: ${identifier}/${file.path} lines ${start}:${end}\n\n${body}`
-    if (result.length > LEARN_OUTPUT_CHAR_LIMIT) {
-        throw new Error(
-            `Requested line range is ${result.length} characters. Narrow it to at most ${LEARN_OUTPUT_CHAR_LIMIT} characters.`
-        )
+    let result = `File: ${identifier}/${file.path} lines ${start}:${end}\n\n`
+    for (const line of scanLines(file.content)) {
+        if (line.number < start) {
+            continue
+        }
+        result = appendLearnOutput(result, `${line.number === start ? '' : '\n'}${line.number}: `)
+        result = appendLearnOutput(result, file.content.slice(line.start, line.end))
+        if (result.length > LEARN_OUTPUT_CHAR_LIMIT) {
+            throw new Error(
+                `Requested line range exceeds ${LEARN_OUTPUT_CHAR_LIMIT} characters. Request a smaller line range.`
+            )
+        }
+        if (line.number === end) {
+            break
+        }
     }
     return result
 }
@@ -557,6 +584,31 @@ export function fitLearnOutput(value: string): string {
     }
     const suffix = '\n\n[Output truncated. Refine the search or request a smaller line range.]'
     return `${value.slice(0, LEARN_OUTPUT_CHAR_LIMIT - suffix.length)}${suffix}`
+}
+
+// Keep one extra character so fitLearnOutput can distinguish exact fits from truncated output.
+function appendLearnOutput(output: string, value: string): string {
+    return output + value.slice(0, Math.max(0, LEARN_OUTPUT_CHAR_LIMIT + 1 - output.length))
+}
+
+function countLines(content: string): number {
+    let count = 1
+    for (let index = content.indexOf('\n'); index !== -1; index = content.indexOf('\n', index + 1)) {
+        count += 1
+    }
+    return count
+}
+
+function* scanLines(content: string, start = 0, number = 1): Generator<{ start: number; end: number; number: number }> {
+    for (;;) {
+        const newline = content.indexOf('\n', start)
+        yield { start, end: newline === -1 ? content.length : newline, number }
+        if (newline === -1) {
+            return
+        }
+        start = newline + 1
+        number += 1
+    }
 }
 
 function normalizeText(value: string): string {

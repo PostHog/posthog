@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto'
+import { z } from 'zod'
+
 import type { RedisLike } from './RedisCache'
 
 const DEFAULT_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60 // 7 days — hard expiry
@@ -5,6 +8,27 @@ const DEFAULT_FRESH_SECONDS = 60 * 10 // 10 minutes — after this, trigger a re
 const DEFAULT_LOCK_TTL_SECONDS = 60 // writer lock auto-expires
 const DEFAULT_WAIT_INTERVAL_MS = 200
 const DEFAULT_WAIT_TIMEOUT_MS = 10_000
+
+const pointerSchema = z.object({
+    sha: z.string().regex(/^[a-f0-9]{64}$/),
+    etag: z.string().optional(),
+    validatedAt: z.number().finite(),
+})
+
+// A delayed 304 must not replace a newer pointer or refresh metadata for an evicted blob.
+const TOUCH_CACHE = `
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+if redis.call('EXPIRE', KEYS[2], ARGV[3]) == 0 then return 0 end
+redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+return 1
+`
+
+const RELEASE_LOCK = `
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    return redis.call('DEL', KEYS[1])
+end
+return 0
+`
 
 export interface SharedBlobCacheOptions {
     cacheTtlSeconds?: number
@@ -19,7 +43,7 @@ export interface SharedBlobCacheOptions {
  *
  * - Callers can coordinate single-writer refreshes with the `SET NX EX` lock,
  *   wait for another writer to publish on cold cache misses, and read/write
- *   the shared bytes plus freshness marker.
+ *   immutable bytes through a single current-version pointer.
  * - Hard TTL keeps the cache available across long writer outages; a separate
  *   freshness timestamp lets callers decide when to refresh after the soft
  *   window.
@@ -28,26 +52,20 @@ export interface SharedBlobCacheOptions {
  * many independent shared blobs (e.g. context-mill archive, future bundles)
  * without colliding.
  */
-export interface SharedBlobRecord {
+export interface SharedBlobRecord extends SharedBlobVersion {
     bytes: Uint8Array
-    fresh: boolean
-    etag?: string
-    /** Content hash written alongside the bytes, so readers can detect a change without reading them. */
-    sha?: string
 }
 
-export interface SharedBlobVersion {
-    sha: string
+export interface SharedBlobVersion extends z.infer<typeof pointerSchema> {
     fresh: boolean
-    etag?: string
+    serialized: string
 }
 
 export class SharedBlobCache {
-    public readonly cacheKey: string
-    public readonly freshKey: string
+    public readonly currentKey: string
     public readonly lockKey: string
-    public readonly etagKey: string
-    public readonly versionKey: string
+    private readonly blobKeyPrefix: string
+    private validatedAt: number | undefined
 
     private cacheTtlSeconds: number
     private freshSeconds: number
@@ -60,12 +78,11 @@ export class SharedBlobCache {
         namespace: string,
         opts: SharedBlobCacheOptions = {}
     ) {
-        const prefix = `mcp:shared-blob:${namespace}`
-        this.cacheKey = `${prefix}:bytes`
-        this.freshKey = `${prefix}:fresh`
+        // Separate layouts let old and new processes coexist during a rolling deploy.
+        const prefix = `mcp:shared-blob:${namespace}:v2`
+        this.currentKey = `${prefix}:current`
+        this.blobKeyPrefix = `${prefix}:blob`
         this.lockKey = `${prefix}:lock`
-        this.etagKey = `${prefix}:etag`
-        this.versionKey = `${prefix}:sha`
 
         this.cacheTtlSeconds = opts.cacheTtlSeconds ?? DEFAULT_CACHE_TTL_SECONDS
         this.freshSeconds = opts.freshSeconds ?? DEFAULT_FRESH_SECONDS
@@ -74,86 +91,78 @@ export class SharedBlobCache {
         this.waitTimeoutMs = opts.waitTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS
     }
 
-    protected async readCache(): Promise<SharedBlobRecord | null> {
-        const [raw, freshUntilStr, etag, sha] = await Promise.all([
-            this.redis.get(this.cacheKey),
-            this.redis.get(this.freshKey),
-            this.redis.get(this.etagKey),
-            this.redis.get(this.versionKey),
-        ])
+    getLastValidatedAt(): number | undefined {
+        return this.validatedAt
+    }
+
+    protected blobKey(sha: string): string {
+        return `${this.blobKeyPrefix}:${sha}`
+    }
+
+    protected async readCache(version?: SharedBlobVersion): Promise<SharedBlobRecord | null> {
+        const pointer = version ?? (await this.readVersion())
+        if (!pointer) {
+            return null
+        }
+        const key = this.blobKey(pointer.sha)
+        const raw = await this.redis.get(key)
         if (raw === null) {
             return null
         }
         const buf = Buffer.from(raw, 'base64')
         const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
-        return { bytes, fresh: isFresh(freshUntilStr), etag: etag ?? undefined, sha: sha ?? undefined }
+        if (hashBytes(bytes) !== pointer.sha) {
+            // Remove only the corrupt content-addressed blob so a subsequent miss can repair it.
+            await this.redis.del(key)
+            throw new Error('Shared archive bytes do not match their content hash')
+        }
+        return { ...pointer, bytes }
     }
 
     /**
-     * The small keys only: enough to tell whether the shared bytes changed or went
-     * stale, without transferring them. Null when no version was ever written,
-     * which also covers entries written before the version key existed.
+     * The small pointer is enough to check for updates without transferring archive bytes.
      */
     protected async readVersion(): Promise<SharedBlobVersion | null> {
-        const [sha, freshUntilStr, etag] = await Promise.all([
-            this.redis.get(this.versionKey),
-            this.redis.get(this.freshKey),
-            this.redis.get(this.etagKey),
-        ])
-        if (sha === null) {
+        const serialized = await this.redis.get(this.currentKey)
+        if (serialized === null) {
             return null
         }
-        return { sha, fresh: isFresh(freshUntilStr), etag: etag ?? undefined }
+        const pointer = pointerSchema.parse(JSON.parse(serialized))
+        this.validatedAt = pointer.validatedAt
+        return { ...pointer, fresh: Date.now() < pointer.validatedAt + this.freshSeconds * 1000, serialized }
     }
 
-    protected async writeCache(bytes: Uint8Array, validator?: string, sha?: string): Promise<void> {
+    protected async writeCache(bytes: Uint8Array, etag?: string): Promise<SharedBlobVersion> {
         const b64 = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64')
-        const freshUntil = Date.now() + this.freshSeconds * 1000
-        // Land the bytes before their validator, since the two live under separate
-        // Redis keys with no cross-key transaction. If the validator write landed
-        // first (or in parallel) and the bytes write then failed, Redis would keep
-        // old bytes paired with the new validator — a stuck state where every later
-        // conditional refresh sends the new validator, gets a 304, and touches the
-        // stale bytes fresh again. Ordering it the other way makes both partial
-        // failures self-heal: if the bytes write fails, the old bytes keep the old
-        // validator (consistent); if only the validator write fails after new bytes
-        // land, the next conditional refresh sends the old validator, gets a full
-        // 200, and rewrites everything.
-        await this.redis.set(this.cacheKey, b64, 'EX', this.cacheTtlSeconds)
-        await Promise.all([
-            this.redis.set(this.freshKey, String(freshUntil), 'EX', this.cacheTtlSeconds),
-            // Keep the validator in lockstep with the bytes: store it when present,
-            // clear any stale one otherwise so a later conditional request can't
-            // send a validator that no longer matches the cached bytes.
-            validator !== undefined
-                ? this.redis.set(this.etagKey, validator, 'EX', this.cacheTtlSeconds)
-                : this.redis.del(this.etagKey),
-            // Same lockstep for the version: it lands last so a reader that sees a
-            // new sha always finds the matching bytes already in place.
-            sha !== undefined
-                ? this.redis.set(this.versionKey, sha, 'EX', this.cacheTtlSeconds)
-                : this.redis.del(this.versionKey),
-        ])
-    }
-
-    /** Backfill the version key for a record that has bytes but no sha (written by an older layout). */
-    protected async writeVersion(sha: string): Promise<void> {
-        await this.redis.set(this.versionKey, sha, 'EX', this.cacheTtlSeconds)
+        const pointer = { sha: hashBytes(bytes), etag, validatedAt: Date.now() }
+        const serialized = JSON.stringify(pointer)
+        // Publish immutable content first. A failed pointer write leaves the previous generation intact.
+        await this.redis.set(this.blobKey(pointer.sha), b64, 'EX', this.cacheTtlSeconds)
+        await this.redis.set(this.currentKey, serialized, 'EX', this.cacheTtlSeconds)
+        this.validatedAt = pointer.validatedAt
+        return { ...pointer, fresh: this.freshSeconds > 0, serialized }
     }
 
     /**
-     * Refresh the freshness marker and re-extend the hard TTLs without rewriting
+     * Refresh the validation timestamp and re-extend the hard TTLs without rewriting
      * the payload. Used when a conditional refresh confirms the cached bytes are
      * still current (HTTP 304), so the re-download and re-parse are skipped.
      */
-    protected async touchCache(): Promise<void> {
-        const freshUntil = Date.now() + this.freshSeconds * 1000
-        await Promise.all([
-            this.redis.set(this.freshKey, String(freshUntil), 'EX', this.cacheTtlSeconds),
-            this.redis.expire(this.cacheKey, this.cacheTtlSeconds),
-            this.redis.expire(this.etagKey, this.cacheTtlSeconds),
-            this.redis.expire(this.versionKey, this.cacheTtlSeconds),
-        ])
+    protected async touchCache(version: SharedBlobVersion): Promise<boolean> {
+        const pointer = { sha: version.sha, etag: version.etag, validatedAt: Date.now() }
+        const result = await this.redis.eval(
+            TOUCH_CACHE,
+            2,
+            this.currentKey,
+            this.blobKey(version.sha),
+            version.serialized,
+            JSON.stringify(pointer),
+            this.cacheTtlSeconds
+        )
+        if (result === 1) {
+            this.validatedAt = pointer.validatedAt
+        }
+        return result === 1
     }
 
     protected async acquireLock(token: string): Promise<boolean> {
@@ -161,12 +170,9 @@ export class SharedBlobCache {
         return result === 'OK'
     }
 
-    protected async releaseLock(_token: string): Promise<void> {
-        // Best-effort. The lock TTL bounds the worst case (another writer's
-        // entry being deleted on top); a Lua CAS could close that window but
-        // would require widening the RedisLike interface.
+    protected async releaseLock(token: string): Promise<void> {
         try {
-            await this.redis.del(this.lockKey)
+            await this.redis.eval(RELEASE_LOCK, 1, this.lockKey, token)
         } catch (err) {
             console.error(`[SharedBlobCache:${this.lockKey}] failed to release lock:`, err)
         }
@@ -190,9 +196,8 @@ export class SharedBlobCache {
     }
 }
 
-function isFresh(freshUntilStr: string | null): boolean {
-    const freshUntil = freshUntilStr !== null ? Number(freshUntilStr) : 0
-    return Number.isFinite(freshUntil) && Date.now() < freshUntil
+export function hashBytes(bytes: Uint8Array): string {
+    return createHash('sha256').update(bytes).digest('hex')
 }
 
 function sleep(ms: number): Promise<void> {

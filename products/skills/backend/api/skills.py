@@ -19,6 +19,7 @@ from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
 from posthog.api.monitoring import monitor
@@ -310,15 +311,14 @@ class CommunityPublishSustainedThrottle(_CommunityPublishThrottle):
     rate = "20/day"
 
 
-class _SkillBundleThrottle(PersonalApiKeyOrUserRateThrottle):
-    """Throttle for the skill bundle, which a sandbox fetches over OAuth.
+class _SkillUserThrottle(PersonalApiKeyOrUserRateThrottle):
+    """Per-credential throttling for skill endpoints, including OAuth and sessions.
 
     The general BurstRateThrottle/SustainedRateThrottle only count personal-API-key traffic, so an
-    OAuth or session caller would reach the zip build (candidate queries, a file query per skill,
-    DEFLATE of up to MAX_BUNDLE_BYTES) unthrottled. PersonalApiKeyOrUserRateThrottle counts
-    every auth method, but its inherited key idents session and OAuth callers by project, so one
-    user's burst would 429 every other sandbox in the project. Those callers get a per-user bucket
-    instead; a personal API key keeps its own.
+    OAuth or session caller would reach expensive skill operations unthrottled.
+    PersonalApiKeyOrUserRateThrottle counts every auth method, but its inherited key identifies
+    session and OAuth callers by project, so one user's burst would 429 every other user in the
+    project. Those callers get a per-user bucket instead; a personal API key keeps its own.
     """
 
     def get_cache_key(self, request: Request, view: APIView) -> str:
@@ -329,18 +329,28 @@ class _SkillBundleThrottle(PersonalApiKeyOrUserRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": f"user:{request.user.pk}"}
 
 
-class SkillBundleBurstThrottle(_SkillBundleThrottle):
+class SkillBundleBurstThrottle(_SkillUserThrottle):
     # A sandbox fetches the bundle once at session start, so 30/minute clears a burst of concurrent
     # starts for one user while still catching a scripted loop hammering the zip build.
     scope = "skills_bundle_burst"
     rate = "30/minute"
 
 
-class SkillBundleSustainedThrottle(_SkillBundleThrottle):
+class SkillBundleSustainedThrottle(_SkillUserThrottle):
     # A few hundred session starts an hour per user is well beyond normal use and short of what
     # sustained abuse of the 5 MB zip build could cost unthrottled.
     scope = "skills_bundle_sustained"
     rate = "300/hour"
+
+
+class SkillSearchBurstThrottle(_SkillUserThrottle):
+    scope = "skills_search_burst"
+    rate = BurstRateThrottle.rate
+
+
+class SkillSearchSustainedThrottle(_SkillUserThrottle):
+    scope = "skills_search_sustained"
+    rate = SustainedRateThrottle.rate
 
 
 class ZipRenderer(BaseRenderer):
@@ -397,12 +407,14 @@ class LLMSkillViewSet(
             return [*renderers, ZipRenderer()]
         return renderers
 
-    def get_throttles(self):
+    def get_throttles(self) -> list[BaseThrottle]:
         if self.action == "publish_to_community":
             return [CommunityPublishBurstThrottle(), CommunityPublishSustainedThrottle()]
         if self.action == "bundle":
             return [SkillBundleBurstThrottle(), SkillBundleSustainedThrottle()]
-        if self.action in ["update_by_name", "get_by_name", "resolve_by_name", "search"]:
+        if self.action == "search":
+            return [SkillSearchBurstThrottle(), SkillSearchSustainedThrottle()]
+        if self.action in ["update_by_name", "get_by_name", "resolve_by_name"]:
             return [BurstRateThrottle(), SustainedRateThrottle()]
         return super().get_throttles()
 
@@ -579,6 +591,7 @@ class LLMSkillViewSet(
             search_file_path_match=Exists(skill_files.filter(path__icontains=query)),
             search_file_content_match=Exists(skill_files.filter(_is_markdown_file_query(), content__icontains=query)),
         )
+        queryset = self.user_access_control.filter_queryset_by_access_level(queryset, resource="llm_skill")
         return (
             queryset.filter(
                 Q(name__icontains=query)

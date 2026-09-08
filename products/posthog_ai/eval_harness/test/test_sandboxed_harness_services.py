@@ -63,6 +63,7 @@ def test_start_mcp_server_isolates_the_selected_skill_delivery(
     env = start.call_args.kwargs["env"]
     overrides = json.loads(env["FEATURE_FLAG_OVERRIDES"])
     assert overrides["mcp-exec-skills"] is expected_flag_value
+    assert start.call_args.kwargs.get("readiness_timeout", 30) == (120 if exec_skills_enabled else 30)
     # The skill delivery switch must not displace the overrides every eval run relies on.
     assert overrides["revamped-py-notebooks"] is True
     if skill_archive_url is None:

@@ -13,13 +13,52 @@ function makeContext(request: RequestFn): Context {
     } as unknown as Context
 }
 
+const SKILL_BODY = '# Retention\nHow to analyze retention.'
 const SKILL_PAYLOAD = {
-    body: '# Retention\nHow to analyze retention.',
+    body: SKILL_BODY,
     description: 'Find where users stop returning.',
     files: [],
+    version: 7,
+    body_total_length: SKILL_BODY.length,
+    body_next_offset: null,
 }
 
 describe('ProjectSkillCatalog', () => {
+    it.each([
+        { lineCount: 600, expectedRead: 'TAILMARKER: compare like cohorts.' },
+        { lineCount: 1800, expectedRead: 'too large to return in full' },
+    ])(
+        'fetches the complete body in one request before formatting $lineCount lines',
+        async ({ lineCount, expectedRead }) => {
+            const body =
+                '# 🦔 Retention\n' +
+                'Keep cohort definitions stable.\n'.repeat(lineCount) +
+                'TAILMARKER: compare like cohorts.'
+            const request = vi.fn<RequestFn>(async ({ query }) => {
+                const params = query as { body_length?: number } | undefined
+                const length = params?.body_length ?? 8000
+                const characters = Array.from(body)
+                return {
+                    ...SKILL_PAYLOAD,
+                    body: characters.slice(0, length).join(''),
+                    body_total_length: characters.length,
+                    body_next_offset: length < characters.length ? length : null,
+                }
+            })
+            const catalog = new ProjectSkillCatalog(makeContext(request))
+
+            const read = await catalog.read('retention-analysis')
+            const search = await catalog.searchFile('retention-analysis', 'SKILL.md', 'TAILMARKER')
+            const lines = await catalog.readLines('retention-analysis', 'SKILL.md', lineCount + 2, lineCount + 2)
+
+            expect(read).toContain(`${body.length} chars`)
+            expect(read).toContain(expectedRead)
+            expect(search).toContain('TAILMARKER: compare like cohorts.')
+            expect(lines).toContain('TAILMARKER: compare like cohorts.')
+            expect(request).toHaveBeenCalledTimes(1)
+        }
+    )
+
     it('memoizes a skill fetch so repeated reads make one request', async () => {
         const request = vi.fn(async () => SKILL_PAYLOAD)
         const catalog = new ProjectSkillCatalog(makeContext(request))
@@ -65,6 +104,70 @@ describe('ProjectSkillCatalog', () => {
         expect(request).toHaveBeenCalledTimes(2)
     })
 
+    it.each(['a', '🦔'])('reads the tail of a body at the byte limit with %s characters', async (character) => {
+        const tail = '\nTAILMARKER: compare like cohorts.'
+        const remainingBytes = 1_000_000 - new TextEncoder().encode(tail).length
+        const characterBytes = new TextEncoder().encode(character).length
+        const body =
+            character.repeat(Math.floor(remainingBytes / characterBytes)) +
+            ' '.repeat(remainingBytes % characterBytes) +
+            tail
+        const request = vi.fn(async () => ({
+            ...SKILL_PAYLOAD,
+            body,
+            body_total_length: Array.from(body).length,
+        }))
+        const catalog = new ProjectSkillCatalog(makeContext(request))
+
+        expect(await catalog.readLines('retention-analysis', 'SKILL.md', 2, 2)).toContain(tail.trim())
+    })
+
+    it.each([
+        {
+            label: 'ASCII over the byte limit',
+            body: 'a'.repeat(1_000_001),
+            nextOffset: null,
+            totalLength: 1_000_001,
+            error: 'exceeds the 1 MB limit',
+        },
+        {
+            label: 'Unicode over the byte limit',
+            body: '🦔'.repeat(250_001),
+            nextOffset: null,
+            totalLength: 250_001,
+            error: 'exceeds the 1 MB limit',
+        },
+        {
+            label: 'a continuation offset',
+            body: 'First page',
+            nextOffset: 10,
+            totalLength: 20,
+            error: 'incomplete skill body',
+        },
+        {
+            label: 'a missing tail without a continuation offset',
+            body: 'First page',
+            nextOffset: null,
+            totalLength: 20,
+            error: 'incomplete skill body',
+        },
+    ])('rejects $label without caching a partial skill', async ({ body, nextOffset, totalLength, error }) => {
+        const request = vi
+            .fn()
+            .mockResolvedValueOnce({
+                ...SKILL_PAYLOAD,
+                body,
+                body_next_offset: nextOffset,
+                body_total_length: totalLength,
+            })
+            .mockResolvedValueOnce(SKILL_PAYLOAD)
+        const catalog = new ProjectSkillCatalog(makeContext(request))
+
+        await expect(catalog.read('retention-analysis')).rejects.toThrow(error)
+        expect(await catalog.read('retention-analysis')).toContain(SKILL_BODY)
+        expect(request).toHaveBeenCalledTimes(2)
+    })
+
     it('shares one list fetch between describe() and listNames()', async () => {
         const request = vi.fn(async () => ({
             count: 1,
@@ -94,7 +197,7 @@ describe('ProjectSkillCatalog', () => {
             }
             if (path.includes('/llm_skills/name/')) {
                 if (path.includes('deep-skill')) {
-                    return { name: 'deep-skill', body: '', description: 'Past the list cap.', files: [] }
+                    return { ...SKILL_PAYLOAD, name: 'deep-skill', description: 'Past the list cap.' }
                 }
                 throw new PostHogApiError({ status: 404, statusText: 'Not Found', body: '', url: path, method: 'GET' })
             }

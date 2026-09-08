@@ -16,6 +16,8 @@ import type { Context } from '@/tools/types'
 
 const PROJECT_SKILL_LIST_PAGE_SIZE = 100
 const PROJECT_SKILL_LIST_LIMIT = 200
+// Matches MAX_SKILL_BODY_BYTES in products/skills/backend/api/skill_serializers.py.
+const MAX_PROJECT_SKILL_BODY_BYTES = 1_000_000
 // Zero-hit fallback fan-out: at most this many single-token backend searches, longest tokens first.
 const MAX_FALLBACK_SEARCH_TOKENS = 3
 
@@ -211,10 +213,26 @@ export class ProjectSkillCatalog {
     private getSkill(name: string): Promise<Schemas.LLMSkill> {
         return this.memoize(this.skillMemo, name, async () => {
             const projectId = await this.context.stateManager.getProjectId()
-            return await this.context.api.request<Schemas.LLMSkill>({
+            const path = `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/name/${encodeURIComponent(name)}/`
+            const skill = await this.context.api.request<Schemas.LLMSkill>({
                 method: 'GET',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/name/${encodeURIComponent(name)}/`,
+                path,
+                // A character count this large covers every valid UTF-8 body without the API's default paging.
+                query: { body_length: MAX_PROJECT_SKILL_BODY_BYTES },
             })
+            if (new TextEncoder().encode(skill.body).byteLength > MAX_PROJECT_SKILL_BODY_BYTES) {
+                throw new Error('Skill body exceeds the 1 MB limit. Split detailed instructions into companion files.')
+            }
+
+            // Django counts Unicode code points; JavaScript string.length counts UTF-16 code units.
+            let bodyLength = 0
+            for (const _character of skill.body) {
+                bodyLength++
+            }
+            if (skill.body_next_offset !== null || bodyLength !== skill.body_total_length) {
+                throw new Error('The API returned an incomplete skill body. Try fetching the skill again.')
+            }
+            return skill
         })
     }
 

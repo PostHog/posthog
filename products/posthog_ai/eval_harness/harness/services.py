@@ -168,6 +168,8 @@ def start_mcp_server(
         cwd=mcp_dir,
         env=env,
         log_prefix="mcp",
+        # Cover the 60-second skill warmup, an in-flight download, and the development build.
+        readiness_timeout=120 if exec_skills_enabled else 30,
     )
 
     logger.info("MCP server ready on port %d", MCP_PORT)

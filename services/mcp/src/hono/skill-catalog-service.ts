@@ -4,6 +4,7 @@ import type { RedisLike } from './cache/RedisCache'
 import { SkillArchiveCache, type SkillArchiveCacheOptions } from './cache/SkillArchiveCache'
 import {
     skillArchiveEventsTotal,
+    skillArchiveLastValidatedTimestampSeconds,
     skillCatalogAgeSeconds,
     skillCatalogLoadDurationSeconds,
     skillCatalogSkills,
@@ -86,6 +87,8 @@ export class SkillCatalogService {
                 }
                 console.error('[SkillCatalogService] warmup attempt failed; retrying:', error)
                 await sleep(this.warmupRetryMs)
+            } finally {
+                skillArchiveLastValidatedTimestampSeconds.set((this.archiveCache.getLastValidatedAt() ?? 0) / 1000)
             }
         }
     }
@@ -132,6 +135,7 @@ export class SkillCatalogService {
             console.error('[SkillCatalogService] poll failed; keeping the current catalog:', error)
         } finally {
             this.polling = false
+            skillArchiveLastValidatedTimestampSeconds.set((this.archiveCache.getLastValidatedAt() ?? 0) / 1000)
             if (this.loadedAt !== undefined) {
                 skillCatalogAgeSeconds.set((Date.now() - this.loadedAt) / 1000)
             }

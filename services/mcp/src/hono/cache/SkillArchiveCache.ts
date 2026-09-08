@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 
 import type { RedisLike } from './RedisCache'
-import { SharedBlobCache, type SharedBlobCacheOptions, type SharedBlobVersion } from './SharedBlobCache'
+import { hashBytes, SharedBlobCache, type SharedBlobCacheOptions, type SharedBlobVersion } from './SharedBlobCache'
 
 export const DEFAULT_SKILL_ARCHIVE_URL =
     'https://github.com/PostHog/posthog/releases/download/agent-skills-latest/skills.zip'
@@ -9,8 +9,7 @@ export const DEFAULT_SKILL_ARCHIVE_URL =
 const MAX_ARCHIVE_BYTES = 32 * 1024 * 1024
 const ARCHIVE_DOWNLOAD_TIMEOUT_MS = 15_000
 const NAMESPACE = 'product-skills'
-// The shared copy outlives any source outage that a fleet would notice; every
-// refresh re-extends it, so only an abandoned deployment ever lets it expire.
+// Revalidation keeps the current generation alive; superseded blobs expire naturally.
 const DEFAULT_ARCHIVE_TTL_SECONDS = 30 * 24 * 60 * 60
 
 export type SkillArchiveCacheResult = 'fresh_hit' | 'stale_hit' | 'cold_refresh' | 'waited' | 'fallback'
@@ -46,7 +45,7 @@ export interface SkillArchiveCacheOptions extends SharedBlobCacheOptions {
  *
  * Request handling never touches this class. A pod reads the archive once at
  * startup (`loadOrRefresh`), then a background poller asks for the small version
- * keys (`readIfChanged`) and reads the bytes again only when the sha moved.
+ * pointer (`readIfChanged`) and reads the bytes again only when the sha moved.
  * Staleness is repaired by whichever poller wins the writer lock
  * (`refreshIfStale`), with a conditional request so an unchanged release costs
  * a 304 and no bytes.
@@ -76,20 +75,14 @@ export class SkillArchiveCache extends SharedBlobCache {
     async loadOrRefresh(): Promise<SkillArchiveLoadResult> {
         const cached = await this.readCache()
         if (cached) {
-            const sha = cached.sha ?? hashBytes(cached.bytes)
-            if (cached.sha === undefined) {
-                // Without the version key every poll reads `missing` and re-reads the bytes.
-                await this.writeVersion(sha)
-            }
-            return { bytes: cached.bytes, sha, result: cached.fresh ? 'fresh_hit' : 'stale_hit' }
+            return { bytes: cached.bytes, sha: cached.sha, result: cached.fresh ? 'fresh_hit' : 'stale_hit' }
         }
 
         const token = randomUUID()
         if (await this.acquireLock(token)) {
             try {
                 const { bytes, etag } = await this.downloadFull()
-                const sha = hashBytes(bytes)
-                await this.writeCache(bytes, etag, sha)
+                const { sha } = await this.writeCache(bytes, etag)
                 return { bytes, sha, result: 'cold_refresh' }
             } finally {
                 await this.releaseLock(token)
@@ -98,23 +91,23 @@ export class SkillArchiveCache extends SharedBlobCache {
 
         const waited = await this.waitForRecord()
         if (waited) {
-            return { bytes: waited.bytes, sha: waited.sha ?? hashBytes(waited.bytes), result: 'waited' }
+            return { bytes: waited.bytes, sha: waited.sha, result: 'waited' }
         }
         const { bytes } = await this.downloadFull()
         return { bytes, sha: hashBytes(bytes), result: 'fallback' }
     }
 
-    /** The shared copy's bytes when its sha differs from `currentSha`, else null. Reads the small keys first. */
+    /** The shared copy's bytes when its sha differs from `currentSha`, else null. Reads the small pointer first. */
     async readIfChanged(currentSha: string | undefined): Promise<{ bytes: Uint8Array; sha: string } | null> {
         const version = await this.readVersion()
         if (!version || version.sha === currentSha) {
             return null
         }
-        const cached = await this.readCache()
+        const cached = await this.readCache(version)
         if (!cached) {
             return null
         }
-        return { bytes: cached.bytes, sha: cached.sha ?? hashBytes(cached.bytes) }
+        return { bytes: cached.bytes, sha: cached.sha }
     }
 
     /**
@@ -126,6 +119,9 @@ export class SkillArchiveCache extends SharedBlobCache {
     async refreshIfStale(): Promise<SkillArchiveRefreshResult> {
         const version = await this.readVersion()
         if (!version) {
+            return 'missing'
+        }
+        if ((await this.redis.ttl(this.blobKey(version.sha))) === -2) {
             return 'missing'
         }
         if (version.fresh) {
@@ -148,10 +144,9 @@ export class SkillArchiveCache extends SharedBlobCache {
         if (result.status === 'not_modified') {
             // Archive unchanged since we cached it: bump freshness and re-extend
             // the hard TTLs in place, skipping the re-download and re-parse.
-            await this.touchCache()
-            return 'not_modified'
+            return (await this.touchCache(version)) ? 'not_modified' : 'missing'
         }
-        await this.writeCache(result.bytes, result.etag, hashBytes(result.bytes))
+        await this.writeCache(result.bytes, result.etag)
         return 'downloaded'
     }
 
@@ -175,10 +170,6 @@ export class SkillArchiveCache extends SharedBlobCache {
         }
         return result
     }
-}
-
-function hashBytes(bytes: Uint8Array): string {
-    return createHash('sha256').update(bytes).digest('hex')
 }
 
 async function downloadArchive(url: string, etag?: string): Promise<SkillArchiveFetchResult> {

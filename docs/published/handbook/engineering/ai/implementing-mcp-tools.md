@@ -79,34 +79,46 @@ Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Cod
 
 ## Claude web and desktop exec schema budget
 
-Claude web and desktop silently drop a tool when its serialized `inputSchema` reaches 16,384 characters.
-The final, post-injection `exec` input schema has a strict test budget below that limit.
+Claude web and desktop silently drop a tool when its serialized `inputSchema` reaches 16,384 characters, so the final `exec` input schema has a test budget below that limit.
+Keep only guidance needed on nearly every call inline, including the compact tool-domain index.
+Everything else belongs in the `learn` catalog: Claude web and desktop guides, and, behind the `mcp-exec-skills` flag, PostHog and project skills.
+Skill names, descriptions, and bodies never go into the tool schema; agents discover them with `learn -s "<query>"` and read them with `learn <source>:<skill> [path]`.
+Project skill search applies the caller's per-skill read permissions before ranking and limiting results; restricted skills contribute no metadata or excerpts.
+The search endpoint uses dedicated burst and sustained budgets at the standard API rates (480 requests/minute and 4,800/hour). Personal API keys have separate budgets; OAuth and browser sessions share a budget per user. Exceeding either budget returns HTTP 429 with `Retry-After`, before the search runs.
+The project skill API defaults to 8,000-character body pages. For `learn`, MCP requests up to 1,000,000 characters in one call, covering the API's 1 MB UTF-8 body limit, and rejects oversized or incomplete bodies before searching or formatting them. The separate 44,000-character display budget directs agents to search or read line ranges for larger files.
 
-Keep guidance needed for routine tool calls inline.
-This includes the compact tool-domain index, which must remain in the `command` schema for tool discovery.
-Put optional or task-specific global guidance in the Claude exec learn catalog, available through `learn` and `learn <guide>`.
-The built-in guides are listed in the `command` description so the model can load the relevant guide before starting a task.
-PostHog and project skills are enabled independently of the client through the `mcp-exec-skills` feature flag and discovered at runtime through `learn skills` or `learn -s <query>`.
-Read bundled PostHog skills with `learn posthog:<skill> [path]` and current-project Skills store entries with `learn project:<skill> [path]`.
-Search merges both sources into one relevance order, so an exact project match can outrank a weak PostHog one.
-Preview descriptions without reading bodies with `learn -d <source>:<skill> [...]`, and read several targets in one call with `learn <source>:<skill> <path> [path...]` or `learn <source>:<skill> [<source>:<skill>...]`.
-When the flag is enabled, every non-plugin cli client is instructed to run `learn -s "<task keywords>"` before non-trivial PostHog work, load matches by exact qualified name, and follow the loaded `SKILL.md` before selecting tools.
-A product `call` in a session that loaded no skill is rejected until the agent searches, or passes `call --no-skills` to record that no skill applies.
-Claude web and desktop keep their built-in learning topics when the flag is off. Other cli-mode clients receive only skill commands when the flag is on, without the Claude-specific learning topics.
-Keep skill names, descriptions, bodies, and references out of the tool schema.
-The fixed learn grammar and compact tool-domain index must remain inline so Claude can discover both capabilities.
+File reads and scoped searches scan lines incrementally. Search stops after 50 matches or when the display budget is full, preserving two context lines on either side where they fit. Heading outlines are bounded while being built, and oversized line ranges fail with a request to narrow the range. Files with many short lines do not require an array containing every line.
+Do not trim endpoint serializers or generated tool schemas to meet the budget; they stay the source of truth for `info` and `schema`.
 
-The MCP server shares the published `skills.zip` release through Redis: each pod loads it once at startup, parses it into memory, and serves `learn` from that catalog. A background timer polls a small version key and re-reads the archive only when it changed; one pod at a time refreshes the shared copy from the release. No request path reads the archive. Custom archive URLs use isolated cache namespaces.
-It reads project skills from the request-authenticated project without caching them in the MCP service.
-Project discovery includes only latest, active, uncategorized skills and requires `llm_skill:read`.
-Skill reads include a file manifest, and references that exceed the output budget return a heading outline.
-Use `learn <source>:<skill> <path> -s <query>` for scoped full-text search or `learn <source>:<skill> <path> --lines <start>:<end>` for a bounded inclusive range.
-Script paths are searchable and their contents are readable directly or by line range, but script contents are not part of the full-text index.
-The plugin and posthog-code consumers do not receive `learn`, because both already supply PostHog skills directly.
+The eval runner's `--skill-delivery exec` mode removes bundled skills and defaults cases without an explicit interaction origin to the `eval` MCP consumer, which supports skill `learn`. Explicit case origins take precedence in both delivery modes. Bundled mode leaves unspecified origins unchanged.
+The runner applies the selected delivery mode to both Python's sandbox-provisioning flag override and MCP's flag override. Bundled mode preserves native skills unless a case explicitly disables them; exec mode removes them. Compare the `expected_skill_loaded` and `skill_loaded_before_tool` scores: a completed eval run can report `PASS` despite zero scores unless `--fail-under` sets a score threshold.
+Bundled-mode evals explicitly disable `mcp-exec-skills` through the dev/test process override, which skips skill-catalog warmup and polling. Exec-mode evals allow 120 seconds for MCP startup, covering the 60-second warmup budget plus an in-flight download and development build; bundled mode keeps the 30-second startup limit. Production feature-flag evaluation does not control this process lifecycle.
 
-Do not remove information from endpoint serializers or generated tool schemas to meet this budget.
-Those descriptions remain the source of truth for `info` and `schema` discovery.
-When adding global prompt guidance, keep it inline only when it is useful on nearly every call; otherwise add it to an existing learn guide or create a globally unique guide ID.
+## Rolling out MCP skill discovery
+
+Deploy the Django skills API, task launcher, and MCP changes before enabling `mcp-exec-skills`.
+Create or reuse a boolean flag with that exact key in the analytics project used by the two services; start disabled and enable a narrow user or organization condition first.
+A missing flag evaluates as off. Development `FEATURE_FLAG_OVERRIDES` do not enable production behavior.
+
+Verify the published skills archive loads, then start a new MCP session and sandbox task for an enabled user.
+Exercise `learn -s`, a qualified skill read, and a product call, and check that a disabled user retains the prior behavior.
+The `plugin` and `posthog-code` consumers remain excluded regardless of the flag.
+Monitor archive validation errors, catalog size, MCP memory, and task failures before expanding the release condition.
+
+To roll back access, disable the flag and start fresh sessions/tasks. This does not restore skills already removed from an existing sandbox.
+Background cache behavior during rollback is described below.
+
+## Shared skill archive cache
+
+Each MCP process holds a parsed catalog in memory. Redis stores immutable archive bytes under a SHA-256 key and one JSON pointer containing the current SHA, ETag, and last successful upstream validation time. Writers store the bytes before replacing the pointer; readers fetch the named blob and verify its hash before using it. Polling an unchanged version never transfers the archive bytes.
+
+For rollout and rollback, disabling `mcp-exec-skills` blocks caller access to product and project skills but does not unload the production catalog or stop archive polling. Stopping background catalog work requires a deployment change; restarting the same deployment reloads the catalog. The dev/test override described above does not apply in production.
+
+The `v2` keys are separate from the earlier split-key layout, so a rolling deploy starts a new cache without changing the old processes' data. A failed write leaves the previous generation readable. Missing blobs trigger a full download; a 304 refresh extends the referenced blob's TTL and updates the pointer only if that pointer is still current. Old archive generations expire after the 30-day archive TTL. The context-mill slim manifest uses the same helper with its own namespace and seven-day TTL; its resource bodies remain keyed by URI.
+
+The shared archive is checked for upstream changes after ten minutes. Use `mcp_skill_archive_last_validated_timestamp_seconds` to detect validation outages, including across process restarts. A successful 304 advances this timestamp. `mcp_skill_catalog_age_seconds` instead measures time since parsing and can grow while an unchanged archive remains healthy.
+
+A candidate alert expression is `time() - mcp_skill_archive_last_validated_timestamp_seconds > 1800`, sustained for five minutes. Zero means the process has not observed a successful shared validation. Pair this with `mcp_skill_archive_events_total{result="error"}` and `mcp_skill_catalog_skills` when investigating. This metric does not prove that each process has adopted the latest archive. The alert must be configured in the monitoring system; exposing the metric does not send notifications.
 
 ## SQL-first MCP: HogQL system tables
 

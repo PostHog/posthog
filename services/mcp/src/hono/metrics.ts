@@ -179,6 +179,11 @@ export const skillCatalogAgeSeconds = new Gauge({
     help: 'Seconds since this pod last parsed a product skill archive.',
 })
 
+export const skillArchiveLastValidatedTimestampSeconds = new Gauge({
+    name: 'mcp_skill_archive_last_validated_timestamp_seconds',
+    help: 'Last successful upstream validation of the shared skill archive, observed by this pod. Zero until observed.',
+})
+
 export const skillCatalogLoadDurationSeconds = new Histogram({
     name: 'mcp_skill_catalog_load_duration_seconds',
     help: 'Time to parse a product skill archive into the in-memory catalog.',

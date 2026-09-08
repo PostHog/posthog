@@ -6,6 +6,7 @@ import asyncio
 import logging
 from collections.abc import Sequence
 from contextlib import AsyncExitStack, ExitStack
+from functools import partial
 
 from unittest.mock import patch
 
@@ -18,6 +19,7 @@ from posthoganalytics import Posthog
 from posthog.ph_client import get_client
 
 from products.tasks.backend.constants import (
+    MCP_EXEC_SKILLS_FEATURE_FLAG,
     WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
     WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
 )
@@ -25,7 +27,7 @@ from products.tasks.backend.temporal.process_task.utils import get_reasoning_eff
 
 from ..engines.base import EvalEngine
 from ..engines.registry import resolve_engine
-from .cli import DEFAULT_ONE_SHOT_CONCURRENCY, HarnessOptions
+from .cli import DEFAULT_ONE_SHOT_CONCURRENCY, DEFAULT_SKILL_DELIVERY, HarnessOptions, SkillDelivery
 from .context import EvalContext
 from .demo_data import SandboxedDemoData, ensure_demo_ready
 from .discovery import EvalSuite, discover_suites
@@ -69,8 +71,12 @@ FORCED_OFF_FEATURE_FLAGS = frozenset(
 )
 
 
-def eval_feature_enabled(key: str, *_args: object, **_kwargs: object) -> bool:
+def eval_feature_enabled(
+    key: str, *_args: object, skill_delivery: SkillDelivery = DEFAULT_SKILL_DELIVERY, **_kwargs: object
+) -> bool:
     """Stands in for `posthoganalytics.feature_enabled` so evals exercise flagged code paths."""
+    if key == MCP_EXEC_SKILLS_FEATURE_FLAG:
+        return skill_delivery == "exec"
     return key not in FORCED_OFF_FEATURE_FLAGS
 
 
@@ -299,7 +305,13 @@ class SandboxedEvalHarness:
 
             if overrides:
                 stack.enter_context(override_settings(**overrides))
-            stack.enter_context(patch.object(posthoganalytics, "feature_enabled", eval_feature_enabled))
+            stack.enter_context(
+                patch.object(
+                    posthoganalytics,
+                    "feature_enabled",
+                    partial(eval_feature_enabled, skill_delivery=self.options.skill_delivery),
+                )
+            )
 
             if Infra.SANDBOX in required:
                 # Stale workflows from a prior run make the worker provision sandboxes for

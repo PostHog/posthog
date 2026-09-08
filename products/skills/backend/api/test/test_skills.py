@@ -1,4 +1,5 @@
 import uuid
+from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -7,12 +8,14 @@ from django.core.cache import cache
 from django.db import connection
 from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import serializers, status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -512,6 +515,76 @@ class TestLLMSkillAPI(APIBaseTest):
         response = self.client.get(self._url("search?query=scope"))
 
         assert response.status_code == expected_status
+
+    @parameterized.expand(
+        [
+            (f"{auth_method}_{window.lower()}", auth_method, window)
+            for auth_method in ["personal_key", "oauth", "session"]
+            for window in ["Burst", "Sustained"]
+        ]
+    )
+    def test_search_skills_throttles_each_auth_method(self, _label: str, auth_method: str, window: str) -> None:
+        self.create_skill(name="throttle-search-skill")
+        self.client.logout()
+        if auth_method == "personal_key":
+            token = self.create_personal_api_key_with_scopes(["llm_skill:read"])
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        elif auth_method == "oauth":
+            app = OAuthApplication.objects.create(
+                name="Skill search throttle test",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                algorithm="RS256",
+                redirect_uris="https://example.com/callback",
+                organization=self.organization,
+                user=self.user,
+            )
+            access_token = OAuthAccessToken.objects.create(
+                user=self.user,
+                application=app,
+                token="pha_skill_search_throttle_test",
+                scope="llm_skill:read",
+                expires=timezone.now() + timedelta(hours=1),
+                scoped_teams=[self.team.id],
+            )
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        else:
+            self.client.force_login(self.user)
+
+        period = "minute" if window == "Burst" else "hour"
+        with (
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=False),
+            patch(f"products.skills.backend.api.skills.SkillSearch{window}Throttle.rate", new=f"1/{period}"),
+            patch("rest_framework.throttling.SimpleRateThrottle.timer", return_value=1000) as timer,
+        ):
+            url = self._url("search?query=throttle")
+            first = self.client.get(url)
+            assert first.status_code == status.HTTP_200_OK, first.content
+            assert first.json()["results"][0]["name"] == "throttle-search-skill"
+            blocked = self.client.get(url)
+            assert blocked.status_code == status.HTTP_429_TOO_MANY_REQUESTS, blocked.content
+            assert int(blocked["Retry-After"]) > 0
+
+            assert self.client.get(self._url("name/throttle-search-skill")).status_code == status.HTTP_200_OK
+
+            if auth_method == "personal_key":
+                second_key = self.create_personal_api_key_with_scopes(["llm_skill:read"])
+                self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {second_key}")
+                assert self.client.get(url).status_code == status.HTTP_200_OK
+                self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            elif auth_method == "oauth":
+                self.client.credentials()
+                self.client.force_login(self.user)
+                assert self.client.get(url).status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+            timer.return_value += 60 if window == "Burst" else 3600
+            assert self.client.get(url).status_code == status.HTTP_200_OK
+
+            other_user = User.objects.create_and_join(self.organization, "throttle-other@example.com", None)
+            self.client.credentials()
+            self.client.force_login(other_user)
+            assert self.client.get(url).status_code == status.HTTP_200_OK
 
     # --- Get by name ---
 
@@ -1730,6 +1803,56 @@ class TestSkillAccessControlRBAC(APIBaseTest):
             access_level=access_level,
             organization_member=membership,
         )
+
+    @parameterized.expand([("none",), ("viewer",)])
+    def test_search_filters_object_permissions_before_limiting_results(self, resource_access: str) -> None:
+        self._grant_llm_skill_access(resource_access)
+        membership = OrganizationMembership.objects.get(user=self.member, organization=self.organization)
+        self.skill.body = "Follow search-marker instructions."
+        self.skill.save(update_fields=["body"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_skill",
+            resource_id=str(self.skill.id),
+            access_level="viewer",
+            organization_member=membership,
+        )
+        for index in range(10):
+            restricted = LLMSkill.objects.create(
+                team=self.team,
+                name=f"search-marker-{index}",
+                description="Restricted description.",
+                body="Restricted search-marker instructions.",
+                created_by=self.user,
+            )
+            AccessControl.objects.create(
+                team=self.team,
+                resource="llm_skill",
+                resource_id=str(restricted.id),
+                access_level="none",
+                organization_member=membership,
+            )
+
+        response = self.client.get(self._url("search"), {"query": "search-marker"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "count": 1,
+            "results": [
+                {
+                    "name": self.skill.name,
+                    "description": self.skill.description,
+                    "matches": [
+                        {
+                            "matched_field": "body",
+                            "path": "SKILL.md",
+                            "line": 1,
+                            "excerpt": self.skill.body,
+                        }
+                    ],
+                }
+            ],
+        }
 
     @parameterized.expand(
         [

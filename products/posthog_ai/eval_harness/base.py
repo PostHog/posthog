@@ -9,6 +9,8 @@ from dataclasses import replace
 from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
+from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN
+
 from .acp_log import ParsedLog, parse_log
 from .config import AgentArtifacts, BaseEvalCase, SandboxedEvalCase
 from .engines.base import EvalEngine
@@ -396,6 +398,8 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 )
                 if original_case is not None and original_case.interaction_origin:
                     sandbox_context = replace(sandbox_context, interaction_origin=original_case.interaction_origin)
+                elif ctx.skill_delivery == "exec":
+                    sandbox_context = replace(sandbox_context, interaction_origin=EVAL_INTERACTION_ORIGIN)
                 if original_case is not None and original_case.setup is not None:
                     try:
                         seed_result = await asyncio.to_thread(original_case.setup, sandbox_context)

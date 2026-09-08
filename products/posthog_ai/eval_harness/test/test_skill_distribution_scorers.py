@@ -190,6 +190,8 @@ def test_bundled_distribution_accepts_native_skill_loading_paths(load_call: list
 @pytest.mark.parametrize(
     "output,scorer",
     [
+        (_output(_exec("query", "call execute-sql {}", "[]")), ExpectedSkillLoaded()),
+        (_output(_exec("query", "call execute-sql {}", "[]")), SkillLoadedBeforeTool()),
         (_output(_tool_call("wrong", "Skill", {"skill": "other-skill"})), ExpectedSkillLoaded()),
         (_output(_tool_call("failed", "Skill", {"skill": SKILL}, failed=True)), ExpectedSkillLoaded()),
         (

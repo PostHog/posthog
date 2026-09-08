@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const {
     mockBuildInstructions,
@@ -134,7 +134,10 @@ describe('McpDispatcher initialize resource revalidation', () => {
         mockResolveState.mockResolvedValue({ distinctId: 'test-distinct-id' })
         mockTrackInitEvent.mockResolvedValue(undefined)
         mockRevalidateContextMillResources.mockResolvedValue(undefined)
+        mockSkillCatalogService.warmup.mockReset().mockResolvedValue(undefined)
     })
+
+    afterEach(() => vi.unstubAllEnvs())
 
     it('awaits context-mill resource revalidation before returning initialize', async () => {
         let resolveRevalidation: (() => void) | undefined
@@ -178,15 +181,28 @@ describe('McpDispatcher initialize resource revalidation', () => {
         }
     })
 
-    it('starts the skill archive poller only after warmup', async () => {
+    it.each([
+        ['development', false, false],
+        ['test', false, false],
+        ['development', true, true],
+        ['development', undefined, true],
+        ['production', false, true],
+    ] as const)('honors startup overrides only in dev/test (%s, flag %s)', async (nodeEnv, override, enabled) => {
+        vi.stubEnv('NODE_ENV', nodeEnv)
+        vi.stubEnv('FEATURE_FLAG_OVERRIDES', JSON.stringify({ 'mcp-exec-skills': override }))
+        if (!enabled) {
+            mockSkillCatalogService.warmup.mockRejectedValue(new Error('archive unavailable'))
+        }
         const dispatcher = new McpDispatcher({ warmup: vi.fn(async () => {}) } as any, createMockRedis())
 
         await dispatcher.warmup()
 
-        expect(mockSkillCatalogService.warmup).toHaveBeenCalledTimes(1)
-        expect(mockSkillCatalogService.start).toHaveBeenCalledTimes(1)
-        expect(mockSkillCatalogService.start.mock.invocationCallOrder[0]).toBeGreaterThan(
-            mockSkillCatalogService.warmup.mock.invocationCallOrder[0]!
-        )
+        expect(mockSkillCatalogService.warmup).toHaveBeenCalledTimes(enabled ? 1 : 0)
+        expect(mockSkillCatalogService.start).toHaveBeenCalledTimes(enabled ? 1 : 0)
+        if (enabled) {
+            expect(mockSkillCatalogService.start.mock.invocationCallOrder[0]).toBeGreaterThan(
+                mockSkillCatalogService.warmup.mock.invocationCallOrder[0]!
+            )
+        }
     })
 })

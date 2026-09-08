@@ -2,7 +2,14 @@ import { strToU8, zipSync } from 'fflate'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { ProjectSkillCatalog } from '@/skills/project-skill-catalog'
-import { LEARN_OUTPUT_CHAR_LIMIT, SkillCatalog } from '@/skills/skill-catalog'
+import {
+    formatLearnFile,
+    LEARN_OUTPUT_CHAR_LIMIT,
+    makeSkillFile,
+    readLearnLines,
+    searchLearnFile,
+    SkillCatalog,
+} from '@/skills/skill-catalog'
 import { ExecLearnCatalog } from '@/tools/exec-learn'
 
 function makeArchive(files: Record<string, string>): Uint8Array {
@@ -163,6 +170,59 @@ describe('SkillCatalog and exec learn', () => {
         expect(result).toContain('1: # Function catalog')
         expect(result).toContain('2004: ## Examples')
         expect(() => catalog.read('querying-data', '../SKILL.md')).toThrow('Unsafe skill path')
+    })
+
+    it.each([
+        ['needle\na\nb\nc', '1: needle\n2: a\n3: b'],
+        ['a\nb\nc\nneedle', '2: b\n3: c\n4: needle'],
+        ['a\nneedle\nneedle\nb\n', '1: a\n2: needle\n3: needle\n4: b\n\n1: a\n2: needle\n3: needle\n4: b\n5: '],
+        ['\n\nneedle 日本語 🦔\n', '1: \n2: \n3: needle 日本語 🦔\n4: '],
+    ])('preserves line numbers and overlapping search context for %j', (content, context) => {
+        const file = makeSkillFile('notes.md', content)
+        expect(searchLearnFile('example', file, 'needle')).toBe(`Matches in example/notes.md:\n\n${context}`)
+    })
+
+    it('caps file search at 50 matches while including the final match context', () => {
+        const file = makeSkillFile(
+            'notes.md',
+            Array.from({ length: 60 }, (_, index) => `needle ${index}\nbefore\nmiddle\nafter`).join('\n')
+        )
+        const output = searchLearnFile('example', file, 'needle')
+        expect(output.split('\n\n')).toHaveLength(51)
+        expect(output).toContain('197: needle 49\n198: before\n199: middle')
+        expect(output).not.toContain('needle 50')
+    })
+
+    it.each(['# ' + 'x'.repeat(100_000), '# Heading\n'.repeat(10_000)])(
+        'bounds oversized outlines and search output for long lines and many headings (%#)',
+        (content) => {
+            const file = makeSkillFile('notes.md', content)
+            const outline = formatLearnFile('example', file)
+            expect(outline).toHaveLength(LEARN_OUTPUT_CHAR_LIMIT)
+            expect(outline).toContain('[Output truncated.')
+            const search = searchLearnFile('example', file, file.lineCount === 1 ? 'x' : 'heading')
+            expect(search.length).toBeLessThanOrEqual(LEARN_OUTPUT_CHAR_LIMIT)
+            if (file.lineCount === 1) {
+                expect(search).toContain('[Output truncated.')
+            } else {
+                expect(search.split('\n\n')).toHaveLength(51)
+            }
+        }
+    )
+
+    it('reads and searches a newline-heavy file, including its last and empty lines', () => {
+        const file = makeSkillFile('notes.md', `x${'\n'.repeat(999_998)}x`)
+        expect(file.lineCount).toBe(999_999)
+        expect(formatLearnFile('example', file)).toContain('(No Markdown headings found.)')
+        expect(searchLearnFile('example', file, 'missing')).toContain('No matches for "missing"')
+        expect(readLearnLines('example', file, 999_998, 999_999)).toBe(
+            'File: example/notes.md lines 999998:999999\n\n999998: \n999999: x'
+        )
+        expect(() => readLearnLines('example', file, 1, file.lineCount)).toThrow('Requested line range exceeds')
+        expect(() => readLearnLines('example', file, 1, file.lineCount + 1)).toThrow('Invalid line range')
+        const empty = makeSkillFile('empty.md', '')
+        expect(empty.lineCount).toBe(1)
+        expect(readLearnLines('example', empty, 1, 1)).toBe('File: example/empty.md lines 1:1\n\n1: ')
     })
 
     it('rejects unsafe archive entries before exposing them', () => {
