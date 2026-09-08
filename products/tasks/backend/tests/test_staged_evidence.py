@@ -59,7 +59,7 @@ def test_parse_completed_posthog_mcp_calls_omits_incomplete_or_untrusted_calls()
                     "toolCallId": "forged",
                     "status": "completed",
                     "title": "mcp__posthog__insight-query",
-                    "rawInput": {"arguments": {"insight_id": "signup"}},
+                    "rawInput": {"insightId": "signup"},
                     "rawOutput": [{"type": "text", "text": '{"value": 12}'}],
                 }
             ),
@@ -86,7 +86,7 @@ def test_parse_completed_posthog_mcp_calls_reads_call_tool_result_content_blocks
                     "toolCallId": "call-content",
                     "status": "completed",
                     "_meta": {"claudeCode": {"toolName": "mcp__posthog__insight-query"}},
-                    "rawInput": {"arguments": {"insight_id": "signup"}},
+                    "rawInput": {"insightId": "signup"},
                     "rawOutput": {"content": [{"type": "text", "text": '{"value": 12}'}]},
                 }
             )
@@ -105,7 +105,7 @@ def test_parse_completed_posthog_mcp_calls_reads_call_tool_result_structured_con
             "toolCallId": "call-structured",
             "status": "completed",
             "_meta": {"claudeCode": {"toolName": "mcp__posthog__insight-query"}},
-            "rawInput": {"arguments": {"insight_id": "signup"}},
+            "rawInput": {"insightId": "signup"},
             "rawOutput": {"structuredContent": {"value": 12}},
         }
     )
@@ -124,7 +124,7 @@ def test_parse_completed_posthog_mcp_calls_normalizes_direct_and_wrapper_argumen
                     "toolCallId": "direct",
                     "status": "completed",
                     "_meta": {"claudeCode": {"toolName": "mcp__posthog__insight-query"}},
-                    "rawInput": {"arguments": {"z": 1, "a": {"y": 2, "b": 3}}},
+                    "rawInput": {"z": 1, "a": {"y": 2, "b": 3}},
                     "rawOutput": {"structuredContent": {"value": 12}},
                 }
             ),
@@ -153,8 +153,8 @@ def test_parse_completed_posthog_mcp_calls_normalizes_direct_and_wrapper_argumen
 @pytest.mark.parametrize(
     "raw_input",
     [
-        {"arguments": ["not", "an", "object"]},
-        {"arguments": {"query": "x" * (32 * 1024)}},
+        {"insightId": float("nan")},
+        {"query": "x" * (32 * 1024)},
     ],
 )
 def test_parse_completed_posthog_mcp_calls_keeps_citations_when_direct_arguments_are_invalid(
@@ -211,7 +211,7 @@ def test_parse_completed_posthog_mcp_calls_keeps_the_existing_result_budget() ->
             "toolCallId": "oversized-result",
             "status": "completed",
             "_meta": {"claudeCode": {"toolName": "mcp__posthog__insight-query"}},
-            "rawInput": {"arguments": {"query": {}}},
+            "rawInput": {"query": {}},
             "rawOutput": {"structuredContent": {"value": "x" * (64 * 1024)}},
         }
     )
