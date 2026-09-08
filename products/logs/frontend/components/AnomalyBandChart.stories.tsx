@@ -16,15 +16,17 @@ function buildBuckets(): LogsSeriesBandBucketApi[] {
         // A slow sine keeps the baseline uneven without a random source.
         const typical = Math.round(400 + 120 * Math.sin(index / 5))
         const banded = index < BUCKETS - 8
-        const observed = index === 24 ? typical * 4 : index === 44 ? Math.round(typical * 0.1) : typical
-        const verdict = !banded ? null : index === 24 ? 'above' : index === 44 ? 'below' : null
+        // Observed derives from the verdict, so the marked buckets are always the ones off the band.
+        const outOfBand = index === 24 ? 'above' : index === 44 ? 'below' : null
+        const observed =
+            outOfBand === 'above' ? typical * 4 : outOfBand === 'below' ? Math.round(typical * 0.1) : typical
 
         return {
             time,
             observed,
             lower: banded ? Math.round(typical * 0.6) : null,
             upper: banded ? Math.round(typical * 1.4) : null,
-            verdict,
+            verdict: banded ? outOfBand : null,
         }
     })
 }

@@ -23,7 +23,7 @@ import type { LogsSeriesBandBucketApi } from 'products/logs/frontend/generated/a
 
 const OBSERVED_KEY = 'observed'
 
-export type OutOfBand = 'above' | 'below'
+export type OutOfBand = NonNullable<LogsSeriesBandBucketApi['verdict']>
 
 export interface BandChartData {
     labels: string[]
@@ -43,6 +43,7 @@ export function buildBandChartData(buckets: LogsSeriesBandBucketApi[]): BandChar
         observed: buckets.map((bucket) => bucket.observed),
         lower: buckets.map((bucket) => bucket.lower ?? NaN),
         upper: buckets.map((bucket) => bucket.upper ?? NaN),
+        // A response cached by an older server carries no verdict, so a missing field reads as null.
         outOfBand: buckets.map((bucket) => bucket.verdict ?? null),
     }
 }
