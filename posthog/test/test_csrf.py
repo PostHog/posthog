@@ -52,10 +52,8 @@ class TestCsrfRejectionCode(APIBaseTest):
     def test_a_rejected_write_carries_the_code_for_its_cause(
         self, _name: str, headers: dict[str, str], expected_code: str
     ) -> None:
-        # The frontend keys its recovery on these codes, and reads them off the real response rather
-        # than off REST Framework's wording. Reported as `permission_denied`, as they were, a stale
-        # token is indistinguishable from having no access to the resource, so the app renders an
-        # access-denied scene instead of fetching a new token.
+        # The frontend keys its recovery on these codes. Reported as `permission_denied`, as they
+        # were, a stale token is indistinguishable from having no access to the resource.
         csrf_client = APIClient(enforce_csrf_checks=True)
         csrf_client.force_login(self.user)
 

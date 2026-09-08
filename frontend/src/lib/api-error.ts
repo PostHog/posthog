@@ -53,24 +53,23 @@ export function isUnavailableEndpointError(error: unknown): boolean {
 }
 
 /**
- * The 403 codes for a rejected CSRF token, sent by `posthog/csrf.py`. They are split by whether the
- * client can do anything about it: a stale or absent token is fixed by fetching a new one and
- * repeating the request (`handleFetch`), while an untrusted Origin or Referer is a deployment
- * problem that survives every retry.
+ * The two CSRF rejection codes `posthog/csrf.py` sends. A stale or absent token is fixed by
+ * fetching a new one; an untrusted Origin is a deployment problem that survives every retry.
  */
 export const CSRF_TOKEN_INVALID_CODE = 'csrf_token_invalid'
-export const CSRF_ORIGIN_REJECTED_CODE = 'csrf_origin_rejected'
+const CSRF_ORIGIN_REJECTED_CODE = 'csrf_origin_rejected'
 
 /** A 403 `handleFetch` tries to recover from by reissuing the CSRF token. */
 export function isCsrfTokenError(error: { status?: number; code?: string | null }): boolean {
     return error.status === 403 && error.code === CSRF_TOKEN_INVALID_CODE
 }
 
-/** The 403 gates `apiStatusLogic` recovers from, keyed by the DRF `code` the backend sends. */
-const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
+/** The 403 codes something else already resolves, keyed by the DRF `code` the backend sends. */
+const UNREPORTED_403_CODES: ReadonlySet<string> = new Set([
     'two_factor_setup_required',
     'two_factor_verification_required',
     'sensitive_action_required_reauth',
+    CSRF_ORIGIN_REJECTED_CODE,
 ])
 
 /**
@@ -149,9 +148,8 @@ export function isBrowserNetworkFailure(error: unknown): boolean {
  * no recovery runs. That event is also the better record, since an exception raised here cannot say
  * which endpoint failed: every `ApiError` shares this file's stack.
  *
- * A 403 `csrf_token_invalid` stays reportable, and that is the point of it: `handleFetch` reissues
- * the token and repeats the request, so one that still reaches here is a dead end a person actually
- * hit. Before the codes existed every stale token was filed, which buried the few that were real.
+ * A 403 `csrf_token_invalid` stays reportable on purpose: `handleFetch` reissues the token and
+ * repeats the request, so one that still reaches here is a dead end a person actually hit.
  *
  * A plain 500 stays reportable on purpose, being a genuine backend exception. So does a status-less
  * failure that is not a recognized connectivity failure, such as a thrown string, a bare `Error`,
@@ -176,10 +174,7 @@ export function shouldReportApiFailure(error: unknown): boolean {
     if (isAccessDeniedError(failure)) {
         return false
     }
-    if (status === 403 && failure.code != null && HANDLED_AUTH_GATE_CODES.has(failure.code)) {
-        return false
-    }
-    if (status === 403 && failure.code === CSRF_ORIGIN_REJECTED_CODE) {
+    if (status === 403 && failure.code != null && UNREPORTED_403_CODES.has(failure.code)) {
         return false
     }
     return !isApprovalRequiredError(failure)

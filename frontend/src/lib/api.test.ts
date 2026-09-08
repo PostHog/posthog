@@ -509,7 +509,6 @@ describe('API helper', () => {
             text: () => Promise.resolve('{}'),
         })
 
-        /** Stands in for the token endpoint: the cookie appears, exactly as its Set-Cookie would do. */
         const issueToken = (token: string): any => {
             document.cookie = `posthog_csrftoken=${token}`
             return { ok: true, status: 204 }
@@ -530,8 +529,8 @@ describe('API helper', () => {
         })
 
         it('reissues the token and repeats the rejected request', async () => {
-            // The bug this closes: a tab outliving its CSRF cookie kept a working session and lost
-            // every request, so the app's own retry buttons repeated a request with no token.
+            // The bug this closes: a tab outliving its cookie lost every request, and the app's
+            // own retry buttons repeated a request with no token to send.
             fakeFetch
                 .mockImplementationOnce(() => Promise.resolve(rejection('csrf_token_invalid')))
                 .mockImplementationOnce(() => Promise.resolve(issueToken('fresh')))
@@ -542,8 +541,8 @@ describe('API helper', () => {
         })
 
         it('asks for one token when a burst of concurrent requests is rejected together', async () => {
-            // A scene renders its panels at once, so their requests fail together. Per-request
-            // token fetches would race, and the last cookie to land is the one every retry uses.
+            // Per-request refreshes would race, and the last cookie to land is the one every
+            // retry has to use.
             fakeFetch.mockImplementation((url: string) =>
                 Promise.resolve(
                     url === '/api/csrf_token/'
@@ -564,8 +563,7 @@ describe('API helper', () => {
         })
 
         it.each(['permission_denied', 'csrf_origin_rejected'])('leaves a 403 %s alone', async (code) => {
-            // Only a stale token is recoverable. Retrying an access-denied 403, or one from an
-            // instance whose trusted origins reject its own frontend, doubles every such request.
+            // Retrying an unrecoverable 403 doubles every such request.
             fakeFetch.mockImplementation(() => Promise.resolve(rejection(code)))
 
             await expect(api.create('api/environments/2/query/')).rejects.toMatchObject({ status: 403 })
@@ -574,8 +572,7 @@ describe('API helper', () => {
         })
 
         it('offers a reload when no token could be issued', async () => {
-            // Without this the person is back where they started, which is the dead end the whole
-            // path exists to avoid: nothing in the app can set the cookie except a document render.
+            // Nothing in the app can set the cookie except a document render.
             fakeFetch.mockImplementation((url: string) =>
                 url === '/api/csrf_token/'
                     ? Promise.resolve({ ok: false, status: 500 })
@@ -590,7 +587,7 @@ describe('API helper', () => {
         })
 
         it('repeats the request once, then gives up', async () => {
-            // A token that keeps being rejected must not turn one request into an endless loop.
+            // A token that keeps being rejected must not turn one request into a loop.
             fakeFetch.mockImplementation((url: string) =>
                 Promise.resolve(url === '/api/csrf_token/' ? issueToken('fresh') : rejection('csrf_token_invalid'))
             )

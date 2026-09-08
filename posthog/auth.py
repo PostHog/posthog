@@ -197,10 +197,8 @@ class SessionAuthentication(authentication.SessionAuthentication):
         try:
             super().enforce_csrf(request)
         except PermissionDenied as e:
-            # REST Framework wraps Django's rejection reason as `CSRF Failed: <reason>`, and the
-            # classification reads the reason itself. The detail is re-passed as a plain string
-            # because an `ErrorDetail` carries the code it was built with, which would win over this
-            # one and leave the rejection reported as `permission_denied`.
+            # The detail is re-passed as a plain string because an `ErrorDetail` carries the code it
+            # was built with, which wins over this one and leaves the rejection `permission_denied`.
             detail = str(e.detail)
             raise PermissionDenied(detail=detail, code=csrf_failure_code(detail.removeprefix(DRF_CSRF_FAILURE_PREFIX)))
 

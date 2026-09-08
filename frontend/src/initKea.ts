@@ -161,9 +161,8 @@ export function initKea({
                     // with this code is form validation (e.g. inviting an outside-domain email)
                     // and must keep the generic error toast.
                     const isVerifiedDomainError = error.code === 'verified_domain_required' && error.status === 403
-                    // api.ts already reissued the token and repeated the request, so reaching here
-                    // means the reload prompt is up. Raw "CSRF Failed" copy next to it tells the
-                    // person nothing they can act on.
+                    // api.ts already retried and put the reload prompt up, so raw "CSRF Failed"
+                    // copy next to it tells the person nothing they can act on.
                     const isCsrfError = isCsrfTokenError(error)
                     const isFeatureFlagDuplicateKey =
                         error.code === 'unique' &&

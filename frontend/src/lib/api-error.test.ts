@@ -90,11 +90,9 @@ describe('api-error', () => {
             ['a 2FA setup gate', { status: 403, code: 'two_factor_setup_required' }, false],
             ['a 2FA verification gate', { status: 403, code: 'two_factor_verification_required' }, false],
             ['a re-auth gate', { status: 403, code: 'sensitive_action_required_reauth' }, false],
-            // The instance's trusted origins reject its own frontend, so the fix is a deployment
-            // change and no code of ours is at fault.
+            // A deployment problem: no code of ours is at fault and no retry helps.
             ['a rejected request Origin', { status: 403, code: 'csrf_origin_rejected' }, false],
-            // Stays reportable, and that is the point: `handleFetch` reissues the token and repeats
-            // the request, so one that still surfaces is a dead end a person actually hit.
+            // Reportable on purpose: `handleFetch` already retried, so this is a real dead end.
             ['a CSRF token the app could not replace', { status: 403, code: 'csrf_token_invalid' }, true],
             ['an approvals 409', { status: 409, data: { change_request_id: 'abc' } }, false],
             ['a 502', { status: 502 }, false],

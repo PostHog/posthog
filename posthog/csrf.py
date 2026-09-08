@@ -1,15 +1,14 @@
 """Machine-readable classification of Django's CSRF rejection reasons.
 
-Django words its rejections as prose, and the wording changes between releases, so a client
-that matches on the message breaks silently. These codes travel in the DRF error body instead,
-and they split the rejections by whether a fresh token fixes them:
+Django words its rejections as prose, and the wording changes between releases, so a client that
+matches on the message breaks silently. These codes travel in the DRF error body instead, and they
+split the rejections by whether a fresh token fixes them:
 
-- ``csrf_token_invalid`` — the browser's CSRF cookie is missing, malformed, or does not match the
-  submitted token. A long-lived tab produces this once the cookie outlives the session, because
-  only a full document render refreshes it (``ensure_csrf_cookie`` on ``_render_home``). The
-  client recovers by fetching a new token and repeating the request.
-- ``csrf_origin_rejected`` — the request's Origin or Referer is not trusted. That is a deployment
-  or proxy problem, so no client-side retry can resolve it.
+- ``csrf_token_invalid``: the CSRF cookie is missing, malformed, or does not match the submitted
+  token. A tab produces this once the cookie outlives the session, because only a document render
+  refreshes it. The client recovers by fetching a new token and repeating the request.
+- ``csrf_origin_rejected``: the Origin or Referer is not trusted. That is a deployment or proxy
+  problem, so no client-side retry resolves it.
 """
 
 from django.http import HttpRequest, HttpResponse
@@ -31,9 +30,9 @@ CSRF_ORIGIN_REJECTED_CODE = "csrf_origin_rejected"
 # rest_framework.authentication.SessionAuthentication.enforce_csrf.
 DRF_CSRF_FAILURE_PREFIX = "CSRF Failed: "
 
-# Django builds these reasons by interpolating the offending Origin or Referer into a template, so
-# only the fixed leading text can be matched. Cutting each template at its first placeholder keeps
-# the prefixes tied to Django's own constants rather than to copies that can drift out of sync.
+# Django interpolates the offending Origin or Referer into these reasons, so only the fixed leading
+# text can be matched. Cutting each template at its placeholder keeps the prefixes tied to Django's
+# own constants instead of to copies that can drift out of sync.
 _ORIGIN_REJECTION_PREFIXES: tuple[str, ...] = tuple(
     reason.split("%s")[0]
     for reason in (
@@ -60,10 +59,9 @@ def csrf_failure_code(reason: str) -> str:
 @ensure_csrf_cookie
 def csrf_token_view(request: HttpRequest) -> HttpResponse:
     """Reissue the CSRF cookie, so a tab whose cookie expired can repeat a request instead of
-    dead-ending. Rendering the app document was the only way to get one, which is why the app's own
-    retry buttons could not recover: they repeat the request that has no token to send.
+    dead-ending. Rendering the app document was the only way to get one.
 
     Deliberately unauthenticated. The cookie is the secret the submitted token has to match, so
-    handing one out proves nothing and grants nothing — the same reason every login page can carry
-    one. Nothing is returned in the body: the client reads the token from the cookie it just got."""
+    issuing one proves nothing and grants nothing, which is why every login page can carry one.
+    The body is empty because the client reads the token from the cookie it just got."""
     return HttpResponse(status=204)
