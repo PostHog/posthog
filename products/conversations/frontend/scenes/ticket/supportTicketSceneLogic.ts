@@ -1334,8 +1334,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 return
             }
             try {
-                const updated = await api.conversationsTickets.setArchived(ticketId, archived)
-                actions.setTicketArchivedAt(updated?.archived_at ?? null)
+                const updated = await conversationsTicketsPartialUpdate(String(getCurrentTeamId()), ticketId, {
+                    archived,
+                })
+                actions.setTicketArchivedAt(updated.archived_at)
                 lemonToast.success(archived ? 'Ticket archived' : 'Ticket restored')
                 actions.loadTickets()
             } catch {

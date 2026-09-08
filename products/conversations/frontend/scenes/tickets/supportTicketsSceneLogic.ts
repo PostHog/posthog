@@ -24,7 +24,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb, TeamType } from '~/types'
 
-import { conversationsViewsRetrieve } from '../../generated/api'
+import { conversationsTicketsBulkArchiveCreate, conversationsViewsRetrieve } from '../../generated/api'
 import { normalizeAssigneeFilter } from '../../types'
 import type {
     AITriageFilterValue,
@@ -961,7 +961,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         bulkArchive: async ({ ids, archived }) => {
             actions.setBulkUpdating(true)
             try {
-                const result = await api.conversationsTickets.bulkArchive(ids, archived)
+                const result = await conversationsTicketsBulkArchiveCreate(String(teamLogic.values.currentTeamId), {
+                    ids,
+                    archived,
+                })
                 const verb = archived ? 'Archived' : 'Restored'
                 lemonToast.success(`${verb} ${result.updated} ticket${result.updated === 1 ? '' : 's'}`)
                 actions.clearSelectedTickets()
