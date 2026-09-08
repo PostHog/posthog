@@ -588,6 +588,8 @@ SPECTACULAR_SETTINGS = {
             # The published name is already derived by a different choice set, so the
             # entry holds this one apart.
             "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],
+            # visual_review facade enums are framework-free StrEnums, so no Choices class derives a name.
+            "ShiftBandKindEnum": ["inserted", "deleted"],
             "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
             "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
             "TaskArtifactStatusEnum": ["active", "failed"],
