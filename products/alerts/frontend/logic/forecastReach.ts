@@ -1,6 +1,7 @@
 import { dayjs } from 'lib/dayjs'
+import { getExcludedDaysOfWeek } from 'scenes/insights/filters/InsightDateFilter/daysOfWeekFilterUtils'
 
-import { AlertCalculationInterval } from '~/queries/schema/schema-general'
+import { AlertCalculationInterval, DateRange } from '~/queries/schema/schema-general'
 import { ChartDisplayType, IntervalType } from '~/types'
 
 import {
@@ -17,6 +18,19 @@ const SUPPORTED_FORECAST_INTERVALS: ReadonlySet<IntervalType> = new Set(['hour',
 
 export function intervalSupportsForecast(interval: IntervalType | null | undefined): boolean {
     return interval == null || SUPPORTED_FORECAST_INTERVALS.has(interval)
+}
+
+/** Mirrors `validate_forecast_days_of_week` in products/alerts/backend/forecasting/engine.py: a
+ * daily insight that leaves days out charts a history with gaps, and the forecast fills them back
+ * in from a weekly shape the history never constrained. Coarser intervals keep every bucket. */
+export function dateRangeSupportsForecast(
+    dateRange: DateRange | null | undefined,
+    interval: IntervalType | null | undefined
+): boolean {
+    if (interval != null && interval !== 'day') {
+        return true
+    }
+    return getExcludedDaysOfWeek(dateRange).length === 0
 }
 
 /** Both displays keep the insight's interval, so they read as a time series, but neither returns

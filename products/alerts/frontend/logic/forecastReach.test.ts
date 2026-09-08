@@ -1,10 +1,11 @@
 import { dayjs } from 'lib/dayjs'
 
-import { AlertCalculationInterval } from '~/queries/schema/schema-general'
+import { AlertCalculationInterval, DateRange } from '~/queries/schema/schema-general'
 import { ChartDisplayType, IntervalType } from '~/types'
 
 import {
     clampHorizon,
+    dateRangeSupportsForecast,
     displaySupportsForecast,
     forecastTargetDateError,
     intervalSupportsForecast,
@@ -108,6 +109,23 @@ describe('displaySupportsForecast', () => {
 
     it('allows an insight with no display set', () => {
         expect(displaySupportsForecast(null)).toBe(true)
+    })
+})
+
+describe('dateRangeSupportsForecast', () => {
+    // Mirrors validate_forecast_days_of_week: only a day interval charts a gapped history.
+    it.each<[string, DateRange | undefined, IntervalType | null, boolean]>([
+        ['no date range', undefined, 'day', true],
+        ['no day selection', { date_from: '-30d' }, 'day', true],
+        ['a null day selection', { daysOfWeek: null }, 'day', true],
+        ['an empty day selection', { daysOfWeek: [] }, 'day', true],
+        ['all seven days', { daysOfWeek: [1, 2, 3, 4, 5, 6, 7] }, 'day', true],
+        ['weekdays only', { daysOfWeek: [1, 2, 3, 4, 5] }, 'day', false],
+        ['weekdays only with no interval set', { daysOfWeek: [1, 2, 3, 4, 5] }, null, false],
+        ['weekdays only on a weekly insight', { daysOfWeek: [1, 2, 3, 4, 5] }, 'week', true],
+        ['weekdays only on a monthly insight', { daysOfWeek: [1, 2, 3, 4, 5] }, 'month', true],
+    ])('%s', (_name, dateRange, interval, expected) => {
+        expect(dateRangeSupportsForecast(dateRange, interval)).toBe(expected)
     })
 })
 

@@ -46,7 +46,7 @@ import { alertFormLogic, canCheckOngoingInterval, insightAlertKindForQuery } fro
 import { alertLogic } from '../logic/alertLogic'
 import { alertNotificationLogic } from '../logic/alertNotificationLogic'
 import { isNextPlannedEvaluationStale } from '../logic/alertSchedulingStale'
-import { displaySupportsForecast, intervalSupportsForecast } from '../logic/forecastReach'
+import { dateRangeSupportsForecast, displaySupportsForecast, intervalSupportsForecast } from '../logic/forecastReach'
 import { insightAlertsLogic } from '../logic/insightAlertsLogic'
 import { alertModeOf, supportsAnomalyDetection, supportsForecast, supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
@@ -142,7 +142,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         insightDataLoading,
     } = useValues(trendsLogic)
 
-    const { query } = useValues(insightVizDataLogic(insightLogicProps))
+    const { query, dateRange: trendDateRange } = useValues(insightVizDataLogic(insightLogicProps))
 
     const funnelSource = !!query && isInsightVizNode(query) && isFunnelsQuery(query.source) ? query.source : null
     const isTrendsFunnel = funnelSource?.funnelsFilter?.funnelVizType === FunnelVizType.Trends
@@ -369,6 +369,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                 displaySupportsForecast(trendDisplay) &&
                 !isBreakdownValid &&
                 intervalSupportsForecast(trendInterval) &&
+                dateRangeSupportsForecast(trendDateRange, trendInterval) &&
                 supportsForecast(alertForm.config)
             }
             forecastDisabledReason={forecastDisabledReason}
