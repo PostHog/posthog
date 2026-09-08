@@ -38,6 +38,7 @@ from posthog.schema import (
     HogQLPropertyFilter,
     HogQLQueryModifiers,
     PersonPropertyFilter,
+    RevenueAnalyticsEventItem,
     SourceMap,
 )
 
@@ -588,6 +589,23 @@ TEAM_CONFIG_ADMIN_FIELDS_SET: set[str] = (TEAM_CONFIG_FIELDS_SET - TEAM_CONFIG_M
 TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS: set[str] = {"app_urls"}
 
 
+revenue_analytics_events_adapter = TypeAdapter(list[RevenueAnalyticsEventItem])
+
+
+def _format_pydantic_errors(error: PydanticValidationError) -> list[str]:
+    """Makes one message per bad field, so the caller knows which key to change."""
+    messages: list[str] = []
+    for pydantic_error in error.errors():
+        location = ""
+        for part in pydantic_error["loc"]:
+            if isinstance(part, int):
+                location += f"[{part}]"
+            else:
+                location += f".{part}" if location else str(part)
+        messages.append(f"{location}: {pydantic_error['msg']}" if location else pydantic_error["msg"])
+    return messages
+
+
 class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     events = serializers.JSONField(required=False)
     filter_test_accounts = serializers.BooleanField(required=False)
@@ -595,6 +613,16 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcce
     class Meta:
         model = TeamRevenueAnalyticsConfig
         fields = ["base_currency", "events", "filter_test_accounts"]
+
+    @staticmethod
+    def validate_events(value: object) -> object:
+        # Without this, the model setter raises a Django ValidationError, which DRF turns into a 500.
+        try:
+            revenue_analytics_events_adapter.validate_python(value)
+        except PydanticValidationError as error:
+            raise serializers.ValidationError(_format_pydantic_errors(error)) from error
+
+        return value
 
     def to_representation(self, instance):
         repr = super().to_representation(instance)
