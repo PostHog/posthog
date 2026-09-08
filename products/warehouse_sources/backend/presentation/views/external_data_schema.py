@@ -74,8 +74,18 @@ from products.warehouse_sources.backend.presentation.views.source_api_versions i
     ExternalDataSourceApiVersionDeprecationSerializer,
     api_version_deprecation_payload,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 
 logger = structlog.get_logger(__name__)
+
+
+def schema_discovery_message(name: str) -> str:
+    return (
+        f"Could not discover schema {name}. The connection may be missing SELECT or schema access privileges, "
+        "or discovery may not support this relation type. Check that the relation exists, restore read "
+        "privileges, or expose it as a supported table or view, then try again."
+    )
 
 
 def source_supports_column_selection(source_type: str) -> bool:
@@ -796,6 +806,14 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     "It requires a Postgres heap table or materialized view on PostgreSQL 13+."
                 )
 
+        if self._sql_sync_type_check_applies(instance):
+            self._is_webhook_only_schema_cached(instance)
+            if not self._schema_discovery_available:
+                raise ValidationError(
+                    "Only full table replication can be saved while schema discovery is unavailable. "
+                    "Restore read privileges or expose a supported relation before selecting another sync method."
+                )
+
         # Reject non-webhook sync types for webhook-only schemas (e.g. Stripe Discount —
         # no API list endpoint, so anything other than webhook produces an empty sync).
         if self._webhook_only_check_applies():
@@ -1179,6 +1197,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         return schema.api_version or schema.source.api_version
 
     def _is_webhook_only_schema(self, schema: ExternalDataSchema) -> bool:
+        self._schema_discovery_available = False
         source = schema.source
         if not source.job_inputs:
             return False
@@ -1197,7 +1216,16 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             )
         except Exception:
             return False
+        self._schema_discovery_available = any(
+            discovered_schema.name == schema.name for discovered_schema in source_schemas
+        )
         return any(s.name == schema.name and s.webhook_only for s in source_schemas)
+
+    def _sql_sync_type_check_applies(self, schema: ExternalDataSchema) -> bool:
+        data = self.initial_data if isinstance(self.initial_data, dict) else {}
+        if data.get("sync_type") in (None, ExternalDataSchema.SyncType.FULL_REFRESH):
+            return False
+        return isinstance(SourceRegistry.get_source(ExternalDataSourceType(schema.source.source_type)), SQLSource)
 
     def _xmin_available_for_schema(self, schema: ExternalDataSchema) -> bool:
         """True when the source advertises xmin support for this table (Postgres heap table or
@@ -1230,13 +1258,14 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         first (outside the transaction) does the network work up front; update() then reads the cached
         result and still raises per-schema, so failures stay isolated to one schema.
         """
-        if self._webhook_only_check_applies():
+        if self._webhook_only_check_applies() or self._sql_sync_type_check_applies(instance):
             self._is_webhook_only_schema_cached(instance)
 
     def seed_webhook_only_check(self, webhook_only: bool) -> None:
         """Pre-fill the webhook-only cache when the caller already discovered this table (e.g.
         bulk sync-defaults filling), so warm_webhook_only_check doesn't re-probe the source."""
         self.__dict__["_webhook_only_result"] = webhook_only
+        self._schema_discovery_available = True
 
     def _webhook_only_check_applies(self) -> bool:
         # Single source of truth for when the webhook-only check runs, so update() and the
@@ -1889,6 +1918,18 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(status=status.HTTP_200_OK)
 
+    def _full_refresh_recovery_response(self, instance: ExternalDataSchema) -> Response:
+        response = self._incremental_fields_response(
+            SourceSchema(name=instance.name, supports_incremental=False, supports_append=False), instance.source
+        )
+        response.data.update(
+            cdc_available=False,
+            xmin_available=False,
+            message=schema_discovery_message(instance.name)
+            + " You can save full table replication, but syncing still requires read access.",
+        )
+        return response
+
     @action(methods=["POST"], detail=True)
     def incremental_fields(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
@@ -1910,6 +1951,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             config, self.team_id, instance.name, api_version=effective_api_version
         )
         if not credentials_valid:
+            if isinstance(new_source, SQLSource):
+                return self._full_refresh_recovery_response(instance)
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": credentials_error or "Invalid credentials"},
@@ -1928,18 +1971,18 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             error_text = str(e)
             if not any(pattern and pattern in error_text for pattern in new_source.get_non_retryable_errors()):
                 capture_exception(e)
+            if isinstance(new_source, SQLSource):
+                return self._full_refresh_recovery_response(instance)
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": str(e)},
             )
 
         if not schemas:
+            if isinstance(new_source, SQLSource):
+                return self._full_refresh_recovery_response(instance)
             return Response(
-                data={
-                    "message": f"Could not discover schema {instance.name}. The connection may be missing SELECT or "
-                    "schema access privileges, or discovery may not support this relation type. Check that the "
-                    "relation exists, restore read privileges, or expose it as a supported table or view, then try again."
-                },
+                data={"message": schema_discovery_message(instance.name)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1952,6 +1995,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}
             )
 
+        return self._incremental_fields_response(schema, source)
+
+    def _incremental_fields_response(self, schema: SourceSchema, source: ExternalDataSource) -> Response:
         # job_inputs is an EncryptedJSONField: booleans round-trip as "True"/"False"
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.
         source_cdc_enabled = str_to_bool(source.job_inputs.get("cdc_enabled"))

@@ -949,6 +949,10 @@ class TestGetColumns:
 
         assert impl.get_columns(conn, _make_config(), names=["foo"]) == {}
 
+        with patch.object(_REDSHIFT_IMPLEMENTATION, "connect") as connect:
+            connect.return_value.__enter__.return_value = conn
+            assert RedshiftSource().get_schemas(_make_config(), team_id=1, names=["foo"]) == []
+
     def test_excludes_redshift_internal_columns(self, impl):
         # Discovery must drop the `padb_internal_*` columns Redshift stamps onto materialized
         # views — they never come back from `SELECT *`, so surfacing them desyncs the schema.

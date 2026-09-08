@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     WebhookSyncResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import RedshiftSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.tests.api.utils import create_external_data_source_ok
@@ -492,7 +493,7 @@ class TestExternalDataSchema(APIBaseTest):
         [
             (
                 "empty_discovery",
-                RedshiftSource,
+                StripeSource,
                 [],
                 "Could not discover schema C999. The connection may be missing SELECT or schema access privileges, "
                 "or discovery may not support this relation type. Check that the relation exists, restore read "
@@ -975,6 +976,11 @@ class TestExternalDataSchema(APIBaseTest):
             request_body["primary_key_columns"] = payload_pk
 
         with (
+            mock.patch.object(
+                PostgresSource,
+                "get_schemas",
+                return_value=[SourceSchema(name=schema.name, supports_incremental=True, supports_append=True)],
+            ),
             mock.patch(
                 "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
                 return_value=True,
@@ -1021,9 +1027,12 @@ class TestExternalDataSchema(APIBaseTest):
             table=table,
         )
 
-        with mock.patch(
-            "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
-            return_value=True,
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
+                return_value=True,
+            ),
+            self._xmin_discovery_patch(),
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
@@ -1265,6 +1274,7 @@ class TestExternalDataSchema(APIBaseTest):
         )
 
         with (
+            self._xmin_discovery_patch(),
             mock.patch(
                 "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
             ) as mock_trigger,
@@ -2051,6 +2061,11 @@ class TestExternalDataSchema(APIBaseTest):
         )
 
         with (
+            mock.patch.object(
+                PostgresSource,
+                "get_schemas",
+                return_value=[SourceSchema(name=schema.name, supports_incremental=False, supports_append=False)],
+            ),
             mock.patch(
                 "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
@@ -2106,6 +2121,211 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert response.status_code == 200
         mock_get_or_create.assert_not_called()
+
+
+class TestSQLSchemaRecovery(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.REDSHIFT,
+            job_inputs={
+                "host": "localhost",
+                "port": 5439,
+                "database": "dev",
+                "user": "test",
+                "password": "test",
+                "schema": "public",
+            },
+        )
+        self.schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=self.source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"primary_key_columns": ["id"], "incremental_field": "updated_at"},
+        )
+
+    @parameterized.expand(
+        [
+            ("empty", True, None),
+            ("discovery_error", True, psycopg.errors.InsufficientPrivilege("permission denied for relation")),
+            ("invalid_credentials", False, None),
+        ]
+    )
+    def test_discovery_unavailable_offers_and_saves_only_full_refresh(self, _name, valid_credentials, discovery_error):
+        original_config = self.schema.sync_type_config.copy()
+        with (
+            mock.patch.object(RedshiftSource, "validate_credentials", return_value=(valid_credentials, "Read denied")),
+            mock.patch.object(RedshiftSource, "get_schemas", return_value=[], side_effect=discovery_error),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/incremental_fields"
+            )
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload.pop("message") == (
+                "Could not discover schema public.orders. The connection may be missing SELECT or schema access "
+                "privileges, or discovery may not support this relation type. Check that the relation exists, "
+                "restore read privileges, or expose it as a supported table or view, then try again. "
+                "You can save full table replication, but syncing still requires read access."
+            )
+            assert payload == {
+                "incremental_fields": [],
+                "incremental_available": False,
+                "append_available": False,
+                "cdc_available": False,
+                "xmin_available": False,
+                "full_refresh_available": True,
+                "supports_webhooks": False,
+                "webhook_only": False,
+                "available_columns": [],
+                "detected_primary_keys": None,
+            }
+            self.schema.refresh_from_db()
+            assert self.schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+            assert self.schema.should_sync is False
+            assert self.schema.sync_type_config == original_config
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/",
+                data={
+                    "should_sync": True,
+                    "sync_type": "full_refresh",
+                    "incremental_field": None,
+                    "incremental_field_type": None,
+                    "incremental_field_lookback_seconds": None,
+                    "primary_key_columns": None,
+                },
+            )
+            assert response.status_code == 200, response.json()
+        self.schema.refresh_from_db()
+        assert self.schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+        assert self.schema.should_sync is True
+
+    @parameterized.expand(
+        [
+            (sync_type, raises)
+            for sync_type in ("incremental", "append", "cdc", "webhook", "xmin")
+            for raises in (False, True)
+        ]
+    )
+    def test_discovery_unavailable_blocks_unverified_sync_types(self, sync_type, raises):
+        self.schema.sync_type = ExternalDataSchema.SyncType.FULL_REFRESH
+        self.schema.save()
+        with (
+            mock.patch.object(
+                RedshiftSource,
+                "get_schemas",
+                return_value=[],
+                side_effect=RuntimeError("Discovery unavailable") if raises else None,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
+                return_value=True,
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/",
+                data={
+                    "sync_type": sync_type,
+                    "incremental_field": "id",
+                    "incremental_field_type": "integer",
+                    "primary_key_columns": ["id"],
+                },
+            )
+        assert response.status_code == 400
+        expected_error = (
+            "xmin replication is only available for Postgres sources"
+            if sync_type == "xmin"
+            else "Only full table replication can be saved while schema discovery is unavailable"
+        )
+        assert expected_error in str(response.json())
+        self.schema.refresh_from_db()
+        assert self.schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+    def test_successful_discovery_preserves_capabilities_and_incremental_save(self):
+        discovered = SourceSchema(
+            name=self.schema.name,
+            supports_incremental=True,
+            supports_append=True,
+            incremental_fields=[{"field": "id", "label": "id", "type": "integer", "field_type": "integer"}],
+            columns=[("id", "integer", False)],
+            detected_primary_keys=["id"],
+        )
+        with (
+            mock.patch.object(RedshiftSource, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(RedshiftSource, "get_schemas", return_value=[discovered]),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/incremental_fields"
+            )
+            assert response.status_code == 200
+            assert response.json() == {
+                "incremental_fields": discovered.incremental_fields,
+                "incremental_available": True,
+                "append_available": True,
+                "cdc_available": None,
+                "xmin_available": None,
+                "full_refresh_available": True,
+                "supports_webhooks": False,
+                "webhook_only": False,
+                "available_columns": [{"field": "id", "label": "id", "type": "integer", "nullable": False}],
+                "detected_primary_keys": ["id"],
+            }
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/",
+                data={"sync_type": "incremental", "incremental_field": "id", "incremental_field_type": "integer"},
+            )
+            assert response.status_code == 200, response.json()
+        self.schema.refresh_from_db()
+        assert self.schema.incremental_field == "id"
+
+    @parameterized.expand([("full_refresh", 200), ("append", 400), ("webhook", 400)])
+    def test_bulk_update_reuses_failed_discovery(self, sync_type, expected_status):
+        with mock.patch.object(RedshiftSource, "get_schemas", return_value=[]) as discovery:
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{self.source.id}/bulk_update_schemas",
+                data={"schemas": [{"id": str(self.schema.id), "sync_type": sync_type}]},
+                format="json",
+            )
+        assert response.status_code == expected_status, response.json()
+        discovery.assert_called_once()
+        self.schema.refresh_from_db()
+        assert self.schema.sync_type == (
+            ExternalDataSchema.SyncType.FULL_REFRESH
+            if expected_status == 200
+            else ExternalDataSchema.SyncType.INCREMENTAL
+        )
+
+    def test_bulk_defaults_reuse_successful_discovery(self):
+        self.schema.sync_type = None
+        self.schema.save()
+        discovered = SourceSchema(
+            name=self.schema.name,
+            supports_incremental=True,
+            supports_append=True,
+            incremental_fields=[{"field": "id", "label": "id", "type": "integer", "field_type": "integer"}],
+            detected_primary_keys=["id"],
+        )
+        with mock.patch.object(RedshiftSource, "get_schemas", return_value=[discovered]) as discovery:
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{self.source.id}/bulk_update_schemas",
+                data={"schemas": [{"id": str(self.schema.id), "apply_sync_defaults": True}]},
+                format="json",
+            )
+        assert response.status_code == 200, response.json()
+        discovery.assert_called_once()
+        self.schema.refresh_from_db()
+        assert self.schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
 
 
 class TestUpdateExternalDataSchema:
@@ -2569,6 +2789,11 @@ class TestUpdateExternalDataSchema:
             status=ExternalDataSource.Status.RUNNING,
             source_type=ExternalDataSourceType.POSTGRES,
             job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "dev",
+                "user": "test",
+                "password": "test",
                 "schema": "",
                 "cdc_enabled": True,
                 "cdc_management_mode": "posthog",
@@ -2594,6 +2819,11 @@ class TestUpdateExternalDataSchema:
         )
 
         with (
+            mock.patch.object(
+                PostgresSource,
+                "get_schemas",
+                return_value=[SourceSchema(name=schema.name, supports_incremental=True, supports_append=True)],
+            ),
             mock.patch(
                 "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
                 return_value=True,
