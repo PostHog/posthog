@@ -110,6 +110,14 @@ _TURN_RELEVANT_SESSION_UPDATES = frozenset(
         "tool_call_update",
     }
 )
+_TURN_RELEVANT_PI_EVENTS = frozenset(
+    {
+        "assistant_message_chunk",
+        "assistant_thought_chunk",
+        "tool_call_started",
+        "tool_call_updated",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -1010,9 +1018,15 @@ def _has_prompt_echo(lines: list[str]) -> bool:
         if not line:
             continue
         try:
-            notification = json.loads(line).get("notification")
+            payload = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if payload.get("type") == "pi_event":
+            event = payload.get("event")
+            if isinstance(event, dict) and event.get("type") == "user_message":
+                return True
+            continue
+        notification = payload.get("notification")
         if not isinstance(notification, dict) or notification.get("method") != "session/update":
             continue
         update = (notification.get("params") or {}).get("update")
@@ -1034,9 +1048,20 @@ def _transient_growth(lines: list[str], *, discount_usage_updates: bool = True) 
         if not line:
             continue
         try:
-            notification = json.loads(line).get("notification")
+            payload = json.loads(line)
         except json.JSONDecodeError:
             continue
+        payload_type = payload.get("type")
+        if payload_type == "pi_event":
+            event = payload.get("event")
+            subtype = event.get("type") if isinstance(event, dict) else None
+            if subtype not in _TURN_RELEVANT_PI_EVENTS:
+                count += 1
+            continue
+        if payload_type == "pi_run_started":
+            count += 1
+            continue
+        notification = payload.get("notification")
         if not isinstance(notification, dict):
             continue
         method = notification.get("method")

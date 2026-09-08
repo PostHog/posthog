@@ -459,6 +459,7 @@ async def _relay_loop(
                                 continue
 
                             if _is_keepalive_event(event_data):
+                                await _record_relay_activity_best_effort(redis_stream, run_id)
                                 continue
 
                             await redis_stream.write_event(event_data)

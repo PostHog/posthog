@@ -838,7 +838,13 @@ class TestPollForTurnTimeoutDiagnosis:
         ]
         log = "\n".join(
             [
-                _user_message_line("scan the project"),
+                json.dumps(
+                    {
+                        "type": "pi_event",
+                        "event": {"type": "user_message", "content": "scan the project"},
+                    }
+                ),
+                json.dumps({"type": "pi_run_started"}),
                 json.dumps({"notification": {"method": "_posthog/sdk_session", "params": {}}}),
                 json.dumps({"notification": {"method": "_posthog/run_started", "params": {}}}),
                 json.dumps({"notification": {"method": "_posthog/agent_command_dispatched", "params": {}}}),

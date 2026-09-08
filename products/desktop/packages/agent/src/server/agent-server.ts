@@ -739,7 +739,7 @@ export class AgentServer {
           };
 
           keepaliveInterval = setInterval(() => {
-            enqueueSseFrame(": keepalive\n\n");
+            enqueueSseFrame('data: {"type":"keepalive"}\n\n');
           }, SSE_KEEPALIVE_INTERVAL_MS);
 
           try {

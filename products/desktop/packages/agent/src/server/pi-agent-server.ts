@@ -377,7 +377,9 @@ export class PiAgentServer {
             close: () => controller.close(),
           };
           keepalive = setInterval(() => {
-            controller.enqueue(encoder.encode(": keepalive\n\n"));
+            controller.enqueue(
+              encoder.encode('data: {"type":"keepalive"}\n\n'),
+            );
           }, 25_000);
           await this.initializeSession(payload, sseController);
           if (this.session?.sseController !== sseController) {

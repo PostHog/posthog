@@ -584,6 +584,7 @@ class TestRelaySandboxEventsErrorHandling:
     async def test_keepalive_events_are_transport_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
         redis_stream = SimpleNamespace(
             write_event=AsyncMock(),
+            record_relay_activity=AsyncMock(),
             mark_complete=AsyncMock(),
             mark_error=AsyncMock(),
         )
@@ -624,6 +625,7 @@ class TestRelaySandboxEventsErrorHandling:
         )
 
         redis_stream.write_event.assert_awaited_once_with(terminal_event)
+        redis_stream.record_relay_activity.assert_awaited_once_with(force=False)
         assert sandbox_gone is False
         redis_stream.mark_complete.assert_awaited_once()
         redis_stream.mark_error.assert_not_awaited()
