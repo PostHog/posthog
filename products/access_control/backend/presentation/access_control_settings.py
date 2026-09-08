@@ -51,7 +51,7 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
 
-from .access_control import AccessControlSerializer, ResolvedAccessSerializer, upsert_access_control
+from .access_control import AccessControlSerializer, upsert_access_control
 from .serializers import (
     AccessControlDefaultsResponseSerializer,
     AccessControlMembersResponseSerializer,
@@ -91,7 +91,7 @@ def _project_entry(subject: SubjectAccessControl, team: Team) -> dict[str, Any]:
     return {
         "access_level": subject.stored_level("project", str(team.id)),
         "effective_access_level": subject.get_user_access_level(team),
-        "inherited_access": ResolvedAccessSerializer(asdict(inherited)).data if inherited else None,
+        "inherited_access": asdict(inherited) if inherited else None,
         "minimum": minimum_access_level("project"),
         "maximum": highest_access_level("project"),
     }
@@ -103,7 +103,7 @@ def _resource_entry(subject: SubjectAccessControl, resource: APIScopeObject) -> 
     return {
         "access_level": subject.stored_level(resource, None),
         "effective_access_level": effective.access_level if effective else None,
-        "inherited_access": ResolvedAccessSerializer(asdict(inherited)).data if inherited else None,
+        "inherited_access": asdict(inherited) if inherited else None,
         "minimum": minimum_access_level(resource),
         "maximum": highest_access_level(resource),
     }
