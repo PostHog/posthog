@@ -3,6 +3,7 @@ import {
   ArrowUUpRightIcon,
   CaretDownIcon,
   ClockCounterClockwiseIcon,
+  FolderSimpleIcon,
   PencilSimpleIcon,
   ShapesIcon,
   SidebarSimpleIcon,
@@ -33,6 +34,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
   Empty,
   EmptyContent,
@@ -77,6 +81,10 @@ import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useCo
 import { useSessionForTask } from "@posthog/ui/features/sessions/useSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
+import {
+  MenuSubFlyout,
+  SearchableMenuFlyout,
+} from "@posthog/ui/primitives/SearchableMenuFlyout";
 import { Spin } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
@@ -408,7 +416,7 @@ export function FreeformCanvasView({
   // Revert: make the browsed version the head. The mutation invalidates the
   // record, versions, source, and builds caches (the server queues a rebuild),
   // so afterwards only the local browse state needs clearing.
-  const { revertToVersion, isReverting, promoteDraft, isPromoting } =
+  const { revertToVersion, isReverting, promoteDraft, isPromoting, fileDashboard } =
     useDashboardMutations();
   const onRevert = useCallback(async () => {
     if (!browseVersionId) return;
@@ -911,6 +919,42 @@ export function FreeformCanvasView({
                           </DropdownMenuItem>
                         ))}
                       </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                  {channels.length > 0 && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button size="sm" variant="default" className="ml-1">
+                            <FolderSimpleIcon size={14} />
+                            File to…
+                            <CaretDownIcon size={12} />
+                          </Button>
+                        }
+                      />
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>
+                          <FolderSimpleIcon size={14} />
+                          File to…
+                        </DropdownMenuSubTrigger>
+                        <MenuSubFlyout className="w-64 p-0">
+                          <SearchableMenuFlyout
+                            items={channels.map((channel) => ({
+                              id: channel.id,
+                              label: channel.name,
+                              current: channel.id === channelId,
+                              starred: channel.starred,
+                            }))}
+                            placeholder="Search spaces…"
+                            emptyLabel="No spaces"
+                            onSelect={(selectedChannelId) => {
+                              if (selectedChannelId !== channelId) {
+                                void fileDashboard(dashboardId, selectedChannelId);
+                              }
+                            }}
+                          />
+                        </MenuSubFlyout>
+                      </DropdownMenuSub>
                     </DropdownMenu>
                   )}
                 </>
