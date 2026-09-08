@@ -131,21 +131,73 @@ func TestProcessLineQuarantinesInvalidExceptionList(t *testing.T) {
 
 func TestProcessLineQuarantinesExcessiveDepth(t *testing.T) {
 	tests := map[string]string{
-		"nested JSON": strings.Repeat(`{"x":`, maxJSONDepth) + `1` + strings.Repeat(`}`, maxJSONDepth),
-		"dotted key":  `{"` + strings.Repeat("x.", maxJSONDepth) + `x":1}`,
+		"nested JSON":            strings.Repeat(`{"x":`, maxJSONDepth) + `1` + strings.Repeat(`}`, maxJSONDepth),
+		"dotted key":             `{"` + strings.Repeat("x.", maxJSONDepth) + `x":1}`,
+		"nested arrays":          `{"x":` + strings.Repeat(`[`, 9) + `1` + strings.Repeat(`]`, 9) + `}`,
+		"arrays through objects": `{"x":` + strings.Repeat(`[{"x":`, 9) + `1` + strings.Repeat(`}]`, 9) + `}`,
+		"temporary property":     `{"$set":` + strings.Repeat(`[`, 9) + `1` + strings.Repeat(`]`, 9) + `}`,
+		"arrays with nulls":      `{"x":` + strings.Repeat(`[`, 24) + `[0]` + strings.Repeat(`,null]`, 24) + `}`,
 	}
-
 	for name, input := range tests {
-		t.Run(name, func(t *testing.T) {
-			var got bytes.Buffer
-			if err := processLine([]byte(input), &got); err != nil {
-				t.Fatal(err)
-			}
-			want := fmt.Sprintf(`{"$unparseable_properties":%q}`, input)
-			if got.String() != want {
-				t.Fatalf("processLine() = %s, want %s", got.String(), want)
-			}
-		})
+		for _, kind := range []propertiesKind{eventProperties, personProperties, temporaryProperties} {
+			t.Run(fmt.Sprintf("%s/%d", name, kind), func(t *testing.T) {
+				var got bytes.Buffer
+				proc := processor{kind: kind}
+				if err := proc.processLine([]byte(input), &got); err != nil {
+					t.Fatal(err)
+				}
+				want := fmt.Sprintf(`{"$unparseable_properties":%q}`, input)
+				if kind == temporaryProperties {
+					want = `{}`
+				}
+				if got.String() != want {
+					t.Fatalf("processLine() = %s, want %s", got.String(), want)
+				}
+			})
+		}
+	}
+}
+
+func TestProcessLineArrayDepthBoundary(t *testing.T) {
+	for _, depth := range []int{7, 8} {
+		arrays := strings.Repeat(`[`, depth) + `1` + strings.Repeat(`]`, depth)
+		input := `{"x":` + arrays + `,"$set":` + arrays + `}`
+		for _, kind := range []propertiesKind{eventProperties, personProperties, temporaryProperties} {
+			t.Run(fmt.Sprintf("%d/%d", depth, kind), func(t *testing.T) {
+				var got bytes.Buffer
+				proc := processor{kind: kind}
+				if err := proc.processLine([]byte(input), &got); err != nil {
+					t.Fatal(err)
+				}
+				want := input
+				if kind == eventProperties {
+					want = `{"x":` + arrays + `}`
+				} else if kind == temporaryProperties {
+					want = `{"$set":` + arrays + `}`
+				}
+				if got.String() != want {
+					t.Fatalf("processLine() = %s, want %s", got.String(), want)
+				}
+			})
+		}
+	}
+}
+
+func TestProcessLineChecksArrayDepthAfterNormalization(t *testing.T) {
+	for _, depth := range []int{7, 8} {
+		object := `{"x":` + strings.Repeat(`[`, depth) + `1` + strings.Repeat(`]`, depth) + `}`
+		input := fmt.Sprintf(`{"$exception_list":%q}`, object)
+		var got bytes.Buffer
+		if err := processLine([]byte(input), &got); err != nil {
+			t.Fatal(err)
+		}
+		want := `{"$exception_list":[` + object + `]}`
+		if depth == 8 {
+			want = fmt.Sprintf(`{"$unparseable_properties":%q}`, input)
+		}
+		if got.String() != want {
+			t.Fatalf("processLine() = %s, want %s", got.String(), want)
+		}
 	}
 }
 
@@ -252,6 +304,32 @@ func TestRunChunked(t *testing.T) {
 	}
 	if output.String() != want {
 		t.Fatalf("runChunked() = %q, want %q", output.String(), want)
+	}
+}
+
+func TestRunChunkedAfterArrayQuarantine(t *testing.T) {
+	poison := `{"$set":` + strings.Repeat(`[`, 9) + `1` + strings.Repeat(`]`, 9) + `}`
+	good := `{"keep":1,"$set":2}`
+	input := "2\n" + poison + "\n" + good + "\n1\n" + good + "\n"
+	for _, kind := range []propertiesKind{eventProperties, personProperties, temporaryProperties} {
+		t.Run(fmt.Sprint(kind), func(t *testing.T) {
+			quarantine := fmt.Sprintf(`{"$unparseable_properties":%q}`, poison)
+			cleaned := good
+			if kind == eventProperties {
+				cleaned = `{"keep":1}`
+			} else if kind == temporaryProperties {
+				quarantine = `{}`
+				cleaned = `{"$set":2}`
+			}
+			var output bytes.Buffer
+			if err := runChunked(strings.NewReader(input), &output, kind); err != nil {
+				t.Fatal(err)
+			}
+			want := quarantine + "\n" + cleaned + "\n" + cleaned + "\n"
+			if output.String() != want {
+				t.Fatalf("runChunked() = %q, want %q", output.String(), want)
+			}
+		})
 	}
 }
 
