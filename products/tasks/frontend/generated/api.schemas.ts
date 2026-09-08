@@ -5022,6 +5022,10 @@ export type TasksListParams = {
      */
     archived?: TasksListArchived
     /**
+     * Return a basic payload with heavy fields dropped, for surfaces that render only a summary of each task. Defaults to false. Currently this omits the description body, which dominates the list payload; the search parameter still matches description text server-side.
+     */
+    basic?: boolean
+    /**
      * Filter tasks to a channel's feed.
      */
     channel?: string
@@ -5074,10 +5078,6 @@ export type TasksListParams = {
      * Filter tasks to the runs spawned by this workflow's 'Create AI task' action.
      */
     hog_flow_id?: string
-    /**
-     * Whether each row carries the task description body. Defaults to true. Pass false when the client does not render the description, to drop the field that dominates the list payload.
-     */
-    include_description?: boolean
     /**
      * Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks, or 'true' to list only internal tasks. All values are available to any team member; access stays governed by task visibility.
      *
