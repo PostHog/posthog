@@ -1,5 +1,13 @@
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import type { NotificationTarget } from "@posthog/platform/notifications";
+import {
+  type BrowserTabDestination,
+  focusExistingTab,
+} from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
+import {
+  readMirror,
+  reseedMirror,
+} from "@posthog/ui/features/browser-tabs/tabsSync";
 import { useHandleOpenTask } from "@posthog/ui/features/deep-links/useHandleOpenTask";
 import {
   navigateToChannelDashboard,
@@ -9,6 +17,18 @@ import { logger } from "@posthog/ui/shell/logger";
 import { useCallback, useEffect } from "react";
 
 const log = logger.scope("open-target-deep-link");
+
+function targetDestination(target: NotificationTarget): BrowserTabDestination {
+  switch (target.kind) {
+    case "task":
+      return { href: `/tasks/${target.taskId}`, taskId: target.taskId };
+    case "canvas":
+      return {
+        href: `/spaces/${target.channelId}/dashboards/${target.dashboardId}`,
+        dashboardId: target.dashboardId,
+      };
+  }
+}
 
 /**
  * Consumes generic "open this target" intents emitted when a native
@@ -22,14 +42,29 @@ export function useOpenTargetDeepLink() {
   const handleTarget = useCallback(
     (target: NotificationTarget) => {
       log.info("Opening notification target", { kind: target.kind });
-      switch (target.kind) {
-        case "task":
-          handleOpenTask(target.taskId, target.taskRunId);
-          break;
-        case "canvas":
-          navigateToChannelDashboard(target.channelId, target.dashboardId);
-          break;
+
+      const openDirectly = () => {
+        switch (target.kind) {
+          case "task":
+            handleOpenTask(target.taskId, target.taskRunId);
+            break;
+          case "canvas":
+            navigateToChannelDashboard(target.channelId, target.dashboardId);
+            break;
+        }
+      };
+
+      const destination = targetDestination(target);
+      if (focusExistingTab(destination)) return;
+      if (readMirror().windows.length > 0) {
+        openDirectly();
+        return;
       }
+      void reseedMirror()
+        .then(() => {
+          if (!focusExistingTab(destination)) openDirectly();
+        })
+        .catch(() => openDirectly());
     },
     [handleOpenTask],
   );

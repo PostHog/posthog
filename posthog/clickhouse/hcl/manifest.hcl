@@ -42,6 +42,17 @@ role "logs" {
   env "prod-eu" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-eu"] }
 }
 
+# APM satellite: the ingestion-apm nodes. Every env runs the shared custom_metrics
+# suite and writes into the query log archive, but not the query_log_archive reader
+# itself. dev additionally runs the APM ingest chain -- the Kafka consumers for logs,
+# traces and metrics and the writable proxies they feed -- which the prod envs still
+# run on their logs nodes.
+role "apm" {
+  env "dev"     { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/apm/dev"] }
+  env "prod-us" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/custom_metrics"] }
+  env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/custom_metrics"] }
+}
+
 # AI_EVENTS satellite (LLM analytics). local/hobby run the MSK variant
 # (kafka_ai_events_json + ai_events_json_mv) with a sharded_ai_events data table
 # + distributed ai_events reader; US/EU run the WarpStream variant
@@ -108,7 +119,10 @@ role "batch_exports" {
 # columns per env that are added out-of-band and churn constantly, so their goldens
 # live in PostHog/posthog-cloud-infra (clickhouse/hcl/), not the OSS gate.
 role "data" {
-  env "local-multi" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/aux_data", "roles/coshared/sessions_data", "roles/coshared/ai_events_data", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/coshared/events_json_write", "roles/coshared/log_entries_write", "roles/coshared/session_replay_write", "roles/data/shared", "roles/data/local"] }
+  env "dev"     { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/ai_events_data", "roles/coshared/aux_data", "roles/coshared/sessions_data", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/session_replay_write", "roles/data/shared", "roles/data/common", "roles/data/cloud", "roles/coshared/log_entries_write", "roles/data/dev"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/ai_events_data", "roles/coshared/aux_data", "roles/coshared/sessions_data", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/session_replay_write", "roles/data/shared", "roles/data/common", "roles/data/cloud", "roles/data/prod", "roles/data/prod-us"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/ai_events_data", "roles/coshared/aux_data", "roles/coshared/sessions_data", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/session_replay_write", "roles/data/shared", "roles/data/common", "roles/data/cloud", "roles/coshared/log_entries_write", "roles/data/prod", "roles/data/prod-eu"] }
+  env "local-multi" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/aux_data", "roles/coshared/sessions_data", "roles/coshared/ai_events_data", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/coshared/events_json_write", "roles/coshared/log_entries_write", "roles/coshared/session_replay_write", "roles/data/shared", "roles/data/common", "roles/data/local"] }
 }
 
 # INGESTION satellites: the Kafka consumer layer. Each node carries the kafka_* engine
@@ -133,7 +147,7 @@ role "medium" {
 # and not MULTINODE_CLICKHOUSE. Composed as the deduped union of the local-multi stacks it
 # hosts, so any name two of those roles declare fails this load instead of drifting.
 role "all" {
-  env "local-single" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/local", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/local", "roles/coshared/aux_data", "roles/coshared/aux_small", "roles/auxiliary/shared", "roles/auxiliary/local", "roles/coshared/sessions_data", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/coshared/events_json_write", "roles/coshared/log_entries_write", "roles/coshared/session_replay_write", "roles/data/shared", "roles/data/local", "roles/ingestion_events/local", "roles/ingestion_events/local-single", "roles/ingestion_small/local", "roles/ingestion_medium/local"] }
+  env "local-single" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/local", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/local", "roles/coshared/aux_data", "roles/coshared/aux_small", "roles/auxiliary/shared", "roles/auxiliary/local", "roles/coshared/sessions_data", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/coshared/events_json_write", "roles/coshared/log_entries_write", "roles/coshared/session_replay_write", "roles/data/shared", "roles/data/common", "roles/data/local", "roles/ingestion_events/local", "roles/ingestion_events/local-single", "roles/ingestion_small/local", "roles/ingestion_medium/local"] }
 }
 
 # role "endpoints" {
