@@ -1852,21 +1852,40 @@ class TestAlertSimulateForecast(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "Forecast alerts are not enabled" in str(response.content)
 
-    def test_simulate_forecast_horizon_out_of_range_returns_400(self) -> None:
-        with mock.patch(
-            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
-        ):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+    @parameterized.expand(
+        [
+            (
+                "horizon out of range",
                 {
-                    "insight": self.insight["id"],
                     "forecast_config": {
                         "type": "ForecastConfig",
                         "engine": "prophet",
                         "condition": "future_breach",
                         "horizon": 1000000,
-                    },
+                    }
                 },
+            ),
+            (
+                "negative series index",
+                {
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "future_breach",
+                        "horizon": 7,
+                    },
+                    "series_index": -1,
+                },
+            ),
+        ]
+    )
+    def test_simulate_forecast_invalid_request_returns_400(self, _name: str, payload: dict) -> None:
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {"insight": self.insight["id"], **payload},
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 

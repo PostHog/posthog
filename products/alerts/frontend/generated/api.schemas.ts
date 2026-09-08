@@ -948,7 +948,10 @@ export interface ForecastSimulateRequestApi {
     insight: number
     /** Forecast configuration to simulate. */
     forecast_config: ForecastConfigApi
-    /** Zero-based index of the series to analyze (trends insights only). */
+    /**
+     * Zero-based index of the series to analyze (trends insights only).
+     * @minimum 0
+     */
     series_index?: number
     /**
      * Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the forecast's minimum required samples. Trends insights only.

@@ -1159,6 +1159,7 @@ export const alertsSimulateForecastCreateBodyForecastConfigOneTwoConditionDefaul
 export const alertsSimulateForecastCreateBodyForecastConfigOneTwoEngineDefault = `prophet`
 export const alertsSimulateForecastCreateBodyForecastConfigOneTwoTypeDefault = `ForecastConfig`
 export const alertsSimulateForecastCreateBodySeriesIndexDefault = 0
+export const alertsSimulateForecastCreateBodySeriesIndexMin = 0
 
 export const AlertsSimulateForecastCreateBody = /* @__PURE__ */ zod.object({
     insight: zod.number().describe('Insight ID to simulate the forecast on.'),
@@ -1210,6 +1211,7 @@ export const AlertsSimulateForecastCreateBody = /* @__PURE__ */ zod.object({
         .describe('Forecast configuration to simulate.'),
     series_index: zod
         .number()
+        .min(alertsSimulateForecastCreateBodySeriesIndexMin)
         .default(alertsSimulateForecastCreateBodySeriesIndexDefault)
         .describe('Zero-based index of the series to analyze (trends insights only).'),
     date_from: zod

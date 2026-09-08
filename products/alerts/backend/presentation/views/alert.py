@@ -1103,6 +1103,7 @@ class ForecastSimulateRequestSerializer(serializers.Serializer):
     )
     series_index = serializers.IntegerField(
         default=0,
+        min_value=0,
         help_text="Zero-based index of the series to analyze (trends insights only).",
     )
     date_from = serializers.CharField(
