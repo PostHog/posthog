@@ -1041,11 +1041,42 @@ describe('dashboardLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setBreakdownFilter({ breakdown: '$browser', breakdown_type: 'event' })
             }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.setInterval('week')
+                logic.actions.setFilterTestAccounts(true)
+            }).toFinishAllListeners()
 
             expect(logic.values.dashboardSettingsDraft?.filters).toEqual(
                 expect.objectContaining({
                     date_from: '-7d',
+                    properties: [expect.objectContaining({ key: 'browser', value: 'Chrome' })],
                     breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
+                    interval: 'week',
+                    filterTestAccounts: true,
+                })
+            )
+            expect(logic.values.urlFilters).toEqual(
+                expect.objectContaining({
+                    date_from: '-7d',
+                    properties: [expect.objectContaining({ key: 'browser', value: 'Chrome' })],
+                    breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
+                    interval: 'week',
+                    filterTestAccounts: true,
+                })
+            )
+
+            logic.unmount()
+            logic = dashboardLogic({ id: 5, dashboard: nineTileDashboard })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.currentDashboardSettings.filters).toEqual(
+                expect.objectContaining({
+                    date_from: '-7d',
+                    properties: [expect.objectContaining({ key: 'browser', value: 'Chrome' })],
+                    breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
+                    interval: 'week',
+                    filterTestAccounts: true,
                 })
             )
 
@@ -3297,7 +3328,7 @@ describe('dashboardLogic', () => {
 
             expect(logic.values.canAutoPreview).toBe(false)
             expect(getInsightWithRetrySpy).not.toHaveBeenCalled()
-            expect(router.values.searchParams[dashboardUtils.SEARCH_PARAM_QUERY_VARIABLES_KEY]).toBeUndefined()
+            expect(dashboardUtils.parseURLVariables(router.values.searchParams)).toEqual({ organization: 'edited' })
 
             await expectLogic(logic, () => {
                 logic.actions.previewDashboardChanges()
