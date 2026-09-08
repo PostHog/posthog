@@ -29,7 +29,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
 use metrics::{counter, gauge};
-use personhog_leader::cache::{DirtyIndex, PartitionedCache};
+use personhog_leader::cache::{DirtyIndex, PartitionedCache, PersonCacheKey};
 use personhog_leader::config::Config;
 use personhog_leader::coordination::LeaderHandoffHandler;
 use personhog_leader::fencing::{
@@ -38,10 +38,10 @@ use personhog_leader::fencing::{
 use personhog_leader::inflight::InflightTracker;
 use personhog_leader::pg::{validate_table_name, PgFallback};
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
-use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService, PropertySizeLimits};
-use personhog_leader::warming::{
-    fetch_writer_committed_offsets, WarmClientPools, WarmingConfig, WarmingRetryPolicy,
+use personhog_leader::service::{
+    prune_and_settle_tick, sweep_idle_locks, PersonHogLeaderService, PropertySizeLimits,
 };
+use personhog_leader::warming::{WarmClientPools, WarmingConfig, WarmingRetryPolicy};
 use personhog_leader::warnings::WarningsProducer;
 
 common_alloc::used!();
@@ -638,6 +638,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(run_dirty_index_prune_loop(
         Arc::clone(&dirty_index),
         Arc::clone(&cache),
+        Arc::clone(&locks),
         Arc::clone(&warm_pools),
         config.kafka_person_state_topic.clone(),
         Duration::from_secs(config.warm_committed_offsets_timeout_secs),
@@ -732,6 +733,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn run_dirty_index_prune_loop(
     dirty_index: Arc<DirtyIndex>,
     cache: Arc<PartitionedCache>,
+    locks: Arc<DashMap<PersonCacheKey, Arc<tokio::sync::Mutex<()>>>>,
     pools: Arc<WarmClientPools>,
     topic: String,
     offsets_timeout: Duration,
@@ -744,31 +746,23 @@ async fn run_dirty_index_prune_loop(
         // marks actually reclaimed — a tick never scans the index, which
         // is what makes the 1s interval affordable even when a lagging
         // writer has made the index large.
-        let partitions = dirty_index.partitions_with_marks();
         gauge!("personhog_leader_dirty_index_size").set(dirty_index.len() as f64);
         gauge!("personhog_leader_dirty_index_max_entries").set(dirty_index.max_entries() as f64);
         gauge!("personhog_leader_cache_weight_bytes").set(cache.usage_bytes() as f64);
-        if partitions.is_empty() {
-            continue;
-        }
-        let committed_offsets = match fetch_writer_committed_offsets(
+        let Some((partitions, committed_offsets)) = prune_and_settle_tick(
+            &dirty_index,
+            &cache,
+            &locks,
             &pools.offsets,
             &topic,
-            &partitions,
             offsets_timeout,
         )
         .await
-        {
-            Ok(offsets) => offsets,
-            Err(e) => {
-                tracing::warn!(error = %e, "dirty-index prune offset fetch failed");
-                continue;
-            }
+        else {
+            continue;
         };
-
-        let pruned = dirty_index.prune_applied(&committed_offsets);
-        if pruned > 0 {
-            counter!("personhog_leader_dirty_index_pruned_total").increment(pruned as u64);
+        if partitions.is_empty() {
+            continue;
         }
         // A partition absent from the committed offsets has no writer
         // commit yet: nothing is applied, every mark stays, and its lag
@@ -831,6 +825,7 @@ fn preregister_metrics() {
         counter!("personhog_leader_indeterminate_outcomes_total", "fenced" => fenced).increment(0);
     }
     counter!("personhog_leader_unresolved_versions_total").increment(0);
+    counter!("personhog_leader_death_documents_settled_total").increment(0);
     gauge!("personhog_leader_unresolved_versions").set(0.0);
     counter!("personhog_leader_warmed_messages_total").increment(0);
     counter!("personhog_leader_warm_retries_exhausted_total", "stage" => "committed_offset")

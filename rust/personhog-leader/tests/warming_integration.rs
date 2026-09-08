@@ -159,6 +159,7 @@ async fn warming_handles_empty_partition() {
     // The empty path must return its consumer to the pool, not drop it —
     // a second empty warm reuses the same client instead of creating one.
     let created_after_first = pools.warming.created_count();
+    cache.drop_partition(0);
     warm_from_kafka(&cfg, &pools, &cache, &DirtyIndex::new(1_000_000), 0)
         .await
         .expect("second empty warm should succeed");
@@ -519,6 +520,104 @@ async fn warming_seeds_dirty_index_only_at_or_past_the_committed_offset() {
     }
 }
 
+/// An applied death record must leave no residue in the warmed cache:
+/// not the death document (unmarked, it would answer not-found forever
+/// while PG may already hold a revival), and not the same key's earlier
+/// live record (it would resurrect the destroyed person's data). A live
+/// applied record of another key still warms.
+#[tokio::test]
+async fn warming_skips_applied_death_records() {
+    let (cluster, producer) = create_test_kafka().await;
+
+    // Key 1: live then death. Key 2: live only. Key 3: live, death,
+    // then a revival record.
+    produce_person_to_partition(&producer, 0, &make_person(1, 1)).await;
+    let mut dead = make_person(1, 1);
+    dead.is_deleted = true;
+    dead.version = 2;
+    produce_person_to_partition(&producer, 0, &dead).await;
+    produce_person_to_partition(&producer, 0, &make_person(1, 2)).await;
+    produce_person_to_partition(&producer, 0, &make_person(1, 3)).await;
+    let mut dead3 = make_person(1, 3);
+    dead3.is_deleted = true;
+    dead3.version = 2;
+    produce_person_to_partition(&producer, 0, &dead3).await;
+    let mut revived3 = make_person(1, 3);
+    revived3.version = 3;
+    produce_person_to_partition(&producer, 0, &revived3).await;
+    // Key 4: an unapplied death record (at the committed offset).
+    let mut dead4 = make_person(1, 4);
+    dead4.is_deleted = true;
+    dead4.version = 2;
+    produce_person_to_partition(&producer, 0, &dead4).await;
+
+    // Records at offsets 0..6 are applied; key 4's death record is not.
+    commit_writer_offset_at(&cluster, "personhog-writer", 0, 6);
+
+    let cache = PartitionedCache::new(1 << 20);
+    let dirty_index = DirtyIndex::new(1_000_000);
+    let (mut cfg, pools) = warming_config_for("warmer-skip-dead", &cluster);
+    cfg.lookback_offsets = 7;
+
+    warm_from_kafka(&cfg, &pools, &cache, &dirty_index, 0)
+        .await
+        .expect("warming should succeed");
+
+    let dead_key = PersonCacheKey {
+        team_id: 1,
+        person_id: 1,
+    };
+    let live_key = PersonCacheKey {
+        team_id: 1,
+        person_id: 2,
+    };
+    assert!(
+        matches!(cache.get(0, &dead_key), CacheLookup::PersonNotFound),
+        "an applied death record must leave no residue: neither itself nor its live predecessor"
+    );
+    assert!(
+        matches!(cache.get(0, &live_key), CacheLookup::Found(_)),
+        "an applied live record still warms"
+    );
+    let revived_key = PersonCacheKey {
+        team_id: 1,
+        person_id: 3,
+    };
+    match cache.get(0, &revived_key) {
+        CacheLookup::Found(entry) => {
+            assert_eq!(
+                entry.version, 3,
+                "the revival record warms after its death record"
+            );
+            assert!(!entry.is_deleted);
+        }
+        other => panic!(
+            "a revived key must warm, got {:?}",
+            std::mem::discriminant(&other)
+        ),
+    }
+    assert!(dirty_index.get(&dead_key).is_none());
+    assert!(dirty_index.get(&live_key).is_none());
+    assert!(dirty_index.get(&revived_key).is_none());
+    // An unapplied death record warms in and is marked: the writer has
+    // not applied it, so PG still holds the living person.
+    let unapplied_dead_key = PersonCacheKey {
+        team_id: 1,
+        person_id: 4,
+    };
+    match cache.get(0, &unapplied_dead_key) {
+        CacheLookup::Found(entry) => assert!(entry.is_deleted),
+        other => panic!(
+            "an unapplied death record must warm in, got {:?}",
+            std::mem::discriminant(&other)
+        ),
+    }
+    let mark = dirty_index
+        .get(&unapplied_dead_key)
+        .expect("an unapplied death record must be marked");
+    assert!(mark.is_deleted);
+}
+
 /// Warming must seed the dirty index for every record the writer has not
 /// applied — with no committed offset at all, that is every record — so a
 /// post-warm eviction still recovers from the changelog instead of
@@ -567,6 +666,8 @@ async fn sequential_warms_reuse_pooled_clients() {
     let (cfg, pools) = warming_config_for("warmer-pool", &cluster);
 
     for partition in [0u32, 1, 0, 1] {
+        // A re-warm follows a release in production; drop to match.
+        cache.drop_partition(partition);
         warm_from_kafka(&cfg, &pools, &cache, &DirtyIndex::new(1_000_000), partition)
             .await
             .expect("warming should succeed");
@@ -741,4 +842,146 @@ async fn warming_a_range_larger_than_the_budget_marks_every_person() {
         "the budget must have evicted something ({resident}/{persons} resident) — \
          if everything fit, this test no longer exercises eviction"
     );
+}
+
+/// The tick settles a published partition's applied death mark, while a
+/// warming partition keeps its marks until publish.
+#[tokio::test]
+async fn the_prune_tick_settles_published_partitions_only() {
+    let (cluster, _producer) = create_test_kafka().await;
+    let (_cfg, pools) = warming_config_for("prune-tick", &cluster);
+
+    let cache = PartitionedCache::new(1 << 20);
+    let dirty_index = DirtyIndex::new(1_000_000);
+    let locks = dashmap::DashMap::new();
+
+    let death_doc = |person_id: i64| {
+        let mut person = make_person(1, person_id);
+        person.is_deleted = true;
+        person.version = 2;
+        personhog_leader::cache::CachedPerson::try_from(person).unwrap()
+    };
+    let death_mark = |partition: u32| personhog_leader::cache::DirtyMark {
+        version: 2,
+        offset: 0,
+        partition,
+        is_deleted: true,
+    };
+    let published_key = PersonCacheKey {
+        team_id: 1,
+        person_id: 1,
+    };
+    let warming_key = PersonCacheKey {
+        team_id: 1,
+        person_id: 2,
+    };
+
+    cache.create_partition(0);
+    cache.put(0, published_key.clone(), death_doc(1));
+    dirty_index.mark(published_key.clone(), death_mark(0));
+
+    cache.begin_warm_partition(1);
+    cache.warm_put(1, warming_key.clone(), death_doc(2));
+    dirty_index.mark(warming_key.clone(), death_mark(1));
+
+    commit_writer_offset_at(&cluster, "personhog-writer", 0, 1);
+    commit_writer_offset_at(&cluster, "personhog-writer", 1, 1);
+
+    personhog_leader::service::prune_and_settle_tick(
+        &dirty_index,
+        &cache,
+        &locks,
+        &pools.offsets,
+        CHANGELOG_TOPIC,
+        Duration::from_secs(5),
+    )
+    .await
+    .expect("offset fetch succeeds");
+
+    assert!(dirty_index.get(&published_key).is_none());
+    assert!(
+        cache.peek(0, &published_key).is_none(),
+        "the published partition's death document settles"
+    );
+    assert!(
+        dirty_index.get(&warming_key).is_some(),
+        "a warming partition keeps its marks until publish"
+    );
+
+    // After publish, the next tick settles the waiting mark.
+    cache.publish_warmed_partition(1);
+    personhog_leader::service::prune_and_settle_tick(
+        &dirty_index,
+        &cache,
+        &locks,
+        &pools.offsets,
+        CHANGELOG_TOPIC,
+        Duration::from_secs(5),
+    )
+    .await
+    .expect("offset fetch succeeds");
+    assert!(dirty_index.get(&warming_key).is_none());
+    assert!(cache.peek(1, &warming_key).is_none());
+}
+
+/// One tick drains a death backlog larger than a prune chunk: the chunk
+/// loop must run to exhaustion, not stop after the first slice.
+#[tokio::test]
+async fn the_prune_tick_drains_a_multi_chunk_death_backlog() {
+    let (cluster, _producer) = create_test_kafka().await;
+    let (_cfg, pools) = warming_config_for("prune-tick-backlog", &cluster);
+
+    let cache = PartitionedCache::new(1 << 20);
+    let dirty_index = DirtyIndex::new(usize::MAX);
+    let locks = dashmap::DashMap::new();
+    cache.create_partition(0);
+
+    let total = personhog_leader::cache::PRUNE_CHUNK as i64 + 1;
+    for offset in 0..total {
+        let mut person = make_person(1, offset);
+        person.is_deleted = true;
+        person.version = 2;
+        let key = PersonCacheKey {
+            team_id: 1,
+            person_id: offset,
+        };
+        cache.put(
+            0,
+            key.clone(),
+            personhog_leader::cache::CachedPerson::try_from(person).unwrap(),
+        );
+        dirty_index.mark(
+            key,
+            personhog_leader::cache::DirtyMark {
+                version: 2,
+                offset,
+                partition: 0,
+                is_deleted: true,
+            },
+        );
+    }
+    commit_writer_offset_at(&cluster, "personhog-writer", 0, total);
+
+    personhog_leader::service::prune_and_settle_tick(
+        &dirty_index,
+        &cache,
+        &locks,
+        &pools.offsets,
+        CHANGELOG_TOPIC,
+        Duration::from_secs(5),
+    )
+    .await
+    .expect("offset fetch succeeds");
+
+    assert!(dirty_index.is_empty(), "every mark settles in one tick");
+    for person_id in [0, total / 2, total - 1] {
+        let key = PersonCacheKey {
+            team_id: 1,
+            person_id,
+        };
+        assert!(
+            cache.peek(0, &key).is_none(),
+            "death document for person {person_id} must be dropped"
+        );
+    }
 }

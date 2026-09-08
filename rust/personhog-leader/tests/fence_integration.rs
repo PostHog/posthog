@@ -19,7 +19,9 @@ use personhog_leader::emitted::EmittedVersions;
 use personhog_leader::fence::{FENCED_METADATA_KEY, FENCED_OP_ID_METADATA_KEY};
 use personhog_leader::inflight::InflightTracker;
 use personhog_leader::pg::PgFallback;
-use personhog_leader::service::{PersonHogLeaderService, PropertySizeLimits};
+use personhog_leader::service::{
+    drop_settled_death_documents, PersonHogLeaderService, PropertySizeLimits,
+};
 use personhog_leader::warnings::WarningsProducer;
 use personhog_proto::personhog::leader::v1::person_hog_leader_client::PersonHogLeaderClient;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
@@ -80,6 +82,8 @@ struct FenceHarness {
     cache: Arc<PartitionedCache>,
     inflight: Arc<InflightTracker>,
     emitted_versions: Arc<EmittedVersions>,
+    dirty_index: Arc<DirtyIndex>,
+    locks: Arc<DashMap<PersonCacheKey, Arc<tokio::sync::Mutex<()>>>>,
     _cancel: CancellationToken,
     _mock_cluster:
         rdkafka::mocking::MockCluster<'static, rdkafka::producer::DefaultProducerContext>,
@@ -100,6 +104,8 @@ async fn start_fence_harness(mut seed: CachedPerson, fallback: Option<PgFallback
     let cache = Arc::new(PartitionedCache::new(1 << 20));
     let inflight = Arc::new(InflightTracker::new());
     let emitted_versions = Arc::new(EmittedVersions::new(1_000_000));
+    let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
+    let locks = Arc::new(DashMap::new());
     // Recovery consumes the same mock cluster so a post-death cache miss
     // can recover the death document.
     let service = PersonHogLeaderService::new(
@@ -107,10 +113,10 @@ async fn start_fence_harness(mut seed: CachedPerson, fallback: Option<PgFallback
         kafka_producer.clone(),
         CHANGELOG_TOPIC.to_string(),
         fallback,
-        Arc::new(DashMap::new()),
+        Arc::clone(&locks),
         Arc::clone(&inflight),
         NUM_PARTITIONS,
-        Arc::new(DirtyIndex::new(1_000_000)),
+        Arc::clone(&dirty_index),
         test_recovery(&bootstrap),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
@@ -148,6 +154,8 @@ async fn start_fence_harness(mut seed: CachedPerson, fallback: Option<PgFallback
         cache,
         inflight,
         emitted_versions,
+        dirty_index,
+        locks,
         _cancel: cancel,
         _mock_cluster: mock_cluster,
     }
@@ -465,6 +473,151 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
         .execute(&pool)
         .await
         .expect("cleanup");
+}
+
+/// While the death document's mark stands, reads answer not-found even if
+/// PG already holds a revived row. Once the mark settles, the document
+/// leaves the cache and the next read serves the revival from PG.
+#[tokio::test]
+async fn a_revival_is_served_once_the_death_documents_mark_settles() {
+    let pool = common::create_persons_pool().await;
+    let mut harness = start_fence_harness(
+        test_cached_person(),
+        Some(PgFallback {
+            pool: pool.clone(),
+            table: "posthog_person".to_string(),
+        }),
+    )
+    .await;
+    let team_id = harness.team_id;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+    let person_uuid = test_cached_person().uuid;
+    let op = Uuid::now_v7();
+
+    sqlx::query(
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request) \
+         VALUES ($1, 'delete', $2, 'sealed', '{}'::jsonb)",
+    )
+    .bind(op)
+    .bind(team_id as i32)
+    .execute(&pool)
+    .await
+    .expect("insert op");
+    sqlx::query(
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed')",
+    )
+    .bind(op)
+    .bind(team_id as i32)
+    .bind(person_id)
+    .execute(&pool)
+    .await
+    .expect("insert mark");
+
+    let sealed = harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &op),
+            partition,
+        ))
+        .await
+        .expect("fence succeeds")
+        .into_inner()
+        .sealed
+        .unwrap();
+    harness
+        .client
+        .release_fence(with_partition(
+            ReleaseFenceRequest {
+                team_id,
+                person_id,
+                person_uuid: person_uuid.clone(),
+                op_id: op.to_string(),
+                outcome: ReleaseOutcome::Committed.into(),
+                sealed_version: Some(sealed.version),
+                created_at: sealed.created_at,
+            },
+            partition,
+        ))
+        .await
+        .expect("committed release succeeds");
+
+    let key = PersonCacheKey { team_id, person_id };
+    let death = harness
+        .cache
+        .peek(partition, &key)
+        .expect("the death document is cached");
+    assert!(death.is_deleted);
+
+    // A stub-create revived the row in place: same id and uuid, version
+    // above the death document's.
+    sqlx::query(
+        "INSERT INTO posthog_person \
+             (id, team_id, uuid, properties, created_at, version, is_identified, is_deleted) \
+         VALUES ($1, $2, $3::uuid, '{\"revived\": true}'::jsonb, now(), $4, false, false)",
+    )
+    .bind(person_id)
+    .bind(team_id as i32)
+    .bind(&person_uuid)
+    .bind(death.version + 1)
+    .execute(&pool)
+    .await
+    .expect("insert revived row");
+
+    let get = || {
+        with_partition(
+            GetPersonRequest {
+                team_id,
+                person_id,
+                read_options: None,
+            },
+            partition,
+        )
+    };
+    let status = harness
+        .client
+        .get_person(get())
+        .await
+        .expect_err("the death document answers while its mark stands");
+    assert_eq!(status.code(), Code::NotFound);
+
+    // The writer commits past the death record; the prune settles its mark.
+    let mark = harness
+        .dirty_index
+        .get(&key)
+        .expect("the release marks the death record");
+    let (pruned, exhausted) = harness.dirty_index.prune_chunk(partition, mark.offset + 1);
+    assert!(exhausted);
+    assert_eq!(pruned.death_marks.len(), 1);
+    drop_settled_death_documents(&harness.cache, &harness.locks, &pruned.death_marks).await;
+    assert!(
+        harness.cache.peek(partition, &key).is_none(),
+        "the settled death document leaves the cache"
+    );
+
+    let revived = harness
+        .client
+        .get_person(get())
+        .await
+        .expect("the revival is served from PG after the settle")
+        .into_inner()
+        .person
+        .unwrap();
+    assert_eq!(revived.version, death.version + 1);
+    assert_eq!(revived.uuid, person_uuid);
+
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(op)
+        .execute(&pool)
+        .await
+        .expect("cleanup op");
+    sqlx::query("DELETE FROM posthog_person WHERE team_id = $1 AND id = $2")
+        .bind(team_id as i32)
+        .bind(person_id)
+        .execute(&pool)
+        .await
+        .expect("cleanup person");
 }
 
 /// A pre-fence write with an indeterminate produce outcome spends a

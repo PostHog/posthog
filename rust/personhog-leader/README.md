@@ -80,6 +80,9 @@ TBD:
 - this offset is the boundary:
 - below the offset: state is durably in Postgres
 - at or above the offset: state is PG + the changes in our distributed log (the kafka topic)
+- death documents (tombstoned persons) stay cached only while their record awaits the writer: once the committed offset passes it, the prune drops the document and reads fall through to Postgres, which then holds the tombstone or a revival that superseded it
+- a revival therefore becomes visible at most one prune tick after the writer applies its tombstone
+- warming leaves no residue for an applied death record — neither the document (unmarked, it would answer not-found forever) nor its earlier records for the same key
 
 #### Admission
 
