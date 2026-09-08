@@ -1,5 +1,5 @@
 import type { HogFlowTemplate } from '../hogflows/types'
-import { getTemplateTrigger, isAiTemplate } from './workflowTemplateDisplay'
+import { getOrderedActions, getTemplateTrigger, isAiTemplate } from './workflowTemplateDisplay'
 
 describe('workflowTemplateDisplay', () => {
     function templateWith(partial: Partial<HogFlowTemplate>): HogFlowTemplate {
@@ -43,6 +43,63 @@ describe('workflowTemplateDisplay', () => {
                 actions: [{ id: 't', type: 'trigger', name: 't', config: { type: 'brand-new' } }] as any,
             })
             expect(getTemplateTrigger(template)?.label).toEqual('Starts on a trigger')
+        })
+    })
+
+    describe('getOrderedActions', () => {
+        const actions = [
+            { id: 'trigger', type: 'trigger', name: 'trigger', config: {} },
+            { id: 'email', type: 'function_email', name: 'email', config: {} },
+            { id: 'delay', type: 'delay', name: 'delay', config: {} },
+            { id: 'exit', type: 'exit', name: 'exit', config: {} },
+        ] as any
+
+        it('walks the edges rather than the array, which is creation order', () => {
+            const edges = [
+                { from: 'trigger', to: 'delay', type: 'continue' },
+                { from: 'delay', to: 'email', type: 'continue' },
+                { from: 'email', to: 'exit', type: 'continue' },
+            ] as any
+            expect(getOrderedActions(actions, edges).map((action) => action.id)).toEqual([
+                'trigger',
+                'delay',
+                'email',
+                'exit',
+            ])
+        })
+
+        it('takes a met condition before the default path, which usually just exits', () => {
+            const branching = [
+                { id: 'trigger', type: 'trigger', name: 'trigger', config: {} },
+                { id: 'branch', type: 'conditional_branch', name: 'branch', config: {} },
+                { id: 'email', type: 'function_email', name: 'email', config: {} },
+                { id: 'exit', type: 'exit', name: 'exit', config: {} },
+            ] as any
+            const edges = [
+                { from: 'trigger', to: 'branch', type: 'continue' },
+                { from: 'branch', to: 'exit', type: 'continue' },
+                { from: 'branch', to: 'email', type: 'branch', index: 0 },
+            ] as any
+            expect(getOrderedActions(branching, edges).map((action) => action.id)).toEqual([
+                'trigger',
+                'branch',
+                'email',
+                'exit',
+            ])
+        })
+
+        it('keeps an action the edges never reach', () => {
+            const edges = [{ from: 'trigger', to: 'exit', type: 'continue' }] as any
+            expect(getOrderedActions(actions, edges).map((action) => action.id)).toEqual([
+                'trigger',
+                'exit',
+                'email',
+                'delay',
+            ])
+        })
+
+        it('falls back to the array when there is no trigger to walk from', () => {
+            expect(getOrderedActions(actions.slice(1), [])).toEqual(actions.slice(1))
         })
     })
 })

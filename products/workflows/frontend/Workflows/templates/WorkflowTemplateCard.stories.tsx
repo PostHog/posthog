@@ -33,7 +33,13 @@ function template(
         }),
         { id: 'exit', type: 'exit', name: 'Exit', config: {} },
     ]
-    return { id: name, name, description, actions, tags, scope: 'global' } as unknown as HogFlowTemplate
+    // The shipped templates chain their steps with `continue` edges, and the card reads that chain
+    const edges = actions.slice(0, -1).map((action, index) => ({
+        from: action.id,
+        to: actions[index + 1].id,
+        type: 'continue',
+    }))
+    return { id: name, name, description, actions, edges, tags, scope: 'global' } as unknown as HogFlowTemplate
 }
 
 // Copied from the templates that ship in products/workflows/backend/templates, so the card is
@@ -121,7 +127,7 @@ function templateArgs(source: HogFlowTemplate): WorkflowTemplateCardProps {
     return {
         name: source.name,
         description: source.description,
-        preview: <WorkflowTemplateSteps actions={source.actions} />,
+        preview: <WorkflowTemplateSteps actions={source.actions} edges={source.edges} />,
         badge: isAiTemplate(source) ? <WorkflowTemplateAiBadge /> : null,
         footer: <WorkflowTemplateMeta template={source} />,
         onClick: () => {},

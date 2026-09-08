@@ -1,4 +1,4 @@
-import type { HogFlowAction, HogFlowTemplate } from '../hogflows/types'
+import type { HogFlowAction, HogFlowEdge, HogFlowTemplate } from '../hogflows/types'
 
 const TRIGGER_LABELS: Record<string, string> = {
     event: 'Starts on an event',
@@ -54,4 +54,49 @@ export function isAiTemplate(template: Pick<HogFlowTemplate, 'actions' | 'tags'>
     return (template.actions ?? []).some(
         (action) => 'template_id' in action.config && AI_STEP_TEMPLATE_IDS.has(action.config.template_id)
     )
+}
+
+// A branch edge is the path a met condition takes, so it says more than the default `continue` edge.
+function compareEdges(a: HogFlowEdge, b: HogFlowEdge): number {
+    if (a.type !== b.type) {
+        return a.type === 'branch' ? -1 : 1
+    }
+    return (a.index ?? 0) - (b.index ?? 0)
+}
+
+/**
+ * Orders actions the way the canvas reads, top to bottom, by walking `edges` from the trigger.
+ * The stored `actions` array is creation order, which is a different sequence for most templates.
+ */
+export function getOrderedActions(actions: HogFlowAction[], edges: HogFlowEdge[] | undefined): HogFlowAction[] {
+    const trigger = actions.find((action) => action.type === 'trigger')
+    if (!trigger) {
+        return actions
+    }
+
+    const actionsById = new Map(actions.map((action) => [action.id, action]))
+    const edgesByFrom = new Map<string, HogFlowEdge[]>()
+    for (const edge of edges ?? []) {
+        edgesByFrom.set(edge.from, [...(edgesByFrom.get(edge.from) ?? []), edge])
+    }
+
+    const ordered: HogFlowAction[] = []
+    const visited = new Set<string>([trigger.id])
+    const queue: string[] = [trigger.id]
+    while (queue.length > 0) {
+        const id = queue.shift() as string
+        const action = actionsById.get(id)
+        if (action) {
+            ordered.push(action)
+        }
+        for (const edge of [...(edgesByFrom.get(id) ?? [])].sort(compareEdges)) {
+            if (!visited.has(edge.to)) {
+                visited.add(edge.to)
+                queue.push(edge.to)
+            }
+        }
+    }
+
+    // Keep any action the edges never reach, so a broken graph hides nothing
+    return [...ordered, ...actions.filter((action) => !visited.has(action.id))]
 }

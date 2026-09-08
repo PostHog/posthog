@@ -4,22 +4,29 @@ import { Fragment, useMemo } from 'react'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { getHogFlowStep } from '../hogflows/steps/HogFlowSteps'
-import type { HogFlowAction } from '../hogflows/types'
+import type { HogFlowAction, HogFlowEdge } from '../hogflows/types'
+import { getOrderedActions } from './workflowTemplateDisplay'
 
 const MAX_VISIBLE_STEPS = 4
 
 /** The steps of a workflow template, drawn as the same icon tiles the editor canvas uses. */
-export function WorkflowTemplateSteps({ actions }: { actions: HogFlowAction[] }): JSX.Element | null {
+export function WorkflowTemplateSteps({
+    actions,
+    edges,
+}: {
+    actions: HogFlowAction[]
+    edges?: HogFlowEdge[]
+}): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
 
     const steps = useMemo(
         () =>
-            actions
+            getOrderedActions(actions, edges)
                 // The exit step closes every workflow, so it says nothing about this one
                 .filter((action) => action.type !== 'exit')
                 .map((action) => getHogFlowStep(action, {}, isDarkModeOn))
                 .filter((step) => !!step),
-        [actions, isDarkModeOn]
+        [actions, edges, isDarkModeOn]
     )
 
     if (steps.length === 0) {

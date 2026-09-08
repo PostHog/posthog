@@ -61,7 +61,7 @@ export function WorkflowTemplateChooser(props: WorkflowTemplateChooserProps): JS
                         key={template.id}
                         name={template.name || 'Unnamed template'}
                         description={template.description}
-                        preview={<WorkflowTemplateSteps actions={template.actions} />}
+                        preview={<WorkflowTemplateSteps actions={template.actions} edges={template.edges} />}
                         badge={isAiTemplate(template) ? <WorkflowTemplateAiBadge /> : null}
                         footer={<WorkflowTemplateMeta template={template} />}
                         onClick={() => createWorkflowFromTemplate(template)}
