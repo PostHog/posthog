@@ -5,6 +5,10 @@ import {
   CheckCircle,
 } from "@phosphor-icons/react";
 import {
+  Button,
+  Card,
+  CardContent,
+  CardFooter,
   Combobox,
   ComboboxCollection,
   ComboboxContent,
@@ -15,6 +19,15 @@ import {
   ComboboxLabel,
   ComboboxList,
   ComboboxTrigger,
+  Heading,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
+  Skeleton,
+  Text,
 } from "@posthog/quill";
 import { REGION_LABELS } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
@@ -26,7 +39,6 @@ import {
 } from "@posthog/ui/features/auth/store";
 import { useSelectProjectMutation } from "@posthog/ui/features/auth/useAuthMutations";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
-import { StepActions } from "@posthog/ui/features/onboarding/components/StepActions";
 import {
   type ProjectInfo,
   useProjects,
@@ -34,12 +46,8 @@ import {
 import { ProductWordmark } from "@posthog/ui/primitives/ProductWordmark";
 import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
-import {
-  FIELD_CONTENT_CLASS,
-  FIELD_TRIGGER_CLASS,
-} from "@posthog/ui/styles/fieldTrigger";
-import { Button, Flex, Spinner, Text } from "@radix-ui/themes";
-import { AnimatePresence, motion } from "framer-motion";
+import { FIELD_CONTENT_CLASS } from "@posthog/ui/styles/fieldTrigger";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useMemo, useRef, useState } from "react";
 
 const log = logger.scope("project-select-step");
@@ -61,29 +69,29 @@ function SignedInRow({ email }: { email: string | undefined }) {
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
   const region = cloudRegion ? REGION_LABELS[cloudRegion].label : null;
   return (
-    <Flex
-      align="center"
-      gap="2"
-      className="h-[44px] w-full rounded-[6px] border border-(--gray-a4) px-[14px]"
-    >
-      <CheckCircle
-        size={16}
-        weight="fill"
-        className="shrink-0 text-(--green-9)"
-      />
-      <Text className="min-w-0 truncate text-(--gray-12) text-sm">
-        Signed in as {email ?? "your PostHog account"}
-      </Text>
+    <Item variant="muted" tone="success" size="sm">
+      <ItemMedia variant="icon">
+        <CheckCircle size={16} weight="fill" />
+      </ItemMedia>
+      <ItemContent>
+        <ItemTitle className="max-w-full truncate">
+          Signed in as {email ?? "your PostHog account"}
+        </ItemTitle>
+        <ItemDescription>PostHog account connected</ItemDescription>
+      </ItemContent>
       {region && (
-        <Text className="ml-auto shrink-0 text-(--gray-11) text-xs">
-          {region}
-        </Text>
+        <ItemActions>
+          <Text size="xs" variant="muted">
+            {region}
+          </Text>
+        </ItemActions>
       )}
-    </Flex>
+    </Item>
   );
 }
 
 export function ProjectSelectStep({ onNext, onBack }: ProjectSelectStepProps) {
+  const shouldReduceMotion = useReducedMotion() === true;
   const authFetched = useAuthStateFetched();
   const isAuthenticated =
     useAuthStateValue((state) => state.status) === "authenticated";
@@ -121,34 +129,31 @@ export function ProjectSelectStep({ onNext, onBack }: ProjectSelectStepProps) {
     () => sortedProjects.find((p) => p.id === currentProjectId) ?? null,
     [sortedProjects, currentProjectId],
   );
+  const projectLoading = isLoading || selectProjectMutation.isPending;
 
   return (
-    <Flex align="center" justify="center" height="100%" px="8">
-      <Flex
-        direction="column"
-        align="center"
-        className="h-full w-full max-w-[480px] pt-[24px] pb-[40px]"
-      >
-        <Flex
-          direction="column"
-          align="center"
-          className="min-h-0 w-full flex-1 overflow-y-auto"
-        >
-          <Flex
-            direction="column"
-            gap="6"
-            style={{ margin: "auto 0" }}
-            className="w-full"
-          >
-            <div className="flex justify-center">
-              <ProductWordmark />
-            </div>
+    <main className="flex h-full overflow-y-auto px-8 py-12">
+      <div className="m-auto flex w-full max-w-[480px] flex-col gap-6">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <ProductWordmark />
+          <div className="flex flex-col gap-1.5">
+            {/* biome-ignore lint/a11y/useHeadingContent: Quill supplies the heading text through this render target. */}
+            <Heading size="xl" render={<h1 />}>
+              Choose a project
+            </Heading>
+            <Text size="sm" variant="muted">
+              Choose the PostHog project you want to use with Desktop.
+            </Text>
+          </div>
+        </div>
 
+        <Card className="w-full">
+          <CardContent className="flex flex-col gap-4">
             <AnimatePresence mode="wait">
               {isAuthenticated ? (
                 <motion.div
                   key="signed-in"
-                  initial={{ opacity: 0, y: 4 }}
+                  initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.2 }}
                   className="w-full"
@@ -159,7 +164,7 @@ export function ProjectSelectStep({ onNext, onBack }: ProjectSelectStepProps) {
                 <motion.div
                   key="oauth"
                   initial={{ opacity: 1 }}
-                  exit={{ opacity: 0, y: -4 }}
+                  exit={shouldReduceMotion ? undefined : { opacity: 0, y: -4 }}
                   transition={{ duration: 0.2 }}
                   className="w-full"
                 >
@@ -174,21 +179,15 @@ export function ProjectSelectStep({ onNext, onBack }: ProjectSelectStepProps) {
               ) : null}
             </AnimatePresence>
 
-            {isAuthenticated && isLoading && (
-              <Flex align="center" justify="center" className="h-[80px]">
-                <Spinner size="3" />
-              </Flex>
-            )}
-
-            {isAuthenticated && !isLoading && (
+            {isAuthenticated && (
               <motion.div
-                initial={{ opacity: 0, y: 8 }}
+                initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.3 }}
                 className="w-full"
               >
-                <Flex direction="column" gap="2" className="w-full">
-                  <Text className="font-medium text-(--gray-11) text-sm">
+                <div className="flex w-full flex-col gap-2">
+                  <Text size="xs" variant="muted" weight="medium">
                     Project
                   </Text>
                   <Combobox
@@ -206,37 +205,61 @@ export function ProjectSelectStep({ onNext, onBack }: ProjectSelectStepProps) {
                     }}
                     open={projectOpen}
                     onOpenChange={setProjectOpen}
-                    disabled={selectProjectMutation.isPending}
+                    disabled={projectLoading}
                     itemToStringLabel={(project) => project.name}
                     itemToStringValue={(project) => String(project.id)}
                   >
                     <ComboboxTrigger
                       render={
-                        <button
+                        <Button
                           ref={projectAnchorRef}
                           type="button"
-                          className={FIELD_TRIGGER_CLASS}
+                          variant="outline"
+                          size="lg"
+                          left
+                          aria-label={
+                            projectLoading
+                              ? "Loading project"
+                              : `Project: ${currentProject?.name ?? "Select a project"}`
+                          }
+                          aria-busy={projectLoading || undefined}
+                          className="h-auto min-h-14 w-full justify-between px-3 py-2"
                         >
-                          <Flex
-                            direction="column"
-                            gap="1"
-                            align="start"
-                            className="min-w-0 flex-1 text-left"
-                          >
-                            <Text className="min-w-0 max-w-full truncate font-medium text-(--gray-12)">
-                              {currentProject?.name ?? "Select a project..."}
-                            </Text>
-                            {currentProject && (
-                              <Text className="min-w-0 max-w-full truncate text-(--gray-11) text-[13px]">
-                                {currentProject.organization.name}
+                          {projectLoading ? (
+                            <span
+                              aria-hidden="true"
+                              className="flex min-w-0 flex-1 flex-col gap-1.5"
+                            >
+                              <Skeleton className="h-3.5 w-28" />
+                              <Skeleton className="h-2.5 w-20" />
+                            </span>
+                          ) : (
+                            <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left">
+                              <Text
+                                render={<span />}
+                                size="sm"
+                                weight="medium"
+                                className="min-w-0 max-w-full truncate"
+                              >
+                                {currentProject?.name ?? "Select a project..."}
                               </Text>
-                            )}
-                          </Flex>
+                              {currentProject && (
+                                <Text
+                                  render={<span />}
+                                  size="xs"
+                                  variant="muted"
+                                  className="min-w-0 max-w-full truncate"
+                                >
+                                  {currentProject.organization.name}
+                                </Text>
+                              )}
+                            </span>
+                          )}
                           <CaretDown
                             size={14}
-                            className="shrink-0 text-(--gray-9)"
+                            className="shrink-0 text-muted-foreground"
                           />
-                        </button>
+                        </Button>
                       }
                     />
                     <ComboboxContent
@@ -262,7 +285,7 @@ export function ProjectSelectStep({ onNext, onBack }: ProjectSelectStepProps) {
                                   value={project}
                                   title={project.name}
                                 >
-                                  <Text>{project.name}</Text>
+                                  <Text size="sm">{project.name}</Text>
                                 </ComboboxItem>
                               )}
                             </ComboboxCollection>
@@ -272,44 +295,51 @@ export function ProjectSelectStep({ onNext, onBack }: ProjectSelectStepProps) {
                     </ComboboxContent>
                   </Combobox>
                   {selectProjectMutation.isError && (
-                    <Text className="text-(--red-11) text-[13px]">
+                    <Text size="xs" variant="destructive">
                       Couldn't switch to that project. Try again.
                     </Text>
                   )}
-                </Flex>
+                </div>
               </motion.div>
             )}
-          </Flex>
-        </Flex>
+          </CardContent>
 
-        <StepActions>
-          {onBack && (
-            <Button size="3" variant="outline" color="gray" onClick={onBack}>
-              <ArrowLeft size={16} weight="bold" />
-              Back
-            </Button>
+          {(onBack || isAuthenticated) && (
+            <CardFooter className="justify-end gap-2">
+              {onBack && (
+                <Button
+                  className="min-h-11"
+                  size="lg"
+                  variant="outline"
+                  onClick={onBack}
+                >
+                  <ArrowLeft size={16} weight="bold" />
+                  Back
+                </Button>
+              )}
+              {isAuthenticated && (
+                <Button
+                  className="min-h-11"
+                  size="lg"
+                  variant="primary"
+                  onClick={() => {
+                    track(ANALYTICS_EVENTS.ONBOARDING_PROJECT_SELECTED, {
+                      had_multiple_orgs: hasMultipleOrgs,
+                      had_multiple_projects: sortedProjects.length > 1,
+                    });
+                    onNext();
+                  }}
+                  loading={selectProjectMutation.isPending}
+                  disabled={currentProjectId == null || projectLoading}
+                >
+                  Continue
+                  <ArrowRight size={16} weight="bold" />
+                </Button>
+              )}
+            </CardFooter>
           )}
-          {isAuthenticated && !isLoading && (
-            <Button
-              size="3"
-              onClick={() => {
-                track(ANALYTICS_EVENTS.ONBOARDING_PROJECT_SELECTED, {
-                  had_multiple_orgs: hasMultipleOrgs,
-                  had_multiple_projects: sortedProjects.length > 1,
-                });
-                onNext();
-              }}
-              loading={selectProjectMutation.isPending}
-              disabled={
-                currentProjectId == null || selectProjectMutation.isPending
-              }
-            >
-              Continue
-              <ArrowRight size={16} weight="bold" />
-            </Button>
-          )}
-        </StepActions>
-      </Flex>
-    </Flex>
+        </Card>
+      </div>
+    </main>
   );
 }

@@ -327,7 +327,11 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
   );
 
   return (
-    <FullScreenLayout footerRight={footerRight} onOpenSupport={onOpenSupport}>
+    <FullScreenLayout
+      backgroundPattern="grid"
+      footerRight={footerRight}
+      onOpenSupport={onOpenSupport}
+    >
       <AnimatePresence mode="wait" custom={direction}>
         {currentStep === "project-select" && (
           <motion.div

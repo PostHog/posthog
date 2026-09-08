@@ -1,5 +1,6 @@
 import { Lifebuoy } from "@phosphor-icons/react";
 import { DotPatternBackground } from "@posthog/ui/primitives/DotPatternBackground";
+import { MathGridBackground } from "@posthog/ui/primitives/MathGridBackground";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { Button, Flex, Theme } from "@radix-ui/themes";
 import type { ReactNode } from "react";
@@ -7,6 +8,7 @@ import { DraggableTitleBar } from "./DraggableTitleBar";
 
 interface FullScreenLayoutProps {
   children: ReactNode;
+  backgroundPattern?: "dots" | "grid";
   footerLeft?: ReactNode;
   footerRight?: ReactNode;
   /** Host-provided update banner shown in the default footer. */
@@ -17,6 +19,7 @@ interface FullScreenLayoutProps {
 
 export function FullScreenLayout({
   children,
+  backgroundPattern = "dots",
   footerLeft,
   footerRight,
   banner,
@@ -38,7 +41,11 @@ export function FullScreenLayout({
         <DraggableTitleBar />
 
         <div className="absolute inset-0 bg-(--color-background)" />
-        <DotPatternBackground />
+        {backgroundPattern === "grid" ? (
+          <MathGridBackground />
+        ) : (
+          <DotPatternBackground />
+        )}
 
         <Flex
           direction="column"
