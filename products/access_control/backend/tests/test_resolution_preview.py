@@ -1,5 +1,8 @@
 import pytest
 
+from django.apps import apps
+
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.organization import OrganizationMembership
@@ -120,19 +123,26 @@ class TestBuildResolutionPreview(BaseUserAccessControlTest):
         assert [(change.scope, change.object_id) for change in member_changes] == [("object", str(playlist.id))]
         assert (member_changes[0].current.access_level, member_changes[0].proposed.access_level) == ("editor", "none")
 
-    def test_object_rules_on_a_resource_without_a_display_model_are_compared(self):
-        # Exports have no display model, so the settings UI cannot name them, but the route
-        # model still backs the resource and the rule resolves like any other object rule
-        from products.exports.backend.models.exported_asset import ExportedAsset
-
-        asset = ExportedAsset.objects.create(team=self.team, created_by=self.other_user, export_format="text/csv")
-        self._create_access_control(resource="export", resource_id=str(asset.id), access_level="viewer")
-        self._create_access_control(resource="export", access_level="editor")
+    @parameterized.expand(
+        [
+            ("export", "exports", "exportedasset", {"export_format": "text/csv"}),
+            ("llm_analytics", "ai_observability", "scoredefinition", {"name": "Helpfulness", "kind": "numeric"}),
+        ]
+    )
+    def test_object_rules_on_a_resource_without_a_display_model_are_compared(
+        self, resource, app_label, model_name, fields
+    ):
+        # The settings UI cannot name these objects, but the route model still backs the
+        # resource and the rule resolves like any other object rule
+        model = apps.get_model(app_label, model_name)
+        obj = model.objects.create(team=self.team, created_by=self.other_user, **fields)
+        self._create_access_control(resource=resource, resource_id=str(obj.id), access_level="viewer")
+        self._create_access_control(resource=resource, access_level="editor")
 
         changes = self._changes()
 
         assert [(change.scope, change.object_id, change.object_name) for change in changes] == [
-            ("object", str(asset.id), None)
+            ("object", str(obj.id), None)
         ]
         assert (changes[0].current.access_level, changes[0].proposed.access_level) == ("editor", "viewer")
 

@@ -344,6 +344,11 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "replay_scanner"
     if name in ("visionalertconfiguration", "visionalertevent"):
         return "vision_alert"
+    # These scopes are served by several viewsets, each with its own model
+    if name in ("parserrecipe", "reviewqueue", "reviewqueueitem", "scoredefinition", "tracereview"):
+        return "llm_analytics"
+    if name in ("dataqualitycheck", "dataqualitysuiterun"):
+        return "warehouse_objects"
 
     if name not in API_SCOPE_OBJECTS or name in INTERNAL_API_SCOPE_OBJECTS:
         return None
