@@ -1,43 +1,24 @@
-import { LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import type { SurveyResponseOutcome } from 'scenes/surveys/utils'
 
 export function SurveyResponseBreakdown({ outcomes }: { outcomes: SurveyResponseOutcome[] }): JSX.Element {
     return (
-        <div className="flex flex-col gap-2">
-            <h4 className="mb-0">Response outcomes</h4>
-            <p className="text-xs text-secondary mb-0">
-                Each submission counts once. Dismissed and abandoned responses contain partial answers.
-            </p>
-            <LemonTable
-                size="small"
-                rowKey="label"
-                dataSource={outcomes}
-                columns={[
-                    {
-                        title: 'Outcome',
-                        dataIndex: 'label',
-                        render: (_, outcome) => (
-                            <LemonTag type={outcome.label === 'Completed' ? 'success' : 'warning'}>
-                                {outcome.label}
-                            </LemonTag>
-                        ),
-                    },
-                    {
-                        title: 'Responses',
-                        dataIndex: 'count',
-                        align: 'right',
-                        render: (_, outcome) => humanFriendlyNumber(outcome.count),
-                    },
-                    {
-                        title: '% of responses',
-                        dataIndex: 'percentage',
-                        align: 'right',
-                        render: (_, outcome) => percentage(outcome.percentage, 1),
-                    },
-                ]}
-            />
-        </div>
+        <Tooltip title="Percentages are of all responses matching the current filters. Each submission counts once. Dismissed and abandoned responses contain partial answers.">
+            <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs">
+                <span className="text-secondary">Of responses:</span>
+                {outcomes.map((outcome) => (
+                    <span key={outcome.label} className="inline-flex items-center gap-1 whitespace-nowrap">
+                        <LemonTag type={outcome.label === 'Completed' ? 'success' : 'warning'}>
+                            {outcome.label}
+                        </LemonTag>
+                        <span className="tabular-nums">
+                            {humanFriendlyNumber(outcome.count)} ({percentage(outcome.percentage, 1)})
+                        </span>
+                    </span>
+                ))}
+            </div>
+        </Tooltip>
     )
 }
