@@ -1,4 +1,4 @@
-import { MakeLogicType, BuiltLogic, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, BreakPointFunction, BuiltLogic, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
 
@@ -66,9 +66,13 @@ const WAIT_FOR_DATA_LOGIC_TIMEOUT_MS = 2000
  *
  * in practice, it will only wait for 1-2 retries,
  * but a timeout is provided to avoid waiting forever when something breaks
+ *
+ * the caller's breakpoint does the waiting, so that a newer file load or an unmount
+ * stops the poll instead of leaving it to run against a player that is gone
  */
 const waitForDataLogic = async (
-    playerProps: SessionRecordingPlayerProps
+    playerProps: SessionRecordingPlayerProps,
+    breakpoint: BreakPointFunction
 ): Promise<BuiltLogic<sessionRecordingDataCoordinatorLogicType> | null> => {
     const maxRetries = WAIT_FOR_DATA_LOGIC_TIMEOUT_MS / WAIT_FOR_DATA_LOGIC_INTERVAL_MS
     let retries = 0
@@ -84,7 +88,7 @@ const waitForDataLogic = async (
         }
 
         // Wait for a short period before trying again
-        await new Promise((resolve) => setTimeout(resolve, WAIT_FOR_DATA_LOGIC_INTERVAL_MS))
+        await breakpoint(WAIT_FOR_DATA_LOGIC_INTERVAL_MS)
         retries++
     }
 
@@ -246,16 +250,23 @@ export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePl
     }),
 
     listeners(({ values }) => ({
-        loadFromFileSuccess: async () => {
-            if (!values.sessionRecording) {
+        loadFromFileSuccess: async (_, breakpoint) => {
+            const sessionRecording = values.sessionRecording
+            if (!sessionRecording) {
                 return
             }
-            const recordingDataLogic = await waitForDataLogic(values.playerProps)
+            const playerProps = values.playerProps
+            const recordingDataLogic = await waitForDataLogic(playerProps, breakpoint)
+            // a reset or a newer file gives the scene a different playerKey,
+            // so this run waited for a player that no one is looking at now
+            if (values.playerProps.playerKey !== playerProps.playerKey) {
+                return
+            }
             if (!recordingDataLogic) {
                 lemonToast.error('The player did not start in time. Please try loading the file again.')
                 return
             }
-            recordingDataLogic.actions.loadRecordingFromFile(values.sessionRecording)
+            recordingDataLogic.actions.loadRecordingFromFile(sessionRecording)
         },
     })),
 ])

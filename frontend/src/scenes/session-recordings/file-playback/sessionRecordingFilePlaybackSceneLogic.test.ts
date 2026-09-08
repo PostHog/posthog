@@ -56,6 +56,25 @@ describe('sessionRecordingFilePlaybackLogic', () => {
         }
     })
 
+    it.each([
+        ['the recording is reset', (): void => logic.actions.resetSessionRecording()],
+        ['the scene is left', (): void => logic.unmount()],
+    ])('says nothing when %s while the player is still mounting', async (_, interrupt) => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => '')
+        jest.useFakeTimers()
+        try {
+            logic.actions.loadFromFileSuccess(exportedRecording)
+            await jest.advanceTimersByTimeAsync(100)
+            interrupt()
+            await jest.advanceTimersByTimeAsync(2100)
+
+            expect(errorToast).not.toHaveBeenCalled()
+        } finally {
+            jest.useRealTimers()
+            errorToast.mockRestore()
+        }
+    })
+
     it('reports a message when the player never mounts', async () => {
         const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => '')
         jest.useFakeTimers()
