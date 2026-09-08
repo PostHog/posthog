@@ -3,9 +3,13 @@ from pathlib import Path
 from typing import cast
 from uuid import uuid4
 
+import pytest
+from unittest.mock import patch
+
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
+from temporalio.converter import JSONPlainPayloadConverter
 
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
 from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
@@ -22,12 +26,15 @@ from posthog.temporal.oauth import (
     SCOUT_USER_WRITE_SCOPES,
     SCRATCHPAD_INTERNAL_SCOPES,
     McpScopePreset,
+    PosthogMcpScopes,
     ScoutScopePosture,
     ScoutScopePreset,
+    WizardIdentityBlockedError,
     create_oauth_access_token_for_user,
     create_wizard_oauth_access_token_for_user,
     has_write_scopes,
     resolve_scopes,
+    scout_mcp_scopes,
     scout_scope_posture,
 )
 
@@ -128,13 +135,49 @@ class TestResolveScopes(SimpleTestCase):
         for scope in INTERNAL_SCOPES:
             assert scope not in result
 
-    def test_scout_posture_adds_only_the_granted_write_scopes(self) -> None:
+    @parameterized.expand(
+        [
+            ("dashboard_grant", "signals_scout", "dashboard:write", "insight:write"),
+            # The skills grant is the one whose object the scout machinery itself runs on: a custom
+            # scout is a skill, and the report preset carries the scout's own internal and emit
+            # scopes. This case is what proves a grant on it composes with that preset rather than
+            # replacing part of it.
+            (
+                "skill_grant_on_the_report_preset",
+                "signals_scout_reports",
+                "llm_skill:write",
+                "warehouse_view:write",
+            ),
+        ]
+    )
+    def test_scout_posture_adds_only_the_granted_write_scopes(
+        self, _name: str, preset: ScoutScopePreset, granted: str, withheld: str
+    ) -> None:
         # The feature itself: a grant reaches the token, and only the granted scope does.
         # A posture that resolved to the whole allowlist would hand every scout that holds one
-        # grant the other three.
-        result = resolve_scopes(scout_scope_posture("signals_scout", ["dashboard:write"]))
-        assert set(result) == set(resolve_scopes("signals_scout")) | {"dashboard:write"}
-        assert "insight:write" not in result
+        # grant the rest of the set.
+        assert granted not in resolve_scopes(preset), "the preset already carries it, so this case proves nothing"
+        result = resolve_scopes(scout_scope_posture(preset, [granted]))
+        assert set(result) == set(resolve_scopes(preset)) | {granted}
+        assert withheld not in result
+
+    @parameterized.expand(
+        [
+            ("without_a_grant_sends_the_preset_string", [], "signals_scout_reports"),
+            (
+                "with_a_grant_sends_the_posture",
+                ["dashboard:write"],
+                {"preset": "signals_scout_reports", "extra_write_scopes": ["dashboard:write"]},
+            ),
+        ]
+    )
+    def test_scout_mcp_scopes_sends_the_dict_only_when_a_grant_needs_it(
+        self, _name: str, grant: list[str], expected: PosthogMcpScopes
+    ) -> None:
+        # The posture dict is a newer wire shape than the preset string. A sandbox worker that
+        # predates it decodes the dict as `list[str]` and mints a token from its keys, so a run
+        # dispatched as a dict when the string would do loses every scout tool on a lagging worker.
+        assert scout_mcp_scopes(scout_scope_posture("signals_scout_reports", grant)) == expected
 
     @parameterized.expand([(preset,) for preset in SCOUT_SCOPE_PRESETS])
     def test_scout_posture_without_a_grant_matches_the_plain_preset(self, preset: ScoutScopePreset) -> None:
@@ -146,6 +189,10 @@ class TestResolveScopes(SimpleTestCase):
     @parameterized.expand(
         [
             ("write_scope_outside_the_allowlist", "feature_flag:write"),
+            # A scout run acts as its skill's author, so a scout holding this could widen its own
+            # `write_scopes` through the scout config endpoint. It is kept out of the allowlist
+            # until that self-widening has its own gate.
+            ("scout_config_scope", "signal_scout:write"),
             # The report channel is granted by the preset a scout's skill opted into, never by
             # the per-scout field. A baseline scout must not reach emit_report through a grant.
             ("internal_scope", "signal_scout_report:write"),
@@ -194,13 +241,22 @@ class TestResolveScopes(SimpleTestCase):
         posture = cast(ScoutScopePosture, {"preset": "signals_scout", "extra_write_scopes": raw})
         assert set(resolve_scopes(posture)) == set(resolve_scopes("signals_scout")) | expected_extra
 
-    def test_scout_scope_posture_drops_ungrantable_scopes(self) -> None:
+    @parameterized.expand(
+        [
+            ("ungrantable_scope", ["dashboard:write", "feature_flag:write"], ["dashboard:write"]),
+            # A hand-edited column can hold an object. `list()` on it yields its keys, which would
+            # turn a value that grants nothing into a grant of everything it names.
+            ("json_object", {"dashboard:write": False}, []),
+            ("json_string", "dashboard:write", []),
+        ]
+    )
+    def test_scout_scope_posture_drops_ungrantable_scopes(self, _name: str, raw: object, expected: list[str]) -> None:
         # The build-time gate. What this returns is both the mint request and the record of
         # what a run was dispatched with, so a builder that passed its input through would widen
         # the token and describe it wrongly at the same time.
-        assert scout_scope_posture("signals_scout", ["dashboard:write", "feature_flag:write"]) == {
+        assert scout_scope_posture("signals_scout", raw) == {
             "preset": "signals_scout",
-            "extra_write_scopes": ["dashboard:write"],
+            "extra_write_scopes": expected,
         }
 
     def test_scout_posture_survives_a_json_round_trip(self) -> None:
@@ -208,6 +264,18 @@ class TestResolveScopes(SimpleTestCase):
         # Temporal payloads, so it has to resolve the same after `json.dumps` / `json.loads`.
         posture = scout_scope_posture("signals_scout_reports", ["insight:write", "dashboard:write"])
         assert resolve_scopes(json.loads(json.dumps(posture))) == resolve_scopes(posture)
+
+    def test_scout_posture_survives_a_typed_temporal_payload_round_trip(self) -> None:
+        # The workflow input declares the field as `PosthogMcpScopes`, and Temporal decodes a
+        # payload against the union's members in order. With `list[str]` ahead of the posture,
+        # the dict decodes as its two keys and the run's token holds no read scope at all.
+        posture = scout_scope_posture("signals_scout_reports", ["insight:write", "dashboard:write"])
+        converter = JSONPlainPayloadConverter()
+        payload = converter.to_payload(posture)
+        assert payload is not None
+        decoded = converter.from_payload(payload, cast(type, PosthogMcpScopes))
+        assert decoded == posture
+        assert resolve_scopes(decoded) == resolve_scopes(posture)
 
     def test_grantable_write_scopes_are_mcp_write_scopes(self) -> None:
         # A typo or an internal scope in the allowlist would offer a person a switch that grants
@@ -366,6 +434,19 @@ class TestCreateWizardOAuthAccessTokenForUser(TestCase):
         team = Team.objects.create(organization=organization, name="Wizard OAuth test team")
         user = User.objects.create(email="wizard-oauth-test@example.com")
         return user, team
+
+    @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
+    @patch("posthog.temporal.oauth.wizard_identity_blocked", return_value=True)
+    def test_a_blocklisted_identity_is_refused_a_wizard_token(self, mock_blocked) -> None:
+        # Gated at the mint, not only at the HTTP kickoff: a workflow retry or resume
+        # reaches here with no request in front of it.
+        self._create_wizard_app(scopes=["project:read", "llm_gateway:read"])
+        user, team = self._create_user_and_team()
+
+        with pytest.raises(WizardIdentityBlockedError):
+            create_wizard_oauth_access_token_for_user(user, team.id)
+
+        assert not OAuthAccessToken.objects.exists()
 
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
     def test_mints_token_under_wizard_app_with_its_scopes(self) -> None:

@@ -108,13 +108,18 @@ vi.mock("../../task-detail/components/TaskInput", () => ({
   TaskInput: ({
     onTaskCreated,
     showNewTaskSuggestions,
+    allowNoRepo,
   }: {
     onTaskCreated?: (task: Task) => void;
     showNewTaskSuggestions?: boolean;
+    allowNoRepo?: boolean;
   }) => {
     mocks.taskCreatedCallback = onTaskCreated ?? null;
     return (
-      <div data-suggestions={showNewTaskSuggestions}>
+      <div
+        data-allow-no-repo={allowNoRepo}
+        data-suggestions={showNewTaskSuggestions}
+      >
         <button
           type="button"
           onClick={() => onTaskCreated?.(mocks.createdTask as Task)}
@@ -219,6 +224,24 @@ describe("CommandCenterPanel", () => {
     expect(mocks.store.startCreating).toHaveBeenCalledWith(
       2,
       "cc-cell-us:2:user-1-2",
+      false,
+    );
+  });
+
+  it("replaces an unresolved task when starting a new task in its empty tile", () => {
+    render(
+      <CommandCenterPanel
+        cell={{ ...emptyCell, taskId: "unresolved-task" }}
+        isActiveSession={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "New task" }));
+
+    expect(mocks.store.startCreating).toHaveBeenCalledWith(
+      2,
+      "cc-cell-us:2:user-1-2",
+      true,
     );
   });
 
@@ -240,6 +263,10 @@ describe("CommandCenterPanel", () => {
     expect(screen.getByText("Send").parentElement).toHaveAttribute(
       "data-suggestions",
       "false",
+    );
+    expect(screen.getByText("Send").parentElement).toHaveAttribute(
+      "data-allow-no-repo",
+      "true",
     );
   });
 

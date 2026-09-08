@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/replay_vision/api'
 import { withUiApp } from '@/resources/ui-apps'
+import { castBooleanToString } from '@/tools/cast-helpers'
 import { withPostHogUrl, withAgentNote, type WithPostHogUrl, type WithAgentNote } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -252,6 +253,9 @@ const visionScannersCreate = (): ToolBase<ReturnType<typeof VisionScannersCreate
         if (params.scanner_type !== undefined) {
             body['scanner_type'] = params.scanner_type
         }
+        if (params.creation_method !== undefined) {
+            body['creation_method'] = params.creation_method
+        }
         if (params.scanner_config !== undefined) {
             body['scanner_config'] = params.scanner_config
         }
@@ -436,7 +440,16 @@ const visionScannersInlineScanCreate = (): ToolBase<ReturnType<typeof VisionScan
 
 const VisionScannersListSchema = () => {
     const VisionScannersListQueryParams = orvalSchemas.VisionScannersListQueryParams()
-    return VisionScannersListQueryParams
+    return VisionScannersListQueryParams.extend({
+        enabled: z
+            .preprocess(
+                castBooleanToString,
+                VisionScannersListQueryParams.shape['enabled'].describe(
+                    'Filter by enabled state. Accepts `enabled`, `disabled`, a comma-separated list of both, or the boolean form `true` / `false`. Omit to list every scanner.'
+                )
+            )
+            .optional(),
+    })
 }
 
 const visionScannersList = (): ToolBase<
@@ -763,6 +776,9 @@ const visionScannersUpdate = (): ToolBase<ReturnType<typeof VisionScannersUpdate
         }
         if (params.scanner_type !== undefined) {
             body['scanner_type'] = params.scanner_type
+        }
+        if (params.creation_method !== undefined) {
+            body['creation_method'] = params.creation_method
         }
         if (params.scanner_config !== undefined) {
             body['scanner_config'] = params.scanner_config

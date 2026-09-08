@@ -18,6 +18,7 @@ import {
   WarningCircle,
 } from "@phosphor-icons/react";
 import type { RunMode } from "@posthog/core/sidebar/buildSidebarData";
+import { runStatusForDisplay } from "@posthog/core/tasks/taskStatusPresentation";
 import type { WorkspaceMode } from "@posthog/shared";
 import {
   isTerminalStatus,
@@ -300,6 +301,7 @@ export function TaskIcon({
   isSuspended,
   needsPermission,
   taskRunStatus,
+  runMode,
   originProduct,
   slackThreadUrl,
   prState,
@@ -307,7 +309,14 @@ export function TaskIcon({
   size = ICON_SIZE,
 }: TaskIconProps) {
   const isCloudTask = workspaceMode === "cloud";
-  const isTerminalCloud = isCloudTask && isTerminalStatus(taskRunStatus);
+  const displayedTaskRunStatus = runStatusForDisplay({
+    status: taskRunStatus,
+    environment: isCloudTask ? "cloud" : "local",
+    runMode,
+    isGenerating,
+  });
+  const isTerminalCloud =
+    isCloudTask && isTerminalStatus(displayedTaskRunStatus);
   const originProductMeta = getOriginProductMeta(originProduct);
 
   if (needsPermission) {
@@ -320,7 +329,15 @@ export function TaskIcon({
     );
   }
   if (isGenerating) {
-    return <DotsCircleSpinner size={size} className="text-accent-11" />;
+    const label =
+      taskRunStatus === "not_started" || taskRunStatus === "queued"
+        ? "Starting"
+        : "Working";
+    return (
+      <span role="img" aria-label={label}>
+        <DotsCircleSpinner size={size} className="text-accent-11" />
+      </span>
+    );
   }
   // Unread outranks the cloud/PR/diff status icons: when an agent finishes a
   // task there is fresh activity the user has not seen, and that "needs
@@ -339,7 +356,7 @@ export function TaskIcon({
   if (isTerminalCloud) {
     return (
       <CloudStatusIcon
-        taskRunStatus={taskRunStatus}
+        taskRunStatus={displayedTaskRunStatus ?? undefined}
         originProduct={originProduct}
         threadUrl={slackThreadUrl}
         size={size}
@@ -364,7 +381,7 @@ export function TaskIcon({
   if (isCloudTask) {
     return (
       <CloudStatusIcon
-        taskRunStatus={taskRunStatus}
+        taskRunStatus={displayedTaskRunStatus ?? undefined}
         originProduct={originProduct}
         threadUrl={slackThreadUrl}
         size={size}

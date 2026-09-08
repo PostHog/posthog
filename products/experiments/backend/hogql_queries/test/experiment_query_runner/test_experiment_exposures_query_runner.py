@@ -75,6 +75,17 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         self.assertIn("has no variants", str(ctx.exception))
 
+    def test_missing_experiment_raises_validation_error(self):
+        # Cached exposure queries can outlive their experiment; a stale id must
+        # surface as a validation error, not an uncaught Experiment.DoesNotExist.
+        query = self._null_multivariate_query()
+        query.experiment_id = self.experiment.id + 1000
+
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentExposuresQueryRunner(team=self.team, query=query)
+
+        self.assertIn("not found", str(ctx.exception))
+
     @freeze_time("2024-01-07T12:00:00Z")
     def test_exposure_query_resolves_soft_deleted_feature_flag_key(self):
         # Exposure events are captured under the flag's original key.
