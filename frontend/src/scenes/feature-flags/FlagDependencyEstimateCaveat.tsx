@@ -12,7 +12,8 @@ export interface FlagDependencyEstimateCaveatProps {
 
 /**
  * A flag dependency can't be expressed in the query behind the blast-radius estimate, so the count
- * and the matching-actors link both leave it out and report a wider audience than the flag targets.
+ * and the matching-actors link both leave it out and can report a wider audience than the flag
+ * targets. How much wider depends on the other flag's own rollout, which the query can't resolve.
  * Both release condition editors render this next to the estimate they qualify.
  */
 export function FlagDependencyEstimateCaveat({
@@ -30,7 +31,7 @@ export function FlagDependencyEstimateCaveat({
             <IconInfo className="shrink-0 mt-0.5" />
             <span>
                 This estimate leaves out the flag {dependencyCount === 1 ? 'dependency' : 'dependencies'} in this
-                condition. Fewer {targetName} match than shown.
+                condition. Fewer {targetName} may match than shown.
             </span>
         </div>
     )
