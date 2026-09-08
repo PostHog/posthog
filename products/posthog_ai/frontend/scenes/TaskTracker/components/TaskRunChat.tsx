@@ -1,5 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useRef } from 'react'
 
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
@@ -19,6 +20,7 @@ import { AttachedContextBar } from '../../../components/composer/AttachedContext
 import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
 import { ComposerModePicker } from '../../../components/composer/ComposerModePicker'
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
+import { ComposerSteerShortcut } from '../../../components/composer/ComposerSteerShortcut'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
@@ -123,6 +125,8 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
         selectedEffort,
         consentBlocked,
         selectedMode,
+        composerActive,
+        steerPending,
     } = useValues(runInteractionLogic(logicProps))
     const { catalogue } = useValues(modelCatalogueLogic)
     // A live run's harness is whatever it booted on; once terminal the next run follows the picked model.
@@ -137,15 +141,26 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
         setEffort,
         clearConsentBlock,
         setMode,
+        steerQueue,
+        submitAfterConsent,
     } = useActions(runInteractionLogic(logicProps))
 
     const draft = useDebouncedDraft(composerForm.draft, (value) => setComposerFormValues({ draft: value }))
+    const textAreaRef = useRef<HTMLTextAreaElement>(null)
 
     return (
         <>
-            {/* Inside the slot children: detaches while a pending approval replaces the composer. */}
-            <ComposerModeShortcut onCycle={() => setMode(cycleMode(composerAdapter, selectedMode))} />
+            <ComposerModeShortcut
+                disabled={!composerActive}
+                onCycle={() => setMode(cycleMode(composerAdapter, selectedMode))}
+            />
+            <ComposerSteerShortcut
+                textAreaRef={textAreaRef}
+                onSteer={steerQueue}
+                disabled={!composerActive || steerPending || !queuedMessages.length}
+            />
             <Composer.Root
+                textAreaRef={textAreaRef}
                 value={draft.value}
                 onChange={draft.onChange}
                 onSubmit={() => draft.submit(submitComposerForm)}
@@ -159,6 +174,8 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
                             messages={queuedMessages}
                             onUpdate={updateQueuedMessage}
                             onRemove={removeQueuedMessage}
+                            onSteer={steerQueue}
+                            steerPending={steerPending}
                         />
                     </Composer.Banner>
                 )}
@@ -203,7 +220,7 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
                     showArrow
                     ignoreDismissal
                     hidden={!consentBlocked}
-                    onApprove={() => submitComposerForm()}
+                    onApprove={submitAfterConsent}
                     onDismiss={() => clearConsentBlock()}
                 >
                     <Composer.Submit data-attr="sandbox-composer-send" />
