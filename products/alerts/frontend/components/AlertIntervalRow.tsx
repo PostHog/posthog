@@ -21,6 +21,7 @@ import {
 import { approximateNextAlertRun } from 'products/alerts/frontend/logic/alertSchedulingStale'
 import {
     AlertType,
+    alertModeOf,
     isHogQLAlertConfig,
     isTrendsAlertConfig,
     supportsOngoingInterval,
@@ -71,13 +72,16 @@ export function AlertIntervalRow({
     if (!supportsTimeWindow(alertForm.config)) {
         evaluatedWindow = <div>{getHogQLEvaluatedText(alertForm)}</div>
     } else {
+        // A forecast fits on the completed buckets and evaluates upcoming ones, so the reactive
+        // "check last <interval>" line would name the wrong mode.
+        const isForecast = alertModeOf(alertForm) === 'forecast'
         const period =
             isTrendsAlertConfig(alertForm.config) && alertForm.config.check_ongoing_interval && canCheckOngoingInterval
                 ? 'current'
                 : 'last'
         evaluatedWindow = (
             <div data-attr="alertForm-trend-interval">
-                and check {period}{' '}
+                {isForecast ? 'and forecast upcoming' : `and check ${period}`}{' '}
                 <Tooltip
                     title={
                         <>
@@ -89,6 +93,7 @@ export function AlertIntervalRow({
                         {trendInterval ?? 'day'}
                     </span>
                 </Tooltip>
+                {isForecast ? ' buckets' : null}
             </div>
         )
     }
