@@ -61,16 +61,19 @@ export function SignalCardHeader({
             ) : (
                 <span className="size-2.5 rounded-full shrink-0 bg-border" />
             )}
-            <span className="text-xs font-medium text-tertiary whitespace-nowrap">
-                {scoutName && typeof scoutSkillName === 'string' ? (
-                    <>
-                        Scout · <ScoutLink skillName={scoutSkillName} className="text-tertiary" />
-                    </>
-                ) : (
-                    signalCardSourceLine(signal)
-                )}
-                {' · '}
-                <TZLabel time={signal.timestamp} />
+            <span className="flex min-w-0 items-center text-xs font-medium text-tertiary">
+                <span className="truncate">
+                    {scoutName && typeof scoutSkillName === 'string' ? (
+                        <>
+                            Scout · <ScoutLink skillName={scoutSkillName} className="text-tertiary" />
+                        </>
+                    ) : (
+                        signalCardSourceLine(signal)
+                    )}
+                </span>
+                <span className="shrink-0 pl-1">
+                    · <TZLabel time={signal.timestamp} />
+                </span>
             </span>
             {label && <span className="text-xs font-medium text-primary flex-1 truncate">{label}</span>}
             <span className="flex-1" />
