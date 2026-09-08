@@ -11,7 +11,9 @@ import json
 from datetime import datetime
 from uuid import uuid4
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import ClickhouseTestMixin
+
+from django.test import SimpleTestCase
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.usage_report_events_preagg.sql import (
@@ -49,7 +51,7 @@ def _make_event_row(distinct_id: str, event: str, lib: str, team_id: int) -> dic
     }
 
 
-class TestUsageReportEventsPreaggMV(ClickhouseTestMixin, BaseTest):
+class TestUsageReportEventsPreaggMV(ClickhouseTestMixin, SimpleTestCase):
     @classmethod
     def setUpClass(cls) -> None:
         super().setUpClass()
