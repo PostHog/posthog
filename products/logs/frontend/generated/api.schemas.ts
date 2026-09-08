@@ -1295,6 +1295,18 @@ export const CoarsenedReasonEnumApi = {
     Quiet: 'quiet',
 } as const
 
+/**
+ * * `above` - Above the band
+ * * `below` - Below the band
+ */
+export type LogsSeriesBandVerdictEnumApi =
+    (typeof LogsSeriesBandVerdictEnumApi)[keyof typeof LogsSeriesBandVerdictEnumApi]
+
+export const LogsSeriesBandVerdictEnumApi = {
+    Above: 'above',
+    Below: 'below',
+} as const
+
 export interface LogsSeriesBandBucketApi {
     /** Start of the display bucket (UTC). */
     time: string
@@ -1310,6 +1322,11 @@ export interface LogsSeriesBandBucketApi {
      * @nullable
      */
     upper: number | null
+    /** Where the observed count sits against the band: above when it exceeds upper, below when it falls under lower. Null while it sits inside the band, or while the band is not ready.
+     *
+     * * `above` - Above the band
+     * * `below` - Below the band */
+    verdict: LogsSeriesBandVerdictEnumApi | null
 }
 
 export interface LogsSeriesBandSeriesApi {

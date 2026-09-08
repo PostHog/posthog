@@ -85,6 +85,7 @@ class SeriesBandsWindowInvalid(Exception):
 
 
 CoarsenedReason = Literal["sparse", "quiet"]
+BandVerdict = Literal["above", "below"]
 
 
 @frozen
@@ -93,6 +94,7 @@ class BandBucket:
     observed: int
     lower: float | None
     upper: float | None
+    verdict: BandVerdict | None
 
 
 @frozen
@@ -369,6 +371,7 @@ def _build_series(
         total_count += observed
         lower: float | None = None
         upper: float | None = None
+        verdict: BandVerdict | None = None
         if banded:
             # Every slot sits at or after window_start, so a banded series has at
             # least MIN_BASELINE_WEEKS_FOR_BAND samples to expect at every slot.
@@ -380,7 +383,11 @@ def _build_series(
             high = row.baseline_max if row else 0
             lower = low * (1 - BAND_WIDEN_FRACTION)
             upper = high * (1 + BAND_WIDEN_FRACTION) + floor
-        buckets.append(BandBucket(time=slot, observed=observed, lower=lower, upper=upper))
+            if observed > upper:
+                verdict = "above"
+            elif observed < lower:
+                verdict = "below"
+        buckets.append(BandBucket(time=slot, observed=observed, lower=lower, upper=upper, verdict=verdict))
         slot += step
 
     return BandSeries(

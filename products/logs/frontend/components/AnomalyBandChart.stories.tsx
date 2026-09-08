@@ -17,12 +17,14 @@ function buildBuckets(): LogsSeriesBandBucketApi[] {
         const typical = Math.round(400 + 120 * Math.sin(index / 5))
         const banded = index < BUCKETS - 8
         const observed = index === 24 ? typical * 4 : index === 44 ? Math.round(typical * 0.1) : typical
+        const verdict = !banded ? null : index === 24 ? 'above' : index === 44 ? 'below' : null
 
         return {
             time,
             observed,
             lower: banded ? Math.round(typical * 0.6) : null,
             upper: banded ? Math.round(typical * 1.4) : null,
+            verdict,
         }
     })
 }

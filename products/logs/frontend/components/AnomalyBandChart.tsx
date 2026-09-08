@@ -43,18 +43,7 @@ export function buildBandChartData(buckets: LogsSeriesBandBucketApi[]): BandChar
         observed: buckets.map((bucket) => bucket.observed),
         lower: buckets.map((bucket) => bucket.lower ?? NaN),
         upper: buckets.map((bucket) => bucket.upper ?? NaN),
-        outOfBand: buckets.map((bucket) => {
-            if (bucket.lower == null || bucket.upper == null) {
-                return null
-            }
-            if (bucket.observed > bucket.upper) {
-                return 'above'
-            }
-            if (bucket.observed < bucket.lower) {
-                return 'below'
-            }
-            return null
-        }),
+        outOfBand: buckets.map((bucket) => bucket.verdict ?? null),
     }
 }
 
