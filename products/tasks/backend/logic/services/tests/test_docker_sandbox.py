@@ -46,7 +46,7 @@ def test_prewarmed_resume_requires_message_driven_agent(
         return ExecutionResult(stdout=result.stdout, stderr=result.stderr, exit_code=result.returncode)
 
     with patch.object(sandbox, "execute", side_effect=execute_probe):
-        assert sandbox.agent_server_supports_prewarmed_resume_idle() is expected
+        assert sandbox.agent_server_supports_prewarmed_resume_message_driven() is expected
 
 
 def test_wait_for_agent_server_ready_timeout_is_retryable_and_not_captured(sandbox: DockerSandbox):

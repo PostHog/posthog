@@ -319,7 +319,7 @@ def _prewarmed_resume_needs_fresh_agent(
     ):
         return False
     try:
-        return not sandbox.agent_server_supports_prewarmed_resume_idle()
+        return not sandbox.agent_server_supports_prewarmed_resume_message_driven()
     except Exception:
         logger.warning("prewarmed_resume_agent_capability_probe_failed", extra={"run_id": ctx.run_id})
         return True

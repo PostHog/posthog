@@ -246,7 +246,7 @@ def test_old_full_snapshot_agent_is_rejected_only_for_prewarmed_resume(
         snapshot_kind=snapshot_kind,
     )
     sandbox = mocker.Mock()
-    sandbox.agent_server_supports_prewarmed_resume_idle.return_value = capability
+    sandbox.agent_server_supports_prewarmed_resume_message_driven.return_value = capability
 
     assert _prewarmed_resume_needs_fresh_agent(context, prepared, sandbox, used_snapshot=True) is expected
 
