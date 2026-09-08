@@ -222,7 +222,6 @@ export interface projectNoticeLogicValues {
     currentOrganizationId: string // organizationLogic
     hasReverseProxy: boolean | null // reverseProxyCheckerLogic
     user: UserType | null // userLogic
-    newlyRequestedVerificationCodeLoading: boolean // verifyEmailLogic
     effectiveBillingAlert: BillingAlertConfig | null
     noticeDismissedThisSession: boolean
     projectNotice: ProjectNoticeBlueprint | null
@@ -240,11 +239,7 @@ export interface projectNoticeLogicActions {
     reportProjectNoticeShown: (variant: string) => {
         variant: string
     } // eventUsageLogic
-    requestVerificationCode: (
-        uuid: string,
-        returnTo?: string | undefined
-    ) => {
-        returnTo: string | undefined
+    requestVerificationCode: (uuid: string) => {
         uuid: string
     } // verifyEmailLogic
     dismissProjectNotice: (dismissKey: string | null) => {
@@ -324,8 +319,7 @@ export interface projectNoticeLogicMeta {
                 search: string
                 searchParams: Record<string, any>
             },
-            activeSceneProductKey: ProductKey | null,
-            newlyRequestedVerificationCodeLoading: boolean
+            activeSceneProductKey: ProductKey | null
         ) => ProjectNoticeBlueprint | null
     }
 }
@@ -355,8 +349,6 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
             // complete on the same signal. The checker throttles its own detection query internally.
             reverseProxyCheckerLogic,
             ['hasReverseProxy'],
-            verifyEmailLogic,
-            ['newlyRequestedVerificationCodeLoading'],
         ],
         actions: [
             eventUsageLogic,
@@ -547,7 +539,6 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 billingLogic.selectors.canAccessBilling,
                 router.selectors.currentLocation,
                 sceneLogic.selectors.activeSceneProductKey,
-                s.newlyRequestedVerificationCodeLoading,
             ],
             (
                 variant: ProjectNoticeVariant | null,
@@ -564,8 +555,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     search: string
                     searchParams: Record<string, any>
                 },
-                activeSceneProductKey: ProductKey | null,
-                requestingVerificationCode: boolean
+                activeSceneProductKey: ProductKey | null
             ): ProjectNoticeBlueprint | null => {
                 if (!variant) {
                     return null
@@ -679,15 +669,12 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                                     if (!user) {
                                         return
                                     }
+                                    verifyEmailLogic.actions.requestVerificationCode(user.uuid)
                                     // The email carries a 6-digit code, and only the verify-email scene has the
-                                    // entry form. `returnTo` brings the user back here once the code is accepted.
+                                    // entry form. `next` returns the user to this page once the code is accepted.
                                     const { pathname, search, hash } = router.values.location
-                                    verifyEmailLogic.actions.requestVerificationCode(
-                                        user.uuid,
-                                        pathname + search + hash
-                                    )
+                                    router.actions.push(urls.verifyEmail(user.uuid), { next: pathname + search + hash })
                                 },
-                                loading: requestingVerificationCode,
                                 children: 'Verify email',
                             },
                             type: 'warning',

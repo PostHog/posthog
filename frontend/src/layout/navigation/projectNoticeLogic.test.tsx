@@ -296,16 +296,7 @@ describe('projectNoticeLogic', () => {
 
         // The verification email carries a 6-digit code, not a link. A CTA that only sends the
         // code leaves a logged-in user (Vercel-provisioned accounts hit this) with nowhere to type it.
-        // A throttled send must not route there either: the page would claim a code was sent.
-        it.each([
-            { label: 'routes to the code entry page after the code is sent', status: 200, routed: true },
-            { label: 'stays put when the code request is throttled', status: 429, routed: false },
-        ])('$label', async ({ status, routed }) => {
-            useMocks({
-                post: {
-                    '/api/users/request_email_verification/': [status, status === 200 ? { success: true } : {}],
-                },
-            })
+        it('sends a code and routes to the code entry page when the banner CTA is clicked', async () => {
             preflightLogic.actions.loadPreflightSuccess({ email_service_available: true } as any)
             userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_email_verified: false })
             router.actions.push(urls.settings('user'))
@@ -315,19 +306,13 @@ describe('projectNoticeLogic', () => {
 
             expect(logic.values.projectNoticeVariant).toEqual('unverified_email')
 
-            await expectLogic(logic, () => {
+            await expectLogic(verifyEmailLogic, () => {
                 logic.values.projectNotice?.action?.onClick?.({} as any)
-            })
-                .toDispatchActions(['requestVerificationCode'])
-                .toMatchValues({ newlyRequestedVerificationCodeLoading: true })
-                .toDispatchActions(['requestVerificationCodeSuccess'])
-                .toMatchValues({ newlyRequestedVerificationCodeLoading: false })
+            }).toDispatchActions(['requestVerificationCode', 'requestVerificationCodeSuccess'])
 
             // Routing prefixes the current project, so assert the targets rather than exact paths.
-            const expectedPath = routed ? urls.verifyEmail(MOCK_DEFAULT_USER.uuid) : urls.settings('user')
-            expect(router.values.location.pathname).toMatch(new RegExp(`${expectedPath}$`))
-            const expectedNext = routed ? new RegExp(`${urls.settings('user')}$`) : undefined
-            expect(router.values.searchParams.next ?? '').toMatch(expectedNext ?? /^$/)
+            expect(router.values.location.pathname).toMatch(new RegExp(`${urls.verifyEmail(MOCK_DEFAULT_USER.uuid)}$`))
+            expect(router.values.searchParams.next).toMatch(new RegExp(`${urls.settings('user')}$`))
 
             logic.unmount()
         })
