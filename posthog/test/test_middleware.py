@@ -2113,6 +2113,9 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         ("/signup", "next=/connect/vercel/link", "unsafe-none"),
         ("/signup", "", "same-origin"),
         ("/signup", "next=/dashboard", "same-origin"),
+        ("/complete/github-link/", "", "same-origin"),
+        ("/complete/slack-link/", "", "same-origin"),
+        ("/login/not-a-backend/", "", "same-origin"),
     ],
     ids=[
         "direct-oauth-vercel",
@@ -2129,6 +2132,9 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         "signup-next-oauth",
         "signup-no-next",
         "signup-next-non-oauth",
+        "linking-complete-github",
+        "linking-complete-slack",
+        "login-unknown-backend",
     ],
 )
 def test_oauth_coop_middleware(path, query_string, expected_coop):
