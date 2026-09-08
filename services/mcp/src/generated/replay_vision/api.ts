@@ -237,7 +237,9 @@ export const VisionScannersListQueryParams = () => zod.object({
     enabled: zod
         .string()
         .optional()
-        .describe('Filter by enabled state. Accepts a comma-separated list of `enabled`\/`disabled`.'),
+        .describe(
+            'Filter by enabled state. Accepts `enabled`, `disabled`, a comma-separated list of both, or the boolean form `true`\/`false`. Omit to list every scanner.'
+        ),
     experiment_id: zod.string().optional().describe('Filter to scanners whose targeting watches the given experiment.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),

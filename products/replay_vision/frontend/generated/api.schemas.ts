@@ -2443,7 +2443,7 @@ export type VisionScannersListParams = {
      */
     emits_signals?: boolean
     /**
-     * Filter by enabled state. Accepts a comma-separated list of `enabled`/`disabled`.
+     * Filter by enabled state. Accepts `enabled`, `disabled`, a comma-separated list of both, or the boolean form `true`/`false`. Omit to list every scanner.
      */
     enabled?: string
     /**

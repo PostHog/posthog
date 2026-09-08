@@ -93,11 +93,13 @@ export const ToolConfigSchema = z
                          * - `'string-int'` — casts strings that look like a base-10 integer
                          *   (e.g. `"123"`, `"-7"`) to a number. Anything else passes through
                          *   unchanged so zod still rejects with its honest error.
+                         * - `'boolean-string'` — casts a boolean to `"true"` / `"false"` for a
+                         *   string param that reads as a boolean to an agent (e.g. `enabled`).
                          *
                          * Mutually exclusive with `input_schema` and `schema_ref` (those
                          * fully replace the schema; cast composes with the existing one).
                          */
-                        cast: z.enum(['string-int']).optional(),
+                        cast: z.enum(['string-int', 'boolean-string']).optional(),
                         /**
                          * Alternate key names accepted for this param and normalized to it
                          * before validation — for identifier params agents guess different
