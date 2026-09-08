@@ -10,7 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AIUsageResponseApi,
-    AiUsageListParams,
+    AiUsageRetrieveParams,
     ConversationApi,
     ConversationsListParams,
     DocsSearchRequestApi,
@@ -41,7 +41,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getAiUsageListUrl = (projectId: string, params?: AiUsageListParams) => {
+export const getAiUsageRetrieveUrl = (projectId: string, params?: AiUsageRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -61,12 +61,12 @@ export const getAiUsageListUrl = (projectId: string, params?: AiUsageListParams)
  * Return credits spent in one conversation, by the calling product, and across PostHog AI, for the team's current billing period.
  * @summary Get a team's PostHog AI usage
  */
-export const aiUsageList = async (
+export const aiUsageRetrieve = async (
     projectId: string,
-    params?: AiUsageListParams,
+    params?: AiUsageRetrieveParams,
     options?: RequestInit
-): Promise<AIUsageResponseApi[]> => {
-    return apiMutator<AIUsageResponseApi[]>(getAiUsageListUrl(projectId, params), {
+): Promise<AIUsageResponseApi> => {
+    return apiMutator<AIUsageResponseApi>(getAiUsageRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

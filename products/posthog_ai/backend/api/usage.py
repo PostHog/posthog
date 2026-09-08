@@ -6,10 +6,11 @@ numbers match what the Max chat shows for the same team.
 
 from typing import Any
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, viewsets
 from rest_framework.response import Response
 
+from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.rate_limit import AIUsageRateThrottle, ClickHouseSustainedRateThrottle
@@ -110,10 +111,21 @@ def serialize_usage_report(report: UsageReport) -> dict[str, Any]:
     }
 
 
-@extend_schema(tags=["ai_usage"])
+class _SingletonSchema(PostHogAutoSchema):
+    """Prevents drf-spectacular from wrapping the ``list`` response in an array.
+
+    The report is one object per project, not a collection, and the schema is what an MCP client
+    reads to know the shape it will get.
+    """
+
+    def _is_list_view(self, serializer: object = None) -> bool:
+        return False
+
+
 class AIUsageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Read-only view of a team's PostHog AI credit usage."""
 
+    schema = _SingletonSchema()
     scope_object = "project"
     required_scopes = ["project:read"]
     http_method_names = ["get", "head", "options"]

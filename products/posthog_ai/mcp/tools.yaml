@@ -9,9 +9,24 @@ feature: posthog_ai
 url_prefix: /ai
 ui_apps: {}
 tools:
-    ai-usage-list:
-        operation: ai_usage_list
-        enabled: false
+    ai-usage-get:
+        operation: ai_usage_retrieve
+        enabled: true
+        scopes:
+            - project:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get PostHog AI credit usage
+        description: >
+            Report PostHog AI credits for the project: what one conversation spent, what a single product spent, and
+            what the whole PostHog AI bucket spent over the current billing period, with the free tier limit and what
+            remains. Pass conversation_id to scope the first figure to one conversation, which is the $ai_session_id
+            its generations carry: the chat thread for a Max conversation, the task for an agent run. Pass product to
+            add the per-product figure, using an ai_product value such as slack_app or posthog_code. A product billed
+            against its own credit counter, such as PostHog Desktop, reports separate_bucket true, and its credits are
+            not part of the period total. Credits come from ingested AI traces and lag live activity by a few minutes.
     conversations-append-message-create:
         operation: conversations_append_message_create
         enabled: false

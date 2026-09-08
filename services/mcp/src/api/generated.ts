@@ -93174,7 +93174,7 @@ export namespace Schemas {
     refresh?: boolean;
     };
 
-    export type AiUsageListParams = {
+    export type AiUsageRetrieveParams = {
     /**
      * The conversation to report on, which is the `$ai_session_id` its generations carry: the Max conversation for a chat, the task for an agent run. Omitted, the report covers the team only.
      */
