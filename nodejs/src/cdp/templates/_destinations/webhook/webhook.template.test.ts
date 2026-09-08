@@ -94,7 +94,11 @@ describe('webhook template', () => {
         expect((response.invocation.queueParameters as any).headers).toMatchObject({
             Authorization: 'Bearer sk_test_token',
         })
-        expect(response.logs.map((l) => l.message).join('\n')).not.toContain('sk_test_token')
+        // The executor redacts a secret value from a log message, so the header name is what shows
+        // whether the merge ran before the print.
+        const requestLog = response.logs.map((l) => l.message).find((m) => m.startsWith('Request'))
+        expect(requestLog).toBeDefined()
+        expect(requestLog).not.toContain('Authorization')
     })
 
     it('should log details of given', async () => {
