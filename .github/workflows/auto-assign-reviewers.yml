@@ -40,6 +40,16 @@ jobs:
                   # this value MUST be set to `master` to avoid executing untrusted code.
                   # we execute assign-reviewers.js below from whatever branch is checked out
                   ref: master
+                  # This job reads only the assigner, the owners resolver, and the
+                  # ownership files the resolver walks. Cone mode cannot express that
+                  # set, because owners.yaml sits at every depth of the tree.
+                  sparse-checkout: |
+                      .github/scripts
+                      .nvmrc
+                      tools/owners
+                      **/owners.yaml
+                      **/product.yaml
+                  sparse-checkout-cone-mode: false
 
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
