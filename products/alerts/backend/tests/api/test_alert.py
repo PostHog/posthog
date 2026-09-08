@@ -187,6 +187,35 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_create_forecast_alert_rejects_a_daily_insight_that_excludes_days(self) -> None:
+        insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data=_trends_insight_data(query_extra={"interval": "day", "dateRange": {"daysOfWeek": [1, 2, 3, 4, 5]}}),
+        ).json()
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                data={
+                    "name": "weekday forecast alert",
+                    "insight": insight["id"],
+                    "subscribed_users": [self.user.id],
+                    "calculation_interval": "daily",
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "condition": {"type": "absolute_value"},
+                    "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "future_breach",
+                        "horizon": 7,
+                    },
+                },
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "excludes days of the week" in response.content.decode()
+
     def test_create_alert_with_both_detector_and_forecast_rejected(self) -> None:
         with mock.patch(
             "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
@@ -2173,6 +2202,11 @@ class TestForecastSimulateGuards(APIBaseTest):
             ),
             ("minute_interval", {"interval": "minute"}, "hourly, daily, weekly"),
             ("quarter_interval", {"interval": "quarter"}, "hourly, daily, weekly"),
+            (
+                "daily_insight_excluding_weekends",
+                {"interval": "day", "dateRange": {"daysOfWeek": [1, 2, 3, 4, 5]}},
+                "excludes days of the week",
+            ),
         ]
     )
     def test_simulate_forecast_rejects_unsupported_insights(self, _name: str, query_extra: dict, message: str) -> None:

@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from structlog.testing import capture_logs
 
-from posthog.schema import ForecastConfig, IntervalType
+from posthog.schema import DateRange, ForecastConfig, IntervalType
 
 from products.alerts.backend.forecasting.engine import (
     MAX_FORECAST_LOOKBACK_DAYS,
@@ -22,6 +22,7 @@ from products.alerts.backend.forecasting.engine import (
     forecast_reach_days,
     get_forecast_engine,
     horizon_for_target_date,
+    validate_forecast_days_of_week,
     validate_forecast_horizon,
 )
 
@@ -245,6 +246,24 @@ class TestForecastReach:
     )
     def test_bounded_training_points(self, _name, requested, interval, expected) -> None:
         assert bounded_training_points(requested, interval) == expected
+
+    @parameterized.expand(
+        [
+            ("daily weekdays only", IntervalType.DAY, DateRange(daysOfWeek=[1, 2, 3, 4, 5]), True),
+            ("an unset interval means daily", None, DateRange(daysOfWeek=[6, 7]), True),
+            ("daily with every day selected", IntervalType.DAY, DateRange(daysOfWeek=[1, 2, 3, 4, 5, 6, 7]), False),
+            ("daily with no day filter", IntervalType.DAY, DateRange(), False),
+            ("daily with no date range", IntervalType.DAY, None, False),
+            ("weekly keeps every bucket", IntervalType.WEEK, DateRange(daysOfWeek=[1, 2, 3, 4, 5]), False),
+            ("hourly keeps every bucket", IntervalType.HOUR, DateRange(daysOfWeek=[1, 2, 3, 4, 5]), False),
+        ]
+    )
+    def test_validate_forecast_days_of_week(self, _name, interval, date_range, rejected) -> None:
+        if not rejected:
+            validate_forecast_days_of_week(date_range, interval)
+            return
+        with pytest.raises(ValueError, match="excludes days of the week"):
+            validate_forecast_days_of_week(date_range, interval)
 
     def test_no_interval_scans_more_than_two_years(self) -> None:
         for interval in (IntervalType.HOUR, IntervalType.DAY, IntervalType.WEEK, IntervalType.MONTH):

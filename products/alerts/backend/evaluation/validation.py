@@ -34,6 +34,7 @@ from products.alerts.backend.evaluation.dispatcher import DETECTOR_EXTRACTORS, F
 from products.alerts.backend.evaluation.funnel_strategies import strategy_for_viz
 from products.alerts.backend.forecasting.engine import (
     horizon_for_target_date,
+    validate_forecast_days_of_week,
     validate_forecast_horizon,
     validate_forecast_interval,
 )
@@ -267,6 +268,7 @@ def _validate_forecast_config(
     if _has_breakdown(trends_query):
         raise ValueError("Forecast alerts don't support breakdowns yet")
     validate_forecast_interval(trends_query.interval)
+    validate_forecast_days_of_week(trends_query.dateRange, trends_query.interval)
     if _cadence_finer_than_interval(calculation_interval, trends_query.interval):
         raise ValueError("A forecast alert cannot run more often than its insight interval.")
     if isinstance(config, FutureBreachForecastConfig):

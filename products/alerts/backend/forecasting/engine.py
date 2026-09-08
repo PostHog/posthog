@@ -2,7 +2,7 @@ from datetime import date
 from math import ceil, floor
 from typing import Protocol
 
-from posthog.schema import ForecastConfig, FutureBreachForecastConfig, IntervalType
+from posthog.schema import DateRange, ForecastConfig, FutureBreachForecastConfig, IntervalType
 
 from posthog.dataclasses import frozen
 
@@ -101,6 +101,24 @@ def validate_forecast_horizon(
                 "A forecast can look ahead at most 92 days. Lower the horizon, or use an insight "
                 "with a shorter interval."
             )
+
+
+def validate_forecast_days_of_week(date_range: DateRange | None, interval: IntervalType | None) -> None:
+    """Reject a daily insight that leaves days out of its date axis.
+
+    The trends runner drops the deselected buckets at a day interval, so the history arrives with
+    gaps. The forecast steps one calendar day at a time and fills those gaps back in, using a weekly
+    shape the history never constrained, which returns values for days the insight does not chart.
+    Longer intervals keep every bucket, so they stay supported.
+    """
+    if interval not in (None, IntervalType.DAY):
+        return
+    days_of_week = date_range.daysOfWeek if date_range else None
+    if days_of_week and len(set(days_of_week)) < 7:
+        raise ValueError(
+            "Forecast alerts don't support a daily insight that excludes days of the week. "
+            "Include all days, or switch the insight to a weekly interval."
+        )
 
 
 def validate_forecast_interval(interval: IntervalType | None) -> None:

@@ -43,6 +43,7 @@ from products.alerts.backend.forecasting.engine import (
     horizon_for_target_date,
     intervals_between,
     min_forecast_points,
+    validate_forecast_days_of_week,
     validate_forecast_horizon,
     validate_forecast_interval,
 )
@@ -427,6 +428,7 @@ def simulate_forecast_on_insight(
     if _has_breakdown(trends_query):
         raise ValueError("Forecast alerts don't support breakdowns yet")
     validate_forecast_interval(trends_query.interval)
+    validate_forecast_days_of_week(trends_query.dateRange, trends_query.interval)
     parsed = ForecastConfig.model_validate(forecast_config)
     validate_forecast_horizon(parsed, trends_query.interval)
     config = parsed.root
