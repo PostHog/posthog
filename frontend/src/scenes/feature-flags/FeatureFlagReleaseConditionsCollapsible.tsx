@@ -44,7 +44,7 @@ import {
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isPropertyFilterWithOperator, labelWithGroupName } from 'lib/components/PropertyFilters/utils'
+import { groupKeyNamesOf, isPropertyFilterWithOperator, labelWithGroupName } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -145,8 +145,7 @@ function summarizeProperties(
             key = property.key || 'property'
         }
         const operator = isPropertyFilterWithOperator(property) ? allOperatorsToHumanName(property.operator) : 'is'
-        const groupKeyNames: Record<string, string> =
-            'group_key_names' in property ? (property.group_key_names ?? {}) : {}
+        const groupKeyNames = groupKeyNamesOf(property)
         const isDistinctId = isDistinctIdFilter(property)
         // Resolve a single raw value to its display name: server-provided group name,
         // frontend-fetched person name, or the raw value as fallback.

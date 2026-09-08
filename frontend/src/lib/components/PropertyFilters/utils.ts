@@ -326,6 +326,14 @@ export function isGroupCardFilterKey(key: string | number | undefined, type: Pro
     return type === PropertyFilterType.Group && (key === '$group_key' || key === 'id')
 }
 
+// `group_key_names` is declared on the base property filter, so any filter may carry it. Reading
+// it needs the `in` narrowing, which is what this hides. An absent field becomes `{}`, not
+// `undefined`, so this is not a drop-in where a caller branches on whether names exist at all.
+// `TaxonomicPropertyFilter` keeps its own narrowing for that reason.
+export function groupKeyNamesOf(filter: AnyPropertyFilter): Record<string, string> {
+    return ('group_key_names' in filter ? filter.group_key_names : undefined) ?? {}
+}
+
 // A resolved group key is shown as "(Name) key" rather than the name alone. A person reading a
 // list of keys needs the name to tell the rows apart, and the key itself to copy it or to compare
 // it against another system. `fallback` carries the already-formatted value, so a key that

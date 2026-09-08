@@ -4,7 +4,7 @@ import { IconFlag } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonSnack, LemonTag } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
-import { isPropertyFilterWithOperator, labelWithGroupName } from 'lib/components/PropertyFilters/utils'
+import { groupKeyNamesOf, isPropertyFilterWithOperator, labelWithGroupName } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
@@ -36,14 +36,6 @@ interface FeatureFlagReleaseConditionsReadonlyProps {
     evaluationRuntime?: FeatureFlagEvaluationRuntime
 }
 
-/** Extract group_key_names from a property, if present. */
-function getGroupKeyNames(property: AnyPropertyFilter): Record<string, string> {
-    if ('group_key_names' in property) {
-        return property.group_key_names ?? {}
-    }
-    return {}
-}
-
 function PropertyValueDisplay({
     property,
     getDistinctIdName,
@@ -60,7 +52,7 @@ function PropertyValueDisplay({
     }
 
     const propertyValues = Array.isArray(property.value) ? property.value : [property.value]
-    const groupKeyNames = getGroupKeyNames(property)
+    const groupKeyNames = groupKeyNamesOf(property)
     const isDistinctId = isDistinctIdFilter(property)
 
     return (

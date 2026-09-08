@@ -9,7 +9,7 @@ import { LemonLabel, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lem
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isPropertyFilterWithOperator, labelWithGroupName } from 'lib/components/PropertyFilters/utils'
+import { groupKeyNamesOf, isPropertyFilterWithOperator, labelWithGroupName } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -65,7 +65,7 @@ function PropertyValueComponent({
     property: AnyPropertyFilter
     getDistinctIdName: (distinctId: string) => string
 }): JSX.Element {
-    const groupKeyNames: Record<string, string> = 'group_key_names' in property ? (property.group_key_names ?? {}) : {}
+    const groupKeyNames = groupKeyNamesOf(property)
     if (property.type === PropertyFilterType.Cohort) {
         return (
             <LemonButton type="secondary" size="xsmall" to={urls.cohort(property.value)} sideIcon={<IconOpenInNew />}>
