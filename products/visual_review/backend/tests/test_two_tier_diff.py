@@ -77,7 +77,6 @@ def _grow_rows(png_bytes: bytes, y: int, rows: int) -> bytes:
 
 
 def _classify(baseline_bytes: bytes, current_bytes: bytes) -> ChangeKind | None:
-    """Run the production classifier on a fresh compare result."""
     result = compare_images(baseline_bytes, current_bytes, with_thumbnail=False)
     return classify_compare_result(result)
 
@@ -325,6 +324,23 @@ class TestRowShiftClassification:
         assert result.row_shift.relocated_rows == 1
 
         assert classify_compare_result(result) == ChangeKind.LAYOUT
+
+    def test_page_shift_that_exposes_matching_edge_padding_still_absorbs(self):
+        # A fixed-height page that moved down by a row exposes a padding row
+        # at the top and crops one at the bottom. Both are padding, so they
+        # match, and the top one differs from the content below it. That is
+        # not an element that moved: neither row stood out in the interior.
+        padding = (245, 245, 245, 255)
+        colors = [(200 + (i * 7) % 50, 200 + (i * 13) % 50, 220, 255) for i in range(300)]
+        baseline = make_striped_png([padding, *colors, padding], width=100)
+        current = make_striped_png([padding, padding, *colors], width=100)
+
+        result = compare_images(baseline, current, with_thumbnail=False)
+        assert result.row_shift is not None
+        assert (result.row_shift.inserted_rows, result.row_shift.deleted_rows) == (1, 1)
+        assert result.row_shift.relocated_rows == 0
+
+        assert classify_compare_result(result) is None
 
     def test_shift_too_big_to_check_for_relocation_goes_to_review(self, mocker):
         # The relocation check decodes the images again. Past the pixel bound

@@ -16,6 +16,7 @@ from pixelhog import ClustersResult, Comparison, RowAlignment
 from posthog.dataclasses import frozen
 
 from .diff_metadata import ClusterSummary, DiffCluster, RowShift, ShiftBand
+from .facade.contracts import SHIFT_ABSORB_MAX_ROWS
 
 # Aligned-bbox merge tunables passed through to pixelhog's clusters().
 # Catches the "list shifted vertically" pattern where every row of a
@@ -49,10 +50,11 @@ CLUSTER_MAX = 20
 # still admits a one pixel wide image with tens of millions of rows. Real pages
 # top out well under this, so past it the pair keeps the naive diff.
 ALIGN_MAX_ROWS = 32_768
-# The relocation check decodes each image a second time, one after the other.
-# Past this many pixels that is too much memory next to pixelhog's own buffers,
-# so the check is skipped and a shift with both inserts and deletes is treated
-# as moved content, which sends it to a reviewer instead of absorbing it.
+# The relocation check decodes each image a second time, one after the other,
+# and only for a shift within the absorb cap. Past this many pixels that is
+# too much memory next to pixelhog's own buffers, so the check is skipped and
+# a shift with both inserts and deletes is treated as moved content, which
+# sends it to a reviewer instead of absorbing it.
 RELOCATION_CHECK_MAX_PIXELS = 16_000_000
 
 
@@ -90,14 +92,19 @@ class CompareResult:
 def _relocated_rows(baseline_bytes: bytes, current_bytes: bytes, alignment: RowAlignment, total_pixels: int) -> int:
     """Inserted rows whose pixels equal a deleted row's: content that moved, not padding that appeared.
 
-    Padding that grew blends into a neighbor, so an inserted band counts only
-    when it differs from the rows above and below it in the current image.
-    Only a pair with both inserts and deletes decodes the images again, one
-    at a time so the two are never held together.
+    An element that moved stood out somewhere in the interior: the band
+    differs from the rows above and below it, in the current image where it
+    landed or in the baseline where it left. Padding that grew blends into a
+    neighbor, and padding that a page shift exposed at one edge while it
+    cropped the other has no interior side, so neither counts. The images
+    are decoded again for this, one at a time, and only for a shift small
+    enough that the answer can still absorb it.
     """
     deleted = [seg for seg in alignment.segments if seg.kind == "delete"]
     inserted = [seg for seg in alignment.segments if seg.kind == "insert"]
     if not deleted or not inserted:
+        return 0
+    if max(alignment.inserted_rows, alignment.deleted_rows) > SHIFT_ABSORB_MAX_ROWS:
         return 0
     if total_pixels > RELOCATION_CHECK_MAX_PIXELS:
         return sum(seg.len for seg in inserted)
@@ -105,11 +112,22 @@ def _relocated_rows(baseline_bytes: bytes, current_bytes: bytes, alignment: RowA
     def row(image: Image.Image, y: int) -> bytes:
         return image.crop((0, y, image.width, y + 1)).tobytes()
 
+    def stands_out(image: Image.Image, start: int, end: int, band: list[bytes]) -> bool:
+        if start == 0 or end >= image.height:
+            return False
+        return row(image, start - 1) != band[0] and row(image, end) != band[-1]
+
     baseline = Image.open(io.BytesIO(baseline_bytes)).convert("RGBA")
-    deleted_rows = {
-        row(baseline, y) for seg in deleted for y in range(seg.baseline_start, seg.baseline_start + seg.len)
-    }
+    # Row pixels -> whether that deleted band stood out where it was.
+    deleted_rows: dict[bytes, bool] = {}
+    for seg in deleted:
+        start, end = seg.baseline_start, seg.baseline_start + seg.len
+        band = [row(baseline, y) for y in range(start, end)]
+        stood_out = stands_out(baseline, start, end, band)
+        for pixels in band:
+            deleted_rows[pixels] = deleted_rows.get(pixels, False) or stood_out
     del baseline
+
     current = Image.open(io.BytesIO(current_bytes)).convert("RGBA")
     relocated = 0
     for seg in inserted:
@@ -117,9 +135,7 @@ def _relocated_rows(baseline_bytes: bytes, current_bytes: bytes, alignment: RowA
         band = [row(current, y) for y in range(start, end)]
         if any(pixels not in deleted_rows for pixels in band):
             continue
-        above_differs = start == 0 or row(current, start - 1) != band[0]
-        below_differs = end >= current.height or row(current, end) != band[-1]
-        if above_differs and below_differs:
+        if stands_out(current, start, end, band) or any(deleted_rows[pixels] for pixels in band):
             relocated += seg.len
     return relocated
 
