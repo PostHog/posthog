@@ -27,7 +27,6 @@ import {
     isGroupsQuery,
     isHogQLQuery,
     isMarketingAnalyticsTableQuery,
-    isNonIntegratedConversionsTableQuery,
     isPersonsNode,
     isSessionsQuery,
 } from '~/queries/utils'
@@ -126,11 +125,7 @@ export function DataTableExport({ query, fileNameForExport }: DataTableExportPro
         (isPersonsNode(source) && source.search ? 1 : 0)
     const canExportAllColumns = isEventsQuery(source) && source.select.includes('*')
     const showExportClipboardButtons =
-        isPersonsNode(source) ||
-        isEventsQuery(source) ||
-        isHogQLQuery(source) ||
-        isMarketingAnalyticsTableQuery(source) ||
-        isNonIntegratedConversionsTableQuery(source)
+        isPersonsNode(source) || isEventsQuery(source) || isHogQLQuery(source) || isMarketingAnalyticsTableQuery(source)
     const canSaveAsCohort = isActorsQuery(source)
 
     // Creating an export requires editor access to the export resource.

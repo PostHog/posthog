@@ -350,8 +350,8 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         mat_factory = MarketingSourceFactory(context=mat_context)
         with self.timings.measure("ma_precompute_adapters"):
             mat_adapters = mat_factory.get_valid_adapters(mat_factory.create_adapters())
-        # NonIntegratedConversionsTableQuery has no integrationFilter field — getattr keeps the
-        # precompute path working for it instead of raising AttributeError and falling back to S3.
+        # Not every query on this base declares integrationFilter — getattr keeps the precompute
+        # path working for those instead of raising AttributeError and falling back to S3.
         integration_filter = getattr(self.query, "integrationFilter", None)
         if integration_filter and integration_filter.integrationSourceIds:
             selected_ids = integration_filter.integrationSourceIds

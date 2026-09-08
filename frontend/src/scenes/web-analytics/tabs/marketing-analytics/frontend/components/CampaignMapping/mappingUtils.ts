@@ -291,3 +291,13 @@ export function getAutoMatchedCampaigns(
 
     return matches
 }
+
+export enum MappableColumn {
+    Source = 'source',
+    Campaign = 'campaign',
+}
+
+export function getMappableColumn(columnName: string): MappableColumn | null {
+    const normalized = columnName.toLowerCase()
+    return Object.values(MappableColumn).find((column) => column === normalized) ?? null
+}
