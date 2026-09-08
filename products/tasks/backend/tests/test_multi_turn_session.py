@@ -1,6 +1,7 @@
 import json
 import asyncio
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -900,9 +901,9 @@ class TestPollForTurnTimeoutDiagnosis:
     @pytest.mark.asyncio
     async def test_sequenced_ingest_does_not_claim_a_stale_transport(self):
         fake = FakeTaskRun()
-        fake.state = {"sandbox_event_ingest_enabled": True}
+        cast(Any, fake).state = {"sandbox_event_ingest_enabled": True}
 
-        assert await _relay_activity_is_stale(fake, 30) is False
+        assert await _relay_activity_is_stale(cast(TaskRun, fake), 30) is False
 
     @pytest.mark.asyncio
     async def test_provisioning_silence_does_not_trip_the_floor(self):
