@@ -1933,6 +1933,16 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": str(e)},
             )
 
+        if not schemas:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": f"Could not discover schema {instance.name}. The connection may be missing SELECT or "
+                    "schema access privileges, or discovery may not support this relation type. Check that the "
+                    "relation exists, restore read privileges, or expose it as a supported table or view, then try again."
+                },
+            )
+
         # Not every source honors the `names` filter (e.g. Slack returns all schemas regardless), so
         # `schemas` may contain unrelated tables in any order. Pick the one that matches this schema
         # instead of trusting `schemas[0]`, whose metadata could belong to a different table.
