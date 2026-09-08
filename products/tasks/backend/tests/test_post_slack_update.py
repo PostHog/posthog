@@ -301,9 +301,8 @@ class TestPostSlackUpdate(TestCase):
         mock_delete_progress,
         mock_post_error,
     ):
-        # Timeouts can now land as FAILED, but the state marker names them as timeouts, so the
-        # thread clears its progress marker rather than posting an error card. The marker decides
-        # this, not the error_message, which the wall-clock cap fills in for the other surfaces.
+        # The state marker decides this, not the error_message, which the wall-clock cap fills
+        # in for the other surfaces.
         mock_run = self._make_mock_run(
             mock_task_run_class.Status.FAILED,
             output={},

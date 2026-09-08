@@ -2034,8 +2034,6 @@ class TestProcessTaskWorkflowUnit:
                 "completed",
                 {"timed_out_inactivity": True},
             ),
-            # A capped run names its cap in error_message, so the failure does not read as an
-            # unexplained crash on every surface that shows the message.
             (
                 process_task_workflow_module.TaskEvent.MAX_DURATION_REACHED,
                 "onboarding",
@@ -2047,8 +2045,7 @@ class TestProcessTaskWorkflowUnit:
                     "timeout_marker": TIMED_OUT_WALL_CLOCK_STATE_KEY,
                 },
             ),
-            # An uncapped origin only reaches this branch if the cap was cleared mid-run, so the
-            # message drops the duration rather than inventing one.
+            # An uncapped origin only reaches this branch if the cap was cleared mid-run.
             (
                 process_task_workflow_module.TaskEvent.MAX_DURATION_REACHED,
                 None,

@@ -1507,9 +1507,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 )
             elif timeout_event == TaskEvent.MAX_DURATION_REACHED:
                 # Only reachable under the lifecycle-bounds patch (the timer is gated on it).
-                # A run that outlived the hard cap is a failure, not a completion. The state
-                # marker carries the machine-readable reason, and the message states the cap
-                # so the run does not read as an unexplained crash.
+                # A run that outlived the hard cap is a failure, not a completion. The marker
+                # carries the machine-readable reason, the message the human-readable one.
                 await self._update_task_run_status(
                     "failed",
                     error_message=_max_run_duration_error_message(self.context.max_run_duration()),

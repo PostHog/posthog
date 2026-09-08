@@ -99,6 +99,4 @@ class TestMaxRunDuration:
         ]
     )
     def test_capped_run_failure_message_states_the_limit(self, cap: timedelta | None, expected: str):
-        # Every surface that reads error_message shows this text, so a capped run must not look
-        # like an unexplained crash.
         assert _max_run_duration_error_message(cap) == expected
