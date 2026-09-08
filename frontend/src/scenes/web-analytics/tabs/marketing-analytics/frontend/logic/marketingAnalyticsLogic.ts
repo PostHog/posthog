@@ -306,6 +306,7 @@ export interface marketingAnalyticsLogicValues {
     loading: boolean
     nativeSources: ExternalDataSource[]
     nativeSourcesHierarchyStatus: NativeSourceHierarchyStatus[]
+    optionsOpen: boolean
     overviewQuery: MarketingAnalyticsAggregatedQuery
     setupSection: SetupSection
     shouldFilterTestAccounts: boolean
@@ -436,6 +437,9 @@ export interface marketingAnalyticsLogicActions {
     }
     setIntegrationFilter: (integrationFilter: IntegrationFilter) => {
         integrationFilter: IntegrationFilter
+    }
+    setOptionsOpen: (optionsOpen: boolean) => {
+        optionsOpen: boolean
     }
     setSetupSection: (section: SetupSection) => {
         section: SetupSection
@@ -641,6 +645,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             interval,
         }),
         setIntegrationFilter: (integrationFilter: IntegrationFilter) => ({ integrationFilter }),
+        setOptionsOpen: (optionsOpen: boolean) => ({ optionsOpen }),
         // Internal action for URL sync - updates state without triggering actionToUrl
         syncFromUrl: (params: {
             dateFrom?: string | null
@@ -717,6 +722,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     },
                 },
             ],
+            optionsOpen: [false as boolean, { setOptionsOpen: (_, { optionsOpen }) => optionsOpen }],
             integrationFilter: [
                 { integrationSourceIds: [] } as IntegrationFilter,
                 persistConfig,
