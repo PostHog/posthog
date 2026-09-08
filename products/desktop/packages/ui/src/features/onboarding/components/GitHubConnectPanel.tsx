@@ -20,6 +20,7 @@ import {
   deriveAlternativeConnectedProjects,
   deriveConnectButtonState,
   deriveGithubApprovalState,
+  didGithubConnectCompleteFromIntegrations,
   getGithubPanelMessage,
   isAnyIntegrationStale,
   resolveSelectedProjectId,
@@ -63,7 +64,7 @@ import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingSt
 import { track } from "@posthog/ui/shell/analytics";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export function GitHubConnectPanel() {
   const queryClient = useQueryClient();
@@ -86,13 +87,24 @@ export function GitHubConnectPanel() {
     () => projects.find((p) => p.id === selectedProjectId),
     [projects, selectedProjectId],
   );
+  const {
+    data: githubUserIntegrations = [],
+    isLoading: githubUserIntegrationsLoading,
+  } = useUserGithubIntegrations();
 
   // Armed on connect start, cleared on any terminal outcome, so an unmount in
   // between is reported as an abandoned connect.
   const inFlightConnectRef = useRef<{
     flowType: OnboardingGithubConnectFlow;
     startedAtMs: number;
+    integrationCountAtStart: number;
   } | null>(null);
+
+  const reportConnected = useCallback(() => {
+    if (!inFlightConnectRef.current) return;
+    inFlightConnectRef.current = null;
+    track(ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECTED);
+  }, []);
 
   const {
     error: connectError,
@@ -105,10 +117,7 @@ export function GitHubConnectPanel() {
   } = useGithubConnect({
     projectId: selectedProjectId,
     projectHasTeamIntegration: selectedProject?.hasGithubIntegration ?? null,
-    onConnected: () => {
-      inFlightConnectRef.current = null;
-      track(ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECTED);
-    },
+    onConnected: reportConnected,
   });
   const canTakeAction = !isConnecting && !timedOut && !hasConnectError;
   // The callback reports an org-owner wait through onPending when the caller
@@ -126,7 +135,11 @@ export function GitHubConnectPanel() {
       flow_type: flowType,
       is_retry: isRetry,
     });
-    inFlightConnectRef.current = { flowType, startedAtMs: Date.now() };
+    inFlightConnectRef.current = {
+      flowType,
+      startedAtMs: Date.now(),
+      integrationCountAtStart: githubUserIntegrations.length,
+    };
   };
 
   const initiateConnect = (
@@ -151,6 +164,29 @@ export function GitHubConnectPanel() {
       );
     };
   }, []);
+
+  useEffect(() => {
+    const inFlight = inFlightConnectRef.current;
+    if (!inFlight) return;
+    // The integration query can confirm success before Electron receives the
+    // deep-link callback. A new integration is a second success signal.
+    if (
+      !didGithubConnectCompleteFromIntegrations({
+        isConnecting,
+        integrationCountAtStart: inFlight.integrationCountAtStart,
+        currentIntegrationCount: githubUserIntegrations.length,
+      })
+    ) {
+      return;
+    }
+    resetConnect();
+    reportConnected();
+  }, [
+    githubUserIntegrations.length,
+    isConnecting,
+    reportConnected,
+    resetConnect,
+  ]);
 
   const connectService = useService<GithubConnectService>(
     GITHUB_CONNECT_SERVICE,
@@ -201,10 +237,6 @@ export function GitHubConnectPanel() {
     isPending: awaitingApproval,
   });
 
-  const {
-    data: githubUserIntegrations = [],
-    isLoading: githubUserIntegrationsLoading,
-  } = useUserGithubIntegrations();
   const hasGitIntegration = githubUserIntegrations.length > 0;
   const { data: githubInstallRequests } = useGithubInstallRequests();
   const approvalState = deriveGithubApprovalState({
@@ -442,24 +474,30 @@ export function GitHubConnectPanel() {
               );
             })}
             <div className="flex flex-wrap items-center gap-2">
-              <Button
-                size="sm"
-                variant="default"
-                loading={isRefreshing}
-                onClick={() => void refreshGithubState()}
-              >
-                <ArrowsClockwise size={12} />
-                Refresh
-              </Button>
-              <Button
-                size="sm"
-                variant="link-muted"
-                onClick={() => initiateConnect("user_new")}
-                loading={isConnecting}
-              >
-                <Plus size={12} />
-                Add another GitHub org
-              </Button>
+              {isRefreshing ? (
+                <Skeleton className="h-8 w-20 rounded-md" />
+              ) : (
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={() => void refreshGithubState()}
+                >
+                  <ArrowsClockwise size={12} />
+                  Refresh
+                </Button>
+              )}
+              {isConnecting ? (
+                <Skeleton className="h-8 w-44 rounded-md" />
+              ) : (
+                <Button
+                  size="sm"
+                  variant="link-muted"
+                  onClick={() => initiateConnect("user_new")}
+                >
+                  <Plus size={12} />
+                  Add another GitHub org
+                </Button>
+              )}
             </div>
           </div>
         ) : isAwaitingApproval ? (

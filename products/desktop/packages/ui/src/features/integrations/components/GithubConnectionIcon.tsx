@@ -59,7 +59,7 @@ export function GithubConnectionIcon({
 
           <m.span
             aria-hidden="true"
-            className="absolute top-1/2 left-1/2 flex items-center justify-center text-destructive"
+            className="absolute top-1/2 left-1/2 flex items-center justify-center text-destructive-foreground"
             initial={
               shouldReduceMotion
                 ? false
