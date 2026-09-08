@@ -2,7 +2,7 @@ import pytest
 
 from products.wizard.backend.facade.contracts import GitRepositoryWorkspace, LocalFolderWorkspace, WizardWorkspace
 from products.wizard.backend.facade.enums import WizardWorkspaceType
-from products.wizard.backend.logic.runs.mappers import workspace_from_record, workspace_to_record
+from products.wizard.backend.logic.runs.mappers import record_to_workspace, workspace_to_record
 
 
 @pytest.mark.parametrize(
@@ -25,7 +25,7 @@ def test_workspace_serialization_round_trip(
     metadata: dict[str, str],
     expected_workspace: WizardWorkspace,
 ) -> None:
-    workspace = workspace_from_record(workspace_type.value, metadata)
+    workspace = record_to_workspace(workspace_type.value, metadata)
 
     assert workspace == expected_workspace
     assert workspace_to_record(workspace) == (workspace_type, metadata)
@@ -42,4 +42,4 @@ def test_workspace_rejects_invalid_serialized_value(
     workspace_type: WizardWorkspaceType, metadata: dict[str, object]
 ) -> None:
     with pytest.raises(ValueError):
-        workspace_from_record(workspace_type.value, metadata)
+        record_to_workspace(workspace_type.value, metadata)

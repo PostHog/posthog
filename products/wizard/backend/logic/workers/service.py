@@ -53,7 +53,7 @@ from products.wizard.backend.logic.workers.contracts import (
     WizardWorkerUsageMeasurement,
 )
 from products.wizard.backend.logic.workers.local_package import build_local_wizard_source_archive
-from products.wizard.backend.logic.workers.wizard_error_output import wizard_error_code_from_stderr
+from products.wizard.backend.logic.workers.wizard_error_output import stderr_to_wizard_error_code
 from products.wizard.backend.observability.service import wizard_observability
 
 from .repository_publisher import RepositoryPublishingError, create_pull_request, create_signed_commit
@@ -318,7 +318,7 @@ def _raise_for_failure(
             stage,
             exit_code,
             _failure_detail(stdout, stderr, sensitive_values),
-            wizard_error_code_from_stderr(stderr),
+            stderr_to_wizard_error_code(stderr),
         )
 
 
