@@ -30,7 +30,7 @@ export function AccountRelationshipEditor({
     const confirmClear = (): void => {
         LemonDialog.open({
             title: `Clear ${definition.name}?`,
-            content: 'This will remove all current assignments. You can assign people again later.',
+            content: 'This clears the assignments you were editing. New assignments added elsewhere will be kept.',
             primaryButton: {
                 children: 'Clear value',
                 status: 'danger',
