@@ -1,9 +1,13 @@
 from typing import Any
 
-from posthog.test.base import TestMigrations
+from posthog.test.base import NonAtomicTestMigrations
 
 
-class StripUnknownExposureCriteriaKeysMigrationTest(TestMigrations):
+# NonAtomic, not TestMigrations: rolling this app back also unapplies every migration that
+# depends on it, which since the 2026-09-07 squash means every newer migration in the repo.
+# Those include concurrent index builds, which refuse to run inside the transaction a
+# TestCase would wrap this in.
+class StripUnknownExposureCriteriaKeysMigrationTest(NonAtomicTestMigrations):
     migrate_from = "0034_backfill_precomputation_enabled_set_by"
     migrate_to = "0035_strip_unknown_exposure_criteria_keys"
 
