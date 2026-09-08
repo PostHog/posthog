@@ -33,6 +33,8 @@ import { urls } from 'scenes/urls'
 
 import { DashboardType, InsightShortId, SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
+import type { SubscriptionContextApi } from 'products/subscriptions/frontend/generated/api.schemas'
+
 import { AiPromptFields, AiPromptSubscriptionIntroduction } from './AiPromptFields'
 import { InsightSelector } from './InsightSelector'
 import { SubscriptionDayPicker } from './SubscriptionDayPicker'
@@ -206,6 +208,7 @@ export function SubscriptionWizard({
                     subscription={subscription}
                     dashboard={dashboard}
                     insightShortId={insightShortId}
+                    contextsEnabled={Boolean(aiContextsEnabled)}
                 />
             )
             break
@@ -673,16 +676,27 @@ function formatAiAnalysisWindow(subscription: SubscriptionType): string {
     return 'Since last report'
 }
 
+function formatSubscriptionContexts(contexts: SubscriptionContextApi[]): string {
+    if (!contexts.length) {
+        return 'No context. The report chooses relevant project data based on your prompt.'
+    }
+    return contexts
+        .map((context) => ('dashboard_id' in context ? context.dashboard_name : context.insight_name))
+        .join(' · ')
+}
+
 function SubscriptionReviewStep({
     logicProps,
     subscription,
     dashboard,
     insightShortId,
+    contextsEnabled,
 }: {
     logicProps: SubscriptionLogicProps
-    subscription: SubscriptionType
+    subscription: SubscriptionFormType
     dashboard?: DashboardType<any> | null
     insightShortId?: InsightShortId
+    contextsEnabled: boolean
 }): JSX.Element {
     const { previewLoading, previewError, previewImageUrl } = useValues(subscriptionLogic(logicProps))
     const { generatePreview } = useActions(subscriptionLogic(logicProps))
@@ -714,6 +728,9 @@ function SubscriptionReviewStep({
         { label: 'Name', value: subscription.title },
         ...(isAiPrompt
             ? [
+                  ...(contextsEnabled
+                      ? [{ label: 'Context', value: formatSubscriptionContexts(subscription.contexts) }]
+                      : []),
                   { label: 'Prompt', value: subscription.prompt ?? '' },
                   { label: 'Analysis window', value: formatAiAnalysisWindow(subscription) },
               ]
