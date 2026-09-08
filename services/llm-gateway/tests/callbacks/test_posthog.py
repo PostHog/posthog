@@ -1474,7 +1474,14 @@ class TestTruncateForCapture:
 
             props = mock_client.capture.call_args.kwargs["properties"]
             assert "deep" in props
-            # The deep nesting should be safely truncated without causing a RecursionError
+            current = props["deep"]
+            for _ in range(6):
+                assert isinstance(current, dict)
+                current = current["nest"]
+            assert current == "[truncated: max depth exceeded]"
+            # Assert that the deep leaf was safely pruned and never appears
+            assert "leaf" not in str(props["deep"])
+            assert "deep_val" not in str(props["deep"])
 
     @pytest.mark.asyncio
     async def test_on_failure_truncates_oversized_metadata(self) -> None:
@@ -1580,3 +1587,95 @@ class TestTruncateForCapture:
             extracted = callback._extract_metadata(kwargs)
 
         assert extracted == caller_metadata
+
+    def test_truncate_for_capture_removes_entire_properties_for_giant_keys_and_large_payload(self) -> None:
+        from llm_gateway.callbacks.posthog import _truncate_for_capture, _MAX_CAPTURE_SIZE
+
+        props = {
+            "$ai_model": "gpt-4o",
+            "$ai_provider": "openai",
+            "$ai_trace_id": "test-trace",
+            "team_id": 456,
+            "ai_product": "wizard",
+        }
+        # Add 90 custom properties of 10 KB each (~900 KB, exceeding 800 KB limit)
+        for i in range(90):
+            props[f"custom_prop_{i}"] = "x" * (10 * 1024)
+
+        truncated = _truncate_for_capture(props)
+        assert len(json.dumps(truncated)) <= _MAX_CAPTURE_SIZE
+        # Essential gateway-owned properties must be retained
+        assert truncated["$ai_model"] == "gpt-4o"
+        assert truncated["$ai_provider"] == "openai"
+        assert truncated["$ai_trace_id"] == "test-trace"
+        assert truncated["team_id"] == 456
+        assert truncated["ai_product"] == "wizard"
+
+    def test_extract_metadata_preserves_user_id_on_fallback_path_for_trace_derivation(self) -> None:
+        from llm_gateway.callbacks.posthog import _merge_custom_metadata, _normalize_trace_id
+        callback = PostHogCallback(api_key="test-key", host="https://test.posthog.com")
+
+        user_session_id = "user-session-task-12345"
+        kwargs = {
+            "litellm_params": {
+                "metadata": {
+                    "user_id": user_session_id,
+                    "valid_key": "valid_value",
+                }
+            }
+        }
+        with patch("llm_gateway.callbacks.posthog.get_caller_metadata", return_value=None):
+            extracted = callback._extract_metadata(kwargs)
+
+        # user_id must be in extracted metadata so _normalize_trace_id can derive deterministic UUID
+        assert extracted.get("user_id") == user_session_id
+        derived_trace_id = _normalize_trace_id(extracted.get("user_id"))
+        assert derived_trace_id == _normalize_trace_id(user_session_id)
+
+        # But _merge_custom_metadata must reject user_id from captured event properties
+        event_props: dict[str, Any] = {}
+        _merge_custom_metadata(event_props, extracted)
+        assert "user_id" not in event_props
+        assert event_props.get("valid_key") == "valid_value"
+
+    @pytest.mark.asyncio
+    async def test_on_failure_with_oversized_ai_error_and_safe_metadata_survives_truncation(self) -> None:
+        mock_client = MagicMock()
+        callback = PostHogCallback(api_key="test-key", host="https://test.posthog.com")
+        auth_user = AuthenticatedUser(user_id=123, team_id=456, auth_method="personal_api_key", distinct_id="user-123")
+        large_error = "FatalProviderError: " + ("E" * (1024 * 1024))
+
+        kwargs = {
+            "standard_logging_object": {
+                "model": "claude-3-opus",
+                "custom_llm_provider": "anthropic",
+                "error_str": large_error,
+            },
+            "litellm_params": {
+                "metadata": {
+                    "service": "billing-api",
+                    "environment": "production",
+                    "large_debug_dump": "D" * (20 * 1024),
+                }
+            },
+        }
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="wizard"),
+            patch("llm_gateway.callbacks.posthog.Posthog", return_value=mock_client),
+        ):
+            await callback._on_failure(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            props = mock_client.capture.call_args.kwargs["properties"]
+            assert len(json.dumps(props)) <= _MAX_SIZE
+            assert props["$ai_is_error"] is True
+            assert _TRUNCATION_MARKER in props["$ai_error"]
+            assert props["$ai_error"].startswith("FatalProviderError:")
+            assert props["team_id"] == 456
+            assert props["ai_product"] == "wizard"
+            assert props["$ai_model"] == "claude-3-opus"
+            assert props["$ai_provider"] == "anthropic"
+            # Safe small custom metadata survives truncation
+            assert props.get("service") == "billing-api"
+            assert props.get("environment") == "production"

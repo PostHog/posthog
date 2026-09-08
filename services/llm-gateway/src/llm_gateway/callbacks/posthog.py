@@ -167,6 +167,7 @@ _LITELLM_INTERNAL_METADATA_KEYS = frozenset({
     "bearer",
 })
 
+_MAX_CUSTOM_METADATA_KEY_LENGTH = 256
 _MAX_CUSTOM_METADATA_VALUE_SIZE = 10 * 1024
 _MAX_RECURSION_DEPTH = 5
 _MAX_CONTAINER_ITEMS = 100
@@ -189,7 +190,7 @@ def _is_sensitive_key(key: str) -> bool:
 
 
 def _is_rejected_custom_key(key: str) -> bool:
-    if not isinstance(key, str):
+    if not isinstance(key, str) or len(key) > _MAX_CUSTOM_METADATA_KEY_LENGTH:
         return True
     key_lower = key.lower()
     # Reject ALL caller-supplied $ properties ($set, $process_person_profile, $ai_*, $feature/*, $group_*, etc.)
@@ -210,7 +211,7 @@ def _sanitize_custom_metadata_value(value: Any, depth: int = 0) -> Any:
         for i, (k, v) in enumerate(value.items()):
             if i >= _MAX_CONTAINER_ITEMS:
                 break
-            if not isinstance(k, str):
+            if not isinstance(k, str) or len(k) > _MAX_CUSTOM_METADATA_KEY_LENGTH:
                 continue
             if _is_rejected_custom_key(k):
                 continue
@@ -233,8 +234,10 @@ def _sanitize_custom_metadata_value(value: Any, depth: int = 0) -> Any:
 def _merge_custom_metadata(properties: dict[str, Any], metadata: Any) -> None:
     if not isinstance(metadata, dict):
         return
-    for key, value in metadata.items():
-        if not isinstance(key, str):
+    for i, (key, value) in enumerate(metadata.items()):
+        if i >= _MAX_CONTAINER_ITEMS:
+            break
+        if not isinstance(key, str) or len(key) > _MAX_CUSTOM_METADATA_KEY_LENGTH:
             continue
         if not _is_rejected_custom_key(key):
             clean_value = _sanitize_custom_metadata_value(value)
@@ -285,22 +288,30 @@ def _truncate_for_capture(properties: dict[str, Any]) -> dict[str, Any]:
     # Gateway-owned keys ($ai_*, $group_*, $feature/*) are excluded; custom $group_/$feature/
     # keys should never reach here because _sanitize_custom_metadata_value rejects them.
     if current_size > _MAX_CAPTURE_SIZE:
-        non_owned: list[tuple[str, int]] = [
-            (key, len(json.dumps(val, default=str)))
+        non_owned: list[tuple[str, int, int]] = [
+            (key, len(json.dumps(key)), len(json.dumps(val, default=str)))
             for key, val in result.items()
             if not _is_gateway_owned_property(key) and key not in _TRUNCATABLE_FIELDS
         ]
-        non_owned.sort(key=lambda item: item[1], reverse=True)
+        non_owned.sort(key=lambda item: item[2], reverse=True)
 
-        for key, val_size in non_owned:
+        for key, key_len, val_size in non_owned:
             if val_size >= _MIN_FIELD_SIZE_TO_TRUNCATE:
                 current_size -= max(0, val_size - marker_size)
                 result[key] = _TRUNCATION_MARKER
             else:
-                current_size -= val_size
+                current_size -= (key_len + val_size + 3)
                 result.pop(key, None)
             if current_size <= _MAX_CAPTURE_SIZE:
                 return result
+
+        # If still oversized (e.g. giant keys or many marker-truncated fields), remove entire properties
+        for key, key_len, _ in non_owned:
+            if key in result:
+                result.pop(key, None)
+                current_size -= (key_len + marker_size + 3)
+                if current_size <= _MAX_CAPTURE_SIZE:
+                    return result
 
     # Phase 3: If still oversized before returning, truncate $ai_error so provider error events are not dropped.
     # Preserve the beginning of the error message for debugging while appending the truncation marker.
@@ -316,6 +327,14 @@ def _truncate_for_capture(properties: dict[str, Any]) -> dict[str, Any]:
         new_len = len(json.dumps(truncated_err))
         current_size -= max(0, old_len - new_len)
         result["$ai_error"] = truncated_err
+
+    # Final safety check: if still oversized, remove any remaining non-gateway-owned properties
+    if len(json.dumps(result, default=str)) > _MAX_CAPTURE_SIZE:
+        for key in list(result.keys()):
+            if not _is_gateway_owned_property(key) and key not in _TRUNCATABLE_FIELDS:
+                result.pop(key, None)
+                if len(json.dumps(result, default=str)) <= _MAX_CAPTURE_SIZE:
+                    break
 
     return result
 
@@ -637,6 +656,6 @@ class PostHogCallback(InstrumentedCallback):
             k: v
             for k, v in raw_metadata.items()
             if isinstance(k, str)
-            and k not in _LITELLM_INTERNAL_METADATA_KEYS
+            and (k.lower() == "user_id" or k not in _LITELLM_INTERNAL_METADATA_KEYS)
             and k != "hidden_params"
         }
