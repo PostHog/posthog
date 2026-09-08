@@ -11,7 +11,6 @@ export type FunnelSeriesMeta = {
     compare_label?: SeriesDatum['compare_label']
     order: number
     label?: string | null
-    // Trends only: per-period counts behind each conversion rate, so the tooltip can show scale.
     reached_from_step_count?: number[]
     reached_to_step_count?: number[]
 }

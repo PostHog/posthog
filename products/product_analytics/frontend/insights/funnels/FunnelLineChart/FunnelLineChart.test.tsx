@@ -37,7 +37,6 @@ describe('FunnelLineChart', () => {
 
             expect(getHogChart().seriesCount).toBe(1)
             expect(tooltip.element.textContent).toContain(FUNNEL_CONVERSION_SERIES_LABEL)
-            // A bare percentage hides whether the period converted 3 people or 3,000.
             expect(tooltip.element.textContent).toContain('20 of 50 people (40%)')
         })
 
