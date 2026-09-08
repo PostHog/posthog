@@ -108,8 +108,7 @@ Omit both for a send-only composer.
 
 Task creation and resumption keep the submitted draft and unsent context while a warm run starts.
 Web retries confirmed startup failures for up to 20 seconds, then leaves the message available to
-submit again. See [warm-run submission](../../../../docs/internal/warm-run-submission.md) for the
-retry contract and cancellation behavior.
+submit again.
 
 ### Custom layout via the `RunSurface` compound
 
