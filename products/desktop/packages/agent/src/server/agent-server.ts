@@ -1831,22 +1831,20 @@ export class AgentServer {
   }
 
   /**
-   * The task's origin decides which origin-gated local tools load, so a transient failure here
-   * would silently drop report_activity from an analysis run. Retry, then give up so a task that
+   * The transport retries a rejected token but not a 5xx or a socket error, so one blip
+   * would silently degrade the session. Retry, then give up so a task or run that
    * genuinely does not exist still starts the session.
    */
-  private async fetchTaskForSessionContext(
-    taskId: string,
-  ): Promise<Task | null> {
+  private async fetchForSessionContext<T>(
+    fetch: () => Promise<T>,
+    onGiveUp: (error: unknown) => void,
+  ): Promise<T | null> {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        return await this.posthogAPI.getTask(taskId);
+        return await fetch();
       } catch (err) {
         if (attempt === 2) {
-          this.logger.warn("Failed to fetch task for session context", {
-            taskId,
-            error: err,
-          });
+          onGiveUp(err);
           return null;
         }
         await sleepWithBackoff(attempt, {
@@ -1856,6 +1854,43 @@ export class AgentServer {
       }
     }
     return null;
+  }
+
+  /**
+   * The task's origin decides which origin-gated local tools load, so a transient failure here
+   * would silently drop report_activity from an analysis run.
+   */
+  private async fetchTaskForSessionContext(
+    taskId: string,
+  ): Promise<Task | null> {
+    return this.fetchForSessionContext(
+      () => this.posthogAPI.getTask(taskId),
+      (error) =>
+        this.logger.warn("Failed to fetch task for session context", {
+          taskId,
+          error,
+        }),
+    );
+  }
+
+  /**
+   * The run carries the session's system prompt, which newSession fixes once, so a later
+   * refresh cannot repair a run lost to a blip here. Without the run the stage is also
+   * unknown, so routing falls back to the env product.
+   */
+  private async fetchTaskRunForSessionContext(
+    taskId: string,
+    runId: string,
+  ): Promise<TaskRun | null> {
+    return this.fetchForSessionContext(
+      () => this.posthogAPI.getTaskRun(taskId, runId),
+      (error) =>
+        this.logger.warn("Failed to fetch task run for session context", {
+          taskId,
+          runId,
+          error,
+        }),
+    );
   }
 
   private async _doInitializeSession(payload: JwtPayload): Promise<void> {
@@ -1886,17 +1921,7 @@ export class AgentServer {
       "context_fetch",
       () =>
         Promise.all([
-          this.posthogAPI
-            .getTaskRun(payload.task_id, payload.run_id)
-            .catch((err) => {
-              // Without the run the stage is unknown, so routing falls back to the env product.
-              this.logger.warn("Failed to fetch task run for session context", {
-                taskId: payload.task_id,
-                runId: payload.run_id,
-                error: err,
-              });
-              return null;
-            }),
+          this.fetchTaskRunForSessionContext(payload.task_id, payload.run_id),
           this.fetchTaskForSessionContext(payload.task_id),
         ]),
     );

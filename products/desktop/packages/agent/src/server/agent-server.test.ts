@@ -640,6 +640,51 @@ describe("AgentServer HTTP Mode", () => {
       30000,
     );
 
+    it("keeps the run-state system prompt after a transient run fetch failure", async () => {
+      let attempts = 0;
+      mswServer.use(
+        http.get(
+          "http://localhost:8000/api/projects/:projectId/tasks/:taskId/runs/:runId/",
+          () => {
+            attempts += 1;
+            if (attempts === 1) {
+              return new HttpResponse(null, { status: 503 });
+            }
+            return HttpResponse.json(
+              createTaskRun({
+                id: "test-run-id",
+                task: "test-task-id",
+                state: {
+                  systemPrompt: {
+                    type: "preset",
+                    preset: "claude_code",
+                    append: "Run-state system prompt.",
+                  },
+                },
+              }),
+            );
+          },
+        ),
+      );
+
+      const testServer = createServer() as unknown as {
+        start(): Promise<void>;
+        session: {
+          sessionMeta: { systemPrompt: string | { append: string } };
+        } | null;
+      };
+      await testServer.start();
+
+      const systemPromptValue = testServer.session?.sessionMeta.systemPrompt;
+      const prompt =
+        typeof systemPromptValue === "string"
+          ? systemPromptValue
+          : systemPromptValue?.append;
+
+      expect(attempts).toBeGreaterThan(1);
+      expect(prompt).toContain("Run-state system prompt.");
+    }, 30000);
+
     it("enables repository tools for a repository-less cloud session", async () => {
       await mkdir("/tmp/workspace", { recursive: true });
       mswServer.use(
