@@ -4,6 +4,7 @@ import { urls } from 'scenes/urls'
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, ProductManifest } from '~/types'
 
+import type { ModelsSceneTab } from '../../frontend/src/scenes/models/modelsSceneLogic'
 import type { NodeDetailSceneTab } from '../../frontend/src/scenes/models/nodeDetailSceneLogic'
 import type { SchemaConfigurationSection, SchemaSceneTab } from './frontend/scenes/SchemaScene/SchemaScene'
 import type { SourceSceneTab } from './frontend/scenes/SourceScene/SourceScene'
@@ -112,7 +113,7 @@ export const manifest: ProductManifest = {
             const query = params.toString()
             return query ? `/data-ops?${query}` : '/data-ops'
         },
-        models: (): string => '/models',
+        models: (tab?: ModelsSceneTab): string => (tab && tab !== 'models' ? `/models?tab=${tab}` : '/models'),
         nodeDetail: (id: string, tab?: NodeDetailSceneTab): string => `/models/${id}${tab ? `/${tab}` : ''}`,
         sources: (): string => '/data-management/sources',
         dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>

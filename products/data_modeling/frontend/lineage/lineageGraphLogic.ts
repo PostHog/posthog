@@ -1,11 +1,9 @@
 import { MarkerType, Position, type Edge as ReactFlowEdge, type Node as ReactFlowNode } from '@xyflow/react'
 import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
 
-import { getFormattedNodes } from 'scenes/data-warehouse/scene/modeling/autolayout'
-import { ElkDirection, NodeHandle } from 'scenes/data-warehouse/scene/modeling/types'
-
 import { DataModelingEdge, DataModelingNode } from '~/types'
 
+import { ElkDirection, NodeHandle, getFormattedNodes } from './autolayout'
 import { LineageNodeData, LineageVariant } from './LineageNode'
 
 const NODE_SIZES: Record<LineageVariant, { width: number; height: number }> = {

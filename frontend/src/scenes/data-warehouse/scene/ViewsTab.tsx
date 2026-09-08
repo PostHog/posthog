@@ -229,6 +229,14 @@ export function ViewsTab({ getViewUrl }: ViewsTabProps = {}): JSX.Element {
                                 title: 'Status',
                                 key: 'status',
                                 render: (_, view) => {
+                                    const suspension = Object.values(view.suspended ?? {})[0]
+                                    if (suspension) {
+                                        return (
+                                            <Tooltip title={suspension.reason} interactive>
+                                                <LemonTag type="warning">Suspended</LemonTag>
+                                            </Tooltip>
+                                        )
+                                    }
                                     if (!view.status) {
                                         return null
                                     }

@@ -18,6 +18,7 @@
         "@types/react": "*",
         "@xyflow/react": "*",
         "clsx": "*",
+        "elkjs": "*",
         "react": "*",
         "react-dom": "*"
     }

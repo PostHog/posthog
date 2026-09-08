@@ -42,6 +42,7 @@ import type { SourceSceneTab } from '../../products/data_warehouse/frontend/scen
 import { configurationRedirect, resolveSettingSlug } from '../../products/error_tracking/frontend/settingsRedirects'
 import type { InboxTabKey } from '../../products/signals/frontend/inbox/types'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
+import type { ModelsSceneTab } from './scenes/models/modelsSceneLogic'
 import type { NodeDetailSceneTab } from './scenes/models/nodeDetailSceneLogic'
 import {
     ActionType,
@@ -1150,7 +1151,7 @@ export const productUrls = {
         const query = params.toString()
         return query ? `/data-ops?${query}` : '/data-ops'
     },
-    models: (): string => '/models',
+    models: (tab?: ModelsSceneTab): string => (tab && tab !== 'models' ? `/models?tab=${tab}` : '/models'),
     nodeDetail: (id: string, tab?: NodeDetailSceneTab): string => `/models/${id}${tab ? `/${tab}` : ''}`,
     sources: (): string => '/data-management/sources',
     dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>
