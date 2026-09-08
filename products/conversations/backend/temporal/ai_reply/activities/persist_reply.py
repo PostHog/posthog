@@ -28,7 +28,13 @@ def _persist_reply_sync(input: PersistReplyInput) -> None:
     # must stay private regardless of the team's ai_reply_modes — guards against stale settings
     # since validation now rejects bot_reply for those types. Controlled by team-level opt-in.
     if input.allow_bot_reply and input.ticket_type in PUBLISHABLE_TICKET_TYPES:
-        ticket = Ticket.objects.select_related("team").filter(team_id=input.team_id, id=input.ticket_id).first()
+        # An archive that landed mid-run falls through to private, so an in-flight run cannot
+        # answer a customer on a ticket an agent took off the queue.
+        ticket = (
+            Ticket.objects.select_related("team")
+            .filter(team_id=input.team_id, id=input.ticket_id, archived_at__isnull=True)
+            .first()
+        )
         if ticket:
             settings_dict = ticket.team.conversations_settings or {}
             modes = settings_dict.get("ai_reply_modes") or {}

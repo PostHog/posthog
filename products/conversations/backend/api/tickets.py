@@ -1461,7 +1461,6 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             if cached_count is not None:
                 return Response({"count": cached_count})
 
-        # Query database - only non-resolved, non-archived tickets with unread messages
         queryset = (
             Ticket.objects.filter(team_id=team_id, archived_at__isnull=True)
             .exclude(status="resolved")
