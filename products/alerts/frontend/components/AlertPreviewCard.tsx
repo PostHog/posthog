@@ -106,6 +106,9 @@ export function AlertPreviewCard({
         ? deriveTrendsAlertPreviewSeries(trendsValues, trendsLabels ?? undefined, conditionType, thresholdType)
         : null
     const isBreakdownPreview = isTrendsAlertConfig(config) && isBreakdown
+    // Keyed on the mode, not on a stored result: the card sits in forecast mode before the first
+    // run and after every edit, and its header has to describe the forecast even with no chart yet.
+    const isForecastMode = !!alertForm.forecast_config
     const forecastReadsThreshold =
         !alertForm.forecast_config || alertForm.forecast_config.condition === ForecastConditionType.FUTURE_BREACH
     const referenceLines = forecastReadsThreshold ? thresholdReferenceLines(alertForm) : []
@@ -147,7 +150,7 @@ export function AlertPreviewCard({
     } else if (alertForm.forecast_config) {
         body = (
             <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
-                Run Simulate to preview this forecast.
+                Run Preview forecast to see it here.
             </div>
         )
     } else if (isUnconfiguredAbsoluteThreshold) {
@@ -253,10 +256,10 @@ export function AlertPreviewCard({
         <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 text-sm font-medium">
-                    <span>{forecast ? 'Forecast' : previewTitle}</span>
+                    <span>{isForecastMode ? 'Forecast' : previewTitle}</span>
                     <Tooltip
                         title={
-                            forecast
+                            isForecastMode
                                 ? 'History plus the point forecast and a contextual uncertainty range. Run the preview again after changing forecast settings.'
                                 : previewTooltip
                         }
@@ -266,7 +269,7 @@ export function AlertPreviewCard({
                     </Tooltip>
                 </div>
                 <div className="flex items-center gap-2">
-                    {useLogScale && !forecast ? (
+                    {useLogScale && !isForecastMode ? (
                         <Tooltip title="A log scale keeps thresholds with very different values visually distinct.">
                             <LemonTag type="default" className="m-0">
                                 Log scale
