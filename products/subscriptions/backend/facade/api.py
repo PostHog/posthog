@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from products.subscriptions.backend.logic import recommendations, research
+from products.tasks.backend.facade.staged_evidence import CompletedMCPCallEvidence
 
 from .contracts import (
     PublicResearchResult,
@@ -33,12 +34,14 @@ def parse_recommendation_result(
     allowed_citation_ids: set[str],
     citation_metadata: Mapping[str, RecommendationCitation] | None = None,
     degradations: tuple[RecommendationDegradation, ...] = (),
+    measurement_calls: tuple[CompletedMCPCallEvidence, ...] = (),
 ) -> RecommendationResult:
     return recommendations.parse_recommendation_result(
         raw_result,
         allowed_citation_ids=allowed_citation_ids,
         citation_metadata=citation_metadata,
         degradations=degradations,
+        measurement_calls=measurement_calls,
     )
 
 

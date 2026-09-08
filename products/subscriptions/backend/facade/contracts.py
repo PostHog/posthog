@@ -7,6 +7,7 @@ from uuid import UUID
 
 from posthog.dataclasses import frozen
 
+from products.tasks.backend.facade.staged_evidence import CompletedMCPCallEvidence
 from products.tasks.backend.facade.staged_execution import StagedRepositoryBinding as StagedRepositoryBinding
 
 RecommendationKind = Literal["product_change", "experiment", "instrumentation", "investigation"]
@@ -42,6 +43,7 @@ class Recommendation:
     expected_metric_movement: str
     citation_ids: tuple[str, ...]
     semantic_key: str
+    measurement_call_id: str | None = None
 
 
 @frozen
@@ -55,6 +57,7 @@ class RecommendationResult:
     recommendations: tuple[Recommendation, ...]
     citations: tuple[RecommendationCitation, ...]
     degradations: tuple[RecommendationDegradation, ...] = ()
+    completed_mcp_calls: tuple[CompletedMCPCallEvidence, ...] = ()
 
 
 @frozen
