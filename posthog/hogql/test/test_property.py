@@ -466,9 +466,7 @@ class TestProperty(BaseTest):
                     "operator": "not_icontains",
                 }
             ),
-            self._parse_expr(
-                "(multiSearchAnyCaseInsensitive(toString(properties.a), ['b', 'c']) = 0 OR properties.a = null)"
-            ),
+            self._parse_expr("NOT multiSearchAnyCaseInsensitive(toString(properties.a), ['b', 'c']) > 0"),
         )
         a = self._property_to_expr(
             {

@@ -9,6 +9,7 @@ from django.db.models.functions.comparison import Coalesce
 
 import re2
 import posthoganalytics
+from more_itertools import chunked
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
@@ -556,14 +557,15 @@ def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeG
         # bool is a subclass of int, so float() would silently accept it, and float("NaN") parses
         # to a real NaN. The Rust evaluator (rust/feature-flags/src/properties/property_matching.rs)
         # rejects both as bounds.
+        not_numeric = QueryError(f"{operator} operator requires numeric values")
         if isinstance(bound, bool) or not isinstance(bound, (str, int, float)):
-            raise QueryError(f"{operator} operator requires numeric values")
+            raise not_numeric
         try:
             parsed = float(bound)
         except (ValueError, TypeError):
-            raise QueryError(f"{operator} operator requires numeric values")
+            raise not_numeric
         if math.isnan(parsed):
-            raise QueryError(f"{operator} operator requires numeric values")
+            raise not_numeric
         return parsed
 
     low, high = _to_bound(value[0]), _to_bound(value[1])
@@ -577,25 +579,15 @@ def _multi_search_found(search_call: ast.Call) -> ast.CompareOperation:
     return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=search_call, right=ast.Constant(value=0))
 
 
-def _multi_search_not_found(search_call: ast.Call, expr: ast.Expr) -> ast.Expr:
+def _multi_search_not_found(search_call: ast.Call) -> ast.Expr:
     """Create an expression that is true when multiSearchAnyCaseInsensitive found no match.
 
-    Uses `expr = NULL` rather than isNull(expr) so a missing property is kept, matching every
-    other negative operator, while still letting _optimize_materialized_array_compare rewrite it
-    into empty(column) instead of serializing an array property to JSON per row. The branch stays
-    outside the search call rather than wrapping it in ifNull, so the bare
-    multiSearchAnyCaseInsensitive call remains what _optimize_materialized_array_multisearch
-    matches on to build an arrayExists scan."""
-    return ast.Or(
-        exprs=[
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=search_call,
-                right=ast.Constant(value=0),
-            ),
-            ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=expr, right=ast.Constant(value=None)),
-        ]
-    )
+    Negates the positive form instead of adding a separate NULL check: multiSearchAnyCaseInsensitive
+    resolves as nullable, so the printer already wraps the found comparison in ifNull(..., 0), and a
+    missing property therefore makes the found check false and this negation true, matching every
+    other negative operator. The bare multiSearchAnyCaseInsensitive call also stays what
+    _optimize_materialized_array_multisearch matches on to build an arrayExists scan."""
+    return ast.Not(expr=_multi_search_found(search_call))
 
 
 _NEGATIVE_OPERATOR_COMPLEMENTS = {
@@ -641,9 +633,7 @@ _MULTI_SEARCH_NEEDLE_LIMIT = 255
 
 
 def _chunk_needles(value: list) -> list[list]:
-    if not value:
-        return [value]
-    return [value[i : i + _MULTI_SEARCH_NEEDLE_LIMIT] for i in range(0, len(value), _MULTI_SEARCH_NEEDLE_LIMIT)]
+    return [list(chunk) for chunk in chunked(value, _MULTI_SEARCH_NEEDLE_LIMIT)]
 
 
 def _multi_search_found_for_values(expr: ast.Expr, value: list) -> ast.Expr:
@@ -656,12 +646,8 @@ def _multi_search_found_for_values(expr: ast.Expr, value: list) -> ast.Expr:
 
 
 def _multi_search_not_found_for_values(expr: ast.Expr, value: list) -> ast.Expr:
-    """True if `expr` matches none of `value`, chunking past ClickHouse's needle limit and ANDing
-    the chunks together so every chunk must find no match."""
-    not_found_exprs = [
-        _multi_search_not_found(_create_multi_search_call(expr, chunk), expr) for chunk in _chunk_needles(value)
-    ]
-    return not_found_exprs[0] if len(not_found_exprs) == 1 else ast.And(exprs=not_found_exprs)
+    """True if `expr` matches none of `value`, chunking past ClickHouse's needle limit."""
+    return ast.Not(expr=_multi_search_found_for_values(expr, value))
 
 
 def _validate_regex(value: ValueT) -> None:
@@ -1428,7 +1414,9 @@ def property_to_expr(
                 # An unconfigured filter matches every row. multiSearchAnyCaseInsensitive(x, [])
                 # would instead fail the query with ILLEGAL_TYPE_OF_ARGUMENT.
                 return ast.Constant(value=1)
-            elif len(value) == 1 and not combines_values_itself:
+            elif len(value) == 1:
+                # _expr_to_compare_op's ICONTAINS_MULTI/NOT_ICONTAINS_MULTI arms re-wrap a scalar
+                # into a single-element list, so collapsing here is a no-op round trip for them too.
                 value = value[0]
             elif not combines_values_itself:
                 if operator in (
@@ -1479,6 +1467,8 @@ def property_to_expr(
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
 
+        is_json_field = property.type != "session"
+
         if array_field is None:
             return _expr_to_compare_op(
                 expr=expr,
@@ -1486,7 +1476,7 @@ def property_to_expr(
                 operator=operator,
                 team=team,
                 property=property,
-                is_json_field=property.type != "session",
+                is_json_field=is_json_field,
             )
 
         if operator in (PropertyOperator.IS_SET, PropertyOperator.IS_NOT_SET):
@@ -1502,7 +1492,7 @@ def property_to_expr(
             operator=_NEGATIVE_OPERATOR_COMPLEMENTS.get(operator, operator),
             team=team,
             property=property,
-            is_json_field=property.type != "session",
+            is_json_field=is_json_field,
         )
         return _array_property_filter(array_field, element_predicate, negate=operator_is_negative(operator))
     elif property.type == "element":
