@@ -1,18 +1,18 @@
 import type { Meta, StoryFn } from '@storybook/react'
-import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { BindLogic, useValues } from 'kea'
 
-import { Workflow } from '../../../Workflow'
+import { SpinnerOverlay } from '@posthog/lemon-ui'
+
 import { workflowLogic } from '../../../workflowLogic'
-import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
+import { HogFlowEditor } from '../../HogFlowEditor'
 import {
     CUSTOMER_ONBOARDING_AND_RETENTION_WORKFLOW_ID,
     workflowEditorStoryDecorator,
 } from '../workflowEditorStoryFixtures'
 
-const meta: Meta<typeof Workflow> = {
+const meta: Meta<typeof HogFlowEditor> = {
     title: 'Products/Workflows/Editor/Graph',
-    component: Workflow,
+    component: HogFlowEditor,
     parameters: {
         layout: 'fullscreen',
         testOptions: {
@@ -25,29 +25,23 @@ const meta: Meta<typeof Workflow> = {
 }
 export default meta
 
-function StorybookGraphViewport({ id }: { id: string }): null {
-    const { nodes } = useValues(hogFlowEditorLogic({ id }))
-    const { fitView } = useActions(hogFlowEditorLogic({ id }))
-
-    useEffect(() => {
-        if (nodes.length === 0) {
-            return
-        }
-        const frame = requestAnimationFrame(() => fitView({ duration: 0 }))
-        return () => cancelAnimationFrame(frame)
-    }, [fitView, nodes])
-
-    return null
-}
-
 const WorkflowStory = ({ id }: { id: string }): JSX.Element => (
     <BindLogic logic={workflowLogic} props={{ id }}>
         <div className="h-screen [&>div]:!h-full [&>div]:!max-h-none">
-            <Workflow id={id} />
-            <StorybookGraphViewport id={id} />
+            <StorybookWorkflow />
         </div>
     </BindLogic>
 )
+
+function StorybookWorkflow(): JSX.Element {
+    const { originalWorkflow } = useValues(workflowLogic)
+
+    return (
+        <div className="flex h-full flex-col">
+            {originalWorkflow ? <HogFlowEditor key={originalWorkflow.id} /> : <SpinnerOverlay />}
+        </div>
+    )
+}
 
 export const NewWorkflow: StoryFn = () => <WorkflowStory id="new" />
 export const CustomerOnboardingAndRetention: StoryFn = () => (
