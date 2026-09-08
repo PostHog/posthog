@@ -508,6 +508,52 @@ class TestCohort(BaseTest):
         cohort_person_uuids = {str(_require_person_by_id(self.team.id, pid).uuid) for pid in member_ids}
         assert cohort_person_uuids == set(uuids)
 
+    def test_reinserting_a_member_still_writes_to_clickhouse(self):
+        # The ClickHouse write must not be gated on a read of person_static_cohort. A stale
+        # replica, or a row that still waits for its removal mutation, reads as an existing
+        # member, and the member then stays in Postgres but never reaches ClickHouse, where
+        # HogQL `IN COHORT` reads it.
+        person = create_person(team=self.team, distinct_ids=["d1"])
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+        cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.id)
+
+        with patch("products.cohorts.backend.models.util.insert_static_cohort") as mock_insert:
+            cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.id)
+
+        assert mock_insert.call_args[0][0] == [person.uuid]
+
+    def test_repeated_clickhouse_insert_collapses_on_merge(self):
+        from products.cohorts.backend.models.util import insert_static_cohort
+
+        person = create_person(team=self.team, distinct_ids=["d1"])
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+
+        insert_static_cohort([person.uuid], cohort.pk, team_id=self.team.id)
+        insert_static_cohort([person.uuid], cohort.pk, team_id=self.team.id)
+        sync_execute("OPTIMIZE TABLE person_static_cohort FINAL")
+
+        rows = sync_execute(
+            "SELECT count() FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": self.team.id, "cohort_id": cohort.pk},
+        )
+        assert rows[0][0] == 1
+
+    def test_insert_cohort_people_into_ch_repairs_missing_rows(self):
+        from products.cohorts.backend.models.util import insert_cohort_people_into_ch
+
+        persons = [create_person(team=self.team) for _ in range(3)]
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+        add_cohort_members(cohort, persons)
+
+        written = insert_cohort_people_into_ch(cohort, team_id=self.team.id)
+
+        assert written == 3
+        ch_rows = sync_execute(
+            "SELECT DISTINCT person_id FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": self.team.id, "cohort_id": cohort.pk},
+        )
+        assert {str(row[0]) for row in ch_rows} == {str(p.uuid) for p in persons}
+
     def test_insert_users_list_by_id_uuid_pairs_skip_validation(self):
         persons = [create_person(team=self.team) for _ in range(5)]
         pairs = [(person.id, str(person.uuid)) for person in persons]

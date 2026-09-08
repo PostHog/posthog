@@ -1090,12 +1090,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         Trusts the pairs — see the tenant-isolation contract on
         ``insert_users_list_by_id_uuid_pairs_skip_validation``. Calls the InsertCohortMembers RPC.
-        Duplicates have to be kept out of person_static_cohort by the writer: the table's ORDER BY
-        includes a per-row UUID, so ReplacingMergeTree never collapses repeated inserts. Hence both
-        the within-batch dedup below and the existing-member check before the ClickHouse insert.
+        The ClickHouse insert is not gated on a read of person_static_cohort. A stale replica, or a
+        row that still waits for its removal mutation, reads as an existing member. The write is
+        then skipped for good, and the member stays in Postgres but never reaches ClickHouse, where
+        HogQL ``IN COHORT`` reads it. A repeated insert is cheap instead: ``insert_static_cohort``
+        derives the row id from the person UUID, so ReplacingMergeTree collapses the repeat.
         """
-        from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
-
         from products.cohorts.backend.models.util import insert_cohort_members, insert_static_cohort
 
         if not id_uuid_pairs:
@@ -1113,33 +1113,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         person_uuids = [person_uuid for _, person_uuid in deduped_pairs]
 
         if insert_in_clickhouse:
-            existing_uuids = self._get_existing_ch_member_uuids(person_uuids, team_id, PERSON_STATIC_COHORT_TABLE)
-            new_uuids = [UUID(u) for u in person_uuids if u not in existing_uuids]
-            if new_uuids:
-                insert_static_cohort(new_uuids, self.pk, team_id=team_id)
+            insert_static_cohort([UUID(u) for u in person_uuids], self.pk, team_id=team_id)
 
         insert_cohort_members(team_id, self.pk, person_ids, self.version, _skip_ownership_check=True)
-
-    def _get_existing_ch_member_uuids(
-        self,
-        person_uuids: list[str],
-        team_id: int,
-        table: str,
-    ) -> set[str]:
-        """Return the subset of person_uuids that already exist in the CH static cohort table."""
-        if not person_uuids:
-            return set()
-        tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
-        # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
-        rows = sync_execute(
-            f"SELECT person_id FROM {table} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id IN %(person_uuids)s GROUP BY person_id",
-            {
-                "team_id": team_id,
-                "cohort_id": self.pk,
-                "person_uuids": person_uuids,
-            },
-        )
-        return {str(row[0]) for row in rows}
 
     def remove_user_by_uuid(self, user_uuid: str, *, team_id: int) -> bool:
         """

@@ -589,14 +589,14 @@ INSERT INTO person_distinct_id2 (distinct_id, person_id, team_id, is_deleted, ve
 """
 
 
+# `id` is the person UUID, not a fresh UUID: it completes the table's sort key, so a repeated
+# insert of the same member collapses on merge instead of adding a row. Do not gate this insert on
+# a read of the same table - a stale replica or a row awaiting a removal mutation reads as present,
+# and the member is then missing from ClickHouse while Postgres holds it.
 INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID = """
-INSERT INTO {cohort_table} SELECT generateUUIDv4(), actor_id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
+INSERT INTO {cohort_table} SELECT actor_id, actor_id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
     SELECT DISTINCT actor_id FROM ({query})
 ) AS new_actors
-WHERE actor_id NOT IN (
-    SELECT person_id FROM {cohort_table}
-    WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
-)
 """
 
 
