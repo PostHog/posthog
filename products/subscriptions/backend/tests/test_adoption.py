@@ -7,6 +7,8 @@ import pytest
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
+from posthog.models.scoping import team_scope
+
 from products.subscriptions.backend.models import (
     ProactivePreparedArtifact,
     ProactiveRecommendation,
@@ -53,7 +55,8 @@ def test_artifact_adoption_fields_default_to_unset_and_persist_closed_source(tea
     artifact.status = ProactivePreparedArtifact.Status.ADOPTED
     artifact.adoption_source = ProactivePreparedArtifact.AdoptionSource.EXPERIMENT_ACTIVATED
     artifact.adopted_at = adopted_at
-    artifact.full_clean()
+    with team_scope(team.id):
+        artifact.full_clean()
     artifact.save()
 
     persisted = ProactivePreparedArtifact.objects.for_team(team.id).get(id=artifact.id)
@@ -69,4 +72,5 @@ def test_artifact_adoption_source_rejects_unknown_value(team) -> None:
     artifact.adoption_source = "manual_override"
 
     with pytest.raises(ValidationError, match="not a valid choice"):
-        artifact.full_clean()
+        with team_scope(team.id):
+            artifact.full_clean()
