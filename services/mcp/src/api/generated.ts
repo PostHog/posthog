@@ -17368,6 +17368,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription
+     */
+    export type ClaudeModelAccessEnum = typeof ClaudeModelAccessEnum[keyof typeof ClaudeModelAccessEnum];
+
+
+    export const ClaudeModelAccessEnum = {
+      PosthogGateway: 'posthog-gateway',
+      OwnSubscription: 'own-subscription',
+    } as const;
+
+    /**
      * * `claude` - claude
      */
     export type ClaudeRuntimeAdapterEnum = typeof ClaudeRuntimeAdapterEnum[keyof typeof ClaudeRuntimeAdapterEnum];
@@ -17602,6 +17614,11 @@ export namespace Schemas {
          * @nullable
          */
       benjamin_enabled?: boolean | null;
+      /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+       *
+       * * `posthog-gateway` - posthog-gateway
+       * * `own-subscription` - own-subscription */
+      claude_model_access?: ClaudeModelAccessEnum | null;
     }
 
     export type ClickhouseEventProperties = { [key: string]: unknown };
@@ -18012,6 +18029,11 @@ export namespace Schemas {
          * @nullable
          */
       benjamin_enabled?: boolean | null;
+      /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+       *
+       * * `posthog-gateway` - posthog-gateway
+       * * `own-subscription` - own-subscription */
+      claude_model_access?: ClaudeModelAccessEnum | null;
     }
 
     export type PropertyGroupOperatorEnum = typeof PropertyGroupOperatorEnum[keyof typeof PropertyGroupOperatorEnum];
@@ -20236,12 +20258,26 @@ export namespace Schemas {
       color?: string | null;
     }
 
+    /**
+     * Extra text files to ship next to app.py, keyed by project-relative path (for example 'utils.py' or 'data/config.json'), each as plain text (max 1 MB).
+     */
+    export type CreateVersionFromSourceInputFiles = {[key: string]: string};
+
+    /**
+     * Extra binary files to ship next to app.py, keyed by project-relative path (for example 'data/events.parquet'), each as standard base64 text.
+     */
+    export type CreateVersionFromSourceInputAssets = {[key: string]: string};
+
     export interface CreateVersionFromSourceInput {
       /**
          * Full Python source for the Streamlit app's root app.py file, as free text (max 1 MB). Becomes a new version and is set as the active version.
          * @maxLength 1048576
          */
       source: string;
+      /** Extra text files to ship next to app.py, keyed by project-relative path (for example 'utils.py' or 'data/config.json'), each as plain text (max 1 MB). */
+      files?: CreateVersionFromSourceInputFiles;
+      /** Extra binary files to ship next to app.py, keyed by project-relative path (for example 'data/events.parquet'), each as standard base64 text. */
+      assets?: CreateVersionFromSourceInputAssets;
     }
 
     /**
@@ -56951,7 +56987,7 @@ export namespace Schemas {
        * * `scorer` - Scorer
        * * `summarizer` - Summarizer */
       scanner_type: ScannerTypeEnum;
-      /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.
+      /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.
        *
        * * `ai` - AI draft
        * * `template` - Template
@@ -59749,38 +59785,6 @@ export namespace Schemas {
       results: TaskThreadMessageDTO[];
     }
 
-    /**
-     * Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.
-     * Also used for nested serializers.
-     */
-    export interface TeamBasic {
-      readonly id: number;
-      readonly uuid: string;
-      readonly organization: string;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
-      readonly project_id: number;
-      readonly api_token: string;
-      readonly name: string;
-      readonly completed_snippet_onboarding: boolean;
-      readonly has_completed_onboarding_for: unknown;
-      readonly ingested_event: boolean;
-      readonly is_demo: boolean;
-      readonly timezone: string;
-      readonly access_control: boolean;
-    }
-
-    export interface PaginatedTeamBasicList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: TeamBasic[];
-    }
-
     export interface ThresholdWithAlert {
       readonly id: string;
       readonly created_at: string;
@@ -60508,6 +60512,29 @@ export namespace Schemas {
       Disabled: 'disabled',
       Toolbar: 'toolbar',
     } as const;
+
+    /**
+     * Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.
+     * Also used for nested serializers.
+     */
+    export interface TeamBasic {
+      readonly id: number;
+      readonly uuid: string;
+      readonly organization: string;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      readonly project_id: number;
+      readonly api_token: string;
+      readonly name: string;
+      readonly completed_snippet_onboarding: boolean;
+      readonly has_completed_onboarding_for: unknown;
+      readonly ingested_event: boolean;
+      readonly is_demo: boolean;
+      readonly timezone: string;
+      readonly access_control: boolean;
+    }
 
     export interface ScenePersonalisationBasic {
       /** @maxLength 200 */
@@ -67057,7 +67084,7 @@ export namespace Schemas {
        * * `scorer` - Scorer
        * * `summarizer` - Summarizer */
       scanner_type?: ScannerTypeEnum;
-      /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.
+      /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.
        *
        * * `ai` - AI draft
        * * `template` - Template
@@ -68867,207 +68894,6 @@ export namespace Schemas {
          * @nullable
          */
       channel?: string | null;
-    }
-
-    export type PatchedTeamDefaultModifiers = { [key: string]: unknown };
-
-    export type PatchedTeamGroupTypesItem = { [key: string]: unknown };
-
-    export type PatchedTeamProductIntentsItem = { [key: string]: unknown };
-
-    export type PatchedTeamManagedViewsets = {[key: string]: boolean};
-
-    export interface PatchedTeam {
-      readonly id?: number;
-      readonly uuid?: string;
-      /**
-         * @minLength 1
-         * @maxLength 200
-         */
-      name?: string;
-      access_control?: boolean;
-      readonly organization?: string;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
-      readonly project_id?: number;
-      readonly api_token?: string;
-      /** @nullable */
-      readonly secret_api_token?: string | null;
-      /** @nullable */
-      readonly secret_api_token_backup?: string | null;
-      readonly created_at?: string;
-      readonly updated_at?: string;
-      readonly ingested_event?: boolean;
-      readonly default_modifiers?: PatchedTeamDefaultModifiers;
-      readonly person_on_events_querying_enabled?: boolean;
-      /**
-         * The effective access level the user has for this object
-         * @nullable
-         */
-      readonly user_access_level?: string | null;
-      /** @items.maxLength 200 */
-      app_urls?: (string | null)[];
-      anonymize_ips?: boolean;
-      completed_snippet_onboarding?: boolean;
-      /** Filters used to identify internal/test users. Each entry is a property filter.
-       *
-       *             Supported entry types and the exact shape each accepts:
-       *
-       *             # Person property — match (or exclude) by a person property
-       *             {"key": "email", "type": "person", "value": "@example.com", "operator": "ends_with"}
-       *
-       *             # Event property — match by an event property
-       *             {"key": "$host", "type": "event", "value": "localhost", "operator": "icontains"}
-       *
-       *             # Cohort membership — match (or exclude) members of a cohort.
-       *             # Use operator "in" for inclusion and "not_in" for exclusion. Do NOT use a
-       *             # `negation` field here — `negation` is specific to cohort *definitions*
-       *             # (the inner sub-filters that build a cohort) and is rejected by the
-       *             # property-filter schema.
-       *             {"key": "id", "type": "cohort", "value": 8814, "operator": "not_in"}
-       *
-       *             Common operators: "exact", "is_not", "icontains", "not_icontains", "starts_with",
-       *             "not_starts_with", "ends_with", "not_ends_with", "regex", "not_regex", "gt", "lt",
-       *             "gte", "lte", "is_set", "is_not_set", "in", "not_in". */
-      test_account_filters?: unknown;
-      /** @nullable */
-      test_account_filters_default_checked?: boolean | null;
-      path_cleaning_filters?: unknown;
-      is_demo?: boolean;
-      timezone?: string;
-      data_attributes?: unknown;
-      /**
-         * @nullable
-         * @items.maxLength 400
-         */
-      person_display_name_properties?: string[] | null;
-      correlation_config?: unknown;
-      /** @nullable */
-      autocapture_opt_out?: boolean | null;
-      /** @nullable */
-      autocapture_exceptions_opt_in?: boolean | null;
-      /** @nullable */
-      autocapture_web_vitals_opt_in?: boolean | null;
-      autocapture_web_vitals_allowed_metrics?: unknown;
-      autocapture_exceptions_errors_to_ignore?: unknown;
-      /** @nullable */
-      capture_console_log_opt_in?: boolean | null;
-      logs_settings?: unknown;
-      /** @nullable */
-      capture_performance_opt_in?: boolean | null;
-      session_recording_opt_in?: boolean;
-      /**
-         * @nullable
-         * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
-         */
-      session_recording_sample_rate?: string | null;
-      /**
-         * @minimum 0
-         * @maximum 30000
-         * @nullable
-         */
-      session_recording_minimum_duration_milliseconds?: number | null;
-      session_recording_linked_flag?: unknown;
-      session_recording_network_payload_capture_config?: unknown;
-      session_recording_masking_config?: unknown;
-      /** @nullable */
-      session_recording_url_trigger_config?: unknown[] | null;
-      /** @nullable */
-      session_recording_url_blocklist_config?: unknown[] | null;
-      /** @nullable */
-      session_recording_event_trigger_config?: (string | null)[] | null;
-      /**
-         * @maxLength 24
-         * @nullable
-         */
-      session_recording_trigger_match_type_config?: string | null;
-      /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
-      session_recording_trigger_groups?: unknown;
-      session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
-      session_replay_config?: unknown;
-      survey_config?: unknown;
-      week_start_day?: WeekStartDayEnum | null;
-      /** @nullable */
-      primary_dashboard?: number | null;
-      /** @nullable */
-      live_events_columns?: string[] | null;
-      /**
-         * @nullable
-         * @items.maxLength 200
-         */
-      recording_domains?: (string | null)[] | null;
-      cookieless_server_hash_mode?: CookielessServerHashModeEnum | null;
-      /** @nullable */
-      human_friendly_comparison_periods?: boolean | null;
-      /** @nullable */
-      inject_web_apps?: boolean | null;
-      extra_settings?: unknown;
-      modifiers?: unknown;
-      has_completed_onboarding_for?: unknown;
-      /** @nullable */
-      surveys_opt_in?: boolean | null;
-      /** @nullable */
-      heatmaps_opt_in?: boolean | null;
-      /** @nullable */
-      flags_persistence_default?: boolean | null;
-      /** @nullable */
-      feature_flag_confirmation_enabled?: boolean | null;
-      /** @nullable */
-      feature_flag_confirmation_message?: string | null;
-      /**
-         * Whether to automatically apply default evaluation contexts to new feature flags
-         * @nullable
-         */
-      default_evaluation_contexts_enabled?: boolean | null;
-      /**
-         * Whether to require at least one evaluation context tag when creating new feature flags
-         * @nullable
-         */
-      require_evaluation_contexts?: boolean | null;
-      feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
-      /** @nullable */
-      capture_dead_clicks?: boolean | null;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         * @nullable
-         */
-      default_data_theme?: number | null;
-      revenue_analytics_config?: TeamRevenueAnalyticsConfig;
-      marketing_analytics_config?: TeamMarketingAnalyticsConfig;
-      customer_analytics_config?: TeamCustomerAnalyticsConfig;
-      onboarding_tasks?: unknown;
-      base_currency?: BaseCurrencyEnum;
-      /** @nullable */
-      web_analytics_pre_aggregated_tables_enabled?: boolean | null;
-      /** @nullable */
-      receive_org_level_activity_logs?: boolean | null;
-      /** Whether this project serves B2B or B2C customers, used to optimize the UI layout.
-       *
-       * * `b2b` - B2B
-       * * `b2c` - B2C
-       * * `other` - Other */
-      business_model?: BusinessModelEnum | BlankEnum | null;
-      /** @nullable */
-      conversations_enabled?: boolean | null;
-      conversations_settings?: unknown;
-      /** @nullable */
-      proactive_tasks_enabled?: boolean | null;
-      workflows_config?: TeamWorkflowsConfig;
-      readonly effective_membership_level?: OrganizationMembershipLevelEnum;
-      readonly has_group_types?: boolean;
-      readonly group_types?: readonly PatchedTeamGroupTypesItem[];
-      /** @nullable */
-      readonly live_events_token?: string | null;
-      readonly product_intents?: readonly PatchedTeamProductIntentsItem[];
-      readonly managed_viewsets?: PatchedTeamManagedViewsets;
-      readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnum[];
-      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-      readonly event_retention_months?: number;
-      /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-      readonly events_retention_enforced?: boolean;
     }
 
     export interface PatchedTeamTracingConfig {
@@ -86114,6 +85940,11 @@ export namespace Schemas {
          * @nullable
          */
       benjamin_enabled?: boolean | null;
+      /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+       *
+       * * `posthog-gateway` - posthog-gateway
+       * * `own-subscription` - own-subscription */
+      claude_model_access?: ClaudeModelAccessEnum | null;
     }
 
     export interface TaskRunCancelRequest {
@@ -86139,6 +85970,7 @@ export namespace Schemas {
      * * `permission_response` - permission_response
      * * `set_config_option` - set_config_option
      * * `mcp_response` - mcp_response
+     * * `credential_response` - credential_response
      * * `pi/rpc` - pi/rpc
      * * `queue_get` - queue_get
      * * `queue_clear` - queue_clear
@@ -86154,6 +85986,7 @@ export namespace Schemas {
       PermissionResponse: 'permission_response',
       SetConfigOption: 'set_config_option',
       McpResponse: 'mcp_response',
+      CredentialResponse: 'credential_response',
       PiRpc: 'pi/rpc',
       QueueGet: 'queue_get',
       QueueClear: 'queue_clear',
@@ -86176,6 +86009,7 @@ export namespace Schemas {
        * * `permission_response` - permission_response
        * * `set_config_option` - set_config_option
        * * `mcp_response` - mcp_response
+       * * `credential_response` - credential_response
        * * `pi/rpc` - pi/rpc
        * * `queue_get` - queue_get
        * * `queue_clear` - queue_clear
@@ -86188,7 +86022,7 @@ export namespace Schemas {
     }
 
     /**
-     * Error details on failure
+     * JSON-RPC error details, including failures returned with HTTP 200
      */
     export type TaskRunCommandResponseError = { [key: string]: unknown };
 
@@ -86200,9 +86034,9 @@ export namespace Schemas {
       jsonrpc: string;
       /** Request ID echoed back (string or number) */
       id?: unknown;
-      /** Command result on success */
+      /** Command result. Permission responses confirm acceptance only with resolved=true. */
       result?: unknown;
-      /** Error details on failure */
+      /** JSON-RPC error details, including failures returned with HTTP 200 */
       error?: TaskRunCommandResponseError;
     }
 
@@ -87123,207 +86957,6 @@ export namespace Schemas {
       canvas_id: string;
       /** The requester's personal space containing the canvas. */
       channel_id: string;
-    }
-
-    export type TeamDefaultModifiers = { [key: string]: unknown };
-
-    export type TeamGroupTypesItem = { [key: string]: unknown };
-
-    export type TeamProductIntentsItem = { [key: string]: unknown };
-
-    export type TeamManagedViewsets = {[key: string]: boolean};
-
-    export interface Team {
-      readonly id: number;
-      readonly uuid: string;
-      /**
-         * @minLength 1
-         * @maxLength 200
-         */
-      name?: string;
-      access_control?: boolean;
-      readonly organization: string;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
-      readonly project_id: number;
-      readonly api_token: string;
-      /** @nullable */
-      readonly secret_api_token: string | null;
-      /** @nullable */
-      readonly secret_api_token_backup: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
-      readonly ingested_event: boolean;
-      readonly default_modifiers: TeamDefaultModifiers;
-      readonly person_on_events_querying_enabled: boolean;
-      /**
-         * The effective access level the user has for this object
-         * @nullable
-         */
-      readonly user_access_level: string | null;
-      /** @items.maxLength 200 */
-      app_urls?: (string | null)[];
-      anonymize_ips?: boolean;
-      completed_snippet_onboarding?: boolean;
-      /** Filters used to identify internal/test users. Each entry is a property filter.
-       *
-       *             Supported entry types and the exact shape each accepts:
-       *
-       *             # Person property — match (or exclude) by a person property
-       *             {"key": "email", "type": "person", "value": "@example.com", "operator": "ends_with"}
-       *
-       *             # Event property — match by an event property
-       *             {"key": "$host", "type": "event", "value": "localhost", "operator": "icontains"}
-       *
-       *             # Cohort membership — match (or exclude) members of a cohort.
-       *             # Use operator "in" for inclusion and "not_in" for exclusion. Do NOT use a
-       *             # `negation` field here — `negation` is specific to cohort *definitions*
-       *             # (the inner sub-filters that build a cohort) and is rejected by the
-       *             # property-filter schema.
-       *             {"key": "id", "type": "cohort", "value": 8814, "operator": "not_in"}
-       *
-       *             Common operators: "exact", "is_not", "icontains", "not_icontains", "starts_with",
-       *             "not_starts_with", "ends_with", "not_ends_with", "regex", "not_regex", "gt", "lt",
-       *             "gte", "lte", "is_set", "is_not_set", "in", "not_in". */
-      test_account_filters?: unknown;
-      /** @nullable */
-      test_account_filters_default_checked?: boolean | null;
-      path_cleaning_filters?: unknown;
-      is_demo?: boolean;
-      timezone?: string;
-      data_attributes?: unknown;
-      /**
-         * @nullable
-         * @items.maxLength 400
-         */
-      person_display_name_properties?: string[] | null;
-      correlation_config?: unknown;
-      /** @nullable */
-      autocapture_opt_out?: boolean | null;
-      /** @nullable */
-      autocapture_exceptions_opt_in?: boolean | null;
-      /** @nullable */
-      autocapture_web_vitals_opt_in?: boolean | null;
-      autocapture_web_vitals_allowed_metrics?: unknown;
-      autocapture_exceptions_errors_to_ignore?: unknown;
-      /** @nullable */
-      capture_console_log_opt_in?: boolean | null;
-      logs_settings?: unknown;
-      /** @nullable */
-      capture_performance_opt_in?: boolean | null;
-      session_recording_opt_in?: boolean;
-      /**
-         * @nullable
-         * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
-         */
-      session_recording_sample_rate?: string | null;
-      /**
-         * @minimum 0
-         * @maximum 30000
-         * @nullable
-         */
-      session_recording_minimum_duration_milliseconds?: number | null;
-      session_recording_linked_flag?: unknown;
-      session_recording_network_payload_capture_config?: unknown;
-      session_recording_masking_config?: unknown;
-      /** @nullable */
-      session_recording_url_trigger_config?: unknown[] | null;
-      /** @nullable */
-      session_recording_url_blocklist_config?: unknown[] | null;
-      /** @nullable */
-      session_recording_event_trigger_config?: (string | null)[] | null;
-      /**
-         * @maxLength 24
-         * @nullable
-         */
-      session_recording_trigger_match_type_config?: string | null;
-      /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
-      session_recording_trigger_groups?: unknown;
-      session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
-      session_replay_config?: unknown;
-      survey_config?: unknown;
-      week_start_day?: WeekStartDayEnum | null;
-      /** @nullable */
-      primary_dashboard?: number | null;
-      /** @nullable */
-      live_events_columns?: string[] | null;
-      /**
-         * @nullable
-         * @items.maxLength 200
-         */
-      recording_domains?: (string | null)[] | null;
-      cookieless_server_hash_mode?: CookielessServerHashModeEnum | null;
-      /** @nullable */
-      human_friendly_comparison_periods?: boolean | null;
-      /** @nullable */
-      inject_web_apps?: boolean | null;
-      extra_settings?: unknown;
-      modifiers?: unknown;
-      has_completed_onboarding_for?: unknown;
-      /** @nullable */
-      surveys_opt_in?: boolean | null;
-      /** @nullable */
-      heatmaps_opt_in?: boolean | null;
-      /** @nullable */
-      flags_persistence_default?: boolean | null;
-      /** @nullable */
-      feature_flag_confirmation_enabled?: boolean | null;
-      /** @nullable */
-      feature_flag_confirmation_message?: string | null;
-      /**
-         * Whether to automatically apply default evaluation contexts to new feature flags
-         * @nullable
-         */
-      default_evaluation_contexts_enabled?: boolean | null;
-      /**
-         * Whether to require at least one evaluation context tag when creating new feature flags
-         * @nullable
-         */
-      require_evaluation_contexts?: boolean | null;
-      feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
-      /** @nullable */
-      capture_dead_clicks?: boolean | null;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         * @nullable
-         */
-      default_data_theme?: number | null;
-      revenue_analytics_config?: TeamRevenueAnalyticsConfig;
-      marketing_analytics_config?: TeamMarketingAnalyticsConfig;
-      customer_analytics_config?: TeamCustomerAnalyticsConfig;
-      onboarding_tasks?: unknown;
-      base_currency?: BaseCurrencyEnum;
-      /** @nullable */
-      web_analytics_pre_aggregated_tables_enabled?: boolean | null;
-      /** @nullable */
-      receive_org_level_activity_logs?: boolean | null;
-      /** Whether this project serves B2B or B2C customers, used to optimize the UI layout.
-       *
-       * * `b2b` - B2B
-       * * `b2c` - B2C
-       * * `other` - Other */
-      business_model?: BusinessModelEnum | BlankEnum | null;
-      /** @nullable */
-      conversations_enabled?: boolean | null;
-      conversations_settings?: unknown;
-      /** @nullable */
-      proactive_tasks_enabled?: boolean | null;
-      workflows_config?: TeamWorkflowsConfig;
-      readonly effective_membership_level: OrganizationMembershipLevelEnum;
-      readonly has_group_types: boolean;
-      readonly group_types: readonly TeamGroupTypesItem[];
-      /** @nullable */
-      readonly live_events_token: string | null;
-      readonly product_intents: readonly TeamProductIntentsItem[];
-      readonly managed_viewsets: TeamManagedViewsets;
-      readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
-      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-      readonly event_retention_months: number;
-      /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-      readonly events_retention_enforced: boolean;
     }
 
     export interface TeamTestSignal {
@@ -93686,6 +93319,11 @@ export namespace Schemas {
 
     export type ColumnConfigurationsListParams = {
     /**
+     * Return saved views for this context only.
+     * @minLength 1
+     */
+    context_key?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -95726,24 +95364,6 @@ export namespace Schemas {
       MergeQueue: 'merge_queue',
       PullRequest: 'pull_request',
     } as const;
-
-    export type EnvironmentsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EnvironmentsEvaluationContextSuggestionsDestroyParams = {
-    /**
-     * Name of the evaluation context to restore to suggestions.
-     */
-    context_name: string;
-    };
 
     export type ErrorTrackingAlertsListParams = {
     /**
@@ -98898,6 +98518,12 @@ export namespace Schemas {
      * Filter prompts by the ID of the user who created them.
      */
     created_by_id?: number;
+    /**
+     * Return each prompt at the version this label points to, e.g. 'production'. Prompts that do not carry the label are omitted. If omitted, the latest version of every prompt is returned.
+     * @minLength 1
+     * @maxLength 128
+     */
+    label?: string;
     /**
      * Number of results to return per page.
      */

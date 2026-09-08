@@ -7,6 +7,7 @@ export interface ActiveCreation {
     streamKey: string
     taskId?: string
     runId?: string
+    draft?: string
 }
 
 // `panelId` is set only by an embedded instance (e.g. Max's side panel runner), which mounts this logic
@@ -41,6 +42,9 @@ export interface runnerPanelLogicActions {
     setHistoryExpanded: (expanded: boolean) => {
         expanded: boolean
     }
+    setStartupDraft: (draft: string) => {
+        draft: string
+    }
     toggleHistory: () => {
         value: true
     }
@@ -70,6 +74,7 @@ export const runnerPanelLogic = kea<runnerPanelLogicType>([
 
     actions({
         setActiveCreation: (creation: ActiveCreation) => ({ creation }),
+        setStartupDraft: (draft: string) => ({ draft }),
         clearActiveCreation: true,
         toggleHistory: true,
         setHistoryExpanded: (expanded: boolean) => ({ expanded }),
@@ -83,7 +88,9 @@ export const runnerPanelLogic = kea<runnerPanelLogicType>([
         activeCreation: [
             null as ActiveCreation | null,
             {
-                setActiveCreation: (_, { creation }) => creation,
+                setActiveCreation: (state, { creation }) =>
+                    state?.streamKey === creation.streamKey ? { ...state, ...creation } : creation,
+                setStartupDraft: (state, { draft }) => (state ? { ...state, draft } : state),
                 clearActiveCreation: () => null,
             },
         ],

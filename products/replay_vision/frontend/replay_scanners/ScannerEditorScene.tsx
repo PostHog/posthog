@@ -221,7 +221,9 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                     </p>
                                 </div>
                                 <ScannerTemplatePicker />
-                                <ScannerGoalDraft />
+                                {/* The goal flow supersedes this box, so someone who has already
+                                    turned it down to build by hand should not be offered it again. */}
+                                {!goalFlow && <ScannerGoalDraft />}
                             </>
                         )
                     ) : step === 'overview' ? (

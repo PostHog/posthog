@@ -299,7 +299,9 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN": event_ingest_token,
         "POSTHOG_TASK_RUN_SESSION_TOKEN": task_run_session_token,
         "POSTHOG_TASK_RUN_EVENT_INGEST_URL": event_ingest_url,
-        "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN": "true" if event_ingest_keep_stream_open else None,
+        "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN": (
+            "true" if event_ingest_keep_stream_open else "false" if settings.DEBUG and not event_ingest_url else None
+        ),
         # Set explicitly in both states: "0" opts the run out, "1" pins auto-detection on
         # even if a stale env value survives in a resumed sandbox.
         "POSTHOG_RTK": "1" if rtk_enabled else "0",
@@ -571,6 +573,7 @@ class SandboxBase(ABC):
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
+        claude_model_access: str | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -583,7 +586,9 @@ class SandboxBase(ABC):
         return False
 
     @abstractmethod
-    def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None: ...
+    def wait_for_agent_server_ready(
+        self, allowed_domains: list[str] | None = None, *, claude_model_access: str | None = None
+    ) -> None: ...
 
     @abstractmethod
     def mark_repo_ready(self, repo_ready_file: str) -> None: ...
@@ -744,26 +749,45 @@ def wait_for_health_check(
     port: int,
     max_attempts: int = 60,
     poll_interval: float = 0.5,
+    pid_file: str | None = None,
 ) -> bool:
     """Poll health endpoint until server is ready (single remote call).
 
     Runs a bash polling loop inside the sandbox so only one round-trip is
     needed regardless of how many attempts are required.
     """
-    health_script = build_health_check_command(port, max_attempts, poll_interval)
+    health_script = build_health_check_command(port, max_attempts, poll_interval, pid_file)
     result = execute(health_script, timeout_seconds=health_check_timeout_seconds(max_attempts, poll_interval))
+    if "claude_credential_unavailable" in result.stdout:
+        from products.tasks.backend.exceptions import ProcessTaskFatalError
+
+        raise ProcessTaskFatalError(
+            "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.",
+            {"sandbox_id": sandbox_id},
+            RuntimeError("Claude token unavailable"),
+            capture=False,
+        )
     if result.exit_code == 0:
         _logger.info(f"Agent-server health check passed in sandbox {sandbox_id} ({result.stdout.strip()})")
         return True
     return False
 
 
-def build_health_check_command(port: int, max_attempts: int = 60, poll_interval: float = 0.5) -> str:
+def build_health_check_command(
+    port: int, max_attempts: int = 60, poll_interval: float = 0.5, pid_file: str | None = None
+) -> str:
+    process_check = (
+        f'if [ -f {shlex.quote(pid_file)} ]; then kill -0 "$(cat {shlex.quote(pid_file)})" 2>/dev/null || exit 1; fi; '
+        if pid_file is not None
+        else ""
+    )
     return (
         f"for i in $(seq 1 {max_attempts}); do "
-        f"  body=$(curl -s http://localhost:{port}/health); "
+        f"{process_check}"
+        f"  body=$(curl -s --max-time 2 http://localhost:{port}/health); "
         "  status=$?; "
         '  if [ "$status" = "0" ]; then '
+        '    case "$body" in *claude_credential_unavailable*) echo "claude_credential_unavailable"; exit 1;; esac; '
         "    python3 -c '"
         "import json, sys; "
         "payload = json.loads(sys.argv[1]); "
