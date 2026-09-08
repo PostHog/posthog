@@ -110,7 +110,7 @@ export const getShopifyEcommerceStep = (ctx: OnboardingComponentsContext): StepD
                                             price: line?.merchandise?.price?.amount,
                                             line_total: line?.cost?.totalAmount?.amount,
                                             currency: line?.cost?.totalAmount?.currencyCode
-                                        })
+                                        }, { timestamp: new Date(event.timestamp) })
                                     })
 
                                     analytics.subscribe('checkout_started', (event) => {
@@ -120,7 +120,7 @@ export const getShopifyEcommerceStep = (ctx: OnboardingComponentsContext): StepD
                                             item_count: checkout?.lineItems?.reduce((sum, item) => sum + (item?.quantity ?? 0), 0),
                                             value: checkout?.totalPrice?.amount,
                                             currency: checkout?.currencyCode
-                                        })
+                                        }, { timestamp: new Date(event.timestamp) })
                                     })
 
                                     analytics.subscribe('checkout_completed', (event) => {
@@ -131,7 +131,7 @@ export const getShopifyEcommerceStep = (ctx: OnboardingComponentsContext): StepD
                                             item_count: checkout?.lineItems?.reduce((sum, item) => sum + (item?.quantity ?? 0), 0),
                                             revenue: checkout?.totalPrice?.amount,
                                             currency: checkout?.currencyCode
-                                        })
+                                        }, { timestamp: new Date(event.timestamp) })
                                     })
                                 }
 
