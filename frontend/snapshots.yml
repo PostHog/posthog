@@ -5996,6 +5996,18 @@ snapshots:
         hash: v1.k794b7964.e21450a1b2054a36fab2a183fd4485190e7161c07830a04008b734f83ecabb1c.Hj2ygumZlfd2zAIz7tC6m7XoM-G15hY_amDmI_m-cJo
     replay-vision-analysis-nudge--default--light:
         hash: v1.k794b7964.7eff340ad050dbd7cf07813207e989e33fccb29ef9767e38f89d16b1d567017c.Kr8YaJd8YlDg3tPWTMYWt4vAxTb_HKQuhGUe4IKACDU
+    replay-vision-cited-markdown--hostile-links--dark:
+        hash: v1.k794b7964.d98b1851e8c4c695b87856379b85fd225d554c843086706f8d51fe5c060ad2d9.Nu73wfxltRa0Loo3i2L0DYIY_5NgIZwuP5RMTMyQGts
+    replay-vision-cited-markdown--hostile-links--light:
+        hash: v1.k794b7964.362d39ed28755489dbf7a698e8115a98141f601b8db1364bc44c8558d488ee1c.AIbcwFSazoZiB1_qtsq7cOH1rV6XPryL3zckEZWetEA
+    replay-vision-cited-markdown--plain-prose--dark:
+        hash: v1.k794b7964.c31ceb73ee19d59911337cca2b583f30b7bfdc69349088088811998d357c87f3.y2qdje-cpHJgB9yhNVGjvi8_bsTMVyuR98LWJrnT9Lk
+    replay-vision-cited-markdown--plain-prose--light:
+        hash: v1.k794b7964.1a196e580088555e900e84c0162ae4c523feef638540838b541827654ae507ca.beJnsabMlBBuFJexvb0HtCu-cO0W1Md_3b2ucWGA72I
+    replay-vision-cited-markdown--structured--dark:
+        hash: v1.k794b7964.b8136fc7ff4b2794158921d793938bdd536bccbc0a66eeadf2d988386e27a2f0.5BXQa3xxRK-9zihaQbWZ4rHtM0lmb0uFKZaNcLbKiX8
+    replay-vision-cited-markdown--structured--light:
+        hash: v1.k794b7964.380bf20693c1029dce9ff64afc117eb5fd831449e81d541f4463ade2ec32b1e0.BBhrMSTk8RqH29BEuHYQeMRRlEos0ZQxgB1wPgvSMxQ
     scenes-app-ai-observability-clustercard--default--dark:
         hash: v1.k794b7964.745c8ac41b251f329b890d56d7b07fb31b4939a440a40eea7932f1081d3de702.ESnQVAOfySBfRJWfJsURYu-prgU3EUvQZCD62MyLlX4
     scenes-app-ai-observability-clustercard--default--light:
