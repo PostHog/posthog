@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -86,25 +87,30 @@ describe('materializationJobsLogic', () => {
         expect(checkCalls).toBe(1)
     })
 
-    // Regression: a view whose SQL exceeds the check endpoint's body cap gets a 400. That used to
-    // surface as a "Load incremental check failed" toast on a healthy materialized view.
-    it('treats a rejected eligibility check as "no incremental option" instead of failing', async () => {
-        const mocks = apiMocks({ isMaterialized: true })
-        mocks.post = {
-            '/api/environments/:team_id/warehouse_saved_queries/check_incremental/': () => [
-                400,
-                { type: 'validation_error', detail: 'Ensure this field has no more than 65536 characters.' },
-            ],
-        }
-        useMocks(mocks)
-        logic = materializationJobsLogic({ viewId: 'view-1' })
-        logic.mount()
+    // Regression: a rejected eligibility check used to surface as a "Load incremental check failed"
+    // toast on a healthy materialized view. A 4xx is an expected refusal; a 5xx is ours to record.
+    it.each([
+        [400, { type: 'validation_error', detail: 'Query is not valid.' }, 0],
+        [500, { type: 'server_error', detail: 'Something went wrong.' }, 1],
+    ])(
+        'treats a %s from the eligibility check as "no incremental option" instead of failing',
+        async (status, body, captured) => {
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => {})
+            const mocks = apiMocks({ isMaterialized: true })
+            mocks.post = {
+                '/api/environments/:team_id/warehouse_saved_queries/check_incremental/': () => [status, body],
+            }
+            useMocks(mocks)
+            logic = materializationJobsLogic({ viewId: 'view-1' })
+            logic.mount()
 
-        await expectLogic(logic)
-            .toDispatchActions(['loadIncrementalCheck', 'loadIncrementalCheckSuccess'])
-            .toNotHaveDispatchedActions(['loadIncrementalCheckFailure'])
-        expect(logic.values.incrementalCheck).toBeNull()
-    })
+            await expectLogic(logic)
+                .toDispatchActions(['loadIncrementalCheck', 'loadIncrementalCheckSuccess'])
+                .toNotHaveDispatchedActions(['loadIncrementalCheckFailure'])
+            expect(logic.values.incrementalCheck).toBeNull()
+            expect(captureException).toHaveBeenCalledTimes(captured)
+        }
+    )
 
     it.each([
         ['the surface is an endpoint', { kind: 'endpoint' as const, flag: true }],

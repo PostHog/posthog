@@ -13,10 +13,11 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { ApiConfig, PaginatedResponse } from 'lib/api'
+import api, { ApiConfig, ApiError, PaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -228,11 +229,14 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                     if (!sql) {
                         return null
                     }
-                    // A view too long for the check (or any other rejection) is not the user's error.
-                    // Resolve to null so the panel just omits the incremental option instead of toasting.
+                    // A rejected check is not the user's error, so never toast: the panel just omits the
+                    // incremental option. Only a 4xx is expected there; anything else is ours to look at.
                     try {
                         return await api.dataWarehouseSavedQueries.checkIncremental({ query: sql })
-                    } catch {
+                    } catch (e) {
+                        if (!(e instanceof ApiError && e.status && e.status >= 400 && e.status < 500)) {
+                            posthog.captureException(e)
+                        }
                         return null
                     }
                 },

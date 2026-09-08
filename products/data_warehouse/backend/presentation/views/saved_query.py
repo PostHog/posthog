@@ -1425,12 +1425,6 @@ class IncrementalEligibilitySerializer(serializers.Serializer):
     )
 
 
-# Same bound other SQL-accepting endpoints put on caller-supplied queries (see
-# `posthog/api/query_performance_proxy.py`): parsing runs synchronously on an API worker, so the
-# body has to be capped before it reaches the parser.
-CHECK_INCREMENTAL_MAX_QUERY_LENGTH = 64 * 1024
-
-
 class CheckIncrementalThrottle(PersonalApiKeyOrUserRateThrottle):
     """check_incremental parses caller-supplied SQL synchronously on a read scope. The editor calls
     it on a debounce, so a per-caller budget far above typing speed only stops scripted floods of
@@ -1443,7 +1437,7 @@ class CheckIncrementalThrottle(PersonalApiKeyOrUserRateThrottle):
 class CheckIncrementalSerializer(serializers.Serializer):
     """Body of the `check_incremental` action: a query and an optional config to check it against."""
 
-    query = serializers.CharField(max_length=CHECK_INCREMENTAL_MAX_QUERY_LENGTH, help_text="The HogQL query to check.")
+    query = serializers.CharField(help_text="The HogQL query to check.")
     incremental_key = serializers.CharField(
         required=False,
         allow_null=True,
