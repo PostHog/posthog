@@ -62,6 +62,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
+from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
 # TODO: Route through facade instead of direct import
@@ -82,6 +83,7 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentBasicSerializer,
     ExperimentFlagCleanupTargetSerializer,
     ExperimentFlagCleanupTaskSerializer,
+    ExperimentInSessionExposureSerializer,
     ExperimentMetricsRecalculationSerializer,
     ExperimentSerializer,
     ExperimentSessionBucketRequestSerializer,
@@ -1501,6 +1503,23 @@ class EnterpriseExperimentsViewSet(
             {"results": [{"session_id": session_id, "results": items} for session_id, items in contexts.items()]}
         )
         return Response(serializer.data)
+
+    @extend_schema(
+        request=None,
+        responses={200: OpenApiResponse(response=ExperimentInSessionExposureSerializer)},
+    )
+    @action(methods=["GET"], detail=True, url_path="in_session_exposure", required_scopes=["experiment:read"])
+    def in_session_exposure(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """How the recordings tab's in-session exposure scope reads on this experiment.
+
+        Resolved through the same seam as the recordings query's `in_session` refusal, so the
+        scope control disables exactly what a query would be refused for, and the copy can say
+        when sessions are matched on the stamped flag property rather than on the exposure event.
+        Postgres reads only, so it can serve the tab's mount path.
+        """
+        experiment: Experiment = self.get_object()
+        semantics = resolve_in_session_exposure_semantics(self.team, experiment)
+        return Response(ExperimentInSessionExposureSerializer(semantics).data)
 
     @validated_request(
         request_serializer=ExperimentSessionBucketRequestSerializer,

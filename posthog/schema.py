@@ -6700,6 +6700,8 @@ class QueryStatus(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    budget_remaining_bytes: int | None = None
+    bytes_read: int | None = None
     complete: bool | None = Field(
         default=False,
         description=(
@@ -6754,6 +6756,16 @@ class RecordingsQueryExperimentExposureFilter(BaseModel):
         ...,
         description=(
             "Experiment whose exposed persons' sessions to show. Must belong to the environment the query runs in."
+        ),
+    )
+    in_session: bool | None = Field(
+        default=None,
+        description=(
+            "Only sessions carrying in-session exposure evidence: an event matching the"
+            " experiment's exposure criteria inside the session (with the stamped"
+            " `$feature/<flag_key>` property standing in when the exposure event was"
+            " never captured with a session id). Defaults to all exposed persons'"
+            " sessions from first exposure onward."
         ),
     )
     variant: str | None = Field(
@@ -27128,6 +27140,7 @@ class MarketingAnalyticsConfig(BaseModel):
     campaign_name_mappings: dict[str, dict[str, list[str]]] | None = None
     conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3] | None = None
     custom_source_mappings: dict[str, list[str]] | None = None
+    filter_test_accounts: bool | None = None
     sources_map: dict[str, SourceMap] | None = None
 
 
@@ -27629,6 +27642,10 @@ class RecordingsQuery(BaseModel):
     )
     person_uuid: str | None = None
     properties: list[AnyPropertyFilterDiscriminated] | None = None
+    recommended_only: bool | None = Field(
+        default=None,
+        description=("Restrict results to recordings above the replay relevance threshold."),
+    )
     response: RecordingsQueryResponse | None = None
     session_ids: list[str] | None = None
     session_recording_id: str | None = Field(
@@ -29102,6 +29119,7 @@ class LogsQuery(BaseModel):
     response: LogsQueryResponse | None = None
     searchTerm: str | None = None
     serviceNames: list[str]
+    sessionId: str | None = Field(default=None, description="Show logs for a given session ID")
     severityLevels: list[LogSeverityLevel]
     sparklineBreakdownBy: LogsSparklineBreakdownBy | None = Field(
         default=None,

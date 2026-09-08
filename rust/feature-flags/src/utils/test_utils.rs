@@ -1,4 +1,5 @@
 use crate::{
+    api::flag_definitions::FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET,
     cohorts::cohort_models::{Cohort, CohortId, CohortType},
     config::{Config, DEFAULT_TEST_CONFIG},
     flags::{
@@ -211,12 +212,23 @@ pub async fn read_flag_definitions_rebuild_requests(redis_url: &str) -> Vec<Stri
     let redis = setup_redis_client(Some(redis_url.to_string())).await;
     redis
         .zrangebyscore(
-            "flag_definitions:rebuild_requests".to_string(),
+            FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET.to_string(),
             "-inf".to_string(),
             "+inf".to_string(),
         )
         .await
         .unwrap_or_default()
+}
+
+/// Clear the flag-definitions self-heal rebuild-requests sorted set. Nothing flushes the
+/// test redis between runs, and team ids restart when the test database is recreated, so a
+/// stale member with a reused id would satisfy a poll on its first read.
+pub async fn clear_flag_definitions_rebuild_requests(redis_url: &str) {
+    let redis = setup_redis_client(Some(redis_url.to_string())).await;
+    redis
+        .del(FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET.to_string())
+        .await
+        .unwrap();
 }
 
 /// An S3 client that reports every key as NotFound. Lets integration tests force a
@@ -1625,7 +1637,7 @@ impl TestContext {
         team_id: i32,
         label: &str,
         scopes: Option<Vec<&str>>,
-    ) -> Result<String, Error> {
+    ) -> Result<(String, String), Error> {
         let key_id = format!("test_psk_{}", &uuid::Uuid::new_v4().to_string()[..8]);
         let raw_key = format!("phs_{}", &uuid::Uuid::new_v4().to_string()[..12]);
 
@@ -1651,7 +1663,7 @@ impl TestContext {
         .execute(&mut *conn)
         .await?;
 
-        Ok(raw_key)
+        Ok((key_id, raw_key))
     }
 
     /// Creates a team with both public token and secret API token
@@ -1931,6 +1943,41 @@ pub fn mock_group_type_cache(
         mapping: GroupTypeMapping::new(types_to_indexes),
     };
     Arc::new(GroupTypeCacheManager::new_with_fetcher(fetcher, None, None))
+}
+
+pub struct FailingGroupTypeFetcher {
+    fetch_calls: Arc<std::sync::atomic::AtomicU32>,
+}
+
+#[async_trait]
+impl GroupTypeMappingFetcher for FailingGroupTypeFetcher {
+    async fn fetch(
+        &self,
+        _team_id: common_types::TeamId,
+    ) -> Result<GroupTypeMapping, GroupTypeFetchError> {
+        self.fetch_calls
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Err(GroupTypeFetchError::DatabaseUnavailable)
+    }
+}
+
+/// A group type cache whose lookups always fail, for tests that need the matcher to see a
+/// real mapping error rather than a seeded one. Also returns the number of lookups that
+/// reached the fetcher, so tests can pin that a request reuses its first failed outcome
+/// instead of querying again.
+pub fn failing_group_type_cache() -> (
+    Arc<GroupTypeCacheManager>,
+    Arc<std::sync::atomic::AtomicU32>,
+) {
+    let fetch_calls = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let cache = Arc::new(GroupTypeCacheManager::new_with_fetcher(
+        FailingGroupTypeFetcher {
+            fetch_calls: Arc::clone(&fetch_calls),
+        },
+        None,
+        None,
+    ));
+    (cache, fetch_calls)
 }
 
 /// Delete a single auth token cache entry from Redis.

@@ -71,7 +71,7 @@ import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsMo
 
 import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'
 import { useDashboardVisualizationOptions } from './dashboardVisualizationOptions'
-import type { DashboardSqlVisualizationPersistence } from './dashboardVisualizationOptions'
+import type { DashboardVisualizationPersistence } from './dashboardVisualizationOptions'
 import { dashboardWidgetMenusLogic } from './dashboardWidgetMenusLogic'
 import { DashboardWidgetPlacementMenus } from './DashboardWidgetPlacementMenus'
 import { eventsScanWarningMessage } from './eventsScanWarning'
@@ -87,6 +87,7 @@ interface InsightMetaProps extends Pick<
     | 'removeFromDashboard'
     | 'deleteWithUndo'
     | 'refresh'
+    | 'refreshAfterDisplayOptionsChange'
     | 'loading'
     | 'loadingQueued'
     | 'rename'
@@ -128,6 +129,7 @@ export function InsightMeta({
     removeFromDashboard,
     deleteWithUndo,
     refresh,
+    refreshAfterDisplayOptionsChange,
     loading,
     loadingQueued,
     rename,
@@ -159,11 +161,19 @@ export function InsightMeta({
         variablesOverride: variablesOverride ?? null,
         tileFiltersOverride: tileFiltersOverride ?? null,
         setQuery: persistDisplayOptions,
+        refreshAfterDisplayOptionsChange,
     }
     const { insightFeedback } = useValues(insightLogic(insightLogicProps))
     const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
-    const { exportContext, insightData, insightDataRaw, query, savingSqlVisualization, sqlVisualizationVersion } =
-        useValues(insightDataLogic(insightLogicProps))
+    const {
+        exportContext,
+        insightData,
+        insightDataRaw,
+        query,
+        savingDisplayOptions,
+        savingSqlVisualization,
+        sqlVisualizationVersion,
+    } = useValues(insightDataLogic(insightLogicProps))
     const { persistSqlVisualization } = useActions(insightDataLogic(insightLogicProps))
     const [isManageAlertsModalOpen, setIsManageAlertsModalOpen] = useState(false)
     const { loadAlerts: loadDeferredInsightAlerts } = useActions(
@@ -258,7 +268,7 @@ export function InsightMeta({
     // Hoist the hooks out of the More overlay so kea logics they mount don't do so lazily inside a
     // portal, which cascades into closing the dropdown before the user can interact with it.
     const { items: displayOptionItems } = useInsightDisplayOptions()
-    const sqlVisualizationPersistence: DashboardSqlVisualizationPersistence | undefined = persistDisplayOptions
+    const dashboardVisualizationPersistence: DashboardVisualizationPersistence | undefined = persistDisplayOptions
         ? {
               saving: savingSqlVisualization,
               version: sqlVisualizationVersion,
@@ -272,7 +282,8 @@ export function InsightMeta({
         insightData,
         variablesOverride,
         loading: loading || loadingQueued,
-        persistence: sqlVisualizationPersistence,
+        persistence: dashboardVisualizationPersistence,
+        savingDisplayOptions,
     })
     const displayMenuItems = [...visualizationItems, ...displayOptionItems]
 

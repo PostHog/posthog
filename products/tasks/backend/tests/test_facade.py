@@ -273,6 +273,7 @@ class TestFacadeReadsAndMappers(TestCase):
             state={
                 "initial_prompt_override": "framed prompt",
                 "end_run_when_done": True,
+                "store_skills": [{"name": "my-skill", "description": "Mine.", "version": 1}],
                 "sandbox_jwt_kid": "secret",
             },
         )
@@ -285,6 +286,8 @@ class TestFacadeReadsAndMappers(TestCase):
         # The finish-tool gate reads this key at agent boot; a filter that drops it makes
         # every unbound workflow run idle out instead of ending itself.
         assert detail.state.get("end_run_when_done") == (True if include_agent_state else None)
+        # The agent writes these into its skill roots at boot; dropped, it installs none.
+        assert ("store_skills" in detail.state) is include_agent_state
         assert "sandbox_jwt_kid" not in detail.state
 
     def test_get_task_run_maps_all_fields(self):
@@ -819,6 +822,33 @@ class TestFacadeReadsAndMappers(TestCase):
         assert result is not None and result.error is None
         new_run = task.runs.exclude(id=previous_run.id).get()
         self.assertEqual(new_run.state.get("self_driving_head_branch"), "posthog-self-driving/fix-abc123")
+
+    def test_run_task_resume_of_a_pipeline_task_stays_unstamped(self):
+        # The predecessor's stage is deliberately not carried forward: a stage makes the run
+        # read as pipeline-started and drops it out of the interactive duration ceiling.
+        from products.signals.backend.models import SignalReport
+
+        # The report link is present so only `internal` can withhold the stamp here.
+        report = SignalReport.objects.create(team=self.team)
+        task = self._make_task(origin_product=Task.OriginProduct.SIGNAL_REPORT, signal_report=report, internal=True)
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"ai_stage": "implementation"},
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=previous_run.id).get()
+        self.assertNotIn("ai_stage", new_run.state)
 
     @parameterized.expand(
         [
@@ -1369,10 +1399,20 @@ class TestSignalTaskRunUserMessage(TestCase):
         with patch("products.tasks.backend.temporal.client.signal_task_followup_message"):
             return facade.signal_task_run_user_message(run.id, run.task_id, self.team.id, **{**defaults, **kwargs})
 
-    def test_records_the_message_so_a_reload_can_show_it_before_the_agent_takes_it(self):
+    @parameterized.expand([(None,), (True,), (False,)])
+    def test_records_the_message_so_a_reload_can_show_it_before_the_agent_takes_it(self, subscription_owner):
         run = self._run()
+        if subscription_owner is not None:
+            run.state = {"claude_model_access": "own-subscription", "claude_subscription_user_id": self.user.id}
+            run.save(update_fields=["state"])
+        if subscription_owner is False:
+            with self.assertRaises(facade.PermissionDenied):
+                self._signal(run, actor_user_id=self.user.id + 1)
+            run.refresh_from_db()
+            self.assertNotIn("pending_followup_messages", run.state)
+            return
 
-        self.assertTrue(self._signal(run))
+        self.assertTrue(self._signal(run, actor_user_id=self.user.id))
 
         run.refresh_from_db()
         recorded = run.state["pending_followup_messages"]

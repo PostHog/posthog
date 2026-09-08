@@ -383,7 +383,7 @@
                             "type": "object"
                         },
                         "integration_id": {
-                            "description": "ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.",
+                            "description": "ID of a snowflake-kind Integration providing the account, user and credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.",
                             "type": "number"
                         },
                         "type": {
@@ -391,7 +391,7 @@
                             "type": "string"
                         }
                     },
-                    "required": ["type", "config"],
+                    "required": ["type", "integration_id", "config"],
                     "type": "object"
                 },
                 {

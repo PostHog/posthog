@@ -1,14 +1,11 @@
 import uuid
-import socket
 import typing
 import builtins
 import datetime as dt
-import ipaddress
 import dataclasses
 import collections.abc
 from dataclasses import dataclass
 from typing import Any, TypedDict, cast
-from urllib.parse import urlparse
 
 from django.conf import settings
 from django.db import models, transaction
@@ -43,6 +40,12 @@ from posthog.models.integration import (
     DatabricksIntegration,
     DatabricksIntegrationError,
     Integration,
+)
+from posthog.security.url_validation import (
+    INVALID_HOST_MESSAGE,
+    UNREACHABLE_HOST_MESSAGE,
+    ShapeError,
+    validate_external_host,
 )
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
@@ -721,10 +724,9 @@ class SnowflakeDestinationRequestSerializer(serializers.Serializer):
 
     type = serializers.ChoiceField(choices=["Snowflake"])
     integration_id = serializers.IntegerField(
-        required=False,
         help_text=(
-            "ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over "
-            "inline credentials. Use the integrations-list MCP tool to find one."
+            "ID of a snowflake-kind Integration providing the account, user and credentials. Required when "
+            "creating a batch export. Use the integrations-list MCP tool to find one."
         ),
     )
     config = SnowflakeDestinationConfigSerializer()
@@ -765,10 +767,9 @@ class BatchExportDestinationRequestField(serializers.JSONField):
 
     Only integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3,
     S3Compatible, Snowflake, Redshift) are exposed in the schema. integration_id is required for
-    every one of those except Snowflake, where inline credentials remain supported for the time
-    being. Existing Postgres, Snowflake and Redshift exports created before integrations keep their
-    inline credentials. Runtime validation remains
-    `BatchExportDestinationSerializer.validate_destination`.
+    every one of them. Existing Postgres, Snowflake and Redshift exports created before
+    integrations keep their inline credentials and stay valid when edited. Runtime validation
+    remains `BatchExportDestinationSerializer.validate_destination`.
     """
 
     pass
@@ -885,8 +886,7 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=(
             "ID of a team-scoped Integration providing credentials, for destinations that authenticate "
-            "through one. Required for all of those except Snowflake, which still supports inline "
-            "credentials."
+            "through one. Required for all of them."
         ),
     )
 
@@ -924,22 +924,12 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
             str_fields = ", ".join(f"'{extra_field}'" for extra_field in sorted(extra_fields))
             raise serializers.ValidationError(f"Configuration has unknown field/s: {str_fields}")
 
-        # Some credential/connection fields are optional on the dataclass (integration-backed exports
-        # resolve them at run time), so they must be required here only when no Integration is linked.
-        # Only Snowflake needs this. Every other destination requires an Integration, so
-        # `validate_destination` reports a missing one. Listing them here would report a missing
-        # credential field instead, because this check runs first.
-        # TODO: remove this code once integrations are enforced for Snowflake
-        conditionally_required: set[str] = set()
-        if attrs.get("integration") is None:
-            if export_type == BatchExportDestination.Destination.SNOWFLAKE:
-                conditionally_required = {"account", "user"}
-
+        # Destination config fields without a dataclass default must be provided.
         for destination_field in destination_fields:
             is_required = (
                 destination_field.default == dataclasses.MISSING
                 and destination_field.default_factory == dataclasses.MISSING
-            ) or destination_field.name in conditionally_required
+            )
             if destination_field.name not in config:
                 if is_required and not is_patch:
                     # When patching we expect a partial configuration. So, we don't
@@ -1093,80 +1083,6 @@ class _DatabaseFieldFinder(TraversingVisitor):
             if name is not None:
                 self.names.add(name)
         super().visit_field(node)
-
-
-INTERNAL_NETWORKS = (
-    ipaddress.ip_network("10.0.0.0/8"),
-    ipaddress.ip_network("172.16.0.0/12"),
-    ipaddress.ip_network("192.168.0.0/16"),
-    ipaddress.ip_network("127.0.0.0/8"),
-    ipaddress.ip_network("169.254.0.0/16"),
-    ipaddress.ip_network("0.0.0.0/8"),
-    ipaddress.ip_network("::1/128"),
-    ipaddress.ip_network("fc00::/7"),
-    ipaddress.ip_network("fe80::/10"),
-)
-
-
-def is_ip_internal(ip: str) -> bool:
-    """Check if IP belongs to an internal network."""
-    try:
-        addr = ipaddress.ip_address(ip)
-    except ValueError:
-        raise ValueError("Could not parse IP")
-
-    if any(addr in network for network in INTERNAL_NETWORKS):
-        return True
-    return False
-
-
-def resolve_and_validate_url(url: str) -> None:
-    """Ensure provided url point to a non-internal IP."""
-    try:
-        parsed = urlparse(url)
-    except Exception as e:
-        raise ValueError(f"Invalid URL'{url}': {e}") from e
-
-    host = parsed.hostname
-    if not host:
-        raise ValueError("URL has no hostname")
-
-    resolve_and_validate_host(host)
-
-
-def is_local_dev_or_test() -> bool:
-    return settings.DEBUG or settings.TEST
-
-
-INVALID_HOST_MESSAGE = "Invalid host. Enter a hostname or IP address without credentials, scheme, or path."
-
-
-def resolve_and_validate_host(host: str) -> None:
-    """Ensure provided host resolves to a non-internal IP."""
-    if host == "localhost" and is_local_dev_or_test():
-        return
-
-    # Host may already be an IP literal
-    try:
-        if is_ip_internal(host) and not is_local_dev_or_test():
-            raise ValueError("Host resolved to internal IP")
-        return
-    except ValueError:
-        # Not an IP literal, requires DNS
-        pass
-
-    try:
-        # getaddrinfo supports both ipv4 and ipv6
-        results = socket.getaddrinfo(host, None)
-    except socket.gaierror as e:
-        raise ValueError(f"Could not resolve '{host}': {e}") from e
-
-    # Keeps only unique ips from the result tuple
-    resolved_ips = {str(r[4][0]) for r in results}
-
-    for ip in resolved_ips:
-        if is_ip_internal(ip) and not is_local_dev_or_test():
-            raise ValueError("Host resolved to internal IP")
 
 
 class BatchExportSerializer(serializers.ModelSerializer):
@@ -1449,12 +1365,18 @@ class BatchExportSerializer(serializers.ModelSerializer):
             integration: Integration | None = destination_attrs.get("integration")
 
             # Sticky integration: an export that uses one cannot drop back to inline credentials.
-            # TODO: remove this guard once integrations are mandatory for Snowflake and inline credentials are gone.
+            # TODO: remove this guard once inline credentials are gone.
             if instance is not None and instance.destination.integration is not None and integration is None:
                 raise serializers.ValidationError(
                     "Cannot remove the integration from a Snowflake batch export that uses one. "
                     "Re-send its `integration` to keep it (or a different one to swap)."
                 )
+
+            # New Snowflake exports must use an Integration for credentials. Exports created before
+            # integrations existed keep their inline credentials, so only require it on create
+            # (`instance is None`); existing inline-credential exports stay valid when edited.
+            if integration is None and instance is None:
+                raise serializers.ValidationError("Integration is required for Snowflake batch exports")
 
             if integration is not None:
                 # (Team ownership is already enforced by the team-scoped `integration` field.)
@@ -1700,9 +1622,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
             if host is not None:
                 try:
-                    resolve_and_validate_host(host)
-                except ValueError:
+                    validate_external_host(host)
+                except ShapeError:
                     raise serializers.ValidationError(INVALID_HOST_MESSAGE)
+                except ValueError:
+                    raise serializers.ValidationError(UNREACHABLE_HOST_MESSAGE)
 
         return destination_attrs
 
@@ -1893,9 +1817,9 @@ def recursive_dict_merge(
 @extend_schema(tags=["batch_exports"])
 @extend_schema_view(
     # Request bodies use a polymorphic destination schema so that integration-backed types
-    # (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) advertise
-    # integration_id up front — required for Databricks, AzureBlob and BigQuery, optional for Postgres,
-    # the S3 family and Snowflake.
+    # (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) advertise
+    # integration_id up front. It is required for every one of them; Postgres, Snowflake and Redshift
+    # exports created before integrations keep their inline credentials on update.
     # Responses continue to use BatchExportSerializer.
     create=extend_schema(request=BatchExportRequestSerializer),
     update=extend_schema(request=BatchExportRequestSerializer),

@@ -1,3 +1,4 @@
+import re
 import runpy
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from posthog.scopes import (
     OAUTH_SCOPES_HIDDEN,
     OIDC_SCOPES,
     PRIVILEGED_SCOPES,
+    PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION,
     UNPRIVILEGED_SCOPES,
     clamp_scopes_to_ceiling,
     downgrade_scopes_to_read_only,
@@ -76,11 +78,18 @@ class TestDowngradeScopesToReadOnly(BaseTest):
         self.assertIn("openid", result)
 
 
+# sorted: parameterized bakes the iteration order into the test ids, and a frozenset
+# iterates in hash order, which differs per process.
+INTERNAL_SCOPE_CASES = [
+    (f"{obj}:{action}",) for obj in sorted(INTERNAL_API_SCOPE_OBJECTS) for action in API_SCOPE_ACTIONS
+]
+
+
 class TestScopeSets(BaseTest):
     def test_all_scopes_matches_scope_descriptions_keys(self) -> None:
         self.assertEqual(ALL_SCOPES, frozenset(get_scope_descriptions().keys()))
 
-    @parameterized.expand([(f"{obj}:{action}",) for obj in INTERNAL_API_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS])
+    @parameterized.expand(INTERNAL_SCOPE_CASES)
     def test_all_scopes_excludes_internal_scope(self, scope: str) -> None:
         self.assertNotIn(scope, ALL_SCOPES)
 
@@ -98,11 +107,13 @@ class TestScopeSets(BaseTest):
         # they are not part of the UNPRIVILEGED broad-default set.
         self.assertNotIn(oidc, UNPRIVILEGED_SCOPES)
 
-    @parameterized.expand([(f"{obj}:{action}",) for obj in INTERNAL_API_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS])
+    @parameterized.expand(INTERNAL_SCOPE_CASES)
     def test_unprivileged_scopes_excludes_internal_scope(self, scope: str) -> None:
         self.assertNotIn(scope, UNPRIVILEGED_SCOPES)
 
-    @parameterized.expand([("insight:read",), ("dashboard:write",), ("query:read",)])
+    @parameterized.expand(
+        [("insight:read",), ("dashboard:write",), ("query:read",), ("customer_task:read",), ("customer_task:write",)]
+    )
     def test_unprivileged_scopes_covers_known_public_scope(self, scope: str) -> None:
         # Spot-check: a generic OAuth client should be able to request these.
         self.assertIn(scope, UNPRIVILEGED_SCOPES)
@@ -134,6 +145,11 @@ class TestScopeSets(BaseTest):
         for oidc in OIDC_SCOPES:
             self.assertIn(oidc, supported)
         self.assertEqual(supported - set(OIDC_SCOPES), UNPRIVILEGED_SCOPES)
+
+    def test_project_secret_api_keys_exclude_user_bound_customer_task_scopes(self) -> None:
+        # Customer task endpoints need a user for RBAC and activity attribution.
+        self.assertNotIn(("customer_task", "read"), PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)
+        self.assertNotIn(("customer_task", "write"), PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)
 
     def test_all_scope_objects_fit_in_oauthapplication_scopes_charfield(self) -> None:
         # OAuthApplication.scopes is ArrayField(CharField(max_length=100)), matching
@@ -462,3 +478,20 @@ class TestFilterToUnprivilegedScopes(SimpleTestCase):
             "insight:read",
             "query:read",
         ]
+
+
+class TestProjectSecretAPIKeyScopeParity(SimpleTestCase):
+    # The settings scope picker builds its checkboxes from the frontend copy of this list,
+    # so a scope added on the backend alone is allowed by the API but has no UI to grant it.
+    def test_frontend_list_matches_backend(self) -> None:
+        tsx = (Path(__file__).resolve().parents[2] / "frontend" / "src" / "lib" / "scopes.tsx").read_text()
+        match = re.search(
+            r"export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = \[(.*?)\] as const",
+            tsx,
+            re.DOTALL,
+        )
+        assert match, "Could not find PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION in scopes.tsx"
+
+        frontend_scopes = set(re.findall(r"'([a-z_]+:[a-z]+)'", match.group(1)))
+        backend_scopes = {f"{obj}:{action}" for obj, action in PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION}
+        assert frontend_scopes == backend_scopes

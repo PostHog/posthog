@@ -83,6 +83,8 @@ def get_hogql_metadata(
             user=user,
             modifiers=query_modifiers,
             connection_id=str(source.id),
+            # Editor-assist only: query execution never reads cached sources.
+            use_cached_sources=True,
         )
 
     heuristic_warnings: list[HogQLNotice] = []
@@ -92,10 +94,14 @@ def get_hogql_metadata(
     try:
         context = HogQLContext(
             team_id=team.pk,
+            # The team object itself, so the lazy database build can key the sources cache.
+            team=team,
             user=user,
             database=database,
             modifiers=query_modifiers,
             enable_select_queries=True,
+            # Editor-assist only: query execution never reads cached sources.
+            use_cached_sources=True,
             # A resolved direct-connection source prints with its engine dialect (below), so the
             # context must be marked direct — otherwise the ClickHouse printer's direct-table guard
             # fires and metadata/autocomplete reports a false "can only be queried through its direct
@@ -123,10 +129,22 @@ def get_hogql_metadata(
             without_test_accounts: Callable[[], ast.SelectQuery | ast.SelectSetQuery | None] | None = None
             if not hogql_ast:
                 as_written_ast = parse_select(query.query)
+                has_filters = find_placeholders(as_written_ast).has_filters
+                if has_filters and database is None:
+                    # Built here (cached) and shared with the printer via the context, so the
+                    # filters replacement doesn't add an uncached build of its own.
+                    database = Database.create_for(
+                        team=team,
+                        user=user,
+                        modifiers=query_modifiers,
+                        use_cached_sources=True,
+                        trigger="metadata",
+                    )
+                    context.database = database
                 expanded_ast = _expand_query(as_written_ast, query, query.filters, team, database)
                 hogql_ast = expanded_ast
                 filters = query.filters
-                if filters and find_placeholders(as_written_ast).has_filters:
+                if filters and has_filters:
                     written_ast = as_written_ast
                     without_test_accounts = (
                         (
