@@ -734,7 +734,7 @@ def _linked_accounts_section_blocks(
     section and renders `actions` blocks full width, so a row apiece is the
     only layout that keeps each button next to the account it acts on.
     The PostHog row only appears when `is_slack_app_oauth_enabled` returned
-    True; the GitHub row is independent of that flag.
+    True; the GitHub row is independent of that gate.
     """
     rows: list[dict] = []
 
@@ -2309,8 +2309,7 @@ def _resolve_stats_state(
 ) -> StatsState | None:
     """Workspace activity aggregates, or None when the card shouldn't render at all.
 
-    Admin-only, and rides the same `slack-app-home` gate as the rest of the tab — the
-    callers already returned early when that flag is off.
+    Admin-only: every other card on the tab renders for any viewer.
 
     Scoped to the projects this admin can already reach: being a Slack workspace admin
     says nothing about PostHog org membership, so the card must never widen what its
