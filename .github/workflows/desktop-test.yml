@@ -209,9 +209,6 @@ jobs:
                   # Electron ships Chromium, so it needs the same system libraries as the
                   # Playwright browser, on a cache hit as much as on a miss.
                   pnpm --filter code exec playwright install-deps chromium
-                  # Ubuntu 24.04 blocks unprivileged user namespaces by default, and the
-                  # Chromium sandbox in Electron needs them to start.
-                  sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
             - name: Install Playwright
               if: steps.playwright-cache.outputs.cache-hit != 'true'
