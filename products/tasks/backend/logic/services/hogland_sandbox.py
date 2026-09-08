@@ -352,6 +352,20 @@ class HoglandSandbox(AgentServerLaunchMixin):
         redacted_command = redact_sandbox_command(command)
         try:
             result = self._box.exec(["bash", "-c", command], timeout_seconds=timeout_seconds, env=env)
+        except httpx.TimeoutException as e:
+            # A transport deadline on the exec request is the same condition as a
+            # server-reported `result.timed_out`, so classify it the same way. Temporal
+            # retries it, so skip capture instead of minting an issue per calling frame.
+            logger.warning(
+                "Timed out waiting for command execution",
+                extra={"sandbox_id": self.id, "timeout_seconds": timeout_seconds},
+            )
+            raise SandboxTimeoutError(
+                f"Execution timed out after {timeout_seconds} seconds",
+                {"sandbox_id": self.id, "command": redacted_command, "timeout_seconds": timeout_seconds},
+                cause=e,
+                capture=False,
+            )
         except Exception as e:
             redacted_error = redact_sandbox_command(str(e))
             # Provider exceptions can echo the shell command, so avoid exc_info here.

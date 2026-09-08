@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from django.conf import settings
 
 from products.tasks.backend.constants import POSTHOG_EXEC_PERMISSION_REGEX, SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
-from products.tasks.backend.exceptions import SandboxExecutionError
+from products.tasks.backend.exceptions import SandboxExecutionError, SandboxTimeoutError
 from products.tasks.backend.logic.services.agentsh import (
     AGENTSH_DAEMON_PORT,
     BASH_ENV_SCRIPT,
@@ -533,9 +533,14 @@ class AgentServerLaunchMixin(SandboxBase):
         return self._read_health_boot_metrics(AGENT_SERVER_PORT)
 
     def _free_agent_server_port(self) -> None:
-        self.execute(
-            "pkill -TERM -f agent-server 2>/dev/null || true; "
-            "for _ in $(seq 1 10); do pgrep -f agent-server >/dev/null || break; sleep 0.5; done; "
-            "pkill -KILL -f agent-server 2>/dev/null || true",
-            timeout_seconds=15,
-        )
+        # Best-effort cleanup: every command here ends in `|| true`, so a failed exec
+        # must not abort the launch that follows either.
+        try:
+            self.execute(
+                "pkill -TERM -f agent-server 2>/dev/null || true; "
+                "for _ in $(seq 1 10); do pgrep -f agent-server >/dev/null || break; sleep 0.5; done; "
+                "pkill -KILL -f agent-server 2>/dev/null || true",
+                timeout_seconds=15,
+            )
+        except (SandboxExecutionError, SandboxTimeoutError) as e:
+            logger.warning(f"Could not free the agent-server port in sandbox {self.id}, continuing: {e}")

@@ -25,6 +25,7 @@ from products.tasks.backend.exceptions import (
     SandboxExecutionError,
     SandboxNetworkPolicyError,
     SandboxProvisionError,
+    SandboxTimeoutError,
     SnapshotCreationError,
     SnapshotFileLimitExceededError,
     SnapshotTimeoutError,
@@ -1226,6 +1227,14 @@ class TestModalSandboxAgentServerStartupHelpers:
         command = sandbox.execute.call_args_list[0][0][0]
         assert "pkill -TERM -f agent-server" in command
         assert "pkill -KILL -f agent-server" in command
+
+    def test_free_agent_server_port_survives_a_failed_exec(self):
+        sandbox = self._make_sandbox()
+        sandbox.execute = MagicMock(
+            side_effect=SandboxTimeoutError("timed out", {}, cause=RuntimeError("timed out"), capture=False)
+        )
+
+        sandbox._free_agent_server_port()
 
 
 class TestStartupFailureDiagnostics:
