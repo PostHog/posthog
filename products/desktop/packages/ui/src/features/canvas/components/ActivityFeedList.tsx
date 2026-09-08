@@ -14,6 +14,7 @@ import {
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { SignalReport } from "@posthog/shared/types";
+import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { ActivityActionsMenu } from "@posthog/ui/features/canvas/components/ActivityActionsMenu";
@@ -23,6 +24,7 @@ import { InboxActivityOverflowRow } from "@posthog/ui/features/canvas/components
 import { InboxActivityRow } from "@posthog/ui/features/canvas/components/InboxActivityRow";
 import { openActivityItem } from "@posthog/ui/features/canvas/components/openActivityItem";
 import { SidebarSearchHeader } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
+import { useActivityTaskMenu } from "@posthog/ui/features/canvas/hooks/useActivityTaskMenu";
 import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useInboxActivityPreview } from "@posthog/ui/features/canvas/hooks/useInboxActivityPreview";
 import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
@@ -68,6 +70,7 @@ export function ActivityFeedList({
   });
   const taskActivity = useTaskActivity({ enabled: mentionsIncluded });
   const inboxActivity = useInboxActivityPreview();
+  const archivedTaskIds = useArchivedTaskIds();
   const {
     unreadItems,
     feedItems,
@@ -83,6 +86,7 @@ export function ActivityFeedList({
         mentionsIncluded,
         reportsIncluded: inboxActivity.isIncluded,
         unreadsOnly,
+        archivedTaskIds,
       }),
     [
       taskActivity.items,
@@ -91,6 +95,7 @@ export function ActivityFeedList({
       inboxActivity.isIncluded,
       mentionsIncluded,
       unreadsOnly,
+      archivedTaskIds,
     ],
   );
   const unreadCount = mentionsIncluded ? taskActivity.unreadCount : 0;
@@ -99,6 +104,8 @@ export function ActivityFeedList({
     (!unreadsOnly && inboxActivity.isLoading);
   // Selected once for the feed, not once per row.
   const blockedTaskIds = useBlockedTaskIds();
+  // One pin and one archive mutation for the feed, for the same reason.
+  const taskMenu = useActivityTaskMenu();
   const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
   const [query, setQuery] = useState("");
   const [loadMoreRef, loadMoreInView] = useInView<HTMLDivElement>({
@@ -229,6 +236,7 @@ export function ActivityFeedList({
                       {item.kind === "task" ? (
                         <ActivityRow
                           item={item.task}
+                          menu={taskMenu(item.task)}
                           onMarkRead={markRead}
                           currentUser={currentUser}
                           blockedTaskIds={blockedTaskIds}

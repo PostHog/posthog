@@ -37,6 +37,7 @@ from products.web_analytics.backend.hogql_queries.bot_ip_definitions import (
 )
 from products.web_analytics.backend.hogql_queries.custom_bot_definitions import (
     IP_FIELD,
+    NUMERIC_FIELDS,
     USER_AGENT_FIELD,
     CidrGroup,
     CustomBotGroup,
@@ -118,7 +119,12 @@ def _custom_group_branch(group: CustomBotGroup, args: list[ast.Expr], attr: str)
         multi_if_args.append(ast.Constant(value=0))
         index_call: ast.Expr = ast.Call(name="multiIf", args=multi_if_args)
     else:
-        safe_property = ast.Call(name="ifNull", args=[property_expr, ast.Constant(value="")])
+        # A numeric property (screen width/height) reaches multiMatchAllIndices as a string, so
+        # a rule pattern like "800" matches the value 800. String properties skip the cast.
+        matched_property = (
+            ast.Call(name="toString", args=[property_expr]) if group.key in NUMERIC_FIELDS else property_expr
+        )
+        safe_property = ast.Call(name="ifNull", args=[matched_property, ast.Constant(value="")])
         # arrayMin over ALL matching patterns, not multiMatchAnyIndex: when two of a project's own
         # rules match the same value, the one listed first wins. multiMatchAnyIndex would report
         # whichever pattern matches earliest in the string, so a specific rule listed above a broad

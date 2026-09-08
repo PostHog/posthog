@@ -311,6 +311,49 @@ export class PlaywrightSetup {
     }
 
     /**
+     * Seed events (and optional persons) directly into ClickHouse for a team created earlier in
+     * the same test. Use this when an event must reference an id minted after workspace setup
+     * (e.g. an evaluation created through the API) — `createWorkspace`'s own `events` option only
+     * seeds at workspace-creation time.
+     */
+    async seedEvents(
+        teamId: string,
+        events: PlaywrightSetupEvent[],
+        persons?: PlaywrightSetupPerson[]
+    ): Promise<{ team_id: string; events_created: number }> {
+        const result = await this.callSetupEndpoint('seed_events', {
+            data: { team_id: Number(teamId), events, persons },
+        })
+        if (!result.success) {
+            throw new Error(`Failed to seed events: ${result.error}`)
+        }
+        return result.result as { team_id: string; events_created: number }
+    }
+
+    /**
+     * Create an Evaluation with `output_config` stored exactly as given, bypassing the config
+     * normalization the model and the API both apply on every save. Use this to reproduce a
+     * config shaped like it predates a field (e.g. missing `true_is_failure` entirely).
+     */
+    async seedEvaluation(data: {
+        team_id: string
+        name: string
+        evaluation_type: string
+        evaluation_config: Record<string, any>
+        output_type: string
+        output_config: Record<string, any>
+        enabled?: boolean
+    }): Promise<{ evaluation_id: string }> {
+        const result = await this.callSetupEndpoint('seed_evaluation', {
+            data: { ...data, team_id: Number(data.team_id) },
+        })
+        if (!result.success) {
+            throw new Error(`Failed to seed evaluation: ${result.error}`)
+        }
+        return result.result as { evaluation_id: string }
+    }
+
+    /**
      * Seed a single HogFunctionTemplate row. Templates are global (not team-scoped) and
      * Playwright CI doesn't run sync_hog_function_templates, so any test that exercises
      * the workflow editor or hog function configuration must seed the templates it needs.
