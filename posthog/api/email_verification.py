@@ -11,7 +11,7 @@ from posthog.helpers.two_factor_session import (
     code_based_verification_token_generator,
 )
 from posthog.models.user import User
-from posthog.ph_client import feature_enabled_or_false
+from posthog.ph_client import get_feature_flag_or_none
 from posthog.redis import get_client
 from posthog.tasks.email import send_email_verification_code
 
@@ -24,12 +24,16 @@ EMAIL_CODE_ATTEMPTS_REDIS_KEY_PREFIX = "email_verification_code_attempts"
 
 
 def is_email_verification_disabled(user: User) -> bool:
-    # using disabled here so that the default state (if no flag exists) is that verification defaults to ON.
-    return user.organization is not None and feature_enabled_or_false(
-        VERIFICATION_DISABLED_FLAG,
-        str(user.organization.id),
-        groups={"organization": str(user.organization.id)},
-        group_properties={"organization": {"id": str(user.organization.id)}},
+    # Never raises: a missing flag or a flag failure both read as verification ON, and the
+    # gateway credential projection calls this from cache writes and background tasks.
+    return user.organization is not None and (
+        get_feature_flag_or_none(
+            VERIFICATION_DISABLED_FLAG,
+            str(user.organization.id),
+            groups={"organization": str(user.organization.id)},
+            group_properties={"organization": {"id": str(user.organization.id)}},
+        )
+        is True
     )
 
 
