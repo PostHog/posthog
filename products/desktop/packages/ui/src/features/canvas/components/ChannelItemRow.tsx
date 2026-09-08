@@ -155,12 +155,10 @@ function CanvasBadgeStack({
 function rowAuthor(
   item: ChannelItemModel,
 ): { user: AvatarPerson; label: string } | null {
-  if (item.kind === "task") {
-    if (!item.authorUser) return null;
+  if (item.authorUser) {
     return { user: item.authorUser, label: userDisplayName(item.authorUser) };
   }
-  // A canvas carries only a display name and uuid — no email or photo — so its
-  // face is an initials bubble seeded off the uuid.
+  if (item.kind === "task") return null;
   const name = item.authorName;
   if (!name && !item.authorUuid) return null;
   const [first, ...rest] = (name ?? "").split(/\s+/).filter(Boolean);
@@ -182,11 +180,23 @@ function rowAuthor(
  * so a row that is idle now stays idle until its item changes, and re-rendering
  * it every minute would buy nothing. Only a row with a face to fade subscribes.
  */
-function RowPresence({ item }: { item: ChannelItemModel }) {
+function RowPresence({
+  item,
+  currentUserUuid,
+}: {
+  item: ChannelItemModel;
+  currentUserUuid?: string;
+}) {
   const author = rowAuthor(item);
   if (!author) return null;
   if (presenceTier(item.ts, Date.now()) === "idle") return null;
-  return <ActiveRowPresence item={item} author={author} />;
+  return (
+    <ActiveRowPresence
+      item={item}
+      author={author}
+      isCurrentUser={author.user.uuid === currentUserUuid}
+    />
+  );
 }
 
 /**
@@ -197,9 +207,11 @@ function RowPresence({ item }: { item: ChannelItemModel }) {
 function ActiveRowPresence({
   item,
   author,
+  isCurrentUser,
 }: {
   item: ChannelItemModel;
   author: NonNullable<ReturnType<typeof rowAuthor>>;
+  isCurrentUser: boolean;
 }) {
   const tier = presenceTier(item.ts, useNow());
   if (tier === "idle") return null;
@@ -208,9 +220,13 @@ function ActiveRowPresence({
       user={author.user}
       tier={tier}
       label={
-        tier === "live"
-          ? `${author.label} is working on this`
-          : `${author.label} was here recently`
+        isCurrentUser && tier === "live"
+          ? "You are working on this"
+          : isCurrentUser
+            ? "You were here recently"
+            : tier === "live"
+              ? `${author.label} is working on this`
+              : `${author.label} was here recently`
       }
     />
   );
@@ -251,6 +267,7 @@ export function ChannelItemRowView({
   isSelected = false,
   showPinBadge = true,
   draggable = false,
+  currentUserUuid,
   onClick,
   onDragStart,
   onDragEnd,
@@ -263,6 +280,7 @@ export function ChannelItemRowView({
   isSelected?: boolean;
   showPinBadge?: boolean;
   draggable?: boolean;
+  currentUserUuid?: string;
   onClick?: (e: React.MouseEvent) => void;
   onDragStart?: (e: DragEvent) => void;
   onDragEnd?: (e: DragEvent) => void;
@@ -292,7 +310,7 @@ export function ChannelItemRowView({
         <span className={TRAILING_CLASS}>
           {/* Who's here, ahead of the badges: presence is the row's most
               time-sensitive fact, and it's absent on a quiet row. */}
-          <RowPresence item={item} />
+          <RowPresence item={item} currentUserUuid={currentUserUuid} />
           {/* Badges take the timestamp's slot: identity (pin, source, cloud,
               PR) is what you scan a task list for, and the age is still on the
               preview card. */}
@@ -476,6 +494,7 @@ export function ChannelItemRow({
         isSelected={isSelected}
         showPinBadge={showPinBadge}
         draggable
+        currentUserUuid={currentUser.data?.uuid}
         onDragStart={handleDragStart}
         onDragEnd={onDragEnd}
         onClick={(e) => (onClick ? onClick(e) : actions.open(item))}

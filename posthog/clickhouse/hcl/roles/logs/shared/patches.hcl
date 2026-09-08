@@ -93,9 +93,37 @@ database "posthog" {
     }
   }
 
-  # The metrics ingest chain (roles/logs/metrics) is declared in the local shape
+  patch_table "metrics_distributed" {
+    engine "distributed" {
+      cluster_name    = "logs"
+      remote_database = "posthog"
+      remote_table    = "metrics2"
+    }
+  }
+
+  patch_table "metric_series_distributed" {
+    engine "distributed" {
+      cluster_name    = "logs"
+      remote_database = "posthog"
+      remote_table    = "metric_series2"
+    }
+  }
+
+  patch_table "metric_attributes_distributed" {
+    engine "distributed" {
+      cluster_name    = "logs"
+      remote_database = "posthog"
+      remote_table    = "metric_attributes2"
+    }
+  }
+
+  # The v1 metrics ingest chain (roles/logs/metrics) is declared in the local shape
   # (noshard ZK paths, posthog_single_shard reader); the cloud envs keep their
-  # per-shard logs-cluster paths and read through the logs cluster.
+  # per-shard logs-cluster paths for metrics1, metric_attributes and
+  # metrics_kafka_metrics, and read through the logs cluster. The v2 chain
+  # (metrics2_input, metrics2, metric_series2, metric_attributes2) stays on the
+  # noshard path in every env, like metric_samples1 and metric_series1, and only
+  # its readers are patched above.
   patch_table "metrics" {
     engine "distributed" {
       cluster_name    = "logs"

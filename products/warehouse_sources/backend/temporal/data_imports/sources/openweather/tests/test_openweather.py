@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openweathe
 from products.warehouse_sources.backend.temporal.data_imports.sources.openweather.settings import (
     API_VERSION_2_5,
     API_VERSION_3_0,
+    API_VERSION_4_0,
     OPENWEATHER_ENDPOINTS,
     endpoints_for_version,
 )
@@ -32,7 +33,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openweathe
 # (version, endpoint) pairs across every supported version, so the request-path dispatch is
 # exercised for each.
 _ALL_VERSIONED_ENDPOINTS = [
-    (version, endpoint) for version in (API_VERSION_2_5, API_VERSION_3_0) for endpoint in endpoints_for_version(version)
+    (version, endpoint)
+    for version in (API_VERSION_2_5, API_VERSION_3_0, API_VERSION_4_0)
+    for endpoint in endpoints_for_version(version)
 ]
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.openweather.openweather"
@@ -183,6 +186,22 @@ class TestNormalizeRows:
         assert [row["dt"] for row in rows] == [1719158400, 1719244800]
         assert all(row["lat"] == 51.5 and row["lon"] == -0.12 for row in rows)
 
+    def test_onecall_4_data_envelope_rows(self):
+        # One Call 4.0 wraps every timeline in a shared `data` array alongside envelope metadata.
+        endpoints = endpoints_for_version(API_VERSION_4_0)
+        response = {
+            "lat": 51.51,
+            "lon": -0.13,
+            "timezone": "Europe/London",
+            "data": [{"dt": 1719158400, "temp": 280}, {"dt": 1719159300, "temp": 281}],
+            "next": "https://api.openweathermap.org/data/4.0/onecall/timeline/15min?start=1719159300",
+        }
+        rows = _normalize_rows(endpoints["quarter_hourly"], response, Location(51.5, -0.12, "London"))
+
+        assert [row["dt"] for row in rows] == [1719158400, 1719159300]
+        assert all(row["lat"] == 51.5 and row["lon"] == -0.12 for row in rows)
+        assert rows[0]["dt_iso"] == "2024-06-23T16:00:00+00:00"
+
     def test_row_without_dt_raises(self):
         # `dt` is part of the primary key; a row missing it must fail loudly, not yield a null key.
         response = {"main": {"temp": 280}}
@@ -280,6 +299,7 @@ class TestValidateCredentials:
         [
             (API_VERSION_2_5, "/data/2.5/weather"),
             (API_VERSION_3_0, "/data/3.0/onecall"),
+            (API_VERSION_4_0, "/data/4.0/onecall/current"),
         ],
     )
     def test_probes_version_endpoint_with_first_location(self, api_version, expected_path):
@@ -324,18 +344,36 @@ class TestGetRows:
 
         assert batches == []
 
-    def test_onecall_requests_the_3_0_path(self):
-        # A 3.0-pinned source must hit `/data/3.0/onecall`, not the 2.5 paths.
+    @pytest.mark.parametrize(
+        "api_version, endpoint, body, expected_path",
+        [
+            (API_VERSION_2_5, "current_weather", {"dt": 1, "main": {"temp": 280}}, "/data/2.5/weather"),
+            (API_VERSION_3_0, "current", {"current": {"dt": 1, "temp": 280}}, "/data/3.0/onecall"),
+            (API_VERSION_4_0, "current", {"data": [{"dt": 1, "temp": 280}]}, "/data/4.0/onecall/current"),
+            (API_VERSION_4_0, "minutely", {"data": [{"dt": 1, "precipitation": 0}]}, "/data/4.0/onecall/timeline/1min"),
+            (
+                API_VERSION_4_0,
+                "quarter_hourly",
+                {"data": [{"dt": 1, "temp": 280}]},
+                "/data/4.0/onecall/timeline/15min",
+            ),
+            (API_VERSION_4_0, "hourly", {"data": [{"dt": 1, "temp": 280}]}, "/data/4.0/onecall/timeline/1h"),
+            (API_VERSION_4_0, "daily", {"data": [{"dt": 1, "temp": {"day": 280}}]}, "/data/4.0/onecall/timeline/1day"),
+        ],
+    )
+    def test_requests_the_pinned_versions_path(self, api_version, endpoint, body, expected_path):
+        # Each pin must hit its own product's paths — a wrong path 404s or bills the wrong subscription.
         with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(200, {"current": {"dt": 1, "temp": 280}})
+            mock_session.return_value.get.return_value = _response(200, body)
 
-            list(
-                get_rows("test-key", "current", [Location(51.5, -0.12, None)], structlog.get_logger(), API_VERSION_3_0)
+            batches = list(
+                get_rows("test-key", endpoint, [Location(51.5, -0.12, None)], structlog.get_logger(), api_version)
             )
 
             called_url = mock_session.return_value.get.call_args[0][0]
 
-        assert called_url.startswith(f"{OPENWEATHER_BASE_URL}/data/3.0/onecall?")
+        assert called_url.startswith(f"{OPENWEATHER_BASE_URL}{expected_path}?")
+        assert batches[0][0]["dt"] == 1
 
 
 class TestOpenWeatherSource:

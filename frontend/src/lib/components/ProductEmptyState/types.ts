@@ -49,6 +49,14 @@ export interface ProductEmptyStateWizard {
     pinProjectId?: boolean
 }
 
+/**
+ * A wizard keyed by mode, mirroring `primaryAction`: a mode left out shows no terminal
+ * card, no manual setup link, and no hint. Key it when the install command stops making
+ * sense once events flow - a product that then only waits on a scheduled job has nothing
+ * left to install.
+ */
+export type ProductEmptyStateWizardByMode = Partial<Record<ProductEmptyStateMode, ProductEmptyStateWizard>>
+
 export interface ProductEmptyStateAccessControl {
     resourceType: AccessControlResourceType
     minAccessLevel: AccessControlLevel
@@ -113,8 +121,11 @@ export interface ProductEmptyStateConfig {
      */
     hedgehogPlacement?: 'above' | 'beside'
     text: ProductEmptyStateTextByMode
-    /** Install-command CTA. Omit for creation-first products (use `primaryAction`) or self-hosted-only flows */
-    wizard?: ProductEmptyStateWizard
+    /**
+     * Install-command CTA. Omit for creation-first products (use `primaryAction`) or self-hosted-only flows.
+     * One wizard covers every mode; pass a `ProductEmptyStateWizardByMode` map to show it in some only.
+     */
+    wizard?: ProductEmptyStateWizard | ProductEmptyStateWizardByMode
     /**
      * Primary CTA for products set up in the UI rather than via the wizard, e.g. "Create your first flag".
      * With `wizard` also set, the terminal card stays the hero and this renders as a secondary button
