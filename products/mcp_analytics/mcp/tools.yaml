@@ -136,8 +136,6 @@ tools:
     mcp-missing-capability-list:
         operation: mcp_analytics_missing_capabilities_list
         enabled: false
-    # Superseded by the analytics SDK's get_more_tools tool, which every connection is
-    # advertised rather than only the flagged teams this one reached. The endpoint stays.
     mcp-missing-capability-report:
         operation: mcp_analytics_missing_capabilities_create
         enabled: false
