@@ -1,5 +1,7 @@
 import { CommonConfig } from '~/common/config'
 import { buildIntegerMatcher } from '~/common/config/config'
+import { UsageIngestionOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { ValueMatcher } from '~/types'
 
 import { UsageIngestionClient } from './client'
@@ -7,6 +9,7 @@ import { UsageRecordBatch } from './usage-record-batch'
 
 export type UsageIngestionConfig = Pick<
     CommonConfig,
+    | 'USAGE_INGESTION_MODE'
     | 'USAGE_INGESTION_ADDR'
     | 'USAGE_INGESTION_TLS'
     | 'USAGE_INGESTION_TIMEOUT_MS'
@@ -43,9 +46,28 @@ export function usageReportTeamMatcher(config: UsageIngestionConfig): ValueMatch
 
 export function createUsageIngestionClient(
     config: UsageIngestionConfig,
-    site: UsageReportSite
+    site: UsageReportSite,
+    outputs?: IngestionOutputs<UsageIngestionOutput>
 ): UsageIngestionClient | null {
-    if (!config.USAGE_INGESTION_ADDR || !config.USAGE_INGESTION_REPORT_TEAMS) {
+    if (!config.USAGE_INGESTION_REPORT_TEAMS) {
+        return null
+    }
+    const eventPipelineSite = site === 'events' || site === 'ai_events'
+    if (config.USAGE_INGESTION_MODE === 'kafka' && eventPipelineSite) {
+        if (!outputs) {
+            throw new Error('USAGE_INGESTION_MODE=kafka requires the usage ingestion Kafka output')
+        }
+        return new UsageIngestionClient({
+            transport: 'kafka',
+            outputs,
+            producerId: PRODUCER_IDS[site],
+            maxBatchSize: config.USAGE_INGESTION_MAX_BATCH_SIZE,
+        })
+    }
+    if (config.USAGE_INGESTION_MODE !== 'grpc' && config.USAGE_INGESTION_MODE !== 'kafka') {
+        throw new Error(`Unknown USAGE_INGESTION_MODE: ${String(config.USAGE_INGESTION_MODE)}`)
+    }
+    if (!config.USAGE_INGESTION_ADDR) {
         return null
     }
     return new UsageIngestionClient({
@@ -68,9 +90,10 @@ export function createUsageIngestionClient(
  */
 export function createEventUsageBatchFactory(
     config: UsageIngestionConfig,
-    site: UsageReportSite
+    site: UsageReportSite,
+    outputs?: IngestionOutputs<UsageIngestionOutput>
 ): () => UsageRecordBatch {
-    const client = createUsageIngestionClient(config, site)
+    const client = createUsageIngestionClient(config, site, outputs)
     const isTeamEnabled = usageReportTeamMatcher(config)
     return () => new UsageRecordBatch(client, { unit: 'events', isTeamEnabled })
 }

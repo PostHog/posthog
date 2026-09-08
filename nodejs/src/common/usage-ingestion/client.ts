@@ -1,4 +1,4 @@
-import { create } from '@bufbuild/protobuf'
+import { create, toBinary } from '@bufbuild/protobuf'
 import { Client, Code, ConnectError, createClient } from '@connectrpc/connect'
 import { createGrpcTransport } from '@connectrpc/connect-node'
 import { Counter } from 'prom-client'
@@ -8,6 +8,8 @@ import {
     IngestBillingUsageRequestSchema,
     UsageIngestion,
 } from '~/common/generated/usage-ingestion/usage_ingestion/v1/service_pb'
+import { USAGE_INGESTION_OUTPUT, UsageIngestionOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { logger } from '~/common/utils/logger'
 import { delay } from '~/common/utils/utils'
 
@@ -72,28 +74,36 @@ export interface UsageRecordInput {
     timestampMs: number
 }
 
-export interface UsageIngestionClientConfig {
-    addr: string
+interface UsageIngestionClientBaseConfig {
     producerId: string
-    timeoutMs?: number
     maxBatchSize?: number
-    useTls?: boolean
 }
 
+export type UsageIngestionClientConfig = UsageIngestionClientBaseConfig &
+    (
+        | { transport?: 'grpc'; addr: string; timeoutMs?: number; useTls?: boolean }
+        | { transport: 'kafka'; outputs: IngestionOutputs<UsageIngestionOutput> }
+    )
+
 export class UsageIngestionClient {
-    private readonly client: Client<typeof UsageIngestion>
+    private readonly client?: Client<typeof UsageIngestion>
+    private readonly outputs?: IngestionOutputs<UsageIngestionOutput>
     private readonly producerId: string
     private readonly maxBatchSize: number
 
     constructor(config: UsageIngestionClientConfig) {
-        const scheme = config.useTls ? 'https' : 'http'
-        this.client = createClient(
-            UsageIngestion,
-            createGrpcTransport({
-                baseUrl: `${scheme}://${config.addr}`,
-                defaultTimeoutMs: config.timeoutMs ?? 5_000,
-            })
-        )
+        if (config.transport === 'kafka') {
+            this.outputs = config.outputs
+        } else {
+            const scheme = config.useTls ? 'https' : 'http'
+            this.client = createClient(
+                UsageIngestion,
+                createGrpcTransport({
+                    baseUrl: `${scheme}://${config.addr}`,
+                    defaultTimeoutMs: config.timeoutMs ?? 5_000,
+                })
+            )
+        }
         this.producerId = config.producerId
         this.maxBatchSize = config.maxBatchSize ?? 500
     }
@@ -124,10 +134,35 @@ export class UsageIngestionClient {
             ),
         })
 
+        if (this.outputs) {
+            try {
+                await this.outputs.queueMessages(USAGE_INGESTION_OUTPUT, [
+                    { value: Buffer.from(toBinary(IngestBillingUsageRequestSchema, request)) },
+                ])
+                for (const record of chunk) {
+                    usageRecordsSentCounter.inc({ producer_id: this.producerId, usage_key: record.usageKey })
+                }
+            } catch (error) {
+                for (const record of chunk) {
+                    usageRecordsFailedCounter.inc({
+                        producer_id: this.producerId,
+                        usage_key: record.usageKey,
+                        error_code: 'kafka',
+                    })
+                }
+                logger.warn('⚠️', 'failed to queue usage records', {
+                    producerId: this.producerId,
+                    records: chunk.length,
+                    error: String(error),
+                })
+            }
+            return
+        }
+
         try {
             // The header names this producer in the service's own request metrics, which
             // otherwise aggregate every caller into one series.
-            const response = await this.client.ingestBillingUsage(request, {
+            const response = await this.client!.ingestBillingUsage(request, {
                 headers: { 'x-client-name': this.producerId },
             })
             const rejected = rejectedRecords(chunk, response.acceptedRecordIds)
