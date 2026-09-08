@@ -193,7 +193,7 @@ describe('service tier pricing', () => {
         expect(result?.cost.cost.prompt_token).toBe(0.00003)
     })
 
-    it.each(['auto', 'default', undefined])('prices tier %p at standard rates', (tier) => {
+    it.each(['auto', 'default', undefined, '__proto__', 'constructor'])('prices tier %p at standard rates', (tier) => {
         const result = findCostFromModel('gpt-5-mini', { $ai_provider: 'openai', $ai_service_tier: tier })
         expect(result?.cost.provider).toBe('openai')
         expect(result?.cost.cost.prompt_token).toBe(0.00000025)

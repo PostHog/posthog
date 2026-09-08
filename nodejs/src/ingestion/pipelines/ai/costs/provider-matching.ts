@@ -131,7 +131,12 @@ export const resolveModelCostForProvider = (
 
     // A served tier resolves by its own provider key, as direct checks: the cascade below
     // falls back to the `default` key, which can carry promotional pricing.
-    const tierSuffixes = typeof serviceTier === 'string' ? SERVICE_TIER_KEY_SUFFIXES[serviceTier] : undefined
+    // Object.hasOwn: the tier is customer-controlled, and "__proto__"/"constructor" would
+    // otherwise return inherited non-array values that throw below.
+    const tierSuffixes =
+        typeof serviceTier === 'string' && Object.hasOwn(SERVICE_TIER_KEY_SUFFIXES, serviceTier)
+            ? SERVICE_TIER_KEY_SUFFIXES[serviceTier]
+            : undefined
     if (provider && tierSuffixes) {
         const canonical = resolveProviderAliases(provider)
         for (const suffix of tierSuffixes) {
