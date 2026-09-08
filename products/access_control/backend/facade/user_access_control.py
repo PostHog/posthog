@@ -288,9 +288,9 @@ class ResolvedAccess:
     subject_name: Optional[str] = None
 
 
-def model_to_resource(model: Model) -> Optional[APIScopeObject]:
+def model_to_resource(model: Model | type[Model]) -> Optional[APIScopeObject]:
     """
-    Given a model, return the resource type it represents
+    Given a model instance or class, return the resource type it represents
     """
     if hasattr(model, "_meta"):
         name = model._meta.model_name
