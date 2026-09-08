@@ -1,14 +1,16 @@
+from __future__ import annotations
+
 import os
 import shlex
 import subprocess
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.tasks.backend.exceptions import SandboxExecutionError, SandboxProvisionError
+from products.tasks.backend.exceptions import ProcessTaskError, SandboxExecutionError, SandboxProvisionError
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
@@ -19,6 +21,9 @@ from products.tasks.backend.logic.services.sandbox import (
     parse_sandbox_repo_mount_map,
     redact_sandbox_command,
 )
+
+if TYPE_CHECKING:
+    from pytest_django.fixtures import Settings
 
 
 def _agent_server_launch_command(mock_execute: Any) -> str:
@@ -109,6 +114,65 @@ class TestSandboxFactory:
 
 
 class TestDockerSandboxUnit:
+    @pytest.mark.parametrize(
+        "source,debug,template,expected",
+        [
+            ("local", True, SandboxTemplate.DEFAULT_BASE, "local"),
+            ("production", True, SandboxTemplate.DEFAULT_BASE, "production"),
+            ("local", False, SandboxTemplate.DEFAULT_BASE, None),
+            ("local", True, SandboxTemplate.SLIM_BASE, None),
+        ],
+    )
+    def test_create_installs_fixed_skills_only_for_development_tasks(
+        self, settings: Settings, source: str, debug: bool, template: SandboxTemplate, expected: str | None
+    ) -> None:
+        settings.DEBUG = debug
+        with (
+            patch.dict(os.environ, {"POSTHOG_DESKTOP_SKILLS": source}),
+            patch.object(DockerSandbox, "_get_image", return_value="test-image"),
+            patch.object(DockerSandbox, "_run", return_value=MagicMock(stdout="test-container", returncode=0)) as run,
+            patch("products.tasks.backend.logic.services.docker_sandbox.snapshot_local_task_skills") as snapshot,
+            patch.object(DockerSandbox, "_install_local_skills") as install,
+        ):
+            DockerSandbox.create(SandboxConfig(name="test-skills", template=template))
+        if expected == "local":
+            snapshot.assert_called_once()
+            snapshot_dir = snapshot.call_args.args[0]
+            install.assert_called_once_with(snapshot_dir)
+            assert not snapshot_dir.exists()
+        else:
+            snapshot.assert_not_called()
+            if expected == "production":
+                install.assert_called_once_with(None)
+            else:
+                install.assert_not_called()
+        assert any(call.args[0][:2] == ["docker", "run"] for call in run.call_args_list)
+
+    @pytest.mark.parametrize("failure_stage", ["build", "install"])
+    def test_create_stops_on_local_skill_failure(self, settings: Settings, failure_stage: str) -> None:
+        settings.DEBUG = True
+        with (
+            patch.dict(os.environ, {"POSTHOG_DESKTOP_SKILLS": "local"}),
+            patch.object(DockerSandbox, "_get_image", return_value="test-image"),
+            patch.object(DockerSandbox, "_run", return_value=MagicMock(stdout="test-container", returncode=0)) as run,
+            patch("products.tasks.backend.logic.services.docker_sandbox.snapshot_local_task_skills") as snapshot,
+            patch.object(DockerSandbox, "_install_local_skills") as install,
+            patch.object(DockerSandbox, "destroy") as destroy,
+        ):
+            failing_step = snapshot if failure_stage == "build" else install
+            failing_step.side_effect = RuntimeError("skill failure")
+            with pytest.raises(ProcessTaskError, match="local task skills") as error:
+                DockerSandbox.create(SandboxConfig(name="test-skills"))
+        assert error.value.context["error"] == "skill failure"
+        assert not snapshot.call_args.args[0].exists()
+        if failure_stage == "build":
+            assert error.value.non_retryable
+            assert not any(call.args[0][:2] == ["docker", "run"] for call in run.call_args_list)
+            install.assert_not_called()
+            destroy.assert_not_called()
+        else:
+            destroy.assert_called_once()
+
     """Unit tests that don't require Docker."""
 
     @pytest.mark.parametrize(

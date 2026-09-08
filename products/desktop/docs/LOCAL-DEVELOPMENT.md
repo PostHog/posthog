@@ -89,6 +89,24 @@ cp .env.example .env
 pnpm dev
 ```
 
+## Test local code and skill changes together
+
+- `hogli start` with the Desktop intent uses local checkout skills and rebuilds them when you edit them. Select the intent once with `hogli dev:setup`.
+- `hogli desktop:dev` (or `pnpm dev` from `products/desktop`) uses production skills by default.
+
+To change the source, run from the repository root:
+
+```bash
+POSTHOG_DESKTOP_SKILLS=production hogli start
+POSTHOG_DESKTOP_SKILLS=local hogli desktop:dev
+```
+
+Local skills require `uv sync` and a running local backend with at least one project.
+Start a new agent session after skills rebuild.
+
+Local cloud tasks use the stack's setting with `SANDBOX_PROVIDER=docker`; `production` keeps the image's built-in skills.
+Each new sandbox gets its own skill copy. Skill edits do not change running tasks; build failures stop new tasks.
+
 ## Connect
 
 1. Select **Local development** for `localhost:8010`, or select **Dev Cloud** for `app.dev.posthog.dev`.
