@@ -1,1 +1,1 @@
-0119_squash_2026_09_07_schema_addons
+0120_signaluserautonomyconfig_github_assign

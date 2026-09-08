@@ -765,6 +765,63 @@ class TestGitHubIntegrationModel(BaseTest):
         assert result["success"] is True
         assert mock_post.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/42/comments"
 
+    def test_add_pull_request_assignees_posts_to_issues_endpoint(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=201)
+        # GitHub returns the issue, and drops any login without push access without failing.
+        mock_response.json.return_value = {"assignees": [{"login": "alice"}]}
+        with patch.object(github, "_installation_authenticated_post", return_value=mock_response) as mock_post:
+            result = github.add_pull_request_assignees("PostHog/posthog", 123, ["alice", "outsider"])
+        assert result == {"success": True, "assignees": ["alice"]}
+        # Assignees go through the issues endpoint, not /pulls.
+        assert mock_post.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/123/assignees"
+        assert mock_post.call_args.kwargs["json_body"] == {"assignees": ["alice", "outsider"]}
+
+    @parameterized.expand(
+        [
+            ("empty", []),
+            ("all_blank", ["", None]),
+        ]
+    )
+    def test_add_pull_request_assignees_skips_github_when_nothing_to_assign(self, _name: str, assignees: list):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(github, "_installation_authenticated_post") as mock_post:
+            result = github.add_pull_request_assignees("PostHog/posthog", 123, assignees)
+        assert result == {"success": True, "assignees": []}
+        mock_post.assert_not_called()
+
+    def test_add_pull_request_assignees_dedupes_and_caps_at_ten(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=201)
+        mock_response.json.return_value = {"assignees": []}
+        requested = ["alice", "alice", *[f"user{i}" for i in range(12)]]
+        with patch.object(github, "_installation_authenticated_post", return_value=mock_response) as mock_post:
+            github.add_pull_request_assignees("PostHog/posthog", 123, requested)
+        sent = mock_post.call_args.kwargs["json_body"]["assignees"]
+        assert sent == ["alice", *[f"user{i}" for i in range(9)]]
+
+    def test_add_pull_request_assignees_reports_a_github_error(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=422, text="Validation Failed")
+        with patch.object(github, "_installation_authenticated_post", return_value=mock_response):
+            result = github.add_pull_request_assignees("PostHog/posthog", 123, ["alice"])
+        assert result["success"] is False
+        assert result["status_code"] == 422
+
+    def test_add_pull_request_assignees_from_url_parses_and_posts(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=201)
+        mock_response.json.return_value = {"assignees": [{"login": "alice"}]}
+        with patch.object(github, "_installation_authenticated_post", return_value=mock_response) as mock_post:
+            result = github.add_pull_request_assignees_from_url("https://github.com/PostHog/posthog/pull/42", ["alice"])
+        assert result["success"] is True
+        assert mock_post.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/42/assignees"
+
     @parameterized.expand(
         [
             (
