@@ -759,6 +759,12 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         self.mock_blocklist = blocklist_patch.start()
         self.addCleanup(blocklist_patch.stop)
 
+    def _ordinary_account(self):
+        """APIBaseTest's fresh org is the `new` posture, whose daily ceiling is
+        tighter than the one these throttle-accounting cases assume."""
+        self.team.ingested_event = True
+        self.team.save(update_fields=["ingested_event"])
+
     def tearDown(self):
         super().tearDown()
         cache.clear()  # Clears out all DRF throttle data
@@ -1158,6 +1164,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         That is only safe while a refund is impossible on any path that hands back a
         token, so the ceiling has to bind on issued tokens rather than on attempts.
         """
+        self._ordinary_account()
         self._mock_oauth(mock_authentication)
 
         with patch(
@@ -1282,6 +1289,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
     def test_a_throttled_mint_is_counted(self, mock_authentication, mock_flag, mock_mint, mock_authorized):
+        self._ordinary_account()
         self._mock_oauth(mock_authentication)
         before = _gateway_token_outcome("throttled")
 

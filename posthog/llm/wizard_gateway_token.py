@@ -126,14 +126,39 @@ def _parse_limit_fields(raw: dict, *, source: str) -> tuple[Decimal | None, int 
 
 @frozen
 class WizardTierLimits:
-    """One posture's limits from WIZARD_GATEWAY_TIERS; None keeps the flat setting."""
+    """`cap_usd` applies to a program with no entry of its own; `max_cap_usd` is
+    the ceiling a program entry may raise it to."""
 
     cap_usd: Decimal | None = None
+    max_cap_usd: Decimal | None = None
     mints_per_day: int | None = None
     ttl_seconds: int | None = None
 
 
 NO_TIER_LIMITS = WizardTierLimits()
+
+# In code so a malformed WIZARD_GATEWAY_TIERS degrades toward the tier the
+# operator meant, not toward the flat setting, which is wider than all three.
+_TIER_FLOORS: dict[str, WizardTierLimits] = {
+    "new": WizardTierLimits(
+        cap_usd=Decimal("5").quantize(_CAP_QUANTUM),
+        max_cap_usd=Decimal("6").quantize(_CAP_QUANTUM),
+        mints_per_day=2,
+        ttl_seconds=28800,
+    ),
+    "active": WizardTierLimits(
+        cap_usd=Decimal("7").quantize(_CAP_QUANTUM),
+        max_cap_usd=Decimal("12").quantize(_CAP_QUANTUM),
+        mints_per_day=5,
+        ttl_seconds=28800,
+    ),
+    "paid": WizardTierLimits(
+        cap_usd=Decimal("10").quantize(_CAP_QUANTUM),
+        max_cap_usd=Decimal("15").quantize(_CAP_QUANTUM),
+        mints_per_day=10,
+        ttl_seconds=28800,
+    ),
+}
 
 
 def wizard_posture(organization: Organization, team: Team) -> WizardPosture:
@@ -151,19 +176,31 @@ def wizard_posture(organization: Organization, team: Team) -> WizardPosture:
 
 
 def wizard_tier_limits(posture: WizardPosture) -> WizardTierLimits:
-    """The tier for a posture, each field validated on its own. A posture with no
-    usable entry keeps the flat settings, which are the `active` values."""
+    """The tier for a posture, each field validated on its own and each falling
+    back to that posture's floor rather than to the flat setting."""
+    floor = _TIER_FLOORS[posture]
     tiers = settings.WIZARD_GATEWAY_TIERS
     raw = tiers.get(posture) if isinstance(tiers, dict) else None
     if not isinstance(raw, dict):
-        return NO_TIER_LIMITS
+        return floor
     cap, mints = _parse_limit_fields(raw, source=f"{posture} tier")
+    max_cap = _parse_cap(raw["max_cap_usd"]) if "max_cap_usd" in raw else None
+    if "max_cap_usd" in raw and max_cap is None:
+        logger.warning(
+            f"wizard_gateway_token: {posture} tier max_cap_usd out of contract, ignored",
+            max_cap_usd=str(raw["max_cap_usd"]),
+        )
     ttl = _parse_ttl(raw["ttl_seconds"]) if "ttl_seconds" in raw else None
     if "ttl_seconds" in raw and ttl is None:
         logger.warning(
             f"wizard_gateway_token: {posture} tier ttl_seconds out of contract, ignored", ttl=str(raw["ttl_seconds"])
         )
-    return WizardTierLimits(cap_usd=cap, mints_per_day=mints, ttl_seconds=ttl)
+    return WizardTierLimits(
+        cap_usd=cap if cap is not None else floor.cap_usd,
+        max_cap_usd=max_cap if max_cap is not None else floor.max_cap_usd,
+        mints_per_day=mints if mints is not None else floor.mints_per_day,
+        ttl_seconds=ttl if ttl is not None else floor.ttl_seconds,
+    )
 
 
 def wizard_program_cap(program: object) -> Decimal | None:
@@ -345,21 +382,27 @@ def _ttl_seconds(posture: WizardPosture | None) -> int:
 
 
 def _cap_usd(override: Decimal | None, *, program: object, posture: WizardPosture | None) -> str:
-    """The cap as a fixed-point string: override, program cap, tier cap, then the
-    flat setting, which falls back to the default rather than 503ing every mint.
+    """The cap as a fixed-point string: the override, then the program's cap
+    bounded by the posture's ceiling, then the posture's, then the flat setting.
+
+    program is a caller-supplied body field, so an unbounded program cap would
+    let any account set its own cap by naming the priciest program.
     """
     if override is not None:
         return f"{override.quantize(_CAP_QUANTUM):f}"
+    tier = wizard_tier_limits(posture) if posture is not None else NO_TIER_LIMITS
     cap = wizard_program_cap(program)
-    if cap is None and posture is not None:
-        cap = wizard_tier_limits(posture).cap_usd
+    if cap is not None and tier.max_cap_usd is not None:
+        cap = min(cap, tier.max_cap_usd)
+    if cap is None:
+        cap = tier.cap_usd
     if cap is None:
         raw = str(settings.WIZARD_GATEWAY_TOKEN_CAP_USD)
         cap = _parse_cap(raw)
         if cap is None:
             logger.warning("wizard_gateway_token: cap_usd out of contract, using the default", cap=raw)
-            cap = _DEFAULT_CAP_USD.quantize(_CAP_QUANTUM)
-    return f"{cap:f}"
+            cap = _DEFAULT_CAP_USD
+    return f"{cap.quantize(_CAP_QUANTUM):f}"
 
 
 def _parse_cap(raw: object) -> Decimal | None:

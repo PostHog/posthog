@@ -10,8 +10,8 @@ from django.utils import timezone
 import requests
 
 from posthog.llm.wizard_gateway_token import (
+    _TIER_FLOORS,
     NO_OVERRIDE,
-    NO_TIER_LIMITS,
     WizardGatewayMintError,
     WizardLimitOverride,
     WizardTierLimits,
@@ -255,9 +255,12 @@ class TestWizardTierLimits:
     @override_settings(WIZARD_GATEWAY_TIERS={"new": {"cap_usd": "5", "mints_per_day": 2, "ttl_seconds": "3600"}})
     def test_a_configured_tier_is_read_field_by_field(self):
         assert wizard_tier_limits("new") == WizardTierLimits(
-            cap_usd=Decimal("5.000000"), mints_per_day=2, ttl_seconds=3600
+            cap_usd=Decimal("5.000000"),
+            max_cap_usd=_TIER_FLOORS["new"].max_cap_usd,
+            mints_per_day=2,
+            ttl_seconds=3600,
         )
-        assert wizard_tier_limits("paid") == NO_TIER_LIMITS
+        assert wizard_tier_limits("paid") == _TIER_FLOORS["paid"]
 
     @pytest.mark.parametrize(
         "tiers",
@@ -271,9 +274,9 @@ class TestWizardTierLimits:
             "not a dict",
         ],
     )
-    def test_an_out_of_contract_tier_keeps_the_flat_settings(self, tiers):
+    def test_an_out_of_contract_tier_degrades_to_its_own_floor(self, tiers):
         with override_settings(WIZARD_GATEWAY_TIERS=tiers):
-            assert wizard_tier_limits("new") == NO_TIER_LIMITS
+            assert wizard_tier_limits("new") == _TIER_FLOORS["new"]
 
     @override_settings(WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM={"self-driving": "6", "broken": "lots"})
     def test_a_program_cap_is_read_by_program_id(self):
@@ -306,14 +309,16 @@ class TestTieredMint:
         body = self._mint(program="integration", posture="new")
         assert (body["cap_usd"], body["ttl_seconds"]) == ("5.000000", 3600)
 
-    def test_a_tier_without_a_ttl_keeps_the_flat_ttl(self):
-        assert self._mint(program="integration", posture="paid")["ttl_seconds"] == 86400
+    def test_a_tier_without_a_ttl_keeps_its_floor_ttl(self):
+        assert self._mint(program="integration", posture="paid")["ttl_seconds"] == _TIER_FLOORS["paid"].ttl_seconds
 
-    def test_a_posture_without_a_tier_keeps_the_flat_cap(self):
-        assert self._mint(program="integration", posture="active")["cap_usd"] == "25.000000"
+    def test_a_posture_without_a_tier_keeps_its_floor_cap(self):
+        want = f"{_TIER_FLOORS['active'].cap_usd:f}"
+        assert self._mint(program="integration", posture="active")["cap_usd"] == want
 
-    def test_the_program_cap_outranks_the_tier_cap(self):
-        assert self._mint(program="ai-observability", posture="new")["cap_usd"] == "12.000000"
+    def test_the_program_cap_is_bounded_by_the_postures_ceiling(self):
+        assert self._mint(program="ai-observability", posture="new")["cap_usd"] == "6.000000"
+        assert self._mint(program="ai-observability", posture="paid")["cap_usd"] == "12.000000"
 
     def test_the_override_outranks_both(self):
         assert self._mint(program="ai-observability", posture="new", cap_usd=Decimal("30"))["cap_usd"] == "30.000000"
