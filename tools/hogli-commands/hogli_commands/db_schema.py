@@ -35,6 +35,7 @@ DOCKER_COMPOSE = ["docker", "compose", "-f", "docker-compose.dev.yml"]
 DB_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 PRODUCT_DB_ROUTING_PATH = Path("products/db_routing.yaml")
 APP_LABEL_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+SQUASH_SCHEMA_ADDONS_NAME_PATTERN = r"%\_squash\_%\_schema\_addons"
 
 T = TypeVar("T")
 
@@ -198,6 +199,11 @@ def _forget_product_app_migrations(target_db: str) -> None:
     environment that configures no product database then applies their NEXT migration for real
     and dies on the missing table. Clearing the rows lets each consumer replay them under its own
     routing: a no-op where the app is routed away, real tables where it isn't.
+
+    The squash schema-addons migrations go with them. Each one depends on the leaf squash of every
+    squashed app, the product-routed apps included, so a database that keeps an addons row while
+    its dependency row is gone fails Django's consistency check before `migrate` does anything.
+    Replay is cheap: the addons operations probe the schema and skip what is already there.
     """
     app_labels = _product_routed_app_labels()
     if not app_labels:
@@ -217,7 +223,8 @@ def _forget_product_app_migrations(target_db: str) -> None:
             "posthog",
             target_db,
             "-c",
-            f"DELETE FROM django_migrations WHERE app IN ({in_list});",
+            f"DELETE FROM django_migrations WHERE app IN ({in_list}) "
+            f"OR name LIKE '{SQUASH_SCHEMA_ADDONS_NAME_PATTERN}';",
         ]
     )
 

@@ -183,9 +183,19 @@ class TestExperimentMeanMetricEventsPreaggregation(ExperimentQueryRunnerBaseTest
                 True,
             ),
             (
-                "avg_not_yet_allowlisted",
+                "avg",
                 EventsNode(event="purchase", math=ExperimentMetricMathType.AVG, math_property="amount"),
-                False,
+                True,
+            ),
+            (
+                "min",
+                EventsNode(event="purchase", math=ExperimentMetricMathType.MIN, math_property="amount"),
+                True,
+            ),
+            (
+                "max",
+                EventsNode(event="purchase", math=ExperimentMetricMathType.MAX, math_property="amount"),
+                True,
             ),
             (
                 "unique_session_id_valued",

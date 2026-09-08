@@ -1,3 +1,4 @@
+use crate::api::api_key_usage::ApiKeyKind;
 use std::{
     future::ready,
     panic::{catch_unwind, AssertUnwindSafe},
@@ -149,19 +150,31 @@ impl State {
         )
     }
 
-    /// Records personal-API-key usage (`last_used_at`), gated on `skip_writes`. Centralized so the
-    /// personal-key auth paths (`flag_definitions`, `remote_config`) share one set of gating and
+    /// Records API key usage (`last_used_at`), gated on `skip_writes`. Centralized so the
+    /// API key auth paths (`flag_definitions`, `remote_config`) share one set of gating and
     /// client choices instead of copying them per handler. Advisory: uses the shared Redis client
     /// (not the flags cache) and the non-persons writer, and the DB write only fires when the
     /// Redis debounce key is newly set.
-    pub(crate) async fn record_pak_last_used(&self, pak_id: String) {
+    pub(crate) async fn record_api_key_last_used(&self, kind: ApiKeyKind, key_id: String) {
         if *self.config.skip_writes {
             return;
         }
         let redis = self.redis_client.clone();
         let pg_writer: Arc<dyn common_database::Client + Send + Sync> =
             self.database_pools.non_persons_writer.clone();
-        drop(crate::api::pak_usage::record_pak_last_used(redis, pg_writer, pak_id).await);
+        drop(
+            crate::api::api_key_usage::record_api_key_last_used(redis, pg_writer, kind, key_id)
+                .await,
+        );
+    }
+
+    /// Stamps a project secret API key when the `phs_` token resolved to one. A team-level secret
+    /// token carries no key id, so it records nothing.
+    pub(crate) async fn record_project_secret_key_usage(&self, key_id: Option<String>) {
+        if let Some(key_id) = key_id {
+            self.record_api_key_last_used(ApiKeyKind::ProjectSecret, key_id)
+                .await;
+        }
     }
 }
 

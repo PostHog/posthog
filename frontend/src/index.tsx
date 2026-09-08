@@ -10,6 +10,16 @@ import { retryBootImport } from 'lib/utils/retryImport'
 import { RootErrorBoundary } from './RootErrorBoundary'
 import { ChunkLoadErrorBoundary } from './scenes/ChunkLoadErrorBoundary'
 
+type AppModules = [typeof import('scenes/App'), typeof import('scenes/bootApp')]
+
+let appModulesPromise: Promise<AppModules> | undefined
+
+function loadAppModules(): Promise<AppModules> {
+    return (appModulesPromise ??= retryBootImport(() => import('lib/configureZod')).then(() =>
+        Promise.all([retryBootImport(() => import('scenes/App')), retryBootImport(() => import('scenes/bootApp'))])
+    ))
+}
+
 // Lazy-load App so the entry chunk stays minimal: the entire transitive dependency
 // graph (kea, posthog-js, scene logic, UI components) is only fetched when it renders.
 // lib/configureZod is imported on its own before the App chunk, because zod binds its
@@ -18,15 +28,12 @@ import { ChunkLoadErrorBoundary } from './scenes/ChunkLoadErrorBoundary'
 // effects (posthog-js, kea) after the chunks load and before <App /> first renders.
 // It lives in its own module so scenes/App keeps component-only exports and stays a
 // React Fast Refresh boundary.
+// boot() also starts the module imports while CSS loads; runtime initialization stays behind the render gate.
 const App = lazy(() =>
-    retryBootImport(() => import('lib/configureZod'))
-        .then(() =>
-            Promise.all([retryBootImport(() => import('scenes/App')), retryBootImport(() => import('scenes/bootApp'))])
-        )
-        .then(([appModule, bootModule]) => {
-            bootModule.bootApp()
-            return { default: appModule.App }
-        })
+    loadAppModules().then(([appModule, bootModule]) => {
+        bootModule.bootApp()
+        return { default: appModule.App }
+    })
 )
 
 declare global {
@@ -78,6 +85,8 @@ function whenBootStylesheetReady(): Promise<unknown> {
 }
 
 function boot(): void {
+    // Observe early failures until React mounts its boundaries, without replacing the rejected promise.
+    void loadAppModules().catch(() => {})
     void whenBootStylesheetReady().then(renderApp)
 }
 

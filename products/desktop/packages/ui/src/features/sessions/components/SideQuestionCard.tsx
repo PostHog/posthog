@@ -1,7 +1,13 @@
 import { ChatCircleDots, X } from "@phosphor-icons/react";
+import {
+  Button,
+  Text,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@posthog/quill";
 import { useSideQuestionStore } from "@posthog/ui/features/sessions/sideQuestionStore";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
-import { Box, Flex, IconButton, Text, Tooltip } from "@radix-ui/themes";
 import { MarkdownRenderer } from "../../editor/components/MarkdownRenderer";
 
 interface SideQuestionCardProps {
@@ -13,52 +19,63 @@ interface SideQuestionCardProps {
 /**
  * Ephemeral "/btw" side-question card pinned above the composer. The exchange
  * lives only in view state — it is never part of the session transcript — so
- * dismissing it leaves no trace.
+ * dismissing it leaves no trace. Session summaries have their own panel.
  */
 export function SideQuestionCard({ taskId, taskRunId }: SideQuestionCardProps) {
   const entry = useSideQuestionStore((s) => s.byTaskId[taskId]);
   const dismiss = useSideQuestionStore((s) => s.dismiss);
 
   if (!entry || entry.taskRunId !== taskRunId) return null;
+  if (entry.kind === "summary") return null;
+
+  const title = entry.label ?? entry.question;
 
   return (
-    <Box className="mb-2 rounded-lg border border-gray-5 bg-card px-3 py-2">
-      <Flex align="center" gap="2">
-        <ChatCircleDots size={14} className="shrink-0 text-gray-9" />
+    <div className="mb-2 rounded-(--radius-lg) border border-(--gray-5) bg-(--gray-2) px-3 py-2">
+      <div className="flex items-center gap-2">
+        <ChatCircleDots size={14} className="shrink-0 text-muted-foreground" />
         <Text
-          title={entry.question}
-          className="min-w-0 flex-1 truncate font-medium text-[13px] text-gray-11"
+          title={title}
+          className="min-w-0 flex-1 truncate font-medium text-[13px] text-foreground"
         >
-          {entry.question}
+          {title}
         </Text>
-        <Tooltip content="Dismiss">
-          <IconButton
-            size="1"
-            variant="ghost"
-            color="gray"
-            aria-label="Dismiss side question"
-            onClick={() => dismiss(taskId)}
-          >
-            <X size={12} />
-          </IconButton>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant="link-muted"
+                size="icon-sm"
+                aria-label="Dismiss side question"
+                className="shrink-0"
+                onClick={() => dismiss(taskId)}
+              >
+                <X size={12} />
+              </Button>
+            }
+          />
+          <TooltipContent side="top">Dismiss</TooltipContent>
         </Tooltip>
-      </Flex>
-      <Box className="mt-1 pl-6" role="status" aria-live="polite">
+      </div>
+      <output className="mt-1 block pl-6">
         {entry.status === "pending" && (
-          <Flex align="center" gap="2">
-            <Spinner size={14} className="text-gray-9" />
-            <Text className="text-[13px] text-gray-9">Answering…</Text>
-          </Flex>
+          <div className="flex items-center gap-2">
+            <Spinner size={14} className="text-muted-foreground" />
+            <Text className="text-[13px] text-muted-foreground">
+              Answering…
+            </Text>
+          </div>
         )}
         {entry.status === "done" && (
-          <Box className="max-h-64 overflow-y-auto text-[13px] text-gray-12">
+          <div className="max-h-64 overflow-y-auto text-[13px] text-foreground">
             <MarkdownRenderer content={entry.answer} />
-          </Box>
+          </div>
         )}
         {entry.status === "error" && (
-          <Text className="text-[13px] text-red-11">{entry.error}</Text>
+          <Text className="text-(--red-11) text-[13px]">{entry.error}</Text>
         )}
-      </Box>
-    </Box>
+      </output>
+    </div>
   );
 }

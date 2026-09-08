@@ -12,7 +12,15 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { Experiment, FilterLogicalOperator, SessionRecordingSidebarTab, TeamType } from '~/types'
+import {
+    Experiment,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    RecordingDurationFilter,
+    SessionRecordingSidebarTab,
+    TeamType,
+} from '~/types'
 
 import {
     experimentsInSessionExposureRetrieve,
@@ -810,6 +818,11 @@ describe('experimentReplayTabLogic', () => {
             retention_period: '90d',
             replay_opt_in: true,
             duration_filter_active: true,
+            duration_filter_key: 'active_seconds',
+            duration_filter_seconds: 5,
+            duration_filter_operator: 'gt',
+            duration_filter_count: 1,
+            duration_filter_customized: false,
             exposure_linkable: true,
             variant: 'test',
             exposure_scope: 'all_exposed',
@@ -819,6 +832,81 @@ describe('experimentReplayTabLogic', () => {
             watch_card_kind: null,
         })
         filled.unmount()
+    })
+
+    it.each([
+        {
+            name: 'a floor the viewer raised, on another duration key',
+            duration: [
+                {
+                    type: PropertyFilterType.Recording,
+                    key: 'duration',
+                    value: 60,
+                    operator: PropertyOperator.GreaterThan,
+                } as RecordingDurationFilter,
+            ],
+            expected: {
+                duration_filter_active: true,
+                duration_filter_key: 'duration',
+                duration_filter_seconds: 60,
+                duration_filter_operator: 'gt',
+                duration_filter_count: 1,
+                duration_filter_customized: true,
+            },
+        },
+        {
+            name: 'a floor the viewer removed',
+            duration: [],
+            expected: {
+                duration_filter_active: false,
+                duration_filter_key: null,
+                duration_filter_seconds: null,
+                duration_filter_operator: null,
+                duration_filter_count: 0,
+                duration_filter_customized: true,
+            },
+        },
+        {
+            name: 'a duration set with a second, stricter entry',
+            duration: [
+                {
+                    type: PropertyFilterType.Recording,
+                    key: 'active_seconds',
+                    value: 5,
+                    operator: PropertyOperator.GreaterThan,
+                } as RecordingDurationFilter,
+                {
+                    type: PropertyFilterType.Recording,
+                    key: 'active_seconds',
+                    value: 30,
+                    operator: PropertyOperator.GreaterThan,
+                } as RecordingDurationFilter,
+            ],
+            expected: {
+                duration_filter_active: true,
+                duration_filter_key: 'active_seconds',
+                duration_filter_seconds: 5,
+                duration_filter_operator: 'gt',
+                duration_filter_count: 2,
+                duration_filter_customized: true,
+            },
+        },
+    ])('reports $name on an empty list', async ({ duration, expected }) => {
+        // Replay applies its default floor to every list, so a report that only said a duration
+        // filter was present cannot tell the floor everyone gets from one the viewer chose. The
+        // viewer edits it in the playlist's own filter bar, so the report has to read that rather
+        // than the filters the tab pushed down.
+        //
+        // The last case is the fail-safe one: the reported key, threshold, and operator describe
+        // the first entry, so a set whose first entry is the default must still report as
+        // customized, and its count must say that the report names part of the set.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        logic.actions.playlistFiltersChanged({ ...logic.values.recordingsFilters, duration })
+        logic.actions.recordingsLoaded([])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(listsRendered(captureSpy, 42)).toHaveLength(1)
+        expect(listsRendered(captureSpy, 42)[0][1]).toMatchObject(expected)
     })
 
     it('tells a refused metric filter apart from one that matched nothing, once it has answered', async () => {

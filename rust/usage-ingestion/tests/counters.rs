@@ -18,6 +18,72 @@ fn redis_url() -> String {
         .unwrap_or_else(|_| "redis://127.0.0.1:6390".to_string())
 }
 
+async fn store() -> Arc<dyn CounterStore> {
+    Arc::new(
+        RedisCounterStore::connect(&redis_url(), Default::default())
+            .await
+            .expect("failed to connect to Valkey Cluster"),
+    )
+}
+
+/// How many times the node ran one command. `INFO commandstats` reports
+/// `cmdstat_multi:calls=12,usec=...`, and an unused command has no line at all.
+async fn command_calls(command: &str) -> u64 {
+    let client = redis::Client::open(redis_url()).expect("invalid Valkey URL");
+    let mut connection = client
+        .get_multiplexed_async_connection()
+        .await
+        .expect("failed to connect to the Valkey node");
+    let stats: String = redis::cmd("INFO")
+        .arg("commandstats")
+        .query_async(&mut connection)
+        .await
+        .expect("the node did not report its command stats");
+    let prefix = format!("cmdstat_{command}:calls=");
+    stats
+        .lines()
+        .find_map(|line| line.trim().strip_prefix(&prefix))
+        .map_or(0, |calls| {
+            calls
+                .split(',')
+                .next()
+                .and_then(|calls| calls.parse().ok())
+                .expect("the node reported an unreadable call count")
+        })
+}
+
+/// ElastiCache Serverless supports transactions but refuses scripts inside them.
+#[tokio::test]
+#[ignore = "requires the cluster-enabled Valkey from docker-compose.dev.yml"]
+async fn a_flush_uses_a_transaction_without_scripts() {
+    let accumulator = CounterAccumulator::default();
+    accumulator
+        .add(
+            2_000_000 + (Uuid::new_v4().as_u128() % 1_000_000) as i64,
+            Uuid::new_v4(),
+            "script_free_flush",
+            "event",
+            1,
+            Utc::now(),
+        )
+        .expect("test record should enter the counter accumulator");
+    let scripts = command_calls("eval").await;
+    let transactions = command_calls("multi").await;
+
+    let outcome = flush(store().await, accumulator.drain()).await;
+
+    assert_eq!(outcome.dropped, 0);
+    assert_eq!(
+        command_calls("eval").await,
+        scripts,
+        "the flush ran a script, which ElastiCache Serverless refuses inside MULTI"
+    );
+    assert!(
+        command_calls("multi").await > transactions,
+        "the flush did not use a transaction"
+    );
+}
+
 #[tokio::test]
 #[ignore = "requires the cluster-enabled Valkey from docker-compose.dev.yml"]
 async fn counters_are_atomic_per_scope_and_do_not_cross_slots() {
@@ -41,14 +107,9 @@ async fn counters_are_atomic_per_scope_and_do_not_cross_slots() {
             .expect("test record should enter the counter accumulator");
     }
 
-    let store: Arc<dyn CounterStore> = Arc::new(
-        RedisCounterStore::connect(&redis_url(), Default::default())
-            .await
-            .expect("failed to connect to Valkey Cluster"),
-    );
+    let store = store().await;
     let outcome = flush(Arc::clone(&store), accumulator.drain()).await;
     assert_eq!(outcome.dropped, 0);
-    assert_eq!(outcome.capped, 0);
     // 1,024 teams plus one shared organization; hour + day, HINCRBY + EXPIRE NX each.
     assert_eq!(outcome.commands, (SCOPES as usize + 1) * 4);
 
@@ -122,7 +183,6 @@ async fn counters_are_atomic_per_scope_and_do_not_cross_slots() {
         .expect("test retry should enter the counter accumulator");
     let retry_outcome = flush(Arc::clone(&store), retry.drain()).await;
     assert_eq!(retry_outcome.dropped, 0);
-    assert_eq!(retry_outcome.capped, 0);
     let retried_hourly_ttl: i64 = redis::cmd("TTL")
         .arg(&hour_key)
         .query_async(&mut connection)
