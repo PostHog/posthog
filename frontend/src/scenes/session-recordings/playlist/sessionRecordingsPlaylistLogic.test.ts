@@ -2,7 +2,6 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
-import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -16,7 +15,6 @@ import {
     PropertyFilterType,
     PropertyOperator,
     RecordingUniversalFilters,
-    UniversalFiltersGroup,
 } from '~/types'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
@@ -30,6 +28,7 @@ import {
     convertLegacyFiltersToUniversalFilters,
     convertUniversalFiltersToRecordingsQuery,
     getDefaultFilters,
+    getEffectiveRecordingFilters,
     preferredRecordingsSortStorage,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
@@ -1089,7 +1088,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 onRecordingSelected,
             })
             logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
             expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id]])
 
             // A facet can match nothing: the player unloads into the empty state. When the next
@@ -1101,14 +1100,16 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     ReturnType<typeof api.recordings.list>
                 >)
             logic.actions.loadSessionRecordings()
-            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
+            expect(logic.values.sessionRecordings).toEqual([])
+            expect(logic.values.activeSessionRecordingId).toBeUndefined()
             expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id]])
 
             listSpy.mockResolvedValueOnce({ results: listOfSessionRecordings, has_next: false } as Awaited<
                 ReturnType<typeof api.recordings.list>
             >)
             logic.actions.loadSessionRecordings()
-            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
             expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id], [aRecording.id]])
         })
 
@@ -1431,7 +1432,152 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
+    describe('deduping identical list requests', () => {
+        const listResponse = { results: [aRecording], has_next: false }
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        // Two loads in one tick are collapsed by the 400ms `breakpoint` debounce, not by the
+        // in-flight guard, which cannot match a request that no call has issued yet. This case
+        // guards the debounce: shorten or drop it and same-tick duplicates come back.
+        it('leaves the debounce to collapse two loads dispatched in the same tick', async () => {
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockImplementation(
+                    () => Promise.resolve(listResponse as unknown) as ReturnType<typeof api.recordings.list>
+                )
+
+            const sameTickLogic = sessionRecordingsPlaylistLogic({ logicKey: 'dedupe-same-tick' })
+            sameTickLogic.mount()
+
+            // let the load afterMount kicks off settle, so only the two below are counted
+            await expectLogic(sameTickLogic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
+            listSpy.mockClear()
+
+            await expectLogic(sameTickLogic, () => {
+                sameTickLogic.actions.loadSessionRecordings()
+                sameTickLogic.actions.loadSessionRecordings()
+            })
+                .toDispatchActions(['loadSessionRecordingsSuccess'])
+                .toFinishAllListeners()
+
+            expect(listSpy).toHaveBeenCalledTimes(1)
+
+            sameTickLogic.unmount()
+        })
+
+        it('reads once when a load repeats one that is past the debounce and awaiting the response', async () => {
+            let resolveList: (value: unknown) => void = () => {}
+            const pendingList = new Promise((resolve) => {
+                resolveList = resolve
+            })
+            let markIssued: () => void = () => {}
+            const requestIssued = new Promise<void>((resolve) => {
+                markIssued = resolve
+            })
+            const listSpy = jest.spyOn(api.recordings, 'list').mockImplementation(() => {
+                markIssued()
+                return pendingList as ReturnType<typeof api.recordings.list>
+            })
+
+            const inFlightLogic = sessionRecordingsPlaylistLogic({ logicKey: 'dedupe-in-flight' })
+            inFlightLogic.mount()
+
+            // the load afterMount kicks off is now past the debounce and awaiting the response
+            await requestIssued
+
+            inFlightLogic.actions.loadSessionRecordings()
+            resolveList(listResponse)
+
+            await expectLogic(inFlightLogic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
+
+            expect(listSpy).toHaveBeenCalledTimes(1)
+            expect(inFlightLogic.values.sessionRecordings).toEqual([aRecording])
+
+            inFlightLogic.unmount()
+        })
+
+        it('reads again when the refresh button repeats a request already in flight', async () => {
+            let resolveList: (value: unknown) => void = () => {}
+            const pendingList = new Promise((resolve) => {
+                resolveList = resolve
+            })
+            let markIssued: () => void = () => {}
+            const requestIssued = new Promise<void>((resolve) => {
+                markIssued = resolve
+            })
+            const listSpy = jest.spyOn(api.recordings, 'list').mockImplementation(() => {
+                markIssued()
+                return pendingList as ReturnType<typeof api.recordings.list>
+            })
+
+            const refreshLogic = sessionRecordingsPlaylistLogic({ logicKey: 'force-refresh' })
+            refreshLogic.mount()
+
+            // the load afterMount kicks off is now past the debounce and awaiting the response
+            await requestIssued
+
+            refreshLogic.actions.loadAllRecordings()
+            resolveList(listResponse)
+
+            await expectLogic(refreshLogic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
+
+            expect(listSpy).toHaveBeenCalledTimes(2)
+
+            refreshLogic.unmount()
+        })
+
+        it('reads once for a selected recording the list does not hold', async () => {
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockImplementation(
+                    () =>
+                        Promise.resolve({ results: [], has_next: false } as unknown) as ReturnType<
+                            typeof api.recordings.list
+                        >
+                )
+
+            const selectionLogic = sessionRecordingsPlaylistLogic({ logicKey: 'dedupe-selection' })
+            selectionLogic.mount()
+            await expectLogic(selectionLogic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
+
+            // the list does not hold the selection, so the first pick asks the server to include it
+            await expectLogic(selectionLogic, () => {
+                selectionLogic.actions.setSelectedRecordingId('missing-recording')
+            })
+                .toDispatchActions(['loadSessionRecordings', 'loadSessionRecordingsSuccess'])
+                .toFinishAllListeners()
+            expect(listSpy).toHaveBeenLastCalledWith(
+                expect.objectContaining({ session_recording_id: 'missing-recording' })
+            )
+
+            listSpy.mockClear()
+
+            // that request answered without the recording, so picking it again reads nothing new
+            await expectLogic(selectionLogic, () => {
+                selectionLogic.actions.setSelectedRecordingId('missing-recording')
+            }).toFinishAllListeners()
+
+            expect(listSpy).not.toHaveBeenCalled()
+
+            selectionLogic.unmount()
+        })
+    })
+
     describe('convertUniversalFiltersToRecordingsQuery', () => {
+        it('filters to scored recommendations while keeping recency ordering', () => {
+            const result = convertUniversalFiltersToRecordingsQuery({
+                ...DEFAULT_RECORDING_FILTERS,
+                recommended_only: true,
+            })
+
+            expect(result.order).toBe('start_time')
+            expect(result.order_direction).toBe('DESC')
+            expect(result.recommended_only).toBe(true)
+        })
+
         it('passes the visited_page filter as a recording property', () => {
             const result = convertUniversalFiltersToRecordingsQuery({
                 ...DEFAULT_RECORDING_FILTERS,
@@ -1522,6 +1668,64 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 properties: [],
                 session_ids: ['session-1', 'session-2', 'session-3'],
             })
+        })
+    })
+
+    describe('recommended filter experiment', () => {
+        const recommendedFilters: RecordingUniversalFilters = {
+            ...DEFAULT_RECORDING_FILTERS,
+            recommended_only: true,
+        }
+
+        it('keeps the recommended filter for the test variant', () => {
+            expect(
+                getEffectiveRecordingFilters(recommendedFilters, {
+                    [FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT]: 'test',
+                })
+            ).toBe(recommendedFilters)
+        })
+
+        it.each([undefined, 'control'])('disables a persisted recommended filter for the %s variant', (variant) => {
+            expect(
+                getEffectiveRecordingFilters(recommendedFilters, {
+                    [FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT]: variant,
+                })
+            ).toEqual({ ...recommendedFilters, recommended_only: false })
+        })
+
+        it('clears a persisted recommended filter for the control variant', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT]: 'control',
+            })
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'persisted-recommended-filter',
+                filters: recommendedFilters,
+            })
+
+            await expectLogic(logic, () => {
+                logic.mount()
+            })
+                .toDispatchActions(['setFilters'])
+                .toMatchValues({ filters: { ...recommendedFilters, recommended_only: false } })
+        })
+
+        it.each([
+            ['test', true],
+            ['control', false],
+        ])('waits for a delayed %s variant before cleaning persisted state', async (variant, expected) => {
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: `delayed-${variant}-recommended-filter`,
+                filters: recommendedFilters,
+            })
+            logic.mount()
+
+            expect(logic.values.filters.recommended_only).toBe(true)
+
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT]: variant,
+                })
+            }).toMatchValues({ filters: { ...recommendedFilters, recommended_only: expected } })
         })
     })
 
@@ -1687,127 +1891,17 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
-    describe('relevance sort experiment', () => {
-        afterEach(() => {
-            jest.restoreAllMocks()
+    describe('default sort', () => {
+        it('defaults to recency', () => {
+            expect(getDefaultFilters().order).toBe(DEFAULT_RECORDING_FILTERS_ORDER_BY)
         })
-
-        const mockFlags = (flags: Record<string, string | boolean>): void => {
-            jest.spyOn(posthog, 'getFeatureFlag').mockImplementation((key) => flags[key as string] as any)
-        }
-
-        const intentPinnedFilters: UniversalFiltersGroup = {
-            type: FilterLogicalOperator.And,
-            values: [
-                {
-                    type: 'events',
-                    name: 'All events',
-                    properties: [{ key: "$group_0 = 'abc'", type: 'hogql' }],
-                } as ActionFilter,
-            ],
-        }
-
-        const cases: [
-            string,
-            Record<string, string | boolean>,
-            string,
-            { personUUID?: string; pinnedFilters?: UniversalFiltersGroup },
-        ][] = [
-            [
-                'test arm defaults to relevance',
-                { [FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT]: 'test' },
-                'surfacing_score',
-                {},
-            ],
-            [
-                'control arm keeps recency',
-                { [FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT]: 'control' },
-                DEFAULT_RECORDING_FILTERS_ORDER_BY,
-                {},
-            ],
-            ['not enrolled keeps recency', {}, DEFAULT_RECORDING_FILTERS_ORDER_BY, {}],
-            [
-                'surfacing-score rollout flag forces relevance',
-                { [FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE]: true },
-                'surfacing_score',
-                {},
-            ],
-            [
-                'test arm on a person page keeps recency',
-                { [FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT]: 'test' },
-                DEFAULT_RECORDING_FILTERS_ORDER_BY,
-                { personUUID: 'some-person-uuid' },
-            ],
-            [
-                'test arm with pinned filters keeps recency',
-                { [FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT]: 'test' },
-                DEFAULT_RECORDING_FILTERS_ORDER_BY,
-                { pinnedFilters: intentPinnedFilters },
-            ],
-            [
-                'surfacing-score rollout on a person page keeps recency',
-                { [FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE]: true },
-                DEFAULT_RECORDING_FILTERS_ORDER_BY,
-                { personUUID: 'some-person-uuid' },
-            ],
-        ]
-
-        it.each(cases)('%s', (_name, flags, expectedOrder, { personUUID, pinnedFilters }) => {
-            mockFlags(flags)
-            expect(getDefaultFilters(personUUID, pinnedFilters).order).toBe(expectedOrder)
-        })
-
-        it.each<[string, Partial<RecordingUniversalFilters>, Record<string, unknown>, string]>([
-            ['defaults to recency when the URL omits order', {}, {}, DEFAULT_RECORDING_FILTERS_ORDER_BY],
-            [
-                'respects an explicit order in the URL filters',
-                { order: 'console_error_count' },
-                {},
-                'console_error_count',
-            ],
-            // order arriving as its own URL search param beside filters takes a separate code path
-            ['respects a standalone order URL param', {}, { order: 'console_error_count' }, 'console_error_count'],
-        ])(
-            'deep link with pre-applied filters %s for the test arm',
-            async (_name, extraFilters, extraSearchParams, expectedOrder) => {
-                mockFlags({ [FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT]: 'test' })
-                logic = sessionRecordingsPlaylistLogic({
-                    logicKey: 'relevance-deep-link-test',
-                    updateSearchParams: true,
-                })
-                logic.mount()
-
-                // "View recordings" style navigation carrying pre-applied filters
-                router.actions.push('/replay', {
-                    filters: {
-                        filter_group: {
-                            type: FilterLogicalOperator.And,
-                            values: [
-                                {
-                                    type: FilterLogicalOperator.And,
-                                    values: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
-                                },
-                            ],
-                        },
-                        ...extraFilters,
-                    },
-                    ...extraSearchParams,
-                })
-
-                await expectLogic(logic)
-                    .toDispatchActions(['setFilters'])
-                    .toMatchValues({
-                        filters: expect.objectContaining({ order: expectedOrder }),
-                    })
-            }
-        )
 
         describe('preferred sort', () => {
             it.each<[string, () => void, string, string]>([
                 [
-                    'an explicitly chosen sort overrides the relevance default',
-                    () => preferredRecordingsSortStorage.set({ order: 'start_time', order_direction: 'DESC' }),
-                    DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                    'an explicitly chosen relevance sort is kept',
+                    () => preferredRecordingsSortStorage.set({ order: 'surfacing_score', order_direction: 'DESC' }),
+                    'surfacing_score',
                     'DESC',
                 ],
                 [
@@ -1819,7 +1913,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 [
                     'an unparseable stored preference is ignored',
                     () => localStorage.setItem(`${MOCK_TEAM_ID}__replay_list_preferred_sort`, 'not json'),
-                    'surfacing_score',
+                    DEFAULT_RECORDING_FILTERS_ORDER_BY,
                     'DESC',
                 ],
                 [
@@ -1829,11 +1923,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
                             `${MOCK_TEAM_ID}__replay_list_preferred_sort`,
                             JSON.stringify({ order: 'unknown', order_direction: 'DESC' })
                         ),
-                    'surfacing_score',
+                    DEFAULT_RECORDING_FILTERS_ORDER_BY,
                     'DESC',
                 ],
             ])('%s', (_name, setup, expectedOrder, expectedDirection) => {
-                mockFlags({ [FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE]: true })
                 setup()
                 const result = getDefaultFilters()
                 expect(result.order).toBe(expectedOrder)
@@ -1841,7 +1934,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
             })
 
             it('keeps recency on person pages regardless of the stored preference', () => {
-                mockFlags({ [FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE]: true })
                 preferredRecordingsSortStorage.set({ order: 'activity_score', order_direction: 'DESC' })
                 expect(getDefaultFilters('some-person-uuid').order).toBe(DEFAULT_RECORDING_FILTERS_ORDER_BY)
             })

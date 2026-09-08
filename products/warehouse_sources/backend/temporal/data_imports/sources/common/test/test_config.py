@@ -880,3 +880,25 @@ def test_validate_dict_with_nested_dict():
 
     assert is_valid is False
     assert len(errors) == 1
+
+
+def test_to_config_absent_nested_config_keeps_its_default():
+    """An absent nested config must not be built from the enclosing config's own keys."""
+
+    @config.config
+    class Tunnel(config.Config):
+        host: str | None
+        port: int | None = config.value(converter=config.str_to_optional_int)
+        enabled: bool = config.value(converter=config.str_to_bool, default=False)
+
+    @config.config
+    class Source(config.Config):
+        host: str
+        port: int = config.value(converter=int)
+        tunnel: Tunnel | None = None
+
+    cfg = Source.from_dict({"host": "db.example.com", "port": "5432"})
+
+    assert cfg.host == "db.example.com"
+    assert cfg.port == 5432
+    assert cfg.tunnel is None

@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.apps import apps
 from django.test import override_settings
+from django.utils import timezone
 
 from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
@@ -160,15 +161,22 @@ WAIT = InboxNotificationState(has_implementation_task=True, pr_available=False, 
 NO_TASK = InboxNotificationState(has_implementation_task=False, pr_available=False, task_terminal=False)
 PR_READY = InboxNotificationState(has_implementation_task=True, pr_available=True, task_terminal=False)
 TERMINAL = InboxNotificationState(has_implementation_task=True, pr_available=False, task_terminal=True)
+ALREADY_NOTIFIED = InboxNotificationState(
+    has_implementation_task=False, pr_available=False, task_terminal=False, already_notified=True
+)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("ends_the_wait", [PR_READY, ALREADY_NOTIFIED], ids=["pr_opened", "notified_elsewhere"])
 @override_settings(SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS=10, SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS=1)
-async def test_workflow_waits_then_notifies_when_pr_opens():
-    recorder = _Recorder([WAIT, WAIT, PR_READY])
+async def test_workflow_ends_the_pr_wait_as_soon_as_the_state_resolves(ends_the_wait):
+    # ALREADY_NOTIFIED has to end the wait as well. A concurrent settle that sent the card leaves the
+    # state activity reporting no PR and no terminal task, so a run that watches only those two can
+    # never meet its break condition again and polls the full timeout for a card it cannot send.
+    recorder = _Recorder([WAIT, WAIT, ends_the_wait])
     sent = await _run_workflow(recorder)
     assert sent == 1
-    assert recorder.state_calls == 3
+    assert recorder.state_calls == 3  # the wait ends on the resolving fetch, not at the timeout
     assert recorder.dispatch_calls == 1
 
 
@@ -197,3 +205,80 @@ async def test_workflow_notifies_even_without_pr(states, timeout_seconds, polls)
         assert recorder.state_calls >= 2  # initial fetch + at least one poll while waiting for the PR
     else:
         assert recorder.state_calls == 1  # decided on the first fetch — no task means no polling
+
+
+@pytest.mark.django_db
+def test_send_stamps_the_report_and_refuses_a_second_send(team):
+    """One report, one card. A report re-researches whenever a new signal carries it to its next
+    bucket, and every settle starts this workflow again, so the second send must be refused. The
+    support write-back still runs on both, because its note is per ticket rather than per report: a
+    ticket that joins the report after its card has had no note yet and still needs one."""
+    report = _make_report(team)
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.dispatch_inbox_item_notifications") as dispatch,
+        patch("products.signals.backend.temporal.inbox_notification.post_report_findings_to_tickets") as writeback,
+    ):
+        dispatch.return_value = 1
+        first = _send_report_inbox_notifications(team.id, str(report.id))
+        second = _send_report_inbox_notifications(team.id, str(report.id))
+
+    assert (first, second) == (1, 0)
+    assert dispatch.call_count == 1
+    assert writeback.call_count == 2
+    report.refresh_from_db()
+    assert report.inbox_notified_at is not None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("outcome", ["sent_nothing", "raised", "raised_before_dispatch"])
+def test_send_releases_the_claim_when_no_card_went_out(team, outcome):
+    """A report whose team has no Slack channel yet must stay eligible. Without the release it would
+    burn its one notification on a dispatch that sent nothing, and never get a card. A raise before the
+    dispatch, such as the unretried ClickHouse read that re-derives the signals, must leave the report
+    eligible too; the claim is taken below that read, so there is nothing left to release."""
+    report = _make_report(team)
+    with patch("products.signals.backend.slack_inbox_notifications.dispatch_inbox_item_notifications") as dispatch:
+        if outcome == "raised_before_dispatch":
+            with patch(
+                "products.signals.backend.temporal.inbox_notification.fetch_signals_for_report_sync",
+                side_effect=RuntimeError("clickhouse timed out"),
+            ):
+                with pytest.raises(RuntimeError):
+                    _send_report_inbox_notifications(team.id, str(report.id))
+            dispatch.assert_not_called()
+        elif outcome == "raised":
+            dispatch.side_effect = RuntimeError("slack is down")
+            with pytest.raises(RuntimeError):
+                _send_report_inbox_notifications(team.id, str(report.id))
+        else:
+            dispatch.return_value = 0
+            assert _send_report_inbox_notifications(team.id, str(report.id)) == 0
+
+    report.refresh_from_db()
+    assert report.inbox_notified_at is None
+
+
+@pytest.mark.django_db
+def test_state_reports_already_notified(team):
+    report = _make_report(team)
+    _link_implementation_task(team, report, pr_url=None, run_status="started")
+    report.inbox_notified_at = timezone.now()
+    report.save(update_fields=["inbox_notified_at"])
+
+    state = _compute_inbox_notification_state(team.id, str(report.id))
+
+    # The implementation task is deliberately not reported: a notified report has nothing left to
+    # wait for, so the workflow must not sit through the PR timeout before finding that out.
+    assert state == ALREADY_NOTIFIED
+
+
+@pytest.mark.asyncio
+@override_settings(SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS=10, SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS=1)
+async def test_workflow_skips_the_pr_wait_when_the_report_already_notified():
+    # One fetch, then straight to the send activity. A notified report has nothing left to wait for,
+    # but the activity still runs because the support write-back it carries is per ticket. Refusing
+    # the second card is the claim's job, covered by test_send_stamps_the_report_and_refuses_a_second_send.
+    recorder = _Recorder([ALREADY_NOTIFIED])
+    await _run_workflow(recorder)
+    assert recorder.state_calls == 1
+    assert recorder.dispatch_calls == 1

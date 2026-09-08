@@ -292,6 +292,7 @@ class TestRelaySandboxEventsCancellation:
                 *,
                 presence_gated: bool = False,
                 origin_product: str | None = None,
+                thin_tail: bool = False,
             ) -> None:
                 self.stream_key = stream_key
 
@@ -344,11 +345,11 @@ class TestRelaySandboxEventsCancellation:
 
 class TestRelaySandboxEventsPresenceGating:
     @pytest.mark.parametrize(
-        "run_state,expected_presence_gated",
+        "run_state,expected_presence_gated,expected_thin_tail",
         [
-            pytest.param({"stream_presence_gated": True}, True, id="run_pinned_gated"),
-            pytest.param({"stream_presence_gated": False}, False, id="run_pinned_ungated"),
-            pytest.param({}, False, id="legacy_run_without_pin"),
+            pytest.param({"stream_presence_gated": True, "stream_thin_tail": True}, True, True, id="run_pinned_gated"),
+            pytest.param({"stream_presence_gated": False}, False, False, id="run_pinned_ungated"),
+            pytest.param({}, False, False, id="legacy_run_without_pin"),
         ],
     )
     async def test_stream_presence_gating_follows_pinned_run_state(
@@ -356,8 +357,9 @@ class TestRelaySandboxEventsPresenceGating:
         monkeypatch: pytest.MonkeyPatch,
         run_state: dict,
         expected_presence_gated: bool,
+        expected_thin_tail: bool,
     ) -> None:
-        constructed: list[bool] = []
+        constructed: list[tuple[bool, bool]] = []
 
         class StubTaskRunRedisStream:
             def __init__(
@@ -367,8 +369,9 @@ class TestRelaySandboxEventsPresenceGating:
                 *,
                 presence_gated: bool = False,
                 origin_product: str | None = None,
+                thin_tail: bool = False,
             ) -> None:
-                constructed.append(presence_gated)
+                constructed.append((presence_gated, thin_tail))
 
             async def initialize(self) -> None:
                 return None
@@ -413,7 +416,7 @@ class TestRelaySandboxEventsPresenceGating:
             )
         )
 
-        assert constructed == [expected_presence_gated]
+        assert constructed == [(expected_presence_gated, expected_thin_tail)]
 
 
 class TestRelaySandboxEventsMissingActor:
@@ -435,6 +438,7 @@ class TestRelaySandboxEventsMissingActor:
                 *,
                 presence_gated: bool = False,
                 origin_product: str | None = None,
+                thin_tail: bool = False,
             ) -> None:
                 self.stream_key = stream_key
 
@@ -1042,6 +1046,7 @@ class TestRelaySandboxEventsErrorHandling:
                 *,
                 presence_gated: bool = False,
                 origin_product: str | None = None,
+                thin_tail: bool = False,
             ) -> None:
                 self.stream_key = stream_key
 
@@ -1293,20 +1298,22 @@ class TestShouldSignalWorkflowHeartbeat:
             # Loop runs carry a 2-minute idle window; a quiet in-flight turn past that
             # window must still keep the workflow alive (the mid-turn teardown bug).
             ("mid_turn_quiet_past_short_run_window", True, 300.0, 120.0, True),
-            # The floor is the background default, not unbounded: a turn that hung
-            # without an end_of_turn stops pinning the sandbox past that window.
+            # Leave the workflow's short inactivity timer enough time to expire at
+            # the background default instead of after another full short window.
             (
-                "mid_turn_quiet_past_default_window",
+                "mid_turn_quiet_past_heartbeat_budget",
                 True,
-                float(INACTIVITY_TIMEOUT_DEFAULT_SECONDS) + 60.0,
+                float(INACTIVITY_TIMEOUT_DEFAULT_SECONDS) - 60.0,
                 120.0,
                 False,
             ),
             # Idle after end_of_turn: the short loop window applies and the run winds down.
             ("idle_agent_stale_events", False, 300.0, 120.0, False),
             ("mid_turn_fresh_events", True, 30.0, 120.0, True),
-            # Runs with a window above the default keep their longer window mid-turn.
-            ("mid_turn_long_window_still_fresh", True, float(INACTIVITY_TIMEOUT_DEFAULT_SECONDS) + 60.0, 3600.0, True),
+            # Default and longer windows rely on the event-driven heartbeat, then
+            # let their own inactivity timer measure the full silence window.
+            ("mid_turn_default_window_uses_event_heartbeat", True, 30.0, 1800.0, False),
+            ("mid_turn_long_window_uses_event_heartbeat", True, 30.0, 3600.0, False),
         ]
     )
     def test_freshness_gating(
