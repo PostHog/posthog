@@ -1707,6 +1707,44 @@ class TestErrorTracking(APIBaseTest):
         self.assertEqual(activity.status_code, expected_status)
         return activity.json()
 
+    def test_release_writes_strip_credentials_from_remote_url(self) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/releases",
+            data={
+                "version": "1.0.0",
+                "project": "my-project",
+                "hash_id": "test-hash-123",
+                "metadata": {
+                    "git": {
+                        "commit_id": "abc123",
+                        "remote_url": "https://user:password@example.com/repository.git?token=query#token=fragment",
+                    }
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        release = ErrorTrackingRelease.objects.get(team=self.team, hash_id="test-hash-123")
+        assert release.metadata == {"git": {"commit_id": "abc123", "remote_url": "https://example.com/repository.git"}}
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/releases/{release.id}",
+            data={
+                "metadata": {
+                    "git": {
+                        "commit_id": "def456",
+                        "remote_url": "//x-access-token:secret@example.com/repository.git?access_token=query-secret",
+                    }
+                }
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        release.refresh_from_db()
+        assert release.metadata == {"git": {"commit_id": "def456", "remote_url": "//example.com/repository.git"}}
+
     def test_fetch_release_by_hash_id(self) -> None:
         release = ErrorTrackingRelease.objects.create(
             team=self.team,

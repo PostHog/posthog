@@ -18,7 +18,6 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { delay } from 'lib/utils/async'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -30,7 +29,12 @@ import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/feature
 import type { UserType } from '../../../../frontend/src/types'
 import { isPlanPermissionRequest } from '../policy/permissionUtils'
 import { parseSandboxQuestions } from '../policy/questionUtils'
-import { defaultPermissionDecision, findAllowOptionId, isFullAutoMode, isPersistPromptTool } from '../policy/toolPolicy'
+import {
+    defaultPermissionDecision,
+    findAllowOptionId,
+    isConnectedProjectTool,
+    isFullAutoMode,
+} from '../policy/toolPolicy'
 import type {
     ContextUsage,
     PermissionRequestRecord,
@@ -70,6 +74,7 @@ import {
 } from '../types/wireTypes'
 import { extractContextBlockLines } from '../utils/posthogContextBlock'
 import { getClaudeCodeMeta, resolveToolCall } from '../utils/toolResolver'
+import { computeTurnTrailers } from '../utils/turnTrailers'
 import { attachedContextLogic } from './attachedContextLogic'
 import { debugLogsLogic } from './debugLogsLogic'
 import { registerHmrStreamAbort } from './devHmrStreamAbort'
@@ -1189,7 +1194,8 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             continue
         }
         if (method === '_posthog/turn_complete') {
-            items.push({ id: `turn-${separatorSeq++}`, type: 'turn_separator' })
+            const traceId = typeof params.traceId === 'string' ? params.traceId : undefined
+            items.push({ id: `turn-${separatorSeq++}`, type: 'turn_separator', ...(traceId && { traceId }) })
             continue
         }
         if (method === '_posthog/progress') {
@@ -1402,6 +1408,7 @@ export interface runStreamLogicValues {
     hasGitArtifacts: boolean
     isBootstrapResumeRun: boolean
     isThinking: boolean
+    latestTurnTraceId: string | null
     log: RunLog
     logBootstrapLoading: boolean
     pendingPermissionRequest: PermissionRequestRecord | null
@@ -1624,6 +1631,7 @@ export interface runStreamLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         foldedThread: (log: RunLog, isBootstrapResumeRun: boolean) => FoldedThread
+        latestTurnTraceId: (threadItems: ThreadItem[]) => string | null
         threadItems: (foldedThread: FoldedThread, showDebugLogs: boolean) => ThreadItem[]
         toolInvocations: (foldedThread: FoldedThread) => Map<string, ToolInvocation>
         isThinking: (
@@ -1767,9 +1775,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
         }),
         /**
          * Entry point for every parsed permission request. Applies the default tool policy
-         * (`toolPolicy`): auto-approve built-in tools + non-destructive PostHog exec, prompt
-         * for update/delete exec (and other MCP). Replayed-from-history requests are never
-         * auto-approved — they're a read-only restore and the run may already be terminal.
+         * (`toolPolicy`): auto-approve built-in tools and PostHog exec in the task's project, but
+         * prompt for connected-project calls and other MCP. Replayed-from-history requests are
+         * never auto-approved because the run may already be terminal.
          */
         routePermissionRequest: (record: PermissionRequestRecord, replayedFromHistory: boolean = false) => ({
             record,
@@ -2179,6 +2187,16 @@ export const runStreamLogic = kea<runStreamLogicType>([
         foldedThread: [
             (s) => [s.log, s.isBootstrapResumeRun],
             (log: RunLog, isResumeRun: boolean): FoldedThread => foldLogToThread(log.entries, { isResumeRun }),
+        ],
+        latestTurnTraceId: [
+            (s) => [s.threadItems],
+            (threadItems: ThreadItem[]): string | null => {
+                // Trailer-derived, not the raw last separator: synthetic trailing separators
+                // (idle-resume/error frames) carry no trace id and are not turns.
+                const trailers = computeTurnTrailers(threadItems)
+                const lastTurn = [...trailers.values()].find((trailer) => trailer.isLastTurn)
+                return lastTurn?.traceId ?? null
+            },
         ],
         threadItems: [
             (s) => [s.foldedThread, s.showDebugLogs],
@@ -2851,19 +2869,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
         },
         routePermissionRequest: ({ record, replayedFromHistory }) => {
             // Replayed history is a read-only restore — never auto-approve (the run may be terminal).
-            // In full-auto (`bypassPermissions`) the user opted out of tool approvals entirely, so any
-            // relayed tool request is answered with its allow option — but questions and plan approvals
-            // still surface, since auto-answering those would pick an option on the user's behalf.
-            // Otherwise: persist/publish tools (dashboards, feature flags, surveys, hog functions,
-            // workflows) must still prompt when this run is a foreground stream (rendered in a surface
-            // the user is watching and can respond in), even though `defaultPermissionDecision` would
-            // auto-approve them as non-destructive. Background and headless runs keep auto-approving.
+            // Full-auto covers the task's selected project. Questions, plan approvals, and calls into
+            // connected projects still surface because the task did not authorize them.
             const fullAuto =
-                isFullAutoMode(values.currentMode) && !record.questions?.length && !isPlanPermissionRequest(record)
-            const isForegroundStream = values.foregroundStreamKeys.has(props.streamKey)
-            const forcePromptForForeground = !fullAuto && isForegroundStream && isPersistPromptTool(record)
+                isFullAutoMode(values.currentMode) &&
+                !record.questions?.length &&
+                !isPlanPermissionRequest(record) &&
+                !isConnectedProjectTool(record)
             const decision = fullAuto ? 'auto_allow' : defaultPermissionDecision(record)
-            if (!replayedFromHistory && !forcePromptForForeground && decision === 'auto_allow') {
+            if (!replayedFromHistory && decision === 'auto_allow') {
                 const optionId = findAllowOptionId(record)
                 if (optionId) {
                     actions.autoApprovePermissionRequest(record, optionId)
@@ -2875,19 +2889,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
         autoApprovePermissionRequest: async ({ record, optionId }) => {
             // Pin it seen up front so a reconnect replay can't re-process the same request mid-POST.
             actions.markPermissionRequestSeen(record.requestId)
-            // A persist tool routed here because no foreground surface was registered yet may have
-            // raced a mounting surface's registration (the SSE frame can land before the layout
-            // effect flushes). Yield one macrotask and re-check; if the stream became foreground,
-            // surface the card instead of silently persisting. Plain `delay`, not a kea breakpoint —
-            // a breakpoint would let a second rapid frame cancel this listener pre-POST and stall
-            // the agent. Full-auto runs skip the re-check — they never prompt for persist tools.
-            if (!isFullAutoMode(values.currentMode) && isPersistPromptTool(record)) {
-                await delay(0)
-                if (values.foregroundStreamKeys.has(props.streamKey)) {
-                    actions.ingestPermissionRequest(record)
-                    return
-                }
-            }
             const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
             const resolvedToolCall = resolveToolCall(record.rawToolCall)
             posthog.capture('permission_auto_approved', {

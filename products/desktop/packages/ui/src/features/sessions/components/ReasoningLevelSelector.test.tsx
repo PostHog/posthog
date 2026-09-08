@@ -4,7 +4,13 @@ import {
   OPTION_DOCS_URL_META_KEY,
 } from "@posthog/shared";
 import { Theme } from "@radix-ui/themes";
-import { configure, fireEvent, render, screen } from "@testing-library/react";
+import {
+  configure,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { cloneElement } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -926,6 +932,7 @@ describe("ReasoningLevelSelector", () => {
       name: /GLM 5\.2/,
     });
 
+    expect(within(gatewayOnly).getByText("≈0.57×")).toBeInTheDocument();
     fireEvent.click(gatewayOnly);
     expect(onModelChange).not.toHaveBeenCalled();
   }, 20000);

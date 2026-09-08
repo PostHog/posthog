@@ -6,8 +6,8 @@ rules and every resource that has resource-level rows. Return one change record 
 scope) pair whose level differs. Members are never enumerated: members with the same applicable
 rules resolve identically, so one subject-level record covers all of them.
 
-Read-only. Nothing here changes enforcement. The settings preview page and the divergent-org
-sweep command are the only callers.
+Read-only. Nothing here changes enforcement. The settings preview page and the
+migration command are the only callers.
 """
 
 from collections.abc import Iterator
@@ -170,7 +170,7 @@ def _build_subjects(team: Team, user_access_control: UserAccessControl, rows: li
     role_ids_by_user: dict[int, list[str]] = {}
     for rm in RoleMembership.objects.filter(
         role__organization_id=team.organization_id, user_id__in=[membership.user_id for membership in memberships]
-    ):
+    ).valid_for_authorization():
         role_ids_by_user.setdefault(rm.user_id, []).append(str(rm.role_id))
 
     subjects: list[_Subject] = [
@@ -382,16 +382,21 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
     return changes
 
 
-def iter_resolution_changes(organization_id: Optional[str] = None) -> "Iterator[tuple[Team, list[ResolutionChange]]]":
+def iter_resolution_changes(
+    organization_id: Optional[str] = None, *, only_pending: bool = False
+) -> "Iterator[tuple[Team, list[ResolutionChange]]]":
     """Yield (team, changes) for every team with access rules, ordered by organization.
 
     Resolution is evaluated as one acting active member per organization; teams of
-    organizations with no active member are skipped.
+    organizations with no active member are skipped. With `only_pending`, organizations
+    already on the most-specific resolution are skipped too: they are migrated already.
     """
     team_ids = AccessControl.objects.values_list("team_id", flat=True).distinct()
     teams = Team.objects.filter(id__in=team_ids).select_related("organization").order_by("organization_id")
     if organization_id is not None:
         teams = teams.filter(organization_id=organization_id)
+    if only_pending:
+        teams = teams.exclude(organization__uses_most_specific_access_resolution=True)
 
     acting_membership_by_org: dict[str, Optional[OrganizationMembership]] = {}
     for team in teams.iterator():

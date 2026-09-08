@@ -1256,11 +1256,17 @@ export interface _SeriesBandsDateRangeApi {
 }
 
 /**
+ * * `5` - 5
+ * * `15` - 15
+ * * `30` - 30
  * * `60` - 60
  */
 export type IntervalMinutesEnumApi = (typeof IntervalMinutesEnumApi)[keyof typeof IntervalMinutesEnumApi]
 
 export const IntervalMinutesEnumApi = {
+    Number5: 5,
+    Number15: 15,
+    Number30: 30,
     Number60: 60,
 } as const
 
@@ -1269,8 +1275,11 @@ export interface LogsSeriesBandsRequestApi {
     serviceName: string
     /** Window to chart. Defaults to the last 7 days. It may span at most 7 days and start at most 35 days ago, past which the volume rollup no longer reaches. */
     dateRange?: _SeriesBandsDateRangeApi
-    /** Display grain in minutes for buckets and bands. Only hourly is supported today.
+    /** Display grain in minutes for buckets and bands. One of 5, 15, 30, 60. The window may hold at most 500 buckets per series at the chosen grain, so a finer grain needs a shorter window.
      *
+     * * `5` - 5
+     * * `15` - 15
+     * * `30` - 30
      * * `60` - 60 */
     intervalMinutes?: IntervalMinutesEnumApi
 }
@@ -1303,7 +1312,7 @@ export interface LogsSeriesBandSeriesApi {
     total_count: number
     /** Full weeks of history behind the band, 0 to 5. Below 2 the series is still learning and its buckets carry no band. */
     baseline_weeks: number
-    /** Earliest bucket with data inside the fetched lookback. */
+    /** Start of sustained traffic inside the fetched lookback: the first bucket followed by a week with enough non-empty buckets. A stray earlier row does not move it. The window start when no traffic is sustained yet. */
     history_start: string
     /**
      * When this series gains its band, so a learning series can count down to it. Null once the band is drawn.
@@ -1602,6 +1611,8 @@ export interface _LogsFacetValuesBodyApi {
     filterGroup?: _LogPropertyFilterApi[]
     /** Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
     personId?: string
+    /** Scope counts to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
 }
 
 export interface _LogsFacetValuesRequestApi {
@@ -1695,6 +1706,10 @@ export interface _LogsGroupByBodyApi {
      * @maximum 500
      */
     limit?: number
+    /** Scope grouping to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+    personId?: string
+    /** Scope grouping to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
 }
 
 export interface _LogsGroupByRequestApi {
@@ -1818,6 +1833,10 @@ export interface _LogsPatternsBodyApi {
     searchTerm?: string
     /** Property filters applied before mining. Same shape as the query-logs endpoint. */
     filterGroup?: _LogPropertyFilterApi[]
+    /** Scope mining to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+    personId?: string
+    /** Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
 }
 
 export interface _LogsPatternsRequestApi {
@@ -2011,6 +2030,8 @@ export interface _LogsQueryBodyApi {
     customColumns?: string[]
     /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
     personId?: string
+    /** Scope results to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
 }
 
 export interface _LogsQueryRequestApi {
@@ -2413,6 +2434,8 @@ export interface _LogsSparklineBodyApi {
     sparklineRankBy?: SparklineRankByEnumApi
     /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
     personId?: string
+    /** Scope results to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
 }
 
 export interface _LogsSparklineRequestApi {
@@ -2459,6 +2482,8 @@ export interface _LogsValuesResponseApi {
  * * `source` - source
  * * `trace_id` - trace_id
  * * `span_id` - span_id
+ * * `person` - person
+ * * `session` - session
  * * `pattern` - pattern
  * * `message` - message
  * * `custom` - custom
@@ -2471,6 +2496,8 @@ export const LogsViewColumnTypeEnumApi = {
     Source: 'source',
     TraceId: 'trace_id',
     SpanId: 'span_id',
+    Person: 'person',
+    Session: 'session',
     Pattern: 'pattern',
     Message: 'message',
     Custom: 'custom',
@@ -2486,6 +2513,8 @@ export interface LogsViewColumnApi {
      * * `source` - source
      * * `trace_id` - trace_id
      * * `span_id` - span_id
+     * * `person` - person
+     * * `session` - session
      * * `pattern` - pattern
      * * `message` - message
      * * `custom` - custom */

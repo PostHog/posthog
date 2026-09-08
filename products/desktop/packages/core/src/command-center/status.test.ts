@@ -3,6 +3,7 @@ import {
   buildStatusSummary,
   type CellStatus,
   deriveStatus,
+  deriveTaskCellStatus,
   type SessionStatusInput,
 } from "./status";
 
@@ -26,7 +27,7 @@ describe("deriveStatus", () => {
     expect(deriveStatus(makeSession({ status: "error" }))).toBe("error");
   });
 
-  it.each(["failed", "cancelled"])(
+  it.each(["failed", "cancelled"] as const)(
     "returns error for cloudStatus %s",
     (cloudStatus) => {
       expect(deriveStatus(makeSession({ cloudStatus }))).toBe("error");
@@ -54,6 +55,45 @@ describe("deriveStatus", () => {
   it("returns idle otherwise", () => {
     expect(deriveStatus(makeSession())).toBe("idle");
   });
+
+  it.each([
+    ["background", undefined, "running"],
+    ["interactive", undefined, "idle"],
+    [
+      "interactive",
+      {
+        ...makeSession({ pendingPermissions: { size: 1 } }),
+        taskRunId: "run-1",
+      },
+      "waiting",
+    ],
+    [
+      "interactive",
+      {
+        ...makeSession({ status: "error", pendingPermissions: { size: 1 } }),
+        taskRunId: "run-0",
+      },
+      "idle",
+    ],
+  ] as const)(
+    "derives the task-aware status for a %s run",
+    (mode, session, expected) => {
+      expect(
+        deriveTaskCellStatus(
+          {
+            id: "task-1",
+            latest_run: {
+              id: "run-1",
+              status: "in_progress",
+              environment: "cloud",
+              mode,
+            },
+          },
+          session,
+        ),
+      ).toBe(expected);
+    },
+  );
 });
 
 describe("buildStatusSummary", () => {

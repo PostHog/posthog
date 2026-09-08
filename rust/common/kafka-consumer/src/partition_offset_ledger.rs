@@ -8,6 +8,7 @@ use crate::types::Offset;
 struct Slot {
     complete: bool,
     charge: Charge,
+    delivered: bool,
 }
 
 /// A charge or completion the ledger's window cannot account for. The ledger
@@ -67,12 +68,13 @@ impl fmt::Display for LedgerError {
 
 impl std::error::Error for LedgerError {}
 
-/// A consumed contiguous prefix: its commit-ready frontier and the charge it
-/// covers.
+/// A consumed contiguous prefix: its commit-ready frontier, the charge it
+/// covers, and how many of its offsets Kafka never delivered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TakenFrontier {
     pub offset: Offset,
     pub charge: Charge,
+    pub gap_offset_count: usize,
 }
 
 /// What a window holds: the offsets charged and not yet drained by
@@ -165,11 +167,13 @@ impl PartitionOffsetLedger {
                 self.slots.push_back(Slot {
                     complete: true,
                     charge: Charge::ZERO,
+                    delivered: false,
                 });
             }
             self.slots.push_back(Slot {
                 complete: false,
                 charge,
+                delivered: true,
             });
             total += charge;
             self.held_charge += charge;
@@ -224,22 +228,23 @@ impl PartitionOffsetLedger {
         (self.completed_prefix_len > 0).then(|| base_offset + self.completed_prefix_len)
     }
 
-    /// Take the frontier and the charge of everything below it, forgetting
-    /// that span. Kept separate from `complete` so that reading the frontier
-    /// has no side effects and only commit points consume it.
     pub fn take_frontier(&mut self) -> Option<TakenFrontier> {
         let frontier_offset = self.frontier()?;
-        let charge = self
-            .slots
-            .drain(..self.completed_prefix_len)
-            .map(|slot| slot.charge)
-            .sum();
+        let mut charge = Charge::ZERO;
+        let mut gap_offset_count = 0;
+        for slot in self.slots.drain(..self.completed_prefix_len) {
+            charge += slot.charge;
+            if !slot.delivered {
+                gap_offset_count += 1;
+            }
+        }
         self.held_charge -= charge;
         self.base_offset = Some(frontier_offset);
         self.completed_prefix_len = 0;
         Some(TakenFrontier {
             offset: frontier_offset,
             charge,
+            gap_offset_count,
         })
     }
 
@@ -286,6 +291,7 @@ mod tests {
         let taken = ledger.take_frontier().unwrap();
         assert_eq!(taken.offset, Offset(1));
         assert_eq!(taken.charge.events, 1);
+        assert_eq!(taken.gap_offset_count, 0);
         assert_eq!(ledger.held().offsets, 2);
         ledger.complete([Offset(1), Offset(2)]).unwrap();
         assert_eq!(ledger.frontier(), Some(Offset(3)));
@@ -379,6 +385,30 @@ mod tests {
         let taken = ledger.take_frontier().unwrap();
         assert_eq!(taken.offset, Offset(4));
         assert_eq!(taken.charge.events, 2);
+        assert_eq!(
+            taken.gap_offset_count, 2,
+            "offsets 1 and 2 were never delivered"
+        );
+    }
+
+    #[test]
+    fn a_take_counts_each_gap_offset_once() {
+        let mut ledger = PartitionOffsetLedger::new(1);
+        ledger.charge([charge(0), charge(2), charge(5)]).unwrap();
+        ledger.complete([Offset(0), Offset(2)]).unwrap();
+        // Filler is complete by construction, so the frontier runs up to the
+        // incomplete offset 5 over the three undelivered offsets 1, 3 and 4.
+        let taken = ledger.take_frontier().unwrap();
+        assert_eq!(taken.offset, Offset(5));
+        assert_eq!(taken.gap_offset_count, 3);
+        assert_eq!(ledger.held().offsets, 1);
+        ledger.complete([Offset(5)]).unwrap();
+        let taken = ledger.take_frontier().unwrap();
+        assert_eq!(taken.offset, Offset(6));
+        assert_eq!(
+            taken.gap_offset_count, 0,
+            "drained filler is not counted again"
+        );
     }
 
     #[test]

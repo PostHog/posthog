@@ -36,6 +36,7 @@ MOBILE_SDKS: frozenset[str] = frozenset(
         "posthog-flutter",
         "posthog-react-native",
         "posthog-kmp",
+        "posthog-unity",
     }
 )
 
@@ -50,6 +51,12 @@ DESKTOP_SDKS: frozenset[str] = frozenset(
         "posthog-server",
         "posthog-dotnet",
         "posthog-elixir",
+        "posthog-node-mcp",
+        "posthog-python-mcp",
+        "posthog-edge",
+        "posthog-convex",
+        "posthog-rails",
+        "posthog-aspnetcore",
     }
 )
 
@@ -70,6 +77,13 @@ SDK_READABLE_NAME: dict[str, str] = {
     "posthog-kmp": "Kotlin Multiplatform",
     "posthog-dotnet": ".NET",
     "posthog-elixir": "Elixir",
+    "posthog-unity": "Unity",
+    "posthog-node-mcp": "Node.js MCP",
+    "posthog-python-mcp": "Python MCP",
+    "posthog-edge": "Edge",
+    "posthog-convex": "Convex",
+    "posthog-rails": "Ruby on Rails",
+    "posthog-aspnetcore": "ASP.NET Core",
 }
 
 
@@ -758,6 +772,9 @@ def assess_sdk(
     project_id: Optional[int] = None,
 ) -> Optional[SdkAssessment]:
     """Assess a single SDK's health across all versions in use."""
+    if sdk_type == "posthog-python-mcp":
+        # MCP's 0.x integration versions do not identify the installed Python package.
+        usage = [entry for entry in usage if not entry.lib_version.startswith("0.")]
     if not usage:
         return None
 

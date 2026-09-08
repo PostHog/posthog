@@ -86,8 +86,9 @@ def build_eval_report_system_prompt(
     period_end: str,
     evaluation_target: str = "generation",
     report_prompt_guidance: str = "",
+    true_is_failure: bool = False,
 ) -> str:
-    definition = get_outcome_definition(output_type)
+    definition = get_outcome_definition(output_type, true_is_failure=true_is_failure)
     description_section = f"Description: {evaluation_description}\n" if evaluation_description else ""
     prompt_section = f"Evaluation prompt/criteria:\n```\n{evaluation_prompt}\n```\n" if evaluation_prompt else ""
     guidance_section = ""
@@ -135,11 +136,18 @@ def build_eval_report_system_prompt(
         )
     elif output_type == "boolean":
         evaluated_unit = get_target_descriptor(evaluation_target).unit_label
-        result_semantics = (
-            f"The evaluation returns a boolean. True means the {evaluated_unit} satisfied the configured criteria and false "
-            "means it did not. A fail is not inherently bad: always interpret pass and fail through the evaluation's "
-            "specific criteria rather than treating them as generic quality verdicts."
-        )
+        if true_is_failure:
+            result_semantics = (
+                f"This evaluation looks for a problem. A true result means the {evaluated_unit} matched the "
+                "condition it looks for, so it is reported as a fail, and a false result is reported as a pass. "
+                "The fail rate is how often the condition fired, not a generic quality score."
+            )
+        else:
+            result_semantics = (
+                f"The evaluation returns a boolean. True means the {evaluated_unit} satisfied the configured criteria "
+                "and false means it did not. A fail is not inherently bad: always interpret pass and fail through the "
+                "evaluation's specific criteria rather than treating them as generic quality verdicts."
+            )
         analysis_outcome = "fail"
         primary_outcome = "pass"
         reasoning_tool_section = (
