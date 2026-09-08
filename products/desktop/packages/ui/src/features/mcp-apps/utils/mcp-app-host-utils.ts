@@ -41,7 +41,10 @@ export function parseMcpToolKey(mcpToolName: string): {
  * where `mcpMeta` may contain `structuredContent` and `_meta`.
  *
  * This function ensures `content` is always an array while preserving all
- * other fields (structuredContent, _meta, isError) from the raw result.
+ * other fields (structuredContent, _meta, isError) from the raw result. It is
+ * the boundary that owns app validity: every result an MCP App receives
+ * crosses it, whatever source produced it, so the app-side zod schema never
+ * sees an explicit null it would reject (see `omitNullCallToolResultFields`).
  */
 export function toCallToolResult(raw: unknown): CallToolResult {
   if (raw != null && typeof raw === "object" && "content" in raw) {

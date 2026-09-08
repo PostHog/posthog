@@ -52,6 +52,7 @@ export {
   tabsSnapshotSchema,
   tabViewStateSchema,
 } from "./browser-tabs-schemas";
+export { omitNullCallToolResultFields } from "./call-tool-result";
 export * from "./canvas-contracts";
 export * from "./canvas-platform";
 export type { CloudRunSource, PrAuthorshipMode } from "./cloud";
@@ -352,7 +353,6 @@ export {
 export { singleLineTitle } from "./title-text";
 export {
   mcpToolKey,
-  omitNullCallToolResultFields,
   parseMcpToolName,
   posthogToolMeta,
   readAgentToolName,
