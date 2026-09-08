@@ -192,8 +192,6 @@ describe("useAppBridge", () => {
   });
 
   it("does not double-deliver when a result was already queued before the app initializes", async () => {
-    // The exec-replay effect queues on mount; `oninitialized`'s remount catch-up
-    // used to send again with no dedup.
     const { result } = renderHook((props) => useAppBridge(props), {
       initialProps: baseArgs({
         toolCall: makeToolCall({ rawOutput: { content: [] } }),
