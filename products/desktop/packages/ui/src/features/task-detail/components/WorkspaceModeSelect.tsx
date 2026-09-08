@@ -152,7 +152,7 @@ export function WorkspaceModeSelect({
     [commitCloudTarget, githubSetupRequired],
   );
 
-  const continueWithoutGithub = useCallback(() => {
+  const closeGithubSetupDialog = useCallback(() => {
     pendingCloudTargetRef.current = null;
     setSetupDialogOpen(false);
     window.requestAnimationFrame(() => triggerRef.current?.focus());
@@ -345,7 +345,7 @@ export function WorkspaceModeSelect({
         <CloudGithubSetupDialog
           hasGithubIntegration={hasGithubIntegration}
           onConnected={handleGithubConnected}
-          onContinueWithoutGithub={continueWithoutGithub}
+          onClose={closeGithubSetupDialog}
         />
       ) : null}
     </>

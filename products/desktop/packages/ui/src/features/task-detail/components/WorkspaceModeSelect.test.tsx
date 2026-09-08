@@ -38,16 +38,16 @@ vi.mock("../hooks/useCloudTarget", () => ({
 vi.mock("./CloudGithubSetupDialog", () => ({
   CloudGithubSetupDialog: ({
     onConnected,
-    onContinueWithoutGithub,
+    onClose,
   }: {
     onConnected: () => void;
-    onContinueWithoutGithub: () => void;
+    onClose: () => void;
   }) => (
     <div role="alertdialog">
       <button type="button" onClick={onConnected}>
         Complete GitHub connection
       </button>
-      <button type="button" onClick={onContinueWithoutGithub}>
+      <button type="button" onClick={onClose}>
         Cancel
       </button>
     </div>

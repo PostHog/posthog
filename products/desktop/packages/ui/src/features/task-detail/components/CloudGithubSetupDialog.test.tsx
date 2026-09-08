@@ -1,5 +1,5 @@
 import { useRendererWindowFocusStore } from "@posthog/ui/shell/rendererWindowFocusStore";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloudGithubSetupDialog } from "./CloudGithubSetupDialog";
@@ -50,12 +50,7 @@ describe("CloudGithubSetupDialog", () => {
 
   it("starts the GitHub connection", async () => {
     const user = userEvent.setup();
-    render(
-      <CloudGithubSetupDialog
-        onConnected={vi.fn()}
-        onContinueWithoutGithub={vi.fn()}
-      />,
-    );
+    render(<CloudGithubSetupDialog onConnected={vi.fn()} onClose={vi.fn()} />);
 
     expect(
       screen.getByText("GitHub authentication required"),
@@ -71,12 +66,7 @@ describe("CloudGithubSetupDialog", () => {
   it("shows the onboarding visual while it waits for GitHub", () => {
     connectState.isConnecting = true;
 
-    render(
-      <CloudGithubSetupDialog
-        onConnected={vi.fn()}
-        onContinueWithoutGithub={vi.fn()}
-      />,
-    );
+    render(<CloudGithubSetupDialog onConnected={vi.fn()} onClose={vi.fn()} />);
 
     const waitingState = screen
       .getByText("Waiting for GitHub")
@@ -92,17 +82,12 @@ describe("CloudGithubSetupDialog", () => {
 
   it("cancels only after the user selects Cancel", async () => {
     const user = userEvent.setup();
-    const onContinueWithoutGithub = vi.fn();
-    render(
-      <CloudGithubSetupDialog
-        onConnected={vi.fn()}
-        onContinueWithoutGithub={onContinueWithoutGithub}
-      />,
-    );
+    const onClose = vi.fn();
+    render(<CloudGithubSetupDialog onConnected={vi.fn()} onClose={onClose} />);
 
-    expect(onContinueWithoutGithub).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(onContinueWithoutGithub).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledOnce();
     expect(connectState.reset).toHaveBeenCalledOnce();
   });
 
@@ -113,7 +98,7 @@ describe("CloudGithubSetupDialog", () => {
       <CloudGithubSetupDialog
         hasGithubIntegration={false}
         onConnected={onConnected}
-        onContinueWithoutGithub={vi.fn()}
+        onClose={vi.fn()}
       />,
     );
 
@@ -121,7 +106,7 @@ describe("CloudGithubSetupDialog", () => {
       <CloudGithubSetupDialog
         hasGithubIntegration
         onConnected={onConnected}
-        onContinueWithoutGithub={vi.fn()}
+        onClose={vi.fn()}
       />,
     );
     expect(onConnected).not.toHaveBeenCalled();
@@ -153,6 +138,37 @@ describe("CloudGithubSetupDialog", () => {
     expect(onConnected).toHaveBeenCalledOnce();
   });
 
+  it("completes setup when Close is selected during the success animation", () => {
+    vi.useFakeTimers();
+    const onConnected = vi.fn();
+    const onClose = vi.fn();
+    const { rerender } = render(
+      <CloudGithubSetupDialog
+        hasGithubIntegration={false}
+        onConnected={onConnected}
+        onClose={onClose}
+      />,
+    );
+
+    rerender(
+      <CloudGithubSetupDialog
+        hasGithubIntegration
+        onConnected={onConnected}
+        onClose={onClose}
+      />,
+    );
+    act(() => useRendererWindowFocusStore.setState({ focused: true }));
+    act(() => vi.advanceTimersByTime(500));
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    expect(onConnected).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledOnce();
+
+    act(() => vi.advanceTimersByTime(1_200));
+    expect(onConnected).toHaveBeenCalledOnce();
+  });
+
   it("waits for window focus after the deep-link callback", () => {
     vi.useFakeTimers();
     const onConnected = vi.fn();
@@ -160,7 +176,7 @@ describe("CloudGithubSetupDialog", () => {
       <CloudGithubSetupDialog
         hasGithubIntegration={false}
         onConnected={onConnected}
-        onContinueWithoutGithub={vi.fn()}
+        onClose={vi.fn()}
       />,
     );
 

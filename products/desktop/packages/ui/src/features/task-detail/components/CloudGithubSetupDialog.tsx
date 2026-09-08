@@ -37,13 +37,13 @@ const CONNECTED_SEQUENCE_MS = 1_200;
 interface CloudGithubSetupDialogProps {
   hasGithubIntegration?: boolean;
   onConnected: () => void;
-  onContinueWithoutGithub: () => void;
+  onClose: () => void;
 }
 
 export function CloudGithubSetupDialog({
   hasGithubIntegration,
   onConnected,
-  onContinueWithoutGithub,
+  onClose,
 }: CloudGithubSetupDialogProps) {
   const projectId = useAuthStateValue((state) => state.currentProjectId);
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
@@ -110,13 +110,17 @@ export function CloudGithubSetupDialog({
     await connect();
   }, [canConnect, connect]);
 
-  const handleContinueWithoutGithub = useCallback(() => {
+  const handleClose = useCallback(() => {
+    if (showConnectedAnimation && !didNotifyConnectedRef.current) {
+      didNotifyConnectedRef.current = true;
+      onConnected();
+    }
     reset();
     setConnectCallbackReceived(false);
     setConnectionStarted(false);
     setShowConnectedAnimation(false);
-    onContinueWithoutGithub();
-  }, [onContinueWithoutGithub, reset]);
+    onClose();
+  }, [onClose, onConnected, reset, showConnectedAnimation]);
 
   const connectionMessage = hasError
     ? describeGithubConnectError(error)
@@ -195,7 +199,7 @@ export function CloudGithubSetupDialog({
           <Button
             type="button"
             variant={showConnectedAnimation ? "primary" : "outline"}
-            onClick={handleContinueWithoutGithub}
+            onClick={handleClose}
           >
             {showConnectedAnimation ? "Close" : "Cancel"}
           </Button>
