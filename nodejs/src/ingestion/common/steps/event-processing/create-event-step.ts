@@ -3,7 +3,7 @@ import { parse as parseUuid, v5 as uuidv5 } from 'uuid'
 
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { parseTeamsList } from '~/common/utils/env-utils'
-import { createEvent } from '~/ingestion/common/steps/event-processing/create-event'
+import { createEvent, detectIgnoredGroups } from '~/ingestion/common/steps/event-processing/create-event'
 import { EventUsageRecord } from '~/ingestion/common/steps/usage-records-steps'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -72,6 +72,8 @@ export function createCreateEventStep<O extends string, T extends CreateEventSte
         } = input
 
         const capturedAt = headers.now ?? null
+        // Read before createEvent, which strips the group keys it reports on.
+        const ignoredGroupsWarning = detectIgnoredGroups(preparedEvent, processPerson)
         const rawEvent = createEvent(preparedEvent, person, processPerson, historicalMigration, capturedAt)
         const eventsToEmit: EventToEmit<O>[] = [{ event: rawEvent, output }]
 
@@ -103,6 +105,6 @@ export function createCreateEventStep<O extends string, T extends CreateEventSte
             eventUsageBatch,
         }
 
-        return Promise.resolve(ok(result, []))
+        return Promise.resolve(ok(result, [], ignoredGroupsWarning ? [ignoredGroupsWarning] : []))
     }
 }

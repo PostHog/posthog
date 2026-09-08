@@ -72,6 +72,34 @@ describe('create-event-step', () => {
             expect(result.sideEffects).toHaveLength(0)
         })
 
+        it('warns that the groups were ignored when processPerson=false', async () => {
+            const step = createCreateEventStep(EVENTS_OUTPUT)
+            mockPreparedEvent.properties.$groups = { organization: 'acme' }
+            const input = {
+                person: mockPerson,
+                preparedEvent: mockPreparedEvent,
+                processPerson: false,
+                historicalMigration: false,
+                headers: createTestEventHeaders(),
+                message: mockMessage,
+                lastStep: 'prepareEventStep',
+            }
+
+            const result = await step(input)
+
+            expect(result.warnings).toEqual([
+                {
+                    type: 'groups_ignored_when_process_person_profile_is_false',
+                    details: {
+                        eventUuid: 'event-uuid-456',
+                        distinctId: 'distinct-id-789',
+                        event: '$pageview',
+                        groupTypes: ['organization'],
+                    },
+                },
+            ])
+        })
+
         it('should create event with processPerson=false', async () => {
             const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {

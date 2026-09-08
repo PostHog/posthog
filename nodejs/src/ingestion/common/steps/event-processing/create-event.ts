@@ -2,12 +2,16 @@ import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { MAX_GROUP_TYPES_PER_TEAM } from '~/common/groups/group-type-manager'
+import { sanitizeString } from '~/common/utils/db/utils'
 import { elementsToString, extractElements } from '~/common/utils/elements-chain'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
+import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { Properties } from '~/plugin-scaffold'
 import { Element, Person, PersonMode, PreIngestionEvent, ProcessedEvent } from '~/types'
+
+const GROUP_INDEX_KEYS = Array.from({ length: MAX_GROUP_TYPES_PER_TEAM }, (_, index) => `$group_${index}`)
 
 const elementsOrElementsChainCounter = new Counter({
     name: 'events_pipeline_elements_or_elements_chain_total',
@@ -49,6 +53,44 @@ export function resolvePersonMode(person: Person | undefined, processPerson: boo
     return processPerson ? 'full' : 'propertyless'
 }
 
+/**
+ * Group data cannot survive on a personless event: the group steps skip enrichment when
+ * `processPerson` is false, and `createEvent` strips every `$group_N` key the sender
+ * supplied, so the event reaches ClickHouse with no group columns and group-scoped
+ * insights never see it. Report the loss, because the sender has no other signal.
+ */
+export function detectIgnoredGroups(
+    preIngestionEvent: PreIngestionEvent,
+    processPerson: boolean
+): PipelineWarning | null {
+    if (processPerson) {
+        return null
+    }
+
+    const properties = preIngestionEvent.properties ?? {}
+    const groups = properties.$groups
+    const groupTypes =
+        typeof groups === 'object' && groups !== null && !Array.isArray(groups) ? Object.keys(groups) : []
+
+    if (groupTypes.length === 0 && !GROUP_INDEX_KEYS.some((key) => key in properties)) {
+        return null
+    }
+
+    return {
+        type: 'groups_ignored_when_process_person_profile_is_false',
+        details: {
+            eventUuid: preIngestionEvent.eventUuid,
+            distinctId: preIngestionEvent.distinctId,
+            event: preIngestionEvent.event,
+            // `$groups` can hold any number of keys, but only MAX_GROUP_TYPES_PER_TEAM
+            // of them could ever resolve to a group column, so the rest only add size.
+            groupTypes: groupTypes.slice(0, MAX_GROUP_TYPES_PER_TEAM).map((groupType) => sanitizeString(groupType)),
+        },
+        // No `key`: the limiter's bucket map never evicts, so a client-supplied key
+        // would grow it without bound. Debounce per team and type instead.
+    }
+}
+
 export function createEvent(
     preIngestionEvent: PreIngestionEvent,
     person: Person | undefined,
@@ -82,8 +124,7 @@ export function createEvent(
     } else if (!processPerson) {
         // TODO: Move this into `normalizeEventStep` where it belongs, but the code structure
         // and tests demand this for now.
-        for (let groupTypeIndex = 0; groupTypeIndex < MAX_GROUP_TYPES_PER_TEAM; ++groupTypeIndex) {
-            const key = `$group_${groupTypeIndex}`
+        for (const key of GROUP_INDEX_KEYS) {
             delete properties[key]
         }
     }
