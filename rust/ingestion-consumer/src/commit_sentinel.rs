@@ -142,8 +142,8 @@ impl<C: Committer> CommitSentinel<C> {
         self.inner.forget_partitions(topic_partitions);
     }
 
-    pub fn try_commit(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
-        self.inner.try_commit(now)
+    pub fn maybe_commit(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
+        self.inner.maybe_commit(now)
     }
 
     pub fn drain(&self) -> HashMap<TopicPartition, Offset> {
@@ -322,7 +322,7 @@ mod tests {
     impl Committer for NullCommitter {
         fn on_frontier(&self, _: &TopicPartition, _: TakenFrontier) {}
         fn forget_partitions(&self, _: &[TopicPartition]) {}
-        fn try_commit(&self, _: Instant) -> Option<HashMap<TopicPartition, Offset>> {
+        fn maybe_commit(&self, _: Instant) -> Option<HashMap<TopicPartition, Offset>> {
             None
         }
         fn drain(&self) -> HashMap<TopicPartition, Offset> {

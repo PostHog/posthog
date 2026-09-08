@@ -22,9 +22,11 @@ pub trait Committer: Send + Sync {
     /// Partitions leaving the assignment: drop whatever is held for them.
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]);
 
-    /// One tick of the consumer's wake-up timer. The offsets to commit now,
-    /// at most once per interval; `None` when nothing is due.
-    fn try_commit(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>>;
+    /// The committer paces commits. Asked on every consumer wake-up, it
+    /// answers with the pending offsets once the interval has elapsed since
+    /// its last answer, and `None` inside the interval or with nothing
+    /// pending. Asking more often than the interval costs nothing.
+    fn maybe_commit(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>>;
 
     /// Everything ready to commit, regardless of the interval.
     fn drain(&self) -> HashMap<TopicPartition, Offset>;
@@ -73,7 +75,7 @@ impl Committer for CommitManager {
         }
     }
 
-    fn try_commit(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
+    fn maybe_commit(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
         let mut state = self.state.lock().unwrap();
         let inside_interval = state
             .last_commit
@@ -125,7 +127,7 @@ mod tests {
         let manager = CommitManager::new(INTERVAL);
         manager.on_frontier(&tp(0), taken(0, 10));
 
-        let offsets = manager.try_commit(Instant::now()).expect("due");
+        let offsets = manager.maybe_commit(Instant::now()).expect("due");
         assert_eq!(offsets, HashMap::from([(tp(0), Offset(10))]));
     }
 
@@ -136,7 +138,7 @@ mod tests {
         manager.on_frontier(&tp(1), taken(0, 20));
         manager.on_frontier(&tp(0), taken(10, 12));
 
-        let offsets = manager.try_commit(Instant::now()).expect("due");
+        let offsets = manager.maybe_commit(Instant::now()).expect("due");
         assert_eq!(
             offsets,
             HashMap::from([(tp(0), Offset(12)), (tp(1), Offset(20))])
@@ -148,12 +150,12 @@ mod tests {
         let manager = CommitManager::new(INTERVAL);
         let start = Instant::now();
         manager.on_frontier(&tp(0), taken(0, 10));
-        manager.try_commit(start).expect("due");
+        manager.maybe_commit(start).expect("due");
         manager.on_frontier(&tp(1), taken(0, 20));
 
-        assert!(manager.try_commit(start + INTERVAL / 2).is_none());
+        assert!(manager.maybe_commit(start + INTERVAL / 2).is_none());
         assert_eq!(
-            manager.try_commit(start + INTERVAL).expect("due again"),
+            manager.maybe_commit(start + INTERVAL).expect("due again"),
             HashMap::from([(tp(1), Offset(20))])
         );
     }
@@ -163,11 +165,11 @@ mod tests {
         let manager = CommitManager::new(INTERVAL);
         let start = Instant::now();
 
-        assert!(manager.try_commit(start).is_none());
+        assert!(manager.maybe_commit(start).is_none());
         manager.on_frontier(&tp(0), taken(0, 10));
 
         assert!(manager
-            .try_commit(start + Duration::from_millis(1))
+            .maybe_commit(start + Duration::from_millis(1))
             .is_some());
     }
 
@@ -176,7 +178,7 @@ mod tests {
         let manager = CommitManager::new(INTERVAL);
         let start = Instant::now();
         manager.on_frontier(&tp(0), taken(0, 10));
-        manager.try_commit(start).expect("due");
+        manager.maybe_commit(start).expect("due");
         manager.on_frontier(&tp(1), taken(0, 20));
 
         assert_eq!(manager.drain(), HashMap::from([(tp(1), Offset(20))]));

@@ -420,9 +420,9 @@ impl IngestionConsumer {
             // Once per iteration rather than as a select arm below: a wake-up
             // that won against `collect_batch` would drop a half-collected
             // poll, and the next commit would then skip its offsets. A
-            // collection returns within the batch timeout, so the manager is
-            // never further than that from a tick.
-            if let Err(err) = self.tick() {
+            // collection returns within the batch timeout, so a due commit
+            // waits at most that long.
+            if let Err(err) = self.maybe_commit_offsets() {
                 self.fail_batch_processing(err);
                 return;
             }
@@ -477,10 +477,15 @@ impl IngestionConsumer {
         }
     }
 
-    /// One wake-up: report liveness and commit whatever is due.
-    fn tick(&self) -> anyhow::Result<()> {
+    /// Report liveness and commit if the commit manager says a commit is due.
+    fn maybe_commit_offsets(&self) -> anyhow::Result<()> {
         self.handle.report_healthy();
-        if let Some(offsets) = self.commit_sentinel.try_commit(Instant::now()) {
+        // The commit manager owns the pacing: it holds the frontiers handed
+        // to it and answers with offsets at most once per commit interval.
+        // The consumer asks on every wake-up and commits only an answer, so
+        // asking here as often as the loop turns does not reach Kafka more
+        // often than the interval.
+        if let Some(offsets) = self.commit_sentinel.maybe_commit(Instant::now()) {
             self.commit_offsets(&offsets)?;
         }
         Ok(())
@@ -573,7 +578,7 @@ impl IngestionConsumer {
                     Some(message) => anyhow::bail!(message),
                     None => anyhow::bail!("batcher error channel closed"),
                 },
-                _ = tick.tick() => self.tick()?,
+                _ = tick.tick() => self.maybe_commit_offsets()?,
             }
         }
 
