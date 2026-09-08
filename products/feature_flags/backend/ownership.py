@@ -17,8 +17,6 @@ _OWNER_LABELS = {
     FLAG_OWNER_EARLY_ACCESS: "an early access feature",
 }
 
-# Reverse accessors keep this free of cross-product imports.
-#
 # `linked_flag` is absent on purpose: a survey or product tour may point at another product's flag
 # to target its audience, which references the flag without owning it.
 _OWNING_ACCESSORS: tuple[tuple[str, str], ...] = (
@@ -36,7 +34,7 @@ def flag_owner_kind(flag: "FeatureFlag") -> str | None:
 
     Ownership decides which approval policy family governs a write, so a flag must have at most one
     owner. Production already satisfies that: of the owned flags in US, all but three have exactly
-    one owner. `assert_flag_unowned` keeps it that way.
+    one owner. `assert_flag_available_for` keeps it that way.
     """
     for accessor, kind in _OWNING_ACCESSORS:
         if getattr(flag, accessor).exists():
@@ -55,6 +53,10 @@ def assert_flag_available_for(flag: "FeatureFlag", *, product: str) -> None:
     Call this only when a write points a product at a flag it did not point at before. Re-saving a
     parent that already owns the flag must not raise, so the caller compares the incoming id
     against the stored one first.
+
+    This reads before the caller writes, so two products adopting the same free flag at the same
+    moment can both pass. No database constraint can span the four owning tables, so the remaining
+    window is accepted rather than locked.
     """
     owner = flag_owner_kind(flag)
     if owner is not None and owner != product:

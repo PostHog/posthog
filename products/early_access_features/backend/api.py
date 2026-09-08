@@ -435,8 +435,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
                     f"Linked feature flag {feature_flag.key} already has a feature attached to it."
                 )
 
-            # The check above keeps one feature per flag; this one keeps the flag out of a
-            # second product.
+            # The check above keeps one feature per flag; this one keeps out other products.
             assert_flag_available_for(feature_flag, product=FLAG_OWNER_EARLY_ACCESS)
 
             if feature_flag.aggregation_group_type_index is not None:
