@@ -51,7 +51,9 @@ export function useActivityTaskMenu(): (
         });
       },
       onArchive: () => {
-        void archiveRef.current({ taskId: item.taskId });
+        archiveRef.current({ taskId: item.taskId }).catch(() => {
+          toast.error("Couldn't archive task");
+        });
       },
     }),
     [cells, pinnedTaskIds, togglePin],
