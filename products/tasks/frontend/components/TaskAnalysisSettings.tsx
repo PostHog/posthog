@@ -15,7 +15,7 @@ function describeTarget(modelLabel: string, draft: AIRunPreferenceDraft): string
 }
 
 export function TaskAnalysisSettings(): JSX.Element {
-    const { catalogue, draft, draftDirty, preferencesLoading } = useValues(taskAnalysisSceneLogic)
+    const { catalogue, draft, draftDirty, preferences, preferencesLoading } = useValues(taskAnalysisSceneLogic)
     const { setDraft, submitDraft } = useActions(taskAnalysisSceneLogic)
     const restrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -41,10 +41,7 @@ export function TaskAnalysisSettings(): JSX.Element {
     }
 
     return (
-        <section className="flex flex-col gap-2">
-            <p className="text-secondary mb-0">
-                Analysis runs review finished task runs. Pick the model they use, or keep the built-in one.
-            </p>
+        <section className="flex flex-col gap-3 max-w-200 border rounded p-4 bg-surface-primary">
             <AIRunPreferenceEditor
                 draft={draft}
                 dirty={draftDirty}
@@ -55,7 +52,20 @@ export function TaskAnalysisSettings(): JSX.Element {
                 restrictionReason={restrictionReason}
                 dataAttrPrefix="task-analysis-model"
             />
-            {restrictionReason ? <p className="text-secondary mb-0">Only project admins can change this.</p> : null}
+            <p className="text-secondary mb-0">
+                {preferences?.model ? (
+                    <>
+                        Analysis runs use <strong>{getModelLabel(catalogue, preferences.model)}</strong>
+                        {preferences.reasoning_effort ? (
+                            <> ({getEffortLabel(preferences.reasoning_effort)} effort)</>
+                        ) : null}
+                        .
+                    </>
+                ) : (
+                    <>Analysis runs use the built-in model.</>
+                )}
+                {restrictionReason ? ' Only project admins can change this.' : ''}
+            </p>
         </section>
     )
 }
