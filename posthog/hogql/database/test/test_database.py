@@ -58,6 +58,11 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+from posthog.hogql.database.schema.events import (
+    EVENTS_PERSON_DESCRIPTION,
+    EVENTS_PERSON_ID_DESCRIPTION,
+    EVENTS_PERSON_ID_NO_OVERRIDE_DESCRIPTION,
+)
 from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2
 from posthog.hogql.errors import ExposedHogQLError, QueryError, TableAccessDeniedError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -1925,6 +1930,25 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             "less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
             in query
         ), query
+
+    @parameterized.expand([(mode,) for mode in PersonsOnEventsMode])
+    def test_events_person_columns_keep_descriptions_in_every_poe_mode(self, mode: PersonsOnEventsMode) -> None:
+        # Each person-on-events mode rebuilds `events.person` and `events.person_id` from scratch, and a
+        # rebuild that drops the description leaves the columns undocumented in
+        # `system.information_schema.columns`, where every SQL user, PostHog AI and MCP caller reads them.
+        modifiers = create_default_modifiers_for_team(self.team, HogQLQueryModifiers(personsOnEventsMode=mode))
+        events = Database.create_for(team=self.team, modifiers=modifiers).get_table("events")
+
+        # The no-override mode reads the ingested `person_id` without joining
+        # `person_distinct_id_overrides`, so it must not carry the description that promises one id per user.
+        expected_person_id_description = (
+            EVENTS_PERSON_ID_NO_OVERRIDE_DESCRIPTION
+            if mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+            else EVENTS_PERSON_ID_DESCRIPTION
+        )
+
+        assert events.fields["person_id"].description == expected_person_id_description
+        assert events.fields["person"].description == EVENTS_PERSON_DESCRIPTION
 
     def test_database_credentials_is_not_n_plus_1(self) -> None:
         for i in range(10):
