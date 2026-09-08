@@ -56,11 +56,11 @@ export function isUnavailableEndpointError(error: unknown): boolean {
  * The two CSRF rejection codes `posthog/csrf.py` sends. A stale or absent token is fixed by
  * fetching a new one; an untrusted Origin is a deployment problem that survives every retry.
  */
-export const CSRF_TOKEN_INVALID_CODE = 'csrf_token_invalid'
+const CSRF_TOKEN_INVALID_CODE = 'csrf_token_invalid'
 const CSRF_ORIGIN_REJECTED_CODE = 'csrf_origin_rejected'
 
 /** A 403 `handleFetch` tries to recover from by reissuing the CSRF token. */
-export function isCsrfTokenError(error: { status?: number; code?: string | null }): boolean {
+export function isCSRFTokenError(error: { status?: number; code?: string | null }): boolean {
     return error.status === 403 && error.code === CSRF_TOKEN_INVALID_CODE
 }
 

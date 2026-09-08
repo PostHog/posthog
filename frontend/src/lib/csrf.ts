@@ -1,7 +1,7 @@
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { getCookie } from 'lib/api'
-import { CSRF_TOKEN_INVALID_CODE } from 'lib/api-error'
+import { ApiError, isCSRFTokenError } from 'lib/api-error'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 
 export const CSRF_COOKIE_NAME = 'posthog_csrftoken'
@@ -13,26 +13,22 @@ const CSRF_TOKEN_ENDPOINT = '/api/csrf_token/'
  * cookie keeps a working session but loses its token, and only a document render used to set a new
  * one, so every request failed until the person opened a new tab. Failing that, a reload is offered,
  * because nothing else in the app can set the cookie. OAuth mode sends no CSRF token at all.
+ *
+ * The status is read before the body, so a response that cannot be a CSRF rejection is never cloned
+ * or parsed. The clone leaves the original for the caller to build its own error from.
  */
-export async function recoverFromCsrfRejection(response: Response, isRetry: boolean): Promise<boolean> {
-    if (response.status !== 403 || isOAuthMode() || !(await isCsrfTokenRejection(response))) {
+export async function recoverFromCSRFRejection(response: Response, isRetry: boolean): Promise<boolean> {
+    if (response.status !== 403 || isOAuthMode()) {
         return false
     }
-    if (!isRetry && (await refreshCsrfToken())) {
+    if (!isCSRFTokenError(await ApiError.fromResponse(response.clone()))) {
+        return false
+    }
+    if (!isRetry && (await refreshCSRFToken())) {
         return true
     }
-    promptReloadForCsrf()
+    promptReloadForCSRF()
     return false
-}
-
-// Reads a clone, because the caller still needs the original to build its error from.
-async function isCsrfTokenRejection(response: Response): Promise<boolean> {
-    try {
-        const data = await response.clone().json()
-        return data?.code === CSRF_TOKEN_INVALID_CODE
-    } catch {
-        return false
-    }
 }
 
 /**
@@ -41,9 +37,9 @@ async function isCsrfTokenRejection(response: Response): Promise<boolean> {
  */
 let inFlightRefresh: Promise<boolean> | null = null
 
-async function refreshCsrfToken(): Promise<boolean> {
+async function refreshCSRFToken(): Promise<boolean> {
     if (!inFlightRefresh) {
-        inFlightRefresh = fetchCsrfToken().finally(() => {
+        inFlightRefresh = fetchCSRFToken().finally(() => {
             inFlightRefresh = null
         })
     }
@@ -52,7 +48,7 @@ async function refreshCsrfToken(): Promise<boolean> {
 
 // A bare `fetch` rather than `api.get`, because this runs inside the failure path of every request
 // and routing it back through that path would let a failing token endpoint recurse.
-async function fetchCsrfToken(): Promise<boolean> {
+async function fetchCSRFToken(): Promise<boolean> {
     try {
         const response = await fetch(CSRF_TOKEN_ENDPOINT, { method: 'GET' })
         return response.ok && Boolean(getCookie(CSRF_COOKIE_NAME))
@@ -61,13 +57,12 @@ async function fetchCsrfToken(): Promise<boolean> {
     }
 }
 
-let reloadPromptShown = false
-
-function promptReloadForCsrf(): void {
-    if (reloadPromptShown) {
-        return
-    }
-    reloadPromptShown = true
+/**
+ * For where the app cannot repeat the request itself: no new token arrived, the repeated request was
+ * rejected too, or the request never went through `handleFetch`. `lemonToast` keys its id off the
+ * message, so a burst of rejections raises one toast rather than a stack of them.
+ */
+export function promptReloadForCSRF(): void {
     lemonToast.error('Requests from this tab stopped working. Reload the page to fix it.', {
         button: {
             label: 'Reload page',
@@ -75,9 +70,4 @@ function promptReloadForCsrf(): void {
         },
         autoClose: false,
     })
-}
-
-export function resetCsrfRecoveryForTests(): void {
-    inFlightRefresh = null
-    reloadPromptShown = false
 }

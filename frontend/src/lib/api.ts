@@ -7,10 +7,16 @@ import { encodeParams } from 'kea-router'
 export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import { ApiError, BROWSER_FETCH_FAILURE_MESSAGES, NetworkError, type NetworkFailureReason } from 'lib/api-error'
+import {
+    ApiError,
+    BROWSER_FETCH_FAILURE_MESSAGES,
+    NetworkError,
+    type NetworkFailureReason,
+    isCSRFTokenError,
+} from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { CSRF_COOKIE_NAME, recoverFromCsrfRejection } from 'lib/csrf'
+import { CSRF_COOKIE_NAME, promptReloadForCSRF, recoverFromCSRFRejection } from 'lib/csrf'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
 import { objectClean } from 'lib/utils/objects'
@@ -7309,6 +7315,11 @@ const api = {
                             server_message: errorData?.message || errorData?.error,
                         })
                     }
+                    // A stream cannot be repeated the way `handleFetch` repeats a request, so the
+                    // person is offered the reload instead of being left with a dead panel.
+                    if (isCSRFTokenError(error)) {
+                        promptReloadForCSRF()
+                    }
                     onError(error)
                     abortController.abort()
                 } else {
@@ -7573,7 +7584,7 @@ async function handleFetch(
     }
 
     // The fetcher reads the cookie when it runs, so re-invoking it picks the new token up.
-    if (await recoverFromCsrfRejection(response, isRetry)) {
+    if (await recoverFromCSRFRejection(response, isRetry)) {
         return await handleFetch(url, method, fetcher, true)
     }
 

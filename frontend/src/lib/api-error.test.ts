@@ -90,7 +90,6 @@ describe('api-error', () => {
             ['a 2FA setup gate', { status: 403, code: 'two_factor_setup_required' }, false],
             ['a 2FA verification gate', { status: 403, code: 'two_factor_verification_required' }, false],
             ['a re-auth gate', { status: 403, code: 'sensitive_action_required_reauth' }, false],
-            // A deployment problem: no code of ours is at fault and no retry helps.
             ['a rejected request Origin', { status: 403, code: 'csrf_origin_rejected' }, false],
             // Reportable on purpose: `handleFetch` already retried, so this is a real dead end.
             ['a CSRF token the app could not replace', { status: 403, code: 'csrf_token_invalid' }, true],
