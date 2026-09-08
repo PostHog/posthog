@@ -44,7 +44,7 @@ import {
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { isFlagPropertyFilter, isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -219,6 +219,14 @@ function ConditionHeader({
 
     const countSummary = actualCount !== null ? `${humanFriendlyNumber(actualCount)} ${aggregationTargetName}` : null
 
+    const flagDependencyCount = (group.properties || []).filter(isFlagPropertyFilter).length
+    const countCaveat =
+        flagDependencyCount > 0
+            ? `This count leaves out the flag ${
+                  flagDependencyCount === 1 ? 'dependency' : 'dependencies'
+              } in this condition.`
+            : null
+
     return (
         <div className="flex items-center justify-between w-full gap-2">
             <div className="flex items-center gap-2 min-w-0">
@@ -226,9 +234,19 @@ function ConditionHeader({
                 <span className="text-sm break-all">{summary}</span>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-                <span className="text-sm text-muted mr-2 tabular-nums">
-                    ({rollout}%{group.variant && ` · ${group.variant}`}
-                    {countSummary !== null && ` · ${countSummary}`})
+                <span className="flex items-center gap-0.5 mr-2">
+                    <span className="text-sm text-muted tabular-nums">
+                        ({rollout}%{group.variant && ` · ${group.variant}`}
+                        {countSummary !== null && ` · ${countSummary}`})
+                    </span>
+                    {countSummary !== null && countCaveat !== null && (
+                        <Tooltip title={countCaveat}>
+                            <IconInfo
+                                className="text-muted text-xs"
+                                data-attr="flag-dependency-condition-count-caveat"
+                            />
+                        </Tooltip>
+                    )}
                 </span>
                 <LemonMenu
                     items={[

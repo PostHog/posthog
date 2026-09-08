@@ -32,17 +32,18 @@ const flagDependencyFilter = {
     type: PropertyFilterType.Flag,
 } as const
 
-function buildFilters(withFlagDependency: boolean): FeatureFlagType['filters'] {
-    const group: FeatureFlagGroupType = {
+function buildFilters(withFlagDependency: boolean, groupCount = 1): FeatureFlagType['filters'] {
+    const groups: FeatureFlagGroupType[] = Array.from({ length: groupCount }, (_, index) => ({
         properties: withFlagDependency ? [personFilter, flagDependencyFilter] : [personFilter],
         rollout_percentage: 100,
         variant: null,
-        sort_key: 'group-1',
-    }
-    return { groups: [group], multivariate: null, payloads: {} }
+        sort_key: `group-${index + 1}`,
+    }))
+    return { groups, multivariate: null, payloads: {} }
 }
 
 const CAVEAT = 'This estimate leaves out the flag dependency in this condition.'
+const COUNT_CAVEAT_MARKER = 'flag-dependency-condition-count-caveat'
 
 describe('feature flag release conditions flag dependency estimate caveat', () => {
     beforeEach(() => {
@@ -121,6 +122,34 @@ describe('feature flag release conditions flag dependency estimate caveat', () =
             } else {
                 expect(document.body).not.toHaveTextContent(CAVEAT)
             }
+        }
+    )
+
+    // A flag with more than one condition renders every condition collapsed, so the header count is
+    // the only estimate on screen and has to carry the qualifier itself.
+    test.each([
+        ['depends on a flag', true, 2],
+        ['does not depend on a flag', false, 0],
+    ] as const)(
+        'FeatureFlagReleaseConditionsCollapsible marks the collapsed header count when the condition %s',
+        async (_name, withFlagDependency, expectedMarkers) => {
+            const { container, getAllByText } = render(
+                <Provider>
+                    <FeatureFlagReleaseConditionsCollapsible
+                        id="1234"
+                        flagId={1234}
+                        filters={buildFilters(withFlagDependency, 2)}
+                        onChange={jest.fn()}
+                    />
+                </Provider>
+            )
+
+            await waitFor(() => {
+                expect(getAllByText(/7 users/)).toHaveLength(2)
+            })
+
+            expect(container.querySelectorAll(`[data-attr="${COUNT_CAVEAT_MARKER}"]`)).toHaveLength(expectedMarkers)
+            expect(document.body).not.toHaveTextContent(CAVEAT)
         }
     )
 })
