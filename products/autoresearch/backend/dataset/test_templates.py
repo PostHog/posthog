@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -13,7 +13,7 @@ from products.autoresearch.backend.dataset.templates import (
 )
 
 
-class TestTemplateDefinitions(TestCase):
+class TestTemplateDefinitions(SimpleTestCase):
     def test_all_five_templates_present(self) -> None:
         self.assertEqual(
             set(TEMPLATES.keys()),
@@ -30,7 +30,8 @@ class TestTemplateDefinitions(TestCase):
     def test_template_has_required_fields(self, key: str) -> None:
         t = TEMPLATES[key]
         self.assertTrue(t.display_name)
-        self.assertTrue(t.description)
+        self.assertIn(f"{t.default_horizon_days} days", t.description)
+        self.assertNotIn("{", t.description)
         self.assertGreater(t.default_horizon_days, 0)
         self.assertTrue(t.output_property_prefix)
         self.assertIsInstance(t.training_population_spec, dict)
@@ -58,7 +59,7 @@ class TestTemplateDefinitions(TestCase):
         self.assertEqual(t.requires_activity_resolution, requires_activity_resolution)
 
 
-class TestTemplateSpecsCompile(TestCase):
+class TestTemplateSpecsCompile(SimpleTestCase):
     # Drift guard: every template's population spec must have a compiler branch in
     # labeling.py, in both row mode (inference/eligible count) and anchor mode (training).
 
@@ -72,7 +73,7 @@ class TestTemplateSpecsCompile(TestCase):
             self.assertTrue(anchor.anchor_having_parts)
 
 
-class TestResolveActivityEvent(TestCase):
+class TestResolveActivityEvent(SimpleTestCase):
     def test_ranks_candidates_over_identified_users_only(self) -> None:
         # Training and scoring only see identified users, so an event that only anonymous
         # traffic emits must not be chosen as the activity signal.
@@ -85,11 +86,30 @@ class TestResolveActivityEvent(TestCase):
         ) as mock_run:
             resolved, _alternatives = resolve_activity_event(team, user=user)
         self.assertEqual(resolved, "$pageview")
-        self.assertIn("person.is_identified", mock_run.call_args.kwargs["query"].query)
+        query = mock_run.call_args.kwargs["query"].query
+        self.assertIn("person.is_identified", query)
+        self.assertIn("uniq(person_id)", query)
         self.assertIs(mock_run.call_args.kwargs["user"], user)
 
+    @parameterized.expand(
+        [
+            # A preferred event wins over a busier custom event; bookkeeping never wins.
+            ([["$identify", 50], ["clicked", 20], ["$pageview", 10]], "$pageview", ["clicked"]),
+            # Equal coverage breaks ties by name, so a cache refresh cannot flip the target.
+            ([["$identify", 50], ["heartbeat", 20], ["clicked", 20]], "clicked", ["heartbeat"]),
+            ([["x" * 300, 40], ["clicked", 20]], "clicked", []),
+            ([["$identify", 50]], None, []),
+            ([], None, []),
+        ]
+    )
+    def test_ranking(self, rows: list[list[object]], expected: str | None, expected_alternatives: list[str]) -> None:
+        with patch("products.autoresearch.backend.dataset.templates.run_hogql_rows", return_value=rows):
+            resolved, alternatives = resolve_activity_event(MagicMock())
+        self.assertEqual(resolved, expected)
+        self.assertEqual(alternatives, expected_alternatives)
 
-class TestResolveTemplate(TestCase):
+
+class TestResolveTemplate(SimpleTestCase):
     def _make_team(self) -> MagicMock:
         team = MagicMock()
         team.pk = 1
@@ -107,6 +127,18 @@ class TestResolveTemplate(TestCase):
         with self.assertRaises(ValueError):
             resolve_template(self._make_team(), "repeat_key_behavior")
 
+    @parameterized.expand([(0,), (-3,)])
+    def test_non_positive_horizon_raises(self, horizon: int) -> None:
+        with self.assertRaises(ValueError, msg="horizon_days must be at least 1"):
+            resolve_template(self._make_team(), "feature_adoption", "signed_up", horizon_days_override=horizon)
+
+    @patch("products.autoresearch.backend.dataset.templates.resolve_activity_event", return_value=(None, []))
+    def test_unresolved_activity_event_raises_without_override(self, _: MagicMock) -> None:
+        with self.assertRaises(ValueError, msg="could not resolve an activity event"):
+            resolve_template(self._make_team(), "likely_active_soon")
+        result = resolve_template(self._make_team(), "likely_active_soon", target_event_override="$screen")
+        self.assertEqual(result.target_event, "$screen")
+
     @patch(
         "products.autoresearch.backend.dataset.templates.resolve_activity_event",
         return_value=("$pageview", ["$screen"]),
@@ -120,12 +152,18 @@ class TestResolveTemplate(TestCase):
         self.assertEqual(result.target_event, "$pageview")
         self.assertEqual(result.resolved_activity_event, "$pageview")
         self.assertEqual(result.horizon_days, 7)
-        self.assertEqual(result.output_person_property, "predicted_p_active_soon_7d")
+        self.assertEqual(result.output_person_property, "predicted_p_active_soon_pageview_7d")
+        self.assertEqual(
+            result.training_population, {"kind": "performed_event_within_days", "days": 30, "event": "$pageview"}
+        )
+        self.assertEqual(result.inference_population["event"], "$pageview")
 
     @patch("products.autoresearch.backend.dataset.templates.resolve_activity_event", return_value=("$pageview", []))
     def test_activity_event_override_respected(self, mock_resolve: MagicMock) -> None:
         result = resolve_template(self._make_team(), "likely_active_soon", target_event_override="$screen")
         self.assertEqual(result.target_event, "$screen")
+        self.assertEqual(result.training_population["event"], "$screen")
+        self.assertEqual(result.output_person_property, "predicted_p_active_soon_screen_7d")
         # resolved_activity_event still shows what the schema resolver found
         self.assertEqual(result.resolved_activity_event, "$pageview")
 
@@ -133,15 +171,16 @@ class TestResolveTemplate(TestCase):
     def test_horizon_override_respected(self, _: MagicMock) -> None:
         result = resolve_template(self._make_team(), "likely_active_soon", horizon_days_override=14)
         self.assertEqual(result.horizon_days, 14)
+        self.assertIn("14 days", result.description)
         # Horizon is part of the output property so the same target over a different horizon
         # does not clobber another pipeline's score.
-        self.assertEqual(result.output_person_property, "predicted_p_active_soon_14d")
+        self.assertEqual(result.output_person_property, "predicted_p_active_soon_pageview_14d")
 
     def test_feature_adoption_with_target_event(self) -> None:
         result = resolve_template(self._make_team(), "feature_adoption", target_event_override="feature_clicked")
         self.assertEqual(result.target_event, "feature_clicked")
         self.assertEqual(result.horizon_days, 14)
-        self.assertIn("predicted_p_adopt_feature_clicked", result.output_person_property)
+        self.assertEqual(result.output_person_property, "predicted_p_adopt_feature_clicked_14d")
         self.assertEqual(result.training_population, {"kind": "active_not_performed_target", "active_within_days": 30})
         self.assertIsNone(result.resolved_activity_event)
 
@@ -155,6 +194,19 @@ class TestResolveTemplate(TestCase):
         result = resolve_template(self._make_team(), "feature_adoption", target_event_override="my_feature")
         self.assertIn("my feature", result.suggested_name)
 
+    def test_targets_that_normalize_alike_keep_distinct_properties(self) -> None:
+        lossy = resolve_template(self._make_team(), "feature_adoption", target_event_override="Checkout Started")
+        exact = resolve_template(self._make_team(), "feature_adoption", target_event_override="checkout_started")
+        self.assertTrue(lossy.output_person_property.startswith("predicted_p_adopt_checkout_started_"))
+        self.assertEqual(exact.output_person_property, "predicted_p_adopt_checkout_started_14d")
+        self.assertNotEqual(lossy.output_person_property, exact.output_person_property)
+
+    def test_long_target_fits_pipeline_columns(self) -> None:
+        result = resolve_template(self._make_team(), "feature_adoption", target_event_override="a" * 250)
+        self.assertLessEqual(len(result.output_person_property), 255)
+        self.assertTrue(result.output_person_property.endswith("_14d"))
+        self.assertLessEqual(len(result.suggested_name), 255)
+
     @patch(
         "products.autoresearch.backend.dataset.templates.resolve_activity_event",
         return_value=("$pageview", ["$screen"]),
@@ -166,5 +218,4 @@ class TestResolveTemplate(TestCase):
     @patch("products.autoresearch.backend.dataset.templates.resolve_activity_event", return_value=("$pageview", []))
     def test_return_after_first_use_population_is_first_seen(self, _: MagicMock) -> None:
         result = resolve_template(self._make_team(), "return_after_first_use")
-        self.assertEqual(result.training_population["kind"], "person_first_seen_within_days")
-        self.assertEqual(result.training_population["days"], 14)
+        self.assertEqual(result.training_population, {"kind": "person_first_seen_within_days", "days": 14})
