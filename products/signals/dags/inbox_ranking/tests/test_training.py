@@ -53,10 +53,11 @@ from products.signals.dags.inbox_ranking.training.telemetry import (
 from products.signals.dags.inbox_ranking.training.train import _head_readable, booster_holdout_auc, train_head
 from products.signals.dags.inbox_ranking.training.unseen import (
     CANDIDATE_ROLE,
+    POOL_NAME,
     graded_rows,
     head_grades,
+    leaked_report_ids,
     report_grade_rows,
-    sample_unseen,
     score_event_rows,
     unseen_pool,
 )
@@ -477,26 +478,50 @@ def _scores(report_ids: list[str], **overrides) -> pd.DataFrame:
     return pd.DataFrame(base)
 
 
-def test_unseen_pool_excludes_every_report_the_examples_cover():
-    # The pool is the whole point of the unseen read: a report that appears in any example, for any
-    # head, in train or in holdout, is a report the shipped booster was refit on.
-    ids = ["a", "b", "c", "d", "e"]
-    state = _state(ids, signal_count=[3, 3, 3, None, 3])
-    examples = pd.DataFrame({"head": ["open", "action"], "report_id": ["a", "b"]})
-    pool = unseen_pool(state, D0, examples["report_id"])
-    # d carries no signal_count, so build_examples would have skipped it too.
-    assert pool.index.tolist() == ["c", "e"]
+def test_unseen_pool_is_the_reports_born_on_the_partition_day():
+    # The pool is what makes the read leakage-free, and scoring every newborn is what makes it big
+    # enough to grade: a report born before D can already be a training example on D.
+    born_on_d0 = pd.Timestamp("2026-08-10T09:00:00Z")
+    pool = unseen_pool(
+        _state(
+            ["a", "b", "c", "d"],
+            report_created_at=[born_on_d0, pd.Timestamp("2026-08-09T23:59:59Z"), born_on_d0, born_on_d0],
+            signal_count=[3, 3, None, 3],
+            features_observed_at=[pd.Timestamp("2026-08-11T04:00:00Z")] * 3 + [pd.Timestamp("2026-08-20T04:00:00Z")],
+        ),
+        D0,
+    )
+    # b was born the day before, c carries no signal_count, and d was read long after the snapshot
+    # window, so it holds current Postgres state - build_examples would drop the last two too.
+    assert pool.index.tolist() == ["a"]
 
 
-def test_unseen_sample_is_reproducible_for_a_partition():
-    # A re-run of the partition rewrites the scores object, so the sample must not move: a second
-    # sample would score reports whose outcomes are never graded, and drop ones already promised.
-    pool = _state([f"r{index}" for index in range(50)])
-    first = sample_unseen(pool, "2026-08-10", size=10)
-    second = sample_unseen(pool, "2026-08-10", size=10)
-    assert first.index.tolist() == second.index.tolist()
-    assert len(first) == 10
-    assert sample_unseen(pool, "2026-08-11", size=10).index.tolist() != first.index.tolist()
+def test_build_examples_never_covers_a_report_born_on_the_partition_day():
+    # What the newborn pool rests on: the dt=D examples stop at D minus the head's horizon, so a
+    # report created on D is unreachable. A builder change that broke this would leak into the read.
+    head = HEADS_BY_NAME["open"]
+    scoring_day = D0 - datetime.timedelta(days=head.horizon_days)
+    old, newborn = pd.Timestamp("2026-07-01T00:00:00Z"), pd.Timestamp("2026-08-10T09:00:00Z")
+    snapshots = {
+        scoring_day: assemble_snapshot(
+            scoring_day, _state(["old"], report_created_at=[old]), _labels(["old"], open_count=[0])
+        ),
+        D0: assemble_snapshot(
+            D0,
+            _state(["old", "newborn"], report_created_at=[old, newborn]),
+            _labels(["old", "newborn"], open_count=[1, 1]),
+        ),
+    }
+    # "old" is a scoring moment on D - horizon_days labeled from D; the newborn has no such pair.
+    assert set(build_examples(snapshots, head)["report_id"]) == {"old"}
+
+
+def test_leaked_report_ids_flags_a_pool_report_an_example_already_covers():
+    # The runtime guard behind the structural argument: if the builder ever reaches the partition
+    # day, the asset must fail rather than publish an AUC measured on its own training data.
+    pool = _state(["a", "b"])
+    assert leaked_report_ids(pool, ["c"]) == []
+    assert leaked_report_ids(pool, ["b", "c"]) == ["b"]
 
 
 def test_grading_keeps_the_scoring_moment_rows_and_reads_the_outcome_later():
@@ -592,7 +617,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
             incumbent_champion_version="none",
             champion_aucs={"open": 0.6},
         ),
-        *unseen_score_events(run_id="run-1", rows=score_event_rows(scores, _state(["a"]), unseen_pool_size=40)),
+        *unseen_score_events(run_id="run-1", rows=score_event_rows(scores, _state(["a"]))),
         *unseen_head_graded_events(run_id="run-1", grades=grades),
         *unseen_report_graded_events(
             run_id="run-1",
@@ -633,8 +658,8 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         "report_id": "a",
         "model_role": CANDIDATE_ROLE,
         "p_open": 0.8,
-        "unseen_pool": 40,
-        "sample_size": 1,
+        "pool": POOL_NAME,
+        "unseen_pool": 1,
         "signal_count": 3,
     }.items() <= scored_props.items()
     head_graded_props = by_event["inbox_ranking_unseen_head_graded"][0]["properties"]

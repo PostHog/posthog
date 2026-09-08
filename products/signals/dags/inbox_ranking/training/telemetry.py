@@ -139,7 +139,7 @@ def promotion_event(
 
 
 def unseen_score_events(*, run_id: str, rows: Sequence[Mapping[str, Any]]) -> list[TrainingEvent]:
-    """One event per (report, model) for the day's unseen sample. Every property is flat and
+    """One event per (report, model) for the day's unseen pool. Every property is flat and
     numeric where it is a number, so a trends insight can aggregate a head's scores directly."""
     return [TrainingEvent(event=UNSEEN_REPORT_SCORED_EVENT, properties={**row, "run_id": run_id}) for row in rows]
 
