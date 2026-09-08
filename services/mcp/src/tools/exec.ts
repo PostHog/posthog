@@ -404,6 +404,68 @@ function looksLikeUnwrappedPayload(
 }
 
 /**
+ * The field names a wrapper parameter declares directly, including the fields of
+ * each variant when the wrapper is a union (`read-data-schema` keys its shape off
+ * a `kind` discriminator). Composition keywords are walked one level; nothing
+ * deeper is collected, because only the caller's own top-level keys are matched
+ * against this set.
+ */
+function wrapperFieldNames(schema: ZodObjectAny, key: string): ReadonlySet<string> {
+    const root = inputJsonSchema(schema)
+    const properties = isRecord(root) ? root['properties'] : undefined
+    const wrapper = isRecord(properties) ? properties[key] : undefined
+    const names = new Set<string>()
+    if (!isRecord(wrapper)) {
+        return names
+    }
+    for (const node of [wrapper, ...variantsOf(wrapper)]) {
+        const fields = node['properties']
+        if (isRecord(fields)) {
+            for (const name of Object.keys(fields)) {
+                names.add(name)
+            }
+        }
+    }
+    return names
+}
+
+function variantsOf(node: Record<string, unknown>): Record<string, unknown>[] {
+    return ['anyOf', 'oneOf', 'allOf']
+        .flatMap((keyword) => (Array.isArray(node[keyword]) ? (node[keyword] as unknown[]) : []))
+        .filter(isRecord)
+}
+
+/**
+ * Renders the shape the tool would have accepted, by nesting the caller's own
+ * keys under the wrapper they omitted: `{"query": {"dateRange": ..., "limit": ...}}`.
+ *
+ * A caller told only to "resend them as {"query": {...}}" has to work out which
+ * of its fields belong inside, and the reports behind this said so — they asked
+ * for one valid input shape at the point of rejection. Echoing the keys back in
+ * place answers that without a second `info` call.
+ *
+ * Only keys the wrapper itself declares are named, so the rendered shape is the
+ * tool's own vocabulary rather than the caller's, and values are always elided.
+ * The message is returned to the caller and recorded as the analytics error
+ * message, so it must carry no input. Falls back to `{...}` when no key matches.
+ */
+function acceptedWrapperShape(key: string, input: unknown, schema: ZodObjectAny | undefined): string {
+    if (!schema || !isRecord(input)) {
+        return `{"${key}": {...}}`
+    }
+    const declared = wrapperFieldNames(schema, key)
+    const named = Object.keys(input).filter((name) => declared.has(name))
+    if (named.length === 0) {
+        return `{"${key}": {...}}`
+    }
+    const shown = named.slice(0, MAX_WRAPPER_KEYS_NAMED).map((name) => `"${name}": ...`)
+    if (named.length > MAX_WRAPPER_KEYS_NAMED) {
+        shown.push('...')
+    }
+    return `{"${key}": {${shown.join(', ')}}}`
+}
+
+/**
  * Names the top-level keys a non-strict schema dropped, so a caller told `id` is
  * missing can see that the key it did send — `scanner_id` — was discarded rather
  * than read. Without this the caller is told only that a parameter it never used
@@ -431,6 +493,10 @@ function undeclaredKeys(input: unknown, schema: ZodObjectAny | undefined): strin
 /** Bound on how many dropped keys the message names, so a caller sending a large
  *  undeclared payload cannot inflate the analytics error message. */
 const MAX_DROPPED_KEYS_NAMED = 5
+
+/** Same bound for the rendered wrapper shape: enough keys to recognize the
+ *  payload, not enough for a large one to inflate the message. */
+const MAX_WRAPPER_KEYS_NAMED = 5
 
 /** Bound on the parameter description echoed back with a missing-parameter
  *  rejection, so a tool with a long field description cannot inflate the
@@ -499,7 +565,8 @@ export function formatInputValidationError(
             if ('input' in issue && issue.input === undefined) {
                 const hint = missingParameterHint(issue.path, schema)
                 if (looksLikeUnwrappedPayload(issue.path, input, schema)) {
-                    return `missing required parameter: ${path}${hint}; the fields you sent belong inside it, so resend them as {"${path}": {...}}`
+                    const shape = acceptedWrapperShape(path, input, schema)
+                    return `missing required parameter: ${path}${hint}; the fields you sent belong inside it, so resend them as ${shape}`
                 }
                 const dropped = keysWereRejected ? [] : undeclaredKeys(input, schema)
                 if (dropped.length) {

@@ -57,6 +57,7 @@ export type CommandMenuAction =
   | "open-task"
   | "open-task-from-pull-request"
   | "open-artifact"
+  | "open-canvas"
   | "open-channel"
   | "open-command-center"
   | "save-feed"
@@ -831,7 +832,6 @@ export interface InboxReportScrolledProperties {
 }
 
 export interface UsageViewedProperties {
-  is_pro: boolean;
   /** Monthly bucket percent (0-100), null when usage is unavailable. */
   sustained_used_percent: number | null;
   /** Daily bucket percent (0-100), null when usage is unavailable. */
@@ -1302,7 +1302,6 @@ export interface UpgradePromptClickedProperties {
 
 export interface CloudTaskUsageBlockedProperties {
   bucket: "burst" | "sustained" | null;
-  is_pro: boolean;
 }
 
 // Claude Code session import events

@@ -2,7 +2,7 @@
 export interface ScoutWriteScopeRow {
     scope: string
     /** Heading the row sits under. Purely a label: the API stores a flat list of scopes. */
-    group: 'Analytics' | 'Monitoring'
+    group: 'Analytics' | 'Monitoring' | 'Scouts and skills' | 'Data'
     label: string
     description: string
 }
@@ -39,6 +39,25 @@ export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
         group: 'Monitoring',
         label: 'Alerts',
         description: 'Create, update, and delete insight alerts',
+    },
+    {
+        scope: 'llm_skill:write',
+        group: 'Scouts and skills',
+        label: 'Skills',
+        description:
+            'Create, update, and archive shared skills and their files, including the skills your other scouts run from',
+    },
+    {
+        scope: 'warehouse_view:write',
+        group: 'Data',
+        label: 'Warehouse views',
+        description: 'Create, update, run, materialize, and delete views, and manage data quality checks on them',
+    },
+    {
+        scope: 'warehouse_table:write',
+        group: 'Data',
+        label: 'Warehouse tables',
+        description: 'Create tables, refresh their schema, and manage data quality checks on them',
     },
 ]
 
