@@ -317,7 +317,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'custom-bot-definitions',
                 title: 'Custom bots',
                 description:
-                    'Add your own crawlers and scripts to the bots PostHog already detects, so you can tell them apart from real visitors.',
+                    'Add your own crawlers and scripts to the bots PostHog already detects, so you can tell them apart from real visitors in queries. These rules do not stop bot events being ingested.',
                 docsUrl: 'https://posthog.com/docs/web-analytics/bot-detection',
                 component: <CustomBotDefinitions />,
                 keywords: ['bot', 'crawler', 'spider', 'scraper', 'user agent', 'ai'],
