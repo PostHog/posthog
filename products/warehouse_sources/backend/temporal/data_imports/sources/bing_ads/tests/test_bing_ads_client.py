@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.c
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.schemas import BingAdsResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source import BingAdsSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.utils import BingAdsReportTimeoutError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccount,
 )
@@ -286,6 +287,26 @@ class TestBingAdsClient:
         # A private, already-existing directory means the SDK's racy makedirs never runs.
         assert captured["working_directory"] != shared_default
         assert captured["created_by_sdk"] is False
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.download_and_extract_report_csv"
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.build_report_request")
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.reporting")
+    def test_get_performance_report_keeps_the_timeout_type(self, _mock_reporting, _mock_build_request, mock_download):
+        # Every other error is wrapped in a ValueError. Wrapping this one too would hide the signal
+        # the caller uses to narrow the date range, so the sync would replay the same doomed request.
+        mock_download.side_effect = BingAdsReportTimeoutError("report timed out")
+
+        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        with pytest.raises(BingAdsReportTimeoutError):
+            client.get_performance_report(
+                resource=BingAdsResource.AD_GROUP_PERFORMANCE_REPORT,
+                account_id=self.account_id,
+                customer_id=self.customer_id,
+                start_date=dt.datetime(2024, 1, 1),
+                end_date=dt.datetime(2024, 12, 31),
+            )
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.ServiceClient")
     def test_get_campaigns_success(self, mock_service_client):

@@ -4,6 +4,8 @@ from collections.abc import Iterable
 import pytest
 from unittest.mock import MagicMock, Mock, patch
 
+from bingads.exceptions import FileDownloadException
+from bingads.v13.reporting import ReportingDownloadException
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads import (
@@ -16,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.s
     BingAdsResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.utils import (
+    BingAdsReportTimeoutError,
     BingAdsResumeConfig,
     download_and_extract_report_csv,
     fetch_data_in_yearly_chunks,
@@ -215,6 +218,96 @@ class TestBingAdsHelperFunctions:
         assert result == [[{"year": "2024"}], [{"year": "2025"}]]
         # The skipped chunk still advances the checkpoint, so all three chunks are accounted for
         assert manager.save_state.call_count == 3
+
+    def test_fetch_data_in_yearly_chunks_narrows_a_chunk_that_times_out(self):
+        # A year of data for a big account can take longer to generate than the polling budget.
+        # Replaying the same year would time out again and stall the sync forever, so the chunk is
+        # halved and both halves are fetched, oldest first.
+        mock_client = Mock()
+        mock_client.get_data_by_resource.side_effect = [
+            BingAdsReportTimeoutError("report timed out"),
+            iter([[{"half": "first"}]]),
+            iter([[{"half": "second"}]]),
+        ]
+
+        manager = _mock_resumable_manager()
+        result = list(
+            fetch_data_in_yearly_chunks(
+                client=mock_client,
+                resource=BingAdsResource.AD_GROUP_PERFORMANCE_REPORT,
+                account_id=12345,
+                start_date=dt.date(2024, 1, 1),
+                end_date=dt.date(2024, 12, 31),
+                resumable_source_manager=manager,
+            )
+        )
+
+        assert result == [[{"half": "first"}], [{"half": "second"}]]
+        requested_ranges = [
+            (call.kwargs["start_date"].date(), call.kwargs["end_date"].date())
+            for call in mock_client.get_data_by_resource.call_args_list
+        ]
+        assert requested_ranges == [
+            (dt.date(2024, 1, 1), dt.date(2024, 12, 31)),
+            (dt.date(2024, 1, 1), dt.date(2024, 7, 1)),
+            (dt.date(2024, 7, 2), dt.date(2024, 12, 31)),
+        ]
+        # Each half is checkpointed as it completes, so a restart resumes after the half that
+        # already landed instead of replaying the year that timed out.
+        assert [call.args[0] for call in manager.save_state.call_args_list] == [
+            BingAdsResumeConfig(next_start_date="2024-07-02", end_date="2024-12-31"),
+            BingAdsResumeConfig(next_start_date="2025-01-01", end_date="2024-12-31"),
+        ]
+
+    def test_fetch_data_in_yearly_chunks_single_day_timeout_fails(self):
+        # A single day is the smallest window Bing accepts. Narrowing must stop there and let the
+        # error out rather than loop forever on the same request.
+        mock_client = Mock()
+        mock_client.get_data_by_resource.side_effect = BingAdsReportTimeoutError("report timed out")
+
+        manager = _mock_resumable_manager()
+        with pytest.raises(BingAdsReportTimeoutError):
+            list(
+                fetch_data_in_yearly_chunks(
+                    client=mock_client,
+                    resource=BingAdsResource.AD_GROUP_PERFORMANCE_REPORT,
+                    account_id=12345,
+                    start_date=dt.date(2024, 3, 1),
+                    end_date=dt.date(2024, 3, 1),
+                    resumable_source_manager=manager,
+                )
+            )
+
+        assert mock_client.get_data_by_resource.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "poll_budget_timeout",
+                ReportingDownloadException("Reporting file download tracking status timeout."),
+                BingAdsReportTimeoutError,
+            ),
+            (
+                "download_failure",
+                FileDownloadException("connection reset while fetching the result file"),
+                FileDownloadException,
+            ),
+        ]
+    )
+    def test_download_and_extract_report_csv_flags_only_the_timeout(self, _name, raised, expected):
+        # Only the poll-budget timeout can be fixed by asking for a smaller date range, and the SDK
+        # gives it a type of its own. A failed transfer keeps its type, so it is never narrowed.
+        manager = Mock()
+        manager.download_file.side_effect = raised
+
+        with pytest.raises(expected):
+            download_and_extract_report_csv(
+                reporting_service_manager=manager,
+                report_request=Mock(),
+                report_type="AdGroupPerformanceReportRequest",
+                account_id=12345,
+            )
 
     def test_download_and_extract_report_csv_no_file_returns_empty(self):
         # Bing returns no file (download_file -> None) when a report has zero rows for the range;
