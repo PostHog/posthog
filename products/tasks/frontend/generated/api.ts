@@ -191,34 +191,6 @@ export const codeSandboxPricingList = async (options?: RequestInit): Promise<San
     })
 }
 
-export const getDesktopBetaTermsListUrl = (organizationId: string) => {
-    return `/api/organizations/${organizationId}/desktop_beta_terms/`
-}
-
-export const desktopBetaTermsList = async (
-    organizationId: string,
-    options?: RequestInit
-): Promise<DesktopBetaTermsAcceptanceDTOApi> => {
-    return apiMutator<DesktopBetaTermsAcceptanceDTOApi>(getDesktopBetaTermsListUrl(organizationId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDesktopBetaTermsCreateUrl = (organizationId: string) => {
-    return `/api/organizations/${organizationId}/desktop_beta_terms/`
-}
-
-export const desktopBetaTermsCreate = async (
-    organizationId: string,
-    options?: RequestInit
-): Promise<DesktopBetaTermsAcceptanceDTOApi> => {
-    return apiMutator<DesktopBetaTermsAcceptanceDTOApi>(getDesktopBetaTermsCreateUrl(organizationId), {
-        ...options,
-        method: 'POST',
-    })
-}
-
 export const getDesktopAccessRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/desktop/access/`
 }
@@ -234,6 +206,34 @@ export const desktopAccessRetrieve = async (
     return apiMutator<DesktopAccessResponseApi>(getDesktopAccessRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getDesktopBetaTermsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/desktop_beta_terms/`
+}
+
+export const desktopBetaTermsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DesktopBetaTermsAcceptanceDTOApi> => {
+    return apiMutator<DesktopBetaTermsAcceptanceDTOApi>(getDesktopBetaTermsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDesktopBetaTermsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/desktop_beta_terms/`
+}
+
+export const desktopBetaTermsCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DesktopBetaTermsAcceptanceDTOApi> => {
+    return apiMutator<DesktopBetaTermsAcceptanceDTOApi>(getDesktopBetaTermsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 

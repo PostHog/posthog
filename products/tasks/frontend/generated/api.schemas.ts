@@ -90,11 +90,6 @@ export interface SandboxComputePricingApi {
     history: ComputeRateCardApi[]
 }
 
-export interface DesktopBetaTermsAcceptanceDTOApi {
-    /** Whether the organization has accepted the PostHog Desktop beta terms. */
-    readonly is_desktop_beta_terms_accepted: boolean
-}
-
 export interface DesktopAccessResponseApi {
     /** Whether the selected project can use PostHog Desktop. */
     allowed: boolean
@@ -103,6 +98,11 @@ export interface DesktopAccessResponseApi {
      * * `startup_plan` - startup_plan
      * * `prepaid_credits` - prepaid_credits */
     reason: DesktopAccessReasonEnumApi | null
+}
+
+export interface DesktopBetaTermsAcceptanceDTOApi {
+    /** Whether the organization has accepted the PostHog Desktop beta terms. */
+    readonly is_desktop_beta_terms_accepted: boolean
 }
 
 export interface LoopRepositoryEntryDTOApi {
