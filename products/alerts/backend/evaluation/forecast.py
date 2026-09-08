@@ -1,9 +1,10 @@
 import math
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
+    ChartDisplayType,
     ForecastConfig,
     FutureBreachForecastConfig,
     InsightsThresholdBounds,
@@ -15,6 +16,7 @@ from posthog.schema import (
 
 from posthog.api.services.query import ExecutionMode
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.interval_specs import interval_spec
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.schema_migrations.upgrade_manager import upgrade_query
@@ -102,11 +104,41 @@ def _required_history_points(horizon: int, interval: IntervalType | None) -> int
     return max(min_forecast_points(interval), 4 * horizon)
 
 
-def _forecast_min_samples(
-    forecast_config: dict[str, Any], interval: IntervalType | None = None, today: date | None = None
-) -> int:
+def _last_completed_bucket(now: datetime, interval: IntervalType | None, week_start_day: int | None) -> date:
+    spec = interval_spec(interval)
+    return (spec.align(now, week_start_day) - spec.period).date()
+
+
+def _forecast_extraction_contract(
+    forecast_config: dict[str, Any],
+    interval: IntervalType | None,
+    now: datetime,
+    week_start_day: int | None,
+) -> tuple[int, date | None]:
+    """Pin target history sizing and evaluation to one completed-bucket anchor."""
     config = _parse_config(forecast_config)
-    horizon = _horizon_from_config(config, interval, today or datetime.now(UTC).date())
+    if isinstance(config, FutureBreachForecastConfig):
+        return _horizon_from_config(config, interval, now.date()), None
+
+    target_date = date.fromisoformat(config.target_date)
+    try:
+        # Reach is measured from the project-local calendar day. The completed bucket is one
+        # interval earlier and would incorrectly reject valid dates at the 92-day boundary.
+        horizon_for_target_date(target_date, interval, now.date())
+    except ValueError as error:
+        raise InsufficientHistoryError(str(error)) from error
+
+    reference_date = _last_completed_bucket(now, interval, week_start_day)
+    horizon = intervals_between(reference_date, target_date, interval)
+    if horizon > MAX_FORECAST_OUTPUT_POINTS:
+        raise InsufficientHistoryError(
+            "This insight interval needs too many forecast points to reach the target date. "
+            "Use a coarser insight interval."
+        )
+    return horizon, reference_date
+
+
+def _forecast_min_samples(horizon: int, interval: IntervalType | None = None) -> int:
     return bounded_training_points(_required_history_points(horizon, interval), interval)
 
 
@@ -296,7 +328,15 @@ def evaluate_with_forecast(
 
     config = _parse_config(forecast_config)
     try:
-        horizon = _horizon_from_config(config, result.interval_type, date.fromisoformat(dates[-1][:10]))
+        latest_date = date.fromisoformat(dates[-1][:10])
+        if result.forecast_last_completed_bucket is not None:
+            if latest_date != date.fromisoformat(result.forecast_last_completed_bucket):
+                raise InsufficientHistoryError("The insight's latest completed bucket is stale.")
+            if result.forecast_horizon is None:
+                raise AlertExtractionError("The forecast extraction contract is missing its horizon.")
+            horizon = result.forecast_horizon
+        else:
+            horizon = _horizon_from_config(config, result.interval_type, latest_date)
     except InsufficientHistoryError:
         return _inconclusive(result, "stale_data")
     required_points = _required_history_points(horizon, result.interval_type)
@@ -339,34 +379,45 @@ class TrendsForecastExtractor:
             raise ValueError("TrendsForecastExtractor requires forecast_config")
         trends_query = TrendsQuery.model_validate(query)
         series_index = (alert.config or {}).get("series_index", 0)
-        today = datetime.now(ZoneInfo(alert.team.timezone)).date()
+        now = datetime.now(ZoneInfo(alert.team.timezone))
+        horizon, reference_date = _forecast_extraction_contract(
+            forecast_config, trends_query.interval, now, getattr(alert.team, "week_start_day", None)
+        )
         result = extract_trends_series(
             insight,
             alert.team,
             trends_query,
-            _forecast_min_samples(forecast_config, trends_query.interval, today),
+            _forecast_min_samples(horizon, trends_query.interval),
             execution_mode,
             series_index=series_index,
             user=alert.created_by,
         )
         result.value_formatter = make_trends_value_formatter(trends_query.trendsFilter, alert.team.base_currency)
+        result.forecast_horizon = horizon
+        result.forecast_last_completed_bucket = reference_date.isoformat() if reference_date is not None else None
         return result
 
     def simulate(self, insight: Insight, query: object, ctx: SimulationContext) -> tuple[ExtractionResult, str | None]:
         trends_query = TrendsQuery.model_validate(query)
         team_timezone = ZoneInfo(ctx.team.timezone)
-        today = datetime.now(team_timezone).date()
+        now = datetime.now(team_timezone)
+        today = now.date()
+        horizon, reference_date = _forecast_extraction_contract(
+            ctx.extractor_config, trends_query.interval, now, getattr(ctx.team, "week_start_day", None)
+        )
         result = extract_trends_series(
             insight,
             ctx.team,
             trends_query,
-            _forecast_min_samples(ctx.extractor_config, trends_query.interval, today),
+            _forecast_min_samples(horizon, trends_query.interval),
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             series_index=ctx.series_index,
             date_from=_bounded_simulation_date_from(ctx.date_from, team_timezone, today, trends_query.interval),
             user=ctx.user,
         )
         result.value_formatter = make_trends_value_formatter(trends_query.trendsFilter, ctx.team.base_currency)
+        result.forecast_horizon = horizon
+        result.forecast_last_completed_bucket = reference_date.isoformat() if reference_date is not None else None
         interval_value = trends_query.interval.value if trends_query.interval else None
         return result, interval_value
 
@@ -427,12 +478,21 @@ def simulate_forecast_on_insight(
         raise ValueError("Forecast alerts require a time series trends insight")
     if _has_breakdown(trends_query):
         raise ValueError("Forecast alerts don't support breakdowns yet")
+    if (
+        trends_query.trendsFilter
+        and trends_query.trendsFilter.display == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
+    ):
+        raise ValueError("Forecast alerts don't support cumulative trends. Use a non-cumulative time series insight.")
     validate_forecast_interval(trends_query.interval)
     validate_forecast_days_of_week(trends_query.dateRange, trends_query.interval)
     parsed = ForecastConfig.model_validate(forecast_config)
     validate_forecast_horizon(parsed, trends_query.interval)
     config = parsed.root
     if isinstance(config, TargetByDateForecastConfig):
+        if trends_query.interval == IntervalType.HOUR:
+            raise ValueError(
+                "Target-by-date forecast alerts don't support hourly insights. Use a daily, weekly, or monthly interval."
+            )
         _validate_simulation_target_date(config, trends_query.interval, team.timezone)
 
     context = SimulationContext(
@@ -455,7 +515,15 @@ def simulate_forecast_on_insight(
     if not dates:
         raise ValueError("Not enough data points to forecast.")
     try:
-        horizon = _horizon_from_config(config, result.interval_type, date.fromisoformat(dates[-1][:10]))
+        latest_date = date.fromisoformat(dates[-1][:10])
+        if result.forecast_last_completed_bucket is not None:
+            if latest_date != date.fromisoformat(result.forecast_last_completed_bucket):
+                raise InsufficientHistoryError("The insight's latest completed bucket is stale.")
+            if result.forecast_horizon is None:
+                raise ValueError("The forecast extraction contract is missing its horizon.")
+            horizon = result.forecast_horizon
+        else:
+            horizon = _horizon_from_config(config, result.interval_type, latest_date)
     except InsufficientHistoryError as error:
         raise ValueError(str(error))
     required_points = _required_history_points(horizon, result.interval_type)

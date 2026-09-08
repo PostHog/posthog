@@ -1,6 +1,6 @@
 import uuid
 from collections.abc import Iterator
-from contextlib import contextmanager, suppress
+from contextlib import ExitStack, contextmanager, suppress
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.settings import TEST
@@ -82,3 +82,20 @@ def forecast_simulation_slot(*, team_id: int) -> Iterator[None]:
         if global_slot is not None:
             with suppress(Exception):
                 global_limiter.release(global_slot)
+
+
+@contextmanager
+def forecast_evaluation_slot(*, team_id: int) -> Iterator[bool]:
+    """Share preview capacity with scheduled fits without making saturation retryable.
+
+    A preview should tell its caller to retry, while a scheduled check should be inconclusive and
+    wait for its next normal cadence. Returning a flag lets the dispatcher skip both the query and
+    the fit without turning capacity pressure into a Temporal retry storm.
+    """
+    with ExitStack() as stack:
+        try:
+            stack.enter_context(forecast_simulation_slot(team_id=team_id))
+        except ForecastSimulationCapacityExceeded:
+            yield False
+            return
+        yield True

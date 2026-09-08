@@ -13,6 +13,7 @@ from products.alerts.backend.evaluation.funnels import FunnelsExtractor
 from products.alerts.backend.evaluation.hogql import HogQLDetectorExtractor, HogQLExtractor
 from products.alerts.backend.evaluation.metrics import MetricsExtractor
 from products.alerts.backend.evaluation.trends import TrendsExtractor
+from products.alerts.backend.forecasting.capacity import forecast_evaluation_slot
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 
@@ -73,8 +74,19 @@ def check_forecast_alert(alert: AlertConfiguration, insight: Insight, query: obj
     if extractor is None:
         raise NotImplementedError(f"AlertCheckError: Forecast alerts for {kind} are not supported yet")
     threshold = InsightThreshold.model_validate(alert.threshold.configuration) if alert.threshold else None
-    result = extractor.extract(alert, insight, query, _resolve_execution_mode(alert, kind, query))
-    return evaluate_with_forecast(result, forecast_config, threshold)
+    with forecast_evaluation_slot(team_id=alert.team_id) as capacity_available:
+        if not capacity_available:
+            raw_interval = get_from_dict_or_attr(query, "interval")
+            interval = IntervalType(raw_interval) if raw_interval is not None else None
+            return AlertEvaluationResult(
+                value=None,
+                breaches=[],
+                is_inconclusive=True,
+                interval=interval.value if interval else None,
+                triggered_metadata={"forecast": {"status": "inconclusive", "reason": "capacity"}},
+            )
+        result = extractor.extract(alert, insight, query, _resolve_execution_mode(alert, kind, query))
+        return evaluate_with_forecast(result, forecast_config, threshold)
 
 
 def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:

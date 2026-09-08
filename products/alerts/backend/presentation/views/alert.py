@@ -848,9 +848,10 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             forecast_config = None
 
         if forecast_config and not _insight_alert_flag_enabled(self.context, "forecast-alerts"):
-            is_disabling = attrs.get("enabled") is False
-            is_removing_forecast = "forecast_config" in attrs and attrs["forecast_config"] is None
-            if not is_disabling and not is_removing_forecast:
+            is_disabling_unchanged_forecast = (
+                self.instance is not None and attrs.get("enabled") is False and "forecast_config" not in attrs
+            )
+            if not is_disabling_unchanged_forecast:
                 raise ValidationError("Forecast alerts are not enabled for your account.")
 
         require_threshold_bounds = (

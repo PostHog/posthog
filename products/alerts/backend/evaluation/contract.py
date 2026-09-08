@@ -59,6 +59,11 @@ class ExtractionResult:
     # decimals, duration, %). None → the comparator falls back to raw ``f"{value}{unit}"``. Only the
     # trends extractor sets it today; the PERCENTAGE-threshold path ignores it (relative % ratios).
     value_formatter: Callable[[float], str] | None = None
+    # Forecast extractors pin the horizon to the same completed bucket used to size the query.
+    # Without this contract, target-date alerts can fetch too little history and then recompute a
+    # longer horizon after the ongoing bucket is removed.
+    forecast_horizon: int | None = None
+    forecast_last_completed_bucket: str | None = None
 
 
 def zero_sentinel_series() -> ComparableSeries:

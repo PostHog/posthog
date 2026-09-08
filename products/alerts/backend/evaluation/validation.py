@@ -9,6 +9,7 @@ from posthog.schema import (
     AlertCalculationInterval,
     AlertCondition,
     AlertConditionType,
+    ChartDisplayType,
     ForecastConfig,
     FunnelsAlertConfig,
     FunnelsQuery,
@@ -257,6 +258,10 @@ def _validate_forecast_config(
     validate_forecast_horizon(parsed, trends_query.interval)
     config = parsed.root
     if isinstance(config, TargetByDateForecastConfig):
+        if trends_query.interval == IntervalType.HOUR:
+            raise ValueError(
+                "Target-by-date forecast alerts don't support hourly insights. Use a daily, weekly, or monthly interval."
+            )
         _validate_target_by_date(
             config,
             trends_query.interval,
@@ -267,6 +272,11 @@ def _validate_forecast_config(
         raise ValueError("Forecast alerts require a time series trends insight")
     if _has_breakdown(trends_query):
         raise ValueError("Forecast alerts don't support breakdowns yet")
+    if (
+        trends_query.trendsFilter
+        and trends_query.trendsFilter.display == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
+    ):
+        raise ValueError("Forecast alerts don't support cumulative trends. Use a non-cumulative time series insight.")
     validate_forecast_interval(trends_query.interval)
     validate_forecast_days_of_week(trends_query.dateRange, trends_query.interval)
     if _cadence_finer_than_interval(calculation_interval, trends_query.interval):

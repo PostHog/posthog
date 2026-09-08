@@ -1,16 +1,18 @@
 import datetime
 from collections.abc import Callable
+from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import cast
 
 import pytest
 from freezegun import freeze_time
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
 from posthog.schema import ForecastConfig, InsightsThresholdBounds, InsightThreshold, InsightThresholdType, IntervalType
 
+from posthog.api.services.query import ExecutionMode
 from posthog.models.team import Team
 
 from products.alerts.backend.evaluation.contract import (
@@ -21,13 +23,16 @@ from products.alerts.backend.evaluation.contract import (
     SeriesPoint,
     SimulationContext,
 )
+from products.alerts.backend.evaluation.dispatcher import check_forecast_alert
 from products.alerts.backend.evaluation.forecast import (
     TrendsForecastExtractor,
     _index_for_target_date,
     _target_projection,
     evaluate_with_forecast,
 )
+from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.forecasting.engine import ForecastConfigurationError, ForecastResult
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -367,6 +372,129 @@ class TestHistoryRequirements:
             )
         assert result.is_inconclusive is True
         assert result.triggered_metadata == {"forecast": {"status": "inconclusive", "reason": "stale_data"}}
+
+    def test_target_history_is_sized_from_the_last_completed_bucket(self) -> None:
+        forecast_config = {
+            "type": "ForecastConfig",
+            "engine": "prophet",
+            "condition": "target_by_date",
+            "target": 100,
+            "target_direction": "at_least",
+            "target_date": "2026-10-07",
+        }
+        team = SimpleNamespace(timezone="UTC", week_start_day=1, base_currency="USD")
+        alert = SimpleNamespace(
+            forecast_config=forecast_config,
+            config={"series_index": 0},
+            team=team,
+            created_by=None,
+        )
+        query = {
+            "kind": "TrendsQuery",
+            "interval": "day",
+            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+        }
+        extraction = _series(n=124, start=datetime.date(2026, 5, 6))
+        engine = StubEngine(_forecast(["2026-10-07"], [100.0]))
+
+        with (
+            freeze_time("2026-09-07T12:00:00Z"),
+            patch(
+                "products.alerts.backend.evaluation.forecast.extract_trends_series", return_value=extraction
+            ) as extract,
+            patch("products.alerts.backend.evaluation.forecast.get_forecast_engine", return_value=engine),
+        ):
+            result = TrendsForecastExtractor().extract(
+                cast(AlertConfiguration, alert),
+                cast(Insight, SimpleNamespace()),
+                query,
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            )
+            evaluation = evaluate_with_forecast(result, forecast_config, None)
+
+        assert extract.call_args.args[3] == 124
+        assert evaluation.is_inconclusive is False
+        assert engine.calls[0]["horizon"] == 31
+
+
+@contextmanager
+def _unavailable_forecast_slot(*, team_id: int):
+    yield False
+
+
+def test_scheduled_forecast_capacity_is_inconclusive_without_extracting() -> None:
+    alert = cast(
+        AlertConfiguration,
+        SimpleNamespace(
+            forecast_config={"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
+            threshold=None,
+            team_id=123,
+            is_high_frequency_interval=False,
+        ),
+    )
+    query = {
+        "kind": "TrendsQuery",
+        "interval": "day",
+        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+    }
+    extractor = MagicMock()
+
+    with (
+        patch("products.alerts.backend.evaluation.dispatcher.forecast_evaluation_slot", _unavailable_forecast_slot),
+        patch("products.alerts.backend.evaluation.dispatcher.FORECAST_EXTRACTORS", {"TrendsQuery": extractor}),
+    ):
+        result = check_forecast_alert(alert, cast(Insight, SimpleNamespace()), query)
+
+    assert result.is_inconclusive is True
+    assert result.triggered_metadata == {"forecast": {"status": "inconclusive", "reason": "capacity"}}
+    extractor.extract.assert_not_called()
+
+
+@parameterized.expand(
+    [
+        (
+            "hourly target",
+            "hour",
+            "ActionsLineGraph",
+            {
+                "type": "ForecastConfig",
+                "engine": "prophet",
+                "condition": "target_by_date",
+                "target": 100,
+                "target_direction": "at_least",
+                "target_date": "2026-10-01",
+            },
+            "hourly",
+        ),
+        (
+            "cumulative trend",
+            "day",
+            "ActionsLineGraphCumulative",
+            {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
+            "cumulative",
+        ),
+    ]
+)
+def test_forecast_validation_rejects_ambiguous_query_semantics(
+    _name: str, interval: str, display: str, forecast_config: dict, message: str
+) -> None:
+    query = {
+        "kind": "TrendsQuery",
+        "interval": interval,
+        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+        "trendsFilter": {"display": display},
+    }
+    with freeze_time("2026-09-07T12:00:00Z"), pytest.raises(ValueError, match=message):
+        validate_alert_config(
+            query=query,
+            condition={"type": "absolute_value"},
+            config={"type": "TrendsAlertConfig", "series_index": 0},
+            threshold_config={"type": "absolute", "bounds": {"upper": 100}},
+            calculation_interval="daily",
+            forecast_config=forecast_config,
+            require_future_target_date=True,
+            project_timezone="UTC",
+        )
 
 
 class TestForecastSimulationLookback:
