@@ -302,6 +302,9 @@ def _capture(target: _FeedbackTarget, event: str, properties: dict[str, Any]) ->
             feedback_source=properties.get("feedback_source"),
             run_id=target.run_id,
             turn_id=target.turn_id,
+            # Absent here and present on the reply's buttons narrows a missing join to the
+            # parse; absent in both puts it upstream, in the turn that never reported one.
+            trace_id=target.trace_id,
         )
     except Exception:
         logger.warning("slack_app_turn_feedback_capture_failed", captured_event=event, exc_info=True)
