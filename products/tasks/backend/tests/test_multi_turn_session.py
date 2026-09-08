@@ -888,9 +888,9 @@ class TestPollForTurnTimeoutDiagnosis:
             patch("products.tasks.backend.logic.services.custom_prompt_internals.NO_TURN_OUTPUT_FLOOR_SECONDS", 30),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
-            last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
+            result = await poll_for_turn(fake, skip_lines=0)
 
-        assert last_message == "done"
+        assert result.last_message == "done"
 
 
 class TestPollForTurnTerminalDrain:
