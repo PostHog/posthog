@@ -3,6 +3,8 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
+import anthropic
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     BaseMessage,
@@ -143,6 +145,71 @@ class TestAnthropicConversationCompactionManager(BaseTest):
         with patch.object(self.window_manager, "_get_token_count", new_callable=AsyncMock, return_value=token_count):
             result = await self.window_manager.should_compact_conversation(mock_model, messages)
             self.assertEqual(result, should_compact)
+
+    @parameterized.expand([[None], [{}], ["not a number"]])
+    async def test_calculate_token_count_falls_back_when_api_returns_non_int(self, api_result):
+        """The token counting API can 200 without a usable count; fall back to the estimate."""
+        messages: list[BaseMessage] = [
+            LangchainHumanMessage(content="A" * 400),  # ~100 tokens
+            LangchainAIMessage(content="B" * 400),
+            LangchainHumanMessage(content="C" * 400),
+        ]
+
+        mock_model = MagicMock()
+        with patch.object(self.window_manager, "_get_token_count", new_callable=AsyncMock, return_value=api_result):
+            result = await self.window_manager.calculate_token_count(mock_model, messages)
+
+        expected = self.window_manager._estimate_token_count(messages)
+        self.assertEqual(result, expected)
+
+    @parameterized.expand([[anthropic.APITimeoutError], [anthropic.RateLimitError]])
+    async def test_calculate_token_count_falls_back_when_api_raises_transient_error(self, exception_class):
+        """A transient count-API failure (timeout, rate limit, 5xx) must not end the turn; fall back."""
+        # Three human messages so calculate_token_count calls the counting API. With two or fewer it
+        # returns the local estimate early and never reaches the fallback this test covers.
+        messages: list[BaseMessage] = [
+            LangchainHumanMessage(content="A" * 400),
+            LangchainAIMessage(content="B" * 400),
+            LangchainHumanMessage(content="C" * 400),
+            LangchainAIMessage(content="D" * 400),
+            LangchainHumanMessage(content="E" * 400),
+        ]
+        request = httpx.Request("POST", "https://api.anthropic.com/v1/messages/count_tokens")
+        if issubclass(exception_class, anthropic.APIStatusError):
+            error: Exception = exception_class("transient", response=httpx.Response(429, request=request), body=None)
+        else:
+            error = exception_class(request)
+
+        mock_model = MagicMock()
+        with patch.object(
+            self.window_manager, "_get_token_count", new_callable=AsyncMock, side_effect=error
+        ) as mock_count:
+            result = await self.window_manager.calculate_token_count(mock_model, messages)
+
+        mock_count.assert_awaited_once()
+        expected = self.window_manager._estimate_token_count(messages)
+        self.assertEqual(result, expected)
+
+    async def test_calculate_token_count_reraises_client_error(self):
+        """A client error such as 400 is not transient; it must keep raising rather than be masked."""
+        # Three human messages so the counting API is actually called (see the transient-error test).
+        messages: list[BaseMessage] = [
+            LangchainHumanMessage(content="A" * 400),
+            LangchainAIMessage(content="B" * 400),
+            LangchainHumanMessage(content="C" * 400),
+            LangchainAIMessage(content="D" * 400),
+            LangchainHumanMessage(content="E" * 400),
+        ]
+        request = httpx.Request("POST", "https://api.anthropic.com/v1/messages/count_tokens")
+        error = anthropic.BadRequestError("bad request", response=httpx.Response(400, request=request), body=None)
+
+        mock_model = MagicMock()
+        with patch.object(
+            self.window_manager, "_get_token_count", new_callable=AsyncMock, side_effect=error
+        ) as mock_count:
+            with self.assertRaises(anthropic.BadRequestError):
+                await self.window_manager.calculate_token_count(mock_model, messages)
+        mock_count.assert_awaited_once()
 
     async def test_should_compact_conversation_with_tools_under_limit(self):
         """Test that tools are accounted for when estimating tokens with 2 or fewer human messages"""
