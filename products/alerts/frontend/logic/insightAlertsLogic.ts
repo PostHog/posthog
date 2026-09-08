@@ -271,9 +271,17 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
             __default: [] as AlertType[],
             loadAlerts: async (_?: unknown, breakpoint?: BreakPointFunction) => {
                 breakpoint?.()
-                const response = await api.alerts.list(props.insightId)
-                breakpoint?.()
-                return response.results
+                try {
+                    const response = await api.alerts.list(props.insightId)
+                    breakpoint?.()
+                    return response.results
+                } catch (error) {
+                    // Bail if a newer request superseded this one. Without this the obsolete
+                    // failure toasts, gets reported, and clears the loading state while the newer
+                    // request is still in flight.
+                    breakpoint?.()
+                    throw error
+                }
             },
         },
         alertDestinationCounts: [
