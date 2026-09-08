@@ -57,10 +57,12 @@ STATIC_POPULATION_RETRY_BACKOFF_SECONDS = 60
 STATIC_POPULATION_RETRY_BACKOFF_MAX_SECONDS = 1800
 STATIC_POPULATION_SOFT_TIME_LIMIT_SECONDS = 4 * 60 * 60
 
-# The RetryInterceptor set plus RESOURCE_EXHAUSTED. Personhog sheds load with RESOURCE_EXHAUSTED,
-# which an in-process retry must not hammer, but a task backoff of minutes is the right answer to.
-# UNKNOWN stays in because an HTTP/2 stream reset ("Stream removed") surfaces as UNKNOWN, and that
-# is the outage shape that leaves a static cohort half-synced.
+# The RetryInterceptor set plus RESOURCE_EXHAUSTED and INTERNAL, which an in-process retry must not
+# hammer but a task backoff of minutes is the right answer to. Personhog sheds load with
+# RESOURCE_EXHAUSTED and maps every Postgres query error (deadlock, lock or statement timeout, a
+# read-only primary after a failover) to INTERNAL. UNKNOWN stays in because an HTTP/2 stream reset
+# ("Stream removed") surfaces as UNKNOWN, and that is the outage shape that leaves a static cohort
+# half-synced.
 STATIC_POPULATION_RETRYABLE_RPC_CODES = frozenset(
     {
         grpc.StatusCode.UNAVAILABLE,
@@ -68,6 +70,7 @@ STATIC_POPULATION_RETRYABLE_RPC_CODES = frozenset(
         grpc.StatusCode.ABORTED,
         grpc.StatusCode.UNKNOWN,
         grpc.StatusCode.RESOURCE_EXHAUSTED,
+        grpc.StatusCode.INTERNAL,
     }
 )
 
@@ -608,12 +611,14 @@ def _is_final_attempt(task: Task, retryable: bool) -> bool:
     return task.max_retries is not None and (task.request.retries or 0) >= task.max_retries
 
 
-def _schedule_population_retry(task: Task, cohort: Cohort, err: Exception, *, team_id: int) -> Retry:
+def _schedule_population_retry(task: Task, cohort_id: int, err: Exception, *, team_id: int | None) -> Retry:
     """Schedule the next attempt and return the Retry for the caller to raise.
 
     Returns instead of raising so the caller can note that a retry is pending before it raises.
     When the broker publish fails, Celery raises Reject from here instead of returning, and the
-    caller then finalizes the failure like any other terminal outcome.
+    caller then finalizes the failure like any other terminal outcome. Takes the id rather than the
+    cohort because the first read of the task is itself retryable: CONN_MAX_AGE is 0, so a pooler
+    blip lands on the connection that read opens.
     """
     retries = task.request.retries or 0
     countdown = get_exponential_backoff_interval(
@@ -625,15 +630,15 @@ def _schedule_population_retry(task: Task, cohort: Cohort, err: Exception, *, te
     # reset_stuck_cohorts treats a static cohort that errored within the hour as alive. Without the
     # stamp it reads the backoff window as a stalled run and dispatches a duplicate population.
     save_recovery_bookkeeping(
-        lambda: Cohort.objects.filter(pk=cohort.pk).update(last_error_at=timezone.now()),
-        cohort_id=cohort.pk,
+        lambda: Cohort.objects.filter(pk=cohort_id).update(last_error_at=timezone.now()),
+        cohort_id=cohort_id,
         team_id=team_id,
     )
     error_type = type(err).__name__
     COHORT_STATIC_POPULATION_RETRIES_COUNTER.labels(task=task.name, error_type=error_type).inc()
     logger.warning(
         "static_cohort_population_retry",
-        cohort_id=cohort.pk,
+        cohort_id=cohort_id,
         team_id=team_id,
         task=task.name,
         retries=retries,
@@ -650,6 +655,26 @@ def _tag_population_queries(task: Task, *, cohort_id: int, team_id: int) -> None
     if task.request.id:
         tags.celery_task_id = task.request.id
     update_tags(tags)
+
+
+def _static_population_obsolete(task: Task, cohort: Cohort) -> bool:
+    """Whether the cohort was deleted or flipped to dynamic while this attempt waited in a backoff.
+
+    A flip enqueues calculate_cohort_ch, which owns is_calculating and count from then on. A late
+    static attempt would clear the flag under that calculation and overwrite count with the static
+    member count, so it must not write anything, including its own final state.
+    """
+    if not cohort.deleted and cohort.is_static:
+        return False
+    logger.info(
+        "static_cohort_population_skipped",
+        cohort_id=cohort.pk,
+        team_id=cohort.team_id,
+        task=task.name,
+        deleted=cohort.deleted,
+        is_static=cohort.is_static,
+    )
+    return True
 
 
 @shared_task(
@@ -671,19 +696,22 @@ def calculate_cohort_from_list(
     All new tasks should pass team_id explicitly.
     """
     start_time = time.time()
-    cohort = Cohort.objects.get(pk=cohort_id)
-    if team_id is None:
-        team_id = cohort.team_id
-
     import_resolution = ImportResolution()
     if id_type not in ("distinct_id", "person_id", "email"):
         raise ValueError(f"Unsupported id_type: {id_type}")
 
+    cohort: Cohort | None = None
     processing_error: BaseException | None = None
     retry: Retry | None = None
     # Whole-list retries are safe because both stores ignore members already in the cohort.
     # raise_on_error lets this task distinguish a retryable partial insert from final success.
     try:
+        cohort = Cohort.objects.get(pk=cohort_id)
+        if team_id is None:
+            team_id = cohort.team_id
+        if _static_population_obsolete(self, cohort):
+            return
+
         if id_type == "distinct_id":
             batch_count = cohort.insert_users_by_list(
                 items, team_id=team_id, raise_on_error=True, import_resolution=import_resolution
@@ -716,7 +744,7 @@ def calculate_cohort_from_list(
         processing_error = err
         if _is_final_attempt(self, _is_transient_population_error(err)):
             raise
-        retry = _schedule_population_retry(self, cohort, err, team_id=team_id)
+        retry = _schedule_population_retry(self, cohort_id, err, team_id=team_id)
         raise retry
     except BaseException as err:
         # A run the worker cut short (shutdown, revoke) failed; it must not stay in flight.
@@ -726,11 +754,11 @@ def calculate_cohort_from_list(
         # The batching helper finalizes success itself and leaves failure to this task, which has
         # to record it on every exit but a scheduled retry. That includes a retry whose broker
         # publish failed, where Celery raises Reject in place of Retry.
-        if processing_error is not None and retry is None:
-            cohort._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
+        if cohort is not None and processing_error is not None and retry is None:
+            cohort._safe_save_cohort_state(team_id=cohort.team_id, processing_error=processing_error)
     logger.warn(
         "Cohort {}: {:,} items in {} batches from CSV completed in {:.2f}s".format(
-            cohort.pk, len(items), batch_count, (time.time() - start_time)
+            cohort_id, len(items), batch_count, (time.time() - start_time)
         )
     )
 
@@ -755,24 +783,29 @@ def insert_cohort_from_query(self: Task, cohort_id: int, team_id: Optional[int] 
     """
     from products.cohorts.backend.models.util import insert_cohort_people_into_pg, insert_cohort_query_actors_into_ch
 
-    cohort = Cohort.objects.get(pk=cohort_id)
-    if team_id is None:
-        team_id = cohort.team_id
-    team = Team.objects.get(pk=team_id)
-    _tag_population_queries(self, cohort_id=cohort_id, team_id=team_id)
-
-    logger.info(
-        "insert_cohort_from_query_started",
-        cohort_id=cohort_id,
-        team_id=team_id,
-        query=cohort.query,
-    )
-
+    # The cohort this attempt marked is_calculating. Only that attempt finalizes the flag, so a
+    # skipped or never-started attempt leaves whoever owns it (the API, a newer calculation) alone.
+    claimed: Cohort | None = None
     processing_error: BaseException | None = None
     retry: Retry | None = None
     try:
+        cohort = Cohort.objects.get(pk=cohort_id)
+        if team_id is None:
+            team_id = cohort.team_id
+        if _static_population_obsolete(self, cohort):
+            return
+        team = Team.objects.get(pk=team_id)
+        _tag_population_queries(self, cohort_id=cohort_id, team_id=team_id)
+        logger.info(
+            "insert_cohort_from_query_started",
+            cohort_id=cohort_id,
+            team_id=team_id,
+            query=cohort.query,
+        )
+
         cohort.is_calculating = True
         cohort.save(update_fields=["is_calculating"])
+        claimed = cohort
         cohort.refresh_from_db()
 
         # The CH insert is idempotent: it excludes person_ids already in the cohort.
@@ -795,7 +828,7 @@ def insert_cohort_from_query(self: Task, cohort_id: int, team_id: Optional[int] 
     except Exception as err:
         processing_error = err
         if not _is_final_attempt(self, _is_transient_population_error(err)):
-            retry = _schedule_population_retry(self, cohort, err, team_id=team_id)
+            retry = _schedule_population_retry(self, cohort_id, err, team_id=team_id)
             raise retry
         logger.exception(
             "insert_cohort_from_query_failed",
@@ -814,15 +847,15 @@ def insert_cohort_from_query(self: Task, cohort_id: int, team_id: Optional[int] 
         # Every exit but a scheduled retry finalizes state, so a retry whose broker publish failed
         # (Celery raises Reject in place of Retry) records the failure instead of stranding the
         # cohort in flight. A scheduled retry keeps is_calculating set for the next attempt.
-        if retry is None:
-            cohort._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
-            cohort.refresh_from_db(fields=["is_calculating", "errors_calculating"])
+        if claimed is not None and retry is None:
+            claimed._safe_save_cohort_state(team_id=claimed.team_id, processing_error=processing_error)
+            claimed.refresh_from_db(fields=["is_calculating", "errors_calculating"])
             logger.info(
                 "insert_cohort_from_query_finished",
                 cohort_id=cohort_id,
-                team_id=team_id,
-                is_calculating=cohort.is_calculating,
-                errors_calculating=cohort.errors_calculating,
+                team_id=claimed.team_id,
+                is_calculating=claimed.is_calculating,
+                errors_calculating=claimed.errors_calculating,
             )
     if settings.DEBUG and processing_error is not None:
         raise processing_error
@@ -842,26 +875,30 @@ def insert_cohort_from_filters(self: Task, cohort_id: int, team_id: Optional[int
     """
     from products.cohorts.backend.models.util import insert_cohort_filter_actors_into_ch, insert_cohort_people_into_pg
 
-    if team_id is not None:
-        cohort = Cohort.objects.get(pk=cohort_id, team_id=team_id)
-    else:
-        cohort = Cohort.objects.get(pk=cohort_id)
-        team_id = cohort.team_id
-    team = Team.objects.get(pk=team_id)
-    _tag_population_queries(self, cohort_id=cohort_id, team_id=team_id)
-
-    logger.info(
-        "insert_cohort_from_filters_started",
-        cohort_id=cohort_id,
-        team_id=team_id,
-        filters=cohort.filters,
-    )
-
+    # See insert_cohort_from_query for the claimed / retry protocol.
+    claimed: Cohort | None = None
     processing_error: BaseException | None = None
     retry: Retry | None = None
     try:
+        if team_id is not None:
+            cohort = Cohort.objects.get(pk=cohort_id, team_id=team_id)
+        else:
+            cohort = Cohort.objects.get(pk=cohort_id)
+            team_id = cohort.team_id
+        if _static_population_obsolete(self, cohort):
+            return
+        team = Team.objects.get(pk=team_id)
+        _tag_population_queries(self, cohort_id=cohort_id, team_id=team_id)
+        logger.info(
+            "insert_cohort_from_filters_started",
+            cohort_id=cohort_id,
+            team_id=team_id,
+            filters=cohort.filters,
+        )
+
         cohort.is_calculating = True
         cohort.save(update_fields=["is_calculating"])
+        claimed = cohort
 
         insert_cohort_filter_actors_into_ch(cohort, team=team)
         logger.info(
@@ -879,7 +916,7 @@ def insert_cohort_from_filters(self: Task, cohort_id: int, team_id: Optional[int
     except Exception as err:
         processing_error = err
         if not _is_final_attempt(self, _is_transient_population_error(err)):
-            retry = _schedule_population_retry(self, cohort, err, team_id=team_id)
+            retry = _schedule_population_retry(self, cohort_id, err, team_id=team_id)
             raise retry
         logger.exception(
             "insert_cohort_from_filters_failed",
@@ -894,15 +931,15 @@ def insert_cohort_from_filters(self: Task, cohort_id: int, team_id: Optional[int
         raise
     finally:
         # Every exit but a scheduled retry finalizes state; see insert_cohort_from_query.
-        if retry is None:
-            cohort._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
-            cohort.refresh_from_db(fields=["is_calculating", "errors_calculating"])
+        if claimed is not None and retry is None:
+            claimed._safe_save_cohort_state(team_id=claimed.team_id, processing_error=processing_error)
+            claimed.refresh_from_db(fields=["is_calculating", "errors_calculating"])
             logger.info(
                 "insert_cohort_from_filters_finished",
                 cohort_id=cohort_id,
-                team_id=team_id,
-                is_calculating=cohort.is_calculating,
-                errors_calculating=cohort.errors_calculating,
+                team_id=claimed.team_id,
+                is_calculating=claimed.is_calculating,
+                errors_calculating=claimed.errors_calculating,
             )
     if settings.DEBUG and processing_error is not None:
         raise processing_error

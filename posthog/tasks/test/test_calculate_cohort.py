@@ -75,6 +75,7 @@ def _rpc_error(code: grpc.StatusCode) -> grpc.RpcError:
 QUERY_CH_INSERT_PATH = "products.cohorts.backend.models.util.insert_cohort_query_actors_into_ch"
 FILTERS_CH_INSERT_PATH = "products.cohorts.backend.models.util.insert_cohort_filter_actors_into_ch"
 PG_SYNC_PATH = "products.cohorts.backend.models.util.insert_cohort_people_into_pg"
+COHORT_READ_PATH = "posthog.tasks.calculate_cohort.Cohort.objects.get"
 
 
 def calculate_cohort_test_factory(event_factory: Callable, person_factory: Callable):  # type: ignore
@@ -1522,6 +1523,7 @@ class TestCohortCalculationTasks(APIBaseTest):
                 insert_cohort_from_query,
                 QUERY_CH_INSERT_PATH,
                 0,
+                PG_SYNC_PATH,
                 lambda: _rpc_error(grpc.StatusCode.UNAVAILABLE),
                 True,
             ),
@@ -1530,6 +1532,7 @@ class TestCohortCalculationTasks(APIBaseTest):
                 insert_cohort_from_filters,
                 FILTERS_CH_INSERT_PATH,
                 0,
+                PG_SYNC_PATH,
                 lambda: _rpc_error(grpc.StatusCode.UNAVAILABLE),
                 True,
             ),
@@ -1538,7 +1541,17 @@ class TestCohortCalculationTasks(APIBaseTest):
                 insert_cohort_from_query,
                 QUERY_CH_INSERT_PATH,
                 0,
+                PG_SYNC_PATH,
                 lambda: _rpc_error(grpc.StatusCode.RESOURCE_EXHAUSTED),
+                True,
+            ),
+            (
+                "query_personhog_query_error",
+                insert_cohort_from_query,
+                QUERY_CH_INSERT_PATH,
+                0,
+                PG_SYNC_PATH,
+                lambda: _rpc_error(grpc.StatusCode.INTERNAL),
                 True,
             ),
             (
@@ -1546,6 +1559,16 @@ class TestCohortCalculationTasks(APIBaseTest):
                 insert_cohort_from_query,
                 QUERY_CH_INSERT_PATH,
                 0,
+                PG_SYNC_PATH,
+                lambda: OperationalError("server closed the connection unexpectedly"),
+                True,
+            ),
+            (
+                "query_postgres_dropped_on_first_read",
+                insert_cohort_from_query,
+                QUERY_CH_INSERT_PATH,
+                0,
+                COHORT_READ_PATH,
                 lambda: OperationalError("server closed the connection unexpectedly"),
                 True,
             ),
@@ -1554,6 +1577,7 @@ class TestCohortCalculationTasks(APIBaseTest):
                 insert_cohort_from_query,
                 QUERY_CH_INSERT_PATH,
                 STATIC_POPULATION_MAX_RETRIES,
+                PG_SYNC_PATH,
                 lambda: _rpc_error(grpc.StatusCode.UNAVAILABLE),
                 False,
             ),
@@ -1562,26 +1586,30 @@ class TestCohortCalculationTasks(APIBaseTest):
                 insert_cohort_from_filters,
                 FILTERS_CH_INSERT_PATH,
                 STATIC_POPULATION_MAX_RETRIES,
+                PG_SYNC_PATH,
                 lambda: _rpc_error(grpc.StatusCode.UNAVAILABLE),
                 False,
             ),
         ]
     )
-    def test_static_population_transient_sync_failure(
+    def test_static_population_transient_failure(
         self,
         _name: str,
         task: Task,
         ch_insert_path: str,
         retries: int,
+        failing_path: str,
         error_factory: Callable[[], Exception],
         will_retry: bool,
     ) -> None:
-        cohort = Cohort.objects.create(team=self.team, name="static cohort", is_static=True)
+        # The enqueue site flips is_calculating before it dispatches, so a retry pending on the first
+        # read must leave that flag alone rather than clear it.
+        cohort = Cohort.objects.create(team=self.team, name="static cohort", is_static=True, is_calculating=True)
         task.push_request(retries=retries, called_directly=False, is_eager=True)
         try:
             with (
                 patch(ch_insert_path),
-                patch(PG_SYNC_PATH, side_effect=error_factory()),
+                patch(failing_path, side_effect=error_factory()),
                 self.assertRaises(Retry) if will_retry else nullcontext(),
             ):
                 task.run(cohort.id, self.team.pk)
@@ -1593,6 +1621,29 @@ class TestCohortCalculationTasks(APIBaseTest):
         self.assertEqual(cohort.errors_calculating, 0 if will_retry else 1)
         self.assertIsNone(cohort.last_calculation)
         self.assertIsNotNone(cohort.last_error_at)
+
+    @parameterized.expand(
+        [
+            ("query_flipped_to_dynamic", insert_cohort_from_query, QUERY_CH_INSERT_PATH, {"is_static": False}),
+            ("filters_flipped_to_dynamic", insert_cohort_from_filters, FILTERS_CH_INSERT_PATH, {"is_static": False}),
+            ("query_deleted", insert_cohort_from_query, QUERY_CH_INSERT_PATH, {"is_static": True, "deleted": True}),
+        ]
+    )
+    def test_static_population_skips_an_obsolete_cohort(
+        self, _name: str, task: Task, ch_insert_path: str, cohort_state: dict[str, bool]
+    ) -> None:
+        # Flipping a static cohort to dynamic hands is_calculating to calculate_cohort_ch. An attempt
+        # that wakes from its backoff afterwards must neither write members nor finalize that flag.
+        cohort = Cohort.objects.create(team=self.team, name="static cohort", is_calculating=True, **cohort_state)
+
+        with patch(ch_insert_path) as mock_insert_ch, patch(PG_SYNC_PATH) as mock_sync:
+            task(cohort.id, self.team.pk)
+
+        mock_insert_ch.assert_not_called()
+        mock_sync.assert_not_called()
+        cohort.refresh_from_db()
+        self.assertTrue(cohort.is_calculating)
+        self.assertIsNone(cohort.last_calculation)
 
     @parameterized.expand(
         [
@@ -1904,6 +1955,11 @@ class TestCalculateCohortFromListRetries(APIBaseTest):
                 "products.cohorts.backend.models.util.insert_cohort_members",
                 lambda: _rpc_error(grpc.StatusCode.UNAVAILABLE),
             ),
+            (
+                "postgres_on_first_read",
+                COHORT_READ_PATH,
+                lambda: OperationalError("server closed the connection unexpectedly"),
+            ),
         ]
     )
     def test_leaves_state_untouched_while_retries_remain(
@@ -1919,6 +1975,19 @@ class TestCalculateCohortFromListRetries(APIBaseTest):
         self.assertTrue(cohort.is_calculating)
         self.assertEqual(cohort.errors_calculating, 0)
         self.assertIsNotNone(cohort.last_error_at)
+
+    def test_skips_a_cohort_flipped_to_dynamic(self) -> None:
+        create_person(team=self.team, distinct_ids=["user123"])
+        cohort = self._create_static_cohort()
+        Cohort.objects.filter(pk=cohort.pk).update(is_static=False)
+
+        with patch("products.cohorts.backend.models.util.insert_static_cohort") as mock_insert_ch:
+            self._run_task(cohort, retries=0, called_directly=False)
+
+        mock_insert_ch.assert_not_called()
+        cohort.refresh_from_db()
+        self.assertTrue(cohort.is_calculating)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 0)
 
     def test_records_failure_when_retry_cannot_be_published(self) -> None:
         create_person(team=self.team, distinct_ids=["user123"])
