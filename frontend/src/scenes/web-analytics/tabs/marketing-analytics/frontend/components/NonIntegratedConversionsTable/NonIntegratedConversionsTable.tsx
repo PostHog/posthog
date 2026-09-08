@@ -71,8 +71,12 @@ export const NonIntegratedConversionsTable = (): JSX.Element | null => {
             NonIntegratedConversionsColumnsSchemaNames.Campaign,
         ]
 
-        // Add conversion goal columns (including draft if present)
-        const conversionGoalColumns = allConversionGoals.map((goal) => goal.conversion_goal_name)
+        // Add conversion goal columns (including draft if present).
+        // Stored goals can lack a name; those produce no column and must be dropped, or
+        // the query sends an undefined column and the backend rejects it.
+        const conversionGoalColumns = allConversionGoals
+            .map((goal) => goal.conversion_goal_name)
+            .filter((name): name is string => !!name)
 
         return [...baseColumns, ...conversionGoalColumns]
     }, [allConversionGoals])

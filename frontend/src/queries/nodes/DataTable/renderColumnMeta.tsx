@@ -33,6 +33,12 @@ export function renderColumnMeta<T extends DataVisualizationNode | DataTableNode
     query: T,
     context?: QueryContext<T>
 ): ColumnMeta {
+    // A column list can contain a non-string entry when a query is built with a gap (e.g. an
+    // unnamed conversion goal). Return empty meta rather than calling string methods on it, so
+    // one bad column cannot crash the whole table.
+    if (typeof key !== 'string') {
+        return {}
+    }
     let width: string | number | undefined
     let title: JSX.Element | string | undefined
     const queryFeatures = getQueryFeatures(query.source)

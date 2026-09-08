@@ -142,11 +142,17 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
                 // cost can't be attributed to a specific UTM value.
                 const costAvailable = !effectiveExcluded.has(MarketingAnalyticsBaseColumns.Cost)
 
+                // Stored goals can lack a name; without one they yield no column and an unnamed goal
+                // would otherwise emit an undefined or "Cost per undefined" column. The backend skips
+                // these goals too, so any column derived from one just vanishes from the table. Filter
+                // once and drive every goal-derived column from this list.
+                const namedConversionGoals = conversionGoals.filter((goal) => !!goal.conversion_goal_name)
+
                 // At ad-group / ad levels, events can't be attributed to a specific ad so
                 // conversion goals are dropped entirely.
                 const conversionGoalColumns = config.excludesConversionGoals
                     ? []
-                    : conversionGoals
+                    : namedConversionGoals
                           .map((goal) =>
                               costAvailable
                                   ? [
@@ -169,11 +175,11 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
                 // contributes its paired count column rather than its value.
                 const roasColumn =
                     returnMetricsAvailable &&
-                    conversionGoals.some((goal) => goal.counts_as_revenue && goalSumsAProperty(goal))
+                    namedConversionGoals.some((goal) => goal.counts_as_revenue && goalSumsAProperty(goal))
                         ? [MarketingAnalyticsConstants.Roas]
                         : []
                 const cacColumn =
-                    returnMetricsAvailable && conversionGoals.some((goal) => goal.counts_as_customer)
+                    returnMetricsAvailable && namedConversionGoals.some((goal) => goal.counts_as_customer)
                         ? [`${MarketingAnalyticsConstants.CostPer} ${MarketingAnalyticsConstants.Customer}`]
                         : []
 

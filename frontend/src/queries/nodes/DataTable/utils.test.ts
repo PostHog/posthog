@@ -17,6 +17,8 @@ describe('DataTable utils', () => {
         expect(extractExpressionComment('')).toBe('')
         expect(extractExpressionComment('asd -- bla')).toBe('bla')
         expect(extractExpressionComment('asd -- asd --   bla  ')).toBe('bla')
+        // A non-string column key (e.g. from a query built with a gap) must not throw during render.
+        expect(extractExpressionComment(undefined as unknown as string)).toBeUndefined()
     })
 
     it.each([
@@ -82,6 +84,8 @@ describe('DataTable utils', () => {
         expect(removeExpressionComment('asd -- bla')).toBe('asd')
         expect(removeExpressionComment('asd -- asd --   bla  ')).toBe('asd -- asd')
         expect(removeExpressionComment(' hoho trim  -- trim')).toBe('hoho trim')
+        // A non-string column key (e.g. from a query built with a gap) must not throw during render.
+        expect(removeExpressionComment(undefined as unknown as string)).toBeUndefined()
     })
 
     it('defaultDataTablePersonColumns does not include last_seen_at', () => {
