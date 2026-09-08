@@ -42,7 +42,7 @@ function buildFilters(withFlagDependency: boolean, groupCount = 1): FeatureFlagT
     return { groups, multivariate: null, payloads: {} }
 }
 
-const CAVEAT = 'This estimate leaves out the flag dependency in this condition.'
+const CAVEAT = 'This estimate and the list of matching users both leave out the flag dependency in this condition.'
 const COUNT_CAVEAT_MARKER = 'flag-dependency-condition-count-caveat'
 
 describe('feature flag release conditions flag dependency estimate caveat', () => {

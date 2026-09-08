@@ -30,8 +30,9 @@ export function FlagDependencyEstimateCaveat({
         <div className="flex items-start gap-1 mt-1">
             <IconInfo className="shrink-0 mt-0.5" />
             <span>
-                This estimate leaves out the flag {dependencyCount === 1 ? 'dependency' : 'dependencies'} in this
-                condition. Fewer {targetName} may match than shown.
+                This estimate and the list of matching {targetName} both leave out the flag{' '}
+                {dependencyCount === 1 ? 'dependency' : 'dependencies'} in this condition. Fewer {targetName} may match
+                than shown.
             </span>
         </div>
     )
