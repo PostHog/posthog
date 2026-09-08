@@ -1098,6 +1098,58 @@ describe('subscriptionLogic', () => {
         raceLogic.unmount()
     })
 
+    it('creates one subscription when the create button is clicked twice during a context prefill', async () => {
+        // The submit button is not in its loading state while the prefill waits, so a second click
+        // gets through. Each create also sends a test report, so the superseded submit must not
+        // reach the API.
+        let releaseInsightLookup: () => void = () => {}
+        const insightLookup = new Promise<void>((resolve) => {
+            releaseInsightLookup = resolve
+        })
+        let createCount = 0
+        useMocks({
+            get: {
+                '/api/environments/:team/insights/': async () => {
+                    await insightLookup
+                    return [200, { results: [{ id: 12 }] }]
+                },
+            },
+            post: {
+                '/api/projects/:team/subscriptions': async ({ request }) => {
+                    createCount += 1
+                    return [
+                        200,
+                        { id: 46, ...((await request.json()) as Partial<SubscriptionType>) } as SubscriptionType,
+                    ]
+                },
+            },
+        })
+        const doubleSubmitLogic = subscriptionLogic({
+            id: 'new',
+            insightShortId: 'signup-conversion' as InsightShortId,
+            insightName: 'Signup conversion',
+        })
+        doubleSubmitLogic.mount()
+        router.actions.push('/insights/signup-conversion/subscriptions/new')
+        await expectLogic(doubleSubmitLogic).toFinishAllListeners()
+
+        doubleSubmitLogic.actions.setSubscriptionValue('resource_type', 'ai_prompt')
+        doubleSubmitLogic.actions.setSubscriptionValues({
+            prompt: 'Compare activation and signup conversion',
+            title: 'Activation report',
+            target_type: 'email',
+            target_value: 'reports@example.com',
+        })
+
+        doubleSubmitLogic.actions.submitSubscription()
+        doubleSubmitLogic.actions.submitSubscription()
+        releaseInsightLookup()
+        await expectLogic(doubleSubmitLogic).toFinishAllListeners().toDispatchActions(['submitSubscriptionSuccess'])
+
+        expect(createCount).toBe(1)
+        doubleSubmitLogic.unmount()
+    })
+
     it('does not report a failed context prefill after the form unmounts', async () => {
         let rejectInsightLookup: (error: Error) => void = () => {}
         const insightLookup = new Promise<never>((_, reject) => {

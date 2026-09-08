@@ -701,8 +701,13 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             // kea-forms snapshots the form before it calls submit, so waiting there would delay the
             // request without picking up a context the prefill is still fetching. preSubmit runs
             // before that snapshot is taken.
-            preSubmit: async () => {
+            preSubmit: async (_subscription, breakpoint) => {
                 await (cache.contextPrefillPromise as Promise<void> | undefined)
+                // kea-forms marks the form as submitting only after this returns, so the submit
+                // button stays clickable for the whole wait. The breakpoint cancels every submit a
+                // later click superseded, so a second click cannot create a duplicate subscription
+                // and send a duplicate test report.
+                breakpoint()
             },
             submit: async (subscription, breakpoint) => {
                 const isAi = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
