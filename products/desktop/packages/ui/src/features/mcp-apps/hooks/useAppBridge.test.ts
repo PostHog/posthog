@@ -17,9 +17,6 @@ const { bridgeInstances, createMockAppBridge } = vi.hoisted(() => {
     close = vi.fn().mockResolvedValue(undefined);
   }
   const bridgeInstances: MockAppBridge[] = [];
-  // Named function, not an inline arrow — `new AppBridge()` needs a real
-  // constructor, and an autofixer would otherwise rewrite an inline one
-  // back into a non-constructible arrow function.
   function createMockAppBridge() {
     const instance = new MockAppBridge();
     bridgeInstances.push(instance);
@@ -45,10 +42,6 @@ vi.mock("../../message-editor/draftStore", () => ({
   },
 }));
 
-// The hook waits for a real `message` event from the proxy iframe before it
-// builds a bridge. jsdom won't let a test forge `MessageEvent.source` to
-// match `iframe.contentWindow`, so this captures the listener the hook's
-// effect registers and invokes it directly with a fake event.
 let latestMessageListener: ((event: MessageEvent) => void) | undefined;
 
 beforeEach(() => {
@@ -132,15 +125,12 @@ describe("useAppBridge", () => {
     expect(bridgeInstances).toHaveLength(1);
     const firstBridge = bridgeInstances[0];
 
-    // Queued before the app's own handshake completes — not yet initialized,
-    // so this only reaches `pendingRef`, not `sendToolResult`.
+    // Not yet initialized, so this only reaches `pendingRef`.
     act(() => {
       result.current.sendResultOnce("tc-1", { content: [] });
     });
     expect(firstBridge.sendToolResult).not.toHaveBeenCalled();
 
-    // A `uiResource` identity change (e.g. an MCP discovery refetch) tears
-    // the bridge down before it ever flushed the queued result.
     rerender(baseArgs({ uiResource: makeResource("ui://posthog/other.html") }));
 
     await act(async () => {
@@ -149,8 +139,6 @@ describe("useAppBridge", () => {
     expect(bridgeInstances).toHaveLength(2);
     const secondBridge = bridgeInstances[1];
 
-    // The retry (the exec-replay effect, or `oninitialized`'s own remount
-    // catch-up) must not be blocked by a flag that survived the teardown.
     act(() => {
       result.current.sendResultOnce("tc-1", { content: [] });
     });
@@ -185,9 +173,6 @@ describe("useAppBridge", () => {
   });
 
   it("sends an already-completed tool call's result once the app initializes", async () => {
-    // A row that only ever renders once its result is known (e.g. a chart pulled out of a
-    // collapsed tool-call group) mounts with `rawOutput` already set on the very first render —
-    // nothing else has queued a result yet when the app finishes its own handshake.
     renderHook((props) => useAppBridge(props), {
       initialProps: baseArgs({
         toolCall: makeToolCall({ rawOutput: { content: [] } }),
@@ -207,8 +192,6 @@ describe("useAppBridge", () => {
   });
 
   it("does not double-deliver when a result was already queued before the app initializes", async () => {
-    // Reproduces the bug: the exec-replay effect queues the result as soon as it mounts, then
-    // `oninitialized`'s own remount catch-up sent it again with no dedup against that queue.
     const { result } = renderHook((props) => useAppBridge(props), {
       initialProps: baseArgs({
         toolCall: makeToolCall({ rawOutput: { content: [] } }),

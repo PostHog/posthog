@@ -47,9 +47,6 @@ export function toCallToolResult(raw: unknown): CallToolResult {
   if (raw != null && typeof raw === "object" && "content" in raw) {
     const obj = raw as { content: unknown };
     if (Array.isArray(obj.content)) {
-      // Sources like the Codex app-server materialize absent MCP optionals as
-      // explicit nulls; the app-side zod schema rejects those (see
-      // omitNullCallToolResultFields), so strip them before delivery.
       return omitNullCallToolResultFields(raw as CallToolResult);
     }
     // content exists but isn't an array — normalize to text block array

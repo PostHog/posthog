@@ -62,12 +62,8 @@ interface UseAppBridgeArgs {
 interface UseAppBridgeReturn {
   sendWhenReady: (fn: (bridge: AppBridge) => void) => void;
   /**
-   * Delivers a tool result at most once per `toolCallId`, deduplicating
-   * across the redundant callers that can race for the same result (the
-   * live subscription and the exec-replay effect). The "already sent" flag
-   * is a bridge-scoped ref so a bridge teardown (e.g. from a `uiResource`
-   * refetch racing a not-yet-flushed queue) clears it too — otherwise a
-   * result queued right before teardown is lost with no way to retry.
+   * Delivers a tool result at most once per `toolCallId`; the sent flag is
+   * bridge-scoped, so a teardown lets the next bridge redeliver it.
    */
   sendResultOnce: (toolCallId: string, raw: unknown) => void;
 }
@@ -156,10 +152,6 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
     containerWidth: number;
   } | null>(null);
 
-  // Declared ahead of the main lifecycle effect (below) so `oninitialized`'s
-  // remount catch-up can route through `sendResultOnce` instead of sending
-  // directly — both are stable across renders (`sendWhenReady` has no deps,
-  // and `sendResultOnce` depends only on it), so capturing them here is safe.
   const sendWhenReady = useCallback((fn: (bridge: AppBridge) => void) => {
     if (initializedRef.current && bridgeRef.current) {
       fn(bridgeRef.current);
@@ -315,15 +307,8 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
             });
           }
 
-          // If the tool already completed — a remount after scrolling back
-          // into the virtualized list, or the first mount of a row whose
-          // result arrived before the bridge finished initializing — send
-          // the result now instead of waiting on a subscription event that
-          // already fired (or never will, for a call that resolved before
-          // this component existed). Routed through `sendResultOnce` so this
-          // can't double-send: the exec-replay effect may have already
-          // queued the same result in `pendingRef` below, and both paths
-          // share the `sentResultForCallRef` guard.
+          // Remount after scrolling back into the virtualized list: the
+          // subscription event already fired, so send the stored result.
           if (
             tc.rawOutput &&
             (tc.status === "completed" || tc.status === "failed")
@@ -389,12 +374,11 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
       initializedRef.current = false;
       prevContextRef.current = null;
       pendingRef.current = [];
-      // A result queued against this bridge is gone with it — clearing the
-      // flag lets the next bridge (or `oninitialized`'s own remount replay)
-      // legitimately redeliver instead of silently dropping it forever.
+      // Queued results die with this bridge; let the next bridge redeliver.
       sentResultForCallRef.current = null;
     };
-  }, [iframeEl, uiResource, args.serverName, sendResultOnce]); // Only re-run when iframe element or resource identity changes (sendResultOnce is referentially stable)
+    // Only re-runs on iframe/resource identity; sendResultOnce is referentially stable.
+  }, [iframeEl, uiResource, args.serverName, sendResultOnce]);
 
   // Host context change effect — sends deltas when theme/displayMode/containerWidth change
   useEffect(() => {

@@ -70,15 +70,6 @@ export function readParentToolCallId(meta: unknown): string | undefined {
   return typeof legacy === "string" && legacy.length > 0 ? legacy : undefined;
 }
 
-/**
- * Optional MCP `CallToolResult` fields that hosts and apps type as
- * `.optional()`. A payload that carries one of these as an explicit `null` is
- * rejected by the app-side zod schema, which drops the whole tool result and
- * leaves the app on its loading state. Sources that model the fields as
- * nullable can emit such a payload: the Codex app-server serializes an
- * absent MCP optional as JSON `null`. Call this where a raw MCP result enters
- * the desktop, and before one is handed to an MCP App.
- */
 const CALL_TOOL_RESULT_OPTIONAL_KEYS = [
   "structuredContent",
   "isError",
@@ -86,8 +77,11 @@ const CALL_TOOL_RESULT_OPTIONAL_KEYS = [
 ] as const;
 
 /**
- * Return `result` with optional `CallToolResult` fields removed when they are
- * `null`. Absent keys stay absent, non-null values pass through unchanged.
+ * Some sources (the Codex app-server) serialize absent optional
+ * `CallToolResult` fields as JSON `null`. The app-side zod schema types them
+ * `.optional()`, not nullable, so an explicit null fails validation and drops
+ * the whole tool result, leaving the app on its loading state. Call this
+ * before a raw MCP result reaches an MCP App.
  */
 export function omitNullCallToolResultFields<T>(result: T): T {
   if (result == null || typeof result !== "object") return result;

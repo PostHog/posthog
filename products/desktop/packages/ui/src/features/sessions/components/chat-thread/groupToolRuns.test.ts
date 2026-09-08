@@ -123,9 +123,8 @@ describe("groupToolRuns", () => {
   });
 
   it("keeps a chart-rendering tool call out of the chip so its UI app never hides behind it", () => {
-    // Reproduces the bug: a tool call whose result renders a chart, sitting between other tool
-    // calls, used to fold into the group, which collapses to "Thinking…" while a later tool in
-    // the run is still live — hiding the already-rendered chart.
+    // The group collapses to "Thinking…" while a later call in the run is live,
+    // hiding the already-rendered chart.
     const chartCall = toolItem("chart", { toolCallId: "chart" });
     chartCall.turnContext.toolCalls.set("chart", {
       toolCallId: "chart",
@@ -154,9 +153,6 @@ describe("groupToolRuns", () => {
   });
 
   it("still groups an MCP tool call whose result has no UI app", () => {
-    // Regression guard: Codex routes every underlying tool through one inline-exec wrapper, so a
-    // check keyed on "is this an MCP tool" (rather than "does its result render a chart") would
-    // pull every exec call out of grouping and leave the whole thread ungrouped and noisy.
     const execCall = toolItem("exec", {
       toolCallId: "exec",
       _meta: posthogToolMeta({
