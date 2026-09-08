@@ -822,6 +822,9 @@ tests:
     test:e2e:
         bin_script: e2e-test-runner
         description: Set up test databases and run Playwright E2E tests
+    test:e2e:ai:
+        cmd: python -m products.posthog_ai.frontend.e2e.launcher
+        description: Run AI browser recovery tests with isolated sandboxes and replayed model responses
     test:workflows:
         cmd: pnpm --filter @posthog/workflow-plan test
         description: Check which jobs of .github/workflows run per PR/push/schedule scenario against the pinned expectations
