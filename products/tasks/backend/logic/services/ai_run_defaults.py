@@ -305,6 +305,36 @@ def update_team_ai_run_preferences(
     return payload
 
 
+def get_team_analysis_run_preferences(team_id: int) -> dict[str, str]:
+    """The stored triple for task-analysis runs ({} when unset, meaning the built-in analysis model)."""
+    prefs = (
+        TeamTasksConfig.objects.filter(team_id=_canonical_team_id(team_id))
+        .values_list("analysis_run_preferences", flat=True)
+        .first()
+    )
+    return dict(prefs or {})
+
+
+def update_team_analysis_run_preferences(
+    team_id: int,
+    *,
+    runtime_adapter: str | None,
+    model: str | None,
+    reasoning_effort: str | None,
+) -> dict[str, str]:
+    """Validate and store the triple task-analysis runs launch with; returns the stored payload.
+
+    Raises `django.core.exceptions.ValidationError` on an inconsistent triple.
+    """
+    validate_ai_run_preferences(runtime_adapter, model, reasoning_effort)
+    payload = build_ai_run_preferences_payload(runtime_adapter, model, reasoning_effort)
+    team = Team.objects.get(id=_canonical_team_id(team_id))
+    config = get_or_create_team_extension(team, TeamTasksConfig)
+    config.analysis_run_preferences = payload
+    config.save(update_fields=["analysis_run_preferences", "updated_at"])
+    return payload
+
+
 def get_user_ai_run_preferences(team_id: int, user_id: int) -> dict[str, str]:
     """The stored per-(user, project) preference payload ({} when unset)."""
     canonical_team_id = _canonical_team_id(team_id)
@@ -345,10 +375,12 @@ __all__ = [
     "ResolvedAIRunConfig",
     "build_ai_run_preferences_payload",
     "get_team_ai_run_preferences",
+    "get_team_analysis_run_preferences",
     "get_user_ai_run_preferences",
     "resolve_ai_run_defaults",
     "resolve_ai_run_selection",
     "update_team_ai_run_preferences",
+    "update_team_analysis_run_preferences",
     "update_user_ai_run_preferences",
     "validate_ai_run_preferences",
     "validate_ai_run_preferences_payload",

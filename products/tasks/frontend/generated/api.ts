@@ -43,6 +43,7 @@ import type {
     PaginatedLoopDTOListApi,
     PaginatedSandboxCustomImageDTOListApi,
     PaginatedSandboxEnvironmentDTOListApi,
+    PaginatedTaskAnalysisRunListApi,
     PaginatedTaskDetailDTOListApi,
     PaginatedTaskMentionDTOListApi,
     PaginatedTaskRunDetailDTOListApi,
@@ -134,6 +135,9 @@ import type {
     TaskUsageResponseApi,
     TaskWriteApi,
     TasksAIRunPreferencesApi,
+    TasksAnalysisConfigListParams,
+    TasksAnalysisConfigResponseApi,
+    TasksAnalysisRunsListParams,
     TasksCommentsListParams,
     TasksCommentsRetrieveParams,
     TasksConfigListParams,
@@ -2689,6 +2693,86 @@ export const tasksActiveWizardRunRetrieve = async (
     options?: RequestInit
 ): Promise<WizardCloudRunDTOApi | void> => {
     return apiMutator<WizardCloudRunDTOApi | void>(getTasksActiveWizardRunRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksAnalysisConfigListUrl = (projectId: string, params?: TasksAnalysisConfigListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/analysis/config/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/analysis/config/`
+}
+
+/**
+ * Retrieve the model triple task-analysis runs launch with for this project.
+ */
+export const tasksAnalysisConfigList = async (
+    projectId: string,
+    params?: TasksAnalysisConfigListParams,
+    options?: RequestInit
+): Promise<TasksAnalysisConfigResponseApi> => {
+    return apiMutator<TasksAnalysisConfigResponseApi>(getTasksAnalysisConfigListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksAnalysisConfigCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/analysis/config/`
+}
+
+/**
+ * Set the model triple task-analysis runs launch with for this project. Send all fields as null to return to the built-in analysis model.
+ */
+export const tasksAnalysisConfigCreate = async (
+    projectId: string,
+    tasksAIRunPreferencesApi?: TasksAIRunPreferencesApi,
+    options?: RequestInit
+): Promise<TasksAnalysisConfigResponseApi> => {
+    return apiMutator<TasksAnalysisConfigResponseApi>(getTasksAnalysisConfigCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tasksAIRunPreferencesApi),
+    })
+}
+
+export const getTasksAnalysisRunsListUrl = (projectId: string, params?: TasksAnalysisRunsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/analysis/runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/analysis/runs/`
+}
+
+/**
+ * List the project's task-analysis runs, newest first, with the activities each one reported.
+ */
+export const tasksAnalysisRunsList = async (
+    projectId: string,
+    params?: TasksAnalysisRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedTaskAnalysisRunListApi> => {
+    return apiMutator<PaginatedTaskAnalysisRunListApi>(getTasksAnalysisRunsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

@@ -32,7 +32,7 @@ def _user_id(request: Request) -> int:
     return cast(User, request.user).id
 
 
-def _validated_triple(request: Request) -> dict:
+def validated_preference_triple(request: Request) -> dict:
     serializer = TasksAIRunPreferencesSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     triple = serializer.validated_data
@@ -77,7 +77,7 @@ class TasksTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
-        triple = _validated_triple(request)
+        triple = validated_preference_triple(request)
         try:
             payload = ai_run_defaults.update_team_ai_run_preferences(self.team_id, **triple)
         except DjangoValidationError as e:
@@ -130,7 +130,7 @@ class TasksUserConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
-        triple = _validated_triple(request)
+        triple = validated_preference_triple(request)
         try:
             payload = ai_run_defaults.update_user_ai_run_preferences(self.team_id, _user_id(request), **triple)
         except DjangoValidationError as e:

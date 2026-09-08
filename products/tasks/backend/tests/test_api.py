@@ -48,6 +48,7 @@ from products.tasks.backend.facade import (
 )
 from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskArtifactType
+from products.tasks.backend.logic.services.ai_run_defaults import update_team_analysis_run_preferences
 from products.tasks.backend.logic.services.code_usage_gate import (
     CodeUsageStatus,
     _gateway_usage_url,
@@ -14173,6 +14174,20 @@ class TestTaskRunAnalyzeAPI(BaseTaskAPITest):
         mock_dispatch.assert_called_once()
         self.assertEqual(run.state["pending_dispatch"]["posthog_mcp_scopes"], "read_only")
 
+    def test_analyze_launches_with_the_stored_analysis_triple(self):
+        update_team_analysis_run_preferences(
+            self.team.id, runtime_adapter="claude", model="claude-opus-4-8", reasoning_effort="medium"
+        )
+        read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
+        with read_p, write_p, tag_p, dispatch_p:
+            response = self._analyze()
+
+        run = Task.objects.get(id=response.json()["analysis_task_id"]).latest_run
+        assert run is not None
+        self.assertEqual(run.state["runtime_adapter"], "claude")
+        self.assertEqual(run.state["model"], "claude-opus-4-8")
+        self.assertEqual(run.state["reasoning_effort"], "medium")
+
     def test_flagged_user_can_analyze_a_teammate_public_task(self):
         teammate = self.create_organization_user("teammate")
         channel = Channel.objects.unscoped().create(
@@ -14596,6 +14611,25 @@ class TestTaskAnalysisActivityReporting(_TaskAnalysisReportingTestBase):
         self.assertEqual(props["activity_index"], 0)
         self.assertEqual(props["repository"], "posthog/posthog")
         self.assertEqual(props["analysis_target_repository"], "posthog/posthog")
+
+    def test_the_runs_list_shows_analysis_runs_with_their_activities(self):
+        TaskRun.objects.create(
+            task=Task.objects.create(team=self.team, created_by=self.user, title="Not an analysis", description="x"),
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+        )
+        with patch("products.tasks.backend.models.posthoganalytics.capture"):
+            self._post(self._activity())
+
+        response = self.client.get("/api/projects/@current/tasks/analysis/runs/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        rows = response.json()["results"]
+        self.assertEqual([row["id"] for row in rows], [str(self.analysis_run.id)])
+        self.assertEqual(rows[0]["status"], "in_progress")
+        self.assertEqual(rows[0]["target_run_id"], self.analysis_run.state["analysis_target_run_id"])
+        self.assertEqual(rows[0]["target_repository"], "posthog/posthog")
+        self.assertEqual([a["blocker_name"] for a in rows[0]["activities"]], ["postgres"])
 
     def test_run_patch_cannot_write_activities(self):
         response = self.client.patch(

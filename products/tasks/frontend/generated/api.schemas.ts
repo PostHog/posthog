@@ -4364,6 +4364,105 @@ export interface WizardCloudRunDTOApi {
 }
 
 /**
+ * Team-level task-analysis configuration.
+ */
+export interface TasksAnalysisConfigResponseApi {
+    /** The triple task-analysis runs launch with; all fields null when unset, meaning the built-in analysis model. */
+    analysis_run_preferences: TasksAIRunPreferencesApi
+}
+
+/**
+ * * `not_started` - Not Started
+ * * `queued` - Queued
+ * * `in_progress` - In Progress
+ * * `completed` - Completed
+ * * `failed` - Failed
+ * * `cancelled` - Cancelled
+ */
+export type TaskRunStatusEnumApi = (typeof TaskRunStatusEnumApi)[keyof typeof TaskRunStatusEnumApi]
+
+export const TaskRunStatusEnumApi = {
+    NotStarted: 'not_started',
+    Queued: 'queued',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
+
+/**
+ * One PostHog-funded task-analysis run, flattened for the analysis explorer.
+ */
+export interface TaskAnalysisRunApi {
+    /** The analysis run id. */
+    id: string
+    /** The analysis task the run belongs to. */
+    task_id: string
+    /** Current status of the analysis run.
+     *
+     * * `not_started` - Not Started
+     * * `queued` - Queued
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled */
+    status: TaskRunStatusEnumApi
+    /** When the analysis run was created. */
+    created_at: string
+    /**
+     * When the analysis run reached a terminal status.
+     * @nullable
+     */
+    completed_at: string | null
+    /**
+     * Error message when the analysis run failed.
+     * @nullable
+     */
+    error_message: string | null
+    /**
+     * Runtime adapter the analysis ran with.
+     * @nullable
+     */
+    runtime_adapter: string | null
+    /**
+     * Model the analysis ran with.
+     * @nullable
+     */
+    model: string | null
+    /**
+     * Reasoning effort the analysis ran with.
+     * @nullable
+     */
+    reasoning_effort: string | null
+    /**
+     * The task whose run was analyzed.
+     * @nullable
+     */
+    target_task_id: string | null
+    /**
+     * The run that was analyzed.
+     * @nullable
+     */
+    target_run_id: string | null
+    /**
+     * Repository of the analyzed task, when set.
+     * @nullable
+     */
+    target_repository: string | null
+    /** Activity records the analysis reported, in log order. */
+    activities: TaskRunAnalysisActivityRequestApi[]
+}
+
+export interface PaginatedTaskAnalysisRunListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaskAnalysisRunApi[]
+}
+
+/**
  * Team-level tasks configuration.
  */
 export interface TasksTeamConfigResponseApi {
@@ -4716,25 +4815,6 @@ export interface TaskSummariesRequestApi {
      */
     ids: string[]
 }
-
-/**
- * * `not_started` - Not Started
- * * `queued` - Queued
- * * `in_progress` - In Progress
- * * `completed` - Completed
- * * `failed` - Failed
- * * `cancelled` - Cancelled
- */
-export type TaskRunStatusEnumApi = (typeof TaskRunStatusEnumApi)[keyof typeof TaskRunStatusEnumApi]
-
-export const TaskRunStatusEnumApi = {
-    NotStarted: 'not_started',
-    Queued: 'queued',
-    InProgress: 'in_progress',
-    Completed: 'completed',
-    Failed: 'failed',
-    Cancelled: 'cancelled',
-} as const
 
 /**
  * * `local` - Local
@@ -5331,6 +5411,28 @@ export type TasksThreadMessagesListParams = {
 }
 
 export type TasksMeConfigListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type TasksAnalysisConfigListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type TasksAnalysisRunsListParams = {
     /**
      * Number of results to return per page.
      */

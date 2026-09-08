@@ -5,6 +5,7 @@ import products.tasks.backend.presentation.views.loops as loops
 import products.tasks.backend.presentation.views.desktop as desktop
 import products.tasks.backend.presentation.views.seat_api as seats
 import products.tasks.backend.presentation.views.config_api as config
+import products.tasks.backend.presentation.views.analysis_api as analysis
 import products.tasks.backend.presentation.views.channels_api as channels
 import products.tasks.backend.presentation.views.desktop_access as desktop_access
 import products.tasks.backend.presentation.views.task_usage_api as task_usage
@@ -24,6 +25,12 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(r"tasks/config", config.TasksTeamConfigViewSet, "project_tasks_config", ["team_id"])
     routers.projects.register(
         r"tasks/@me/config", config.TasksUserConfigViewSet, "project_tasks_me_config", ["team_id"]
+    )
+    routers.projects.register(
+        r"tasks/analysis/config", analysis.TasksAnalysisConfigViewSet, "project_tasks_analysis_config", ["team_id"]
+    )
+    routers.projects.register(
+        r"tasks/analysis/runs", analysis.TaskAnalysisRunViewSet, "project_tasks_analysis_runs", ["team_id"]
     )
     project_tasks_router = routers.projects.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
     project_task_runs_router = project_tasks_router.register(

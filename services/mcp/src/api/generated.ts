@@ -59126,6 +59126,289 @@ export namespace Schemas {
     }
 
     /**
+     * * `not_started` - Not Started
+     * * `queued` - Queued
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled
+     */
+    export type TaskRunStatusEnum = typeof TaskRunStatusEnum[keyof typeof TaskRunStatusEnum];
+
+
+    export const TaskRunStatusEnum = {
+      NotStarted: 'not_started',
+      Queued: 'queued',
+      InProgress: 'in_progress',
+      Completed: 'completed',
+      Failed: 'failed',
+      Cancelled: 'cancelled',
+    } as const;
+
+    /**
+     * * `orient` - orient
+     * * `explore` - explore
+     * * `gather` - gather
+     * * `produce` - produce
+     * * `verify` - verify
+     * * `setup_env` - setup_env
+     * * `ship` - ship
+     * * `wait` - wait
+     * * `operate` - operate
+     * * `deliver` - deliver
+     */
+    export type TaskAnalysisGoalKindEnum = typeof TaskAnalysisGoalKindEnum[keyof typeof TaskAnalysisGoalKindEnum];
+
+
+    export const TaskAnalysisGoalKindEnum = {
+      Orient: 'orient',
+      Explore: 'explore',
+      Gather: 'gather',
+      Produce: 'produce',
+      Verify: 'verify',
+      SetupEnv: 'setup_env',
+      Ship: 'ship',
+      Wait: 'wait',
+      Operate: 'operate',
+      Deliver: 'deliver',
+    } as const;
+
+    /**
+     * * `worked` - worked
+     * * `failed` - failed
+     * * `abandoned` - abandoned
+     * * `unknown` - unknown
+     */
+    export type TaskAnalysisOutcomeEnum = typeof TaskAnalysisOutcomeEnum[keyof typeof TaskAnalysisOutcomeEnum];
+
+
+    export const TaskAnalysisOutcomeEnum = {
+      Worked: 'worked',
+      Failed: 'failed',
+      Abandoned: 'abandoned',
+      Unknown: 'unknown',
+    } as const;
+
+    /**
+     * * `missing_binary` - missing_binary
+     * * `missing_package` - missing_package
+     * * `service_down` - service_down
+     * * `missing_build_artifact` - missing_build_artifact
+     * * `missing_credential` - missing_credential
+     * * `memory_limit` - memory_limit
+     * * `network` - network
+     * * `shallow_git` - shallow_git
+     * * `tool_error` - tool_error
+     * * `tool_syntax` - tool_syntax
+     * * `api_error` - api_error
+     * * `missing_flag` - missing_flag
+     * * `unclear_instructions` - unclear_instructions
+     * * `user_redirect` - user_redirect
+     */
+    export type TaskAnalysisBlockerKindEnum = typeof TaskAnalysisBlockerKindEnum[keyof typeof TaskAnalysisBlockerKindEnum];
+
+
+    export const TaskAnalysisBlockerKindEnum = {
+      MissingBinary: 'missing_binary',
+      MissingPackage: 'missing_package',
+      ServiceDown: 'service_down',
+      MissingBuildArtifact: 'missing_build_artifact',
+      MissingCredential: 'missing_credential',
+      MemoryLimit: 'memory_limit',
+      Network: 'network',
+      ShallowGit: 'shallow_git',
+      ToolError: 'tool_error',
+      ToolSyntax: 'tool_syntax',
+      ApiError: 'api_error',
+      MissingFlag: 'missing_flag',
+      UnclearInstructions: 'unclear_instructions',
+      UserRedirect: 'user_redirect',
+    } as const;
+
+    /**
+     * One activity record from a task-run analysis: what the agent tried, how it went, and what blocked it.
+     */
+    export interface TaskRunAnalysisActivityRequest {
+      /** Which kind of work the agent did in this span.
+       *
+       * * `orient` - orient
+       * * `explore` - explore
+       * * `gather` - gather
+       * * `produce` - produce
+       * * `verify` - verify
+       * * `setup_env` - setup_env
+       * * `ship` - ship
+       * * `wait` - wait
+       * * `operate` - operate
+       * * `deliver` - deliver */
+      goal_kind: TaskAnalysisGoalKindEnum;
+      /**
+         * What the agent tried, in 3 to 8 words.
+         * @minLength 3
+         * @maxLength 80
+         */
+      goal: string;
+      /** How the activity ended for the agent.
+       *
+       * * `worked` - worked
+       * * `failed` - failed
+       * * `abandoned` - abandoned
+       * * `unknown` - unknown */
+      outcome: TaskAnalysisOutcomeEnum;
+      /** What stopped the agent, when something did. Omit for healthy work.
+       *
+       * * `missing_binary` - missing_binary
+       * * `missing_package` - missing_package
+       * * `service_down` - service_down
+       * * `missing_build_artifact` - missing_build_artifact
+       * * `missing_credential` - missing_credential
+       * * `memory_limit` - memory_limit
+       * * `network` - network
+       * * `shallow_git` - shallow_git
+       * * `tool_error` - tool_error
+       * * `tool_syntax` - tool_syntax
+       * * `api_error` - api_error
+       * * `missing_flag` - missing_flag
+       * * `unclear_instructions` - unclear_instructions
+       * * `user_redirect` - user_redirect */
+      blocker_kind?: TaskAnalysisBlockerKindEnum | null;
+      /**
+         * The exact binary, package, service, file, flag, or error the blocker names. Required with blocker_kind.
+         * @maxLength 120
+         * @nullable
+         */
+      blocker_name?: string | null;
+      /**
+         * The command or step that removed the blocker, when the agent found one. Requires blocker_kind.
+         * @maxLength 300
+         * @nullable
+         */
+      repair?: string | null;
+      /**
+         * One exact quote from the run log inside the activity's line range.
+         * @minLength 10
+         * @maxLength 200
+         */
+      evidence: string;
+      /**
+         * First log line of the activity, 1-based.
+         * @minimum 1
+         */
+      start_line: number;
+      /**
+         * Last log line of the activity, 1-based.
+         * @minimum 1
+         */
+      end_line: number;
+      /**
+         * Distinct tool calls started inside the line range.
+         * @minimum 0
+         */
+      tool_calls: number;
+      /**
+         * Tool calls started inside the line range that ended as failed.
+         * @minimum 0
+         */
+      failed_calls: number;
+      /**
+         * Wall-clock seconds from the last timestamp before the line range to the last timestamp inside it.
+         * @minimum 0
+         */
+      seconds: number;
+      /**
+         * Sum of the gaps longer than 4 minutes between those consecutive timestamps.
+         * @minimum 0
+         */
+      idle_seconds: number;
+      /**
+         * Command heads run in the activity, in order, adjacent duplicates removed.
+         * @maxItems 24
+         * @items.minLength 1
+         * @items.maxLength 60
+         */
+      commands?: string[];
+      /**
+         * Skills, AGENTS.md files, templates, and wiki pages the agent read in the activity.
+         * @maxItems 20
+         * @items.minLength 1
+         * @items.maxLength 200
+         */
+      guidance_read?: string[];
+    }
+
+    /**
+     * One PostHog-funded task-analysis run, flattened for the analysis explorer.
+     */
+    export interface TaskAnalysisRun {
+      /** The analysis run id. */
+      id: string;
+      /** The analysis task the run belongs to. */
+      task_id: string;
+      /** Current status of the analysis run.
+       *
+       * * `not_started` - Not Started
+       * * `queued` - Queued
+       * * `in_progress` - In Progress
+       * * `completed` - Completed
+       * * `failed` - Failed
+       * * `cancelled` - Cancelled */
+      status: TaskRunStatusEnum;
+      /** When the analysis run was created. */
+      created_at: string;
+      /**
+         * When the analysis run reached a terminal status.
+         * @nullable
+         */
+      completed_at: string | null;
+      /**
+         * Error message when the analysis run failed.
+         * @nullable
+         */
+      error_message: string | null;
+      /**
+         * Runtime adapter the analysis ran with.
+         * @nullable
+         */
+      runtime_adapter: string | null;
+      /**
+         * Model the analysis ran with.
+         * @nullable
+         */
+      model: string | null;
+      /**
+         * Reasoning effort the analysis ran with.
+         * @nullable
+         */
+      reasoning_effort: string | null;
+      /**
+         * The task whose run was analyzed.
+         * @nullable
+         */
+      target_task_id: string | null;
+      /**
+         * The run that was analyzed.
+         * @nullable
+         */
+      target_run_id: string | null;
+      /**
+         * Repository of the analyzed task, when set.
+         * @nullable
+         */
+      target_repository: string | null;
+      /** Activity records the analysis reported, in log order. */
+      activities: TaskRunAnalysisActivityRequest[];
+    }
+
+    export interface PaginatedTaskAnalysisRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskAnalysisRun[];
+    }
+
+    /**
      * * `anthropic` - anthropic
      * * `openai` - openai
      */
@@ -59471,26 +59754,6 @@ export namespace Schemas {
       previous?: string | null;
       results: TaskRunDetailDTO[];
     }
-
-    /**
-     * * `not_started` - Not Started
-     * * `queued` - Queued
-     * * `in_progress` - In Progress
-     * * `completed` - Completed
-     * * `failed` - Failed
-     * * `cancelled` - Cancelled
-     */
-    export type TaskRunStatusEnum = typeof TaskRunStatusEnum[keyof typeof TaskRunStatusEnum];
-
-
-    export const TaskRunStatusEnum = {
-      NotStarted: 'not_started',
-      Queued: 'queued',
-      InProgress: 'in_progress',
-      Completed: 'completed',
-      Failed: 'failed',
-      Cancelled: 'cancelled',
-    } as const;
 
     /**
      * * `local` - Local
@@ -84989,86 +85252,6 @@ export namespace Schemas {
       next_before_id?: string | null;
     }
 
-    /**
-     * * `missing_binary` - missing_binary
-     * * `missing_package` - missing_package
-     * * `service_down` - service_down
-     * * `missing_build_artifact` - missing_build_artifact
-     * * `missing_credential` - missing_credential
-     * * `memory_limit` - memory_limit
-     * * `network` - network
-     * * `shallow_git` - shallow_git
-     * * `tool_error` - tool_error
-     * * `tool_syntax` - tool_syntax
-     * * `api_error` - api_error
-     * * `missing_flag` - missing_flag
-     * * `unclear_instructions` - unclear_instructions
-     * * `user_redirect` - user_redirect
-     */
-    export type TaskAnalysisBlockerKindEnum = typeof TaskAnalysisBlockerKindEnum[keyof typeof TaskAnalysisBlockerKindEnum];
-
-
-    export const TaskAnalysisBlockerKindEnum = {
-      MissingBinary: 'missing_binary',
-      MissingPackage: 'missing_package',
-      ServiceDown: 'service_down',
-      MissingBuildArtifact: 'missing_build_artifact',
-      MissingCredential: 'missing_credential',
-      MemoryLimit: 'memory_limit',
-      Network: 'network',
-      ShallowGit: 'shallow_git',
-      ToolError: 'tool_error',
-      ToolSyntax: 'tool_syntax',
-      ApiError: 'api_error',
-      MissingFlag: 'missing_flag',
-      UnclearInstructions: 'unclear_instructions',
-      UserRedirect: 'user_redirect',
-    } as const;
-
-    /**
-     * * `orient` - orient
-     * * `explore` - explore
-     * * `gather` - gather
-     * * `produce` - produce
-     * * `verify` - verify
-     * * `setup_env` - setup_env
-     * * `ship` - ship
-     * * `wait` - wait
-     * * `operate` - operate
-     * * `deliver` - deliver
-     */
-    export type TaskAnalysisGoalKindEnum = typeof TaskAnalysisGoalKindEnum[keyof typeof TaskAnalysisGoalKindEnum];
-
-
-    export const TaskAnalysisGoalKindEnum = {
-      Orient: 'orient',
-      Explore: 'explore',
-      Gather: 'gather',
-      Produce: 'produce',
-      Verify: 'verify',
-      SetupEnv: 'setup_env',
-      Ship: 'ship',
-      Wait: 'wait',
-      Operate: 'operate',
-      Deliver: 'deliver',
-    } as const;
-
-    /**
-     * * `worked` - worked
-     * * `failed` - failed
-     * * `abandoned` - abandoned
-     * * `unknown` - unknown
-     */
-    export type TaskAnalysisOutcomeEnum = typeof TaskAnalysisOutcomeEnum[keyof typeof TaskAnalysisOutcomeEnum];
-
-
-    export const TaskAnalysisOutcomeEnum = {
-      Worked: 'worked',
-      Failed: 'failed',
-      Abandoned: 'abandoned',
-      Unknown: 'unknown',
-    } as const;
-
     export interface TaskArtifact {
       /** Stable artifact id used to filter task comments. */
       id: string;
@@ -85427,117 +85610,6 @@ export namespace Schemas {
     export interface TaskRepositoriesResponse {
       /** Distinct repositories in use by non-deleted, non-internal tasks for the current team. */
       repositories: string[];
-    }
-
-    /**
-     * One activity record from a task-run analysis: what the agent tried, how it went, and what blocked it.
-     */
-    export interface TaskRunAnalysisActivityRequest {
-      /** Which kind of work the agent did in this span.
-       *
-       * * `orient` - orient
-       * * `explore` - explore
-       * * `gather` - gather
-       * * `produce` - produce
-       * * `verify` - verify
-       * * `setup_env` - setup_env
-       * * `ship` - ship
-       * * `wait` - wait
-       * * `operate` - operate
-       * * `deliver` - deliver */
-      goal_kind: TaskAnalysisGoalKindEnum;
-      /**
-         * What the agent tried, in 3 to 8 words.
-         * @minLength 3
-         * @maxLength 80
-         */
-      goal: string;
-      /** How the activity ended for the agent.
-       *
-       * * `worked` - worked
-       * * `failed` - failed
-       * * `abandoned` - abandoned
-       * * `unknown` - unknown */
-      outcome: TaskAnalysisOutcomeEnum;
-      /** What stopped the agent, when something did. Omit for healthy work.
-       *
-       * * `missing_binary` - missing_binary
-       * * `missing_package` - missing_package
-       * * `service_down` - service_down
-       * * `missing_build_artifact` - missing_build_artifact
-       * * `missing_credential` - missing_credential
-       * * `memory_limit` - memory_limit
-       * * `network` - network
-       * * `shallow_git` - shallow_git
-       * * `tool_error` - tool_error
-       * * `tool_syntax` - tool_syntax
-       * * `api_error` - api_error
-       * * `missing_flag` - missing_flag
-       * * `unclear_instructions` - unclear_instructions
-       * * `user_redirect` - user_redirect */
-      blocker_kind?: TaskAnalysisBlockerKindEnum | null;
-      /**
-         * The exact binary, package, service, file, flag, or error the blocker names. Required with blocker_kind.
-         * @maxLength 120
-         * @nullable
-         */
-      blocker_name?: string | null;
-      /**
-         * The command or step that removed the blocker, when the agent found one. Requires blocker_kind.
-         * @maxLength 300
-         * @nullable
-         */
-      repair?: string | null;
-      /**
-         * One exact quote from the run log inside the activity's line range.
-         * @minLength 10
-         * @maxLength 200
-         */
-      evidence: string;
-      /**
-         * First log line of the activity, 1-based.
-         * @minimum 1
-         */
-      start_line: number;
-      /**
-         * Last log line of the activity, 1-based.
-         * @minimum 1
-         */
-      end_line: number;
-      /**
-         * Distinct tool calls started inside the line range.
-         * @minimum 0
-         */
-      tool_calls: number;
-      /**
-         * Tool calls started inside the line range that ended as failed.
-         * @minimum 0
-         */
-      failed_calls: number;
-      /**
-         * Wall-clock seconds from the last timestamp before the line range to the last timestamp inside it.
-         * @minimum 0
-         */
-      seconds: number;
-      /**
-         * Sum of the gaps longer than 4 minutes between those consecutive timestamps.
-         * @minimum 0
-         */
-      idle_seconds: number;
-      /**
-         * Command heads run in the activity, in order, adjacent duplicates removed.
-         * @maxItems 24
-         * @items.minLength 1
-         * @items.maxLength 60
-         */
-      commands?: string[];
-      /**
-         * Skills, AGENTS.md files, templates, and wiki pages the agent read in the activity.
-         * @maxItems 20
-         * @items.minLength 1
-         * @items.maxLength 200
-         */
-      guidance_read?: string[];
     }
 
     export interface TaskRunAnalysisActivityResponse {
@@ -86826,6 +86898,14 @@ export namespace Schemas {
        * * `max` - max
        * * `ultracode` - ultracode */
       reasoning_effort?: ReasoningEffortEnum | null;
+    }
+
+    /**
+     * Team-level task-analysis configuration.
+     */
+    export interface TasksAnalysisConfigResponse {
+      /** The triple task-analysis runs launch with; all fields null when unset, meaning the built-in analysis model. */
+      analysis_run_preferences: TasksAIRunPreferences;
     }
 
     /**
@@ -101542,6 +101622,28 @@ export namespace Schemas {
     };
 
     export type TasksMeConfigListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type TasksAnalysisConfigListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type TasksAnalysisRunsListParams = {
     /**
      * Number of results to return per page.
      */

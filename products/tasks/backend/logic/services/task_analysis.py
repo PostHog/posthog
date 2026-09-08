@@ -24,6 +24,7 @@ from products.tasks.backend.constants import (
     TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
 )
 from products.tasks.backend.facade.contracts import TaskAnalysisError
+from products.tasks.backend.logic.services.ai_run_defaults import get_team_analysis_run_preferences
 from products.tasks.backend.logic.services.staged_artifacts import (
     RUN_ARTIFACT_TTL_DAYS,
     build_task_artifact_entry,
@@ -209,6 +210,15 @@ def _target_context_state(target_task: Task, target_run: TaskRun) -> dict[str, A
     return context
 
 
+def analysis_run_selection(team_id: int) -> tuple[str, str, str | None]:
+    """The ``(runtime_adapter, model, reasoning_effort)`` analysis runs launch with: the team's
+    stored analysis preference when it pins a model, otherwise the built-in triple."""
+    prefs = get_team_analysis_run_preferences(team_id)
+    if prefs.get("runtime_adapter") and prefs.get("model"):
+        return prefs["runtime_adapter"], prefs["model"], prefs.get("reasoning_effort")
+    return TASK_ANALYSIS_RUNTIME_ADAPTER, TASK_ANALYSIS_MODEL, TASK_ANALYSIS_REASONING_EFFORT
+
+
 def create_task_analysis(*, team: Team, user_id: int, target_task: Task, target_run: TaskRun) -> tuple[Task, bool]:
     """Create (or return the existing) analysis task for ``target_run``; returns ``(task, created)``."""
     from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415 — temporal client stays off the module import path
@@ -235,6 +245,7 @@ def create_task_analysis(*, team: Team, user_id: int, target_task: Task, target_
     total_size = sum(_bounded_log_sizes(log_keys))
 
     artifact_id = str(uuid.uuid4())
+    runtime_adapter, model, reasoning_effort = analysis_run_selection(team.id)
     prompt = ANALYSIS_PROMPT_TEMPLATE.format(
         target_task_id=target_task.id,
         target_run_id=target_run.id,
@@ -244,9 +255,10 @@ def create_task_analysis(*, team: Team, user_id: int, target_task: Task, target_
         ANALYSIS_TARGET_TASK_ID_STATE_KEY: str(target_task.id),
         ANALYSIS_TARGET_RUN_ID_STATE_KEY: str(target_run.id),
         "pending_user_artifact_ids": [artifact_id],
-        "reasoning_effort": TASK_ANALYSIS_REASONING_EFFORT,
         **_target_context_state(target_task, target_run),
     }
+    if reasoning_effort:
+        extra_run_state["reasoning_effort"] = reasoning_effort
 
     origin_key = _analysis_origin_key(str(target_run.id), attempt)
     try:
@@ -263,8 +275,8 @@ def create_task_analysis(*, team: Team, user_id: int, target_task: Task, target_
                 start_workflow=False,
                 origin_key=origin_key,
                 posthog_mcp_scopes="read_only",
-                runtime_adapter=TASK_ANALYSIS_RUNTIME_ADAPTER,
-                model=TASK_ANALYSIS_MODEL,
+                runtime_adapter=runtime_adapter,
+                model=model,
                 pending_user_message=prompt,
                 extra_run_state=extra_run_state,
                 inactivity_timeout_seconds=TASK_ANALYSIS_INACTIVITY_TIMEOUT_SECONDS,

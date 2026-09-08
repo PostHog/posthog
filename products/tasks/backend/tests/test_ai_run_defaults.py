@@ -324,19 +324,29 @@ class TestTasksConfigAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-    def test_team_config_round_trip(self):
-        response = self.client.get(f"/api/projects/{self.team.id}/tasks/config/")
+    @parameterized.expand(
+        [
+            ("run_defaults", "config", "ai_run_preferences"),
+            ("analysis", "analysis/config", "analysis_run_preferences"),
+        ]
+    )
+    def test_team_config_round_trip(self, _name: str, path: str, key: str):
+        response = self.client.get(f"/api/projects/{self.team.id}/tasks/{path}/")
         assert response.status_code == 200
-        assert response.json() == {
+        assert response.json() == {key: {"runtime_adapter": None, "model": None, "reasoning_effort": None}}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/tasks/{path}/", TEAM_TRIPLE)
+        assert response.status_code == 200
+        assert response.json()[key] == TEAM_TRIPLE
+
+        response = self.client.get(f"/api/projects/{self.team.id}/tasks/{path}/")
+        assert response.json()[key] == TEAM_TRIPLE
+
+    def test_analysis_triple_is_stored_apart_from_the_run_default(self):
+        self.client.post(f"/api/projects/{self.team.id}/tasks/analysis/config/", TEAM_TRIPLE)
+        assert self.client.get(f"/api/projects/{self.team.id}/tasks/config/").json() == {
             "ai_run_preferences": {"runtime_adapter": None, "model": None, "reasoning_effort": None}
         }
-
-        response = self.client.post(f"/api/projects/{self.team.id}/tasks/config/", TEAM_TRIPLE)
-        assert response.status_code == 200
-        assert response.json()["ai_run_preferences"] == TEAM_TRIPLE
-
-        response = self.client.get(f"/api/projects/{self.team.id}/tasks/config/")
-        assert response.json()["ai_run_preferences"] == TEAM_TRIPLE
 
     @parameterized.expand(
         [
@@ -350,28 +360,32 @@ class TestTasksConfigAPI(APIBaseTest):
         ]
     )
     def test_invalid_triples_are_rejected(self, _name: str, payload: dict[str, Any]):
-        # Both endpoints share the validation path; asserting both keeps either from losing it.
-        for path in ("config", "@me/config"):
+        # All three endpoints share the validation path; asserting each keeps any from losing it.
+        for path in ("config", "@me/config", "analysis/config"):
             response = self.client.post(f"/api/projects/{self.team.id}/tasks/{path}/", payload)
             assert response.status_code == 400, (path, response.content)
 
-    def test_clearing_the_team_default(self):
-        self.client.post(f"/api/projects/{self.team.id}/tasks/config/", TEAM_TRIPLE)
+    @parameterized.expand(
+        [
+            ("run_defaults", "config", "ai_run_preferences"),
+            ("analysis", "analysis/config", "analysis_run_preferences"),
+        ]
+    )
+    def test_clearing_the_team_default(self, _name: str, path: str, key: str):
+        self.client.post(f"/api/projects/{self.team.id}/tasks/{path}/", TEAM_TRIPLE)
         response = self.client.post(
-            f"/api/projects/{self.team.id}/tasks/config/",
+            f"/api/projects/{self.team.id}/tasks/{path}/",
             {"runtime_adapter": None, "model": None, "reasoning_effort": None},
         )
         assert response.status_code == 200
-        assert response.json() == {
-            "ai_run_preferences": {"runtime_adapter": None, "model": None, "reasoning_effort": None}
-        }
-        assert self.client.get(f"/api/projects/{self.team.id}/tasks/config/").json() == {
-            "ai_run_preferences": {"runtime_adapter": None, "model": None, "reasoning_effort": None}
+        assert response.json() == {key: {"runtime_adapter": None, "model": None, "reasoning_effort": None}}
+        assert self.client.get(f"/api/projects/{self.team.id}/tasks/{path}/").json() == {
+            key: {"runtime_adapter": None, "model": None, "reasoning_effort": None}
         }
 
     def test_unauthenticated_requests_are_rejected(self):
         self.client.logout()
-        for path in ("config", "@me/config"):
+        for path in ("config", "@me/config", "analysis/config", "analysis/runs"):
             url = f"/api/projects/{self.team.id}/tasks/{path}/"
             # 403, not 401: DRF's SessionAuthentication denies without a WWW-Authenticate challenge.
             assert self.client.get(url).status_code == 403
@@ -380,7 +394,7 @@ class TestTasksConfigAPI(APIBaseTest):
     def test_an_outsider_cannot_reach_another_projects_config(self):
         outsider = User.objects.create_and_join(Organization.objects.create(name="other"), "out@posthog.com", None)
         self.client.force_login(outsider)
-        for path in ("config", "@me/config"):
+        for path in ("config", "@me/config", "analysis/config", "analysis/runs"):
             url = f"/api/projects/{self.team.id}/tasks/{path}/"
             assert self.client.get(url).status_code == 403, path
             assert self.client.post(url, TEAM_TRIPLE).status_code == 403, path
@@ -417,8 +431,9 @@ class TestTasksConfigAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
-        assert self.client.get(f"/api/projects/{self.team.id}/tasks/config/").status_code == 200
-        assert self.client.post(f"/api/projects/{self.team.id}/tasks/config/", TEAM_TRIPLE).status_code == 403
+        for path in ("config", "analysis/config"):
+            assert self.client.get(f"/api/projects/{self.team.id}/tasks/{path}/").status_code == 200, path
+            assert self.client.post(f"/api/projects/{self.team.id}/tasks/{path}/", TEAM_TRIPLE).status_code == 403, path
         assert self.client.post(f"/api/projects/{self.team.id}/tasks/@me/config/", USER_TRIPLE).status_code == 200
 
     def test_me_config_is_scoped_to_the_requesting_user(self):

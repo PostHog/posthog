@@ -4418,6 +4418,39 @@ class TasksTeamConfigResponseSerializer(serializers.Serializer):
 
 
 @extend_schema_serializer(many=False)
+class TasksAnalysisConfigResponseSerializer(serializers.Serializer):
+    """Team-level task-analysis configuration."""
+
+    analysis_run_preferences = TasksAIRunPreferencesSerializer(
+        help_text="The triple task-analysis runs launch with; all fields null when unset, meaning the built-in analysis model."
+    )
+
+
+class TaskAnalysisRunSerializer(serializers.Serializer):
+    """One PostHog-funded task-analysis run, flattened for the analysis explorer."""
+
+    id = serializers.UUIDField(help_text="The analysis run id.")
+    task_id = serializers.UUIDField(help_text="The analysis task the run belongs to.")
+    status = serializers.ChoiceField(
+        choices=tasks_facade.TaskRunStatus.choices, help_text="Current status of the analysis run."
+    )
+    created_at = serializers.DateTimeField(help_text="When the analysis run was created.")
+    completed_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the analysis run reached a terminal status."
+    )
+    error_message = serializers.CharField(allow_null=True, help_text="Error message when the analysis run failed.")
+    runtime_adapter = serializers.CharField(allow_null=True, help_text="Runtime adapter the analysis ran with.")
+    model = serializers.CharField(allow_null=True, help_text="Model the analysis ran with.")
+    reasoning_effort = serializers.CharField(allow_null=True, help_text="Reasoning effort the analysis ran with.")
+    target_task_id = serializers.UUIDField(allow_null=True, help_text="The task whose run was analyzed.")
+    target_run_id = serializers.UUIDField(allow_null=True, help_text="The run that was analyzed.")
+    target_repository = serializers.CharField(allow_null=True, help_text="Repository of the analyzed task, when set.")
+    activities = TaskRunAnalysisActivityRequestSerializer(
+        many=True, help_text="Activity records the analysis reported, in log order."
+    )
+
+
+@extend_schema_serializer(many=False)
 class TasksUserConfigResponseSerializer(serializers.Serializer):
     """The requesting user's per-project tasks configuration."""
 
