@@ -60,7 +60,12 @@ import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseCon
 import { groupFilters } from './FeatureFlags'
 import { featureFlagScheduleEditLogic } from './featureFlagScheduleEditLogic'
 import { FeatureFlagVariantsForm } from './FeatureFlagVariantsForm'
-import { isSchedulePaused, maxRolloutPercentage, maxUntargetedRolloutPercentage } from './scheduleOccurrences'
+import {
+    isSchedulePaused,
+    maxRolloutPercentage,
+    maxUntargetedRolloutPercentage,
+    sharedAggregationTarget,
+} from './scheduleOccurrences'
 import { ScheduleTimeline } from './ScheduleTimeline'
 
 export const DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
@@ -509,9 +514,13 @@ export default function FeatureFlagSchedule(): JSX.Element {
     const aggregationGroupTypeIndex = featureFlag.filters.aggregation_group_type_index
     const scheduleFilters = { ...schedulePayload.filters, aggregation_group_type_index: aggregationGroupTypeIndex }
 
-    // Release condition sets are OR'd, and every set of a flag buckets on the same hash, so a
-    // condition at or below a rollout the flag already serves to everyone reaches nobody new.
-    const servedToEveryone = maxUntargetedRolloutPercentage(featureFlag.filters.groups)
+    // Release condition sets are OR'd, and the sets that bucket on one identifier share a hash, so
+    // a condition at or below a rollout the flag already serves to everyone reaches nobody new.
+    const servedToEveryone = maxUntargetedRolloutPercentage(
+        featureFlag.filters.groups,
+        aggregationGroupTypeIndex,
+        sharedAggregationTarget(schedulePayload.filters?.groups, aggregationGroupTypeIndex)
+    )
     const scheduledConditionRollout = maxRolloutPercentage(schedulePayload.filters?.groups)
     const conditionReachesNobodyNew =
         scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition &&

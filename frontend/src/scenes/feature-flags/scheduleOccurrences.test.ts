@@ -14,7 +14,12 @@ import {
 } from '~/types'
 
 import { makeScheduledChange, resetScheduledChangeIds } from './makeScheduledChange'
-import { OCCURRENCE_CAP, expandScheduleOccurrences, maxUntargetedRolloutPercentage } from './scheduleOccurrences'
+import {
+    OCCURRENCE_CAP,
+    expandScheduleOccurrences,
+    maxUntargetedRolloutPercentage,
+    sharedAggregationTarget,
+} from './scheduleOccurrences'
 
 const NOW = dayjs('2026-01-01T00:00:00Z')
 
@@ -131,6 +136,57 @@ describe('expandScheduleOccurrences', () => {
 
         expect(occurrences.map((o) => o.rolloutUnchanged)).toEqual([false, false])
     })
+
+    const aggregationCases: {
+        name: string
+        flagAggregation: number | null | undefined
+        coveringAggregation: number | null | undefined
+        expected: boolean
+    }[] = [
+        {
+            // The covering set hashes the group key, so its 100% is a share of groups and covers no
+            // share of the users an inherited condition reaches.
+            name: 'a covering set on another aggregation target',
+            flagAggregation: undefined,
+            coveringAggregation: 0,
+            expected: false,
+        },
+        {
+            // Both sets hash the group key here, so the coverage claim still holds.
+            name: 'a covering set that shares the flag-level group target',
+            flagAggregation: 0,
+            coveringAggregation: undefined,
+            expected: true,
+        },
+    ]
+
+    it.each(aggregationCases)(
+        'judges an added condition against $name: no change=$expected',
+        ({ flagAggregation, coveringAggregation, expected }) => {
+            const schedules = [change({ payload: conditionPayload(25) })]
+
+            const occurrences = expandScheduleOccurrences(
+                schedules,
+                flag({
+                    filters: {
+                        groups: [
+                            {
+                                properties: [],
+                                rollout_percentage: 100,
+                                variant: null,
+                                aggregation_group_type_index: coveringAggregation,
+                            },
+                        ],
+                        aggregation_group_type_index: flagAggregation,
+                        multivariate: null,
+                    },
+                }),
+                NOW
+            )
+
+            expect(occurrences[0].rolloutUnchanged).toBe(expected)
+        }
+    )
 
     it('carries status, rollout, and variant projections through a mixed plan', () => {
         const schedules = [
@@ -449,28 +505,91 @@ describe('expandScheduleOccurrences', () => {
 })
 
 describe('maxUntargetedRolloutPercentage', () => {
-    const cases: { name: string; groups: FeatureFlagGroupType[]; expected: number | null }[] = [
+    const cases: {
+        name: string
+        groups: FeatureFlagGroupType[]
+        flagAggregation?: number | null
+        target: number | null | undefined
+        expected: number | null
+    }[] = [
         {
             name: 'ignores a condition set a property filter narrows',
             groups: [
                 { properties: [PERSON_FILTER], rollout_percentage: 100, variant: null },
                 { properties: [], rollout_percentage: 20, variant: null },
             ],
+            target: null,
             expected: 20,
         },
         {
             name: 'reads a missing rollout as everyone',
             groups: [{ properties: [], rollout_percentage: null, variant: null }],
+            target: null,
             expected: 100,
         },
         {
             name: 'returns null when every set is narrowed',
             groups: [{ properties: [PERSON_FILTER], rollout_percentage: 100, variant: null }],
+            target: null,
+            expected: null,
+        },
+        {
+            name: 'ignores a condition set that targets a group type',
+            groups: [
+                { properties: [], rollout_percentage: 100, variant: null, aggregation_group_type_index: 0 },
+                { properties: [], rollout_percentage: 20, variant: null },
+            ],
+            target: null,
+            expected: 20,
+        },
+        {
+            name: 'measures a condition set that inherits the flag-level group target',
+            groups: [{ properties: [], rollout_percentage: 60, variant: null }],
+            flagAggregation: 0,
+            target: 0,
+            expected: 60,
+        },
+        {
+            name: 'returns null when the target is unknown',
+            groups: [{ properties: [], rollout_percentage: 60, variant: null }],
+            target: undefined,
             expected: null,
         },
     ]
 
-    it.each(cases)('$name', ({ groups, expected }) => {
-        expect(maxUntargetedRolloutPercentage(groups)).toEqual(expected)
+    it.each(cases)('$name', ({ groups, flagAggregation, target, expected }) => {
+        expect(maxUntargetedRolloutPercentage(groups, flagAggregation, target)).toEqual(expected)
+    })
+})
+
+describe('sharedAggregationTarget', () => {
+    const cases: {
+        name: string
+        groups: FeatureFlagGroupType[]
+        flagAggregation?: number | null
+        expected: number | null | undefined
+    }[] = [
+        {
+            name: 'reads the flag-level target when every set inherits it',
+            groups: [
+                { properties: [], rollout_percentage: 100, variant: null },
+                { properties: [], rollout_percentage: 50, variant: null },
+            ],
+            flagAggregation: 0,
+            expected: 0,
+        },
+        {
+            name: 'returns undefined when the sets target different identifiers',
+            groups: [
+                { properties: [], rollout_percentage: 100, variant: null, aggregation_group_type_index: 0 },
+                { properties: [], rollout_percentage: 50, variant: null, aggregation_group_type_index: null },
+            ],
+            expected: undefined,
+        },
+        { name: 'returns undefined when there are no sets', groups: [], expected: undefined },
+    ]
+
+    it.each(cases)('$name', ({ groups, flagAggregation, expected }) => {
+        expect(sharedAggregationTarget(groups, flagAggregation)).toEqual(expected)
     })
 })

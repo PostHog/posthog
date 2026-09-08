@@ -36,9 +36,11 @@ const MULTIVARIATE_FILTERS: FeatureFlagType['filters']['multivariate'] = {
 function buildFeatureFlag({
     active,
     rolloutPercentage,
+    aggregationGroupTypeIndex,
 }: {
     active: boolean
     rolloutPercentage: number | null
+    aggregationGroupTypeIndex?: number | null
 }): FeatureFlagType {
     return {
         ...NEW_FLAG,
@@ -46,7 +48,14 @@ function buildFeatureFlag({
         active,
         filters: {
             ...NEW_FLAG.filters,
-            groups: [{ properties: [], rollout_percentage: rolloutPercentage, variant: null }],
+            groups: [
+                {
+                    properties: [],
+                    rollout_percentage: rolloutPercentage,
+                    variant: null,
+                    aggregation_group_type_index: aggregationGroupTypeIndex,
+                },
+            ],
             multivariate: MULTIVARIATE_FILTERS,
         },
     }
@@ -160,30 +169,54 @@ describe('FeatureFlagSchedule', () => {
     })
 
     // A staged ramp on a flag that already serves everyone changes nothing when it fires.
-    it.each([
+    const conditionAddCases: {
+        name: string
+        currentRollout: number
+        currentGroupTypeIndex?: number | null
+        scheduledRollout: number
+        expectWarning: boolean
+    }[] = [
         { name: 'below the current rollout', currentRollout: 100, scheduledRollout: 25, expectWarning: true },
         { name: 'level with the current rollout', currentRollout: 40, scheduledRollout: 40, expectWarning: true },
         { name: 'above the current rollout', currentRollout: 40, scheduledRollout: 60, expectWarning: false },
         { name: 'left at the form default', currentRollout: 100, scheduledRollout: 0, expectWarning: false },
-    ])('condition add $name: warns=$expectWarning', ({ currentRollout, scheduledRollout, expectWarning }) => {
-        renderSchedule(
-            buildFeatureFlag({ active: true, rolloutPercentage: currentRollout }),
-            ScheduledChangeOperationType.AddReleaseCondition
-        )
+        {
+            // The existing condition targets a group type, so its 100% is a share of groups and
+            // says nothing about the users the scheduled condition reaches.
+            name: 'covered only by a condition on another aggregation target',
+            currentRollout: 100,
+            currentGroupTypeIndex: 0,
+            scheduledRollout: 25,
+            expectWarning: false,
+        },
+    ]
 
-        act(() => {
-            featureFlagLogic(logicProps).actions.setSchedulePayload(
-                {
-                    groups: [{ properties: [], rollout_percentage: scheduledRollout, variant: null }],
-                    multivariate: null,
-                },
-                null
+    it.each(conditionAddCases)(
+        'condition add $name: warns=$expectWarning',
+        ({ currentRollout, currentGroupTypeIndex, scheduledRollout, expectWarning }) => {
+            renderSchedule(
+                buildFeatureFlag({
+                    active: true,
+                    rolloutPercentage: currentRollout,
+                    aggregationGroupTypeIndex: currentGroupTypeIndex,
+                }),
+                ScheduledChangeOperationType.AddReleaseCondition
             )
-        })
 
-        const warning = screen.queryByText(/This flag already serves/)
-        expect(!!warning).toEqual(expectWarning)
-    })
+            act(() => {
+                featureFlagLogic(logicProps).actions.setSchedulePayload(
+                    {
+                        groups: [{ properties: [], rollout_percentage: scheduledRollout, variant: null }],
+                        multivariate: null,
+                    },
+                    null
+                )
+            })
+
+            const warning = screen.queryByText(/This flag already serves/)
+            expect(!!warning).toEqual(expectWarning)
+        }
+    )
 
     // useMocks trips the hooks naming lint inside named helpers, so each test registers
     // its own mock before calling this.
