@@ -2,7 +2,7 @@ import { Readable } from 'node:stream'
 // eslint-disable-next-line no-restricted-imports
 import { request } from 'undici'
 
-import { InvalidRequestError, fetchStreamed } from './request'
+import { InvalidRequestError, fetch, fetchStreamed } from './request'
 
 jest.mock('undici', () => ({
     ...jest.requireActual('undici'),
@@ -121,7 +121,15 @@ describe('fetchStreamed', () => {
         expect(requestMock).not.toHaveBeenCalled()
     })
 
-    it.each([[0], [-1], [1.5], [NaN], [2 ** 31]])(
+    it('releases the cold-start gate when a request throws before it is sent', async () => {
+        // A probe that never reaches undici must still release its origin, or every later request to it waits forever.
+        await expect(fetch('ftp://origin.test/a', { allowH2: true })).rejects.toThrow('URL must have HTTP or HTTPS')
+        await expect(fetch('ftp://origin.test/b', { allowH2: true })).rejects.toThrow('URL must have HTTP or HTTPS')
+
+        expect(requestMock).not.toHaveBeenCalled()
+    }, 5000)
+
+    it.each([[0], [-1], [NaN], [2 ** 31]])(
         'refuses an http2IdleTimeoutMs of %p before opening a socket',
         async (ms) => {
             // InvalidRequestError is not retriable, so a bad constant fails once instead of using its retries.

@@ -30,6 +30,7 @@ describe('secure HTTP/2 requests', () => {
     let requestModule: RequestModule
     let http2Origin: http2.Http2SecureServer
     let http1Origin: https.Server
+    let plainOrigin: http.Server
     let connectProxy: http.Server
     let tlsConnectSpy: jest.SpyInstance
     let tlsIdentity: TestTlsIdentity | undefined
@@ -95,6 +96,12 @@ describe('secure HTTP/2 requests', () => {
             http1ConnectionCount += 1
         })
         await listen(http1Origin)
+
+        plainOrigin = http.createServer((request, response) => {
+            response.writeHead(200, { 'content-type': 'text/plain' })
+            response.end(request.url)
+        })
+        await listen(plainOrigin)
 
         connectProxy = http.createServer()
         connectProxy.on('connection', (socket) => {
@@ -188,8 +195,9 @@ describe('secure HTTP/2 requests', () => {
             socket.destroy()
         }
         http1Origin.closeAllConnections()
+        plainOrigin.closeAllConnections()
         connectProxy.closeAllConnections()
-        await Promise.all([close(http2Origin), close(http1Origin), close(connectProxy)])
+        await Promise.all([close(http2Origin), close(http1Origin), close(plainOrigin), close(connectProxy)])
         await tlsIdentity?.cleanup()
     })
 
@@ -231,6 +239,16 @@ describe('secure HTTP/2 requests', () => {
         // undici multiplexes the concurrent requests on one session, up to the server's max concurrent streams.
         expect(http2SessionCount).toBe(1)
         expect(proxyAuthorities).toEqual([http2Authority, http2Authority, http1Authority])
+    }, 10000)
+
+    it('sends a plain http target through the CONNECT tunnel', async () => {
+        // The proxy applies its checks to the tunnel. An absolute-form request forwarded to the proxy would take a
+        // different path there, so a target that undici would not tunnel by default must still show up as CONNECT.
+        const plainAuthority = `origin.test:${serverPort(plainOrigin)}`
+        const response = await requestModule.fetch(`http://${plainAuthority}/plain`, { timeoutMs: 2000 })
+
+        expect(await response.text()).toBe('/plain')
+        expect(proxyAuthorities).toEqual([plainAuthority])
     }, 10000)
 
     it('carries a burst to a cold origin on one session', async () => {

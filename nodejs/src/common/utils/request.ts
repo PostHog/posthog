@@ -20,6 +20,7 @@ import { URL } from 'url'
 
 import { getExternalRequestConfig } from '~/common/config'
 
+import { ColdStartGate } from './cold-start-gate'
 import { isProdEnv } from './env-utils'
 import { fetchAttribution } from './fetch-attribution'
 import { parseJSON } from './json-parse'
@@ -56,7 +57,8 @@ export type FetchOptions = {
     // undici connect option `preferH2` lists HTTP/2 first.
     allowH2?: boolean
     // The time an idle HTTP/2 session to the origin stays open. The default is the keep-alive timeout. An origin that
-    // negotiates HTTP/1.1 uses the same dispatcher, so its idle sockets also close after this time.
+    // negotiates HTTP/1.1 uses the same dispatcher, so its idle sockets also close after this time. Pass a constant:
+    // each distinct value keeps a dispatcher for the life of the process, and at most 8 values are allowed.
     http2IdleTimeoutMs?: number
 }
 
@@ -296,7 +298,9 @@ function makeSecureDispatcher({
             uri: proxyUrl,
             keepAliveTimeout: keepAliveTimeoutMs,
             connections,
-            connectTimeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
+            // undici 8 tunnels only https targets by default. The proxy applies its checks to the tunnel, so a plain
+            // http target must not go to the proxy as an absolute-form request instead.
+            proxyTunnel: true,
             allowH2,
             requestTls: { allowH2 },
         })
@@ -315,69 +319,15 @@ function makeSecureDispatcher({
 const sharedSecureAgent = makeSecureDispatcher({ allowH2: false })
 const sharedInsecureAgent = new InsecureAgent()
 
-type OriginWarmth = { warmUntil: number; probe: Promise<void> | null }
-const MAX_TRACKED_ORIGINS = 10_000
-
-/**
- * Holds a burst of requests to a cold origin behind one probe request. undici sizes its pool before ALPN tells it
- * the protocol, so without the gate a burst to a cold HTTP/2 origin opens one session per request. The probe's
- * response headers mean the origin's SETTINGS frame has arrived, so the released requests multiplex on that
- * session. An origin that negotiates HTTP/1.1 still gets one connection per released request. An origin counts as
- * warm until the dispatcher's idle timeout has passed since its last response activity, which is when undici closes
- * the idle session.
- */
-class ColdStartGate {
-    private readonly origins = new Map<string, OriginWarmth>()
-    private nextSweepAt = 0
-
-    constructor(private readonly idleTimeoutMs: number) {}
-
-    // Resolves once the request may start. The returned function releases the held requests and must run when the
-    // probe has response headers or has failed. For a request that is not the probe it does nothing.
-    async acquire(origin: string): Promise<() => void> {
-        const now = Date.now()
-        const state = this.origins.get(origin)
-        if (state?.probe) {
-            await state.probe
-            return () => {}
-        }
-        if (state && state.warmUntil > now) {
-            return () => {}
-        }
-        let releaseProbe!: () => void
-        const probe = new Promise<void>((resolve) => (releaseProbe = resolve))
-        const probing: OriginWarmth = { warmUntil: state?.warmUntil ?? 0, probe }
-        this.origins.set(origin, probing)
-        this.sweep(now)
-        return () => {
-            if (probing.probe === probe) {
-                probing.probe = null
-            }
-            releaseProbe()
-        }
-    }
-
-    touch(origin: string): void {
-        const warmUntil = Date.now() + this.idleTimeoutMs
-        const state = this.origins.get(origin)
-        if (state) {
-            state.warmUntil = warmUntil
-        } else {
-            this.origins.set(origin, { warmUntil, probe: null })
-        }
-    }
-
-    private sweep(now: number): void {
-        if (this.origins.size < MAX_TRACKED_ORIGINS || now < this.nextSweepAt) {
-            return
-        }
-        this.nextSweepAt = now + 1000
-        for (const [origin, state] of this.origins) {
-            if (!state.probe && state.warmUntil <= now) {
-                this.origins.delete(origin)
-            }
-        }
-    }
+// undici only reads the value when the first HTTP/2 request builds its pool, and treats 0 as unbounded, so a bad
+// value would surface late and as a retriable error. Failing here stops the process at startup instead.
+if (
+    !Number.isInteger(requestConfig.EXTERNAL_REQUEST_H2_CONNECTIONS) ||
+    requestConfig.EXTERNAL_REQUEST_H2_CONNECTIONS < 1
+) {
+    throw new Error(
+        `EXTERNAL_REQUEST_H2_CONNECTIONS must be a positive integer, got ${process.env.EXTERNAL_REQUEST_H2_CONNECTIONS}`
+    )
 }
 
 type SecureDispatcher = { dispatcher: Dispatcher; gate: ColdStartGate | null }
@@ -391,8 +341,8 @@ let sharedAgentsClosed = false
 
 function getSecureH2Agent(idleTimeoutMs = requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS): SecureDispatcher {
     // InvalidRequestError is not retriable in cdp-fetch, so a value that can never work fails once.
-    if (!Number.isInteger(idleTimeoutMs) || idleTimeoutMs <= 0 || idleTimeoutMs > MAX_H2_IDLE_TIMEOUT_MS) {
-        throw new InvalidRequestError(`http2IdleTimeoutMs must be an integer between 1 and ${MAX_H2_IDLE_TIMEOUT_MS}`)
+    if (!Number.isFinite(idleTimeoutMs) || idleTimeoutMs <= 0 || idleTimeoutMs > MAX_H2_IDLE_TIMEOUT_MS) {
+        throw new InvalidRequestError(`http2IdleTimeoutMs must be a number between 1 and ${MAX_H2_IDLE_TIMEOUT_MS}`)
     }
     let agent = sharedSecureH2Agents.get(idleTimeoutMs)
     if (!agent) {
@@ -489,9 +439,11 @@ async function readAndDestroyBody(body: Dispatcher.ResponseData['body']): Promis
     return text
 }
 
-// Hooks for the cold-start gate. onHeaders and onError run once the request settles either way; onBodyDone runs
-// when the caller has read or discarded the body.
+// Hooks for the cold-start gate. The signal is created before the hold, so time spent held counts against the
+// caller's timeout. onHeaders or onError runs once the request settles; onBodyDone runs when the caller has read or
+// discarded the body.
 type RequestLifecycle = {
+    signal: AbortSignal | undefined
     onHeaders: () => void
     onError: () => void
     onBodyDone: () => void
@@ -525,7 +477,7 @@ export async function _fetch(
             body: options.body,
             dispatcher,
             // request() does not follow redirects, so a response can never bounce to an unvalidated host
-            signal: options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined,
+            signal: lifecycle?.signal ?? (options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined),
         })
     } catch (error) {
         lifecycle?.onError()
@@ -563,17 +515,34 @@ export async function _fetch(
     }
 }
 
-async function gatedLifecycle(gate: ColdStartGate | null, origin: string): Promise<RequestLifecycle | undefined> {
+const coldStartGateCounter = new Counter({
+    name: 'node_request_cold_start_gate_total',
+    help: 'Requests the HTTP/2 cold-start gate saw: probes to a cold origin, requests held behind a probe, and probes that failed',
+    labelNames: ['event'],
+})
+
+async function gatedLifecycle(
+    gate: ColdStartGate | null,
+    origin: string,
+    signal: AbortSignal | undefined
+): Promise<RequestLifecycle | undefined> {
     if (!gate) {
         return undefined
     }
-    const releaseProbe = await gate.acquire(origin)
+    const { probe, release } = await gate.acquire(origin, signal)
+    coldStartGateCounter.inc({ event: probe ? 'probe' : 'held' })
     return {
+        signal,
         onHeaders: () => {
             gate.touch(origin)
-            releaseProbe()
+            release()
         },
-        onError: releaseProbe,
+        onError: () => {
+            if (probe) {
+                coldStartGateCounter.inc({ event: 'probe_failed' })
+            }
+            release()
+        },
         onBodyDone: () => gate.touch(origin),
     }
 }
@@ -592,10 +561,17 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
     const parsed = new URL(url)
     validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
     inflightExternalRequests.inc()
+    let lifecycle: RequestLifecycle | undefined
     try {
         const { dispatcher, gate } = getSecureDispatcher(options)
-        const lifecycle = await gatedLifecycle(gate, parsed.origin)
+        options.timeoutMs = options.timeoutMs ?? requestConfig.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS
+        const signal = options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined
+        lifecycle = await gatedLifecycle(gate, parsed.origin, signal)
         return await _fetch(url, options, dispatcher, requestConfig.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS, lifecycle)
+    } catch (error) {
+        // Releases the probe when a throw happens before request() runs. The release is idempotent.
+        lifecycle?.onError()
+        throw error
     } finally {
         inflightExternalRequests.dec()
     }
@@ -708,12 +684,13 @@ export async function fetchStreamed(url: string, options: StreamedFetchOptions):
     let lifecycle: RequestLifecycle | undefined
     try {
         const { dispatcher, gate } = getSecureDispatcher(options)
-        lifecycle = await gatedLifecycle(gate, parsed.origin)
+        const signal = AbortSignal.timeout(options.timeoutMs)
+        lifecycle = await gatedLifecycle(gate, parsed.origin, signal)
         result = await request(parsed.toString(), {
             method: 'GET',
             headers: options.headers,
             dispatcher,
-            signal: AbortSignal.timeout(options.timeoutMs),
+            signal,
             responseHeaders: 'raw',
         })
     } catch (error) {
