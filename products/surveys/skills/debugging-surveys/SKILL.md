@@ -107,13 +107,19 @@ The radio in `frontend/src/scenes/surveys/SurveyResponsesCollection.tsx`. "Any q
 least one question is answered…" is `true`; "Complete survey: the response is stored when all
 questions are answered" is `false`.
 
-- `true` → `sendSurveyEvent` fires on **every** `onNextButtonClick`, so one `survey sent` per
+- `true` -> `sendSurveyEvent` fires on **every** `onNextButtonClick`, so one `survey sent` per
   question answered, all sharing a `$survey_submission_id` with `$survey_completed` running
-  `false … true`. The responses table collapses them by `argMax(uuid, timestamp)` per submission id
-  (`buildPartialResponsesFilter`, `frontend/src/scenes/surveys/utils.ts`), so **raw SQL shows far
-  more rows than the UI** and the extras look like broken submissions.
-- `false` → one event, at the end of the path. The table instead filters
-  `$survey_completed != 'false'`, keeping events where the property is absent (pre-1.240.0 SDKs).
+  `false ... true`.
+- `false` -> one `survey sent` event, at the end of the path.
+
+The setting controls capture, not response visibility. The results include every `survey sent`
+and every `survey dismissed` or `survey abandoned` marked `$survey_partially_completed = true`.
+`buildMergedSubmissionsSubquery` in `frontend/src/scenes/surveys/utils.ts` merges the latest
+answer per question for each submission ID; events without an ID stay separate. **Raw event
+counts can exceed response counts.** A completed event takes precedence over earlier partial
+closures. Otherwise the outcome chip reads "Dismissed" when the latest response event is a
+dismissal, and "Abandoned" for other unfinished submissions. "Abandoned" does not prove a
+page-unload event or inactivity timeout occurred; a later completion updates the same row.
 
 **The defaults disagree by creation path:** `NEW_SURVEY` sets `true`
 (`frontend/src/scenes/surveys/constants.tsx`) but the Django model default is `False`
