@@ -8870,6 +8870,11 @@ export interface PathsV2SegmentToFunnelResponseApi {
 
 export type ColumnConfigurationsListParams = {
     /**
+     * Return saved views for this context only.
+     * @minLength 1
+     */
+    context_key?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number

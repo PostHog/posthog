@@ -35,6 +35,8 @@ jobs:
     turbo:
         if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
         uses: ./.github/workflows/ci-turbo.yml
+        secrets:
+            GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
 
     trunk-impacted-targets:
         # Also on ready_for_review: Trunk keys the upload to a head SHA, and a PR
