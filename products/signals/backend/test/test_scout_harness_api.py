@@ -1398,7 +1398,16 @@ class TestWriteScopesValidation(SimpleTestCase):
             # Sorted and deduped, so resending the same set in another order is not a change and
             # never shows up in the activity log as one.
             ("deduped_and_sorted", ["alert:write", "alert:write"], True, ["alert:write"]),
+            (
+                "skills_and_warehouse_scopes",
+                ["warehouse_view:write", "llm_skill:write"],
+                True,
+                ["llm_skill:write", "warehouse_view:write"],
+            ),
             ("ungrantable_scope", ["feature_flag:write"], False, None),
+            # A scout run acts as its skill's author, so this scope would let a scout widen its own
+            # grant through the scout config endpoint. It stays ungrantable until that has a gate.
+            ("scout_config_scope", ["signal_scout:write"], False, None),
             # A read scope grants nothing but would read as a grant in the settings UI.
             ("read_scope", ["dashboard:read"], False, None),
             ("internal_scope", ["signal_scout_report:write"], False, None),
