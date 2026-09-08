@@ -7,8 +7,13 @@ events AI observability already understands, ``$ai_metric`` for the rating and
 generations carry so Slack feedback sits beside the web and desktop clients' rather than
 in a surface of its own.
 
-Kept out of ``api.py`` so that module stays the interactivity router: it imports the hint
-extractor for region ownership and the two handler entrypoints.
+A rating arrives two ways: a click on the reply's thumbs, or a thumbs emoji reacted onto
+the reply. Both become the same ``$ai_metric``, split by ``feedback_source``; only a
+clicked thumbs-down can ask for a reason, because a reaction carries no ``trigger_id`` to
+open a modal with.
+
+Kept out of ``api.py`` so that module stays the interactivity/event router: it imports
+the hint extractor for region ownership and the handler entrypoints.
 """
 
 from __future__ import annotations
@@ -27,7 +32,8 @@ from posthog.event_usage import groups
 from posthog.models.integration import Integration, SlackIntegration
 
 from products.slack_app.backend.analytics import slack_event_props
-from products.slack_app.backend.services.slack_messages import TURN_FEEDBACK_ACTION_ID
+from products.slack_app.backend.services.slack_messages import SLACK_WEBHOOK_TIMEOUT_SECONDS, TURN_FEEDBACK_ACTION_ID
+from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id
 
 logger = structlog.get_logger(__name__)
 
@@ -52,15 +58,33 @@ FEEDBACK_TEXT_MAX_LENGTH = 3000
 
 _RATINGS: dict[str, Literal["good", "bad"]] = {"positive": "good", "negative": "bad"}
 
+# Slack sends a reaction as its emoji name, with any skin tone appended after ``::``.
+# ``+1``/``-1`` are the canonical names for the thumbs; ``thumbsup``/``thumbsdown`` are
+# their standing aliases, kept here in case a client sends the alias form.
+_REACTION_SENTIMENTS: dict[str, str] = {
+    "+1": "positive",
+    "thumbsup": "positive",
+    "-1": "negative",
+    "thumbsdown": "negative",
+}
+
+# The outcomes ``handle_reaction_added`` reports to the event router. ``not_local`` means
+# the reacted reply belongs to an integration the other region owns, so the router should
+# forward the event there.
+ReactionOutcome = Literal["handled", "not_local"]
+REACTION_HANDLED: ReactionOutcome = "handled"
+REACTION_NOT_LOCAL: ReactionOutcome = "not_local"
+
 
 @frozen
 class _FeedbackTarget:
     """The run a rating is about, resolved against the workspace that owns it.
 
-    Built only by ``_resolve_target``, which is what makes every field here trusted: the
-    integration is matched on the Slack team the click came from, and the run is looked up
-    scoped to that integration's project, so a forged ``run_id`` resolves to nothing rather
-    than attributing feedback to another team's run.
+    Built only by ``_resolve_target`` on an integration ``_local_integration`` matched,
+    which is what makes every field here trusted: the integration is matched on the Slack
+    team the rating came from, and the run is looked up scoped to that integration's
+    project, so a forged ``run_id`` resolves to nothing rather than attributing feedback
+    to another team's run.
     """
 
     integration: Integration
@@ -111,41 +135,51 @@ def extract_modal_hint(payload: dict) -> int | None:
     return integration_id if isinstance(integration_id, int) else None
 
 
-def _resolve_target(payload: dict, value: dict[str, Any], turn_id: str | None) -> _FeedbackTarget | None:
-    """Match the click's workspace and run, or answer ``None``.
+def _local_integration(integration_id: Any, slack_team_id: str | None) -> Integration | None:
+    """The integration a rating names, if this region owns it for that Slack team.
 
-    Two lookups, both scoped: the integration must belong to the Slack team the click came
-    from, and the run must belong to that integration's project. Anyone who can read the
-    reply may rate it, so this is not an authorization check; it is what keeps a rating
-    from landing on a run the clicker's workspace has nothing to do with.
+    Scoped to the Slack team the rating came from, so a forged id resolves to nothing
+    rather than crossing workspaces. ``None`` also covers an id whose row lives in the
+    other region's database, which the reaction path forwards on.
     """
-    # Deferred so the tasks product stays off this module's import path, matching
-    # `slack_messages.load_run_footer`.
-    from products.tasks.backend.facade.api import get_task_run  # noqa: PLC0415
-
-    slack_team_id = payload.get("team", {}).get("id")
-    integration_id = value.get("integration_id")
-    run_id = value.get("run_id")
-    slack_user_id = payload.get("user", {}).get("id", "")
-    if not slack_team_id or not isinstance(integration_id, int) or not isinstance(run_id, str):
+    if not slack_team_id or not isinstance(integration_id, int):
         return None
-    try:
-        UUID(run_id)
-    except (ValueError, AttributeError, TypeError):
-        return None
-
-    integration = (
+    return (
         Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         )
         # The event properties and the capture's groups both read through to the team and
-        # its organization, and Slack gives the click three seconds.
+        # its organization, and Slack gives the interaction three seconds.
         .select_related("team__organization")
         .first()
     )
-    if integration is None:
+
+
+def _resolve_target(
+    value: dict[str, Any],
+    *,
+    integration: Integration,
+    slack_user_id: str,
+    turn_id: str | None,
+) -> _FeedbackTarget | None:
+    """Match the rating's run within ``integration``'s project, or answer ``None``.
+
+    Anyone who can read the reply may rate it, so this is not an authorization check; the
+    project scope is what keeps a rating from landing on a run the rater's workspace has
+    nothing to do with.
+    """
+    # Deferred so the tasks product stays off this module's import path, matching
+    # `slack_messages.load_run_footer`.
+    from products.tasks.backend.facade.api import get_task_run  # noqa: PLC0415
+
+    run_id = value.get("run_id")
+    if not isinstance(run_id, str):
+        return None
+    try:
+        UUID(run_id)
+    except (ValueError, AttributeError, TypeError):
         return None
 
     run = get_task_run(run_id, team_id=integration.team_id)
@@ -233,9 +267,18 @@ def _capture(target: _FeedbackTarget, event: str, properties: dict[str, Any]) ->
             properties={**_event_context(target), **properties},
             groups=groups(team.organization, team),
         )
-    except Exception:
+        # The one positive trace on this path: without it, a rating that quietly went
+        # nowhere is indistinguishable in the logs from a reaction we ignored on purpose.
         # NB: structlog's first positional arg is named `event`, so the captured event
         # rides under a different key rather than colliding with it.
+        logger.info(
+            "slack_app_turn_feedback_captured",
+            captured_event=event,
+            feedback_source=properties.get("feedback_source"),
+            run_id=target.run_id,
+            turn_id=target.turn_id,
+        )
+    except Exception:
         logger.warning("slack_app_turn_feedback_capture_failed", captured_event=event, exc_info=True)
 
 
@@ -298,7 +341,17 @@ def handle_turn_feedback_click(payload: dict) -> HttpResponse:
         logger.info("slack_app_turn_feedback_unknown_sentiment", sentiment=sentiment)
         return HttpResponse(status=200)
 
-    target = _resolve_target(payload, value, _turn_id(payload))
+    integration = _local_integration(value.get("integration_id"), payload.get("team", {}).get("id"))
+    target = (
+        _resolve_target(
+            value,
+            integration=integration,
+            slack_user_id=payload.get("user", {}).get("id", ""),
+            turn_id=_turn_id(payload),
+        )
+        if integration
+        else None
+    )
     if target is None:
         return HttpResponse(status=200)
 
@@ -306,7 +359,11 @@ def handle_turn_feedback_click(payload: dict) -> HttpResponse:
     # resolves the clicker's identity against the database on its way out.
     if sentiment == "negative":
         _open_reason_modal(payload, target)
-    _capture(target, "$ai_metric", {"$ai_metric_name": "quality", "$ai_metric_value": rating})
+    _capture(
+        target,
+        "$ai_metric",
+        {"$ai_metric_name": "quality", "$ai_metric_value": rating, "feedback_source": "button"},
+    )
     return HttpResponse(status=200)
 
 
@@ -328,9 +385,147 @@ def handle_turn_feedback_modal_submit(payload: dict) -> HttpResponse:
         return JsonResponse({"response_action": "errors", "errors": {_MODAL_TEXT_BLOCK_ID: "Tell us what went wrong."}})
 
     turn_id = metadata.get("turn_id")
-    target = _resolve_target(payload, metadata, turn_id if isinstance(turn_id, str) else None)
+    integration = _local_integration(metadata.get("integration_id"), payload.get("team", {}).get("id"))
+    target = (
+        _resolve_target(
+            metadata,
+            integration=integration,
+            slack_user_id=payload.get("user", {}).get("id", ""),
+            turn_id=turn_id if isinstance(turn_id, str) else None,
+        )
+        if integration
+        else None
+    )
     if target is None:
         return HttpResponse(status=200)
 
-    _capture(target, "$ai_feedback", {"$ai_feedback_text": text, "feedback_type": "bad"})
+    _capture(
+        target,
+        "$ai_feedback",
+        {"$ai_feedback_text": text, "feedback_type": "bad", "feedback_source": "button"},
+    )
     return HttpResponse(status=200)
+
+
+def _reaction_base(reaction: str) -> str:
+    """The emoji name without its skin-tone modifier.
+
+    A skin-toned thumb arrives as ``+1::skin-tone-3``. The tone changes nothing about the
+    rating, and it must not reach the captured event either: it is a person's routine
+    default on every emoji they send, so storing it would record a proxy for a protected
+    attribute against an identified user.
+    """
+    return reaction.split("::", 1)[0]
+
+
+def reaction_sentiment(reaction: Any) -> str | None:
+    """The rating a reaction stands for, or ``None`` for any other emoji."""
+    if not isinstance(reaction, str):
+        return None
+    return _REACTION_SENTIMENTS.get(_reaction_base(reaction))
+
+
+def _fetch_reacted_message(workspace_integration: Integration, channel: str, message_ts: str) -> dict[str, Any] | None:
+    """The reacted message, read back from Slack so its blocks can say which run it is.
+
+    ``conversations.replies`` accepts the ts of any message in a thread, and agent replies
+    always live in threads.
+    """
+    try:
+        client = SlackIntegration(workspace_integration).client
+        client.timeout = SLACK_WEBHOOK_TIMEOUT_SECONDS
+        # `oldest` and `latest` pin the window to exactly the reacted message, so the one
+        # returned row is that message whatever order Slack ranges the thread in.
+        response = client.conversations_replies(
+            channel=channel, ts=message_ts, oldest=message_ts, latest=message_ts, inclusive=True, limit=1
+        )
+        messages = response.get("messages") or []
+    except Exception:
+        logger.warning(
+            "slack_app_reaction_feedback_fetch_failed",
+            integration_id=workspace_integration.id,
+            channel=channel,
+            message_ts=message_ts,
+            exc_info=True,
+        )
+        return None
+    return next((m for m in messages if isinstance(m, dict) and m.get("ts") == message_ts), None)
+
+
+def _feedback_value_from_message(message: dict[str, Any]) -> dict[str, Any]:
+    """The thumbs' target, read off the reacted reply's own blocks.
+
+    Only agent replies carry the feedback element, so finding it is also the gate: a
+    reaction on any other bot message resolves to nothing. Both buttons carry the same
+    integration and run, so either value serves.
+    """
+    for block in message.get("blocks") or []:
+        if not isinstance(block, dict):
+            continue
+        for element in block.get("elements") or []:
+            if isinstance(element, dict) and element.get("action_id") == TURN_FEEDBACK_ACTION_ID:
+                return _parse_action_value((element.get("positive_button") or {}).get("value"))
+    return {}
+
+
+def handle_reaction_added(event: dict, slack_team_id: str, workspace_integration: Integration) -> ReactionOutcome:
+    """Record a thumbs reaction on an agent reply as a rating.
+
+    ``workspace_integration`` is any of this region's integrations for the Slack team; its
+    token is what reads the reacted message back. The reply's own button value then names
+    the integration the run belongs to, and ``REACTION_NOT_LOCAL`` reports that row living
+    in the other region so the event router can forward the event there. Everything this
+    handler ignores, including reactions that are not a thumb, is ``REACTION_HANDLED``.
+    """
+    reaction = event.get("reaction")
+    sentiment = reaction_sentiment(reaction)
+    rating = _RATINGS.get(sentiment) if sentiment else None
+    item = event.get("item") or {}
+    channel = item.get("channel")
+    message_ts = item.get("ts")
+    if (
+        rating is None
+        or not isinstance(reaction, str)
+        or item.get("type") != "message"
+        or not isinstance(channel, str)
+        or not isinstance(message_ts, str)
+    ):
+        return REACTION_HANDLED
+
+    # Most thumbs in a channel land on human messages; the author check keeps those from
+    # each costing a Slack fetch. `get_cached_bot_user_id` settles a cold cache itself, so
+    # `None` means the token is broken or Slack is failing. A rating is best-effort
+    # analytics, so skip it then rather than pay a doomed fetch per reaction.
+    bot_user_id = get_cached_bot_user_id(SlackIntegration(workspace_integration), workspace_integration)
+    if bot_user_id is None or event.get("item_user") != bot_user_id:
+        return REACTION_HANDLED
+
+    message = _fetch_reacted_message(workspace_integration, channel, message_ts)
+    value = _feedback_value_from_message(message) if message else {}
+    if not isinstance(value.get("integration_id"), int):
+        return REACTION_HANDLED
+
+    integration = _local_integration(value.get("integration_id"), slack_team_id)
+    if integration is None:
+        return REACTION_NOT_LOCAL
+
+    target = _resolve_target(
+        value,
+        integration=integration,
+        slack_user_id=str(event.get("user") or ""),
+        turn_id=message_ts,
+    )
+    if target is None:
+        return REACTION_HANDLED
+
+    _capture(
+        target,
+        "$ai_metric",
+        {
+            "$ai_metric_name": "quality",
+            "$ai_metric_value": rating,
+            "feedback_source": "reaction",
+            "reaction": _reaction_base(reaction),
+        },
+    )
+    return REACTION_HANDLED

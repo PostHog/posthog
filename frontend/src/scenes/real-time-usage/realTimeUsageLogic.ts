@@ -30,8 +30,7 @@ type RealTimeUsageData = {
 
 type ProjectUsageData = {
     project: { id: number; name: string }
-    rows: HogQLQueryResponse
-    timeSeries: HogQLQueryResponse
+    usage: HogQLQueryResponse
 }
 
 const RANGE_INTERVALS: Record<UsageRange, string> = {
@@ -46,7 +45,7 @@ const RANGE_SECONDS: Record<UsageRange, number> = {
     '30d': 30 * 24 * 60 * 60,
 }
 
-const PROJECT_QUERY_CONCURRENCY = 5
+const PROJECT_QUERY_CONCURRENCY = 10
 
 // Buckets are cut by integer arithmetic on the Unix timestamp rather than by dateTrunc, so a bucket
 // is the same absolute instant for every project and for the browser. dateTrunc cuts on the team's
@@ -100,18 +99,16 @@ function bucketStarts(range: UsageRange, granularity: UsageGranularity): number[
     return Array.from({ length: count }, (_, index) => end - (count - 1 - index) * step)
 }
 
-function usageQuery(range: UsageRange, granularity: UsageGranularity, timeSeries: boolean): string {
+// Collapsing an un-merged resend needs a group by record_id, which is unique per row, so the
+// aggregation holds one state per row and exceeds ClickHouse's per-query memory limit. This page
+// reports usage as it arrives rather than the billed number, so a plain sum is close enough.
+// One query serves both the chart and the table, because the table is this result summed over its
+// buckets.
+function usageQuery(range: UsageRange, granularity: UsageGranularity): string {
     const interval = RANGE_INTERVALS[range]
     const step = GRANULARITY_SECONDS[granularity]
-    const bucket = `intDiv(toUnixTimestamp(recorded_at), ${step}) * ${step}`
-    // Grouped by the table's sorting key so un-merged duplicates of one record collapse instead
-    // of summing. HogQL rejects FINAL, and timestamp is monotonic per resend, so argMax on it
-    // picks the same row a merge would keep.
-    const canonicalRecords = `SELECT producer_id, usage_key, unit, record_id, argMax(quantity, timestamp) AS quantity, max(timestamp) AS recorded_at FROM posthog.billing_usage_records WHERE timestamp >= now() - INTERVAL ${interval} GROUP BY toDate(timestamp), producer_id, usage_key, unit, record_id`
 
-    return timeSeries
-        ? `SELECT ${bucket} AS bucket, concat(producer_id, ': ', usage_key, ' (', unit, ')') AS series, sum(quantity) AS quantity FROM (${canonicalRecords}) GROUP BY bucket, series ORDER BY bucket, series`
-        : `SELECT producer_id, usage_key, unit, sum(quantity) AS quantity FROM (${canonicalRecords}) GROUP BY producer_id, usage_key, unit ORDER BY quantity DESC, producer_id, usage_key`
+    return `SELECT intDiv(toUnixTimestamp(timestamp), ${step}) * ${step} AS bucket, producer_id, usage_key, unit, sum(quantity) AS quantity FROM posthog.billing_usage_records WHERE timestamp >= now() - INTERVAL ${interval} GROUP BY bucket, producer_id, usage_key, unit`
 }
 
 async function queryUsage(teamId: number, query: string): Promise<HogQLQueryResponse> {
@@ -137,26 +134,25 @@ export function parseUsageData(
     const series = new Map<string, Map<number, number>>()
 
     for (const response of responses) {
-        for (const [producerId, usageKey, unit, quantity] of response.rows.results ?? []) {
-            const key = `${breakdownByProject ? `${response.project.id}:` : ''}${producerId}:${usageKey}:${unit}`
-            const current = rows.get(key)
-            rows.set(key, {
+        for (const [bucket, producerId, usageKey, unit, quantity] of response.usage.results ?? []) {
+            const meter = `${producerId}: ${usageKey} (${unit})`
+            const amount = Number(quantity)
+
+            const rowKey = `${breakdownByProject ? `${response.project.id}:` : ''}${producerId}:${usageKey}:${unit}`
+            const current = rows.get(rowKey)
+            rows.set(rowKey, {
                 projectName: breakdownByProject ? response.project.name : undefined,
                 producerId: String(producerId),
                 usageKey: String(usageKey),
                 unit: String(unit),
-                quantity: (current?.quantity ?? 0) + Number(quantity),
+                quantity: (current?.quantity ?? 0) + amount,
             })
-        }
 
-        for (const [bucket, seriesName, quantity] of response.timeSeries.results ?? []) {
+            const seriesKey = breakdownByProject ? `${response.project.id}:${response.project.name}: ${meter}` : meter
+            const values = series.get(seriesKey) ?? new Map<number, number>()
             const bucketStart = Number(bucket)
-            const key = breakdownByProject
-                ? `${response.project.id}:${response.project.name}: ${seriesName}`
-                : String(seriesName)
-            const values = series.get(key) ?? new Map<number, number>()
-            values.set(bucketStart, (values.get(bucketStart) ?? 0) + Number(quantity))
-            series.set(key, values)
+            values.set(bucketStart, (values.get(bucketStart) ?? 0) + amount)
+            series.set(seriesKey, values)
         }
     }
 
@@ -228,8 +224,7 @@ export const realTimeUsageLogic = kea<realTimeUsageLogicType>([
             null as RealTimeUsageData | null,
             {
                 loadUsageData: async (): Promise<RealTimeUsageData> => {
-                    const rowsQuery = usageQuery(values.usageRange, values.usageGranularity, false)
-                    const timeSeriesQuery = usageQuery(values.usageRange, values.usageGranularity, true)
+                    const query = usageQuery(values.usageRange, values.usageGranularity)
                     const teams = values.currentOrganization?.teams ?? []
                     const selectedTeams = values.selectedProjectIds.length
                         ? teams.filter((team) => values.selectedProjectIds.includes(team.id))
@@ -243,8 +238,7 @@ export const realTimeUsageLogic = kea<realTimeUsageLogicType>([
                             projectQueryConcurrency.run({
                                 fn: async () => ({
                                     project: { id: team.id, name: team.name },
-                                    rows: await queryUsage(team.id, rowsQuery),
-                                    timeSeries: await queryUsage(team.id, timeSeriesQuery),
+                                    usage: await queryUsage(team.id, query),
                                 }),
                             })
                         )

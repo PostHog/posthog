@@ -51,10 +51,14 @@ class FakeRedis {
     private _nextSeq = 0
     private _xaddCallCount = 0
     private _expireCallCount = 0
+    private _xaddMaxlens: number[] = []
 
     // Counters exposed for TTL/MAXLEN assertions
     get xaddCallCount(): number {
         return this._xaddCallCount
+    }
+    get xaddMaxlens(): number[] {
+        return this._xaddMaxlens
     }
     get expireCallCount(): number {
         return this._expireCallCount
@@ -168,6 +172,9 @@ class FakeRedis {
 
     async xadd(key: string, ...args: unknown[]): Promise<string | null> {
         this._xaddCallCount++
+        if (args[0] === 'MAXLEN' && args[1] === '~') {
+            this._xaddMaxlens.push(Number(args[2]))
+        }
         // Parse: MAXLEN ~ N * 'data' value
         let i = 0
         while (i < args.length && args[i] !== '*') {
@@ -430,7 +437,7 @@ let _runCounter = 0
 
 function newStream(
     redis?: FakeRedis,
-    opts?: { presenceGated?: boolean }
+    opts?: { presenceGated?: boolean; thinTail?: boolean }
 ): { stream: TaskRunRedisStream; redis: FakeRedis; streamKey: string } {
     const r = redis ?? new FakeRedis()
     _runCounter++
@@ -439,6 +446,7 @@ function newStream(
     const stream = new TaskRunRedisStream(streamKey, r as unknown as import('ioredis').Redis, {
         timeout: 60,
         presenceGated: opts?.presenceGated ?? false,
+        thinTail: opts?.thinTail ?? false,
     })
     return { stream, redis: r, streamKey }
 }
@@ -611,6 +619,23 @@ describe('redis-stream', () => {
 
             expect(err).toBeInstanceOf(TaskRunStreamAlreadyCompleted)
             expect(err!.lastAcceptedSeq).toBe(2)
+        })
+
+        it('trims id-carrying events to the thin window on thin-tail streams', async () => {
+            const { stream, redis } = newStream(undefined, { thinTail: true })
+
+            await stream.writeEventWithSequence({ type: 'a', event_id: 'boot1-1' }, 1)
+            await stream.writeEventWithSequence({ type: 'b' }, 2)
+
+            expect(redis.xaddMaxlens).toEqual([500, 5_000])
+        })
+
+        it('keeps the full window for id-carrying events when thin tail is off', async () => {
+            const { stream, redis } = newStream()
+
+            await stream.writeEventWithSequence({ type: 'a', event_id: 'boot1-1' }, 1)
+
+            expect(redis.xaddMaxlens).toEqual([5_000])
         })
 
         it('applies MAXLEN on every XADD', async () => {

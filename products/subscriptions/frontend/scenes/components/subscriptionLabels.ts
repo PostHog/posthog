@@ -4,4 +4,5 @@ import { SubscriptionTargetEnumApi } from 'products/subscriptions/frontend/gener
 export const TARGET_TYPE_LABEL: Record<SubscriptionApi['target_type'], string> = {
     [SubscriptionTargetEnumApi.Email]: 'Email',
     [SubscriptionTargetEnumApi.Slack]: 'Slack',
+    [SubscriptionTargetEnumApi.Teams]: 'Microsoft Teams',
 }

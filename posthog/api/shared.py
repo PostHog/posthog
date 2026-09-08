@@ -120,6 +120,13 @@ class ProjectBackwardCompatBasicSerializer(serializers.ModelSerializer):
     project_id = serializers.IntegerField(
         source="id", read_only=True, help_text="ID of the project this environment belongs to."
     )
+    # Project-only: tags label a Project, which environments do not have, so this is not mirrored
+    # onto TeamBasicSerializer.
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        read_only=True,
+        help_text="Labels applied to this project.",
+    )
 
     class Meta:
         model = Project
@@ -136,8 +143,9 @@ class ProjectBackwardCompatBasicSerializer(serializers.ModelSerializer):
             "is_demo",  # Compat with TeamSerializer
             "timezone",  # Compat with TeamSerializer
             "access_control",  # Compat with TeamSerializer
+            "tags",
         )
-        read_only_fields = fields
+        read_only_fields = tuple(field for field in fields if field != "tags")
         team_passthrough_fields = {
             "uuid",
             "api_token",
@@ -218,6 +226,17 @@ class ProjectBackwardCompatBasicSerializer(serializers.ModelSerializer):
                 ret[field.field_name] = None
             else:
                 ret[field.field_name] = field.to_representation(attribute)
+
+        # Tags live in a join table rather than on the model, so the loop above skips them.
+        # This method does not delegate to Serializer.to_representation, so nothing else can add them.
+        if instance.pk:
+            ret["tags"] = (
+                [tagged_item.tag.name for tagged_item in instance.prefetched_tags]
+                if hasattr(instance, "prefetched_tags")
+                else list(instance.tagged_items.values_list("tag__name", flat=True))
+            )
+        else:
+            ret["tags"] = []
 
         return ret
 

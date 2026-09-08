@@ -1101,6 +1101,45 @@ describe('infiniteListLogic', () => {
             logic.mount()
         })
 
+        it.each([200, 500])('reveals scoped results before the full count returns %s', async (status) => {
+            let resolveCount!: (response: [number, { count: number; results: { name: string }[] }]) => void
+            useMocks({
+                get: {
+                    '/api/projects/:team/property_definitions': ({ request }) => {
+                        const url = new URL(request.url)
+                        if (
+                            url.searchParams.get('search') === 'browser' &&
+                            !url.searchParams.has('filter_by_event_names')
+                        ) {
+                            return new Promise((resolve) => {
+                                resolveCount = resolve
+                            })
+                        }
+                        return [200, { results: [{ name: '$browser', id: 'browser' }], count: 1 }]
+                    },
+                },
+            })
+            await expectLogic(logic, () => logic.actions.setSearchQuery('browser'))
+                .toDispatchActions(['loadRemoteItemsSuccess'])
+                .toMatchValues({
+                    remoteItems: partial({ searchQuery: 'browser', count: 1 }),
+                    isLoading: false,
+                    isExpandable: false,
+                    expandedCountResultLoading: true,
+                })
+            const visibleResults = logic.values.results
+            const selectedIndex = logic.values.index
+            await expectLogic(logic, () => resolveCount([status, { count: 9, results: [{ name: '$browser' }] }]))
+                .toDispatchActions(['loadExpandedCountSuccess'])
+                .toMatchValues({
+                    isLoading: false,
+                    isExpandable: status === 200,
+                    expandedCount: status === 200 ? 9 : 0,
+                    results: visibleResults,
+                    index: selectedIndex,
+                })
+        })
+
         it('setting search query filters events', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setSearchQuery('browser')
@@ -1117,7 +1156,6 @@ describe('infiniteListLogic', () => {
                     expandedCount: 2,
                     remoteItems: partial({
                         count: 1,
-                        expandedCount: 2,
                         results: partial([partial({ name: '$browser', is_seen_on_filtered_events: true })]),
                     }),
                 })
@@ -1137,7 +1175,6 @@ describe('infiniteListLogic', () => {
                     expandedCount: 0,
                     remoteItems: partial({
                         count: 2,
-                        expandedCount: undefined,
                         results: partial([
                             partial({ name: '$browser', is_seen_on_filtered_events: true }),
                             partial({ name: 'browser_no_dollar_not_on_event', is_seen_on_filtered_events: false }),
@@ -1161,7 +1198,6 @@ describe('infiniteListLogic', () => {
                     expandedCount: 0,
                     remoteItems: partial({
                         count: 2,
-                        expandedCount: undefined,
                         results: partial([
                             partial({ name: '$browser', is_seen_on_filtered_events: true }),
                             partial({ name: 'browser_no_dollar_not_on_event', is_seen_on_filtered_events: false }),
@@ -1187,7 +1223,6 @@ describe('infiniteListLogic', () => {
                     index: 0,
                     remoteItems: partial({
                         count: 1,
-                        expandedCount: 2,
                         results: partial([partial({ name: '$browser', is_seen_on_filtered_events: true })]),
                     }),
                 })
@@ -1211,7 +1246,6 @@ describe('infiniteListLogic', () => {
                     expandedCount: 0,
                     remoteItems: partial({
                         count: 2,
-                        expandedCount: undefined,
                         results: partial([
                             partial({ name: '$browser', is_seen_on_filtered_events: true }),
                             partial({ name: 'browser_no_dollar_not_on_event', is_seen_on_filtered_events: false }),

@@ -115,7 +115,7 @@ class _MetricClauseSerializer(serializers.Serializer):
         help_text="Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.",
     )
     aggregation = serializers.ChoiceField(
-        choices=["sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"],
+        choices=["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
         default="sum",
         help_text="Aggregation applied per time bucket; same semantics as the top-level aggregation.",
     )
@@ -164,9 +164,9 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         help_text="Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.",
     )
     aggregation = serializers.ChoiceField(
-        choices=["sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"],
+        choices=["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
         default="sum",
-        help_text="Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.",
+        help_text="Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.",
     )
     quantile = serializers.FloatField(
         required=False,
@@ -316,7 +316,7 @@ class _MetricAnomalyBodySerializer(serializers.Serializer):
         help_text="End of the healthy comparison window. Defaults to anomalyFrom. Must not extend past anomalyFrom.",
     )
     aggregation = serializers.ChoiceField(
-        choices=["sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"],
+        choices=["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
         required=False,
         allow_null=True,
         help_text="Aggregation to characterize. Omit to auto-pick from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95).",
@@ -703,7 +703,7 @@ class _MetricExplainBodySerializer(serializers.Serializer):
         help_text="Constrain the bucket to one metric type. A name can exist as several types; without this, rows of every type sharing the name are decomposed together.",
     )
     aggregation = serializers.ChoiceField(
-        choices=["sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"],
+        choices=["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
         default="sum",
         help_text="The aggregation whose result should be explained. 'histogram_quantile' is rejected: it reduces bucket-count arrays rather than scalar samples, so there is no per-series value to lay out.",
     )

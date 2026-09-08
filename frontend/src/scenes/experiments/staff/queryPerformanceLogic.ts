@@ -80,6 +80,10 @@ export interface PrecomputeTimeseriesResponse {
         total: number[]
         precomputed: number[]
         fallback: number[]
+        // Successful precomputed-path reads only; 0 where a bucket has none
+        precomputed_p50_duration_ms: number[]
+        precomputed_p90_duration_ms: number[]
+        precomputed_avg_read_bytes: number[]
     }
     builds: {
         failed_by_code: Record<string, number[]>

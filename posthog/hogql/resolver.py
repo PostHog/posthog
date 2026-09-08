@@ -24,6 +24,7 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
+from posthog.hogql.database.trino_unnest_table import resolve_internal_trino_table_function
 from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
@@ -41,6 +42,7 @@ from posthog.hogql.functions.traffic_type import (
     get_bot_type,
     get_traffic_category,
     get_traffic_type,
+    has_user_agent_rule,
     is_bot,
 )
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
@@ -1318,7 +1320,12 @@ class Resolver(CloningVisitor):
             if table_alias in scope.tables:
                 raise QueryError(f'Already have joined a table called "{table_alias}". Can\'t redefine.')
 
-            cte_table = self.ctes.get(".".join(table_name_chain))
+            internal_table_function = (
+                resolve_internal_trino_table_function(table_name_chain)
+                if self.dialect == "trino" and node.table_args is not None
+                else None
+            )
+            cte_table = self.ctes.get(".".join(table_name_chain)) if internal_table_function is None else None
             if cte_table:
                 assert isinstance(cte_table.expr.type, ast.SelectQueryType | ast.SelectSetQueryType)
                 # Use CTETableType so that fields are properly qualified with the CTE name when printed
@@ -1353,9 +1360,11 @@ class Resolver(CloningVisitor):
                 return node
 
             if self.dialect == "trino":
-                database_table = resolve_trino_table_reference(
-                    cast(ast.Field, node.table), self.context
-                ) or resolve_internal_trino_logical_table(table_name_chain, self.context)
+                database_table = (
+                    internal_table_function
+                    or resolve_trino_table_reference(cast(ast.Field, node.table), self.context)
+                    or resolve_internal_trino_logical_table(table_name_chain, self.context)
+                )
             else:
                 database_table = None
 
@@ -1914,22 +1923,40 @@ class Resolver(CloningVisitor):
                 )
             if node.name in ("isLikelyBot", "__preview_isBot"):
                 # The two-arg form duplicates its IP argument across the per-prefix-length range
-                # checks, so it needs the same re-entrancy guard as the lookup builders below.
-                if len(node.args) > 1:
-                    return self._expand_duplicating_macro(node, lambda: is_bot(node=node, args=node.args))
-                return self.visit(is_bot(node=node, args=node.args))
+                # checks, and a project's user-agent rules duplicate the user-agent argument the
+                # same way, so guard the expansion whenever either can happen. A one-arg call with
+                # no user-agent rule embeds its argument once — rules on other properties read a
+                # sibling field, not the argument — so it stays unguarded and can still be reached
+                # inside another macro's expansion.
+                modifiers = self.context.modifiers
+                duplicates_argument = len(node.args) > 1 or has_user_agent_rule(modifiers)
+                if duplicates_argument:
+                    return self._expand_duplicating_macro(
+                        node, lambda: is_bot(node=node, args=node.args, modifiers=modifiers)
+                    )
+                return self.visit(is_bot(node=node, args=node.args, modifiers=modifiers))
             # The bot-lookup builders below duplicate their argument, so they must expand under the
             # re-entrancy guard to bound nested expansion (see _expand_duplicating_macro).
             if node.name in ("getTrafficType", "__preview_getTrafficType"):
-                return self._expand_duplicating_macro(node, lambda: get_traffic_type(node=node, args=node.args))
+                return self._expand_duplicating_macro(
+                    node, lambda: get_traffic_type(node=node, args=node.args, modifiers=self.context.modifiers)
+                )
             if node.name in ("getTrafficCategory", "__preview_getTrafficCategory"):
-                return self._expand_duplicating_macro(node, lambda: get_traffic_category(node=node, args=node.args))
+                return self._expand_duplicating_macro(
+                    node, lambda: get_traffic_category(node=node, args=node.args, modifiers=self.context.modifiers)
+                )
             if node.name in ("getBotType", "__preview_getBotType"):
-                return self._expand_duplicating_macro(node, lambda: get_bot_type(node=node, args=node.args))
+                return self._expand_duplicating_macro(
+                    node, lambda: get_bot_type(node=node, args=node.args, modifiers=self.context.modifiers)
+                )
             if node.name in ("getBotName", "__preview_getBotName"):
-                return self._expand_duplicating_macro(node, lambda: get_bot_name(node=node, args=node.args))
+                return self._expand_duplicating_macro(
+                    node, lambda: get_bot_name(node=node, args=node.args, modifiers=self.context.modifiers)
+                )
             if node.name in ("getBotOperator", "__preview_getBotOperator"):
-                return self._expand_duplicating_macro(node, lambda: get_bot_operator(node=node, args=node.args))
+                return self._expand_duplicating_macro(
+                    node, lambda: get_bot_operator(node=node, args=node.args, modifiers=self.context.modifiers)
+                )
             if node.name in ("_defaultChannelType", "_domainType"):
                 from posthog.hogql.database.schema.channel_type import (  # noqa: PLC0415 — avoid resolver->schema import cycle
                     expand_default_channel_type_call,
