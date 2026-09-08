@@ -37,6 +37,7 @@ import {
     bufferProcessingMode,
     processLogMessageBuffer,
 } from './log-record-avro'
+import { DEFAULT_LOGS_PATTERN_MESSAGE_KEYS, LogsConfigCache } from './logs-config-cache'
 import type { CompiledMetricRule } from './metrics-rules/compile-metric-rules'
 import { MetricRulesCache } from './metrics-rules/metric-rules-cache'
 import { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
@@ -67,6 +68,7 @@ export interface LogsIngestionConsumerDeps {
     logsTransformer?: LogsTransformerService
     /** When set, enabled teams stamp per-row retention from retention rules before produce. */
     retentionRulesCache?: RetentionRulesCache
+    logsConfigCache?: LogsConfigCache
     /**
      * Resolved outputs registry — must include `LOGS_OUTPUT`, `LOGS_DLQ_OUTPUT`,
      * and `APP_METRICS_OUTPUT`. The producer + topic for each is wired by the
@@ -362,7 +364,6 @@ export class LogsIngestionConsumer {
     private readonly retentionEnabledTeamsRaw: string
     private readonly retentionKillswitch: boolean
     private readonly patternMaskingEnabledTeamsRaw: string
-    private readonly patternMaskingStage: PipelineStage
 
     protected groupId: string
     protected topic: string
@@ -413,7 +414,6 @@ export class LogsIngestionConsumer {
         this.retentionEnabledTeamsRaw = mergedConfig.LOGS_RETENTION_ENABLED_TEAMS
         this.retentionKillswitch = mergedConfig.LOGS_RETENTION_KILLSWITCH
         this.patternMaskingEnabledTeamsRaw = mergedConfig.LOGS_PATTERN_MASKING_ENABLED_TEAMS
-        this.patternMaskingStage = makePatternMaskingStage()
     }
 
     private isSamplingEvalEnabledForTeam(teamId: number): boolean {
@@ -549,7 +549,10 @@ export class LogsIngestionConsumer {
             if (modeWithoutMasking !== 'decode_and_reencode') {
                 logsPatternForcedDecodeCounter.inc({ from: modeWithoutMasking })
             }
-            stages.push(this.patternMaskingStage)
+            const messageKeys =
+                (await this.deps.logsConfigCache?.getPatternMessageKeys(message.teamId)) ??
+                DEFAULT_LOGS_PATTERN_MESSAGE_KEYS
+            stages.push(makePatternMaskingStage(messageKeys))
         }
 
         trace.getActiveSpan()?.setAttributes({
