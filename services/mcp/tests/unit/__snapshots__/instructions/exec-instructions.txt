@@ -7,4 +7,4 @@ dashboard|execute-sql|feature-flag|query
 exec – run any PostHog command; its `command` description has the syntax.
 render-ui – show a tool result as an interactive app.
 
-Prioritize skills over tools.
+Prioritize skills over tools, except catalog-first routing for named measures takes precedence over a skill's typed tool or query recipe.
