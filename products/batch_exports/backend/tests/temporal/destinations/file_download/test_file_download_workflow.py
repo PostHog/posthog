@@ -30,8 +30,6 @@ from products.batch_exports.backend.tests.temporal.utils.workflow import fail_on
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
-# Only the tests that reach S3 need credentials. A run that fails before the export activity never
-# gets there, so gating the whole module would skip that coverage in CI, which sets no credentials.
 requires_aws_credentials = pytest.mark.skipif(
     not has_valid_credentials(),
     reason="AWS credentials not set in environment",
