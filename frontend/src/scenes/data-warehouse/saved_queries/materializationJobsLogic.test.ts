@@ -88,17 +88,22 @@ describe('materializationJobsLogic', () => {
     })
 
     // Regression: a rejected eligibility check used to surface as a "Load incremental check failed"
-    // toast on a healthy materialized view. A 4xx is an expected refusal; a 5xx is ours to record.
+    // toast on a healthy materialized view. A 4xx is an expected refusal and is not retried; a 5xx is
+    // ours to record, and the next savedQuery reload (every jobs poll) retries it.
     it.each([
-        [400, { type: 'validation_error', detail: 'Query is not valid.' }, 0],
-        [500, { type: 'server_error', detail: 'Something went wrong.' }, 1],
+        [400, { type: 'validation_error', detail: 'Query is not valid.' }, 0, 1],
+        [500, { type: 'server_error', detail: 'Something went wrong.' }, 1, 2],
     ])(
         'treats a %s from the eligibility check as "no incremental option" instead of failing',
-        async (status, body, captured) => {
+        async (status, body, captured, checksAfterReload) => {
             const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => {})
+            let checkCalls = 0
             const mocks = apiMocks({ isMaterialized: true })
             mocks.post = {
-                '/api/environments/:team_id/warehouse_saved_queries/check_incremental/': () => [status, body],
+                '/api/environments/:team_id/warehouse_saved_queries/check_incremental/': () => {
+                    checkCalls += 1
+                    return [status, body]
+                },
             }
             useMocks(mocks)
             logic = materializationJobsLogic({ viewId: 'view-1' })
@@ -109,6 +114,10 @@ describe('materializationJobsLogic', () => {
                 .toNotHaveDispatchedActions(['loadIncrementalCheckFailure'])
             expect(logic.values.incrementalCheck).toBeNull()
             expect(captureException).toHaveBeenCalledTimes(captured)
+
+            logic.actions.loadSavedQuery()
+            await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess']).toFinishAllListeners()
+            expect(checkCalls).toBe(checksAfterReload)
         }
     )
 

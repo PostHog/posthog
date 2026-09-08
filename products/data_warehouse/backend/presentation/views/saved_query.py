@@ -1434,10 +1434,15 @@ class CheckIncrementalThrottle(PersonalApiKeyOrUserRateThrottle):
     rate = "120/minute"
 
 
+# The check parses synchronously on an API worker. The bound keeps a scripted flood of large bodies
+# from tying up workers while sitting well above any view the editor produces.
+CHECK_INCREMENTAL_MAX_QUERY_LENGTH = 256 * 1024
+
+
 class CheckIncrementalSerializer(serializers.Serializer):
     """Body of the `check_incremental` action: a query and an optional config to check it against."""
 
-    query = serializers.CharField(help_text="The HogQL query to check.")
+    query = serializers.CharField(max_length=CHECK_INCREMENTAL_MAX_QUERY_LENGTH, help_text="The HogQL query to check.")
     incremental_key = serializers.CharField(
         required=False,
         allow_null=True,

@@ -209,7 +209,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
         // doesn't count as the user touching it.
         seedIncrementalDraft: (draft: IncrementalConfigDraft) => ({ draft }),
     }),
-    loaders(({ values, props }) => ({
+    loaders(({ values, props, cache }) => ({
         savedQuery: [
             null as DataWarehouseSavedQuery | null,
             {
@@ -230,12 +230,14 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                         return null
                     }
                     // A rejected check is not the user's error, so never toast: the panel just omits the
-                    // incremental option. Only a 4xx is expected there; anything else is ours to look at.
+                    // incremental option. A 4xx is a deterministic refusal, so it is not retried. Anything
+                    // else is ours to look at, and the next savedQuery reload gets to try again.
                     try {
                         return await api.dataWarehouseSavedQueries.checkIncremental({ query: sql })
                     } catch (e) {
                         if (!(e instanceof ApiError && e.status && e.status >= 400 && e.status < 500)) {
                             posthog.captureException(e)
+                            cache.incrementalCheckRequested = false
                         }
                         return null
                     }
