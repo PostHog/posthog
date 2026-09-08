@@ -296,6 +296,31 @@ class TestAccountRequestCallerCaps(ProvisioningTestBase):
             )
         assert res_client_a_again.status_code == 429
 
+    @override_settings(
+        USE_X_FORWARDED_HOST=True,
+        TRUST_ALL_PROXIES=False,
+        TRUSTED_PROXIES="10.0.0.9",
+        PROVISIONING_ACCOUNT_REQUESTS_PER_IP_PER_DAY=1,
+    )
+    def test_ip_cap_still_counts_when_the_forwarded_chain_is_untrusted(self):
+        partner = self._public_partner()
+        with freeze_time("2026-01-01 00:00:00"):
+            first = self._post_public(
+                self._payload(email="spoof_a@example.com"),
+                partner,
+                REMOTE_ADDR="10.0.0.9",
+                HTTP_X_FORWARDED_FOR="203.0.113.21, 198.51.100.7",
+            )
+            assert first.status_code == 200
+
+            second = self._post_public(
+                self._payload(email="spoof_b@example.com"),
+                partner,
+                REMOTE_ADDR="10.0.0.9",
+                HTTP_X_FORWARDED_FOR="203.0.113.21, 198.51.100.7",
+            )
+        assert second.status_code == 429
+
     @override_settings(PROVISIONING_ACCOUNT_REQUESTS_PER_EMAIL_ROOT_PER_DAY=2)
     def test_email_root_cap_collapses_gmail_variations(self):
         with freeze_time("2026-01-01 00:00:00"):

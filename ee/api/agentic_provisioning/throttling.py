@@ -41,7 +41,7 @@ from posthog.llm.wizard_blocklist import blocklist_properties
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning import PartnerTier
 from posthog.rate_limit import IPThrottle
-from posthog.utils import get_trusted_client_ip
+from posthog.utils import get_ip_address, get_trusted_client_ip
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.constants import (
@@ -155,16 +155,15 @@ def enforce_caller_ip_cap(request: Request, partner: OAuthApplication) -> None:
     """Per-IP daily ceiling on account_requests, independent of the partner's own budget.
 
     Skipped for JWKS-tier partners: a confidential partner calls from its own servers,
-    so many requests sharing one IP is ordinary traffic rather than abuse. Also skipped
-    when the caller's IP can't be validated against the trusted-proxy chain (a direct
-    caller outside TRUSTED_PROXIES, or a cross-region proxy hop it doesn't cover) rather
-    than falling back to a shared key, which would let every such caller throttle
-    each other on one bucket.
+    so many requests sharing one IP is ordinary traffic rather than abuse. The key is
+    the proxy-validated client IP when the forwarding chain checks out, else the
+    left-most forwarded address like every other IP throttle here: a caller must never
+    be able to unset its own key, and a cross-region hop forwards the header verbatim.
     """
     if partner.partner_tier in (PartnerTier.JWKS, PartnerTier.JWKS_ATTESTED):
         return
-    ip = get_trusted_client_ip(request)
-    if ip is None:
+    ip = get_trusted_client_ip(request) or get_ip_address(request)
+    if not ip:
         return
     _enforce_caller_cap(
         partner,
