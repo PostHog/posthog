@@ -193,6 +193,27 @@ describe('insightSceneLogic', () => {
         expect(query.source?.tags?.productKey).toEqual(ProductKey.PRODUCT_ANALYTICS)
     })
 
+    it('renders the saved query when the upgrade request fails', async () => {
+        // The upgrade is a schema rewrite, so a failed request must not take the scene down with it.
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/upgrade/': () => [500, {}],
+            },
+        })
+        const staleQuery = {
+            kind: NodeKind.InsightVizNode,
+            source: { kind: NodeKind.TrendsQuery, series: [], version: 1 },
+        }
+        router.actions.push(urls.insightNew({ query: staleQuery as any }))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['upgradeQuery']).toFinishAllListeners()
+
+        const query = logic.values.insightLogicRef?.logic.values.insight.query as any
+        expect(query.source?.kind).toEqual(NodeKind.TrendsQuery)
+        expect(query.source?.version).toEqual(1)
+    })
+
     it('tags a DataTableNode drill-down query on in-app navigation', async () => {
         // The "Open as new insight" button navigates in-app (router PUSH, not an initial load), which
         // routes through urlToAction's PUSH branch rather than upgradeQuery. That path must tag too.

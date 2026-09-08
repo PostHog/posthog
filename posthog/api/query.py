@@ -205,8 +205,9 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
     serializer_class = _FallbackSerializer
-    # Special case for query - these are all essentially read actions
-    scope_object_read_actions = ["retrieve", "create", "list", "destroy"]
+    # Special case for query - these are all essentially read actions.
+    # `upgrade` only rewrites a query onto the latest schema, so it must not need write access.
+    scope_object_read_actions = ["retrieve", "create", "list", "destroy", "upgrade"]
     scope_object_write_actions: list[str] = []
     sharing_enabled_actions = ["retrieve"]
 

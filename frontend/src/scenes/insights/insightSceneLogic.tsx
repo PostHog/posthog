@@ -15,7 +15,8 @@ import { combineUrl, router, urlToAction } from 'kea-router'
 import { objectsEqual } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -50,12 +51,8 @@ import {
     QueryLogTags,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import {
-    checkLatestVersionsOnQuery,
-    convertDataTableNodeToDataVisualizationNode,
-    isDataTableNode,
-    isInsightVizNode,
-} from '~/queries/utils'
+import { upgradeQueryToLatestVersion } from '~/queries/upgradeQuery'
+import { convertDataTableNodeToDataVisualizationNode, isDataTableNode, isInsightVizNode } from '~/queries/utils'
 import {
     ActivityScope,
     Breadcrumb,
@@ -768,16 +765,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             const insightLogicRefAtStart = values.insightLogicRef
             const insightDataLogicRefAtStart = values.insightDataLogicRef
 
-            let upgradedQuery: Node | null = null
+            const upgraded = await upgradeQueryToLatestVersion(query)
 
-            if (!checkLatestVersionsOnQuery(query)) {
-                const response = await api.schema.queryUpgrade({ query })
-                upgradedQuery = response.query
-            } else {
-                upgradedQuery = query
+            if (!upgraded) {
+                lemonToast.warning('Could not update this query to the latest version. It shows as it was saved.')
             }
 
-            upgradedQuery = convertDataTableNodeToDataVisualizationNode(upgradedQuery)
+            const upgradedQuery: Node | null = convertDataTableNodeToDataVisualizationNode(upgraded ?? query)
 
             if (
                 values.insightId !== insightIdAtStart ||

@@ -14,6 +14,7 @@ from unittest import mock
 from unittest.mock import patch
 
 from django.conf import settings
+from django.core.cache import cache
 
 from parameterized import parameterized
 from rest_framework import status
@@ -42,11 +43,14 @@ from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
+from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.llm.completions import OpenAICompletion
+from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import UUIDT
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 from products.managed_warehouse.backend.facade.query_labels import MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX
 from products.product_analytics.backend.facade.models import InsightVariable
@@ -1533,3 +1537,38 @@ class TestMcpProductTaggingEndToEnd(ClickhouseTestMixin, APIBaseTest):
         comment = self._get_log_comment_for_team()
         self.assertNotEqual(comment.get("source"), "mcp")
         self.assertNotEqual(comment.get("product"), Product.MCP.value)
+
+
+class TestQueryUpgradeAccess(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("viewer", "viewer", status.HTTP_200_OK),
+            ("none", "none", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_upgrade_needs_query_read_only(self, _name: str, access_level: str, expected_status: int) -> None:
+        # A read-only member opens a notebook or an insight whose query sits on an older schema, and
+        # the frontend posts it here to migrate. The upgrade rewrites the query only, so viewer access
+        # has to be enough, while a member with no query access stays out.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="query",
+            resource_id=None,
+            organization_member=self.organization_membership,
+            access_level=access_level,
+        )
+        cache.clear()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/upgrade/",
+            {"query": {"kind": "HogQLQuery", "query": "select 1"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status)
