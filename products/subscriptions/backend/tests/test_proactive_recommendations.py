@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from posthog.models import Team
 
+from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade import proactive
 from products.subscriptions.backend.facade.contracts import (
     Recommendation,
@@ -29,10 +30,17 @@ from products.tasks.backend.facade.repository_authorization import (
     AuthorizableRepository,
     ResolvedStagedRepositoryBinding,
 )
+from products.tasks.backend.facade.staged_evidence import CompletedMCPCallEvidence
 from products.tasks.backend.facade.staged_execution import StagedRepositoryBinding
 
 
-def _recommendation(semantic_key: str, *, title: str | None = None) -> Recommendation:
+def _recommendation(
+    semantic_key: str,
+    *,
+    title: str | None = None,
+    measurement_call_id: str | None = None,
+    metric_direction: str = "increase",
+) -> Recommendation:
     return Recommendation(
         kind="investigation",
         title=title or f"Check {semantic_key}",
@@ -42,17 +50,42 @@ def _recommendation(semantic_key: str, *, title: str | None = None) -> Recommend
         confidence=0.8,
         effort="small",
         metric_name="activation rate",
-        metric_direction="increase",
+        metric_direction=metric_direction,
         expected_metric_movement="5%",
-        citation_ids=("report",),
+        citation_ids=("report", "mcp:insight") if measurement_call_id else ("report",),
         semantic_key=semantic_key,
+        measurement_call_id=measurement_call_id,
     )
 
 
-def _result(*recommendations: Recommendation) -> RecommendationResult:
+def _result(
+    *recommendations: Recommendation, completed_mcp_calls: tuple[CompletedMCPCallEvidence, ...] = ()
+) -> RecommendationResult:
     return RecommendationResult(
         recommendations=recommendations,
-        citations=(RecommendationCitation(id="report", title="Subscription report"),),
+        citations=(
+            RecommendationCitation(id="report", title="Subscription report"),
+            RecommendationCitation(id="mcp:insight", title="PostHog MCP: insight-query"),
+        ),
+        completed_mcp_calls=completed_mcp_calls,
+    )
+
+
+def _measurement_call(*, insight_id: int, short_id: str) -> CompletedMCPCallEvidence:
+    return CompletedMCPCallEvidence(
+        citation_id="mcp:insight",
+        tool_name="insight-query",
+        arguments={"insightId": short_id, "output_format": "json"},
+        result={
+            "insight": {"id": insight_id, "short_id": short_id},
+            "query": {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "signed_up", "math": "total"}],
+                "interval": "day",
+                "dateRange": {"date_from": "2026-09-01", "date_to": "2026-09-08"},
+            },
+            "results": [{"count": 0}],
+        },
     )
 
 
@@ -114,6 +147,55 @@ def test_completed_run_replays_the_persisted_appendix(team) -> None:
     replay = finalize_recommendation_run(team_id=team.id, run_id=run.id, result=result)
 
     assert [recommendation.title for recommendation in replay.recommendations] == ["Check activation"]
+    assert "measurement" not in ProactiveRecommendation.objects.for_team(team.id).get(run_id=run.id).recommendation
+
+
+@pytest.mark.django_db
+def test_finalization_freezes_persisted_measurement_without_reexecuting_queries(team, monkeypatch) -> None:
+    insight = Insight.objects.create(team=team, saved=True, short_id="signup-rate")
+    run = claim_recommendation_run(
+        team_id=team.id, subscription_id=123, delivery_id=uuid4(), actor_id=456, snapshot={"report": "saved report"}
+    )
+    result = _result(
+        _recommendation("baseline", measurement_call_id="mcp:insight"),
+        completed_mcp_calls=(_measurement_call(insight_id=insight.id, short_id=insight.short_id),),
+    )
+    monkeypatch.setattr(
+        "posthog.api.services.query.process_query_model",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError()),
+    )
+
+    finalize_recommendation_run(team_id=team.id, run_id=run.id, result=result)
+    row = ProactiveRecommendation.objects.for_team(team.id).get(run_id=run.id)
+    measurement = row.recommendation["measurement"]
+    monkeypatch.setattr(proactive, "canonicalize_measurement", lambda **_: (_ for _ in ()).throw(AssertionError()))
+
+    replay = finalize_recommendation_run(team_id=team.id, run_id=run.id, result=result)
+
+    assert measurement["baseline"]["value"] == 0
+    assert measurement["source_call_id"] == "mcp:insight"
+    assert [item.semantic_key for item in replay.recommendations] == ["baseline"]
+
+
+@pytest.mark.django_db
+def test_unavailable_measurement_still_completes_recommendation_finalization(team) -> None:
+    insight = Insight.objects.create(team=team, saved=True, deleted=True, short_id="deleted-rate")
+    run = claim_recommendation_run(
+        team_id=team.id, subscription_id=123, delivery_id=uuid4(), actor_id=456, snapshot={"report": "saved report"}
+    )
+
+    appendix = finalize_recommendation_run(
+        team_id=team.id,
+        run_id=run.id,
+        result=_result(
+            _recommendation("unavailable", measurement_call_id="mcp:insight"),
+            completed_mcp_calls=(_measurement_call(insight_id=insight.id, short_id=insight.short_id),),
+        ),
+    )
+
+    row = ProactiveRecommendation.objects.for_team(team.id).get(run_id=run.id)
+    assert appendix.status == "completed"
+    assert "measurement" not in row.recommendation
 
 
 @pytest.mark.django_db

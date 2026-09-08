@@ -23,6 +23,7 @@ from products.subscriptions.backend.facade.contracts import (
     RecommendationResult,
     RecommendationStatus,
 )
+from products.subscriptions.backend.facade.measurements import canonicalize_measurement
 from products.subscriptions.backend.models import (
     ProactiveRecommendation,
     ProactiveRecommendationRun,
@@ -244,11 +245,16 @@ def finalize_recommendation_run(
             if len(allowed) == 3:
                 break
         for item in allowed:
+            measurement = canonicalize_measurement(
+                team_id=team_id,
+                recommendation=item,
+                completed_mcp_calls=result.completed_mcp_calls,
+            )
             ProactiveRecommendation.objects.for_team(team_id).create(
                 team_id=team_id,
                 run=run,
                 semantic_key=item.semantic_key,
-                recommendation=_recommendation_payload(item),
+                recommendation=_recommendation_payload(item, measurement=measurement),
                 citations=[
                     _citation_payload(citation) for citation in result.citations if citation.id in item.citation_ids
                 ],
@@ -440,8 +446,8 @@ def _appendix_for_run(run: ProactiveRecommendationRun) -> RecommendationAppendix
     )
 
 
-def _recommendation_payload(item: Recommendation) -> dict[str, object]:
-    return {
+def _recommendation_payload(item: Recommendation, *, measurement: dict[str, object] | None = None) -> dict[str, object]:
+    payload: dict[str, object] = {
         "kind": item.kind,
         "title": item.title,
         "rationale": item.rationale,
@@ -454,6 +460,9 @@ def _recommendation_payload(item: Recommendation) -> dict[str, object]:
         "expected_metric_movement": item.expected_metric_movement,
         "citation_ids": list(item.citation_ids),
     }
+    if measurement is not None:
+        payload["measurement"] = measurement
+    return payload
 
 
 def _citation_payload(citation: RecommendationCitation) -> dict[str, str | None]:
