@@ -860,11 +860,12 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             created_by=self.user,
             variables={"existing": "value"},
         )
-        self.dashboard_api.update_dashboard(
+        _, response = self.dashboard_api.update_dashboard(
             dashboard.pk,
             {"variables": ["not", "a", "dict"]},
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
+        self.assertEqual(response["detail"], "Variables must be a dictionary")
 
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.variables, {"existing": "value"})
