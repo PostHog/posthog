@@ -202,6 +202,16 @@ def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False) -> dict:
     return settings
 
 
+def _ttl_jitter_offset(window_start: datetime, jitter_seconds: int) -> int:
+    """Deterministic offset in [0, jitter_seconds) for a window, from its start date.
+
+    sha256 rather than hash() because Python string hashing is salted per process and the
+    offset must be identical across executors, deploys, and rebuilds.
+    """
+    digest = hashlib.sha256(window_start.date().isoformat().encode()).digest()
+    return int.from_bytes(digest[:8], "big") % jitter_seconds
+
+
 @dataclass
 class TtlSchedule:
     """Maps time windows to TTL values based on their recency.
@@ -245,6 +255,19 @@ class TtlSchedule:
     long warmer window). Windows older than this keep their full band TTL. `None` caps every
     empty window regardless of age.
 
+    `default_ttl_jitter_seconds` spreads the expiry of default-band (frozen) windows. A backfill
+    creates every chunk of an entity's history on the same day, so with a uniform default TTL the
+    whole history expires on the same day too, and the next read pays for a full-history rebuild
+    at once (for high-volume teams that rebuild's direct-scan fallback deterministically exceeds
+    the per-query bytes-to-read cap, so reads fail until it converges). The jitter adds a
+    deterministic per-window offset in [0, jitter) to the default TTL, derived from the window's
+    start date, so chunks built together expire days apart and a read only ever finds a chunk or
+    two missing. Deterministic (not random) so a window keeps the same offset across rebuilds and
+    processes, which keeps expiries reproducible and stops the spread from re-synchronizing.
+    Windows matched by a recency rule never get jitter; day-scale offsets would defeat the short
+    bands. `None` disables it. Only readers of frozen, immutable data should opt in: the offset
+    extends how long data is served, which is harmless only when the data cannot change.
+
     Use parse_ttl_schedule() to create from user-facing dict format.
     """
 
@@ -254,12 +277,23 @@ class TtlSchedule:
     settling_period_seconds: int | None = None
     empty_result_ttl_seconds: int | None = None
     empty_result_max_age_seconds: int | None = None
+    default_ttl_jitter_seconds: int | None = None
 
-    def get_ttl(self, window_start: datetime) -> int:
+    def get_ttl(self, window_start: datetime, *, jittered: bool = False) -> int:
+        """TTL for a window. `jittered=True` adds the per-window default-band offset.
+
+        Job creation and the freshness check must both pass `jittered=True`, or a job created
+        with a jittered expiry is judged stale at the base TTL and recomputed early.
+        `split_ranges_by_ttl` must NOT: it merges consecutive windows by comparing TTLs, and
+        per-window offsets would make every daily window distinct and break chunk merging.
+        """
         for cutoff, ttl in self.rules:
             if window_start >= cutoff:
                 return ttl
-        return self.default_ttl_seconds
+        ttl = self.default_ttl_seconds
+        if jittered and self.default_ttl_jitter_seconds:
+            ttl += _ttl_jitter_offset(window_start, self.default_ttl_jitter_seconds)
+        return ttl
 
     def empty_result_expires_at(self, computed_at: datetime, window_end: datetime) -> datetime | None:
         """When a zero-row job for this window should expire, or None to keep the band TTL.
@@ -301,6 +335,7 @@ def parse_ttl_schedule(
     settling_period_seconds: int | None = None,
     empty_result_ttl_seconds: int | None = None,
     empty_result_max_age_seconds: int | None = None,
+    default_ttl_jitter_seconds: int | None = None,
 ) -> TtlSchedule:
     """Parse a TTL specification into a TtlSchedule.
 
@@ -324,6 +359,8 @@ def parse_ttl_schedule(
         raise ValueError(f"empty_result_ttl_seconds must be positive, got {empty_result_ttl_seconds}")
     if empty_result_max_age_seconds is not None and empty_result_max_age_seconds <= 0:
         raise ValueError(f"empty_result_max_age_seconds must be positive, got {empty_result_max_age_seconds}")
+    if default_ttl_jitter_seconds is not None and default_ttl_jitter_seconds <= 0:
+        raise ValueError(f"default_ttl_jitter_seconds must be positive, got {default_ttl_jitter_seconds}")
 
     if isinstance(ttl, int):
         if ttl <= 0:
@@ -335,6 +372,7 @@ def parse_ttl_schedule(
             settling_period_seconds=settling_period_seconds,
             empty_result_ttl_seconds=empty_result_ttl_seconds,
             empty_result_max_age_seconds=empty_result_max_age_seconds,
+            default_ttl_jitter_seconds=default_ttl_jitter_seconds,
         )
 
     tz = ZoneInfo(team_timezone)
@@ -365,6 +403,7 @@ def parse_ttl_schedule(
         settling_period_seconds=settling_period_seconds,
         empty_result_ttl_seconds=empty_result_ttl_seconds,
         empty_result_max_age_seconds=empty_result_max_age_seconds,
+        default_ttl_jitter_seconds=default_ttl_jitter_seconds,
     )
 
 
@@ -1097,7 +1136,15 @@ class LazyComputationExecutor:
                             _log_execution("timeout", result)
                             return result
 
-                        new_job = create_lazy_computation_job(team, query_hash, range_start, range_end, ttl)
+                        # `ttl` from split_ranges_by_ttl is the band TTL used for merging;
+                        # the job's actual expiry gets the per-window jitter on top.
+                        new_job = create_lazy_computation_job(
+                            team,
+                            query_hash,
+                            range_start,
+                            range_end,
+                            self.ttl_schedule.get_ttl(range_start, jittered=True),
+                        )
                         if new_job is None:
                             # Another executor created a PENDING job for this range; the
                             # rescan at the top of the loop will pick it up. The log keeps
@@ -1348,7 +1395,7 @@ class LazyComputationExecutor:
             if job.status == PreaggregationJob.Status.PENDING:
                 result.append(job)
                 continue
-            desired_ttl = self.ttl_schedule.get_ttl(job.time_range_start)
+            desired_ttl = self.ttl_schedule.get_ttl(job.time_range_start, jittered=True)
             fresh_until = job.created_at + timedelta(seconds=desired_ttl + grace_seconds)
             if settling_period is not None:
                 settled_at = job.time_range_end + timedelta(seconds=settling_period)
