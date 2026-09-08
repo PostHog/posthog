@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 
@@ -125,8 +125,6 @@ async def test_workflow_interceptor_emits_finished_failed_on_hard_failure():
     # the workflow body's `increment_workflow_finished` call never runs. Without the interceptor's except path,
     # `_workflow_started` increments but `_workflow_finished` does not, and any `finished / started` dashboard
     # silently under-counts hard failures. The interceptor closes that gap before re-raising.
-    from unittest.mock import AsyncMock
-
     boom = RuntimeError("activity retries exhausted")
     next_interceptor = MagicMock()
     next_interceptor.execute_workflow = AsyncMock(side_effect=boom)
@@ -154,3 +152,46 @@ async def test_workflow_interceptor_emits_finished_failed_on_hard_failure():
             await interceptor.execute_workflow(MagicMock())
 
     mock_finished.assert_called_once_with("failed")
+
+
+@parameterized.expand(
+    [
+        # A metric the user's data cannot support yet (no exposures for the control variant) is rejected on
+        # purpose, and the activity raises it as validation_error. Counting that here makes a correct
+        # rejection read as a recalculation reliability failure on every success-rate dashboard.
+        ("expected_rejection", ApplicationError("no exposures yet", type="validation_error"), False),
+        ("platform_failure", ApplicationError("clickhouse unavailable", type="server_error"), True),
+        ("plain_exception", RuntimeError("boom"), True),
+    ]
+)
+async def test_activity_interceptor_counts_only_unexpected_failures(
+    name: str, exc: BaseException, expects_failure_count: bool
+):
+    next_interceptor = MagicMock()
+    next_interceptor.execute_activity = AsyncMock(side_effect=exc)
+    interceptor = recalculation_metrics._ActivityInboundInterceptor(next_interceptor)
+
+    mock_info = MagicMock()
+    mock_info.activity_type = "calculate_experiment_metric_for_recalculation"
+    mock_info.current_attempt_scheduled_time = None
+    mock_info.started_time = None
+
+    mock_meter = MagicMock()
+    labeled_meter = mock_meter.with_additional_attributes.return_value.with_additional_attributes.return_value
+
+    with (
+        patch("products.experiments.backend.temporal.recalculation_metrics.activity.info", return_value=mock_info),
+        patch(
+            "products.experiments.backend.temporal.recalculation_metrics.activity.metric_meter",
+            return_value=mock_meter,
+        ),
+        patch("posthog.temporal.common.metrics.get_metric_meter", return_value=MagicMock()),
+    ):
+        with pytest.raises(type(exc)):
+            await interceptor.execute_activity(MagicMock())
+
+    counted = any(
+        call.args[0] == "experiment_metrics_recalculation_activity_failures"
+        for call in labeled_meter.create_counter.call_args_list
+    )
+    assert counted is expects_failure_count

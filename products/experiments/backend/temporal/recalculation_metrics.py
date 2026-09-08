@@ -95,6 +95,17 @@ def increment_workflow_finished(status: str) -> None:
     ).add(1)
 
 
+# Error types the calc activity uses for a metric it cannot calculate yet, from the user's own metric
+# config or data (broken HogQL, no exposures for the control variant). See
+# `classify_experiment_query_error`. Rejecting such a metric is the correct outcome, not a failure of
+# the recalculation.
+_EXPECTED_REJECTION_ERROR_TYPES = frozenset({"validation_error"})
+
+
+def _is_expected_rejection(exc: BaseException) -> bool:
+    return isinstance(exc, ApplicationError) and exc.type in _EXPECTED_REJECTION_ERROR_TYPES
+
+
 def _failure_error_type(exc: BaseException) -> str:
     """Low-cardinality label for the failure counter: the ApplicationError type set by the activity
     (taxonomy strings like out_of_memory, or the backpressure class names), else the exception class name."""
@@ -140,10 +151,11 @@ class _ActivityInboundInterceptor(ActivityInboundInterceptor):
             ):
                 result = await super().execute_activity(input)
         except Exception as e:
-            meter.with_additional_attributes({"error_type": _failure_error_type(e)}).create_counter(
-                "experiment_metrics_recalculation_activity_failures",
-                "Number of failed experiment metrics recalculation activity executions.",
-            ).add(1)
+            if not _is_expected_rejection(e):
+                meter.with_additional_attributes({"error_type": _failure_error_type(e)}).create_counter(
+                    "experiment_metrics_recalculation_activity_failures",
+                    "Number of failed experiment metrics recalculation activity executions.",
+                ).add(1)
             raise
         meter.create_counter(
             "experiment_metrics_recalculation_activity_successes",
