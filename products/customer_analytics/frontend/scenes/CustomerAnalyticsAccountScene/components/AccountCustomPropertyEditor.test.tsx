@@ -97,6 +97,27 @@ describe('AccountCustomPropertyEditor', () => {
         expect(container.querySelector('[data-attr="account-property-save"]')).toHaveAttribute('aria-disabled', 'true')
     })
 
+    it('refuses to save a blank text value, offering Clear value instead', () => {
+        const onSave = jest.fn()
+        const { container } = render(
+            <AccountCustomPropertyEditor
+                definition={{ ...definition, display_type: 'text' }}
+                value="Enterprise"
+                onSave={onSave}
+                onCancel={jest.fn()}
+            />
+        )
+        const input = container.querySelector('input')!
+        fireEvent.change(input, { target: { value: '' } })
+        fireEvent.keyDown(input, { key: 'Enter' })
+        fireEvent.click(screen.getByText('Save'))
+        expect(onSave).not.toHaveBeenCalled()
+        expect(container.querySelector('[data-attr="account-property-clear"]')).not.toHaveAttribute(
+            'aria-disabled',
+            'true'
+        )
+    })
+
     it('issues no further writes while a save is in flight', () => {
         const onSave = jest.fn()
         const { container } = render(

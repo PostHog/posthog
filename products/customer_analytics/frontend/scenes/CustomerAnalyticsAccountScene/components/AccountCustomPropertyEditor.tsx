@@ -43,7 +43,10 @@ const saveErrorFor = (draft: string | boolean, definition: CustomPropertyDefinit
     if (definition.display_type === 'select') {
         return (definition.options ?? []).some((option) => option.label === draft) ? undefined : 'Pick an option'
     }
-    return undefined
+    // Saving a blank string stores an active row that every UI surface reads as "Not set", while
+    // is_set filters and workflow audiences still match the account. Clearing is the only way to
+    // unset a property, because it soft-deletes the row instead of writing a blank one.
+    return draft === '' ? 'Enter a value, or use Clear value to unset it' : undefined
 }
 
 export interface AccountCustomPropertyEditorProps {
