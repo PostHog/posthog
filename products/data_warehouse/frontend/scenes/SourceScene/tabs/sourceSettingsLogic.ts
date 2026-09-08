@@ -21,6 +21,7 @@ import posthog from 'posthog-js'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
@@ -1160,6 +1161,12 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         lemonToast.error(e.message)
                     } else {
                         lemonToast.error('Cant update source at this time')
+                    }
+                    // Catching here also skips the gate `initKea` applies to loader failures, so
+                    // reapply it. Without this a backend fault on a save reaches no error tracking
+                    // issue, because the local catch dispatches no loader action.
+                    if (shouldReportApiFailure(e)) {
+                        posthog.captureException(e)
                     }
                     // Rethrow so kea-forms dispatches the failure action instead of success.
                     throw e

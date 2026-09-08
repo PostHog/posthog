@@ -1,8 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -281,6 +283,33 @@ describe('sourceSettingsLogic', () => {
 
         expect(successToast).not.toHaveBeenCalled()
         expect(errorToast).toHaveBeenCalledWith('The connected Google account is not allowed to read the property.')
+    })
+
+    // The save recovers in a plain catch, which dispatches no loader action, so the gate `initKea`
+    // applies to loader failures has to be reapplied there. A backend fault must still leave a
+    // client-side exception behind, and a permission denial must not, since the user is already
+    // told and filing those buries the crashes worth seeing.
+    it.each([
+        ['a backend fault, which reaches error tracking', new ApiError('Server error', 500), true],
+        [
+            'a permission denial, which does not',
+            new ApiError('Not allowed', 403, undefined, { code: 'permission_denied' }),
+            false,
+        ],
+    ])('recovers from %s when the source save fails', async (_name, error, reported) => {
+        jest.spyOn(posthog, 'captureException')
+        jest.spyOn(api.externalDataSources, 'update').mockRejectedValue(error)
+
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.submitSourceConfig()
+        }).toDispatchActions(['submitSourceConfigFailure'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(jest.mocked(posthog.captureException).mock.calls.length > 0).toBe(reported)
     })
 
     it('keys the logic by source id', () => {
