@@ -3803,6 +3803,7 @@ export interface SurveyDisplayConditions {
 export enum SurveyEventName {
     SHOWN = 'survey shown',
     DISMISSED = 'survey dismissed',
+    ABANDONED = 'survey abandoned',
     SENT = 'survey sent',
 }
 
