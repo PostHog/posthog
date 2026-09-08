@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
-import type { DragEvent } from 'react'
+import { useRef } from 'react'
+import type { DragEvent, ReactNode } from 'react'
 
 import { IconCopy, IconDrag, IconTrash } from '@posthog/icons'
 
@@ -8,21 +9,25 @@ import { Badge, Button, Item, ItemActions, ItemContent, ItemDescription, ItemMed
 import { workflowLogic } from '../../workflowLogic'
 import { useHogFlowBranchSelection } from '../HogFlowBranchSelection'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { StepView } from '../steps/components/StepView'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import type { HogFlowAction, HogFlowActionNode } from '../types'
+import { HogFlowTreeBranchIndicator } from './HogFlowTreeBranchIndicator'
 import { isBranchingAction } from './workflowTree'
 
 export function HogFlowTreeStep({
     action,
     onDragEnd,
     onDragStart,
-    showCollapseOffset = false,
+    branchColor,
+    collapseControl,
     canDrag = !['trigger', 'exit'].includes(action.type) && !isBranchingAction(action),
 }: {
     action: HogFlowAction
     onDragEnd: () => void
-    onDragStart: (event: DragEvent<HTMLDivElement>, actionId: string) => void
-    showCollapseOffset?: boolean
+    onDragStart: (event: DragEvent<HTMLDivElement>, actionId: string, dragPreviewElement: HTMLDivElement | null) => void
+    branchColor?: string
+    collapseControl?: ReactNode
     canDrag?: boolean
 }): JSX.Element {
     const { animatingEdgePair, nodesById, selectedNode } = useValues(hogFlowEditorLogic)
@@ -30,6 +35,7 @@ export function HogFlowTreeStep({
     const { setSelectedBranch } = useHogFlowBranchSelection()
     const { actionValidationErrorsById, workflow } = useValues(workflowLogic)
     const step = useHogFlowStep(action)
+    const dragPreviewRef = useRef<HTMLDivElement>(null)
 
     const isSelected = selectedNode?.id === action.id
     const canHaveActions = !['trigger', 'exit'].includes(action.type)
@@ -59,7 +65,6 @@ export function HogFlowTreeStep({
             size="sm"
             className={cn(
                 'relative flex-nowrap bg-card',
-                showCollapseOffset && 'ps-10',
                 isSelected && 'border-ring ring-2 ring-ring/30',
                 isAnimationTarget && 'border-success',
                 'data-[workflow-tree-dragging]:opacity-50'
@@ -67,6 +72,7 @@ export function HogFlowTreeStep({
             data-attr="workflow-tree-step"
             id={`workflow-tree-step-${action.id}`}
         >
+            {branchColor && <HogFlowTreeBranchIndicator color={branchColor} className="inset-y-1" />}
             <Button
                 type="button"
                 variant="link"
@@ -82,7 +88,7 @@ export function HogFlowTreeStep({
                 <div
                     draggable
                     className="relative z-10 -m-1 flex size-8 shrink-0 cursor-grab items-center justify-center text-muted-foreground active:cursor-grabbing"
-                    onDragStart={(event) => onDragStart(event, action.id)}
+                    onDragStart={(event) => onDragStart(event, action.id, dragPreviewRef.current)}
                     onDragEnd={onDragEnd}
                     data-attr="workflow-tree-step-drag"
                 >
@@ -128,10 +134,12 @@ export function HogFlowTreeStep({
                     !
                 </Badge>
             )}
+            {collapseControl && <div className="relative z-10 ms-auto shrink-0">{collapseControl}</div>}
             {canHaveActions && (
                 <ItemActions
                     className={cn(
-                        'relative z-10 ms-auto me-4 shrink-0 transition-opacity group-hover/item:opacity-100 group-focus-within/item:opacity-100',
+                        'relative z-10 me-4 shrink-0 transition-opacity group-hover/item:opacity-100 group-focus-within/item:opacity-100',
+                        collapseControl ? 'ms-1' : 'ms-auto',
                         isSelected ? 'opacity-100' : 'opacity-20'
                     )}
                 >
@@ -165,6 +173,11 @@ export function HogFlowTreeStep({
                     </Button>
                 </ItemActions>
             )}
+            <div ref={dragPreviewRef} className="pointer-events-none absolute invisible" aria-hidden="true">
+                <div className="origin-top-left scale-150">
+                    <StepView action={{ ...action, id: `drag-preview-${action.id}` }} />
+                </div>
+            </div>
         </Item>
     )
 }
