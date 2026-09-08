@@ -1444,11 +1444,15 @@ function TreeNodeChildren({
 }
 
 function EventContentDisplay({
+    eventId,
+    traceId,
     input,
     output,
     searchQuery,
     displayOption,
 }: {
+    eventId: string
+    traceId: string
     input: unknown
     output: unknown
     searchQuery?: string
@@ -1469,6 +1473,8 @@ function EventContentDisplay({
                 errorData={undefined}
                 searchQuery={searchQuery}
                 displayOption={displayOption}
+                eventId={eventId}
+                traceId={traceId}
             />
         )
     }
@@ -1832,6 +1838,8 @@ const EventContent = React.memo(
                                                         <>
                                                             <TraceMetricsTable />
                                                             <EventContentDisplay
+                                                                eventId={event.id}
+                                                                traceId={trace.id}
                                                                 input={event.inputState}
                                                                 output={event.outputState}
                                                                 searchQuery={searchQuery}

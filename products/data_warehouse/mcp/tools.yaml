@@ -264,11 +264,17 @@ tools:
             idempotent: false
         enrich_url: ?open_view={id}
         title: Create saved query
-        description: >
+        description: |
             Create a new data warehouse saved query (view). If a view with the same name already exists, it will be
             updated instead (upsert behavior). The query must be valid HogQL. After creation, the view can be referenced
             by name in other HogQL queries. Set `description` to record what the view represents (a semantic description
             surfaced to agents); per-column descriptions are set via the saved-query column annotation tools.
+
+            Put the HogQL in `query`:
+
+            ```json
+            { "name": "example", "query": { "kind": "HogQLQuery", "query": "SELECT 1" } }
+            ```
         exclude_params:
             - deleted
             - edited_history_id
@@ -393,10 +399,16 @@ tools:
             idempotent: true
         enrich_url: ?open_view={id}
         title: Revert materialization
-        description: >
+        description: |
             Undo materialization for a saved query. Deletes the materialized table and removes the sync schedule,
             reverting the view back to a virtual query that runs on each access. The view definition itself is
             preserved. Rate limited.
+
+            Send the view ID, name, and query:
+
+            ```json
+            { "id": "<id>", "name": "example", "query": { "kind": "HogQLQuery", "query": "SELECT 1" } }
+            ```
     view-update:
         operation: warehouse_saved_queries_partial_update
         enabled: true

@@ -59,7 +59,7 @@ WHERE event = '$recording_observed'
   AND timestamp <= now() + INTERVAL 1 DAY
 ```
 
-- **Zero in 30d** — _don't_ conclude "not in use" from the event stream alone. Only _succeeded_ observations write `$recording_observed` (footgun #5), so zero events is ambiguous: either no scanners, or enabled scanners whose every observation is failing / ineligible / quota-skipped — exactly the observing-integrity failure you exist to catch. Do one cheap `vision-scanners-list` (`enabled: true`) check:
+- **Zero in 30d** — _don't_ conclude "not in use" from the event stream alone. Only _succeeded_ observations write `$recording_observed` (footgun #5), so zero events is ambiguous: either no scanners, or enabled scanners whose every observation is failing / ineligible / quota-skipped — exactly the observing-integrity failure you exist to catch. Do one cheap `vision-scanners-list` (`enabled: "enabled"`) check:
   - **No enabled scanners** (or the tool is unregistered _and_ the profile shows no scanner config) — replay vision genuinely isn't in play. Write `not-in-use:replay_vision:team{team_id}` ("checked at {timestamp}, no observations in 30d, no enabled scanners") and close out empty. (Re-runs idempotently refresh the same key.)
   - **Enabled scanners but zero events** — this is a watch gap, not non-adoption. Jump to the watch-gap pattern (check `status: "failed"` / `"ineligible"` and `vision-quota-retrieve`).
 - **Observations earlier in the 30d window but zero in 7d** — this is _not_ a close-out; it's the strongest-shaped watch-gap candidate. Investigate it first.
@@ -232,7 +232,7 @@ When in doubt, write a memory entry instead of filing a report.
 Direct calls (read-only):
 
 - `execute-sql` against `events` (`event = '$recording_observed'`) — the primary route. Key properties: `scanner_id`, `scanner_name`, `scanner_type`, `scanner_version`, `session_id`, `emits_signals`, `model_used`, `provider_used`, and the flattened `scanner_output_*` fields (`scanner_output_confidence`, `scanner_output_verdict`, `scanner_output_score`, `scanner_output_tags` (JSON array — `JSONExtract` before `arrayJoin`, footgun #3), `scanner_output_tags_freeform`, `scanner_output_title`, `scanner_output_summary`, `scanner_output_reasoning`). Time-filter on `timestamp` with the upper bound (footgun #1); count reach with `uniq(session_id)` (footgun #2); group/filter by `scanner_id` (footgun #4).
-- `vision-scanners-list` — roster + `enabled` / `emits_signals` / `scanner_type` state. Feature-gated; if absent, lean on the roster SQL above.
+- `vision-scanners-list` — roster + `enabled` / `emits_signals` / `scanner_type` state. The `enabled` filter is a string: send `"enabled"` or `"disabled"` (a boolean works too). Feature-gated; if absent, lean on the roster SQL above.
 - `vision-scanners-get` (`id`, **not** `scanner_id`, unlike the `vision-scanners-observations-*` tools) — the one scanner's full row: `enabled`, `scanner_version`, `updated_at`, `last_swept_at`. The **only** place to date a config edit (scanner changes aren't in the activity log).
 - `vision-scanners-observations-list` (`scanner_id`, `status`, `verdict`, `tags`, `triggered_by`) — the **only** way to see failed/ineligible observations (footgun #5) and read `error_reason`.
 - `vision-observations-list` (`session_id`) — every scanner's observation on one session, for example links.
