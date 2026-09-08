@@ -10,6 +10,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.error_tracking.backend.facade.api import get_fingerprint, get_fingerprint_by_value, list_fingerprints
+from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 
 
 class ErrorTrackingFingerprintSerializer(serializers.Serializer):
@@ -34,15 +35,13 @@ class ErrorTrackingFingerprintViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
             except ValueError as error:
                 raise ValidationError("issue_id must be a valid UUID") from error
 
-        fingerprints = list_fingerprints(team_id=self.team.id, issue_id=issue_id)
-
-        page = self.paginate_queryset(fingerprints)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-
-        serializer = self.get_serializer(fingerprints, many=True)
-        return Response(serializer.data)
+        return paginate_via_facade(
+            self,
+            request,
+            lambda limit, offset: list_fingerprints(
+                team_id=self.team.id, issue_id=issue_id, limit=limit, offset=offset
+            ),
+        )
 
     @extend_schema(
         parameters=[
