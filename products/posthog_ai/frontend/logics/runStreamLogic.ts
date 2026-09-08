@@ -1685,7 +1685,7 @@ export interface runStreamLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         respondingToPermission: (
-            permissionResponseRequestIds: any,
+            permissionResponseRequestIds: Set<string>,
             pendingPermissionRequest: PermissionRequestRecord | null
         ) => boolean
         foldedThread: (log: RunLog, isBootstrapResumeRun: boolean) => FoldedThread
