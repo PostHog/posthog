@@ -523,6 +523,14 @@ interface IssuedListRequest {
 
 const isRelativeDate = (x: RecordingUniversalFilters['date_from']): boolean => !!x && x.startsWith('-')
 
+/**
+ * Filter keys a caller scopes the list with, so they never count as viewer edits. A saved filter set
+ * carries `experiment_exposure` through a whole-object dispatch, and marking it would unscope the
+ * experiment tab's list. `session_ids` is how that tab's watch cards scope the list, and the viewer
+ * can clear them from the list header, so the same holds.
+ */
+const CALLER_OWNED_FILTER_KEYS: string[] = ['experiment_exposure', 'session_ids']
+
 /** The filters state `setFilters` produces, so a caller can compare before it dispatches. */
 const applyFilterUpdate = (
     state: RecordingUniversalFilters,
@@ -590,6 +598,7 @@ export interface sessionRecordingsPlaylistLogicValues {
     showSettings: boolean
     totalFiltersCount: number
     unusableEventsInFilter: string[]
+    viewerFilterKeys: string[]
     visiblePinnedRecordings: SessionRecordingType[]
 }
 
@@ -1276,6 +1285,31 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 resetFilters: () => getDefaultFilters(props.personUUID, props.pinnedFilters),
             },
         ],
+        /**
+         * The filter keys the viewer set themselves. The filter bar dispatches one narrow partial per
+         * control, so the payload keys of a viewer-modified `setFilters` are the provenance. It
+         * persists next to `filters` so a caller reapplying its own scope at mount leaves what the
+         * viewer chose alone.
+         */
+        viewerFilterKeys: [
+            [] as string[],
+            { persist: true, prefix: `${getCurrentTeamId()}__${key}` },
+            {
+                setFilters: (state, { filters, userModified }) => {
+                    const keys = Object.keys(filters)
+                    if (!userModified) {
+                        // A caller writing a key takes it back, so a filter it now owns reapplies.
+                        const kept = state.filter((viewerKey) => !keys.includes(viewerKey))
+                        return kept.length === state.length ? state : kept
+                    }
+                    const added = keys.filter(
+                        (viewerKey) => !state.includes(viewerKey) && !CALLER_OWNED_FILTER_KEYS.includes(viewerKey)
+                    )
+                    return added.length ? [...state, ...added] : state
+                },
+                resetFilters: () => [],
+            },
+        ],
         showFilters: [
             true,
             {
@@ -1456,7 +1490,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 if (values.featureFlags[FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT] === 'test') {
                     actions.loadSessionRecordings()
                 } else {
-                    actions.setFilters({ recommended_only: false })
+                    // The flag decides this one, so it is not a viewer edit.
+                    actions.setFilters({ recommended_only: false }, false)
                 }
             },
             loadAllRecordings: () => {
@@ -2251,20 +2286,25 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             }
 
             if (quickEventFilter || quickPersonFilter) {
-                actions.setFilters({
-                    filter_group: {
-                        type: FilterLogicalOperator.And,
-                        values: [
-                            {
-                                type: FilterLogicalOperator.And,
-                                values: [
-                                    ...(quickEventFilter ? [quickEventFilter] : []),
-                                    ...(quickPersonFilter ? [quickPersonFilter] : []),
-                                ],
-                            },
-                        ],
+                // A link carries these, not a control the viewer moved in this list, so they do not
+                // become viewer keys. The URL keeps them for as long as it holds them.
+                actions.setFilters(
+                    {
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: FilterLogicalOperator.And,
+                                    values: [
+                                        ...(quickEventFilter ? [quickEventFilter] : []),
+                                        ...(quickPersonFilter ? [quickPersonFilter] : []),
+                                    ],
+                                },
+                            ],
+                        },
                     },
-                })
+                    false
+                )
                 return
             }
 
@@ -2285,7 +2325,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 }
 
                 if (Object.keys(updatedFilters).length > 0) {
-                    actions.setFilters({ ...values.filters, ...updatedFilters })
+                    // This payload carries the whole set, most of it from defaults rather than from
+                    // the URL, so it claims no viewer keys.
+                    actions.setFilters({ ...values.filters, ...updatedFilters }, false)
                 }
             }
         }
@@ -2313,7 +2355,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             values.filters.recommended_only &&
             values.featureFlags[FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT] !== 'test'
         ) {
-            actions.setFilters({ recommended_only: false })
+            // The flag decides this one, so it is not a viewer edit.
+            actions.setFilters({ recommended_only: false }, false)
         }
 
         // If updateSearchParams is enabled and URL has filters different from current state,
@@ -2336,13 +2379,19 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         // `props.pinnedFilters`, or both. The filters reducer persists, so kea rehydrates the stored
         // value over `props.filters` and the first read would carry a filter set the caller never
         // asked for. Reapply what the caller owns in one dispatch, and let the `setFilters` listener
-        // issue the one load. Keys the caller leaves out - a duration or a property the viewer chose
-        // - survive the merge. This sits after the URL branch, so a shared link still wins.
+        // issue the one load. A key the viewer set themselves stays theirs, so a scoped list opens
+        // scoped without dropping the range or the property they chose. This sits after the URL
+        // branch, so a shared link still wins.
         if (props.filters || props.pinnedFilters) {
             const callerFilters: Partial<RecordingUniversalFilters> = { ...props.filters }
+            for (const viewerKey of values.viewerFilterKeys) {
+                delete callerFilters[viewerKey as keyof RecordingUniversalFilters]
+            }
             if (props.pinnedFilters) {
+                // Pinned filters are the caller's either way, so they merge over whichever group
+                // survived above.
                 callerFilters.filter_group = mergePinnedFilters(
-                    props.filters?.filter_group ?? values.filters.filter_group,
+                    callerFilters.filter_group ?? values.filters.filter_group,
                     props.pinnedFilters
                 )
             }
