@@ -122,9 +122,18 @@ def _run_dedupe_count(team: Team, filter: Filter, database: Database, sample_mod
         team=team,
         query_type="workflows_audience_count_v2",
         context=HogQLContext(team_id=team.pk, database=database),
-        settings=bounded_memory_settings(),
+        settings=_count_settings(sample_modulus),
     )
     return response.results[0][0] if response.results else 0
+
+
+def _count_settings(sample_modulus: Optional[int]) -> HogQLGlobalSettings:
+    # A sampled count keeps the fast parallel hash aggregation: the sample already bounds
+    # the hash table, and in-order aggregation only makes it slower. The exact runs need
+    # the streaming mode to stay memory-bounded on large teams.
+    if sample_modulus is not None:
+        return HogQLGlobalSettings(max_bytes_before_external_group_by=4 * 1024**3)
+    return bounded_memory_settings()
 
 
 def build_dedupe_count_query(team: Team, filter: Filter, sample_modulus: Optional[int]) -> ast.SelectQuery:
@@ -175,7 +184,7 @@ def _run_person_count(team: Team, filter: Optional[Filter], database: Database, 
         team=team,
         query_type="workflows_audience_count_v2",
         context=HogQLContext(team_id=team.pk, database=database),
-        settings=bounded_memory_settings(),
+        settings=_count_settings(sample_modulus),
     )
     return response.results[0][0] if response.results else 0
 
