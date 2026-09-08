@@ -454,6 +454,43 @@ class TestTask(TestCase):
         self.assertEqual(task.github_user_integration, user_integration)
         mock_execute_workflow.assert_called_once()
 
+    @parameterized.expand(
+        [
+            (Task.OriginProduct.SIGNALS_CHAT, False),
+            (Task.OriginProduct.SIGNAL_REPORT, False),
+            (Task.OriginProduct.POSTHOG_AI, True),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_repoless_task_github_identity_follows_origin(self, origin_product, keeps_identity, mock_execute_workflow):
+        user = User.objects.create(email=f"repoless-{origin_product}@test.com")
+        OrganizationMembership.objects.create(user=user, organization=self.organization)
+        user_integration = UserIntegration.objects.create(
+            user=user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="install-1",
+            config={"installation_id": "install-1"},
+            sensitive_config={"access_token": "ghs_user_install"},
+            repository_cache=[{"full_name": "posthog/posthog", "id": 1}],
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Repo-less task",
+                description="Chat",
+                origin_product=origin_product,
+                user_id=user.id,
+                repository=None,
+            )
+
+        if keeps_identity:
+            self.assertEqual(task.github_user_integration, user_integration)
+        else:
+            self.assertIsNone(task.github_user_integration)
+        self.assertIsNone(task.github_integration)
+        self.assertEqual(task.repositories, [])
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_signal_report_raises_when_no_integration_anywhere(self, mock_execute_workflow):
         user = User.objects.create(email="signal-no-int@test.com")

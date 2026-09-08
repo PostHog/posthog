@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
@@ -354,10 +355,29 @@ describe('runInteractionLogic', () => {
             logic.actions.submitComposerForm()
         }).toFinishAllListeners()
 
-        expect(lemonToast.error).toHaveBeenCalled()
+        expect(lemonToast.error).toHaveBeenCalledWith('Failed to send message. Please try again.')
         expect(logic.values.composerForm.draft).toBe('ship it')
         expect(logic.values.sending).toBe(false)
         expect(toolEvents.values.applyBackTargetClaims[RUN_ID]).toBeUndefined()
+    })
+
+    it('toasts the reason the server gave when the send is refused', async () => {
+        ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValue(
+            new ApiError('API request failed with status: 403', 403, undefined, {
+                type: 'permission_denied',
+                code: 'code_access_required',
+                error: 'PostHog Desktop access is required to run tasks in the cloud.',
+            })
+        )
+        setThinking(false)
+        logic.actions.setComposerFormValues({ draft: 'ship it' })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        expect(lemonToast.error).toHaveBeenCalledWith('PostHog Desktop access is required to run tasks in the cloud.')
+        expect(logic.values.composerForm.draft).toBe('ship it')
     })
 
     it('starts a fresh run seeded with the message when the run is terminal', async () => {
