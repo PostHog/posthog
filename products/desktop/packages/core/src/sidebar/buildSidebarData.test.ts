@@ -7,7 +7,6 @@ import {
   narrowFullTask,
   type RunMode,
   readRunMode,
-  readTaskSummary,
   sliceVisibleTasks,
   type TaskSession,
 } from "./buildSidebarData";
@@ -278,44 +277,6 @@ describe("readRunMode", () => {
     ["a mode that is not a mode", { mode: 7 }, "background"],
   ])("reads %s", (_case, state, expected) => {
     expect(readRunMode(state)).toBe(expected);
-  });
-});
-
-describe("readTaskSummary", () => {
-  it.each([
-    ["the agent's summary", "Fixing the funnel", "Fixing the funnel"],
-    ["a summary with whitespace", "  Fixing the funnel  ", "Fixing the funnel"],
-    ["a blank summary", "  ", null],
-    ["an absent summary", undefined, null],
-  ])("reads %s", (_case, summary, expected) => {
-    expect(readTaskSummary(summary)).toBe(expected);
-  });
-
-  it("prefers a live summary over the task-list summary", () => {
-    const task = narrowFullTask({
-      id: "task-1",
-      title: "Review a pull request",
-      created_at: "2026-09-02T09:00:00Z",
-      updated_at: "2026-09-02T09:00:00Z",
-      latest_run: {
-        id: "run-1",
-        status: "in_progress",
-        environment: "cloud",
-        task_summary: "Reading the code",
-      },
-    });
-
-    const result = deriveTaskData(task, {
-      session: { cloudTaskSummary: "Writing the fix" },
-      workspace: undefined,
-      timestamp: undefined,
-      pinnedIds: new Set(),
-      suspendedIds: new Set(),
-      slackTaskIds: new Set(),
-      slackThreadUrlByTaskId: new Map(),
-    });
-
-    expect(result.summary).toBe("Writing the fix");
   });
 });
 

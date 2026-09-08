@@ -92,7 +92,6 @@ export function TaskRow({
       prState={prState}
       hasDiff={hasDiff}
       prUrl={task.cloudPrUrl}
-      summary={task.summary}
       timestamp={timestamp}
       onClick={onClick}
       onDoubleClick={onDoubleClick}

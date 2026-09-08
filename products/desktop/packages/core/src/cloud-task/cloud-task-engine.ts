@@ -99,7 +99,6 @@ interface TaskRunResponse {
   status: TaskRunStatus;
   stage?: string | null;
   output?: Record<string, unknown> | null;
-  task_summary?: string | null;
   state?: Record<string, unknown> | null;
   error_message?: string | null;
   branch?: string | null;
@@ -112,7 +111,6 @@ interface TaskRunStateEvent {
   status?: TaskRunStatus;
   stage?: string | null;
   output?: Record<string, unknown> | null;
-  task_summary?: string | null;
   state?: Record<string, unknown> | null;
   error_message?: string | null;
   branch?: string | null;
@@ -153,7 +151,6 @@ interface WatcherState {
   lastStatus: TaskRunStatus | null;
   lastStage: string | null;
   lastOutput: Record<string, unknown> | null;
-  lastTaskSummary: string | null;
   lastErrorMessage: string | null;
   lastBranch: string | null;
   lastSandboxAlive: boolean | null;
@@ -1065,7 +1062,6 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       lastStatus: null,
       lastStage: null,
       lastOutput: null,
-      lastTaskSummary: null,
       lastErrorMessage: null,
       lastBranch: null,
       lastSandboxAlive: null,
@@ -1194,7 +1190,6 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         status: watcher.lastStatus ?? undefined,
         stage: watcher.lastStage,
         output: watcher.lastOutput,
-        taskSummary: watcher.lastTaskSummary,
         errorMessage: watcher.lastErrorMessage,
         branch: watcher.lastBranch,
         ...sandboxAlivePayload(watcher),
@@ -1237,7 +1232,6 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       status: watcher.lastStatus ?? undefined,
       stage: watcher.lastStage,
       output: watcher.lastOutput,
-      taskSummary: watcher.lastTaskSummary,
       errorMessage: watcher.lastErrorMessage,
       branch: watcher.lastBranch,
       ...sandboxAlivePayload(watcher),
@@ -1288,7 +1282,6 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       status: watcher.lastStatus ?? undefined,
       stage: watcher.lastStage,
       output: watcher.lastOutput,
-      taskSummary: watcher.lastTaskSummary,
       errorMessage: watcher.lastErrorMessage,
       branch: watcher.lastBranch,
       ...sandboxAlivePayload(watcher),
@@ -1744,7 +1737,6 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
             status: watcher.lastStatus ?? undefined,
             stage: watcher.lastStage,
             output: watcher.lastOutput,
-            taskSummary: watcher.lastTaskSummary,
             errorMessage: watcher.lastErrorMessage,
             branch: watcher.lastBranch,
             ...sandboxAlivePayload(watcher),
@@ -1944,7 +1936,6 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       status: watcher.lastStatus ?? undefined,
       stage: watcher.lastStage,
       output: watcher.lastOutput,
-      taskSummary: watcher.lastTaskSummary,
       errorMessage: watcher.lastErrorMessage,
       branch: watcher.lastBranch,
       ...sandboxAlivePayload(watcher),
@@ -2189,7 +2180,6 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
           | "status"
           | "stage"
           | "output"
-          | "task_summary"
           | "state"
           | "error_message"
           | "branch"
@@ -2209,7 +2199,6 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     const nextStatus = run.status ?? watcher.lastStatus;
     const nextStage = run.stage ?? null;
     const nextOutput = run.output ?? null;
-    const nextTaskSummary = run.task_summary ?? null;
     const nextErrorMessage = run.error_message ?? null;
     const nextBranch = run.branch ?? null;
     const sandboxAlive = extractSandboxAlive(run.state);
@@ -2220,7 +2209,6 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       nextStatus !== watcher.lastStatus ||
       nextStage !== watcher.lastStage ||
       JSON.stringify(nextOutput) !== JSON.stringify(watcher.lastOutput) ||
-      nextTaskSummary !== watcher.lastTaskSummary ||
       nextErrorMessage !== watcher.lastErrorMessage ||
       nextBranch !== watcher.lastBranch ||
       nextSandboxAlive !== watcher.lastSandboxAlive;
@@ -2228,7 +2216,6 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     watcher.lastStatus = nextStatus ?? null;
     watcher.lastStage = nextStage;
     watcher.lastOutput = nextOutput;
-    watcher.lastTaskSummary = nextTaskSummary;
     watcher.lastErrorMessage = nextErrorMessage;
     watcher.lastBranch = nextBranch;
     watcher.lastSandboxAlive = nextSandboxAlive;

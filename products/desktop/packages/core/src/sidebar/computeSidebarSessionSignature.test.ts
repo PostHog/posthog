@@ -53,12 +53,6 @@ describe("computeSidebarSessionSignature", () => {
     expect(g).not.toBe(h);
   });
 
-  it("changes when the task summary changes", () => {
-    const a = sig({ r1: { taskId: "t1", cloudTaskSummary: "Reading" } });
-    const b = sig({ r1: { taskId: "t1", cloudTaskSummary: "Writing" } });
-    expect(a).not.toBe(b);
-  });
-
   it("skips sessions without a taskId", () => {
     expect(sig({ r1: { isPromptPending: true } })).toBe("");
   });

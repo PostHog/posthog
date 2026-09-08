@@ -377,7 +377,6 @@ export interface ISessionStore {
       status?: TaskRunStatus;
       stage?: string | null;
       output?: Record<string, unknown> | null;
-      taskSummary?: string | null;
       errorMessage?: string | null;
       branch?: string | null;
     },
@@ -5625,7 +5624,6 @@ export class SessionService {
         cloudStatus: run.status,
         cloudStage: run.stage ?? null,
         cloudOutput: run.output ?? null,
-        cloudTaskSummary: run.task_summary ?? null,
         cloudArtifacts: run.artifacts ?? [],
         cloudErrorMessage: run.error_message,
         logUrl: run.log_url ?? session.logUrl,
@@ -8593,7 +8591,6 @@ export class SessionService {
           status: update.status,
           stage: update.stage,
           output: update.output,
-          taskSummary: update.taskSummary,
           errorMessage: update.errorMessage,
           branch: update.branch,
         });

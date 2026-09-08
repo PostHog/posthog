@@ -459,7 +459,6 @@ export interface TaskRun {
   log_url: string;
   error_message: string | null;
   output: Record<string, unknown> | null; // Structured output (PR URL, commit SHA, etc.)
-  task_summary?: string | null;
   state: TaskRunState;
   artifacts?: TaskRunArtifact[];
   created_at: string;
@@ -567,7 +566,6 @@ export interface CloudTaskStatusUpdate extends CloudTaskUpdateBase {
   status?: TaskRunStatus;
   stage?: string | null;
   output?: Record<string, unknown> | null;
-  taskSummary?: string | null;
   errorMessage?: string | null;
   branch?: string | null;
   sandboxAlive?: boolean | null;
@@ -584,7 +582,6 @@ export interface CloudTaskSnapshotUpdate extends CloudTaskUpdateBase {
   status?: TaskRunStatus;
   stage?: string | null;
   output?: Record<string, unknown> | null;
-  taskSummary?: string | null;
   errorMessage?: string | null;
   branch?: string | null;
   sandboxAlive?: boolean | null;

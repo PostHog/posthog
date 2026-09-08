@@ -23,11 +23,7 @@ export interface FullTask {
     id?: string;
     status?: TaskRunStatus | null;
     environment?: "local" | "cloud" | null;
-    output?: {
-      pr_url?: unknown;
-      summary?: unknown;
-      final_message?: unknown;
-    } | null;
+    output?: { pr_url?: unknown } | null;
     state?: Record<string, unknown> | null;
   } | null;
 }
@@ -46,11 +42,7 @@ export interface SidebarTask {
     id?: string;
     status?: TaskRunStatus | null;
     environment?: "local" | "cloud" | null;
-    output?: {
-      pr_url?: unknown;
-      summary?: unknown;
-      final_message?: unknown;
-    } | null;
+    output?: { pr_url?: unknown } | null;
     /** "interactive" or "background"; see `readRunMode`. */
     mode?: RunMode | null;
   } | null;
@@ -267,33 +259,6 @@ export function deriveTaskRunState(
   };
 }
 
-/**
- * How much of a fallback `final_message` a row shows. The agent's own summary is already
- * capped server-side; a closing chat turn is not, and a whole report does not belong in a
- * hover.
- */
-const FALLBACK_SUMMARY_CHARS = 400;
-
-/**
- * What the task is about, for a reader who has not opened it: the summary the agent kept
- * with `task_summary_update`, or failing that the start of its closing message, so the
- * hover is never empty on a run that said something.
- */
-export function readTaskSummary(
-  output: { summary?: unknown; final_message?: unknown } | null | undefined,
-): string | null {
-  const summary = output?.summary;
-  if (typeof summary === "string" && summary.trim()) return summary.trim();
-  const finalMessage = output?.final_message;
-  if (typeof finalMessage === "string" && finalMessage.trim()) {
-    const trimmed = finalMessage.trim();
-    return trimmed.length > FALLBACK_SUMMARY_CHARS
-      ? `${trimmed.slice(0, FALLBACK_SUMMARY_CHARS)}…`
-      : trimmed;
-  }
-  return null;
-}
-
 export function deriveTaskData(
   task: SidebarTask,
   ctx: DeriveTaskDataContext,
@@ -337,7 +302,6 @@ export function deriveTaskData(
     slackThreadUrl,
     folderPath: workspace?.folderPath ?? null,
     cloudPrUrl,
-    summary: readTaskSummary(task.latest_run?.output),
     branchName: workspace?.branchName ?? null,
     linkedBranch: workspace?.linkedBranch ?? null,
   };

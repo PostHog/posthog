@@ -11,7 +11,6 @@ import { signedCommitTool } from "./tools/signed-commit";
 import { signedMergeTool } from "./tools/signed-merge";
 import { signedRewriteTool } from "./tools/signed-rewrite";
 import { speakTool } from "./tools/speak";
-import { taskSummaryUpdateTool } from "./tools/task-summary-update";
 import { uploadArtifactTool } from "./tools/upload-artifact";
 
 export {
@@ -35,7 +34,6 @@ export const LOCAL_TOOLS: LocalTool[] = [
   uploadArtifactTool,
   reportActivityTool,
   reportInsightTool,
-  taskSummaryUpdateTool,
   finishTool,
   listAgentsTool,
   sendAgentMessageTool,

@@ -1,12 +1,6 @@
 import { Archive, GitPullRequest, PushPin } from "@phosphor-icons/react";
 import type { RunMode } from "@posthog/core/sidebar/buildSidebarData";
 import { parseGithubUrl } from "@posthog/git/utils";
-import {
-  Tooltip as QuillTooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@posthog/quill";
 import type { WorkspaceMode } from "@posthog/shared";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import type { TaskRunStatus } from "@posthog/shared/domain-types";
@@ -61,8 +55,6 @@ interface TaskItemProps {
   prState?: SidebarPrState;
   hasDiff?: boolean;
   prUrl?: string | null;
-  /** What the task is about; shown on hover. Absent on a task no run has summarized. */
-  summary?: string | null;
   timestamp?: number;
   isEditing?: boolean;
   onClick: (e: React.MouseEvent) => void;
@@ -139,7 +131,6 @@ export function TaskItem({
   prState,
   hasDiff,
   prUrl,
-  summary,
   timestamp,
   isEditing = false,
   onClick,
@@ -228,7 +219,7 @@ export function TaskItem({
     );
   }
 
-  const row = (
+  return (
     <SidebarItem
       depth={depth}
       icon={icon}
@@ -247,23 +238,6 @@ export function TaskItem({
       onContextMenu={onContextMenu}
       endContent={endContent}
     />
-  );
-
-  if (!summary) return row;
-
-  return (
-    <TooltipProvider delay={700}>
-      <QuillTooltip>
-        <TooltipTrigger render={row} />
-        <TooltipContent
-          side="right"
-          align="start"
-          className="min-w-0 max-w-[320px] whitespace-pre-wrap break-words text-left"
-        >
-          {summary}
-        </TooltipContent>
-      </QuillTooltip>
-    </TooltipProvider>
   );
 }
 

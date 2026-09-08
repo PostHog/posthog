@@ -1,5 +1,3 @@
-import { buildTaskSummaryInstructions } from "../task-summary";
-
 export interface TaskContextInput {
   taskId: string;
   cwd: string;
@@ -13,7 +11,6 @@ export interface TaskContext extends TaskContextInput {
   apiHost: string;
   environment: "local" | "cloud";
   additionalInstructions?: string;
-  taskSummarySupported?: boolean;
 }
 
 export interface TaskPromptCapabilities {
@@ -160,10 +157,6 @@ export function buildTaskSystemPrompt(
     buildPullRequestLinksPrompt(),
     buildShellEfficiencyPrompt(),
   );
-
-  if (context.taskSummarySupported) {
-    sections.push(buildTaskSummaryInstructions());
-  }
 
   if (context.channelMode) {
     sections.push(
