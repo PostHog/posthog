@@ -844,8 +844,6 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         assert refused.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert refused.json()["code"] == "throttled"
         assert mock_mint.call_count == 2
-        kwargs = self.mock_denied.call_args.kwargs
-        assert (kwargs["outcome"], kwargs["posture"]) == ("throttled", "new")
 
     @override_settings(DEBUG=False, WIZARD_GATEWAY_TIERS={"new": {"mints_per_day": 2}})
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)

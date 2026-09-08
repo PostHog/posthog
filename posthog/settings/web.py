@@ -1240,8 +1240,8 @@ WIZARD_GATEWAY_PROGRAM_IDS = get_list(get_from_env("WIZARD_GATEWAY_PROGRAM_IDS",
 WIZARD_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("WIZARD_GATEWAY_TOKEN_TTL_SECONDS", 86400, type_cast=int)
 # Per-posture limits, JSON {"new"|"active"|"paid": {"cap_usd", "max_cap_usd",
 # "mints_per_day", "ttl_seconds"}}, each field optional and falling back to that
-# posture's floor in wizard_gateway_token, not to the flat settings above, which
-# are wider than every tier. Per-program caps, JSON {program id: cap}, replace a
+# posture's floor in wizard_gateway_token, not to the flat settings above, whose
+# cap is wider than every tier. Per-program caps, JSON {program id: cap}, replace a
 # posture's cap_usd for that program up to its max_cap_usd. Both parsed
 # defensively like AI_GATEWAY_TEAM_TIER_OVERRIDES: a malformed value must not
 # take boot down.

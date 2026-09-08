@@ -138,7 +138,7 @@ class WizardTierLimits:
 NO_TIER_LIMITS = WizardTierLimits()
 
 # In code so a malformed WIZARD_GATEWAY_TIERS degrades toward the tier the
-# operator meant, not toward the flat setting, which is wider than all three.
+# operator meant, not toward the flat setting, whose cap is wider than all three.
 _TIER_FLOORS: dict[str, WizardTierLimits] = {
     "new": WizardTierLimits(
         cap_usd=Decimal("6").quantize(_CAP_QUANTUM),
@@ -400,7 +400,7 @@ def _cap_usd(override: Decimal | None, *, program: object, posture: WizardPostur
         if cap is not None:
             # A ceiling below the posture's own cap would make a program entry
             # tighten rather than size, so the posture's cap is the floor here.
-            ceiling = max(tier.max_cap_usd, tier.cap_usd) if tier.max_cap_usd else tier.cap_usd
+            ceiling = max(tier.max_cap_usd, tier.cap_usd) if tier.max_cap_usd is not None else tier.cap_usd
             if ceiling is not None:
                 cap = min(cap, ceiling)
         if cap is None:

@@ -320,6 +320,11 @@ class TestTieredMint:
         assert self._mint(program="ai-observability", posture="new")["cap_usd"] == "6.000000"
         assert self._mint(program="ai-observability", posture="paid")["cap_usd"] == "12.000000"
 
+    def test_no_posture_ignores_the_caller_supplied_program_cap(self):
+        # The one path with no ceiling to bound it, so the program a caller
+        # names must not choose the cap there.
+        assert self._mint(program="ai-observability")["cap_usd"] == "25.000000"
+
     def test_the_override_outranks_both(self):
         assert self._mint(program="ai-observability", posture="new", cap_usd=Decimal("30"))["cap_usd"] == "30.000000"
 
