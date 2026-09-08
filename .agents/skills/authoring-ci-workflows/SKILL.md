@@ -141,9 +141,12 @@ Find those rows through the _run's_ conclusion, not the gate job's.
 The gate job's own conclusion changed on 2026-09-04: a superseded gate recorded `failure` before that date and records `cancelled` after it.
 A metric that drops the superseded rows from the numerator and the denominator stays comparable across that date.
 One that filters on the gate job's conclusion alone does not.
-The run's conclusion lives in the warehouse table `github_workflow_runs`; a metric keyed on jobs joins `github_workflow_jobs` to it on `run_id`.
+The run's conclusion lives in the warehouse table `github_workflow_runs`.
 The `posthog-ci-running-time` event cannot supply it: the action fills that event's `conclusion` property from the job named in its `status-job` input, and every caller passes a gate job name.
 It writes the same value to the `workflow_run` group, so both of those fields carry a gate conclusion under a run-shaped name.
+A metric keyed on jobs joins `github_workflow_jobs` to that table on `run_id`, then scopes the job side to a single `run_attempt`.
+The runs snapshot keeps one row per run id, at its newest attempt, so an unscoped read stamps that conclusion onto every earlier attempt's gate and counts the gate once per attempt.
+Do not enforce that scope by joining `run_attempt` equality: it blanks or drops every earlier attempt, which is the population that actually ran after a partial re-run (`products/engineering_analytics/backend/logic/views/job_costs.py` records that decision).
 Reuse the canonical predicates instead of writing a new denominator: `CONCLUSIVE_RUN_CONDITION` in `products/engineering_analytics/backend/logic/queries/_workflow_filters.py`, and `computeHealthSummary` in `products/engineering_analytics/frontend/lib/runHealth.ts`.
 That run-level key identifies superseded runs only where the workflow never cancels its own run.
 Where it does (the rule above), a deterministic failure records run conclusion `cancelled` too, so the canonical predicates drop that honest `failure` together with the superseded rows.
