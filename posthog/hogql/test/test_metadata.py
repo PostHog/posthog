@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import DatabaseError, connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
@@ -21,6 +22,7 @@ from posthog.schema import (
     SessionTableVersion,
 )
 
+from posthog.hogql import taxonomy_validation
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.parser import parse_select
@@ -404,6 +406,34 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(metadata.isValid)
         candidate_reads = [q["sql"] for q in captured.captured_queries if "SIMILARITY" in q["sql"].upper()]
         self.assertEqual(len(candidate_reads), 1, candidate_reads)
+
+    @parameterized.expand(
+        [
+            ("small_project_ranks_its_own_rows", 5, False),
+            ("huge_project_keeps_the_trigram_index", 0, True),
+        ]
+    )
+    def test_metadata_suggestion_lookup_follows_the_search_plan(
+        self, _name: str, max_definitions: int, expects_trigram_operator: bool
+    ) -> None:
+        # No index serves `similarity(name, ...) >= 0.3`, so a big project pays a read of its whole
+        # taxonomy per suggestion. Past the cap the lookup goes back to the `%` operator, which the
+        # trigram index answers.
+        cache.clear()
+        EventDefinition.objects.create(team=self.team, name="$pageview")
+
+        with (
+            patch.object(taxonomy_validation, "SIMILARITY_SCAN_MAX_DEFINITIONS", max_definitions),
+            CaptureQueriesContext(connection) as captured,
+        ):
+            metadata = self._select("SELECT count() FROM events WHERE event = 'pageview'")
+
+        # Either plan has to reach the same suggestion.
+        self.assertEqual(metadata.warnings[0].fix, "'$pageview'")
+        candidate_reads = [q["sql"] for q in captured.captured_queries if "SIMILARITY(" in q["sql"].upper()]
+        self.assertEqual(len(candidate_reads), 1, candidate_reads)
+        uses_trigram_operator = '"name" % ' in candidate_reads[0]
+        self.assertEqual(uses_trigram_operator, expects_trigram_operator, candidate_reads[0])
 
     def test_metadata_does_not_warn_for_dynamic_event_expression(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")

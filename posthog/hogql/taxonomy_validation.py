@@ -14,7 +14,9 @@ from posthog.hogql import ast
 from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_string
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.dataclasses import frozen
 from posthog.models import EventDefinition, PropertyDefinition, Team
+from posthog.taxonomy.definition_search import DefinitionTable, search_plan
 
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
@@ -36,6 +38,13 @@ MAX_SUGGESTION_INPUT_LENGTH = 400
 # threshold (`pg_trgm.similarity_threshold` = 0.3). `_closest_name` re-ranks candidates with
 # difflib at a stricter cutoff, so this only has to be loose enough to keep real typos in.
 TRIGRAM_SIMILARITY_THRESHOLD = 0.3
+
+# Above this many definitions in the project, ranking every one of them by `similarity()` costs more
+# than the pg_trgm `%` lookup, even though `%` reads posting lists fleet-wide. `similarity()` builds
+# the trigram sets of both sides per row and runs once per unknown name, so at the cap the lookup
+# still stays in the tens of milliseconds. That crossover sits far below the one the `?search=`
+# substring match uses (`PROJECT_SCAN_MAX_DEFINITIONS`).
+SIMILARITY_SCAN_MAX_DEFINITIONS = 5_000
 
 # How many unknown names in one query get a suggestion. One lookup covers the whole batch, but
 # pg_trgm compares every name in it, and a caller controls how many unknown names one query carries.
@@ -62,6 +71,15 @@ class TaxonomyReference:
     # it strips the quotes/prefix. `fix_context` says how to render the suggested name back into that slot.
     # `None` means "warn, but offer no one-click fix" (e.g. nested `properties.a.b`).
     fix_context: FixContext | None = "string"
+
+
+@frozen
+class TaxonomyLookup:
+    """The project's rows of one definition table, plus what `search_plan` needs to plan a read of them."""
+
+    table: DefinitionTable
+    project_id: int
+    definitions: QuerySet
 
 
 class TaxonomyReferenceVisitor(TraversingVisitor):
@@ -133,8 +151,12 @@ def validate_taxonomy_references(
                 _warnings_for_unknown_references(
                     "Event",
                     visitor.event_literals,
-                    EventDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
-                        effective_project_id=team.project_id
+                    TaxonomyLookup(
+                        table="posthog_eventdefinition",
+                        project_id=team.project_id,
+                        definitions=EventDefinition.objects.alias(
+                            effective_project_id=effective_project_id_expr()
+                        ).filter(effective_project_id=team.project_id),
                     ),
                 )
             )
@@ -148,8 +170,12 @@ def validate_taxonomy_references(
                     _warnings_for_unknown_references(
                         "Property",
                         property_references,
-                        PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
-                            effective_project_id=team.project_id, type=PropertyDefinition.Type.EVENT
+                        TaxonomyLookup(
+                            table="posthog_propertydefinition",
+                            project_id=team.project_id,
+                            definitions=PropertyDefinition.objects.alias(
+                                effective_project_id=effective_project_id_expr()
+                            ).filter(effective_project_id=team.project_id, type=PropertyDefinition.Type.EVENT),
                         ),
                     )
                 )
@@ -192,7 +218,7 @@ def _string_literals_from_array(node: ast.Expr) -> list[TaxonomyReference]:
 
 
 def _warnings_for_unknown_references(
-    kind: str, references: list[TaxonomyReference], taxonomy: QuerySet
+    kind: str, references: list[TaxonomyReference], lookup: TaxonomyLookup
 ) -> list[HogQLNotice]:
     if not references:
         return []
@@ -204,17 +230,17 @@ def _warnings_for_unknown_references(
 
     # Hot path: an indexed `name__in` existence check over only the referenced names (usually 1–5).
     # When every name is valid we never load more.
-    found_names = set(taxonomy.filter(name__in=referenced_names).values_list("name", flat=True))
+    found_names = set(lookup.definitions.filter(name__in=referenced_names).values_list("name", flat=True))
     unknown_names = [name for name in referenced_names if name not in found_names]
     if not unknown_names:
         return []
 
     # A project with no definitions yet must not warn on every name. Only ask when nothing was
     # found, because a hit above already proves the taxonomy has rows.
-    if not found_names and not taxonomy.exists():
+    if not found_names and not lookup.definitions.exists():
         return []
 
-    suggestions = _suggestions_for(taxonomy, unknown_names[:MAX_SUGGESTED_NAMES])
+    suggestions = _suggestions_for(lookup, unknown_names[:MAX_SUGGESTED_NAMES])
 
     warnings: list[HogQLNotice] = []
     for name in unknown_names:
@@ -247,14 +273,14 @@ def _build_fix(fix_context: FixContext | None, suggestion: str) -> str | None:
     return None
 
 
-def _suggestions_for(taxonomy: QuerySet, names: list[str]) -> dict[str, str]:
+def _suggestions_for(lookup: TaxonomyLookup, names: list[str]) -> dict[str, str]:
     """Map the names that earn a suggestion to the name suggested for each.
 
     One candidate read covers the whole batch. A read per name would cost a round trip per name, and
     a typical project holds a few hundred definitions, where those round trips cost more than the
     comparison they save.
     """
-    candidates = _similar_names(taxonomy, names)
+    candidates = _similar_names(lookup, names)
     if not candidates:
         return {}
 
@@ -273,15 +299,20 @@ def _suggestions_for(taxonomy: QuerySet, names: list[str]) -> dict[str, str]:
     return suggestions
 
 
-def _similar_names(taxonomy: QuerySet, names: list[str]) -> list[str]:
+def _similar_names(lookup: TaxonomyLookup, names: list[str]) -> list[str]:
     """Read the names most similar to any of `names`, ranked and capped by Postgres.
 
-    Similarity is computed over the project-scoped rows only, never with the pg_trgm `%`
-    operator. `%` reads the global GIN trigram indexes (`index_event_definition_name`,
-    `index_property_definition_name`), whose posting lists span every project: one lookup for a
-    common-shaped name reads the index entries of millions of similar names fleet-wide before
-    the project filter applies. Ranking the project's own definitions bounds the work by the
-    project's size instead.
+    Neither way of reaching the candidates is cheap on every project, so `search_plan` picks one
+    per project and caches the choice:
+
+    - `project_scan` ranks the project's own definitions by `similarity()`. No index serves that
+      predicate, so Postgres reads every definition the project has and computes the similarity of
+      each against every unknown name. The work is bounded by the project's taxonomy, which is the
+      right bound while the taxonomy is small.
+    - `trigram` selects candidates with the pg_trgm `%` operator, which the GIN trigram indexes
+      `index_event_definition_name` and `index_property_definition_name` answer directly. Those
+      indexes hold every project, so the lookup reads posting lists fleet-wide, but it returns a
+      handful of rows instead of reading hundreds of thousands.
 
     The `$`-prefixed form of each name is matched exactly as well, and sorts ahead of the ranked
     candidates. A caller who typed a name without its `$` therefore keeps that suggestion however
@@ -296,15 +327,27 @@ def _similar_names(taxonomy: QuerySet, names: list[str]) -> list[str]:
 
     dollar_prefixed = [f"${name}" for name in comparable if not name.startswith("$")]
 
+    plan = search_plan(
+        lookup.table,
+        lookup.project_id,
+        lookup.definitions.db,
+        max_definitions=SIMILARITY_SCAN_MAX_DEFINITIONS,
+    )
+
     similarities = [TrigramSimilarity("name", name) for name in comparable]
-    ranked = taxonomy.annotate(
+    ranked = lookup.definitions.annotate(
         # `Greatest` needs two expressions, and one unknown name is the common case.
         name_similarity=Greatest(*similarities) if len(similarities) > 1 else similarities[0]
     )
 
-    # The same cutoff the `%` operator applies (pg_trgm.similarity_threshold defaults to 0.3),
-    # made explicit so results do not depend on the server setting.
-    matches = Q(name_similarity__gte=TRIGRAM_SIMILARITY_THRESHOLD)
+    if plan == "trigram":
+        matches = Q()
+        for name in comparable:
+            matches |= Q(name__trigram_similar=name)
+    else:
+        # The same cutoff the `%` operator applies (pg_trgm.similarity_threshold defaults to 0.3),
+        # made explicit so results do not depend on the server setting.
+        matches = Q(name_similarity__gte=TRIGRAM_SIMILARITY_THRESHOLD)
     if dollar_prefixed:
         matches |= Q(name__in=dollar_prefixed)
     ranked = ranked.filter(matches)
