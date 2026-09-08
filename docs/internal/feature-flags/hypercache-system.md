@@ -168,6 +168,9 @@ flag_definitions_hypercache = HyperCache(
     value="flags_with_cohorts.json",
     load_fn=lambda key: _get_flags_response_for_local_evaluation(HyperCache.team_from_key(key)),
     enable_etag=True,
+    # Set only when FLAGS_REDIS_URL is configured. See "Dedicated flags Redis" below.
+    cache_alias=FLAGS_DEDICATED_CACHE_ALIAS,
+    secondary_cache_alias="default",
 )
 ```
 
@@ -324,6 +327,8 @@ redis-cli get "remote_config/{api_token}/config"
 redis-cli get "team_token:{api_token}"
 ```
 
+When `FLAGS_REDIS_URL` is set, the local-evaluation flags key is written to the dedicated instance and mirrored to the shared cache, so `redis-cli` returns whichever copy the cluster you point it at holds. The two can disagree. Read the flag-definitions notes under "Dedicated flags Redis" before you act on either copy.
+
 ### Check cache source in responses
 
 Local evaluation responses include cache source information via Prometheus metrics. Check the `posthog_hypercache_get_from_cache` metric with the appropriate labels.
@@ -358,7 +363,11 @@ FLAGS_REDIS_URL=redis://flags-redis:6379  # Separate instance for flags
 ```
 
 When `FLAGS_REDIS_URL` is set, Django registers it as the `flags_dedicated` cache alias (`FLAGS_DEDICATED_CACHE_ALIAS` in `posthog/caching/flags_redis_cache.py`, wired up in `posthog/settings/data_stores.py`).
-Three HyperCache instances bind that alias: flags (`products/feature_flags/backend/flags_cache.py`), remote config, and team metadata. Django writes those to the dedicated instance and the Rust service reads them from it. The SDK-facing flag-definitions cache (`local_evaluation.py`) stays on the shared default cache on both the Django write side and the Rust read side.
+Four HyperCache instances bind that alias. For flags (`products/feature_flags/backend/flags_cache.py`), remote config, and team metadata, Django writes to the dedicated instance and the Rust service reads them from it.
+
+The SDK-facing flag-definitions cache (`local_evaluation.py`) is part-way through the same move, so its write side and read side currently point at different clusters. Django writes it to the dedicated instance and mirrors each write to the shared default cache, covering the payload, the ETag, and the cache-miss sentinel. Deletes mirror as well. The Rust `/flags/definitions` reader still reads the shared cache, so the shared copy is the one serving SDK traffic. A later change moves that reader to the dedicated instance, and the mirror is removed after it.
+
+The flag-definitions self-heal queue follows the write side, not the read side. The Rust endpoint enqueues a rebuild request on the dedicated instance (`State::flags_namespace_redis_client`), and the Celery drain reads the queue from `flag_definitions_hypercache.redis_url` (`products/feature_flags/backend/rebuild_queue.py`). Both resolve from `FLAGS_REDIS_URL`, so the producer and the consumer move together on configuration. They can still split on connection state: a Rust process that cannot reach the dedicated cluster at startup falls back to the shared one and enqueues there for its whole life, while Celery keeps draining the dedicated one. Those teams wait for the hourly verifier. `server.rs` logs that startup failure at error level, and the same failure already sends the flags.json, team-metadata, and remote-config readers to the shared cluster, where Django writes nothing. Django and the Rust fleet deploy independently, so a deploy of one before the other leaves requests on the cluster the other side is not reading. Clean up on the **shared** cluster only, and never on the dedicated one, which holds the live queue once both sides are up. A Rust-first rollout puts the window's requests on the dedicated cluster, where the drain collects them as soon as Django deploys, so they need no cleanup. A Django-first rollout puts them on the shared cluster, where nothing reads them again. Either order also leaves the pre-move queue members and the open circuits on the shared cluster. Run `DEL flag_definitions:rebuild_requests flag_definitions:rebuild_circuit` there after both sides are deployed. The circuit-breaker set is included because only the drain prunes it and the key carries no TTL. The cooldown and failure-streak keys expire on their own.
 
 The Rust service only operates when `FLAGS_REDIS_URL` is configured. All cache update functions check this setting and skip operations if not set.
 

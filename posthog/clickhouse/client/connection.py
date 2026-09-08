@@ -94,6 +94,7 @@ class ClickHouseUser(StrEnum):
     ERROR_TRACKING = "error_tracking"
     ENDPOINTS = "endpoints"
     BILLING = "billing"
+    BUSINESS_KNOWLEDGE = "business_knowledge"
     REPLAY_VISION = "replay_vision"
     # Session replay surfacing scoring sweep
     SURFACING_SCORING = "surfacing_scoring"
@@ -163,8 +164,9 @@ def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
     Retrieve ClickHouse credentials for the specified user.
 
     This function retrieves the credentials associated with a given ClickHouse
-    user. If the specified user is not found, it will fall back to the default
-    user credentials.
+    user. Most missing dedicated users fall back to the default user credentials.
+    Business Knowledge fails closed so a deployment cannot silently bypass its
+    isolated query limit.
 
     The user and password must be properly passed as ENVs:
         CLICKHOUSE_<USER_NAME>_USER
@@ -177,7 +179,14 @@ def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
     global __user_dict
     if not __user_dict:
         __user_dict = init_clickhouse_users()
-    return __user_dict.get(user, __user_dict[ClickHouseUser.DEFAULT])
+    if creds := __user_dict.get(user):
+        return creds
+    if user == ClickHouseUser.BUSINESS_KNOWLEDGE:
+        raise RuntimeError(
+            "Business Knowledge ClickHouse credentials are missing; set "
+            "CLICKHOUSE_BUSINESS_KNOWLEDGE_USER and CLICKHOUSE_BUSINESS_KNOWLEDGE_PASSWORD"
+        )
+    return __user_dict[ClickHouseUser.DEFAULT]
 
 
 class ProxyClient:

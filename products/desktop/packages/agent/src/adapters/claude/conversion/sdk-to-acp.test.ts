@@ -49,6 +49,38 @@ describe("handleResultMessage error text", () => {
       "Internal error: API Error: 500 something broke",
     );
   });
+
+  it("keeps tool progress on a provider error", () => {
+    const message = {
+      subtype: "success",
+      is_error: true,
+      result: "API Error: 500 something broke",
+    } as unknown as SDKResultMessage;
+
+    const { error } = handleResultMessage(message, true);
+
+    expect(
+      (error as unknown as { data?: { madeProgress?: boolean } }).data
+        ?.madeProgress,
+    ).toBe(true);
+  });
+
+  it("keeps tool progress on an execution error", () => {
+    const message = {
+      subtype: "error_during_execution",
+      is_error: true,
+      errors: ["API Error: 500 something broke"],
+    } as unknown as SDKResultMessage;
+
+    const { error } = handleResultMessage(message, true);
+
+    expect(error).toMatchObject({
+      data: expect.objectContaining({
+        classification: "upstream_provider_failure",
+        madeProgress: true,
+      }),
+    });
+  });
 });
 
 describe("stripMarkerTags", () => {

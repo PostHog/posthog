@@ -21,11 +21,12 @@ import type {
     CopyFlagsRequestApi,
     CopyFlagsResponseApi,
     DependentFlagApi,
-    EnvironmentsEvaluationContextSuggestionsDestroyParams,
     EvaluationContextSuggestionRequestApi,
     EvaluationContextSuggestionResponseApi,
     FeatureFlagApi,
     FeatureFlagCreateRequestSchemaApi,
+    FeatureFlagRequestUsageListParams,
+    FeatureFlagRequestUsageResponseApi,
     FeatureFlagStatusResponseApi,
     FeatureFlagTestEvaluationRequestApi,
     FeatureFlagTestEvaluationResponseApi,
@@ -259,13 +260,12 @@ export const getFeatureFlagsStaffTeamConfigListUrl = (params: FeatureFlagsStaffT
 }
 
 /**
- * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: the minimal_flag_called_events
- * rollout gate and the per-team feature-flag count override.
+ * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: behavior rollout gates and the
+ * per-team feature-flag count override.
  *
- * Single-team writes only, by design. minimal_flag_called_events is flipped one team at a time
- * after staff verify that team's SDK versions support the slim $feature_flag_called event shape,
- * and max_feature_flags_override is a per-customer capacity grant. Neither is a bulk operation,
- * unlike the cache tools' rebuild and clear.
+ * Single-team writes only, by design. Rollout settings are changed after staff verify SDK
+ * compatibility, and max_feature_flags_override is a per-customer capacity grant. Neither is a
+ * bulk operation, unlike the cache tools' rebuild and clear.
  *
  * set() takes partial updates: omit a setting to leave it unchanged, and send
  * max_feature_flags_override as null to clear the override.
@@ -288,13 +288,12 @@ export const getFeatureFlagsStaffTeamConfigSetCreateUrl = () => {
 }
 
 /**
- * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: the minimal_flag_called_events
- * rollout gate and the per-team feature-flag count override.
+ * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: behavior rollout gates and the
+ * per-team feature-flag count override.
  *
- * Single-team writes only, by design. minimal_flag_called_events is flipped one team at a time
- * after staff verify that team's SDK versions support the slim $feature_flag_called event shape,
- * and max_feature_flags_override is a per-customer capacity grant. Neither is a bulk operation,
- * unlike the cache tools' rebuild and clear.
+ * Single-team writes only, by design. Rollout settings are changed after staff verify SDK
+ * compatibility, and max_feature_flags_override is a per-customer capacity grant. Neither is a
+ * bulk operation, unlike the cache tools' rebuild and clear.
  *
  * set() takes partial updates: omit a setting to leave it unchanged, and send
  * max_feature_flags_override as null to clear the override.
@@ -501,38 +500,7 @@ export const organizationsProjectsEvaluationContextSuggestionsDestroy = async (
     )
 }
 
-export const getEnvironmentsEvaluationContextSuggestionsCreateUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/environments/${id}/evaluation_context_suggestions/`
-}
-
-/**
- * Hide an evaluation context name from the flag editor's suggestion list, or restore it.
- *
- * POST hides the name; DELETE restores it. The underlying context row and any flags already
- * using it are never modified — this only controls what gets suggested.
- */
-export const environmentsEvaluationContextSuggestionsCreate = async (
-    projectId: string,
-    id: number,
-    evaluationContextSuggestionRequestApi: EvaluationContextSuggestionRequestApi,
-    options?: RequestInit
-): Promise<EvaluationContextSuggestionResponseApi> => {
-    return apiMutator<EvaluationContextSuggestionResponseApi>(
-        getEnvironmentsEvaluationContextSuggestionsCreateUrl(projectId, id),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(evaluationContextSuggestionRequestApi),
-        }
-    )
-}
-
-export const getEnvironmentsEvaluationContextSuggestionsDestroyUrl = (
-    projectId: string,
-    id: number,
-    params: EnvironmentsEvaluationContextSuggestionsDestroyParams
-) => {
+export const getFeatureFlagRequestUsageListUrl = (projectId: string, params: FeatureFlagRequestUsageListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -544,29 +512,19 @@ export const getEnvironmentsEvaluationContextSuggestionsDestroyUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/environments/${id}/evaluation_context_suggestions/?${stringifiedParams}`
-        : `/api/projects/${projectId}/environments/${id}/evaluation_context_suggestions/`
+        ? `/api/projects/${projectId}/feature_flag_request_usage/?${stringifiedParams}`
+        : `/api/projects/${projectId}/feature_flag_request_usage/`
 }
 
-/**
- * Hide an evaluation context name from the flag editor's suggestion list, or restore it.
- *
- * POST hides the name; DELETE restores it. The underlying context row and any flags already
- * using it are never modified — this only controls what gets suggested.
- */
-export const environmentsEvaluationContextSuggestionsDestroy = async (
+export const featureFlagRequestUsageList = async (
     projectId: string,
-    id: number,
-    params: EnvironmentsEvaluationContextSuggestionsDestroyParams,
+    params: FeatureFlagRequestUsageListParams,
     options?: RequestInit
-): Promise<EvaluationContextSuggestionResponseApi> => {
-    return apiMutator<EvaluationContextSuggestionResponseApi>(
-        getEnvironmentsEvaluationContextSuggestionsDestroyUrl(projectId, id, params),
-        {
-            ...options,
-            method: 'DELETE',
-        }
-    )
+): Promise<FeatureFlagRequestUsageResponseApi> => {
+    return apiMutator<FeatureFlagRequestUsageResponseApi>(getFeatureFlagRequestUsageListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getFeatureFlagsListUrl = (projectId: string, params?: FeatureFlagsListParams) => {

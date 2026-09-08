@@ -19,6 +19,7 @@ import { InsightShortId, IntegrationType, SubscriptionType } from '~/types'
 
 import type { SubscriptionContextApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
+import { newSubscriptionTargetLogic } from '../../scenes/newSubscriptionTargetLogic'
 import { subscriptionLogic, SubscriptionFormType, SubscriptionLogicProps } from './subscriptionLogic'
 import { MAX_CONTEXTS } from './utils'
 
@@ -388,6 +389,19 @@ describe('subscriptionLogic', () => {
         })
     })
 
+    // The subscriptions scene can pick an insight to send, and reaches the same URL. Forcing
+    // the AI type there would turn every snapshot subscription started from that scene into a
+    // report from a prompt.
+    it('keeps a snapshot subscription when the parent-less URL carries an insight', async () => {
+        const insightLogic = subscriptionLogic({ insightShortId: Insight1, id: 'new' })
+        insightLogic.mount()
+
+        router.actions.push('/subscriptions/new')
+        await expectLogic(insightLogic).toFinishListeners()
+
+        expect(insightLogic.values.subscription.resource_type).toBe('insight')
+    })
+
     it.each([
         ['an unsupported frequency', 'frequency=hourly', 'frequency', 'weekly'],
         ['a blank prompt', 'prompt=', 'prompt', undefined],
@@ -700,6 +714,21 @@ describe('subscriptionLogic', () => {
         }).toFinishListeners()
 
         expect(getRecentSlackChannelIds(7)).toEqual(expectedIds)
+    })
+
+    // The scene picks a target before the form opens, and a create routes away from the scene.
+    // A target left behind skips the picker on the next visit and reuses the old insight.
+    it('clears a target picked on the subscriptions scene', async () => {
+        const targetLogic = newSubscriptionTargetLogic()
+        targetLogic.mount()
+        targetLogic.actions.chooseInsight('abc123' as InsightShortId, 'Weekly signups')
+
+        await expectLogic(newLogic, () => {
+            newLogic.actions.submitSubscriptionSuccess({ target_type: 'email' } as SubscriptionType)
+        }).toFinishListeners()
+
+        expect(targetLogic.values.target).toBeNull()
+        targetLogic.unmount()
     })
 
     it('rejects empty prompt when resource_type is ai_prompt', async () => {
