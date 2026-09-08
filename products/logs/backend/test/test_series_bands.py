@@ -2,6 +2,7 @@ import datetime as dt
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -9,6 +10,7 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 
+from products.logs.backend import series_bands
 from products.logs.backend.series_bands import (
     SeriesBandsWindow,
     SeriesBandsWindowInvalid,
@@ -86,6 +88,12 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         rows.append((self.team.pk, slot, service, "ns", "prod", "error", 5))
         rows.append((self.team.pk, slot, service, "ns", "prod", "error", 5))
         rows.append((self.team.pk, slot + dt.timedelta(minutes=5), service, "ns", "prod", "error", 15))
+        # Steady traffic in every other bucket keeps the series dense at the grain.
+        bucket_count = window_days * 24 * 60 // interval_minutes
+        for i in range(bucket_count):
+            bucket_time = window_start + i * step
+            if bucket_time not in (slot, slot + step):
+                rows.append((self.team.pk, bucket_time, service, "ns", "prod", "error", 10))
         # Excluded: future bucket, other service, other team.
         rows.append((self.team.pk, NOW + dt.timedelta(hours=2), service, "ns", "prod", "error", 999))
         rows.append((self.team.pk, slot, "svc-other", "ns", "prod", "error", 999))
@@ -105,8 +113,9 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         assert (series.namespace, series.environment, series.severity) == ("ns", "prod", "error")
         assert series.baseline_weeks == 5
         assert series.band_ready_at is None
-        assert series.total_count == 25
-        bucket_count = window_days * 24 * 60 // interval_minutes
+        assert series.interval_minutes == interval_minutes
+        assert series.coarsened_reason is None
+        assert series.total_count == 25 + 10 * (bucket_count - 2)
         assert [bucket.time for bucket in series.buckets] == [window_start + i * step for i in range(bucket_count)]
 
         by_time = {bucket.time: bucket for bucket in series.buckets}
@@ -121,6 +130,96 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         assert quiet.observed == 0
         assert quiet.lower == 0
         assert quiet.upper == quiet_upper
+
+    @parameterized.expand(
+        [
+            # (name, quiet_every_n_buckets, quiet_count, expected_interval, expected_reason)
+            # Six records in one 5 minute bucket an hour: 8% of 5 minute buckets are
+            # non-empty, but a quarter of the 15 minute ones are, averaging 6.
+            ("sparse_settles_at_15", 12, 6, 15, "sparse"),
+            # One record in every 5 minute bucket: alive everywhere, but the mean
+            # only reaches 5 once six buckets fold into a 30 minute one.
+            ("quiet_settles_at_30", 1, 1, 30, "quiet"),
+            # One record an hour never passes; the series stops at the top rung.
+            ("too_thin_stops_at_60", 12, 1, 60, "sparse"),
+        ]
+    )
+    def test_sparse_series_is_coarsened_next_to_a_dense_one(
+        self, _name: str, quiet_every_n_buckets: int, quiet_count: int, expected_interval: int, expected_reason: str
+    ):
+        service = f"svc-density-{_name}"
+        window_start = WINDOW_END - dt.timedelta(days=1)
+        five = dt.timedelta(minutes=5)
+        rows = []
+        for i in range(24 * 12):
+            slot = window_start + i * five
+            rows.append((self.team.pk, slot, service, "ns", "prod", "info", 10))
+            if i % quiet_every_n_buckets == 0:
+                rows.append((self.team.pk, slot, service, "ns", "prod", "warn", quiet_count))
+        self._insert(rows)
+
+        result = run_series_bands(
+            self.team, service, window_start=window_start, window_end=WINDOW_END, interval_minutes=5
+        )
+
+        assert result.interval_minutes == 5
+        dense, quiet = result.series
+        assert (dense.severity, dense.interval_minutes, dense.coarsened_reason) == ("info", 5, None)
+        assert len(dense.buckets) == 24 * 12
+        assert (quiet.severity, quiet.interval_minutes, quiet.coarsened_reason) == (
+            "warn",
+            expected_interval,
+            expected_reason,
+        )
+        step = dt.timedelta(minutes=expected_interval)
+        assert [bucket.time for bucket in quiet.buckets] == [
+            window_start + i * step for i in range(24 * 60 // expected_interval)
+        ]
+        assert quiet.total_count == quiet_count * (24 * 12 // quiet_every_n_buckets)
+        assert quiet.buckets[0].observed == quiet_count * max(1, expected_interval // 5 // quiet_every_n_buckets)
+
+    def test_series_only_in_the_trailing_partial_bucket_keeps_the_requested_grain_and_its_reason(self):
+        service = "svc-trailing"
+        # A grain above 5 minutes floors this window end back to WINDOW_END, so the
+        # records below sit outside every coarser rung's window.
+        window_end = WINDOW_END + dt.timedelta(minutes=5)
+        window_start = window_end - dt.timedelta(days=1)
+        self._insert([(self.team.pk, WINDOW_END, service, "ns", "prod", "info", 3)])
+
+        result = run_series_bands(
+            self.team, service, window_start=window_start, window_end=window_end, interval_minutes=5
+        )
+
+        assert len(result.series) == 1
+        series = result.series[0]
+        assert (series.interval_minutes, series.coarsened_reason) == (5, "sparse")
+        assert len(series.buckets) == 24 * 12
+        assert series.total_count == 3
+        # Nothing to coarsen towards, and no band to under-read either: the series
+        # has no history, so it draws as still learning rather than as anomalous.
+        assert series.baseline_weeks == 0
+        assert series.band_ready_at is not None
+        assert all(bucket.lower is None and bucket.upper is None for bucket in series.buckets)
+
+    def test_a_spent_execution_budget_stops_the_walk_and_keeps_the_reason(self):
+        service = "svc-budget"
+        window_start = WINDOW_END - dt.timedelta(days=1)
+        self._insert(
+            [
+                (self.team.pk, window_start + i * dt.timedelta(hours=1), service, "ns", "prod", "info", 1)
+                for i in range(24)
+            ]
+        )
+
+        with patch.object(series_bands, "MAX_EXECUTION_SECONDS", 0):
+            result = run_series_bands(
+                self.team, service, window_start=window_start, window_end=WINDOW_END, interval_minutes=5
+            )
+
+        assert len(result.series) == 1
+        series = result.series[0]
+        assert (series.interval_minutes, series.coarsened_reason) == (5, "sparse")
+        assert len(series.buckets) == 24 * 12
 
     @parameterized.expand(
         [
@@ -266,14 +365,30 @@ NOW_FIXED = dt.datetime(2026, 6, 17, 15, 30, tzinfo=UTC)
 
 
 class TestResolveWindow(SimpleTestCase):
-    def _resolve(self, date_from: str | None, date_to: str | None, interval_minutes: int = 60) -> SeriesBandsWindow:
+    def _resolve(
+        self, date_from: str | None, date_to: str | None, interval_minutes: int | None = 60
+    ) -> SeriesBandsWindow:
         return resolve_window(date_from, date_to, interval_minutes=interval_minutes, now=NOW_FIXED)
 
     def test_exactly_seven_days_is_accepted(self):
         assert self._resolve("2026-06-08T00:00:00Z", "2026-06-15T00:00:00Z") == SeriesBandsWindow(
             start=dt.datetime(2026, 6, 8, tzinfo=UTC),
             end=dt.datetime(2026, 6, 15, tzinfo=UTC),
+            interval_minutes=60,
         )
+
+    @parameterized.expand(
+        [
+            # (date_from, expected_interval): the rung at or above window / 168 buckets.
+            ("-7d", 60),
+            ("-1d", 15),
+            ("-6h", 5),
+        ]
+    )
+    def test_omitted_grain_aims_for_the_bucket_target(self, date_from: str, expected_interval: int) -> None:
+        window = self._resolve(date_from, None, interval_minutes=None)
+        assert window.interval_minutes == expected_interval
+        assert window.end == NOW_FIXED.replace(minute=30 // expected_interval * expected_interval)
 
     def test_window_that_collapses_after_snapping_is_rejected(self):
         # Both bounds floor into the same hourly bucket, so the window holds no bucket at all.
@@ -285,6 +400,7 @@ class TestResolveWindow(SimpleTestCase):
         assert self._resolve("2026-06-17T15:05:00Z", "2026-06-17T15:20:00Z", interval_minutes=5) == SeriesBandsWindow(
             start=dt.datetime(2026, 6, 17, 15, 5, tzinfo=UTC),
             end=dt.datetime(2026, 6, 17, 15, 20, tzinfo=UTC),
+            interval_minutes=5,
         )
 
     def test_thirty_days_back_is_accepted(self):
@@ -294,6 +410,7 @@ class TestResolveWindow(SimpleTestCase):
         assert self._resolve(None, None) == SeriesBandsWindow(
             start=NOW_FIXED.replace(minute=0) - dt.timedelta(days=7),
             end=NOW_FIXED.replace(minute=0),
+            interval_minutes=60,
         )
 
     def test_day_offset_keeps_its_time_of_day(self):

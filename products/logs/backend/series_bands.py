@@ -11,7 +11,11 @@ gating, widening) where the arithmetic is cheap and unit-testable.
 
 import os
 import math
+import time
 import datetime as dt
+from collections.abc import Collection
+from dataclasses import replace
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from posthog.schema import HogQLQueryModifiers
@@ -46,17 +50,29 @@ MAX_SERIES = int(os.environ.get("LOGS_SERIES_BANDS_MAX_SERIES", "100"))
 # aligned with the weekly fold, and 5 is the bucket size of logs_volume_buckets.
 INTERVAL_LADDER_MINUTES = (5, 15, 30, 60)
 MAX_BUCKETS_PER_SERIES = int(os.environ.get("LOGS_SERIES_BANDS_MAX_BUCKETS_PER_SERIES", "500"))
+# How many buckets a window aims for when the caller leaves the grain out. The
+# grain snaps up to the ladder rung at or above window / BUCKET_TARGET, so a
+# 7 day window keeps its hourly look and a 6 hour window reads at 5 minutes.
+BUCKET_TARGET = int(os.environ.get("LOGS_SERIES_BANDS_BUCKET_TARGET", "168"))
 # A series' lifetime starts at the first slot followed by sustained traffic: at
 # least this fraction of the slots after it are non-empty, over the day and over
 # the week. A stray row before the real start would otherwise date the lifetime
 # and turn every empty week between them into a baseline of zeros.
 ALIVE_SLOT_FRACTION = float(os.environ.get("LOGS_SERIES_BANDS_ALIVE_SLOT_FRACTION", "0.2"))
+# A series keeps a grain only where it is dense enough to read there: at least
+# ALIVE_SLOT_FRACTION of its window buckets are non-empty, and those buckets
+# average at least this many records. Below that the band floor, which scales
+# with the grain, sits under most observed values and nearly every bucket marks.
+MIN_MEAN_PER_ALIVE_BUCKET = float(os.environ.get("LOGS_SERIES_BANDS_MIN_MEAN_PER_ALIVE_BUCKET", "5"))
 # Widening keeps the envelope from reading as a hairline on quiet series: the
 # fraction scales both edges, the floor lifts the upper edge by a per-hour
 # count so a band exists even where every baseline week saw the same value.
 BAND_WIDEN_FRACTION = 0.1
 BAND_FLOOR_PER_HOUR = 2.0
 
+# ClickHouse time one request may spend, shared across its passes. The
+# coarsening walk costs one pass per rung, so a per-pass cap would let a
+# request against a sparse service spend the whole cap once per rung.
 MAX_EXECUTION_SECONDS = int(os.environ.get("LOGS_SERIES_BANDS_MAX_EXECUTION_SECONDS", "30"))
 
 
@@ -66,6 +82,9 @@ class SeriesBandsFetchTruncated(Exception):
 
 class SeriesBandsWindowInvalid(Exception):
     pass
+
+
+CoarsenedReason = Literal["sparse", "quiet"]
 
 
 @frozen
@@ -85,6 +104,8 @@ class BandSeries:
     baseline_weeks: int
     history_start: dt.datetime
     band_ready_at: dt.datetime | None
+    interval_minutes: int
+    coarsened_reason: CoarsenedReason | None
     buckets: list[BandBucket]
 
 
@@ -102,6 +123,7 @@ class SeriesBandsResult:
 class SeriesBandsWindow:
     start: dt.datetime
     end: dt.datetime
+    interval_minutes: int
 
 
 @frozen
@@ -137,6 +159,8 @@ def fetch_series_slot_rows(
     window_start: dt.datetime,
     window_end: dt.datetime,
     interval_minutes: int,
+    series_keys: Collection[_SeriesKey] | None = None,
+    max_execution_seconds: int = MAX_EXECUTION_SECONDS,
 ) -> dict[_SeriesKey, _SeriesRows]:
     """One ClickHouse pass: interval rollup over the window plus baseline, folded
     by time-of-week onto the display window's slots, plus each series' lifetime
@@ -145,7 +169,8 @@ def fetch_series_slot_rows(
     Rows are sparse — a (series, slot) with no observed and no baseline data has
     no row. Missing baseline weeks are reconstructed in Python from
     baseline_samples vs the weeks the series existed. Baseline samples only
-    count slots at or after the lifetime start."""
+    count slots at or after the lifetime start. With series_keys the pass reads
+    only those series and skips the volume ranking."""
     tag_queries(product=Product.LOGS, feature=Feature.QUERY, source="logs_series_bands", team_id=str(team.id))
 
     baseline_start = window_start - dt.timedelta(weeks=BASELINE_WEEKS)
@@ -158,11 +183,38 @@ def fetch_series_slot_rows(
     # same fraction over the day after the slot leaves only slots that carry
     # traffic of their own.
     alive_day_slots = max(1, math.ceil(ALIVE_SLOT_FRACTION * SECONDS_PER_DAY / (interval_minutes * 60)))
-    # The series cap ranks over the whole 42d, not the display window: a series
-    # that went silent this week has zero window volume, and ranking on the
-    # window alone would drop exactly the series a silence should surface. The
-    # subquery fetches one series past the cap so the caller can tell a full
-    # response from a truncated one.
+    series_filter: ast.Expr
+    if series_keys is None:
+        # The series cap ranks over the whole 42d, not the display window: a series
+        # that went silent this week has zero window volume, and ranking on the
+        # window alone would drop exactly the series a silence should surface. The
+        # subquery fetches one series past the cap so the caller can tell a full
+        # response from a truncated one.
+        series_filter = parse_select(
+            """
+            SELECT namespace, environment, severity_text
+            FROM posthog.logs_volume_buckets
+            WHERE service_name = {service_name}
+                AND time_bucket >= {baseline_start}
+                AND time_bucket < {window_end}
+            GROUP BY namespace, environment, severity_text
+            ORDER BY sum(log_count) DESC
+            LIMIT {max_series_plus_probe}
+            """,
+            placeholders={
+                "service_name": ast.Constant(value=service_name),
+                "window_end": ast.Constant(value=window_end),
+                "baseline_start": ast.Constant(value=baseline_start),
+                "max_series_plus_probe": ast.Constant(value=MAX_SERIES + 1),
+            },
+        )
+    else:
+        series_filter = ast.Tuple(
+            exprs=[
+                ast.Tuple(exprs=[ast.Constant(value=part) for part in (key.namespace, key.environment, key.severity)])
+                for key in series_keys
+            ]
+        )
     query = parse_select(
         """
         WITH slots AS (
@@ -176,16 +228,7 @@ def fetch_series_slot_rows(
             WHERE service_name = {service_name}
                 AND time_bucket >= {baseline_start}
                 AND time_bucket < {window_end}
-                AND (namespace, environment, severity_text) IN (
-                    SELECT namespace, environment, severity_text
-                    FROM posthog.logs_volume_buckets
-                    WHERE service_name = {service_name}
-                        AND time_bucket >= {baseline_start}
-                        AND time_bucket < {window_end}
-                    GROUP BY namespace, environment, severity_text
-                    ORDER BY sum(log_count) DESC
-                    LIMIT {max_series_plus_probe}
-                )
+                AND (namespace, environment, severity_text) IN {series_filter}
             GROUP BY namespace, environment, severity_text, slot
         ),
         lifetimes AS (
@@ -235,7 +278,7 @@ def fetch_series_slot_rows(
             "alive_slots": ast.Constant(value=alive_slots),
             "alive_day_slots": ast.Constant(value=alive_day_slots),
             "day_seconds": ast.Constant(value=SECONDS_PER_DAY),
-            "max_series_plus_probe": ast.Constant(value=MAX_SERIES + 1),
+            "series_filter": series_filter,
             "row_limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
         },
     )
@@ -246,7 +289,7 @@ def fetch_series_slot_rows(
         query=query,
         team=team,
         workload=Workload.LOGS,
-        settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_SECONDS),
+        settings=HogQLGlobalSettings(max_execution_time=max_execution_seconds),
         limit_context=LimitContext.QUERY,
         # Constants above are UTC; without this the printer emits them against
         # the project timezone and the weekly fold lands on the wrong slots.
@@ -348,8 +391,94 @@ def _build_series(
         baseline_weeks=baseline_weeks,
         history_start=lifetime_start,
         band_ready_at=band_ready_at,
+        interval_minutes=interval_minutes,
+        coarsened_reason=None,
         buckets=buckets,
     )
+
+
+def _density_shortfall(series: BandSeries) -> CoarsenedReason | None:
+    alive = [bucket.observed for bucket in series.buckets if bucket.observed > 0]
+    if len(alive) < ALIVE_SLOT_FRACTION * len(series.buckets):
+        return "sparse"
+    if sum(alive) / len(alive) < MIN_MEAN_PER_ALIVE_BUCKET:
+        return "quiet"
+    return None
+
+
+def _series_key(series: BandSeries) -> _SeriesKey:
+    return _SeriesKey(namespace=series.namespace, environment=series.environment, severity=series.severity)
+
+
+def _remaining_execution_seconds(deadline: float) -> int | None:
+    """Whole seconds left in the request's ClickHouse budget, or None once it is spent."""
+    remaining = int(deadline - time.monotonic())
+    return remaining if remaining > 0 else None
+
+
+def _coarsen_sparse_series(
+    team: Team,
+    service_name: str,
+    series: list[BandSeries],
+    window_start: dt.datetime,
+    window_end: dt.datetime,
+    interval_minutes: int,
+    deadline: float,
+) -> list[BandSeries]:
+    """Move each series that is too sparse at the requested grain up the ladder
+    to the first rung where it is dense enough, or to the top rung.
+
+    Every rung is one ClickHouse pass scoped to the series still failing, so the
+    worst case costs one pass per rung above the requested grain. The passes
+    share the request's execution budget, so that worst case costs the same
+    ClickHouse time as a single pass, and the walk stops at the rung reached when
+    the budget runs out. Every series that fails the gate keeps the reason from
+    the requested grain, because that is the grain the caller asked for and did
+    not get. A series the walk cannot reach, because a rung has no rows for it
+    or the budget is spent first, returns at the requested grain with that same
+    reason."""
+    settled: list[BandSeries] = []
+    pending: dict[_SeriesKey, BandSeries] = {}
+    for candidate in series:
+        shortfall = _density_shortfall(candidate)
+        if shortfall is None:
+            settled.append(candidate)
+            continue
+        pending[_series_key(candidate)] = replace(candidate, coarsened_reason=shortfall)
+
+    for rung in (rung for rung in INTERVAL_LADDER_MINUTES if rung > interval_minutes):
+        if not pending:
+            break
+        remaining = _remaining_execution_seconds(deadline)
+        if remaining is None:
+            break
+        rung_start = floor_to_interval(window_start, rung)
+        rung_end = floor_to_interval(window_end, rung)
+        rows = fetch_series_slot_rows(
+            team,
+            service_name,
+            rung_start,
+            rung_end,
+            rung,
+            series_keys=list(pending),
+            max_execution_seconds=remaining,
+        )
+        still_failing: dict[_SeriesKey, BandSeries] = {}
+        for key, fallback in pending.items():
+            if key not in rows:
+                settled.append(fallback)
+                continue
+            candidate = replace(
+                _build_series(key, rows[key], rung_start, rung_end, rung), coarsened_reason=fallback.coarsened_reason
+            )
+            if _density_shortfall(candidate) is None:
+                settled.append(candidate)
+            else:
+                still_failing[key] = candidate
+        pending = still_failing
+
+    settled.extend(pending.values())
+    return settled
 
 
 _UTC_ZONE = ZoneInfo("UTC")
@@ -361,14 +490,26 @@ def _parse_bound(value: str, *, now: dt.datetime) -> dt.datetime:
     return ensure_utc(relative_date_parse(value, _UTC_ZONE, now=now))
 
 
+def pick_interval_minutes(window_start: dt.datetime, window_end: dt.datetime) -> int:
+    """The first ladder rung at or above the step that cuts the window into BUCKET_TARGET buckets, capped at the coarsest.
+
+    The span is measured on bounds floored to the finest rung, as the query at that rung would see them."""
+    finest = INTERVAL_LADDER_MINUTES[0]
+    span = floor_to_interval(window_end, finest) - floor_to_interval(window_start, finest)
+    step_minutes = span.total_seconds() / 60 / BUCKET_TARGET
+    return next((grain for grain in INTERVAL_LADDER_MINUTES if grain >= step_minutes), INTERVAL_LADDER_MINUTES[-1])
+
+
 def resolve_window(
     date_from: str | None,
     date_to: str | None,
     *,
-    interval_minutes: int = 60,
+    interval_minutes: int | None = 60,
     now: dt.datetime | None = None,
 ) -> SeriesBandsWindow:
-    """Turn a request date range into the snapped window to chart, defaulting to the last WINDOW_DAYS."""
+    """Turn a request date range into the snapped window to chart, defaulting to the last WINDOW_DAYS.
+
+    Without a grain the window picks its own, aiming for BUCKET_TARGET buckets."""
     # Wall clock, never max(time_bucket): prod carries future buckets from
     # device clock skew (ingest clamps at +24h), and the exclusive window_end
     # bound is what keeps them out of the observed line.
@@ -377,6 +518,8 @@ def resolve_window(
     window_end = _parse_bound(date_to, now=now) if date_to else now
     window_end = min(window_end, now)
     window_start = _parse_bound(date_from, now=now) if date_from else window_end - dt.timedelta(days=WINDOW_DAYS)
+    if interval_minutes is None:
+        interval_minutes = pick_interval_minutes(window_start, window_end)
     # Snapping can move either bound by up to one interval, so every check runs
     # on the snapped values the query will actually see.
     window_start = floor_to_interval(window_start, interval_minutes)
@@ -397,7 +540,7 @@ def resolve_window(
         )
     _check_bucket_cap(window_start, window_end, interval_minutes)
 
-    return SeriesBandsWindow(start=window_start, end=window_end)
+    return SeriesBandsWindow(start=window_start, end=window_end, interval_minutes=interval_minutes)
 
 
 def _bucket_count(window_start: dt.datetime, window_end: dt.datetime, interval_minutes: int) -> int:
@@ -434,11 +577,15 @@ def run_series_bands(
     window_start = floor_to_interval(window_start, interval_minutes)
     window_end = floor_to_interval(window_end, interval_minutes)
 
+    deadline = time.monotonic() + MAX_EXECUTION_SECONDS
     slot_rows = fetch_series_slot_rows(team, service_name, window_start, window_end, interval_minutes)
     series = [_build_series(key, rows, window_start, window_end, interval_minutes) for key, rows in slot_rows.items()]
     series.sort(key=lambda s: (-s.total_count, s.namespace, s.environment, s.severity))
     series_truncated = len(series) > MAX_SERIES
-    series = series[:MAX_SERIES]
+    series = _coarsen_sparse_series(
+        team, service_name, series[:MAX_SERIES], window_start, window_end, interval_minutes, deadline
+    )
+    series.sort(key=lambda s: (-s.total_count, s.namespace, s.environment, s.severity))
 
     return SeriesBandsResult(
         service_name=service_name,
