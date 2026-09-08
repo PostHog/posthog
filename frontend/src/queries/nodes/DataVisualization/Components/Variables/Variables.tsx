@@ -400,25 +400,40 @@ export const VariableComponent = ({
 
     // Don't show the popover overlay for list variables not in edit mode
     if (!showEditingUI && variable.type === 'List') {
-        const disabledReason = variableOverridesAreSet && 'Discard dashboard variables to change'
+        const [isNull, setIsNull] = useState<boolean>(variable.isNull ?? false)
+        const disabledReason = (variableOverridesAreSet && 'Discard dashboard variables to change') || (isNull ? 'Variable is set to null' : false)
         return (
             <LemonField.Pure label={variable.name} className="gap-0" info={tooltip}>
-                {variable.is_multi ? (
-                    <BufferedMultiListVariableSelect
-                        variable={variable}
-                        disabledReason={disabledReason}
-                        onChange={onChange}
-                        size={size}
+                <div className="flex flex-col gap-1">
+                    <LemonSwitch
+                        size="xsmall"
+                        label="Set to null"
+                        checked={isNull}
+                        onChange={(value) => {
+                            setIsNull(value)
+                            onChange(variable.id, null, value)
+                        }}
+                        bordered
                     />
-                ) : (
-                    <ListVariableSelect
-                        variable={variable}
-                        disabledReason={disabledReason}
-                        selectedValues={variable.isNull ? [] : getListVariableSelectedValues(variable)}
-                        onChange={(value) => onChange(variable.id, value, value === '')}
-                        size={size}
-                    />
-                )}
+                    <div className={isNull ? 'opacity-50 pointer-events-none' : ''}>
+                        {variable.is_multi ? (
+                            <BufferedMultiListVariableSelect
+                                variable={variable}
+                                disabledReason={disabledReason}
+                                onChange={onChange}
+                                size={size}
+                            />
+                        ) : (
+                            <ListVariableSelect
+                                variable={variable}
+                                disabledReason={disabledReason}
+                                selectedValues={getListVariableSelectedValues(variable)}
+                                onChange={(value) => onChange(variable.id, value, value === '')}
+                                size={size}
+                            />
+                        )}
+                    </div>
+                </div>
             </LemonField.Pure>
         )
     }
