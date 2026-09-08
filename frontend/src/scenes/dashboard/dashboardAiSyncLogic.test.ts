@@ -33,6 +33,7 @@ import {
 
 let mockCommittedDashboard: DashboardType<QueryBasedInsightModel> | null = null
 const mockLoadDashboard = jest.fn<Promise<void>, [unknown]>()
+const mockRefreshDashboardWidgets = jest.fn<void, [unknown]>()
 
 jest.mock('scenes/dashboard/dashboardLogic', () => ({
     ...jest.requireActual('scenes/dashboard/dashboardLogic'),
@@ -41,6 +42,9 @@ jest.mock('scenes/dashboard/dashboardLogic', () => ({
             get dashboard(): DashboardType<QueryBasedInsightModel> | null {
                 return mockCommittedDashboard
             },
+        },
+        actions: {
+            refreshDashboardWidgets: (payload: unknown): void => mockRefreshDashboardWidgets(payload),
         },
         asyncActions: {
             loadDashboard: (payload: unknown): Promise<void> => mockLoadDashboard(payload),
@@ -178,6 +182,19 @@ function dashboardWithInsight(
                 id: tileId,
                 color: InsightColor.White,
                 insight: committedInsight(insightId, shortId, alertIds),
+            },
+        ],
+    }
+}
+
+function dashboardWithWidget(config: Record<string, unknown>): DashboardType<QueryBasedInsightModel> {
+    return {
+        ...committedDashboard(),
+        tiles: [
+            {
+                id: 71,
+                color: InsightColor.White,
+                widget: { id: 'widget-1', widget_type: 'session_replay_list', config },
             },
         ],
     }
@@ -1435,6 +1452,39 @@ describe('resolveDashboardAiMutation candidate classification', () => {
             logic.unmount()
             timeoutSpy.mockRestore()
             jest.useRealTimers()
+        })
+
+        it.each([
+            [
+                'refreshes a widget whose configuration the reload changed',
+                { rows: 20 },
+                [[{ tileIds: [71], forceRefresh: true }]],
+            ],
+            ['leaves an unchanged widget result in place', { rows: 10 }, []],
+        ])('%s', async (_case, reloadedConfig, expectedCalls) => {
+            initKeaTests()
+            mockCommittedDashboard = dashboardWithWidget({ rows: 10 })
+            const reload = deferred<void>()
+            mockLoadDashboard.mockReset().mockReturnValue(reload.promise)
+            mockRefreshDashboardWidgets.mockReset()
+            const logic = dashboardAiSyncLogic({ dashboardId })
+            logic.mount()
+
+            const innerInput = { id: dashboardId, widgets: [{ tile_id: 71, config: reloadedConfig }] }
+            logic.actions.applyToolCompletion(
+                eventFor('dashboard-widgets-batch-update', innerInput, {
+                    dashboard_id: dashboardId,
+                    tiles: [{ id: 71, dashboard_id: dashboardId }],
+                }),
+                innerInput
+            )
+            mockCommittedDashboard = dashboardWithWidget(reloadedConfig)
+            reload.resolve()
+            await waitFor(() => expect(logic.values.activeBatch).toBeNull())
+
+            expect(mockRefreshDashboardWidgets.mock.calls).toEqual(expectedCalls)
+
+            logic.unmount()
         })
 
         it('does not highlight a requested tile missing from the committed dashboard', async () => {

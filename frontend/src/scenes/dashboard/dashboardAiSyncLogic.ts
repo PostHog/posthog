@@ -2,6 +2,7 @@ import { LogicWrapper, MakeLogicType, actions, kea, key, listeners, path, props,
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
 import { DashboardType, QueryBasedInsightModel } from '~/types'
@@ -1101,6 +1102,19 @@ function captureDashboardAiSyncCompleted(
     }
 }
 
+function widgetTileIdsWithChangedConfig(
+    before: DashboardType<QueryBasedInsightModel> | null,
+    after: DashboardType<QueryBasedInsightModel> | null
+): number[] {
+    const widgetsBefore = new Map((before?.tiles ?? []).map((tile) => [tile.id, tile.widget]))
+    return (after?.tiles ?? [])
+        .filter((tile) => {
+            const widgetBefore = widgetsBefore.get(tile.id)
+            return !!tile.widget && !!widgetBefore && !objectsEqual(widgetBefore.config, tile.widget.config)
+        })
+        .map((tile) => tile.id)
+}
+
 function refreshMountedInsightAlerts(
     dashboardId: number,
     dashboard: DashboardType<QueryBasedInsightModel> | null,
@@ -1244,6 +1258,7 @@ export const dashboardAiSyncLogic: LogicWrapper<dashboardAiSyncLogicType> = kea<
             const disposables = cache.disposables
             let confirmedTileIds: number[] = []
             let success = false
+            const previousDashboard = dashboardLogic({ id: props.dashboardId }).values.dashboard
             try {
                 await dashboardLogic({ id: props.dashboardId }).asyncActions.loadDashboard({
                     action: DashboardLoadAction.BackgroundUpdate,
@@ -1253,6 +1268,16 @@ export const dashboardAiSyncLogic: LogicWrapper<dashboardAiSyncLogicType> = kea<
                     return
                 }
                 const committedDashboard = dashboardLogic({ id: props.dashboardId }).values.dashboard
+                // A widget keeps its cached result across the reload, and the refresh that follows a
+                // load is not forced, so a reconfigured widget would show its old result for the rest
+                // of the client TTL. Invalidate the ones whose configuration actually changed.
+                const reconfiguredWidgetTileIds = widgetTileIdsWithChangedConfig(previousDashboard, committedDashboard)
+                if (reconfiguredWidgetTileIds.length > 0) {
+                    dashboardLogic({ id: props.dashboardId }).actions.refreshDashboardWidgets({
+                        tileIds: reconfiguredWidgetTileIds,
+                        forceRefresh: true,
+                    })
+                }
                 confirmedTileIds = confirmedHighlightTileIds(batch, committedDashboard)
                 success = true
                 if (confirmedTileIds.length > 0) {
