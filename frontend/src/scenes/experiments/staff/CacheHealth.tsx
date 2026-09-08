@@ -5,6 +5,7 @@ import { TimeSeriesBarChart } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { dayjs } from 'lib/dayjs'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -38,6 +39,35 @@ function ttlStatus(partition: string): { label: string; type: LemonTagType } {
     }
     const days = dayjs(partitionToISO(partition)).diff(dayjs().startOf('day'), 'day')
     return { label: `Drops in ${days}d`, type: 'muted' }
+}
+
+// The tables self-clean only while TTL merges keep dropping expired partitions. Any partition
+// dated before today means that stopped, so it gets a headline verdict instead of a table row
+// the reader has to scan for.
+function TtlVerdictBanner({ tables }: { tables: CacheTableStats[] }): JSX.Element | null {
+    const readable = tables.filter((table) => !table.unavailable)
+    if (readable.length === 0) {
+        return null
+    }
+    const today = dayjs().format('YYYYMMDD')
+    const expired = readable.flatMap((table) => table.partitions.filter((partition) => partition.partition < today))
+    if (expired.length === 0) {
+        return (
+            <LemonBanner type="success" className="mb-4">
+                TTL cleanup is keeping up. No expired data is waiting to be dropped.
+            </LemonBanner>
+        )
+    }
+    const days = new Set(expired.map((partition) => partition.partition))
+    const bytes = expired.reduce((sum, partition) => sum + partition.bytes_on_disk, 0)
+    const oldest = [...days].sort()[0]
+    return (
+        <LemonBanner type="error" className="mb-4">
+            Expired data from {days.size} {days.size === 1 ? 'day' : 'days'} ({humanizeBytes(bytes)}) is still on disk,
+            oldest from {formatPartitionDay(oldest)}. ClickHouse is not dropping expired partitions. Check TTL merges on
+            the cluster.
+        </LemonBanner>
+    )
 }
 
 // "experiment_exposures_preaggregated" -> "exposures" — the key the backend uses for growth series
@@ -212,6 +242,7 @@ export function CacheHealth(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
+            {cacheHealth ? <TtlVerdictBanner tables={tables} /> : null}
             <div className="flex flex-wrap gap-4 mb-4">
                 {!cacheHealth && cacheHealthLoading
                     ? [0, 1].map((i) => (
