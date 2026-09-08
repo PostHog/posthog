@@ -47,6 +47,8 @@ describe('themeLogic', () => {
 
     afterEach(() => {
         setHidden(false)
+        document.body.classList.remove('storybook-test-runner')
+        document.body.removeAttribute('theme')
     })
 
     it('syncs darkModeSystemPreference when the system theme changes while the tab is visible', () => {
@@ -64,5 +66,18 @@ describe('themeLogic', () => {
         // The change listener must be re-attached after resume, so live changes still apply
         emitSystemThemeChange(false)
         expect(themeLogic.values.darkModeSystemPreference).toBe(false)
+    })
+
+    it('reads the storybook theme attribute again when the system theme changes', () => {
+        document.body.classList.add('storybook-test-runner')
+        document.body.setAttribute('theme', 'light')
+        expect(themeLogic.values.isDarkModeOn).toBe(false)
+
+        // The snapshot runner changes the attribute after the story rendered, so it also emulates a
+        // dark color scheme. That is what makes this memoized selector run again and read the
+        // attribute; the attribute alone changes nothing.
+        document.body.setAttribute('theme', 'dark')
+        emitSystemThemeChange(true)
+        expect(themeLogic.values.isDarkModeOn).toBe(true)
     })
 })

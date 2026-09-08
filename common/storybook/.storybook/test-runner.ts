@@ -512,6 +512,13 @@ async function takeSnapshotWithTheme(
 
     // Set the right theme
     await page.evaluate((theme: SnapshotTheme) => document.body.setAttribute('theme', theme), theme)
+    // CSS variables follow the attribute above, but `themeLogic.isDarkModeOn` does not, because the
+    // attribute is not one of that selector's inputs. The selector keeps the value it computed when
+    // the story mounted, so a component that themes itself in JavaScript, like a Monaco editor,
+    // stays light in the dark snapshot. A change of the emulated color scheme moves
+    // `darkModeSystemPreference`, which is an input, so the selector runs again and reads the
+    // attribute.
+    await page.emulateMedia({ colorScheme: theme })
 
     // Wait until we're sure we've finished loading everything
     const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
