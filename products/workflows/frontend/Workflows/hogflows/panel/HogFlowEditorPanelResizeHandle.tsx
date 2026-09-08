@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 
 const MIN_PANEL_WIDTH = 400
@@ -17,9 +17,27 @@ export function HogFlowEditorPanelResizeHandle({
 }: HogFlowEditorPanelResizeHandleProps): JSX.Element {
     const startX = useRef(0)
     const startWidth = useRef(width)
-    const maxWidth = useRef(MAX_PANEL_WIDTH)
+    const handleRef = useRef<HTMLButtonElement>(null)
+    const [maxWidth, setMaxWidth] = useState(MAX_PANEL_WIDTH)
 
-    const clampWidth = (nextWidth: number): number => Math.min(Math.max(nextWidth, MIN_PANEL_WIDTH), maxWidth.current)
+    const minWidth = Math.min(MIN_PANEL_WIDTH, maxWidth)
+    const clampWidth = (nextWidth: number, widthLimit = maxWidth): number =>
+        Math.min(Math.max(nextWidth, Math.min(MIN_PANEL_WIDTH, widthLimit)), widthLimit)
+    const visibleWidth = clampWidth(width)
+
+    useEffect(() => {
+        const container = handleRef.current?.parentElement?.parentElement
+        if (!container) {
+            return
+        }
+
+        const updateMaxWidth = (): void =>
+            setMaxWidth(Math.min(MAX_PANEL_WIDTH, container.getBoundingClientRect().width))
+        const observer = new ResizeObserver(updateMaxWidth)
+        updateMaxWidth()
+        observer.observe(container)
+        return () => observer.disconnect()
+    }, [])
 
     const startResize = (event: ReactPointerEvent<HTMLButtonElement>): void => {
         if (event.button !== 0) {
@@ -29,14 +47,12 @@ export function HogFlowEditorPanelResizeHandle({
         event.preventDefault()
         event.stopPropagation()
         startX.current = event.clientX
-        startWidth.current = width
-        maxWidth.current = Math.max(
-            MIN_PANEL_WIDTH,
-            Math.min(
-                MAX_PANEL_WIDTH,
-                event.currentTarget.parentElement?.parentElement?.getBoundingClientRect().width ?? MAX_PANEL_WIDTH
-            )
+        const widthLimit = Math.min(
+            MAX_PANEL_WIDTH,
+            event.currentTarget.parentElement?.parentElement?.getBoundingClientRect().width ?? MAX_PANEL_WIDTH
         )
+        setMaxWidth(widthLimit)
+        startWidth.current = clampWidth(width, widthLimit)
         event.currentTarget.setPointerCapture(event.pointerId)
     }
 
@@ -53,9 +69,10 @@ export function HogFlowEditorPanelResizeHandle({
             type="button"
             aria-label="Resize workflow editor panel"
             aria-orientation="vertical"
-            aria-valuenow={width}
-            aria-valuemin={MIN_PANEL_WIDTH}
-            aria-valuemax={MAX_PANEL_WIDTH}
+            ref={handleRef}
+            aria-valuenow={visibleWidth}
+            aria-valuemin={minWidth}
+            aria-valuemax={maxWidth}
             className="group absolute top-4 bottom-4 left-0 z-20 w-3 cursor-ew-resize border-0 bg-transparent p-0 opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100"
             onPointerDown={startResize}
             onPointerMove={resize}
@@ -63,10 +80,10 @@ export function HogFlowEditorPanelResizeHandle({
             onKeyDown={(event) => {
                 if (event.key === 'ArrowLeft') {
                     event.preventDefault()
-                    onResize(clampWidth(width + 10))
+                    onResize(clampWidth(visibleWidth + 10))
                 } else if (event.key === 'ArrowRight') {
                     event.preventDefault()
-                    onResize(clampWidth(width - 10))
+                    onResize(clampWidth(visibleWidth - 10))
                 } else if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault()
                     onReset()

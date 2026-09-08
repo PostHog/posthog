@@ -48,21 +48,15 @@ export function HogFlowEditorPanel(): JSX.Element | null {
 
     return (
         <div
-            className="absolute right-0 flex max-h-full flex-col justify-end overflow-hidden p-2"
-            style={{ width: panelWidth ?? HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH, maxWidth: '100%' }}
+            className="absolute right-0 flex max-h-full max-w-full flex-col justify-end overflow-hidden p-2"
+            style={{ width: panelWidth ?? HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH }}
         >
             <HogFlowEditorPanelResizeHandle
                 width={panelWidth ?? HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH}
                 onResize={setPanelWidth}
                 onReset={clearPanelWidth}
             />
-            <div
-                className="relative flex flex-col rounded-md overflow-hidden bg-surface-primary max-h-full z-10"
-                style={{
-                    border: '1px solid var(--border)',
-                    boxShadow: '0 3px 0 var(--border)',
-                }}
-            >
+            <div className="relative z-10 flex max-h-full flex-col overflow-hidden rounded-md border bg-surface-primary shadow-[0_3px_0_var(--border)]">
                 <div className="flex gap-2 border-b items-center">
                     <div
                         className={clsx(

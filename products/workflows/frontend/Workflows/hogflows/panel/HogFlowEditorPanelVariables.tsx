@@ -47,7 +47,9 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
 
     const showVariableKeyInput = (idx: number, key: string): void => {
         setHoveredVariableIndex(idx)
-        setVariableKeyDraft(key)
+        if (editingVariableIndex === null) {
+            setVariableKeyDraft(key)
+        }
     }
 
     const finishEditingVariableKey = (idx: number): void => {
@@ -107,7 +109,8 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
                                         }
                                     }}
                                 >
-                                    {hoveredVariableIndex === idx || editingVariableIndex === idx ? (
+                                    {editingVariableIndex === idx ||
+                                    (editingVariableIndex === null && hoveredVariableIndex === idx) ? (
                                         <LemonInput
                                             className="font-mono text-xs"
                                             size="small"
