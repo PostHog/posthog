@@ -25,7 +25,11 @@ import {
   createFileTabId,
 } from "@posthog/core/panels/panelStoreHelpers";
 import { findTabInTree } from "@posthog/core/panels/panelTree";
-import { ANALYTICS_EVENTS, getFileExtension } from "@posthog/shared";
+import {
+  ANALYTICS_EVENTS,
+  type FileOpenSource,
+  getFileExtension,
+} from "@posthog/shared";
 import {
   createJSONStorage,
   persist,
@@ -54,11 +58,17 @@ interface PanelLayoutStore {
 
   getLayout: (taskId: string) => TaskLayout | null;
   initializeTask: (taskId: string) => void;
-  openFile: (taskId: string, filePath: string, asPreview?: boolean) => void;
+  openFile: (
+    taskId: string,
+    filePath: string,
+    asPreview?: boolean,
+    source?: FileOpenSource,
+  ) => void;
   openFileInSplit: (
     taskId: string,
     filePath: string,
     asPreview?: boolean,
+    source?: FileOpenSource,
   ) => void;
   openChannelContextInSplit: (
     taskId: string,
@@ -220,7 +230,7 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
         }));
       },
 
-      openFile: (taskId, filePath, asPreview = true) => {
+      openFile: (taskId, filePath, asPreview = true, source = "sidebar") => {
         const tabId = createFileTabId(filePath);
         set((state) =>
           updateTaskLayout(state, taskId, (layout) => {
@@ -234,12 +244,17 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
 
         track(ANALYTICS_EVENTS.FILE_OPENED, {
           file_extension: getFileExtension(filePath),
-          source: "sidebar",
+          source,
           task_id: taskId,
         });
       },
 
-      openFileInSplit: (taskId, filePath, asPreview = true) => {
+      openFileInSplit: (
+        taskId,
+        filePath,
+        asPreview = true,
+        source = "sidebar",
+      ) => {
         const tabId = createFileTabId(filePath);
         set((state) =>
           updateTaskLayout(state, taskId, (layout) => {
@@ -253,7 +268,7 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
 
         track(ANALYTICS_EVENTS.FILE_OPENED, {
           file_extension: getFileExtension(filePath),
-          source: "sidebar",
+          source,
           task_id: taskId,
         });
       },

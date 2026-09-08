@@ -96,7 +96,12 @@ interface ReviewPageProps {
 export function ReviewPage({ task }: ReviewPageProps) {
   const taskId = task.id;
   const repoPath = useCwd(taskId);
-  const openFile = usePanelLayoutStore((s) => s.openFile);
+  const openFileTab = usePanelLayoutStore((s) => s.openFile);
+  const openFile = useCallback(
+    (fileTaskId: string, path: string, preview: boolean) =>
+      openFileTab(fileTaskId, path, preview, "diff"),
+    [openFileTab],
+  );
 
   const isReviewOpen = useReviewNavigationStore(
     (s) => (s.reviewModes[taskId] ?? "closed") !== "closed",

@@ -1,4 +1,5 @@
 import { Check, CircleNotch, Copy } from "@phosphor-icons/react";
+import { parseFileHref } from "@posthog/core/code-editor/fileHref";
 import {
   Heading,
   Separator,
@@ -12,6 +13,7 @@ import {
 } from "@posthog/quill";
 import { ArtifactRefChip } from "@posthog/ui/features/editor/components/ArtifactRefChip";
 import { EvidenceRefChip } from "@posthog/ui/features/editor/components/EvidenceRefChip";
+import { fileLinkFor } from "@posthog/ui/features/editor/components/fileLinkFor";
 import { githubRefChipFor } from "@posthog/ui/features/editor/components/githubRefChipFor";
 import { MessageChartCard } from "@posthog/ui/features/editor/components/MessageChartCard";
 import {
@@ -108,6 +110,8 @@ const components: Components = {
     }
     const githubChip = githubRefChipFor(href, children);
     if (githubChip) return githubChip;
+    const fileLink = fileLinkFor(href, children);
+    if (fileLink) return fileLink;
     const link = (
       <a
         href={href}
@@ -221,11 +225,12 @@ const components: Components = {
   td: ({ children }) => <TableCell>{children}</TableCell>,
 };
 
-// The internal `evidence:` hrefs never reach the DOM (the `a` component
-// renders them as chips), but they must survive react-markdown's default
-// transform, which empties unknown protocols.
+// The internal `evidence:` hrefs and the local file targets never reach the DOM
+// (the `a` component renders them as chips and buttons), but they must survive
+// the default transform to get there.
 function chatUrlTransform(value: string, key: string): string {
   if (key === "href" && value.startsWith("evidence:")) return value;
+  if (key === "href" && parseFileHref(value)) return value;
   return defaultUrlTransform(value);
 }
 
@@ -246,7 +251,7 @@ const rehypePlugins: PluggableList = [
       },
       protocols: {
         ...defaultSchema.protocols,
-        href: [...(defaultSchema.protocols?.href ?? []), "evidence"],
+        href: [...(defaultSchema.protocols?.href ?? []), "evidence", "file"],
       },
     },
   ],

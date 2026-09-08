@@ -59,6 +59,12 @@ vi.mock("@posthog/ui/features/pr-review/usePrChecks", () => ({
   usePrChecks: () => ({ data: [], isLoading: false }),
 }));
 
+// No workspace to open a file in, which is the case a file link has to
+// degrade to plain text rather than to an anchor.
+vi.mock("@posthog/ui/features/sidebar/useCwd", () => ({
+  useCwd: () => undefined,
+}));
+
 import { ChatMarkdown, ChatStreamingMarkdown } from "./ChatMarkdown";
 
 const MERMAID_FENCE = "```mermaid\ngraph TD; A-->B\n```";
@@ -108,6 +114,17 @@ Verdict: valid.
     expect(html).toContain(
       'data-github-ref-url="https://github.com/PostHog/posthog/pull/23985"',
     );
+  });
+
+  it("never sends a file href to the browser", () => {
+    // The browser resolves a repo path against the app's own origin and lands
+    // on a 404, so a file target must never render as an anchor.
+    const html = renderStatic(
+      <ChatMarkdown content="See [the renderer](src/App.tsx:79)." />,
+    );
+
+    expect(html).not.toContain("<a");
+    expect(html).toContain("the renderer");
   });
 
   it("labels a pull request review comment without dropping its anchor", () => {

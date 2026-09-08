@@ -1,8 +1,7 @@
 import type { ReactNode } from "react";
 import { useCallback, useMemo } from "react";
 import { Tooltip } from "../../../../primitives/Tooltip";
-import { usePendingScrollStore } from "../../../code-editor/pendingScrollStore";
-import { usePanelLayoutStore } from "../../../panels/panelLayoutStore";
+import { useFileLinkOpener } from "../../../code-editor/useFileLinkOpener";
 import type { FileItem } from "../../../repo-files/useRepoFiles";
 import { useRepoFiles } from "../../../repo-files/useRepoFiles";
 import { useCwd } from "../../../sidebar/useCwd";
@@ -42,39 +41,24 @@ export function InlineFileLink({
   const { filePath: rawPath, lineSuffix } = parseFilePath(text);
   const filePath = resolvedPath ?? rawPath;
   const filename = rawPath.split("/").pop() ?? rawPath;
-  const taskId = useSessionTaskId();
-  const repoPath = useCwd(taskId ?? "");
-  const openFileInSplit = usePanelLayoutStore((s) => s.openFileInSplit);
-  const requestScroll = usePendingScrollStore((s) => s.requestScroll);
+  const openFile = useFileLinkOpener("agent-suggestion");
 
+  const line = Number.parseInt(lineSuffix, 10) || null;
   const handleClick = useCallback(() => {
-    if (!taskId) return;
-    const relativePath =
-      repoPath && filePath.startsWith(`${repoPath}/`)
-        ? filePath.slice(repoPath.length + 1)
-        : filePath;
-    const absolutePath = repoPath
-      ? `${repoPath}/${relativePath}`
-      : relativePath;
-    if (lineSuffix) {
-      const line = Number.parseInt(lineSuffix.split("-")[0], 10);
-      if (line > 0) requestScroll(absolutePath, line);
-    }
-    openFileInSplit(taskId, relativePath, true);
-  }, [taskId, filePath, lineSuffix, repoPath, openFileInSplit, requestScroll]);
+    openFile?.({ path: filePath, line });
+  }, [openFile, filePath, line]);
 
-  const tooltipText = resolvedPath ?? text;
+  const label = `${filename}${lineSuffix ? `:${lineSuffix}` : ""}`;
+  if (!openFile) return <>{label}</>;
 
   return (
-    <Tooltip content={tooltipText}>
+    <Tooltip content={resolvedPath ?? text}>
       <button
         type="button"
-        onClick={taskId ? handleClick : undefined}
-        disabled={!taskId}
-        className={`m-0 inline border-0 bg-transparent p-0 font-[inherit] text-[length:inherit] text-foreground ${taskId ? "cursor-pointer underline underline-offset-2" : ""}`}
+        onClick={handleClick}
+        className="m-0 inline cursor-pointer border-0 bg-transparent p-0 font-[inherit] text-[length:inherit] text-foreground underline underline-offset-2"
       >
-        {filename}
-        {lineSuffix ? `:${lineSuffix}` : ""}
+        {label}
       </button>
     </Tooltip>
   );

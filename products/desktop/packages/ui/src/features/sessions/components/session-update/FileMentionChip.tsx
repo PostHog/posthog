@@ -1,8 +1,9 @@
+import { getRelativePath } from "@posthog/core/code-editor/pathUtils";
 import { isAbsolutePath } from "@posthog/shared";
 import { Flex, Text } from "@radix-ui/themes";
 import { memo, useCallback } from "react";
 import { FileIcon } from "../../../../primitives/FileIcon";
-import { usePanelLayoutStore } from "../../../panels/panelLayoutStore";
+import { useFileLinkOpener } from "../../../code-editor/useFileLinkOpener";
 import { useCwd } from "../../../sidebar/useCwd";
 import { useWorkspace } from "../../../workspace/useWorkspace";
 import { useSessionTaskId } from "../../useSessionTaskId";
@@ -13,38 +14,21 @@ interface FileMentionChipProps {
   filePath: string;
 }
 
-function toRelativePath(absolutePath: string, repoPath: string | null): string {
-  if (!absolutePath) return absolutePath;
-  if (!repoPath) return absolutePath;
-  const normalizedRepo = repoPath.endsWith("/")
-    ? repoPath.slice(0, -1)
-    : repoPath;
-  if (absolutePath.startsWith(`${normalizedRepo}/`)) {
-    return absolutePath.slice(normalizedRepo.length + 1);
-  }
-  if (absolutePath === normalizedRepo) {
-    return "";
-  }
-  return absolutePath;
-}
-
 export const FileMentionChip = memo(function FileMentionChip({
   filePath,
 }: FileMentionChipProps) {
   const taskId = useSessionTaskId();
   const repoPath = useCwd(taskId ?? "");
   const workspace = useWorkspace(taskId ?? undefined);
-  const openFileInSplit = usePanelLayoutStore((s) => s.openFileInSplit);
+  const openFile = useFileLinkOpener("agent-suggestion");
   const { openForFile } = useFileContextMenu();
 
   const filename = getFilename(filePath);
   const mainRepoPath = workspace?.folderPath;
 
   const handleClick = useCallback(() => {
-    if (!taskId) return;
-    const relativePath = toRelativePath(filePath, repoPath ?? null);
-    openFileInSplit(taskId, relativePath, true);
-  }, [taskId, filePath, repoPath, openFileInSplit]);
+    openFile?.({ path: filePath, line: null });
+  }, [openFile, filePath]);
 
   const handleContextMenu = useCallback(
     async (e: React.MouseEvent) => {
@@ -65,9 +49,9 @@ export const FileMentionChip = memo(function FileMentionChip({
     [filePath, repoPath, filename, workspace, mainRepoPath, openForFile],
   );
 
-  const isClickable = !!taskId;
+  const isClickable = !!openFile;
 
-  const relativePath = toRelativePath(filePath, repoPath ?? null);
+  const relativePath = getRelativePath(filePath, repoPath);
   const directory =
     relativePath && relativePath !== filename
       ? relativePath.replace(`/${filename}`, "")

@@ -148,7 +148,7 @@ export function CodeEditorPanel({
         expandToFile(taskId, link.absolutePath);
       }
       if (link.relativePath) {
-        openFileInSplit(taskId, link.relativePath);
+        openFileInSplit(taskId, link.relativePath, true, "markdown-link");
       }
     },
     [filePath, taskId, repoPath, openFileInSplit, expandToFile],
