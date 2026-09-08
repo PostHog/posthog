@@ -391,7 +391,7 @@ export interface RowShiftApi {
     inserted_rows: number
     /** Rows the current image lost. */
     deleted_rows: number
-    /** Percentage of pixels that differ inside the rows present in both images, 0 to 100. Excludes the shift itself, and is what the classifier thresholds on. */
+    /** Percentage of pixels that differ inside the rows present in both images, 0 to 100. Excludes the shift itself. The stored diff_percentage adds the area of the rows the shift added or removed, and that combined number is what the pixel threshold judges. */
     residual_percentage: number
     /** Percentage of pixels that differ without alignment, which is what the shift would have cost. */
     raw_diff_percentage: number

@@ -239,9 +239,11 @@ class RowShift:
 
     Row alignment pairs the rows that exist in both images, so the pixels
     below an inserted row stop counting as differences. `residual_percentage`
-    is what survives that pairing and is what the classifier thresholds on.
-    `raw_diff_percentage` is what the same pair measured without alignment,
-    which is how the UI can say what the shift would otherwise have cost.
+    is what survives that pairing. The snapshot's `diff_percentage` adds the
+    area of the rows the shift added or removed, and that combined number is
+    what the pixel threshold judges. `raw_diff_percentage` is what the same
+    pair measured without alignment, which is how the UI can say what the
+    shift would otherwise have cost.
     """
 
     inserted_rows: int

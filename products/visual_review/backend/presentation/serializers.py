@@ -112,7 +112,8 @@ class RowShiftSerializer(DataclassSerializer):
     residual_percentage = serializers.FloatField(
         help_text=(
             "Percentage of pixels that differ inside the rows present in both images, 0 to 100. "
-            "Excludes the shift itself, and is what the classifier thresholds on."
+            "Excludes the shift itself. The stored diff_percentage adds the area of the rows the shift "
+            "added or removed, and that combined number is what the pixel threshold judges."
         )
     )
     raw_diff_percentage = serializers.FloatField(
