@@ -15,6 +15,7 @@ from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.tagged_item import set_tags_on_object
+from posthog.event_usage import EventSource
 from posthog.models import Organization, PersonalAPIKey, Team, User
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
@@ -1073,6 +1074,41 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         self.assertEqual(created[0].kwargs["properties"]["creation_method"], "ai")
         # Telemetry only: it must not reach the model, whose constructor would reject it.
         self.assertFalse(hasattr(ReplayScanner.objects.get(id=resp.json()["id"]), "creation_method"))
+
+    @parameterized.expand(
+        [
+            ("wizard", EventSource.WIZARD, "wizard"),
+            ("mcp", EventSource.MCP, "mcp"),
+        ]
+    )
+    def test_create_outside_the_app_reports_the_surface_not_what_it_claims(
+        self, _name: str, source: EventSource, expected: str
+    ) -> None:
+        # Only the app has a form, so only the app can say how one was filled. The wizard creates
+        # several times more scanners than the app does and sends a method on some of those calls,
+        # so honouring the claim would report hundreds of agent-built scanners as hand-built and
+        # inflate the manual side of the creation-flow comparison.
+        with (
+            patch("products.replay_vision.backend.api.scanners.get_event_source", return_value=source),
+            patch("posthoganalytics.capture") as capture,
+        ):
+            resp = self.client.post(
+                self.scanners_url,
+                data={
+                    "name": f"telemetry-surface-{_name}",
+                    "scanner_type": ScannerType.MONITOR,
+                    "scanner_config": {"prompt": "did checkout complete?"},
+                    "model": ScannerModel.GEMINI_3_8_FLASH,
+                    "creation_method": "scratch",
+                },
+                format="json",
+            )
+
+        self.assertEqual(resp.status_code, 201, resp.json())
+        created = [
+            call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_scanner_created"
+        ]
+        self.assertEqual(created[0].kwargs["properties"]["creation_method"], expected)
 
     def test_update_ignores_how_the_scanner_was_built(self):
         # The UI PATCHes the whole form back, so an edit resends this. A scanner is built once, and
