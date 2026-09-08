@@ -46,7 +46,7 @@ describe("agents", () => {
     expect(plan?.model).toBe("gpt-5.6-sol");
   });
 
-  it("General is the only bundled agent with write access, and is pinned to Terra", () => {
+  it("General is the only bundled agent with write access and is pinned to Terra", () => {
     const general = findBundledAgent("General");
     expect(general?.tools).toEqual([
       "read",
