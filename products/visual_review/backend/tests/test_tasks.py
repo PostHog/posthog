@@ -53,7 +53,6 @@ STRIPED_PAGE_ROWS = [(10 + (y * 2) % 240, 40 + y % 100, 200 - y % 150, 255) for 
 
 
 def _prepare_one_diff(repo, mocker, baseline_png: bytes, current_png: bytes):
-    """Set up a run with one CHANGED snapshot; returns the run id and the storage write mock."""
     stored_bytes = {"old_hash": baseline_png, "new_hash": current_png}
     artifact_store.get_or_create_artifact(repo.id, "old_hash", "visual_review/old_hash")
     artifact_store.get_or_create_artifact(repo.id, "new_hash", "visual_review/new_hash")
@@ -93,7 +92,6 @@ def _prepare_one_diff(repo, mocker, baseline_png: bytes, current_png: bytes):
 
 
 def _process_one_diff(repo, mocker, baseline_png: bytes, current_png: bytes) -> RunSnapshot:
-    """Drive `process_diffs` over one CHANGED snapshot and return the stored row."""
     run_id, _write = _prepare_one_diff(repo, mocker, baseline_png, current_png)
     assert process_diffs(run_id) == 1
     return RunSnapshot.objects.get(run_id=run_id)

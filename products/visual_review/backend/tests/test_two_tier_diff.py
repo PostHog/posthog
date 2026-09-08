@@ -198,13 +198,9 @@ class TestClusterSummary:
 
 
 class TestRowShiftClassification:
-    """Tests for absorbing a vertical shift instead of flagging the whole page.
-
-    A panel that grows by a pixel moves everything below it down, which a
-    top-aligned pixel diff reads as a page-wide change. Row alignment pairs
-    the rows that exist in both images so the diff describes what actually
-    changed.
-    """
+    # A panel that grows by a pixel moves everything below it down, which a
+    # top-aligned pixel diff reads as a page-wide change. Row alignment pairs
+    # the rows that exist in both images so the diff describes what changed.
 
     @pytest.mark.parametrize(
         "inserted_rows, expected_kind",

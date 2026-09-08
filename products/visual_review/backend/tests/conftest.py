@@ -43,11 +43,8 @@ def open_png(png_bytes: bytes) -> Image.Image:
 
 
 def make_striped_png(row_colors: Sequence[tuple[int, int, int, int]], width: int = 20) -> bytes:
-    """Build a page where every row has its own color, so no two rows hash alike.
-
-    Row alignment then has exactly one answer, which is what lets a test assert
-    a band position rather than a range.
-    """
+    # Every row gets its own color, so no two rows hash alike and row alignment
+    # has exactly one answer, which lets a test assert a band position.
     image = Image.new("RGBA", (width, len(row_colors)))
     for y, color in enumerate(row_colors):
         image.paste(color, (0, y, width, y + 1))
@@ -55,11 +52,8 @@ def make_striped_png(row_colors: Sequence[tuple[int, int, int, int]], width: int
 
 
 def insert_background_rows(png_bytes: bytes, y: int, rows: int, fill: tuple[int, int, int, int]) -> bytes:
-    """Push everything below `y` down by `rows` rows of `fill`.
-
-    The image grows by `rows`, which is what a panel that gained a pixel of
-    padding does to a full-page screenshot.
-    """
+    # Pushes everything below `y` down by `rows` rows of `fill`, which is what a
+    # panel that gained a pixel of padding does to a full-page screenshot.
     image = open_png(png_bytes)
     width, height = image.size
     out = Image.new("RGBA", (width, height + rows), fill)

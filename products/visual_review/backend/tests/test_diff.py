@@ -17,7 +17,6 @@ def _make_png(width: int, height: int, color: tuple[int, int, int, int]) -> byte
 
 
 def _red_row_indices(image: Image.Image) -> set[int]:
-    """Row indices where the diff image marks at least one pixel as changed."""
     rows: set[int] = set()
     for y in range(image.height):
         for x in range(image.width):
