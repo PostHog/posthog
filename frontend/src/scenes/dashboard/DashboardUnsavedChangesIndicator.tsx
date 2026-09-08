@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { Fragment } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
@@ -25,6 +26,43 @@ export function DashboardUnsavedChangesIndicator(): JSX.Element | null {
     const changedCount = dashboardSettingsChanges.length
     const changeSummary = `${changedCount} unsaved ${changedCount === 1 ? 'filter' : 'filters'}`
     const discardDataAttr = layoutEditMode ? 'dashboard-discard-filters' : 'dashboard-edit-mode-discard'
+    const actions = [
+        {
+            key: 'discard',
+            label: 'Discard',
+            dataAttr: discardDataAttr,
+            disabledReason: dashboardFiltersSaving ? 'Dashboard filters are saving' : undefined,
+            tooltip: 'Restore the settings saved to this dashboard.',
+            onClick: discardDashboardChanges,
+            loading: false,
+        },
+        ...(showApplyFiltersBanner
+            ? [
+                  {
+                      key: 'preview',
+                      label: loadingPreview ? 'Previewing' : 'Preview',
+                      dataAttr: 'dashboard-apply-filters',
+                      disabledReason: loadingPreview ? 'Previewing unsaved filters' : undefined,
+                      tooltip: 'Update the dashboard data with these unsaved filters. This does not save them.',
+                      onClick: previewDashboardChanges,
+                      loading: false,
+                  },
+              ]
+            : []),
+        ...(canEditDashboard
+            ? [
+                  {
+                      key: 'save',
+                      label: 'Save filters',
+                      dataAttr: 'dashboard-save-filters',
+                      disabledReason: undefined,
+                      tooltip: 'Save these changes as the dashboard default.',
+                      onClick: saveDashboardChanges,
+                      loading: dashboardFiltersSaving,
+                  },
+              ]
+            : []),
+    ]
 
     return (
         <span
@@ -52,72 +90,33 @@ export function DashboardUnsavedChangesIndicator(): JSX.Element | null {
             <span className="flex items-center gap-1.5 @max-lg/dashboard-filters:hidden">
                 <span className="h-4 border-l border-warning" />
                 <span className="flex items-center gap-1.5">
-                    <LemonButton
-                        data-attr={discardDataAttr}
-                        type="tertiary"
-                        size="small"
-                        disabledReason={dashboardFiltersSaving ? 'Dashboard filters are saving' : undefined}
-                        tooltip="Restore the settings saved to this dashboard."
-                        onClick={discardDashboardChanges}
-                    >
-                        Discard
-                    </LemonButton>
-                    <span className="h-4 border-l border-warning" />
-                    {showApplyFiltersBanner && (
-                        <>
+                    {actions.map((action, index) => (
+                        <Fragment key={action.key}>
+                            {index > 0 && <span className="h-4 border-l border-warning" />}
                             <LemonButton
-                                data-attr="dashboard-apply-filters"
+                                data-attr={action.dataAttr}
                                 type="tertiary"
                                 size="small"
-                                disabledReason={loadingPreview ? 'Previewing unsaved filters' : undefined}
-                                tooltip="Update the dashboard data with these unsaved filters. This does not save them."
-                                onClick={previewDashboardChanges}
+                                disabledReason={action.disabledReason}
+                                tooltip={action.tooltip}
+                                onClick={action.onClick}
+                                loading={action.loading}
                             >
-                                {loadingPreview ? 'Previewing' : 'Preview'}
+                                {action.label}
                             </LemonButton>
-                            <span className="h-4 border-l border-warning" />
-                        </>
-                    )}
-                    {canEditDashboard && (
-                        <LemonButton
-                            data-attr="dashboard-save-filters"
-                            type="tertiary"
-                            size="small"
-                            loading={dashboardFiltersSaving}
-                            tooltip="Save these changes as the dashboard default."
-                            onClick={saveDashboardChanges}
-                        >
-                            Save filters
-                        </LemonButton>
-                    )}
+                        </Fragment>
+                    ))}
                 </span>
             </span>
             <LemonMenu
-                items={[
-                    {
-                        label: 'Discard',
-                        disabledReason: dashboardFiltersSaving ? 'Dashboard filters are saving' : undefined,
-                        onClick: discardDashboardChanges,
-                    },
-                    ...(showApplyFiltersBanner
-                        ? [
-                              {
-                                  label: loadingPreview ? 'Previewing' : 'Preview',
-                                  disabledReason: loadingPreview ? 'Previewing unsaved filters' : undefined,
-                                  onClick: previewDashboardChanges,
-                              },
-                          ]
-                        : []),
-                    ...(canEditDashboard
-                        ? [
-                              {
-                                  label: 'Save filters',
-                                  disabledReason: dashboardFiltersSaving ? 'Dashboard filters are saving' : undefined,
-                                  onClick: saveDashboardChanges,
-                              },
-                          ]
-                        : []),
-                ]}
+                items={actions.map((action) => ({
+                    key: action.key,
+                    label: action.label,
+                    'data-attr': action.dataAttr,
+                    disabledReason: action.disabledReason,
+                    tooltip: action.tooltip,
+                    onClick: action.onClick,
+                }))}
                 placement="bottom-end"
             >
                 <LemonButton
