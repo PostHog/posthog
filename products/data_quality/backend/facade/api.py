@@ -27,6 +27,7 @@ from ..logic.errors import CheckConfigError, CheckEditConflict, SubjectUnresolva
 from ..logic.health import CheckStatusRow, roll_up_health
 from ..logic.navigation import SubjectKey, SubjectLocation, subject_locations
 from ..logic.notifications import notify_materialization_blocked
+from ..logic.output_schema import metric_output_schema
 from ..logic.permissions import authorized_subject_types, restrict_subject_types, writable_subjects
 from ..logic.registry import UnknownCheckTypeError, list_check_types
 from ..logic.run_records import record_check_run
@@ -55,9 +56,9 @@ from ..logic.subject_access import (
     visible_checks,
     without_denied_runs,
 )
-from ..logic.subjects import resolve_metric_subjects, resolve_subject
+from ..logic.subjects import resolve_metric_subjects, resolve_subject, testable_metric_subjects
 from ..logic.triggers import materialization_audit_mode as quality_audit_mode
-from .contracts import CheckTypeInfo
+from .contracts import CheckTypeInfo, MetricSubject, OutputColumn
 
 __all__ = [
     "log_metric_schedule_change",
@@ -70,6 +71,8 @@ __all__ = [
     "CheckTypeInfo",
     "CompiledCheck",
     "DenialContext",
+    "MetricSubject",
+    "OutputColumn",
     "ReadableSubjects",
     "ReferencedSubjects",
     "SubjectKey",
@@ -98,6 +101,7 @@ __all__ = [
     "get_schedule",
     "get_schedule_with_history",
     "list_check_types",
+    "metric_output_schema",
     "notify_materialization_blocked",
     "quality_audit_mode",
     "record_check_run",
@@ -112,6 +116,7 @@ __all__ = [
     "start_check_suite",
     "subject_health",
     "subject_locations",
+    "testable_metric_subjects",
     "suites_backing_unreadable_runs_q",
     "to_config_entry",
     "unreadable_suites_q",

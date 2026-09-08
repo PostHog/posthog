@@ -42,6 +42,8 @@ import type {
     DataQualityCheckApi,
     DataQualityCheckRunApi,
     DataQualityCheckTypeApi,
+    DataQualityMetricSubjectApi,
+    DataQualityOutputSchemaApi,
     DataQualitySubjectHealthApi,
     DataQualitySuiteRunApi,
     PaginatedDataQualityCheckListApi,
@@ -136,6 +138,16 @@ function routesFor({ subjectType }: DataQualitySubjectRef): SubjectRoutes {
 }
 
 export const checksApi = {
+    metricSubjects: (): Promise<DataQualityMetricSubjectApi[]> =>
+        metricApi.dataQualityChecksMetricSubjectsList(projectId()),
+
+    outputSchema: (ref: DataQualitySubjectRef): Promise<DataQualityOutputSchemaApi> => {
+        if (ref.subjectType !== 'metric') {
+            return Promise.resolve({ columns: [] })
+        }
+        return metricApi.dataCatalogMetricsChecksOutputSchemaRetrieve(projectId(), ref.subjectId)
+    },
+
     list: (ref: DataQualitySubjectRef, limit: number): Promise<PaginatedDataQualityCheckListApi> =>
         routesFor(ref).list(projectId(), ref.subjectId, { limit }),
 

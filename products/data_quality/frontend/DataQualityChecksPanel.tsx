@@ -56,7 +56,8 @@ export function DataQualityChecksPanel({
     }
     const { openEditor } = useActions(dataQualityCheckEditorLogic(editorProps))
     const columnNames = columns.map((column) => column.name)
-    const addCheck = (): void => openEditor(null, logicProps, columnNames)
+    const outputSchema = columns.map((column) => ({ name: column.name, type: column.type }))
+    const addCheck = (): void => openEditor(null, logicProps, columnNames, outputSchema)
 
     if (accessDenied) {
         return logicProps.subjectType === 'metric' ? (
@@ -162,7 +163,7 @@ export function DataQualityChecksPanel({
                         disabledReason={newCheckDisabledReason}
                     />
                 ) : (
-                    <ChecksTable {...logicProps} columns={columnNames} />
+                    <ChecksTable {...logicProps} columns={columnNames} outputSchema={outputSchema} />
                 )}
 
                 <SuiteRunsHistory {...logicProps} />
