@@ -13,7 +13,6 @@ import {
 import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { getVideoExportDisabledReason } from 'lib/components/ExportButton/exportStatus'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
@@ -22,6 +21,10 @@ import { NotebookNodeType } from 'scenes/notebooks/types'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { PlaylistPopoverButton } from 'scenes/session-recordings/player/playlist-popover/PlaylistPopover'
+import {
+    VIDEO_EXPORT_LIMIT_REACHED,
+    getRecordingExportDisabledReasons,
+} from 'scenes/session-recordings/player/recordingExportDisabledReasons'
 import {
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
@@ -140,16 +143,8 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
     const { skipInactivitySetting } = useValues(playerSettingsLogic)
     const { setSkipInactivitySetting } = useActions(playerSettingsLogic)
 
-    // Creating an export requires editor access to the export resource.
-    const exportAccessControlDisabledReason = getAccessControlDisabledReason(
-        AccessControlResourceType.Export,
-        AccessControlLevel.Editor
-    )
-
     const isStandardMode =
         (logicProps.mode ?? SessionRecordingPlayerMode.Standard) === SessionRecordingPlayerMode.Standard
-
-    const tooLongToExportReason = getVideoExportDisabledReason(sessionPlayerData?.durationMs)
 
     const onDelete = useMemo(
         () => () => {
@@ -171,6 +166,10 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
     )
 
     const items: LemonMenuItems = useMemo(() => {
+        const exportDisabledReasons = getRecordingExportDisabledReasons(
+            sessionPlayerData?.durationMs,
+            hasReachedExportFullVideoLimit
+        )
         const itemsArray: LemonMenuItems = [
             {
                 label: () => <AddToNotebookButton fullWidth={true} />,
@@ -201,7 +200,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                 onClick: () => exportRecordingToFile(),
                 tooltip:
                     'Export PostHog recording data to a JSON file. This can be loaded later into PostHog for playback.',
-                disabledReason: exportAccessControlDisabledReason ?? undefined,
+                disabledReason: exportDisabledReasons.json,
                 'data-attr': 'replay-export-posthog-json',
             },
             isStandardMode && {
@@ -210,13 +209,9 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                 icon: <IconDownload />,
                 onClick: () => exportRecordingToVideoFile(),
                 tooltip: hasReachedExportFullVideoLimit
-                    ? 'You have reached your export limit.'
+                    ? VIDEO_EXPORT_LIMIT_REACHED
                     : 'Export PostHog recording data to MP4 video file.',
-                disabledReason:
-                    (hasReachedExportFullVideoLimit ? 'You have reached your export limit.' : undefined) ??
-                    tooLongToExportReason ??
-                    exportAccessControlDisabledReason ??
-                    undefined,
+                disabledReason: exportDisabledReasons.video,
                 'data-attr': 'replay-export-mp4',
                 className: hasReachedExportFullVideoLimit ? 'replay-export-limit-reached-button' : '',
             },
@@ -248,8 +243,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
         isMuted,
         setMuted,
         hasReachedExportFullVideoLimit,
-        tooLongToExportReason,
-        exportAccessControlDisabledReason,
+        sessionPlayerData?.durationMs,
     ])
 
     return (
