@@ -7,18 +7,18 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { tokenStore, track, setClaudeCloudSubscriptionOn, toast, createToken } =
-  vi.hoisted(() => ({
+const { tokenStore, track, setClaudeCloudSubscriptionOn, toast } = vi.hoisted(
+  () => ({
     tokenStore: {
       save: vi.fn(),
       clear: vi.fn(),
       has: vi.fn(),
     },
     track: vi.fn(),
-    createToken: vi.fn(),
     setClaudeCloudSubscriptionOn: vi.fn(),
     toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
-  }));
+  }),
+);
 
 vi.mock("@posthog/ui/features/settings/settingsStore", () => ({
   useSettingsStore: (selector: (s: unknown) => unknown) =>
@@ -48,10 +48,7 @@ function renderSection(cloudSubscriptionOn = false): ReturnType<typeof render> {
   return render(
     <ServiceProvider container={container}>
       <QueryClientProvider client={queryClient}>
-        <ClaudeCloudTokenSection
-          cloudSubscriptionOn={cloudSubscriptionOn}
-          onCreateToken={createToken}
-        />
+        <ClaudeCloudTokenSection cloudSubscriptionOn={cloudSubscriptionOn} />
       </QueryClientProvider>
     </ServiceProvider>,
   );
@@ -109,8 +106,8 @@ describe("ClaudeCloudTokenSection", () => {
       }
 
       const input = await screen.findByLabelText("Claude setup token");
-      await user.click(screen.getByRole("button", { name: "Create token" }));
-      expect(createToken).toHaveBeenCalledTimes(1);
+      await user.click(screen.getByRole("button", { name: "Copy command" }));
+      expect(await navigator.clipboard.readText()).toBe("claude setup-token");
       await user.click(input);
       await user.paste(pasted);
       await user.click(screen.getByRole("button", { name: "Save token" }));

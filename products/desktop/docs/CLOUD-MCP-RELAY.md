@@ -280,6 +280,8 @@ persisted, with caps and the no-secrets rule above.**
 The cloud subscription feature uses the same transport under `posthog-code-claude-own-subscription-cloud`.
 Keep the flag off until the backend and sandbox agent build are deployed.
 Desktop stores the token from `claude setup-token` in its encrypted local secure store.
+Users run the command in their own terminal, then paste the token into Cloud tasks in Settings.
+The token field removes spaces and line breaks when users paste.
 The renderer can save, remove, and check for a token; only the main process reads it for relay.
 
 A subscription run emits a `credential_request` before initializing Claude.

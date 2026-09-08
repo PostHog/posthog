@@ -15,7 +15,7 @@ import { secureRandomString } from "@posthog/ui/utils/random";
 import { useQuery } from "@tanstack/react-query";
 import { type ReactElement, useCallback, useEffect, useState } from "react";
 
-export type ClaudeAuthAction = "login" | "logout" | "setup-token";
+export type ClaudeAuthAction = "login" | "logout";
 
 interface ClaudeAuthTerminalDialogProps {
   action: ClaudeAuthAction;
@@ -29,14 +29,6 @@ const SURFACE = {
 } as const;
 
 const COPY = {
-  "setup-token": {
-    title: "Create a Claude token",
-    lead: "Follow the steps in this terminal. Copy the token. Close this window, then paste the token into Cloud tasks.",
-    command: "claude setup-token",
-    ok: "Copy the token. Close this window, then paste the token into Cloud tasks.",
-    failed:
-      "Token setup did not finish. Read the terminal output, then try again.",
-  },
   login: {
     title: "Log in to Claude Code",
     lead: "Claude opens your browser. If it asks for a code, paste it in this terminal.",
@@ -88,16 +80,14 @@ export function ClaudeAuthTerminalDialog({
     () => `claude-auth-${action}-${secureRandomString(7)}`,
   );
   const [stopped, setStopped] = useState(false);
-  const [exitCode, setExitCode] = useState<number | undefined>();
 
   const statusQuery = useQuery({
     ...hostTRPC.agent.claudeSubscriptionStatus.queryOptions(),
-    enabled: stopped && action !== "setup-token",
+    enabled: stopped,
   });
   const loggedIn = statusQuery.data?.loginState === "logged-in";
   const statusKnown = statusQuery.data?.loginState !== undefined;
   const verified = ((): boolean | undefined => {
-    if (action === "setup-token") return stopped ? exitCode === 0 : undefined;
     if (statusQuery.isError) return false;
     if (!stopped || statusQuery.isFetching || !statusKnown) {
       return undefined;
@@ -125,14 +115,10 @@ export function ClaudeAuthTerminalDialog({
     return verified ? copy.ok : copy.failed;
   })();
 
-  const handleExit = useCallback(
-    (code?: number) => {
-      setExitCode(code);
-      setStopped(true);
-      onFinished();
-    },
-    [onFinished],
-  );
+  const handleExit = useCallback(() => {
+    setStopped(true);
+    onFinished();
+  }, [onFinished]);
 
   const handleClose = useCallback(() => {
     destroyTerminalSession(sessionId);

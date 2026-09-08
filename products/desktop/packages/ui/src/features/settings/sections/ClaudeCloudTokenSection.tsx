@@ -8,6 +8,7 @@ import {
   isValidClaudeSetupToken,
 } from "@posthog/ui/features/settings/claudeSubscriptionTokenSettings";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { CopyButton } from "@posthog/ui/primitives/CopyButton";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -15,12 +16,10 @@ import { type ReactElement, useId, useState } from "react";
 
 interface ClaudeCloudTokenSectionProps {
   cloudSubscriptionOn: boolean;
-  onCreateToken: () => void;
 }
 
 export function ClaudeCloudTokenSection({
   cloudSubscriptionOn,
-  onCreateToken,
 }: ClaudeCloudTokenSectionProps): ReactElement | null {
   const tokenStore = useServiceOptional<ClaudeSubscriptionTokenSettings>(
     CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
@@ -187,20 +186,13 @@ export function ClaudeCloudTokenSection({
               Your saved token is kept until you save a new one.
             </span>
           ) : null}
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={onCreateToken}
-              disabled={!!pendingAction}
-              data-attr="claude-cloud-token-create"
-            >
-              Create token
-            </Button>
-            <span className="text-muted-foreground text-xs">
-              Copy the token, then paste it here.
-            </span>
+          <div className="text-muted-foreground text-xs">
+            Run{" "}
+            <span className="inline-flex items-center gap-1">
+              <code>claude setup-token</code>
+              <CopyButton bare text="claude setup-token" label="Copy command" />
+            </span>{" "}
+            in your terminal. Copy the token, then paste it here.
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Input
