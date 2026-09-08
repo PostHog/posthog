@@ -47,6 +47,47 @@ _CAP_QUANTUM = Decimal("0.000001")
 
 WIZARD_PRODUCT = "wizard"
 
+# The gateway's effort vocabulary, in order; the pin sent at mint is a subset.
+WIZARD_EFFORT_LEVELS: tuple[str, ...] = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
+
+# Every (model, effort) pair the wizard CLI dispatches, measured over stamped
+# wizard traffic; "none" is a request with no effort parameter. Wizard-wide
+# rather than per program: the CLI picks models per switchboard flag. Pinned at
+# mint so a lifted token buys nothing else. Widen here when the CLI adds a model.
+WIZARD_MODEL_ALLOWLIST: dict[str, tuple[str, ...]] = {
+    "claude-sonnet-4-6": ("none", "high"),
+    "claude-sonnet-5": ("none", "high"),
+    "claude-haiku-4-5": ("none",),
+    "claude-haiku-4-5-20251001": ("none",),
+    "gpt-5.6-luna": ("low",),
+    "gpt-5.6-sol": ("medium",),
+    "gpt-5.6-terra": ("low", "medium", "high"),
+}
+
+# pi sends the provider-prefixed id for OpenAI models; the gateway pins the bare model.
+_STRIPPED_MODEL_PREFIXES = ("openai/",)
+
+
+def normalize_model(model: str) -> str:
+    normalized = model.strip().lower()
+    for prefix in _STRIPPED_MODEL_PREFIXES:
+        if normalized.startswith(prefix):
+            return normalized[len(prefix) :]
+    return normalized
+
+
+def allowed_models() -> list[str]:
+    """The allowlist's models as the gateway spells them, deduplicated, in table order."""
+    return list(dict.fromkeys(normalize_model(model) for model in WIZARD_MODEL_ALLOWLIST))
+
+
+def allowed_efforts() -> list[str]:
+    """The union of every model's efforts, in vocabulary order. Flat per token: a
+    per-model pin is a gateway follow-up."""
+    declared = {effort.strip().lower() for efforts in WIZARD_MODEL_ALLOWLIST.values() for effort in efforts}
+    return [level for level in WIZARD_EFFORT_LEVELS if level in declared]
+
+
 # An organization's standing at mint time, which picks its tier of limits.
 WizardPosture = Literal["new", "active", "paid"]
 _NEW_ORGANIZATION_AGE = timedelta(days=7)
@@ -361,6 +402,9 @@ def mint_wizard_gateway_token(
         "product": product,
         "obo": obo,
         "user": user,
+        # A gateway that predates either field ignores it and mints unpinned.
+        "allowed_models": allowed_models(),
+        "allowed_efforts": allowed_efforts(),
     }
     try:
         response = requests.post(
