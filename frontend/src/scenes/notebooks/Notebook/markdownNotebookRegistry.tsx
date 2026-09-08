@@ -881,27 +881,6 @@ export function MountedRealNotebookNodeComponent({
     const showContent = !editOnly
     const isNotebookEditable = (notebookMode ?? mode) === 'edit'
 
-    // Props the parser could not read, and a paired tag's body, exist only in the block's raw
-    // source, which any prop write clears. An automatic write must not shorten a block that no
-    // person edited, so those blocks keep their derived id instead.
-    const hasSourceOnlyInRaw = !!node.errors?.length || !!node.raw?.includes('\n')
-
-    // A parsed block id is a hash of the block's props, so any prop write moves it (a resize
-    // writes `height`). The widget's generation state lives on the server under the block id,
-    // so a block that carries no explicit id gets one the first time it renders for an editor.
-    useEffect(() => {
-        if (
-            editOnly ||
-            !isNotebookEditable ||
-            notebookNodeType !== NotebookNodeType.GeneratedWidget ||
-            hasSourceOnlyInRaw
-        ) {
-            return
-        }
-        if (typeof node.props.nodeId !== 'string' || !node.props.nodeId) {
-            updateProps({ nodeId: node.id })
-        }
-    }, [editOnly, hasSourceOnlyInRaw, isNotebookEditable, node.id, node.props.nodeId, notebookNodeType, updateProps])
     const isResizeable =
         isNotebookEditable &&
         (typeof options.resizeable === 'function' ? options.resizeable(attributes) : (options.resizeable ?? true))

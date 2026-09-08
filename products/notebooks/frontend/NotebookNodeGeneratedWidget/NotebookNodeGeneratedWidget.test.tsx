@@ -139,11 +139,16 @@ describe('NotebookNodeGeneratedWidget', () => {
         expect(await screen.findByText('Regenerating widget…')).toBeTruthy()
     })
 
-    it('writes a durable node id into a widget tag that carries none', async () => {
+    it.each([
+        ['with its results panel open', '<Widget showResults prompt="Render a globe" />'],
+        // The results panel holds the widget itself, so an id write that rode on it never reached
+        // a collapsed block, where the prompt, the model and the title all stay editable.
+        ['with its results panel closed', '<Widget hideResults prompt="Render a globe" />'],
+    ])('writes a durable node id into a widget tag that carries none, %s', async (_panelState, markdown) => {
         logic.unmount()
         const widgetWithoutNodeId = {
             ...cachedNotebook,
-            content: buildMarkdownNotebookContent('<Widget showResults prompt="Render a globe" />'),
+            content: buildMarkdownNotebookContent(markdown),
         }
         jest.mocked(api.notebooks.get).mockResolvedValue(widgetWithoutNodeId)
         jest.spyOn(api.notebooks, 'markdownSave').mockResolvedValue(widgetWithoutNodeId)
@@ -161,6 +166,7 @@ describe('NotebookNodeGeneratedWidget', () => {
 
         // Without a written id the block's identity is a hash of its props, so the next prop
         // write (a resize) moves it away from the id the mounted widget already generates under.
+        await waitFor(() => expect(jest.mocked(notebooksWidgetStatus)).toHaveBeenCalled())
         const nodeId = jest.mocked(notebooksWidgetStatus).mock.calls[0][2]
         await waitFor(() =>
             expect(getMarkdownNotebookMarkdown(logic.values.content ?? {})).toContain(`nodeId="${nodeId}"`)
