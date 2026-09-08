@@ -722,6 +722,8 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     having_predicates?: AnyPropertyFilter[] // duration and snapshot_source filters
     comment_text?: RecordingPropertyFilter // search comments by text content
     filter_test_accounts?: boolean
+    /** Restrict results to recordings above the replay relevance threshold. */
+    recommended_only?: boolean
     /**
      * @default "AND"
      * */
