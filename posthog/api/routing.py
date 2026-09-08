@@ -668,4 +668,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except (Team.DoesNotExist, KeyError):
             pass
 
-        return UserAccessControl(user=cast(User, self.request.user), team=team, organization_id=self.organization_id)
+        return UserAccessControl(
+            user=cast(User, self.request.user),
+            team=team,
+            organization_id=self.organization_id,
+            allow_deactivated_organization=getattr(self, "allow_access_control_for_deactivated_organization", False),
+        )

@@ -404,9 +404,16 @@ class UserAccessControl:
     Typically a Team (Project) is required other than in certain circumstances, particularly when validating which projects a user has access to within an organization.
     """
 
-    def __init__(self, user: User, team: Optional[Team] = None, organization_id: Optional[str] = None):
+    def __init__(
+        self,
+        user: User,
+        team: Optional[Team] = None,
+        organization_id: Optional[str] = None,
+        allow_deactivated_organization: bool = False,
+    ):
         self._user = user
         self._team = team
+        self._allow_deactivated_organization = allow_deactivated_organization
         self._cache: dict[str, list[AccessControl]] = {}
         self._sibling_team_access_controls: dict[int, UserAccessControl] = {}
         # Divergences this instance already reported. An instance lives for one request, and one
@@ -456,7 +463,11 @@ class UserAccessControl:
 
         if missing:
             for team in Team.objects.filter(id__in=missing):
-                sibling = UserAccessControl(self._user, team=team)
+                sibling = UserAccessControl(
+                    self._user,
+                    team=team,
+                    allow_deactivated_organization=self._allow_deactivated_organization,
+                )
                 if sibling._organization_id == self._organization_id:
                     # Org membership and role ids don't vary by team, so seed them from this
                     # instance rather than letting each sibling re-query them. Written straight
@@ -559,8 +570,10 @@ class UserAccessControl:
         """De-activated organizations get default-deny for any request."""
         return bool(
             self._organization
-            and self._organization.is_active is not False
-            and not self._organization.is_pending_deletion
+            and (
+                (self._allow_deactivated_organization and self._organization.is_active is False)
+                or (self._organization.is_active is not False and not self._organization.is_pending_deletion)
+            )
         )
 
     def _is_creator(self, obj: Model) -> bool:

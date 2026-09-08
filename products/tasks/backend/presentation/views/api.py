@@ -49,6 +49,7 @@ from posthog.event_usage import groups
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import User
 from posthog.permissions import (
+    AccessControlPermission,
     APIScopePermission,
     TeamMemberAccessPermission,
     get_authenticator_scoped_team_ids,
@@ -419,7 +420,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def dangerously_get_permissions(self) -> list[BasePermission]:
         if self.action == "run":
-            return [IsAuthenticated(), APIScopePermission(), TeamMemberAccessPermission()]
+            self.allow_access_control_for_deactivated_organization = True
+            return [
+                IsAuthenticated(),
+                APIScopePermission(),
+                AccessControlPermission(),
+                TeamMemberAccessPermission(),
+            ]
         raise NotImplementedError()
 
     def get_throttles(self) -> list[BaseThrottle]:
