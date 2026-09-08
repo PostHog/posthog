@@ -48,7 +48,7 @@ from posthog.models.tagged_item import TaggedItem
 from posthog.permissions import get_authenticator_scopes
 from posthog.rate_limit import AlertTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit
-from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 from posthog.tasks.alerts.schedule_restriction import validate_and_normalize_schedule_restriction
 from posthog.tasks.alerts.utils import (
@@ -770,7 +770,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         # keep working when the flag is off.
         _enforce_alert_feature_flags(self.context, insight)
         _require_metrics_scope_for_programmatic_auth(self.context, insight)
-        with upgrade_query(insight):
+        with upgrade_insight(insight):
             query = insight.query
             if query is None:
                 raise ValidationError({"insight": ["Insight has no valid query."]})
