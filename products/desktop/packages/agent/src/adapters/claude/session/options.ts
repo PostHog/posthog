@@ -629,7 +629,9 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
 
   const agents = buildAgents(params.userProvidedOptions?.agents);
   const registeredAgentNames = new Set(Object.keys(agents));
-  const claudeCodeExecutable = process.env.CLAUDE_CODE_EXECUTABLE;
+  const claudeCodeExecutable = params.machineAuth?.oauthToken
+    ? undefined
+    : process.env.CLAUDE_CODE_EXECUTABLE;
 
   const options: Options = {
     ...params.userProvidedOptions,
@@ -705,6 +707,9 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
   };
 
   if (params.machineAuth?.oauthToken) {
+    delete options.pathToClaudeCodeExecutable;
+    delete options.executable;
+    delete options.executableArgs;
     if (typeof options.settings === "string")
       throw new Error("Cloud subscription settings must be an object.");
     const extraSettings = options.extraArgs?.settings;
@@ -715,6 +720,7 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     options.settings = {
       ...inlineSettings,
       ...options.settings,
+      apiKeyHelper: "",
       env: {
         ...inlineSettings.env,
         ...options.settings?.env,

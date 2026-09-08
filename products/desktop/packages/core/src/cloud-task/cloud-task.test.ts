@@ -4624,31 +4624,34 @@ describe("CloudTaskEngine credential relay", () => {
     expect(commandPosts()).toHaveLength(1);
   });
 
-  it("answers a credential request with the stored token", async () => {
-    const token = "sk-ant-oat01-fake-test-token";
-    tokenStore.get.mockResolvedValue(token);
-    mockStreamFetch.mockResolvedValueOnce(
-      createOpenSseResponse(credentialRequestSseLine()),
-    );
-    await watchRun("run-1");
+  it.each([true, false])(
+    "answers a credential request after designation or restart: %s",
+    async (designated) => {
+      const token = "sk-ant-oat01-fake-test-token";
+      tokenStore.get.mockResolvedValue(token);
+      mockStreamFetch.mockResolvedValueOnce(
+        createOpenSseResponse(credentialRequestSseLine()),
+      );
+      await watchRun("run-1", designated);
 
-    await vi.advanceTimersByTimeAsync(0);
-    const post = commandPosts()[0];
-    expect(post.method).toBe("credential_response");
-    expect(post.params).toEqual({
-      requestId: "cred-req-1",
-      credential: "claude_subscription_token",
-      token,
-    });
-    expect(mockAuthService.authenticatedFetch).toHaveBeenCalledWith(
-      "https://app.example.com/api/projects/2/tasks/task-1/runs/run-1/command/",
-      expect.objectContaining({ redirect: "error" }),
-    );
-    expect(analyticsMock.track).toHaveBeenCalledWith(
-      ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY,
-      { credential: "claude_subscription_token", outcome: "sent" },
-    );
-  });
+      await vi.advanceTimersByTimeAsync(0);
+      const post = commandPosts()[0];
+      expect(post.method).toBe("credential_response");
+      expect(post.params).toEqual({
+        requestId: "cred-req-1",
+        credential: "claude_subscription_token",
+        token,
+      });
+      expect(mockAuthService.authenticatedFetch).toHaveBeenCalledWith(
+        "https://app.example.com/api/projects/2/tasks/task-1/runs/run-1/command/",
+        expect.objectContaining({ redirect: "error" }),
+      );
+      expect(analyticsMock.track).toHaveBeenCalledWith(
+        ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY,
+        { credential: "claude_subscription_token", outcome: "sent" },
+      );
+    },
+  );
 
   it.each([
     { apiHost: "https://example.org", teamId: 2 },
@@ -4722,7 +4725,7 @@ describe("CloudTaskEngine credential relay", () => {
         ),
       );
       if (scenario === "other-project") {
-        mockAuthService.getCloudContext.mockResolvedValueOnce({
+        mockAuthService.getCloudContext.mockResolvedValue({
           apiHost: "https://app.example.com",
           teamId: 3,
           accountKey: "account-a",
@@ -4731,6 +4734,24 @@ describe("CloudTaskEngine credential relay", () => {
           taskId: "task-1",
           runId: "run-1",
         });
+      }
+      if (scenario === "observer") {
+        mockNetFetch.mockImplementation((url: string) =>
+          Promise.resolve(
+            createJsonResponse(
+              url.includes("/api/users/@me/")
+                ? { id: 2 }
+                : {
+                    id: "run-1",
+                    status: "in_progress",
+                    state: {
+                      claude_model_access: "own-subscription",
+                      claude_subscription_user_id: 1,
+                    },
+                  },
+            ),
+          ),
+        );
       }
       await watchRun(
         "run-1",
@@ -4792,19 +4813,22 @@ describe("CloudTaskEngine credential relay", () => {
   });
 
   it("handles secure-store errors without exposing their contents", async () => {
-    tokenStore.get.mockRejectedValue(new Error("secret-store-value"));
+    tokenStore.get.mockRejectedValueOnce(new Error("secret-store-value"));
+    tokenStore.get.mockResolvedValue("sk-ant-oat01-fake-test-token");
     mockStreamFetch.mockResolvedValueOnce(
       createOpenSseResponse(credentialRequestSseLine()),
     );
     await watchRun("run-1");
     await vi.advanceTimersByTimeAsync(0);
+    expect(commandPosts()).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1_000);
     expect(commandPosts()).toMatchObject([
       {
         method: "credential_response",
         params: {
           requestId: "cred-req-1",
           credential: "claude_subscription_token",
-          error: "no_token",
+          token: "sk-ant-oat01-fake-test-token",
         },
       },
     ]);

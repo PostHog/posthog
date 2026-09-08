@@ -459,7 +459,7 @@ def _is_rtk_enabled(
 def _resolve_claude_model_access(
     *,
     task_runtime: str,
-    distinct_id: str,
+    distinct_id: str | None,
     organization_id: str,
     run_id: str,
     state: dict | None = None,
@@ -475,7 +475,8 @@ def _resolve_claude_model_access(
         )
     try:
         enabled = bool(
-            posthoganalytics.feature_enabled(
+            distinct_id
+            and posthoganalytics.feature_enabled(
                 CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
                 distinct_id=distinct_id,
                 groups={"organization": organization_id},
@@ -1252,9 +1253,17 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         TaskRun.update_state_atomic(task_run.id, updates=state_updates)
     except Exception as e:
         log_with_activity_context("run_state_stamp_failed", run_id=run_id, error=str(e))
+    claude_distinct_id: str | None = distinct_id
+    if state.get("claude_model_access") == "own-subscription":
+        subscription_owner_id = state.get("claude_subscription_user_id")
+        claude_distinct_id = (
+            team.all_users_with_access().filter(id=subscription_owner_id).values_list("distinct_id", flat=True).first()
+            if isinstance(subscription_owner_id, int) and not isinstance(subscription_owner_id, bool)
+            else None
+        )
     claude_model_access = _resolve_claude_model_access(
         task_runtime=task.runtime,
-        distinct_id=distinct_id,
+        distinct_id=claude_distinct_id,
         organization_id=organization_id,
         run_id=run_id,
         state=state,

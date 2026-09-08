@@ -102,7 +102,9 @@ export function ClaudeAuthTerminalDialog({
     if (!stopped || statusQuery.isFetching || !statusKnown) {
       return undefined;
     }
-    return action === "login" ? loggedIn : !loggedIn;
+    return action === "login"
+      ? loggedIn
+      : statusQuery.data?.loginState === "logged-out";
   })();
 
   const copy = COPY[action];

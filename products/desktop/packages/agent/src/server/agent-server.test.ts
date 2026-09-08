@@ -855,7 +855,6 @@ describe("AgentServer HTTP Mode", () => {
       },
     );
 
-
     it("writes the terminal error to the session log before the final flush", async () => {
       // The Django drain reads the terminal `_posthog/error` from the S3 log,
       // which only the SessionLogWriter feeds. The event must be appended before
@@ -3159,6 +3158,34 @@ describe("AgentServer HTTP Mode", () => {
   });
 
   describe("POST /command", () => {
+    it("keeps cancelled initialization work pending until it settles", async () => {
+      const s = createServer() as unknown as {
+        shutdownController: AbortController;
+        measureInitialization(
+          phase: "session_create",
+          work: () => Promise<void>,
+        ): Promise<void>;
+      };
+      let finish = () => {};
+      const work = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      const settled = vi.fn();
+      const initialization = s.measureInitialization(
+        "session_create",
+        () => work,
+      );
+      const observed = initialization.then(settled, settled);
+      s.shutdownController.abort(new Error("cancelled"));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(settled).not.toHaveBeenCalled();
+      finish();
+      await observed;
+      expect(settled).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "cancelled" }),
+      );
+    });
+
     it.each(["token", "no_token", "cancel", "reconnect"])(
       "handles %s during subscription initialization",
       async (outcome) => {

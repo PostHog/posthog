@@ -17,15 +17,14 @@ from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
-from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
 from posthog.security.url_validation import is_url_allowed, resolve_url_hosts_ips
-from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES
+from products.tasks.backend.facade.client_provenance import is_sandbox_oauth_request
 from products.tasks.backend.facade.contracts import (
     ChannelDTO,
     ChannelFeedMessageDTO,
@@ -96,11 +95,7 @@ def _is_pi_task_run_request(context: dict[str, Any]) -> bool:
 
 def _validate_subscription_caller(attrs: dict[str, Any], context: dict[str, Any]) -> None:
     request = context.get("request")
-    authenticator = getattr(request, "successful_authenticator", None)
-    if not isinstance(authenticator, OAuthAccessTokenAuthentication):
-        return
-    token = authenticator.access_token
-    if not token.application or token.application.client_id not in SANDBOX_OAUTH_APP_CLIENT_IDS:
+    if request is None:
         return
     access = attrs.get("claude_model_access")
     if access is None and (run_id := attrs.get("resume_from_run_id")):
@@ -112,7 +107,11 @@ def _validate_subscription_caller(attrs: dict[str, Any], context: dict[str, Any]
             run = tasks_facade.get_task_run_detail(run_id, task_id, team.id)
             if run is not None:
                 access = run.state.get("claude_model_access")
-    if access == "own-subscription":
+                if access == "own-subscription" and not is_sandbox_oauth_request(request):
+                    raise serializers.ValidationError(
+                        {"claude_model_access": "Open PostHog Desktop to resume this run with your Claude plan."}
+                    )
+    if access == "own-subscription" and is_sandbox_oauth_request(request):
         raise serializers.ValidationError({"claude_model_access": "Only a user can select a Claude subscription."})
 
 

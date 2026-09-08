@@ -3,7 +3,7 @@ export const CLOUD_TASK_AUTH = Symbol.for("posthog.core.cloudTaskAuth");
 
 export interface ICloudTaskAuth {
   authenticatedFetch(url: string, init?: RequestInit): Promise<Response>;
-  getCloudContext(): Promise<{
+  getCloudContext(options?: { includeAccount?: boolean }): Promise<{
     apiHost: string;
     teamId: number;
     accountKey?: string | null;
@@ -11,9 +11,10 @@ export interface ICloudTaskAuth {
 }
 
 export interface ClaudeSubscriptionTokenStore {
-  get(): Promise<string | null>;
+  get(expectedAccountKey?: string): Promise<string | null>;
   save(token: string): Promise<void>;
   clear(): Promise<void>;
+  clearAll(): Promise<void>;
   has(): Promise<boolean>;
 }
 

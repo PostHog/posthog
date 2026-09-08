@@ -13,7 +13,10 @@ from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.core import signing
-from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.exceptions import (
+    PermissionDenied,
+    ValidationError as DjangoValidationError,
+)
 from django.db import IntegrityError, transaction
 from django.db.models import (
     Case,
@@ -88,6 +91,7 @@ from products.tasks.backend.logic.services.network_policy import (
     MAX_SANDBOX_ALLOWED_DOMAINS,
     normalize_requested_domains,
 )
+from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     MCP_CREDENTIAL_OWNER_STATE_KEY,
@@ -3951,6 +3955,10 @@ def signal_task_run_user_message(
     """
     from temporalio.service import RPCError, RPCStatusCode  # noqa: PLC0415 — keep temporalio off the api import path
 
+    from products.tasks.backend.exceptions import (
+        ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
+        SandboxNotFoundError,
+    )
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         signal_task_followup_message,
     )
@@ -3958,18 +3966,22 @@ def signal_task_run_user_message(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
+    if (run.state or {}).get("claude_model_access") == "own-subscription" and (run.state or {}).get(
+        "claude_subscription_user_id"
+    ) != actor_user_id:
+        raise PermissionDenied("Only the user who started this run can use its Claude plan.")
     if run.is_terminal or (run.state or {}).get("cancel_requested_at"):
-        if not run.is_terminal or (
-            SandboxSession.objects.for_team(team_id)
-            .filter(task_run=run, ended_at__isnull=True)
-            .filter(Q(sandbox_backend="hogland") | Q(ttl_expires_at__gt=django_timezone.now()))
-            .exists()
-        ):
+        if not run.is_terminal:
             raise RuntimeError("Task run is still stopping. Try again shortly.")
+        sandbox_id = (run.state or {}).get("sandbox_id")
+        if sandbox_id:
+            try:
+                sandbox = get_sandbox_class_for_sandbox_id(sandbox_id).get_by_id(sandbox_id)
+                if sandbox.is_running():
+                    raise RuntimeError("Task run is still stopping. Try again shortly.")
+            except SandboxNotFoundError:
+                pass
         return False
-    from products.tasks.backend.exceptions import (
-        ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
-    )
     from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason  # noqa: PLC0415
 
     if reason := get_compute_quota_denial_reason(run.task):
@@ -6520,7 +6532,7 @@ def _warm_sandbox_selection_is_accessible(
 def _idling_warm_run_for_task(task: Task) -> TaskRun | None:
     """The task's latest run iff it is an idling pre-warmed Run (non-terminal, awaiting first message)."""
     run = task.latest_run
-    if run is None or run.is_terminal:
+    if run is None or run.is_terminal or (run.state or {}).get("cancel_requested_at"):
         return None
     if not (run.state or {}).get("await_user_message"):
         return None
@@ -9079,7 +9091,9 @@ def forward_thread_message(
         author = message.author
         author_name = (author.get_full_name() or author.email) if author else "A teammate"
         content = f"[Thread comment from {author_name}] {message.content}"
-        signal_result = signal_task_run_user_message(run.id, task.id, team_id, content=content, artifact_ids=[])
+        signal_result = signal_task_run_user_message(
+            run.id, task.id, team_id, content=content, artifact_ids=[], actor_user_id=user_id
+        )
         if not signal_result:
             return "signal_failed", None
 

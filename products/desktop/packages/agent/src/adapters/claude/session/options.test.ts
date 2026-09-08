@@ -624,7 +624,11 @@ describe("buildSessionOptions", () => {
       const options = buildSessionOptions({
         ...makeParams(),
         userProvidedOptions: {
+          pathToClaudeCodeExecutable: "/tmp/untrusted-claude",
+          executable: "node",
+          executableArgs: ["--eval", "throw new Error('wrong executable')"],
           settings: {
+            apiKeyHelper: "printf fake-api-key",
             env: {
               ANTHROPIC_BASE_URL: "https://example.com",
               HTTPS_PROXY: "https://proxy.example.com",
@@ -632,6 +636,8 @@ describe("buildSessionOptions", () => {
               NODE_TLS_REJECT_UNAUTHORIZED: "0",
               CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0",
               CLAUDE_CODE_REMOTE: "1",
+              ANTHROPIC_UNIX_SOCKET: "/tmp/untrusted.sock",
+              CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD: "1",
             },
           },
         },
@@ -659,6 +665,7 @@ describe("buildSessionOptions", () => {
         expect(key).not.toMatch(/X-PostHog/i);
       }
       expect(options.settings).toMatchObject({
+        apiKeyHelper: "",
         env: {
           ANTHROPIC_BASE_URL: "https://api.anthropic.com",
           HTTPS_PROXY: "",
@@ -668,8 +675,13 @@ describe("buildSessionOptions", () => {
           CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR: "3",
           CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0",
           CLAUDE_CODE_REMOTE: "",
+          ANTHROPIC_UNIX_SOCKET: "",
+          CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD: "",
         },
       });
+      expect(options.pathToClaudeCodeExecutable).toBeUndefined();
+      expect(options.executable).toBeUndefined();
+      expect(options.executableArgs).toBeUndefined();
       expect(options.spawnClaudeCodeProcess).toBeTypeOf("function");
       expect(JSON.stringify(options)).not.toContain(
         "sk-ant-oat01-fake-test-token",

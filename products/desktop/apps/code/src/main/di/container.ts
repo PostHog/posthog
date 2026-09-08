@@ -471,13 +471,19 @@ container.bind(CLOUD_TASK_AUTH).toDynamicValue((ctx) => ({
     ctx
       .get<AuthService>(MAIN_AUTH_SERVICE)
       .authenticatedFetch(fetch, url, init),
-  getCloudContext: async () => {
+  getCloudContext: async (options?: { includeAccount?: boolean }) => {
     const auth = ctx.get<AuthService>(MAIN_AUTH_SERVICE);
     const { apiHost } = await auth.getValidAccessToken();
     const teamId = auth.getState().currentProjectId;
     return teamId === null
       ? null
-      : { apiHost, teamId, accountKey: await auth.getAccountKey() };
+      : {
+          apiHost,
+          teamId,
+          ...(options?.includeAccount && {
+            accountKey: await auth.getAccountKey(),
+          }),
+        };
   },
 }));
 container.bind(MAIN_CLOUD_TASK_SERVICE).toService(CLOUD_TASK_SERVICE);
@@ -643,13 +649,10 @@ container
 container
   .bind(CLAUDE_SUBSCRIPTION_TOKEN_STORE)
   .toDynamicValue(
-    () =>
+    (ctx) =>
       new ElectronClaudeSubscriptionTokenStore(
-        new ExternalAppsStoreImpl<Record<string, string>>({
-          name: "claude-subscription",
-          cwd: getUserDataDir(),
-          configFileMode: 0o600,
-        }),
+        join(getUserDataDir(), "claude-subscriptions"),
+        () => ctx.get<AuthService>(MAIN_AUTH_SERVICE).getAccountKey(),
       ),
   )
   .inSingletonScope();

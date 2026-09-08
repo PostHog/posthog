@@ -224,11 +224,26 @@ class TestGetTaskProcessingContextActivity:
         task.soft_delete()
 
     @pytest.mark.django_db(transaction=True)
-    def test_get_task_processing_context_success(self, activity_environment, test_task):
-        task_run = test_task.create_run()
+    @pytest.mark.parametrize("subscription", [False, True])
+    def test_get_task_processing_context_success(self, activity_environment, test_task, subscription):
+        owner = User.objects.create_user(
+            email="subscription-owner@example.com", password=None, first_name="Owner", distinct_id="subscription-owner"
+        )
+        OrganizationMembership.objects.create(organization=test_task.team.organization, user=owner)
+        task_run = test_task.create_run(
+            acting_user_id=owner.id,
+            extra_state={"claude_model_access": "own-subscription"} if subscription else {},
+        )
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
 
-        result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=False,
+        ) as flag:
+            flag.side_effect = lambda key, distinct_id=None, **kwargs: (
+                key == CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG and distinct_id == owner.distinct_id
+            )
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
         assert isinstance(result, TaskProcessingContext)
         assert result.task_id == str(test_task.id)
@@ -237,6 +252,7 @@ class TestGetTaskProcessingContextActivity:
         assert result.github_integration_id == test_task.github_integration_id
         assert result.repository == "posthog/posthog-js"
         assert result.create_pr is True
+        assert result.claude_model_access == ("own-subscription" if subscription else "posthog-gateway")
 
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_rejects_previous_owner_run(self, activity_environment, test_task):

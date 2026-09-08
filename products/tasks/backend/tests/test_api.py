@@ -4302,9 +4302,13 @@ class TestTaskAPI(BaseTaskAPITest):
         # Token passed on a BOT resume must not be cached — only USER mode runs use it.
         assert get_cached_github_user_token(str(task_run.id)) is None
 
-    @parameterized.expand([(None, "own-subscription"), ("posthog-gateway", "posthog-gateway")])
+    @parameterized.expand(
+        [(None, None), ("own-subscription", "own-subscription"), ("posthog-gateway", "posthog-gateway")]
+    )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_resume_preserves_claude_billing_unless_explicitly_changed(self, requested, expected, mock_workflow):
+    def test_resume_requires_explicit_claude_billing_choice(
+        self, requested: str | None, expected: str | None, mock_workflow: MagicMock
+    ) -> None:
         task = self.create_task()
         previous_run = TaskRun.objects.create(
             task=task,
@@ -4317,6 +4321,13 @@ class TestTaskAPI(BaseTaskAPITest):
             payload["claude_model_access"] = requested
 
         response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/", payload, format="json")
+
+        if expected is None:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json()["attr"] == "claude_model_access"
+            assert task.runs.count() == 1
+            mock_workflow.assert_not_called()
+            return
 
         assert response.status_code == status.HTTP_200_OK
         run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
@@ -8126,14 +8137,25 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.content.decode("utf-8").splitlines(), expected_lines)
 
+    @parameterized.expand([(None,), (True,), (False,)])
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    def test_connection_token_returns_jwt(self):
+    def test_connection_token_returns_jwt(self, subscription_owner):
         reset_sandbox_jwt_key_cache()
 
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        if subscription_owner is not None:
+            run.state = {
+                "claude_model_access": "own-subscription",
+                "claude_subscription_user_id": self.user.id if subscription_owner else self.user.id + 1,
+            }
+            run.save(update_fields=["state"])
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/connection_token/")
+        if subscription_owner is False:
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertNotIn("token", response.json())
+            return
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
@@ -10792,10 +10814,16 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "permission_response is not supported for Pi tasks.")
 
+    @parameterized.expand([(True,), (False,)])
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
-    def test_command_signals_user_message(self, mock_signal_followup):
+    def test_command_signals_user_message(self, subscription_owner_matches, mock_signal_followup):
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
+        run.state.update(
+            claude_model_access="own-subscription",
+            claude_subscription_user_id=self.user.id if subscription_owner_matches else self.user.id + 1,
+        )
+        run.save(update_fields=["state"])
 
         response = self.client.post(
             self._command_url(task, run),
@@ -10803,6 +10831,10 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             format="json",
         )
 
+        if not subscription_owner_matches:
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            mock_signal_followup.assert_not_called()
+            return
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data["jsonrpc"], "2.0")
@@ -11126,13 +11158,15 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         ]
     )
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    @patch("products.tasks.backend.facade.api.get_sandbox_class_for_sandbox_id")
     def test_command_rejects_user_message_when_run_cannot_accept_it(
-        self, _name, run_status, stopping, expected_status, mock_signal_followup
+        self, _name, run_status, stopping, expected_status, mock_sandbox_class, mock_signal_followup
     ):
         from temporalio.service import RPCError, RPCStatusCode
 
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
+        mock_sandbox_class.return_value.get_by_id.return_value.is_running.return_value = stopping
         run.status = run_status
         if stopping:
             run.state = {**run.state, "cancel_requested_at": django_timezone.now().isoformat()}

@@ -119,12 +119,15 @@ import type {
   TaskRunStateField,
 } from "../types";
 import { resourceLink } from "../utils/acp-content";
-import { withAbort, withTimeout } from "../utils/common";
+import { withTimeout } from "../utils/common";
 import { createEventIdSource } from "../utils/event-id";
 import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
 import { resolveGithubToken } from "../utils/github-token";
 import { Logger } from "../utils/logger";
-import { redactClaudeTokens } from "../utils/redact-claude-tokens";
+import {
+  ClaudeTokenEventRedactor,
+  redactClaudeTokens,
+} from "../utils/redact-claude-tokens";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
 import { AgentBootTracker } from "./boot-phases";
 import {
@@ -507,6 +510,7 @@ export class AgentServer {
   private initializingSseController: SseController | null = null;
   private initializingTelemetry: OtelRunTelemetry | undefined;
   private pendingEvents: Record<string, unknown>[] = [];
+  private tokenEventRedactor = new ClaudeTokenEventRedactor();
   /** ACP notifications emitted by newSession/resumeSession before this.session is assigned. */
   private preSessionEvents: Record<string, unknown>[] = [];
   private deliveredMessageIds = new Set<string>();
@@ -1065,7 +1069,6 @@ export class AgentServer {
 
   private async cleanupInitializingConnection(): Promise<void> {
     const connection = this.initializingConnection;
-    this.initializingConnection = null;
     await withTimeout(connection?.cleanup() ?? Promise.resolve(), 5_000);
   }
 
@@ -1742,13 +1745,9 @@ export class AgentServer {
     work: () => Promise<T>,
   ): Promise<T> {
     this.shutdownController.signal.throwIfAborted();
-    const result = await withAbort(
-      this.bootTracker.measure(phase, work),
-      this.shutdownController.signal,
-    );
-    if (result.result === "aborted")
-      throw new CredentialRelayError("cancelled");
-    return result.value;
+    const result = await this.bootTracker.measure(phase, work);
+    this.shutdownController.signal.throwIfAborted();
+    return result;
   }
 
   private async initializeSession(
@@ -1823,6 +1822,7 @@ export class AgentServer {
       throw error;
     } finally {
       await this.cleanupInitializingConnection();
+      this.initializingConnection = null;
       this.initializingTelemetry = undefined;
       this.initializationPromise = null;
       this.initializingSseController = null;
@@ -2239,6 +2239,7 @@ export class AgentServer {
           }
         }
         if (!sessionId) {
+          this.shutdownController.signal.throwIfAborted();
           const restoredNativeGoal =
             this.getNativeGoalForFreshSession(runtimeAdapter);
           effectiveSessionMeta = restoredNativeGoal
@@ -5887,7 +5888,12 @@ ${commonInstructions}
   }
 
   private broadcastEvent(event: Record<string, unknown>): void {
-    event = redactClaudeTokens(event) as Record<string, unknown>;
+    for (const redacted of this.tokenEventRedactor.redact(event)) {
+      this.deliverEvent(redacted);
+    }
+  }
+
+  private deliverEvent(event: Record<string, unknown>): void {
     this.eventStreamSender?.enqueue(event);
 
     const controller =

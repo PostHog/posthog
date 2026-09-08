@@ -5305,6 +5305,14 @@ export class SessionService {
 
       runtimeOptions = getCloudRuntimeOptions(session, previousRun);
       if (previousState.claude_model_access === "own-subscription") {
+        if (session.isTaskAuthor === false) {
+          const task = await authCredentials.client.getTask(session.taskId);
+          if (task.channel) {
+            throw new Error(
+              "Only the person who created this task can resume it. Start a new task to continue.",
+            );
+          }
+        }
         await this.resolveClaudeCloudModelAccess("own-subscription");
       }
       const artifactIds = await this.d.h.uploadTaskStagedAttachments(
@@ -5326,6 +5334,10 @@ export class SessionService {
             reasoningLevel: runtimeOptions.reasoningLevel,
             initialPermissionMode: runtimeOptions.initialPermissionMode,
             resumeFromRunId: session.taskRunId,
+            claudeModelAccess:
+              previousState.claude_model_access === "own-subscription"
+                ? "own-subscription"
+                : undefined,
             pendingUserMessage: transport.messageText,
             pendingUserArtifactIds:
               artifactIds.length > 0 ? artifactIds : undefined,

@@ -9,7 +9,7 @@ from parameterized import parameterized
 
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_EU, ARRAY_APP_CLIENT_ID_US
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.presentation.serializers import (
@@ -114,15 +114,21 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
 
     @parameterized.expand(
         [
-            (TaskRunCreateRequestSerializer, False),
-            (TaskRunBootstrapCreateRequestSerializer, False),
-            (TaskRunCreateRequestSerializer, True),
+            (serializer_class, resume, client_id, sandbox)
+            for serializer_class, resume in [
+                (TaskRunCreateRequestSerializer, False),
+                (TaskRunBootstrapCreateRequestSerializer, False),
+                (TaskRunCreateRequestSerializer, True),
+            ]
+            for client_id in [ARRAY_APP_CLIENT_ID_US, ARRAY_APP_CLIENT_ID_EU]
+            for sandbox in [False, True]
         ]
     )
-    def test_sandbox_cannot_select_subscription(self, serializer_class, resume) -> None:
+    def test_subscription_checks_oauth_origin(self, serializer_class, resume, client_id, sandbox) -> None:
         authenticator = OAuthAccessTokenAuthentication()
         authenticator.access_token = OAuthAccessToken(
-            application=OAuthApplication(client_id=next(iter(SANDBOX_OAUTH_APP_CLIENT_IDS)))
+            application=OAuthApplication(client_id=client_id),
+            scope="task:write internal_run:read" if sandbox else "task:write",
         )
         serializer = serializer_class(
             data={"resume_from_run_id": "00000000-0000-0000-0000-000000000001"}
@@ -139,8 +145,9 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
             "get_task_run_detail",
             return_value=SimpleNamespace(state={"claude_model_access": "own-subscription"}),
         ):
-            assert not serializer.is_valid()
-        assert "claude_model_access" in serializer.errors
+            assert serializer.is_valid() is (not sandbox and not resume), serializer.errors
+        if sandbox or resume:
+            assert "claude_model_access" in serializer.errors
 
     @patch(
         "posthog.security.url_validation.resolve_host_ips",

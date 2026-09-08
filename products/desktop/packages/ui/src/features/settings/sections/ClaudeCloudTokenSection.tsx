@@ -30,6 +30,7 @@ export function ClaudeCloudTokenSection({
     queryKey: claudeSubscriptionTokenQueryKey,
     queryFn: () => tokenStore?.has() ?? Promise.resolve(false),
     enabled: !!tokenStore,
+    retry: false,
   });
   const [tokenDraft, setTokenDraft] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
