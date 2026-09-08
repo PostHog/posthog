@@ -31,6 +31,7 @@ TASK_RUN_STREAM_SEQUENCE_TIMEOUT = int(SANDBOX_EVENT_INGEST_TOKEN_TTL.total_seco
 TASK_RUN_STREAM_WATCHED_TIMEOUT = 5 * 60
 TASK_RUN_STREAM_WATCHED_CACHE_SECONDS = 2.0
 TASK_RUN_STREAM_WATCHED_REFRESH_INTERVAL_SECONDS = 120.0
+TASK_RUN_STREAM_RELAY_ACTIVITY_REFRESH_INTERVAL_SECONDS = 10.0
 TASK_RUN_STREAM_PREFIX = "task-run-stream:"
 TASK_RUN_STREAM_READ_COUNT = 16
 # XREAD BLOCK is push-based (XADD wakes the blocked client immediately), so a
@@ -190,6 +191,7 @@ class TaskRunRedisStream:
         self._origin_product = origin_product
         self._watched_cached_until = 0.0
         self._last_watched_refresh_at: float | None = None
+        self._last_relay_activity_at: float | None = None
 
     async def initialize(self) -> None:
         """Set expiry on the stream key to prevent unbounded growth."""
@@ -426,11 +428,18 @@ class TaskRunRedisStream:
         return active_raw in (b"1", "1")
 
     async def record_relay_activity(self) -> None:
+        now = time.monotonic()
+        if (
+            self._last_relay_activity_at is not None
+            and now - self._last_relay_activity_at < TASK_RUN_STREAM_RELAY_ACTIVITY_REFRESH_INTERVAL_SECONDS
+        ):
+            return
         await self._redis_client.set(
             get_task_run_stream_relay_activity_key(self._stream_key),
             str(time.time()),
             ex=self._timeout,
         )
+        self._last_relay_activity_at = now
 
     async def get_relay_activity_at(self) -> float | None:
         activity_raw = await self._redis_client.get(get_task_run_stream_relay_activity_key(self._stream_key))

@@ -840,6 +840,8 @@ class TestPollForTurnTimeoutDiagnosis:
             [
                 _user_message_line("scan the project"),
                 json.dumps({"notification": {"method": "_posthog/sdk_session", "params": {}}}),
+                json.dumps({"notification": {"method": "_posthog/run_started", "params": {}}}),
+                json.dumps({"notification": {"method": "_posthog/agent_command_dispatched", "params": {}}}),
                 *lifecycle_updates,
                 _console_line("agentsh network events"),
             ]

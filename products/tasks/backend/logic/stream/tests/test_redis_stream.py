@@ -3,7 +3,7 @@ from collections.abc import Awaitable, Callable
 from uuid import uuid4
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from products.tasks.backend.logic.stream.redis_stream import (
     DATA_KEY,
@@ -45,6 +45,23 @@ async def test_record_relay_activity_round_trips_timestamp() -> None:
 
         assert await redis_stream.get_relay_activity_at() is not None
     finally:
+        await redis_stream.delete_stream()
+
+
+@pytest.mark.asyncio
+async def test_record_relay_activity_throttles_redis_writes() -> None:
+    redis_stream = _new_stream()
+    original_set = redis_stream._redis_client.set
+    redis_stream._redis_client.set = AsyncMock(wraps=original_set)
+    try:
+        with patch("products.tasks.backend.logic.stream.redis_stream.time.monotonic", side_effect=[100, 105, 111]):
+            await redis_stream.record_relay_activity()
+            await redis_stream.record_relay_activity()
+            await redis_stream.record_relay_activity()
+
+        assert redis_stream._redis_client.set.await_count == 2
+    finally:
+        redis_stream._redis_client.set = original_set
         await redis_stream.delete_stream()
 
 

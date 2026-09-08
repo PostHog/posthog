@@ -162,10 +162,18 @@ class TestSandboxJwtRotation(SimpleTestCase):
     def test_ingest_token_carries_pinned_presence_gating(self, gated: bool) -> None:
         reset_sandbox_jwt_key_cache()
         token = create_sandbox_event_ingest_token(
-            _fake_run({"stream_presence_gated": gated, "stream_thin_tail": gated}, "signals_scout")
+            _fake_run(
+                {
+                    "stream_presence_gated": gated,
+                    "stream_thin_tail": gated,
+                    "use_dedicated_stream": gated,
+                },
+                "signals_scout",
+            )
         )
 
         payload = validate_sandbox_event_ingest_token(token)
+        self.assertIs(payload.use_dedicated_stream, gated)
         self.assertIs(payload.presence_gated, gated)
         self.assertIs(payload.thin_tail, gated)
         self.assertEqual(payload.origin_product, "signals_scout")
