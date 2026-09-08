@@ -72,7 +72,6 @@ vi.mock("@posthog/quill", async (importOriginal) => ({
   PopoverContent: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
   ),
-  Spinner: () => <div>Loading</div>,
   Switch: ({
     checked,
     onCheckedChange,

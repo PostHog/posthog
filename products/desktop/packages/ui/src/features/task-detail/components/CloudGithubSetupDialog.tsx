@@ -19,12 +19,12 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-  Spinner,
 } from "@posthog/quill";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useGithubConnect } from "@posthog/ui/features/integrations/useGithubUserConnect";
 import { useRepositoryIntegration } from "@posthog/ui/features/integrations/useIntegrations";
 import Logo from "@posthog/ui/primitives/Logo";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useRendererWindowFocusStore } from "@posthog/ui/shell/rendererWindowFocusStore";
 import { openUrlInBrowser } from "@posthog/ui/utils/browser";
 import { domAnimation, LazyMotion, m, useReducedMotion } from "framer-motion";

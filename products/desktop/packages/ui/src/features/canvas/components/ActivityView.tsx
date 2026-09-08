@@ -8,7 +8,6 @@ import {
   EmptyMedia,
   EmptyTitle,
   MenuLabel,
-  Spinner,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
@@ -27,6 +26,7 @@ import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayS
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { track } from "@posthog/ui/shell/analytics";
 import { Fragment, useCallback, useEffect, useMemo } from "react";
 import {
@@ -133,9 +133,7 @@ export function ActivityView() {
   // the layout's naming ("spaces" vs "channels").
   const feed =
     isLoading && feedItems.length === 0 ? (
-      <div className="flex justify-center py-16">
-        <Spinner />
-      </div>
+      <LoadingState className="py-16" />
     ) : feedItems.length === 0 ? (
       <>
         <Empty>
