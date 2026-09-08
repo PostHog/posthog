@@ -78,10 +78,23 @@ describe('exec tool', () => {
     // an agent that routes every call through `exec` cannot report a gap at all, which is
     // the only route the CLI has.
     describe('missing-capability tool', () => {
+        // Stands in for what the SDK appends to `tools/list`. The wording is deliberately not
+        // the SDK's own, so a copy change upstream does not fail these tests.
+        const descriptor = {
+            name: 'get_more_tools',
+            description: 'Report a capability this server does not have.',
+            inputSchema: {
+                type: 'object',
+                properties: { context: { type: 'string', description: 'What you wanted to do.' } },
+                required: ['context'],
+            },
+            annotations: { title: 'Get More Tools', readOnlyHint: true },
+        }
+
         function createExecWithReporter(reported: string[]): Tool<any> {
             return createExec([makeMockTool()], undefined, {
                 missingCapability: {
-                    toolName: 'get_more_tools',
+                    descriptor,
                     report: (context: string) => reported.push(context),
                 },
             })
@@ -109,6 +122,54 @@ describe('exec tool', () => {
 
             await expect(exec.handler(mockContext, { command })).rejects.toThrow('Usage: call get_more_tools')
             expect(reported).toEqual([])
+        })
+
+        // `tools/list` advertises the virtual tool, and the exec description tells an agent to
+        // run `info <tool_name>` before calling something. A verb that still resolves the name
+        // through the roster answers "Unknown tool" for a tool the agent was just offered.
+        it('lists the virtual tool last in the roster', async () => {
+            const exec = createExecWithReporter([])
+
+            const result = await exec.handler(mockContext, { command: 'tools' })
+
+            expect(JSON.parse(String(result))).toEqual(['mock-tool', 'get_more_tools'])
+        })
+
+        it('describes the virtual tool from the descriptor instead of rejecting the name', async () => {
+            const exec = createExecWithReporter([])
+
+            const result = await exec.handler(mockContext, { command: 'info --json get_more_tools' })
+
+            expect(JSON.parse(String(result))).toMatchObject({
+                name: 'get_more_tools',
+                description: 'Report a capability this server does not have.',
+                inputSchema: { required: ['context'] },
+            })
+        })
+
+        it('answers schema for the virtual tool with the advertised input schema', async () => {
+            const exec = createExecWithReporter([])
+
+            const result = await exec.handler(mockContext, { command: 'schema get_more_tools' })
+
+            expect(JSON.parse(String(result))).toEqual(descriptor.inputSchema)
+        })
+
+        it.each([
+            { verb: 'info', command: 'info get_more_tools' },
+            { verb: 'schema', command: 'schema get_more_tools' },
+        ])('leaves $verb unknown when the runtime reports no missing capability', async ({ command }) => {
+            const exec = createExec([makeMockTool()])
+
+            await expect(exec.handler(mockContext, { command })).rejects.toThrow('Unknown tool')
+        })
+
+        it('keeps the virtual tool out of the roster when the runtime cannot report', async () => {
+            const exec = createExec([makeMockTool()])
+
+            const result = await exec.handler(mockContext, { command: 'tools' })
+
+            expect(JSON.parse(String(result))).toEqual(['mock-tool'])
         })
 
         it('leaves the name unknown when the runtime reports no missing capability', async () => {

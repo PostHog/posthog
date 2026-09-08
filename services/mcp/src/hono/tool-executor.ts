@@ -22,7 +22,7 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
 import { getPostHogClient } from '@/lib/posthog'
-import { missingCapabilityToolName } from '@/lib/posthog/analytics'
+import { missingCapabilityDescriptor } from '@/lib/posthog/analytics'
 import {
     createExecTool,
     describeApiValidationError,
@@ -588,7 +588,7 @@ export class ToolExecutor {
         const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
         // `tools/list` advertises the SDK's virtual tool next to `exec`, so an agent that
         // routes every call through `exec` must be able to reach it there too.
-        const virtualToolName = missingCapabilityToolName(getPostHogClient())
+        const virtualTool = missingCapabilityDescriptor(getPostHogClient())
 
         // CLI `info execute-sql` returns the tool's static description from the catalog.
         // Override it with the same prompt tools-mode advertises, so the
@@ -620,10 +620,10 @@ export class ToolExecutor {
                 trackCommand: (meta) => {
                     execMetrics.commandMeta = { ...execMetrics.commandMeta, ...meta }
                 },
-                ...(virtualToolName
+                ...(virtualTool
                     ? {
                           missingCapability: {
-                              toolName: virtualToolName,
+                              descriptor: virtualTool,
                               report: (context: string) => void trackMissingCapability(context, state),
                           },
                       }

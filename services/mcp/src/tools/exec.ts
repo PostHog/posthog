@@ -117,6 +117,18 @@ export interface ExecCommandMeta {
 
 export type ExecCommandTracker = (meta: ExecCommandMeta) => void
 
+/**
+ * The analytics SDK's descriptor for its virtual tool, in the shape `tools/list` carries it.
+ * Declared structurally rather than imported, so `exec` stays independent of the SDK and of
+ * whichever runtime holds the client.
+ */
+export type MissingCapabilityDescriptor = {
+    name: string
+    description?: string
+    inputSchema?: { type?: string; properties?: Record<string, unknown>; required?: string[] }
+    annotations?: Record<string, unknown> & { title?: string }
+}
+
 export interface ExecToolOptions {
     requireDestructiveConfirmation?: boolean
     helpCatalog?: ExecHelpCatalog
@@ -144,13 +156,16 @@ export interface ExecToolOptions {
     /**
      * Answers the analytics SDK's `get_more_tools` virtual tool, which reports a capability
      * this server does not have. The SDK advertises it on `tools/list` and never puts it in
-     * the tool roster, so `call` has to recognize the name before it searches the roster.
-     * Runtimes that do not capture the report leave this unset, and the name then fails as
-     * an unknown tool like any other.
+     * the tool roster, so every verb that resolves a name has to recognize it before it
+     * searches the roster. Runtimes that do not capture the report leave this unset, and the
+     * name then fails as an unknown tool like any other.
      */
     missingCapability?: {
-        /** Resolved by the SDK, so exec and `tools/list` accept the same name. */
-        toolName: string
+        /**
+         * The SDK's own descriptor, so `tools`, `info`, `schema`, and `call` all answer for
+         * exactly the name and input schema that `tools/list` advertised.
+         */
+        descriptor: MissingCapabilityDescriptor
         /** Records the agent's description of the gap. */
         report: (context: string) => void
     }
@@ -857,7 +872,7 @@ function handleMissingCapabilityCall(
     const context = typeof input?.context === 'string' ? input.context.trim() : ''
     if (!context) {
         throw new ExecCommandError(
-            `Usage: call ${missingCapability.toolName} {"context": "<what you wanted to do and could not>"}`,
+            `Usage: call ${missingCapability.descriptor.name} {"context": "<what you wanted to do and could not>"}`,
             'usage'
         )
     }
@@ -867,6 +882,24 @@ function handleMissingCapabilityCall(
     return getMoreToolsResult()
         .content.map((block) => block.text)
         .join('\n')
+}
+
+/**
+ * Renders the SDK's descriptor in the shape `info` uses for a catalog tool. The virtual tool
+ * reaches no roster, so without this `info` would reject the name `tools/list` just advertised
+ * while `call` accepted it.
+ */
+function describeMissingCapabilityTool(descriptor: MissingCapabilityDescriptor, forceJson: boolean): string {
+    const topShape = {
+        name: descriptor.name,
+        title: descriptor.annotations?.title,
+        description: descriptor.description,
+        annotations: descriptor.annotations,
+    }
+    if (forceJson) {
+        return JSON.stringify({ ...topShape, inputSchema: descriptor.inputSchema })
+    }
+    return stringifyYaml({ ...topShape, inputSchema: JSON.stringify(descriptor.inputSchema) }, { lineWidth: 0 })
 }
 
 /** A lowercase hyphenated token, the shape every name in the tool catalog takes. */
@@ -1017,6 +1050,11 @@ export function createExecTool(
 
                 case 'tools': {
                     const names = allTools.map((t) => t.name)
+                    // The SDK appends its virtual tool at the end of `tools/list`; list it in the
+                    // same place, so the roster an agent reads here matches what `call` accepts.
+                    if (options.missingCapability) {
+                        names.push(options.missingCapability.descriptor.name)
+                    }
                     const connected = await resolveConnectedSummary(resolveTools, allTools.length)
                     if (!connected) {
                         return JSON.stringify(names)
@@ -1128,6 +1166,9 @@ export function createExecTool(
                     if (!infoArgs) {
                         throw new ExecCommandError('Usage: info [--json] <tool_name>', 'usage')
                     }
+                    if (options.missingCapability && infoArgs === options.missingCapability.descriptor.name) {
+                        return describeMissingCapabilityTool(options.missingCapability.descriptor, forceJson)
+                    }
                     const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, infoArgs)
                     // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
                     // validation: fields with a Zod `.default()` (e.g. a query `kind` discriminator)
@@ -1173,6 +1214,9 @@ export function createExecTool(
                         throw new ExecCommandError('Usage: schema <tool_name> [field_path]', 'usage')
                     }
                     const { verb: schemaToolName, rest: fieldPath } = parseCommand(rest)
+                    if (options.missingCapability && schemaToolName === options.missingCapability.descriptor.name) {
+                        return JSON.stringify(options.missingCapability.descriptor.inputSchema ?? {})
+                    }
                     const schemaTool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, schemaToolName)
                     // See the `info` command: `io: 'input'` keeps this in sync with the advertised
                     // schema and validation, so `.default()` fields aren't shown as required.
@@ -1230,7 +1274,7 @@ export function createExecTool(
                         throw new ExecCommandError('Usage: call [--json] [--confirm] <tool_name> <json_input>', 'usage')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
-                    if (options.missingCapability && toolName === options.missingCapability.toolName) {
+                    if (options.missingCapability && toolName === options.missingCapability.descriptor.name) {
                         return handleMissingCapabilityCall(options.missingCapability, jsonBody)
                     }
                     const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, toolName)

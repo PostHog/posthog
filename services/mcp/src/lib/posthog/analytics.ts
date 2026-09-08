@@ -1,5 +1,7 @@
 import type { PostHogMCP } from '@posthog/mcp-analytics'
 
+import type { MissingCapabilityDescriptor } from '@/tools/exec'
+
 export enum AnalyticsEvent {
     MCP_PROJECT_SWITCHED = 'mcp project switched',
     MCP_ORGANIZATION_SWITCHED = 'mcp organization switched',
@@ -8,18 +10,19 @@ export enum AnalyticsEvent {
 }
 
 /**
- * The name the analytics SDK advertises its missing-capability virtual tool under.
+ * The descriptor the analytics SDK advertises its missing-capability virtual tool under.
  *
- * The SDK owns that name and does not export it, so read it back from the tool list it
- * prepares. A configured `missingCapabilityToolName` is then honored instead of assumed,
- * which keeps every dispatcher accepting exactly the name `tools/list` advertised. Takes the
- * client rather than resolving it, because the runtimes that need this hold their own.
- * Returns undefined when the SDK appends no tool, and callers then treat the name as unknown.
+ * The SDK owns the name and the input schema and exports neither, so read them back from the
+ * tool list it prepares. A configured `missingCapabilityToolName` is then honored instead of
+ * assumed, which keeps every dispatcher answering for exactly what `tools/list` advertised.
+ * Takes the client rather than resolving it, because the runtimes that need this hold their
+ * own. Returns undefined when the SDK appends no tool, and callers then treat the name as
+ * unknown.
  */
-export function missingCapabilityToolName(client: PostHogMCP): string | undefined {
+export function missingCapabilityDescriptor(client: PostHogMCP): MissingCapabilityDescriptor | undefined {
     try {
-        const [descriptor] = client.prepareToolList<{ name: string }>([], { reportMissing: true })
-        return descriptor?.name
+        const [descriptor] = client.prepareToolList<MissingCapabilityDescriptor>([], { reportMissing: true })
+        return descriptor
     } catch {
         return undefined
     }
