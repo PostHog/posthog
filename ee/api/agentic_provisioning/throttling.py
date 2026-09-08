@@ -10,6 +10,9 @@ limits keyed on something other than a partner:
   granular wizard_runs action and the bundled account_requests wizard block.
 - :class:`RegionProxyThrottle`, per IP, checked by the region proxy in
   ``dispatch`` before DRF has authenticated the caller.
+- ``enforce_caller_ip_cap`` and ``enforce_caller_email_caps``, per caller IP
+  and per normalized email, on account_requests: a partner budget alone lets
+  an abuser reset every limit by self-registering a new partner.
 
 These are fixed-window cache counters: a caller can burst up to 2x a limit
 across a window boundary (``limit`` at :59:59 plus ``limit`` at :00:00).
@@ -22,6 +25,7 @@ from hashlib import sha256
 from typing import ClassVar, cast
 from urllib.parse import urlparse
 
+from django.conf import settings
 from django.core.cache import cache
 from django.http import HttpRequest
 
@@ -33,11 +37,18 @@ from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
 from posthog.api.oauth import cimd
+from posthog.llm.wizard_blocklist import blocklist_properties
 from posthog.models.oauth import OAuthApplication
+from posthog.models.oauth_provisioning import PartnerTier
 from posthog.rate_limit import IPThrottle
+from posthog.utils import get_trusted_client_ip
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.constants import (
+    CALLER_ACCOUNT_REQUEST_WINDOW_SECONDS,
+    CALLER_DOMAIN_RATE_LIMIT_PREFIX,
+    CALLER_EMAIL_ROOT_RATE_LIMIT_PREFIX,
+    CALLER_IP_RATE_LIMIT_PREFIX,
     CIMD_DOMAIN_RATE_LIMIT_MAX,
     CIMD_DOMAIN_RATE_LIMIT_PREFIX,
     CIMD_DOMAIN_RATE_LIMIT_WINDOW_SECONDS,
@@ -45,6 +56,7 @@ from ee.api.agentic_provisioning.constants import (
     CLIENT_REGISTRATION_RATE_LIMIT_MAX,
     CLIENT_REGISTRATION_RATE_LIMIT_PREFIX,
     CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS,
+    PROVISIONING_FREE_EMAIL_DOMAINS,
     REGION_PROXY_RATE_LIMIT,
     WIZARD_RUN_USER_RATE_LIMIT_PREFIX,
     WIZARD_RUN_USER_RATE_LIMITS,
@@ -124,6 +136,70 @@ def enforce_wizard_run_user_rate_limit(user_id: int, resource_id: str = "") -> N
                 resource_id=resource_id,
                 retry_after=_window_retry_after(window_seconds),
             )
+
+
+def _enforce_caller_cap(partner: OAuthApplication, *, key_kind: str, value: str, limit: int, prefix: str) -> None:
+    window_index = int(time.time()) // CALLER_ACCOUNT_REQUEST_WINDOW_SECONDS
+    cache_key = f"{prefix}{sha256(value.encode()).hexdigest()}:{window_index}"
+    if _fixed_window_count(cache_key, CALLER_ACCOUNT_REQUEST_WINDOW_SECONDS) > limit:
+        capture_provisioning_event("account_request", "caller_rate_limited", partner=partner, key_kind=key_kind)
+        raise ProvisioningError(
+            "rate_limited",
+            "Too many account requests from this caller. Try again later.",
+            status=429,
+            retry_after=_window_retry_after(CALLER_ACCOUNT_REQUEST_WINDOW_SECONDS),
+        )
+
+
+def enforce_caller_ip_cap(request: Request, partner: OAuthApplication) -> None:
+    """Per-IP daily ceiling on account_requests, independent of the partner's own budget.
+
+    Skipped for JWKS-tier partners: a confidential partner calls from its own servers,
+    so many requests sharing one IP is ordinary traffic rather than abuse. Also skipped
+    when the caller's IP can't be validated against the trusted-proxy chain (a direct
+    caller outside TRUSTED_PROXIES, or a cross-region proxy hop it doesn't cover) rather
+    than falling back to a shared key, which would let every such caller throttle
+    each other on one bucket.
+    """
+    if partner.partner_tier in (PartnerTier.JWKS, PartnerTier.JWKS_ATTESTED):
+        return
+    ip = get_trusted_client_ip(request)
+    if ip is None:
+        return
+    _enforce_caller_cap(
+        partner,
+        key_kind="ip",
+        value=ip,
+        limit=settings.PROVISIONING_ACCOUNT_REQUESTS_PER_IP_PER_DAY,
+        prefix=CALLER_IP_RATE_LIMIT_PREFIX,
+    )
+
+
+def enforce_caller_email_caps(partner: OAuthApplication, email: str) -> None:
+    """Per-email-root and per-domain daily ceilings on account_requests that create a
+    new user. Call only once ``existing_user`` resolves to None: an existing account is
+    routed to consent rather than created, so counting it here would cap a caller for a
+    request that spent no partner budget and created no account.
+    """
+    properties = blocklist_properties(email=email)
+    email_root = properties["email_root"]
+    if email_root:
+        _enforce_caller_cap(
+            partner,
+            key_kind="email_root",
+            value=email_root,
+            limit=settings.PROVISIONING_ACCOUNT_REQUESTS_PER_EMAIL_ROOT_PER_DAY,
+            prefix=CALLER_EMAIL_ROOT_RATE_LIMIT_PREFIX,
+        )
+    domain = properties["email_domain"]
+    if domain and domain not in PROVISIONING_FREE_EMAIL_DOMAINS:
+        _enforce_caller_cap(
+            partner,
+            key_kind="domain",
+            value=domain,
+            limit=settings.PROVISIONING_ACCOUNT_REQUESTS_PER_DOMAIN_PER_DAY,
+            prefix=CALLER_DOMAIN_RATE_LIMIT_PREFIX,
+        )
 
 
 class ClientRegistrationThrottle(BaseThrottle):

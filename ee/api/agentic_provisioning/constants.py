@@ -55,6 +55,32 @@ WIZARD_RUN_USER_RATE_LIMITS: list[tuple[str, int, int]] = [
 # how many workers one caller can tie up.
 REGION_PROXY_RATE_LIMIT = "300/minute"
 
+# Keyed on the caller, not the partner: anyone can self-register a partner, so a
+# partner-only limit resets on every registration. The limits are Django settings.
+CALLER_ACCOUNT_REQUEST_WINDOW_SECONDS = 86400
+CALLER_IP_RATE_LIMIT_PREFIX = "provisioning_caller_ip:"
+CALLER_EMAIL_ROOT_RATE_LIMIT_PREFIX = "provisioning_caller_email_root:"
+CALLER_DOMAIN_RATE_LIMIT_PREFIX = "provisioning_caller_domain:"
+
+# Providers whose users share a handful of domains by the millions, so a per-domain cap
+# would throttle unrelated legitimate signups instead of the abuser it targets.
+PROVISIONING_FREE_EMAIL_DOMAINS = frozenset(
+    {
+        "gmail.com",
+        "googlemail.com",
+        "yahoo.com",
+        "outlook.com",
+        "hotmail.com",
+        "live.com",
+        "icloud.com",
+        "me.com",
+        "aol.com",
+        "proton.me",
+        "protonmail.com",
+        "fastmail.com",
+    }
+)
+
 # Matches the state parameter allowed by the auth endpoint's RFC 7636 spec.
 SAFE_STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,256}$")
 CODE_CHALLENGE_RE = re.compile(r"[A-Za-z0-9_\-]+")

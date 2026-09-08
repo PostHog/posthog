@@ -5,15 +5,19 @@ The check order here is part of the observable wire behavior (which error a
 request with several problems gets, and whether it consumes partner quota), so
 the checks run explicitly in the handler rather than via DRF's auth/permission
 hooks: CIMD throttle → partner identification → body validation → partner
-capability → partner rate limit → PKCE validation.
+capability → caller IP cap → partner rate limit → wizard blocklist → PKCE
+validation → (new user only) caller email/domain caps.
 """
 
 from __future__ import annotations
+
+from hashlib import sha256
 
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.llm.wizard_blocklist import wizard_identity_blocked
 from posthog.models.user import User
 from posthog.scopes import effective_ceiling
 
@@ -24,7 +28,11 @@ from ee.api.agentic_provisioning.constants import CODE_CHALLENGE_RE
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.ratelimits import Budget, rate_limited
 from ee.api.agentic_provisioning.serializers import AccountRequestSerializer
-from ee.api.agentic_provisioning.throttling import CIMDRegistrationThrottle
+from ee.api.agentic_provisioning.throttling import (
+    CIMDRegistrationThrottle,
+    enforce_caller_email_caps,
+    enforce_caller_ip_cap,
+)
 from ee.api.agentic_provisioning.views.base import ProvisioningAPIView
 
 
@@ -77,7 +85,22 @@ class AccountRequestsView(ProvisioningAPIView):
             capture_provisioning_event("account_request", "error", error_code="account_creation_disabled")
             raise ProvisioningError("forbidden", "Account creation is not enabled for this partner", status=403)
 
+        # Before charging the partner budget: a caller over its own cap must not
+        # spend it, however many partners it has registered.
+        enforce_caller_ip_cap(request, partner)
+
         self.charge_rate_limit(request, partner)
+
+        if wizard_identity_blocked(
+            # No user exists yet to carry a distinct_id, so hash the address itself.
+            distinct_id=sha256(email.strip().lower().encode()).hexdigest(),
+            email=email,
+            surface="account_requests",
+        ):
+            capture_provisioning_event("account_request", "blocked", partner=partner)
+            raise ProvisioningError(
+                "forbidden", "Account creation is not available for this email address.", status=403
+            )
 
         # PKCE: capture code_challenge for later verification
         code_challenge = data["code_challenge"]
@@ -107,6 +130,8 @@ class AccountRequestsView(ProvisioningAPIView):
                     code_challenge_method=code_challenge_method,
                 )
             )
+
+        enforce_caller_email_caps(partner, email)
 
         return Response(
             handle_new_user(
