@@ -93,18 +93,15 @@
 #   the pool, as canonical did before this cache existed) until then: bounded, documented, and
 #   harmless because the shadow never gates merges.
 # - GITHUB_TOKEN / OTEL_SERVICE_NAME neutralized (ambient on Depot, not on GHA)
-# - GitHub App tokens: the paths-filter, setup-action (devex-general, product-tests) and
-#   assign-reviewers mints are mirrored verbatim; their vars.* / secrets.* resolve from
-#   Depot's store, not GitHub's. Depot's ambient GITHUB_TOKEN is the Depot Code Access
-#   installation token, one 15k/hr bucket shared by every Depot CI job across repos, so a
-#   mint that fails or is skipped falls back onto that bucket. Mints whose only consumer is
-#   a stripped side effect (migration-risk check run, OpenAPI auto-commit, snapshot commit,
-#   telemetry) are stripped with it.
+# - GitHub App tokens: the mint steps' vars.* / secrets.* resolve from Depot's store, not
+#   GitHub's. A name missing there makes the setup-action mints (continue-on-error) fall
+#   back to the ambient GITHUB_TOKEN, the Depot Code Access installation token that every
+#   Depot CI job across repos shares, and fails the paths-filter mint outright. Mints whose
+#   only consumer is a stripped side effect (migration-risk check run, OpenAPI auto-commit,
+#   snapshot commit, telemetry) are stripped with it.
 # - `depot ci run` fires with event_name `api`; the sample gate treats it like
-#   workflow_dispatch so a branch can be trialled without a push. Depot caps an inline
-#   workflow at 64 KiB and this file is larger, so the working branch trial is
-#   `depot ci dispatch --workflow ci-backend.yml --ref <branch>`, which runs the ref's
-#   copy of a workflow that also exists on master.
+#   workflow_dispatch. Depot caps an inline workflow at 64 KiB, which this file exceeds, so
+#   trial a branch with `depot ci dispatch --workflow ci-backend.yml --ref <branch>` instead.
 # - Three data-modeling tests deselected (Depot-only MinIO 403 quarantine)
 # - COMPOSE_PROJECT_NAME pinned to posthog because bin/wait-for-docker filters by that
 #   project name and checkout directory names are not stable across CI providers
@@ -143,8 +140,7 @@ name: '[optional, does not block merge] Backend CI'
 # master switch and the eligible pull_request sample rate: when >0, source PR runs are sampled
 # at that percent. Trunk merge-queue PRs and draft PRs labeled `no-ci` are excluded before a
 # runner is allocated. Master (push) runs only check-migrations to prime the schema cache (test
-# matrices are skipped there); workflow_dispatch and `depot ci run` (event `api`) always run. The
-# `sample` job rolls deterministic
+# matrices are skipped there); manual triggers always run. The `sample` job rolls deterministic
 # per-run dice; `changes` (root of the needs graph) only runs when sampled in, so the whole
 # workflow cascades off on a miss. This is a Depot variable, NOT a GitHub one —
 # Depot CI reads its own `vars` store. Set it with:
@@ -228,12 +224,13 @@ permissions:
     actions: read
     pull-requests: read
 jobs:
-    # Manual dispatch bypasses sampling so an explicit full run cannot silently no-op.
+    # A manual trigger bypasses sampling so an explicit full run cannot silently no-op.
     # Automatic runs still require a nonzero sampling percentage. Exclude automatic
     # runs that only duplicate work before allocating even this small runner.
     sample:
         if: >-
-            contains(fromJSON('["workflow_dispatch","api"]'), github.event_name)
+            github.event_name == 'workflow_dispatch'
+            || github.event_name == 'api'
             || (vars.CI_DEPOT_SHADOW_PERCENT != ''
                 && vars.CI_DEPOT_SHADOW_PERCENT != '0'
                 && (github.event_name != 'pull_request'
@@ -254,8 +251,8 @@ jobs:
                   EVENT: ${{ github.event_name }}
               run: |
                   set -euo pipefail
-                  # Only pull_request is sampled; push, workflow_dispatch and api (`depot ci run`) always run
-                  # when enabled (sampling them would skip cache priming or no-op a dispatch).
+                  # Only pull_request is sampled; any other event that reaches this job always
+                  # runs (sampling it would skip cache priming or no-op a manual trigger).
                   if [ "$EVENT" != "pull_request" ]; then
                       echo "sampled=true" >> "$GITHUB_OUTPUT"
                       echo "::notice::Optional Backend CI: $EVENT always runs when enabled."

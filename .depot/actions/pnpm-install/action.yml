@@ -1,6 +1,7 @@
 # Depot mirror of .github/actions/pnpm-install (same pattern as .depot/actions/setup-sqlx-cli).
-# Kept byte-for-byte equivalent to canonical except: the node-gyp chmod below (hardened for
-# Depot Cache restores). actions/cache routes to Depot Cache, so shared keys do not collide.
+# Kept equivalent to canonical except for the `inputs.install` guards and the master-gated
+# "Save pnpm store" step below. actions/cache routes to Depot Cache, so shared keys do not
+# collide.
 name: Install pnpm dependencies
 description: |
     Sets up pnpm + Node via `setup-pnpm`, restores the shared pnpm store cache,

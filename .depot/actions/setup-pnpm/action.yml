@@ -7,8 +7,6 @@ description: |
 
     Use `pnpm-install` instead when the job needs the workspace installed.
 
-    Depot shadow of .github/actions/setup-pnpm.
-
 inputs:
     node-version-file:
         description: 'File specifying the Node version.'
