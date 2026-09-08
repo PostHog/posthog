@@ -100,6 +100,27 @@ describe('reddit template', () => {
         })
     })
 
+    it('omits an empty email instead of sending the digest of an empty string', async () => {
+        const response = await tester.invokeMapping(
+            'Order Completed',
+            {
+                accountId: 'pixel-id',
+                conversionsAccessToken: 'access-token',
+            },
+            createAdDestinationPayload({
+                person: {
+                    properties: {
+                        email: '',
+                    },
+                },
+            })
+        )
+
+        expect(response.error).toBeUndefined()
+        const body = parseJSON((response.invocation.queueParameters as any).body)
+        expect(body.events[0].user).not.toHaveProperty('email')
+    })
+
     it('works with empty product properties', async () => {
         const response = await tester.invokeMapping(
             'Order Completed',

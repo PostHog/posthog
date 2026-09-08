@@ -140,7 +140,7 @@ if (res.status >= 400) {
                 'Map of Reddit user parameters and their values. Reddit expects email, ip_address and external_id as lowercase SHA-256 hex digests, and it ignores parameters sent under any other name. Check out this page for more details: https://business.reddithelp.com/s/article/manual-conversion-events-with-the-reddit-pixel',
             label: 'User parameters',
             default: {
-                email: '{sha256Hex(lower(person.properties.email))}',
+                email: '{not empty(person.properties.email) ? sha256Hex(lower(person.properties.email)) : null}',
                 screen_dimensions:
                     "{{'width': person.properties.$screen_width, 'height': person.properties.$screen_height}}",
                 user_agent: '{person.properties.$raw_user_agent}',
