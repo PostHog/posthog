@@ -776,7 +776,11 @@ def wait_for_health_check(
 def build_health_check_command(
     port: int, max_attempts: int = 60, poll_interval: float = 0.5, pid_file: str | None = None
 ) -> str:
-    process_check = f'kill -0 "$(cat {shlex.quote(pid_file)})" 2>/dev/null || exit 1; ' if pid_file is not None else ""
+    process_check = (
+        f'if [ -f {shlex.quote(pid_file)} ]; then kill -0 "$(cat {shlex.quote(pid_file)})" 2>/dev/null || exit 1; fi; '
+        if pid_file is not None
+        else ""
+    )
     return (
         f"for i in $(seq 1 {max_attempts}); do "
         f"{process_check}"

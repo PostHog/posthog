@@ -475,7 +475,9 @@ container.bind(CLOUD_TASK_AUTH).toDynamicValue((ctx) => ({
     const auth = ctx.get<AuthService>(MAIN_AUTH_SERVICE);
     const { apiHost } = await auth.getValidAccessToken();
     const teamId = auth.getState().currentProjectId;
-    return teamId === null ? null : { apiHost, teamId };
+    return teamId === null
+      ? null
+      : { apiHost, teamId, accountKey: await auth.getAccountKey() };
   },
 }));
 container.bind(MAIN_CLOUD_TASK_SERVICE).toService(CLOUD_TASK_SERVICE);

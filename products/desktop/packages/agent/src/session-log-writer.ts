@@ -269,6 +269,7 @@ export class SessionLogWriter {
         this.emitCoalescedMessage(sessionId, session);
       }
 
+      message = redactAuthorizationHeaders(message) as Record<string, unknown>;
       const nonChunkAgentText = this.extractAgentMessageText(message);
       if (nonChunkAgentText) {
         session.lastAgentMessage = nonChunkAgentText;
@@ -283,9 +284,7 @@ export class SessionLogWriter {
         ...(supersededChunks?.firstEventId
           ? { first_event_id: supersededChunks.firstEventId }
           : {}),
-        notification: redactAuthorizationHeaders(
-          message,
-        ) as StoredNotification["notification"],
+        notification: message as StoredNotification["notification"],
       };
 
       this.emitToSinks(sessionId, entry);
@@ -593,8 +592,8 @@ export class SessionLogWriter {
   private emitCoalescedMessage(sessionId: string, session: SessionState): void {
     if (!session.chunkBuffer) return;
 
-    const { text, firstTimestamp, firstEventId, lastEventId } =
-      session.chunkBuffer;
+    const { firstTimestamp, firstEventId, lastEventId } = session.chunkBuffer;
+    const text = redactClaudeTokens(session.chunkBuffer.text);
     session.chunkBuffer = undefined;
     session.lastAgentMessage = text;
     session.currentTurnMessages.push(text);

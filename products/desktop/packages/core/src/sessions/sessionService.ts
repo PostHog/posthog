@@ -5275,13 +5275,6 @@ export class SessionService {
     let updatedTask: Task;
     let runtimeOptions: CloudRuntimeOptions;
     try {
-      const artifactIds = await this.d.h.uploadTaskStagedAttachments(
-        authCredentials.client,
-        session.taskId,
-        transport.filePaths,
-        transport.skillBundles,
-      );
-
       const previousRun = await authCredentials.client.getTaskRun(
         session.taskId,
         session.taskRunId,
@@ -5314,6 +5307,12 @@ export class SessionService {
       if (previousState.claude_model_access === "own-subscription") {
         await this.resolveClaudeCloudModelAccess("own-subscription");
       }
+      const artifactIds = await this.d.h.uploadTaskStagedAttachments(
+        authCredentials.client,
+        session.taskId,
+        transport.filePaths,
+        transport.skillBundles,
+      );
 
       try {
         this.markTaskCreationInFlight(session.taskId);
@@ -7949,6 +7948,8 @@ export class SessionService {
       throw new Error("No active cloud session for task");
     }
 
+    if (session.errorRetryable === false) return;
+
     const previousErrorTitle = session.errorTitle;
     const previousErrorMessage = session.errorMessage;
     const previousErrorRetryable = session.errorRetryable;
@@ -7998,6 +7999,7 @@ export class SessionService {
     for (const session of Object.values(sessions)) {
       if (!session.isCloud) continue;
       if (session.status !== "error") continue;
+      if (session.errorRetryable === false) continue;
       this.d.log.info("Auto-retrying errored cloud session on focus", {
         taskId: session.taskId,
       });

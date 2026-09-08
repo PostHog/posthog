@@ -1106,12 +1106,13 @@ export class AgentServer {
   async reportFatalError(error: unknown): Promise<void> {
     if (error instanceof CredentialRelayError && error.code === "cancelled")
       return;
-    const errorMessage =
+    const errorMessage = redactClaudeTokens(
       error instanceof CredentialRelayError
         ? CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE
         : error instanceof Error
           ? error.message
-          : String(error);
+          : String(error),
+    );
     this.logger.error("Fatal agent-server error; marking run failed", error);
 
     try {
@@ -4865,6 +4866,7 @@ ${commonInstructions}
     errorMessage?: string,
     options?: { errorCategory?: AgentErrorClassification },
   ): Promise<void> {
+    errorMessage = redactClaudeTokens(errorMessage);
     const currentSession = this.session;
     const sessionMatchesRun = currentSession?.payload.run_id === payload.run_id;
     const terminalErrorMessage = errorMessage ?? "Agent error";

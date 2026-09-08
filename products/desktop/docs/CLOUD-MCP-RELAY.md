@@ -291,7 +291,11 @@ Only the main process reads the saved token for relay.
 This protects stored data. It does not protect a token from a compromised app process or sandbox while the token is in use.
 
 A subscription run emits a `credential_request` before initializing Claude.
-Only the Desktop that explicitly starts or continues that run may answer it, scoped to the API host, project, task, and run.
+Desktop checks the authenticated user against the server-set run owner before it accepts a token request.
+Delivery stays bound to that account, API host, project, task, and run.
+Hosts without a token store ignore token requests.
+Sandbox credentials cannot select subscription billing, including through a resumed run.
+The API checks the run owner again and blocks redirects when it forwards the token.
 Other viewers ignore the request.
 Request metadata uses the durable event stream so a late watcher can receive it.
 The `credential_response` command carries the secret in flight to sandbox memory, never into stored events, task state, logs, or analytics.
@@ -301,7 +305,9 @@ The run fails if the token does not arrive within 120 seconds, the backend flag 
 It never changes an explicit subscription choice to PostHog model billing.
 Pi hides subscription billing. Desktop omits the subscription choice from Pi requests and does not send a token.
 The API and worker reject direct Pi subscription requests before sandbox startup.
-Continuation inherits that choice; subscription runs skip prewarming because a warm Claude process has already selected its credentials.
+Continuation keeps that choice. Desktop checks the token before uploading attachments.
+Subscription runs skip prewarming because a warm Claude process has already selected its credentials.
+An unused warm run expires through its idle timeout; its cleanup does not block a subscription run.
 Sandbox compute still uses PostHog credits.
 
 Claude tokens go only to the signed-in PostHog server and project. Token requests cannot follow redirects.
@@ -309,7 +315,9 @@ Desktop checks for a token before all Claude cloud starts and resumes, including
 If delivery fails after a new run starts, Desktop cancels that run. It releases unused warm runs when the billing choice changes.
 The native Claude process reads the token from a private pipe. The token is absent from its environment and command arguments.
 The pipe is empty after Claude reads it. Child processes do not receive the token. Tool shells also clear credential variables.
-Explicit Claude settings fix the Anthropic endpoint and credential handling. Repository settings cannot replace those values.
-Logs and event streams remove Claude token strings. These controls do not protect against a compromised process with access to Claude's memory.
+Explicit Claude settings fix the Anthropic endpoint and credential handling.
+They also block proxy and custom CA settings and require TLS verification.
+Logs and event streams remove Claude token strings.
+Log redaction covers combined message chunks, buffered tool updates, cached responses, and task failures. These controls do not protect against a compromised process with access to Claude's memory.
 
 Direct event uploads stay open by default. Local development closes each batch because local proxies can buffer an open request.

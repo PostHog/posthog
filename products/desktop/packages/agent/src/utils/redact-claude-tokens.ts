@@ -1,3 +1,8 @@
+export function redactClaudeTokens(value: string): string;
+export function redactClaudeTokens(
+  value: string | undefined,
+): string | undefined;
+export function redactClaudeTokens(value: unknown): unknown;
 export function redactClaudeTokens(value: unknown): unknown {
   if (typeof value === "string")
     return value.replace(/sk-ant-oat01-[A-Za-z0-9_-]+/g, "[REDACTED]");

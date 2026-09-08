@@ -1,10 +1,15 @@
 import ipaddress
+from types import SimpleNamespace
 
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+
+from posthog.auth import OAuthAccessTokenAuthentication
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.presentation.serializers import (
@@ -106,6 +111,36 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
             assert serializer.is_valid() is not is_pi
         if is_pi:
             assert "claude_model_access" in serializer.errors
+
+    @parameterized.expand(
+        [
+            (TaskRunCreateRequestSerializer, False),
+            (TaskRunBootstrapCreateRequestSerializer, False),
+            (TaskRunCreateRequestSerializer, True),
+        ]
+    )
+    def test_sandbox_cannot_select_subscription(self, serializer_class, resume) -> None:
+        authenticator = OAuthAccessTokenAuthentication()
+        authenticator.access_token = OAuthAccessToken(
+            application=OAuthApplication(client_id=next(iter(SANDBOX_OAUTH_APP_CLIENT_IDS)))
+        )
+        serializer = serializer_class(
+            data={"resume_from_run_id": "00000000-0000-0000-0000-000000000001"}
+            if resume
+            else {"claude_model_access": "own-subscription"},
+            context={
+                "request": SimpleNamespace(successful_authenticator=authenticator),
+                "view": SimpleNamespace(kwargs={"pk": "task-1"}),
+                "team": SimpleNamespace(id=1),
+            },
+        )
+        with patch.object(
+            tasks_facade,
+            "get_task_run_detail",
+            return_value=SimpleNamespace(state={"claude_model_access": "own-subscription"}),
+        ):
+            assert not serializer.is_valid()
+        assert "claude_model_access" in serializer.errors
 
     @patch(
         "posthog.security.url_validation.resolve_host_ips",

@@ -30,6 +30,19 @@ export const MACHINE_AUTH_STRIPPED_KEYS = [
 
 let resolvedMachineAuth: MachineClaudeAuth = {};
 
+export const CLOUD_AUTH_STRIPPED_KEYS = [
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "ALL_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "all_proxy",
+  "NODE_EXTRA_CA_CERTS",
+  "SSL_CERT_FILE",
+  "SSL_CERT_DIR",
+  "NODE_OPTIONS",
+] as const;
+
 export function setMachineClaudeConfigDir(configDir: string | undefined): void {
   resolvedMachineAuth = configDir ? { configDir } : {};
 }
@@ -46,6 +59,8 @@ export function applyMachineClaudeAuth(
     delete env[key];
   }
   if (auth.oauthToken) {
+    for (const key of CLOUD_AUTH_STRIPPED_KEYS) delete env[key];
+    env.NODE_TLS_REJECT_UNAUTHORIZED = "1";
     delete env.CLAUDE_CODE_OAUTH_TOKEN;
     delete env.CLAUDE_CODE_REMOTE;
     env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = "0";

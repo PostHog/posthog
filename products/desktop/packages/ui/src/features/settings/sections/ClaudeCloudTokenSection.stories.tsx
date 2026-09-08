@@ -18,7 +18,11 @@ const meta: Meta<typeof ClaudeCloudTokenSection> = {
       const { container, queryClient } = useMemo(() => {
         let saved = context.parameters.tokenSaved === true;
         const tokenSettings: ClaudeSubscriptionTokenSettings = {
-          has: async () => saved,
+          has: async () => {
+            if (context.parameters.tokenError)
+              throw new Error("Unlock your system key store and try again.");
+            return saved;
+          },
           save: async () => {
             saved = true;
           },
@@ -35,7 +39,7 @@ const meta: Meta<typeof ClaudeCloudTokenSection> = {
           },
         };
         return { container, queryClient: new QueryClient() };
-      }, [context.parameters.tokenSaved]);
+      }, [context.parameters.tokenSaved, context.parameters.tokenError]);
       return (
         <ServiceProvider container={container}>
           <QueryClientProvider client={queryClient}>
@@ -53,6 +57,7 @@ export default meta;
 type Story = StoryObj<typeof ClaudeCloudTokenSection>;
 
 export const NoToken: Story = {};
+export const StorageError: Story = { parameters: { tokenError: true } };
 export const TokenSaved: Story = {
   args: { cloudSubscriptionOn: true },
   parameters: { tokenSaved: true },

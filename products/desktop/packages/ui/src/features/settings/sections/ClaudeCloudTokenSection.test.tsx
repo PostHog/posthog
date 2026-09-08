@@ -148,13 +148,36 @@ describe("ClaudeCloudTokenSection", () => {
       ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_REMOVED,
     );
   });
+  it.each(["Replace token", "Remove token"])(
+    "permits %s after decryption fails",
+    async (action) => {
+      const user = userEvent.setup();
+      tokenStore.has.mockRejectedValue(
+        new Error("Unlock your system key store and try again."),
+      );
+      renderSection(true);
+      await screen.findByRole("alert");
+      await user.click(screen.getByRole("button", { name: action }));
+      if (action === "Remove token") {
+        await user.click(
+          screen.getByRole("button", { name: "Confirm removal" }),
+        );
+        expect(tokenStore.clear).toHaveBeenCalledOnce();
+      } else {
+        expect(screen.getByLabelText("Claude setup token")).toBeInTheDocument();
+      }
+    },
+  );
+
   it("shows a retryable error instead of treating an unreadable token as missing", async () => {
     const user = userEvent.setup();
-    tokenStore.has.mockRejectedValueOnce(new Error("storage unavailable"));
+    tokenStore.has.mockRejectedValueOnce(
+      new Error("Unlock your system key store and try again."),
+    );
     renderSection(true);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Cannot check your token.",
+      "Unlock your system key store and try again.",
     );
     expect(
       screen.queryByLabelText("Claude setup token"),

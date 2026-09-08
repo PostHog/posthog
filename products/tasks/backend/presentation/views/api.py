@@ -2806,6 +2806,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def command(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
         method = request.validated_data["method"]
+        if method == "credential_response":
+            run = tasks_facade.get_task_run_detail(pk, task_id, self.team_id)
+            if (
+                run is None
+                or is_sandbox_oauth_request(request)
+                or run.state.get("claude_subscription_user_id") != self._user_id()
+            ):
+                raise PermissionDenied("Only the user who started this run can send a Claude token.")
         # Steering an analysis run spends model tokens on a task whose generations are excluded
         # from the customer's rollup, so these are the reuse path the one-shot rule closes. Cancel
         # and the agent's own operations stay open.
@@ -3105,7 +3113,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             json=payload,
             headers=headers,
             params=params,
-            timeout=600,
+            timeout=5 if payload.get("method") == "credential_response" else 600,
+            allow_redirects=payload.get("method") != "credential_response",
         )
 
     @validated_request(

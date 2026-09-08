@@ -15,6 +15,7 @@ import {
   withTimeout,
 } from "@posthog/shared";
 import { inject, injectable, postConstruct, preDestroy } from "inversify";
+import { z } from "zod";
 import {
   AUTH_CONNECTIVITY,
   AUTH_OAUTH_FLOW_SERVICE,
@@ -142,6 +143,26 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   }
   getState(): AuthState {
     return { ...this.state };
+  }
+  async getAccountKey(): Promise<string | null> {
+    const { apiHost } = await this.getValidAccessToken();
+    const session = this.session;
+    if (session?.accountKey && !this.tokenOverride) {
+      return JSON.stringify([apiHost, session.accountKey]);
+    }
+    const response = await this.authenticatedFetch(
+      fetch,
+      `${apiHost}/api/users/@me/`,
+      {
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    if (!response.ok) return null;
+    const user = z
+      .object({ uuid: z.string() })
+      .safeParse(await response.json());
+    return user.success ? JSON.stringify([apiHost, user.data.uuid]) : null;
   }
   async login(region: CloudRegion): Promise<AuthState> {
     this.sessionGeneration += 1;

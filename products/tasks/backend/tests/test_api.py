@@ -4321,6 +4321,8 @@ class TestTaskAPI(BaseTaskAPITest):
         assert response.status_code == status.HTTP_200_OK
         run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
         assert run.state["claude_model_access"] == expected
+        if expected == "own-subscription":
+            assert response.json()["latest_run"]["state"]["claude_subscription_user_id"] == self.user.id
         mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -5578,6 +5580,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             state={
                 "github_credential_source": "caller_token",
                 "claude_model_access": "own-subscription",
+                "claude_subscription_user_id": self.user.id,
                 "pr_authorship_mode": "user",
                 "sandbox_id": "sb-real",
                 "sandbox_cpu_cores": 2,
@@ -5634,6 +5637,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "state": {
                     "github_credential_source": "server_integration",
                     "claude_model_access": "posthog-gateway",
+                    "claude_subscription_user_id": self.user.id + 1,
                     "pr_authorship_mode": "bot",
                     "sandbox_id": "sb-attacker",
                     "sandbox_cpu_cores": 128,
@@ -5693,6 +5697,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         run.refresh_from_db()
         assert run.state["claude_model_access"] == "own-subscription"
+        assert run.state["claude_subscription_user_id"] == self.user.id
         assert run.state["github_credential_source"] == "caller_token"
         assert run.state["pr_authorship_mode"] == "user"
         assert "dev_stack_preview" not in run.state
@@ -5744,6 +5749,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "state": {},
                 "state_remove_keys": [
                     "claude_model_access",
+                    "claude_subscription_user_id",
                     "github_credential_source",
                     "agent_otel_telemetry_enabled",
                     "stream_presence_gated",
@@ -5782,6 +5788,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         run.refresh_from_db()
         assert run.state["claude_model_access"] == "own-subscription"
+        assert run.state["claude_subscription_user_id"] == self.user.id
         assert run.state["github_credential_source"] == "caller_token"  # protected key survives removal
         assert run.state["agent_otel_telemetry_enabled"] is False  # protected key survives removal
         assert run.state["stream_presence_gated"] is True  # protected key survives removal
@@ -11696,9 +11703,10 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(call_kwargs["json"]["method"], "mcp_response")
         self.assertEqual(call_kwargs["json"]["params"]["error"], {"code": -32001, "message": "server process exited"})
 
+    @parameterized.expand([(True,), (False,)])
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
-    def test_command_proxies_credential_response_and_never_persists_the_token(self, mock_post):
+    def test_command_proxies_credential_response_and_never_persists_the_token(self, owner_matches, mock_post):
         reset_sandbox_jwt_key_cache()
         token = "sk-ant-oat01-fake-test-token-0000000000000000"
         self._mock_agent_response(
@@ -11708,6 +11716,8 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
+        run.state["claude_subscription_user_id"] = self.user.id if owner_matches else self.user.id + 1
+        run.save(update_fields=["state"])
         state_before = dict(run.state or {})
 
         with self.assertLogs(level="DEBUG") as captured:
@@ -11726,8 +11736,14 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                 format="json",
             )
 
+        if not owner_matches:
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            mock_post.assert_not_called()
+            return
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         call_kwargs = mock_post.call_args[1]
+        assert call_kwargs["allow_redirects"] is False
+        assert call_kwargs["timeout"] == 5
         self.assertEqual(call_kwargs["json"]["method"], "credential_response")
         self.assertEqual(call_kwargs["json"]["params"]["token"], token)
         run.refresh_from_db()

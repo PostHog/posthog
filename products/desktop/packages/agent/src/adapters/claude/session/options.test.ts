@@ -627,6 +627,9 @@ describe("buildSessionOptions", () => {
           settings: {
             env: {
               ANTHROPIC_BASE_URL: "https://example.com",
+              HTTPS_PROXY: "https://proxy.example.com",
+              NODE_EXTRA_CA_CERTS: "/tmp/example-ca.pem",
+              NODE_TLS_REJECT_UNAUTHORIZED: "0",
               CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0",
               CLAUDE_CODE_REMOTE: "1",
             },
@@ -658,6 +661,9 @@ describe("buildSessionOptions", () => {
       expect(options.settings).toMatchObject({
         env: {
           ANTHROPIC_BASE_URL: "https://api.anthropic.com",
+          HTTPS_PROXY: "",
+          NODE_EXTRA_CA_CERTS: "",
+          NODE_TLS_REJECT_UNAUTHORIZED: "1",
           CLAUDE_CODE_OAUTH_TOKEN: "",
           CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR: "3",
           CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0",

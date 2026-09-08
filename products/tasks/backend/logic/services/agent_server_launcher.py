@@ -389,7 +389,7 @@ class AgentServerLaunchMixin(SandboxBase):
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
-        max_attempts = AGENT_SERVER_HEALTH_MAX_ATTEMPTS + (240 if claude_model_access == "own-subscription" else 0)
+        max_attempts = 300 if claude_model_access == "own-subscription" else AGENT_SERVER_HEALTH_MAX_ATTEMPTS
         execute_command = _start_and_wait_command(command, max_attempts) if wait_for_health else command
         timeout_seconds = 30 + health_check_timeout_seconds(max_attempts) if wait_for_health else 30
         start_time = time.perf_counter()
@@ -440,7 +440,7 @@ class AgentServerLaunchMixin(SandboxBase):
     def wait_for_agent_server_ready(
         self, allowed_domains: list[str] | None = None, *, claude_model_access: str | None = None
     ) -> None:
-        max_attempts = AGENT_SERVER_HEALTH_MAX_ATTEMPTS + (240 if claude_model_access == "own-subscription" else 0)
+        max_attempts = 300 if claude_model_access == "own-subscription" else AGENT_SERVER_HEALTH_MAX_ATTEMPTS
         if self._wait_for_health_check(max_attempts=max_attempts):
             if allowed_domains is not None and not self._agentsh_daemon_is_healthy():
                 raise SandboxExecutionError(

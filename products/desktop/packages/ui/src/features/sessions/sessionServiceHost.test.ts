@@ -7888,122 +7888,145 @@ describe("SessionService", () => {
       );
     });
 
-    it("shows an optimistic user bubble when resuming a terminal cloud run", async () => {
-      const service = getSessionService();
-      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
-        createMockSession({
-          isCloud: true,
-          cloudStatus: "completed",
-          cloudBranch: "feature/cloud-run",
-        }),
-      );
-      mockAuthenticatedClient.getTaskRun.mockResolvedValue({
-        id: "run-123",
-        task: "task-123",
-        team: 123,
-        branch: "feature/cloud-run",
-        runtime_adapter: "claude",
-        model: "claude-sonnet-4-20250514",
-        reasoning_effort: null,
-        environment: "cloud",
-        status: "completed",
-        log_url: "https://example.com/logs/run-123",
-        error_message: null,
-        output: {},
-        state: {},
-        created_at: "2026-04-14T00:00:00Z",
-        updated_at: "2026-04-14T00:00:00Z",
-        completed_at: "2026-04-14T00:05:00Z",
-      });
-      mockAuthenticatedClient.getTask.mockResolvedValue(createMockTask());
-      mockTrpcFs.readFileAsBase64.query.mockResolvedValue("aGVsbG8=");
-      mockAuthenticatedClient.prepareTaskStagedArtifactUploads.mockResolvedValue(
-        [
-          {
-            id: "artifact-1",
-            name: "test.txt",
-            type: "user_attachment",
-            source: "posthog_code",
-            size: 5,
-            content_type: "text/plain",
-            storage_path: "tasks/artifacts/test.txt",
-            expires_in: 3600,
-            presigned_post: {
-              url: "https://uploads.example.com",
-              fields: { key: "tasks/artifacts/test.txt" },
+    it.each([false, true])(
+      "checks the token before uploading resume attachments (missing: %s)",
+      async (tokenMissing) => {
+        const service = getSessionService();
+        mockFeatureFlags.isEnabled.mockReturnValue(true);
+        if (tokenMissing)
+          vi.spyOn(
+            service,
+            "resolveClaudeCloudModelAccess",
+          ).mockRejectedValueOnce(new Error("Save a Claude token first."));
+        mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
+          createMockSession({
+            isCloud: true,
+            cloudStatus: "completed",
+            cloudBranch: "feature/cloud-run",
+          }),
+        );
+        mockAuthenticatedClient.getTaskRun.mockResolvedValue({
+          id: "run-123",
+          task: "task-123",
+          team: 123,
+          branch: "feature/cloud-run",
+          runtime_adapter: "claude",
+          model: "claude-sonnet-4-20250514",
+          reasoning_effort: null,
+          environment: "cloud",
+          status: "completed",
+          log_url: "https://example.com/logs/run-123",
+          error_message: null,
+          output: {},
+          state: { claude_model_access: "own-subscription" },
+          created_at: "2026-04-14T00:00:00Z",
+          updated_at: "2026-04-14T00:00:00Z",
+          completed_at: "2026-04-14T00:05:00Z",
+        });
+        mockAuthenticatedClient.getTask.mockResolvedValue(createMockTask());
+        mockTrpcFs.readFileAsBase64.query.mockResolvedValue("aGVsbG8=");
+        mockAuthenticatedClient.prepareTaskStagedArtifactUploads.mockResolvedValue(
+          [
+            {
+              id: "artifact-1",
+              name: "test.txt",
+              type: "user_attachment",
+              source: "posthog_code",
+              size: 5,
+              content_type: "text/plain",
+              storage_path: "tasks/artifacts/test.txt",
+              expires_in: 3600,
+              presigned_post: {
+                url: "https://uploads.example.com",
+                fields: { key: "tasks/artifacts/test.txt" },
+              },
             },
-          },
-        ],
-      );
-      mockAuthenticatedClient.finalizeTaskStagedArtifactUploads.mockResolvedValue(
-        [
+          ],
+        );
+        mockAuthenticatedClient.finalizeTaskStagedArtifactUploads.mockResolvedValue(
+          [
+            {
+              id: "artifact-1",
+              name: "test.txt",
+              type: "user_attachment",
+              source: "posthog_code",
+              size: 5,
+              content_type: "text/plain",
+              storage_path: "tasks/artifacts/test.txt",
+              uploaded_at: "2026-04-16T00:00:00Z",
+            },
+          ],
+        );
+        mockAuthenticatedClient.runTaskInCloud.mockResolvedValue(
+          createMockTask({
+            latest_run: {
+              id: "run-456",
+              task: "task-123",
+              team: 123,
+              branch: "feature/cloud-run",
+              runtime_adapter: "claude",
+              model: "claude-sonnet-4-20250514",
+              reasoning_effort: null,
+              environment: "cloud",
+              status: "queued",
+              log_url: "https://example.com/logs/run-456",
+              error_message: null,
+              output: {},
+              state: {},
+              created_at: "2026-04-14T00:06:00Z",
+              updated_at: "2026-04-14T00:06:00Z",
+              completed_at: null,
+            },
+          }),
+        );
+        vi.stubGlobal(
+          "fetch",
+          vi.fn().mockResolvedValue({ ok: true } as Response),
+        );
+
+        const prompt: ContentBlock[] = [
+          { type: "text", text: "what is this about?" },
           {
-            id: "artifact-1",
+            type: "resource_link",
+            uri: "file:///tmp/test.txt",
             name: "test.txt",
-            type: "user_attachment",
-            source: "posthog_code",
-            size: 5,
-            content_type: "text/plain",
-            storage_path: "tasks/artifacts/test.txt",
-            uploaded_at: "2026-04-16T00:00:00Z",
+            mimeType: "text/plain",
           },
-        ],
-      );
-      mockAuthenticatedClient.runTaskInCloud.mockResolvedValue(
-        createMockTask({
-          latest_run: {
-            id: "run-456",
-            task: "task-123",
-            team: 123,
-            branch: "feature/cloud-run",
-            runtime_adapter: "claude",
-            model: "claude-sonnet-4-20250514",
-            reasoning_effort: null,
-            environment: "cloud",
-            status: "queued",
-            log_url: "https://example.com/logs/run-456",
-            error_message: null,
-            output: {},
-            state: {},
-            created_at: "2026-04-14T00:06:00Z",
-            updated_at: "2026-04-14T00:06:00Z",
-            completed_at: null,
-          },
-        }),
-      );
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue({ ok: true } as Response),
-      );
+        ];
 
-      const prompt: ContentBlock[] = [
-        { type: "text", text: "what is this about?" },
-        {
-          type: "resource_link",
-          uri: "file:///tmp/test.txt",
-          name: "test.txt",
-          mimeType: "text/plain",
-        },
-      ];
+        if (tokenMissing) {
+          await expect(service.sendPrompt("task-123", prompt)).rejects.toThrow(
+            "Save a Claude token first.",
+          );
+          expect(
+            mockAuthenticatedClient.prepareTaskStagedArtifactUploads,
+          ).not.toHaveBeenCalled();
+          expect(
+            mockAuthenticatedClient.finalizeTaskStagedArtifactUploads,
+          ).not.toHaveBeenCalled();
+          return;
+        }
+        const result = await service.sendPrompt("task-123", prompt);
 
-      const result = await service.sendPrompt("task-123", prompt);
-
-      expect(result.stopReason).toBe("queued");
-      expect(mockSessionStoreSetters.appendOptimisticItem).toHaveBeenCalledWith(
-        "run-123",
-        expect.objectContaining({
-          type: "user_message",
-          content: "what is this about?\n\nAttached files: test.txt",
-          pinToTop: false,
-        }),
-      );
-      expect(mockSessionStoreSetters.setSession).toHaveBeenCalledWith(
-        expect.objectContaining({
-          taskRunId: "run-456",
-          isPromptPending: true,
-        }),
-      );
-    });
+        expect(result.stopReason).toBe("queued");
+        expect(
+          mockSessionStoreSetters.appendOptimisticItem,
+        ).toHaveBeenCalledWith(
+          "run-123",
+          expect.objectContaining({
+            type: "user_message",
+            content: "what is this about?\n\nAttached files: test.txt",
+            pinToTop: false,
+          }),
+        );
+        expect(mockSessionStoreSetters.setSession).toHaveBeenCalledWith(
+          expect.objectContaining({
+            taskRunId: "run-456",
+            isPromptPending: true,
+          }),
+        );
+      },
+    );
 
     const mockPreBootFailedSession = (overrides: Partial<AgentSession> = {}) =>
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(

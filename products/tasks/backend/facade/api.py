@@ -416,6 +416,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "auto_publish",
         "benjamin_enabled",
         "claude_model_access",
+        "claude_subscription_user_id",
         "context_window",
         "custom_image_id",
         "fast_mode",
@@ -2257,6 +2258,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "model",
         "reasoning_effort",
         "claude_model_access",
+        "claude_subscription_user_id",
         "rtk_effective",
         "benjamin_effective",
         "usage_metrics_recorded",
@@ -7142,13 +7144,6 @@ def run_task(
 
     warm_run = _idling_warm_run_for_task(task)
     if warm_run is not None and claude_model_access == "own-subscription":
-        from products.tasks.backend.facade.cancellation import cancel_task_run
-
-        outcome, _ = cancel_task_run(
-            warm_run.id, task.id, task.team_id, source="subscription_start", only_if_awaiting_first_message=True
-        )
-        if outcome == "unavailable":
-            raise RuntimeError("Could not stop the unused warm task. Try again.")
         warm_run = None
     if warm_run is not None:
         _warm_retry_message_id(warm_retry_token, warm_run)

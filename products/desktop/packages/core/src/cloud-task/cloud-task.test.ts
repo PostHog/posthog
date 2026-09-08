@@ -4486,6 +4486,7 @@ describe("CloudTaskEngine credential relay", () => {
     mockAuthService.getCloudContext.mockResolvedValue({
       apiHost: "https://app.example.com",
       teamId: 2,
+      accountKey: "account-a",
     });
     const scopedLog = {
       debug: vi.fn(),
@@ -4513,7 +4514,16 @@ describe("CloudTaskEngine credential relay", () => {
       Promise.resolve(
         url.includes("/command/")
           ? commandResponse()
-          : createJsonResponse({ id: "run-1", status: "in_progress" }),
+          : url.includes("/api/users/@me/")
+            ? createJsonResponse({ id: 1 })
+            : createJsonResponse({
+                id: "run-1",
+                status: "in_progress",
+                state: {
+                  claude_model_access: "own-subscription",
+                  claude_subscription_user_id: 1,
+                },
+              }),
       ),
     );
     mockStreamFetch.mockReset();
@@ -4585,6 +4595,35 @@ describe("CloudTaskEngine credential relay", () => {
       );
   }
 
+  it.each([{ id: 2 }, { id: "1" }, {}, null])(
+    "rejects an invalid run owner: %j",
+    async (user) => {
+      mockNetFetch.mockResolvedValueOnce(createJsonResponse(user));
+      await expect(
+        relayService.designateClaudeSubscription({
+          taskId: "task-1",
+          runId: "run-1",
+        }),
+      ).rejects.toThrow("Only the user who started");
+      expect(tokenStore.get).not.toHaveBeenCalled();
+    },
+  );
+
+  it("retries a temporary auth failure before reading the token", async () => {
+    tokenStore.get.mockResolvedValue("sk-ant-oat01-fake-test-token");
+    mockStreamFetch.mockResolvedValueOnce(
+      createOpenSseResponse(credentialRequestSseLine()),
+    );
+    await watchRun("run-1");
+    mockAuthService.getCloudContext.mockRejectedValueOnce(
+      new Error("auth unavailable"),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(tokenStore.get).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(commandPosts()).toHaveLength(1);
+  });
+
   it("answers a credential request with the stored token", async () => {
     const token = "sk-ant-oat01-fake-test-token";
     tokenStore.get.mockResolvedValue(token);
@@ -4614,6 +4653,7 @@ describe("CloudTaskEngine credential relay", () => {
   it.each([
     { apiHost: "https://example.org", teamId: 2 },
     { apiHost: "https://app.example.com", teamId: 3 },
+    { apiHost: "https://app.example.com", teamId: 2, accountKey: "account-b" },
     null,
   ])(
     "does not send a token after the account context changes to %s",
@@ -4685,6 +4725,7 @@ describe("CloudTaskEngine credential relay", () => {
         mockAuthService.getCloudContext.mockResolvedValueOnce({
           apiHost: "https://app.example.com",
           teamId: 3,
+          accountKey: "account-a",
         });
         await relayService.designateClaudeSubscription({
           taskId: "task-1",

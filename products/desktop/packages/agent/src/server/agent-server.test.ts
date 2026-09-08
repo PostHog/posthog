@@ -768,86 +768,93 @@ describe("AgentServer HTTP Mode", () => {
       );
     });
 
-    it("writes terminal failure status before completing event ingest", async () => {
-      const order: string[] = [];
-      const testServer = new AgentServer({
-        port,
-        jwtPublicKey: TEST_PUBLIC_KEY,
-        repositoryPath: repo.path,
-        apiUrl: "http://localhost:8000",
-        apiKey: "test-api-key",
-        projectId: 1,
-        mode: "interactive",
-        taskId: "test-task-id",
-        runId: "test-run-id",
-        resolveRtkSavings: async () => null,
-      }) as unknown as {
-        eventStreamSender: {
-          enqueue: (event: Record<string, unknown>) => void;
-          stop: () => Promise<void>;
-        };
-        posthogAPI: {
-          updateTaskRun: (
-            taskId: string,
-            runId: string,
-            payload: Record<string, unknown>,
-          ) => Promise<unknown>;
-        };
-        signalTaskComplete(
-          payload: JwtPayload,
-          stopReason: string,
-          errorMessage?: string,
-          options?: { errorCategory?: string },
-        ): Promise<void>;
-      };
-      testServer.eventStreamSender = {
-        enqueue: vi.fn(() => {
-          order.push("enqueue");
-        }),
-        stop: vi.fn(async () => {
-          order.push("stop");
-        }),
-      };
-      testServer.posthogAPI = {
-        updateTaskRun: vi.fn(async () => {
-          order.push("update");
-          return {};
-        }),
-      };
-
-      await testServer.signalTaskComplete(
-        {
-          run_id: "run-1",
-          task_id: "task-1",
-          team_id: 1,
-          user_id: 1,
-          distinct_id: "distinct-id",
+    it.each([
+      ["boom", "boom"],
+      ["Failure: sk-ant-oat01-fake-test-token", "Failure: [REDACTED]"],
+    ])(
+      "redacts terminal failure status before completing event ingest",
+      async (message, expected) => {
+        const order: string[] = [];
+        const testServer = new AgentServer({
+          port,
+          jwtPublicKey: TEST_PUBLIC_KEY,
+          repositoryPath: repo.path,
+          apiUrl: "http://localhost:8000",
+          apiKey: "test-api-key",
+          projectId: 1,
           mode: "interactive",
-        },
-        "error",
-        "boom",
-        { errorCategory: "agent_error" },
-      );
-
-      expect(order).toEqual(["enqueue", "update", "stop"]);
-      expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: "notification",
-          notification: expect.objectContaining({
-            method: "_posthog/error",
-            params: expect.objectContaining({ error: "boom" }),
+          taskId: "test-task-id",
+          runId: "test-run-id",
+          resolveRtkSavings: async () => null,
+        }) as unknown as {
+          eventStreamSender: {
+            enqueue: (event: Record<string, unknown>) => void;
+            stop: () => Promise<void>;
+          };
+          posthogAPI: {
+            updateTaskRun: (
+              taskId: string,
+              runId: string,
+              payload: Record<string, unknown>,
+            ) => Promise<unknown>;
+          };
+          signalTaskComplete(
+            payload: JwtPayload,
+            stopReason: string,
+            errorMessage?: string,
+            options?: { errorCategory?: string },
+          ): Promise<void>;
+        };
+        testServer.eventStreamSender = {
+          enqueue: vi.fn(() => {
+            order.push("enqueue");
           }),
-        }),
-      );
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
-        "task-1",
-        "run-1",
-        {
-          status: "failed",
-          error_message: "agent_error: boom",
-        },
-      );
-    });
+          stop: vi.fn(async () => {
+            order.push("stop");
+          }),
+        };
+        testServer.posthogAPI = {
+          updateTaskRun: vi.fn(async () => {
+            order.push("update");
+            return {};
+          }),
+        };
+
+        await testServer.signalTaskComplete(
+          {
+            run_id: "run-1",
+            task_id: "task-1",
+            team_id: 1,
+            user_id: 1,
+            distinct_id: "distinct-id",
+            mode: "interactive",
+          },
+          "error",
+          message,
+          { errorCategory: "agent_error" },
+        );
+
+        expect(order).toEqual(["enqueue", "update", "stop"]);
+        expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "notification",
+            notification: expect.objectContaining({
+              method: "_posthog/error",
+              params: expect.objectContaining({ error: expected }),
+            }),
+          }),
+        );
+        expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+          "task-1",
+          "run-1",
+          {
+            status: "failed",
+            error_message: `agent_error: ${expected}`,
+          },
+        );
+      },
+    );
+
 
     it("writes the terminal error to the session log before the final flush", async () => {
       // The Django drain reads the terminal `_posthog/error` from the S3 log,

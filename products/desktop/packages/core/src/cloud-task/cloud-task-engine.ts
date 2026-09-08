@@ -11,6 +11,7 @@ import {
   TypedEventEmitter,
 } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { z } from "zod";
 import type {
   ClaudeSubscriptionTokenStore,
   ICloudTaskAuth,
@@ -525,7 +526,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
    * runs or names are dropped.
    */
   private readonly relayDesignations = new Map<string, Set<string>>();
-  private readonly claudeSubscriptionRuns = new Set<string>();
+  private readonly claudeSubscriptionRuns = new Map<string, string>();
   private readonly credentialRequestsInFlight = new Set<string>();
   /** requestId dedupe — the event stream is at-least-once and replays on reconnect. */
   private readonly handledRelayRequestIds = new Set<string>();
@@ -568,13 +569,58 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
   async designateClaudeSubscription(
     input: DesignateClaudeSubscriptionInput,
   ): Promise<void> {
+    if (!this.claudeSubscriptionTokenStore) return;
     const context = await this.auth.getCloudContext();
-    if (!context) throw new Error("Sign in before using your Claude plan.");
-    this.claudeSubscriptionRuns.add(
+    if (!context?.accountKey)
+      throw new Error("Sign in before using your Claude plan.");
+    const base = new URL(context.apiHost);
+    if (
+      base.protocol !== "https:" &&
+      !(
+        base.protocol === "http:" &&
+        ["localhost", "127.0.0.1", "[::1]"].includes(base.hostname)
+      )
+    ) {
+      throw new Error("Claude tokens require a secure connection.");
+    }
+    const [userResponse, runResponse] = await Promise.all([
+      this.auth.authenticatedFetch(`${base.origin}/api/users/@me/`, {
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      }),
+      this.auth.authenticatedFetch(
+        `${base.origin}/api/projects/${context.teamId}/tasks/${encodeURIComponent(input.taskId)}/runs/${encodeURIComponent(input.runId)}/`,
+        { redirect: "error", signal: AbortSignal.timeout(10_000) },
+      ),
+    ]);
+    if (!userResponse.ok || !runResponse.ok)
+      throw new Error("Cannot check the Claude run owner. Try again.");
+    const user = z
+      .object({ id: z.number() })
+      .safeParse(await userResponse.json());
+    const run = z
+      .object({
+        state: z.object({
+          claude_subscription_user_id: z.number(),
+          claude_model_access: z.literal("own-subscription"),
+        }),
+      })
+      .safeParse(await runResponse.json());
+    if (
+      !user.success ||
+      !run.success ||
+      run.data.state.claude_subscription_user_id !== user.data.id
+    ) {
+      throw new Error(
+        "Only the user who started this run can send a Claude token.",
+      );
+    }
+    this.claudeSubscriptionRuns.set(
       this.credentialRunKey({ ...input, ...context }),
+      context.accountKey,
     );
     if (this.claudeSubscriptionRuns.size > MAX_HANDLED_RELAY_REQUEST_IDS) {
-      const oldest = this.claudeSubscriptionRuns.values().next().value;
+      const oldest = this.claudeSubscriptionRuns.keys().next().value;
       if (oldest !== undefined) this.claudeSubscriptionRuns.delete(oldest);
     }
   }
@@ -667,6 +713,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     watcher: WatcherState,
     data: CredentialRequestEventData,
   ): Promise<void> {
+    if (!this.claudeSubscriptionTokenStore) return;
     const runKey = this.credentialRunKey(watcher);
     if (!this.claudeSubscriptionRuns.has(runKey)) return;
     const requestKey = `${runKey}:${data.requestId}`;
@@ -696,16 +743,6 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     const deadline = Math.min(expiresAt, Date.now() + 120_000);
     this.credentialRequestsInFlight.add(requestKey);
     try {
-      if (!(await this.credentialDestination(watcher))) {
-        finish("rejected");
-        return;
-      }
-      let token: string | null = null;
-      try {
-        token = (await this.claudeSubscriptionTokenStore?.get()) ?? null;
-      } catch {
-        this.log.warn("Could not read Claude subscription token");
-      }
       while (
         Date.now() < deadline &&
         this.claudeSubscriptionRuns.has(runKey) &&
@@ -714,13 +751,10 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         const result = await this.deliverCredentialResponse(
           watcher,
           data,
-          token,
           deadline,
         );
         if (result !== "retry") {
-          finish(
-            result === "sent" ? (token ? "sent" : "no_token") : "rejected",
-          );
+          finish(result);
           return;
         }
         const delay = Math.min(1_000, deadline - Date.now());
@@ -736,12 +770,17 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
   private async deliverCredentialResponse(
     watcher: WatcherState,
     data: CredentialRequestEventData,
-    token: string | null,
     deadline: number,
-  ): Promise<"sent" | "rejected" | "retry"> {
+  ): Promise<"sent" | "no_token" | "rejected" | "retry"> {
     try {
       const destination = await this.credentialDestination(watcher);
       if (!destination) return "rejected";
+      let token: string | null = null;
+      try {
+        token = (await this.claudeSubscriptionTokenStore?.get()) ?? null;
+      } catch {
+        this.log.warn("Could not read Claude subscription token");
+      }
       const response = await this.auth.authenticatedFetch(destination, {
         method: "POST",
         redirect: "error",
@@ -770,7 +809,9 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         body !== null &&
         "result" in body &&
         !("error" in body)
-        ? "sent"
+        ? token
+          ? "sent"
+          : "no_token"
         : "rejected";
     } catch {
       return "retry";
@@ -783,6 +824,8 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     const context = await this.auth.getCloudContext();
     if (
       !context ||
+      context.accountKey !==
+        this.claudeSubscriptionRuns.get(this.credentialRunKey(watcher)) ||
       this.credentialRunKey({ ...watcher, ...context }) !==
         this.credentialRunKey(watcher)
     )

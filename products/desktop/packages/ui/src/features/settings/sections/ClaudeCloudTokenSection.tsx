@@ -60,8 +60,13 @@ export function ClaudeCloudTokenSection({
       queryClient.setQueryData(claudeSubscriptionTokenQueryKey, true);
       track(ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_SAVED);
       toast.success("Token saved");
-    } catch {
-      toast.error("Cannot save the token. Try again.");
+    } catch (error) {
+      toast.error("Cannot save the token.", {
+        description:
+          error instanceof Error
+            ? error.message
+            : "Check your system key store and try again.",
+      });
     } finally {
       setPendingAction(null);
     }
@@ -107,24 +112,17 @@ export function ClaudeCloudTokenSection({
         <output className="text-muted-foreground text-xs">
           Checking token…
         </output>
-      ) : tokenQuery.isError ? (
-        <div className="flex flex-col items-end gap-1">
-          <span role="alert" className="text-xs">
-            Cannot check your token.
-          </span>
-          <Button
-            size="sm"
-            variant="outline"
-            loading={tokenQuery.isFetching}
-            onClick={() => void tokenQuery.refetch()}
-          >
-            Try again
-          </Button>
-        </div>
-      ) : tokenQuery.data && !replacingToken ? (
+      ) : (tokenQuery.data || tokenQuery.isError) && !replacingToken ? (
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-muted-foreground text-xs">
-            {confirmRemoval ? "Remove the saved token?" : "Token saved"}
+          <span
+            role={tokenQuery.isError ? "alert" : undefined}
+            className="text-muted-foreground text-xs"
+          >
+            {confirmRemoval
+              ? "Remove the saved token?"
+              : tokenQuery.isError
+                ? tokenQuery.error.message
+                : "Token saved"}
           </span>
           {confirmRemoval ? (
             <div className="flex items-center gap-2">
@@ -151,6 +149,16 @@ export function ClaudeCloudTokenSection({
             </div>
           ) : (
             <div className="flex items-center gap-2">
+              {tokenQuery.isError ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  loading={tokenQuery.isFetching}
+                  onClick={() => void tokenQuery.refetch()}
+                >
+                  Try again
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="outline"

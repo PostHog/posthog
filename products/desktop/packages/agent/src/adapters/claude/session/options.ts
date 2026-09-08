@@ -43,6 +43,7 @@ import {
 } from "../hooks";
 import {
   applyMachineClaudeAuth,
+  CLOUD_AUTH_STRIPPED_KEYS,
   MACHINE_AUTH_STRIPPED_KEYS,
   type MachineClaudeAuth,
 } from "../machine-auth";
@@ -718,8 +719,11 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
         ...inlineSettings.env,
         ...options.settings?.env,
         ...Object.fromEntries(
-          MACHINE_AUTH_STRIPPED_KEYS.map((key) => [key, ""]),
+          [...MACHINE_AUTH_STRIPPED_KEYS, ...CLOUD_AUTH_STRIPPED_KEYS].map(
+            (key) => [key, ""],
+          ),
         ),
+        NODE_TLS_REJECT_UNAUTHORIZED: "1",
         ANTHROPIC_BASE_URL: "https://api.anthropic.com",
         CLAUDE_CODE_OAUTH_TOKEN: "",
         CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR: "3",

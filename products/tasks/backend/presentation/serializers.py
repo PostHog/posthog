@@ -17,10 +17,12 @@ from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
+from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
 from posthog.security.url_validation import is_url_allowed, resolve_url_hosts_ips
+from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES
@@ -90,6 +92,28 @@ def _is_pi_task_run_request(context: dict[str, Any]) -> bool:
         for_control=True,
     )
     return task_runtime == tasks_facade.TaskRuntime.PI
+
+
+def _validate_subscription_caller(attrs: dict[str, Any], context: dict[str, Any]) -> None:
+    request = context.get("request")
+    authenticator = getattr(request, "successful_authenticator", None)
+    if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return
+    token = authenticator.access_token
+    if not token.application or token.application.client_id not in SANDBOX_OAUTH_APP_CLIENT_IDS:
+        return
+    access = attrs.get("claude_model_access")
+    if access is None and (run_id := attrs.get("resume_from_run_id")):
+        view = context.get("view")
+        kwargs = getattr(view, "kwargs", {})
+        task_id = kwargs.get("parent_lookup_task_id") or kwargs.get("pk")
+        team = context.get("team")
+        if team is not None and task_id is not None:
+            run = tasks_facade.get_task_run_detail(run_id, task_id, team.id)
+            if run is not None:
+                access = run.state.get("claude_model_access")
+    if access == "own-subscription":
+        raise serializers.ValidationError({"claude_model_access": "Only a user can select a Claude subscription."})
 
 
 def request_distinct_id(context: dict[str, Any]) -> str | None:
@@ -3179,6 +3203,7 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
     )
 
     def validate(self, attrs):
+        _validate_subscription_caller(attrs, self.context)
         errors: dict[str, str] = {}
         if collision_error := get_relayed_imported_mcp_name_collision_error(attrs):
             errors["relayed_mcp_servers"] = collision_error
@@ -3384,6 +3409,7 @@ class TaskRunBootstrapCreateRequestSerializer(
     )
 
     def validate(self, attrs):
+        _validate_subscription_caller(attrs, self.context)
         errors: dict[str, str] = {}
         if collision_error := get_relayed_imported_mcp_name_collision_error(attrs):
             errors["relayed_mcp_servers"] = collision_error

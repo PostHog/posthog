@@ -1102,7 +1102,7 @@ class DockerSandbox(SandboxBase):
                 )
             return
 
-        max_attempts = 480 if claude_model_access == "own-subscription" else 20
+        max_attempts = 300 if claude_model_access == "own-subscription" else 20
         if self._launch_and_check(command, max_attempts=max_attempts):
             logger.info(f"Agent-server started on port {self._host_port}")
             return
@@ -1166,7 +1166,7 @@ class DockerSandbox(SandboxBase):
     def wait_for_agent_server_ready(
         self, allowed_domains: list[str] | None = None, *, claude_model_access: str | None = None
     ) -> None:
-        if self._wait_for_health_check(max_attempts=480 if claude_model_access == "own-subscription" else 240):
+        if self._wait_for_health_check(max_attempts=300 if claude_model_access == "own-subscription" else 240):
             logger.info(f"Agent-server ready on port {self._host_port}")
             return
         log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)

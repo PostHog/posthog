@@ -159,6 +159,9 @@ export function useWarmTask({
         })
         .then(async (warm) => {
           if (warm && latestKeyRef.current !== key) {
+            if (lastWarmedKeyRef.current === key) {
+              lastWarmedKeyRef.current = null;
+            }
             await client.cancelTaskRun(
               warm.task_id,
               warm.run_id,
