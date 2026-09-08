@@ -6,9 +6,6 @@ import {
 } from "@phosphor-icons/react";
 import {
   Button,
-  Card,
-  CardContent,
-  CardFooter,
   Combobox,
   ComboboxCollection,
   ComboboxContent,
@@ -133,10 +130,13 @@ export function ProjectSelectStep({ onNext, onBack }: ProjectSelectStepProps) {
 
   return (
     <main className="flex h-full overflow-y-auto px-8 py-12">
-      <div className="m-auto flex w-full max-w-[480px] flex-col gap-6">
-        <div className="flex flex-col items-center gap-4 text-center">
+      <div className="mx-auto flex min-h-full w-full max-w-[480px] flex-col">
+        <div className="flex shrink-0 justify-center">
           <ProductWordmark />
-          <div className="flex flex-col gap-1.5">
+        </div>
+
+        <div className="flex flex-1 flex-col justify-center gap-6 py-8">
+          <div className="flex flex-col items-center gap-1.5 text-center">
             {/* biome-ignore lint/a11y/useHeadingContent: Quill supplies the heading text through this render target. */}
             <Heading size="xl" render={<h1 />}>
               Choose a project
@@ -145,10 +145,8 @@ export function ProjectSelectStep({ onNext, onBack }: ProjectSelectStepProps) {
               Choose the PostHog project you want to use with Desktop.
             </Text>
           </div>
-        </div>
 
-        <Card className="w-full">
-          <CardContent className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4">
             <AnimatePresence mode="wait">
               {isAuthenticated ? (
                 <motion.div
@@ -302,24 +300,18 @@ export function ProjectSelectStep({ onNext, onBack }: ProjectSelectStepProps) {
                 </div>
               </motion.div>
             )}
-          </CardContent>
+          </div>
 
           {(onBack || isAuthenticated) && (
-            <CardFooter className="justify-end gap-2">
+            <div className="flex justify-end gap-2 pt-1">
               {onBack && (
-                <Button
-                  className="min-h-11"
-                  size="lg"
-                  variant="outline"
-                  onClick={onBack}
-                >
+                <Button size="lg" variant="outline" onClick={onBack}>
                   <ArrowLeft size={16} weight="bold" />
                   Back
                 </Button>
               )}
               {isAuthenticated && (
                 <Button
-                  className="min-h-11"
                   size="lg"
                   variant="primary"
                   onClick={() => {
@@ -336,9 +328,9 @@ export function ProjectSelectStep({ onNext, onBack }: ProjectSelectStepProps) {
                   <ArrowRight size={16} weight="bold" />
                 </Button>
               )}
-            </CardFooter>
+            </div>
           )}
-        </Card>
+        </div>
       </div>
     </main>
   );
