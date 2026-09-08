@@ -15,6 +15,7 @@ interface FullScreenLayoutProps {
   banner?: ReactNode;
   /** Host opens the support link. */
   onOpenSupport?: () => void;
+  showFooter?: boolean;
 }
 
 export function FullScreenLayout({
@@ -24,6 +25,7 @@ export function FullScreenLayout({
   footerRight,
   banner,
   onOpenSupport,
+  showFooter = true,
 }: FullScreenLayoutProps) {
   const isDarkMode = useThemeStore((state) => state.isDarkMode);
 
@@ -61,27 +63,29 @@ export function FullScreenLayout({
             {children}
           </Flex>
 
-          <Flex
-            justify="between"
-            className="absolute right-[32px] bottom-[20px] left-[32px] z-[2]"
-          >
-            {footerLeft ?? (
-              <Flex align="center" gap="3">
-                <Button
-                  size="1"
-                  variant="ghost"
-                  color="gray"
-                  onClick={onOpenSupport}
-                  className="opacity-50"
-                >
-                  <Lifebuoy size={14} />
-                  Get support
-                </Button>
-                {banner}
-              </Flex>
-            )}
-            {footerRight ?? <div />}
-          </Flex>
+          {showFooter && (
+            <Flex
+              justify="between"
+              className="absolute right-[32px] bottom-[20px] left-[32px] z-[2]"
+            >
+              {footerLeft ?? (
+                <Flex align="center" gap="3">
+                  <Button
+                    size="1"
+                    variant="ghost"
+                    color="gray"
+                    onClick={onOpenSupport}
+                    className="opacity-50"
+                  >
+                    <Lifebuoy size={14} />
+                    Get support
+                  </Button>
+                  {banner}
+                </Flex>
+              )}
+              {footerRight ?? <div />}
+            </Flex>
+          )}
         </Flex>
       </Flex>
     </Theme>

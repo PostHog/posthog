@@ -241,27 +241,30 @@ export function SelectRepoStep({
           </Flex>
         </Flex>
 
-        <StepActions>
+        <StepActions
+          primaryAction={
+            hasSelection ? (
+              <Button size="3" onClick={() => onComplete(false)}>
+                Get started
+                <ArrowRight size={16} weight="bold" />
+              </Button>
+            ) : (
+              <Button
+                size="3"
+                variant="outline"
+                color="gray"
+                onClick={() => onComplete(true)}
+              >
+                Skip & get started
+                <ArrowRight size={16} weight="bold" />
+              </Button>
+            )
+          }
+        >
           <Button size="3" variant="outline" color="gray" onClick={onBack}>
             <ArrowLeft size={16} weight="bold" />
             Back
           </Button>
-          {hasSelection ? (
-            <Button size="3" onClick={() => onComplete(false)}>
-              Get started
-              <ArrowRight size={16} weight="bold" />
-            </Button>
-          ) : (
-            <Button
-              size="3"
-              variant="outline"
-              color="gray"
-              onClick={() => onComplete(true)}
-            >
-              Skip & get started
-              <ArrowRight size={16} weight="bold" />
-            </Button>
-          )}
         </StepActions>
       </Flex>
     </Flex>

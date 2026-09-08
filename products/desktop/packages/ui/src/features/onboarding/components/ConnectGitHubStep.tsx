@@ -89,22 +89,25 @@ export function ConnectGitHubStep({ onNext, onBack }: ConnectGitHubStepProps) {
           </Flex>
         </Flex>
 
-        <StepActions>
+        <StepActions
+          primaryAction={
+            <Button
+              size="3"
+              variant={isConnected ? "solid" : "outline"}
+              color={isConnected ? undefined : "gray"}
+              onClick={handleContinue}
+            >
+              {isConnected ? "Continue" : "Skip for now"}
+              <ArrowRight size={16} weight="bold" />
+            </Button>
+          }
+        >
           {onBack && (
             <Button size="3" variant="outline" color="gray" onClick={onBack}>
               <ArrowLeft size={16} weight="bold" />
               Back
             </Button>
           )}
-          <Button
-            size="3"
-            variant={isConnected ? "solid" : "outline"}
-            color={isConnected ? undefined : "gray"}
-            onClick={handleContinue}
-          >
-            {isConnected ? "Continue" : "Skip for now"}
-            <ArrowRight size={16} weight="bold" />
-          </Button>
         </StepActions>
       </Flex>
     </Flex>

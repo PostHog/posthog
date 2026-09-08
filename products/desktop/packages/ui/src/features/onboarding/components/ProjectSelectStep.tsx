@@ -1,9 +1,4 @@
-import {
-  ArrowLeft,
-  ArrowRight,
-  CaretDown,
-  CheckCircle,
-} from "@phosphor-icons/react";
+import { ArrowLeft, ArrowRight, CaretDown } from "@phosphor-icons/react";
 import {
   Button,
   Combobox,
@@ -17,16 +12,9 @@ import {
   ComboboxList,
   ComboboxTrigger,
   Heading,
-  Item,
-  ItemActions,
-  ItemContent,
-  ItemDescription,
-  ItemMedia,
-  ItemTitle,
   Skeleton,
   Text,
 } from "@posthog/quill";
-import { REGION_LABELS } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { OAuthControls } from "@posthog/ui/features/auth/OAuthControls";
@@ -40,12 +28,12 @@ import {
   type ProjectInfo,
   useProjects,
 } from "@posthog/ui/features/projects/useProjects";
-import { ProductWordmark } from "@posthog/ui/primitives/ProductWordmark";
 import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
 import { FIELD_CONTENT_CLASS } from "@posthog/ui/styles/fieldTrigger";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useMemo, useRef, useState } from "react";
+import { StepActions } from "./StepActions";
 
 const log = logger.scope("project-select-step");
 
@@ -59,32 +47,6 @@ interface ProjectGroup {
 interface ProjectSelectStepProps {
   onNext: () => void;
   onBack?: () => void;
-}
-
-/** The sign-in button resolves into this, so signing in reads as a completed line. */
-function SignedInRow({ email }: { email: string | undefined }) {
-  const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
-  const region = cloudRegion ? REGION_LABELS[cloudRegion].label : null;
-  return (
-    <Item variant="muted" tone="success" size="sm">
-      <ItemMedia variant="icon">
-        <CheckCircle size={16} weight="fill" />
-      </ItemMedia>
-      <ItemContent>
-        <ItemTitle className="max-w-full truncate">
-          Signed in as {email ?? "your PostHog account"}
-        </ItemTitle>
-        <ItemDescription>PostHog account connected</ItemDescription>
-      </ItemContent>
-      {region && (
-        <ItemActions>
-          <Text size="xs" variant="muted">
-            {region}
-          </Text>
-        </ItemActions>
-      )}
-    </Item>
-  );
 }
 
 export function ProjectSelectStep({ onNext, onBack }: ProjectSelectStepProps) {
@@ -129,188 +91,168 @@ export function ProjectSelectStep({ onNext, onBack }: ProjectSelectStepProps) {
   const projectLoading = isLoading || selectProjectMutation.isPending;
 
   return (
-    <main className="flex h-full overflow-y-auto px-8 py-12">
-      <div className="mx-auto flex min-h-full w-full max-w-[480px] flex-col">
-        <div className="flex shrink-0 justify-center">
-          <ProductWordmark />
+    <main className="w-full px-8">
+      <div className="mx-auto flex w-full max-w-[480px] flex-col gap-6">
+        <div className="flex flex-col gap-1.5">
+          {/* biome-ignore lint/a11y/useHeadingContent: Quill supplies the heading text through this render target. */}
+          <Heading size="xl" render={<h1 className="font-bold" />}>
+            Choose a project
+          </Heading>
+          <Text size="sm" variant="muted">
+            Choose the PostHog project you want to use with Desktop.
+          </Text>
         </div>
 
-        <div className="flex flex-1 flex-col justify-center gap-6 py-8">
-          <div className="flex flex-col items-center gap-1.5 text-center">
-            {/* biome-ignore lint/a11y/useHeadingContent: Quill supplies the heading text through this render target. */}
-            <Heading size="xl" render={<h1 />}>
-              Choose a project
-            </Heading>
-            <Text size="sm" variant="muted">
-              Choose the PostHog project you want to use with Desktop.
-            </Text>
-          </div>
-
-          <div className="flex flex-col gap-4">
-            <AnimatePresence mode="wait">
-              {isAuthenticated ? (
-                <motion.div
-                  key="signed-in"
-                  initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="w-full"
-                >
-                  <SignedInRow email={fullUser?.email} />
-                </motion.div>
-              ) : authFetched ? (
-                <motion.div
-                  key="oauth"
-                  initial={{ opacity: 1 }}
-                  exit={shouldReduceMotion ? undefined : { opacity: 0, y: -4 }}
-                  transition={{ duration: 0.2 }}
-                  className="w-full"
-                >
-                  <OAuthControls
-                    onAuthInitiated={(region) =>
-                      track(ANALYTICS_EVENTS.ONBOARDING_SIGN_IN_INITIATED, {
-                        region,
-                      })
-                    }
-                  />
-                </motion.div>
-              ) : null}
-            </AnimatePresence>
-
-            {isAuthenticated && (
+        <div className="flex flex-col gap-4">
+          <AnimatePresence mode="wait">
+            {!isAuthenticated && authFetched ? (
               <motion.div
-                initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3 }}
+                key="oauth"
+                initial={{ opacity: 1 }}
+                exit={shouldReduceMotion ? undefined : { opacity: 0, y: -4 }}
+                transition={{ duration: 0.2 }}
                 className="w-full"
               >
-                <div className="flex w-full flex-col gap-2">
-                  <Text size="xs" variant="muted" weight="medium">
-                    Project
-                  </Text>
-                  <Combobox
-                    items={sortedGroups}
-                    value={selectedProject}
-                    onValueChange={(value) => {
-                      const project = value as ProjectInfo | null;
-                      if (project) {
-                        selectProjectMutation.mutate(project.id, {
-                          onError: (error) =>
-                            log.error("Failed to select project", error),
-                        });
-                      }
-                      setProjectOpen(false);
-                    }}
-                    open={projectOpen}
-                    onOpenChange={setProjectOpen}
-                    disabled={projectLoading}
-                    itemToStringLabel={(project) => project.name}
-                    itemToStringValue={(project) => String(project.id)}
-                  >
-                    <ComboboxTrigger
-                      render={
-                        <Button
-                          ref={projectAnchorRef}
-                          type="button"
-                          variant="outline"
-                          size="lg"
-                          left
-                          aria-label={
-                            projectLoading
-                              ? "Loading project"
-                              : `Project: ${currentProject?.name ?? "Select a project"}`
-                          }
-                          aria-busy={projectLoading || undefined}
-                          className="h-auto min-h-14 w-full justify-between px-3 py-2"
-                        >
-                          {projectLoading ? (
-                            <span
-                              aria-hidden="true"
-                              className="flex min-w-0 flex-1 flex-col gap-1.5"
+                <OAuthControls
+                  onAuthInitiated={(region) =>
+                    track(ANALYTICS_EVENTS.ONBOARDING_SIGN_IN_INITIATED, {
+                      region,
+                    })
+                  }
+                />
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+
+          {isAuthenticated && (
+            <motion.div
+              initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+              className="w-full"
+            >
+              <div className="flex w-full flex-col gap-2">
+                <Text size="xs" variant="muted" weight="medium">
+                  Project
+                </Text>
+                <Combobox
+                  items={sortedGroups}
+                  value={selectedProject}
+                  onValueChange={(value) => {
+                    const project = value as ProjectInfo | null;
+                    if (project) {
+                      selectProjectMutation.mutate(project.id, {
+                        onError: (error) =>
+                          log.error("Failed to select project", error),
+                      });
+                    }
+                    setProjectOpen(false);
+                  }}
+                  open={projectOpen}
+                  onOpenChange={setProjectOpen}
+                  disabled={projectLoading}
+                  itemToStringLabel={(project) => project.name}
+                  itemToStringValue={(project) => String(project.id)}
+                >
+                  <ComboboxTrigger
+                    render={
+                      <Button
+                        ref={projectAnchorRef}
+                        type="button"
+                        variant="outline"
+                        size="lg"
+                        left
+                        aria-label={
+                          projectLoading
+                            ? "Loading project"
+                            : `Project: ${currentProject?.name ?? "Select a project"}`
+                        }
+                        aria-busy={projectLoading || undefined}
+                        className="h-auto min-h-14 w-full justify-between px-3 py-2"
+                      >
+                        {projectLoading ? (
+                          <span
+                            aria-hidden="true"
+                            className="flex min-w-0 flex-1 flex-col gap-1.5"
+                          >
+                            <Skeleton className="h-3.5 w-28" />
+                            <Skeleton className="h-2.5 w-20" />
+                          </span>
+                        ) : (
+                          <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left">
+                            <Text
+                              render={<span />}
+                              size="sm"
+                              weight="medium"
+                              className="min-w-0 max-w-full truncate"
                             >
-                              <Skeleton className="h-3.5 w-28" />
-                              <Skeleton className="h-2.5 w-20" />
-                            </span>
-                          ) : (
-                            <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left">
+                              {currentProject?.name ?? "Select a project..."}
+                            </Text>
+                            {currentProject && (
                               <Text
                                 render={<span />}
-                                size="sm"
-                                weight="medium"
+                                size="xs"
+                                variant="muted"
                                 className="min-w-0 max-w-full truncate"
                               >
-                                {currentProject?.name ?? "Select a project..."}
+                                {currentProject.organization.name}
                               </Text>
-                              {currentProject && (
-                                <Text
-                                  render={<span />}
-                                  size="xs"
-                                  variant="muted"
-                                  className="min-w-0 max-w-full truncate"
-                                >
-                                  {currentProject.organization.name}
-                                </Text>
-                              )}
-                            </span>
-                          )}
-                          <CaretDown
-                            size={14}
-                            className="shrink-0 text-muted-foreground"
-                          />
-                        </Button>
-                      }
-                    />
-                    <ComboboxContent
-                      anchor={projectAnchorRef}
-                      side="bottom"
-                      align="start"
-                      sideOffset={4}
-                      className={FIELD_CONTENT_CLASS}
-                    >
-                      <ComboboxInput
-                        placeholder="Search projects..."
-                        showTrigger={false}
-                      />
-                      <ComboboxEmpty>No projects found.</ComboboxEmpty>
-                      <ComboboxList className="max-h-[240px]">
-                        {(group: ProjectGroup) => (
-                          <ComboboxGroup key={group.orgId} items={group.items}>
-                            <ComboboxLabel>{group.orgName}</ComboboxLabel>
-                            <ComboboxCollection>
-                              {(project: ProjectInfo) => (
-                                <ComboboxItem
-                                  key={project.id}
-                                  value={project}
-                                  title={project.name}
-                                >
-                                  <Text size="sm">{project.name}</Text>
-                                </ComboboxItem>
-                              )}
-                            </ComboboxCollection>
-                          </ComboboxGroup>
+                            )}
+                          </span>
                         )}
-                      </ComboboxList>
-                    </ComboboxContent>
-                  </Combobox>
-                  {selectProjectMutation.isError && (
-                    <Text size="xs" variant="destructive">
-                      Couldn't switch to that project. Try again.
-                    </Text>
-                  )}
-                </div>
-              </motion.div>
-            )}
-          </div>
+                        <CaretDown
+                          size={14}
+                          className="shrink-0 text-muted-foreground"
+                        />
+                      </Button>
+                    }
+                  />
+                  <ComboboxContent
+                    anchor={projectAnchorRef}
+                    side="bottom"
+                    align="start"
+                    sideOffset={4}
+                    className={FIELD_CONTENT_CLASS}
+                  >
+                    <ComboboxInput
+                      placeholder="Search projects..."
+                      showTrigger={false}
+                    />
+                    <ComboboxEmpty>No projects found.</ComboboxEmpty>
+                    <ComboboxList className="max-h-[240px]">
+                      {(group: ProjectGroup) => (
+                        <ComboboxGroup key={group.orgId} items={group.items}>
+                          <ComboboxLabel>{group.orgName}</ComboboxLabel>
+                          <ComboboxCollection>
+                            {(project: ProjectInfo) => (
+                              <ComboboxItem
+                                key={project.id}
+                                value={project}
+                                title={project.name}
+                              >
+                                <Text size="sm">{project.name}</Text>
+                              </ComboboxItem>
+                            )}
+                          </ComboboxCollection>
+                        </ComboboxGroup>
+                      )}
+                    </ComboboxList>
+                  </ComboboxContent>
+                </Combobox>
+                {selectProjectMutation.isError && (
+                  <Text size="xs" variant="destructive">
+                    Couldn't switch to that project. Try again.
+                  </Text>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </div>
 
-          {(onBack || isAuthenticated) && (
-            <div className="flex justify-end gap-2 pt-1">
-              {onBack && (
-                <Button size="lg" variant="outline" onClick={onBack}>
-                  <ArrowLeft size={16} weight="bold" />
-                  Back
-                </Button>
-              )}
-              {isAuthenticated && (
+        {(onBack || isAuthenticated) && (
+          <StepActions
+            primaryAction={
+              isAuthenticated ? (
                 <Button
                   size="lg"
                   variant="primary"
@@ -327,10 +269,17 @@ export function ProjectSelectStep({ onNext, onBack }: ProjectSelectStepProps) {
                   Continue
                   <ArrowRight size={16} weight="bold" />
                 </Button>
-              )}
-            </div>
-          )}
-        </div>
+              ) : null
+            }
+          >
+            {onBack && (
+              <Button size="lg" variant="outline" onClick={onBack}>
+                <ArrowLeft size={16} weight="bold" />
+                Back
+              </Button>
+            )}
+          </StepActions>
+        )}
       </div>
     </main>
   );

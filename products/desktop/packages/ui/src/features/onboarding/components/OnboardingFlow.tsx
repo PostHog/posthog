@@ -1,4 +1,4 @@
-import { ArrowRight, SignOut } from "@phosphor-icons/react";
+import { CheckCircle, Lifebuoy, SignOut } from "@phosphor-icons/react";
 import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
 import { integrationKeys } from "@posthog/core/integrations/repositoryKeys";
 import {
@@ -15,28 +15,40 @@ import {
   planSpaceRepoAssignments,
   resolveRepoIntegrationId,
 } from "@posthog/core/onboarding/spaceRepoAssignment";
+import {
+  Button,
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemMedia,
+  ItemTitle,
+} from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { TaskChannel } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useLogoutMutation } from "@posthog/ui/features/auth/useAuthMutations";
-import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
+import {
+  AUTH_SCOPED_QUERY_META,
+  useCurrentUser,
+} from "@posthog/ui/features/auth/useCurrentUser";
 import { TASK_CHANNELS_QUERY_KEY } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { ConsentStep } from "@posthog/ui/features/consent/ConsentStep";
 import { useUserGithubIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { ConnectGitHubStep } from "@posthog/ui/features/onboarding/components/ConnectGitHubStep";
 import { InstallCliStep } from "@posthog/ui/features/onboarding/components/InstallCliStep";
+import { SkipSetupProvider } from "@posthog/ui/features/onboarding/components/StepActions";
 import { useOnboardingFlow } from "@posthog/ui/features/onboarding/hooks/useOnboardingFlow";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { shipIt } from "@posthog/ui/primitives/confetti";
 import { FullScreenLayout } from "@posthog/ui/primitives/FullScreenLayout";
+import { ProductWordmark } from "@posthog/ui/primitives/ProductWordmark";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { firstRun } from "@posthog/ui/shell/firstRun";
 import { logger } from "@posthog/ui/shell/logger";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
-import { Button, Flex } from "@radix-ui/themes";
 import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
@@ -56,6 +68,53 @@ const stepVariants = {
 
 interface OnboardingFlowProps {
   onOpenSupport?: () => void;
+}
+
+function OnboardingHeader({
+  email,
+  isAuthenticated,
+  isLoggingOut,
+  onLogout,
+}: {
+  email?: string;
+  isAuthenticated: boolean;
+  isLoggingOut: boolean;
+  onLogout: () => void;
+}) {
+  return (
+    <header className="flex w-full max-w-[480px] flex-col items-center gap-3">
+      <ProductWordmark />
+      {isAuthenticated && (
+        <Item
+          variant="muted"
+          tone="success"
+          size="sm"
+          className="w-full max-w-[360px] py-1"
+        >
+          <ItemMedia variant="icon">
+            <CheckCircle size={14} weight="fill" />
+          </ItemMedia>
+          <ItemContent>
+            <ItemTitle className="max-w-full truncate font-normal text-xs">
+              Signed in as {email ?? "your PostHog account"}
+            </ItemTitle>
+          </ItemContent>
+          <ItemActions>
+            <Button
+              size="xs"
+              variant="link-muted"
+              className="min-h-11"
+              onClick={onLogout}
+              loading={isLoggingOut}
+            >
+              <SignOut size={14} />
+              Log out
+            </Button>
+          </ItemActions>
+        </Item>
+      )}
+    </header>
+  );
 }
 
 export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
@@ -91,6 +150,7 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
     (state) => state.setLastUsedWorkspaceMode,
   );
   const apiClient = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client: apiClient });
   const { localWorkspaces } = useHostCapabilities();
   const startupIdentity = useAuthStateValue(getAuthIdentity);
 
@@ -297,132 +357,126 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
     resetOnboarding();
   };
 
-  const footerRight = (
-    <Flex gap="5">
-      {isAuthenticated && (
-        <Button
-          size="1"
-          variant="ghost"
-          color="gray"
-          onClick={handleLogout}
-          className="opacity-50"
-        >
-          <SignOut size={14} />
-          Log out
-        </Button>
-      )}
-      {IS_DEV && isAuthenticated && (
-        <Button
-          size="1"
-          variant="ghost"
-          color="gray"
-          onClick={handleSkip}
-          className="opacity-50"
-        >
-          <ArrowRight size={14} weight="bold" />
-          Skip setup
-        </Button>
-      )}
-    </Flex>
-  );
-
   return (
-    <FullScreenLayout
-      backgroundPattern="grid"
-      footerRight={footerRight}
-      onOpenSupport={onOpenSupport}
-    >
-      <AnimatePresence mode="wait" custom={direction}>
-        {currentStep === "project-select" && (
-          <motion.div
-            key="project-select"
-            custom={direction}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            variants={stepVariants}
-            transition={{ duration: 0.3 }}
-            className="min-h-0 w-full flex-1"
-          >
-            <ProjectSelectStep onNext={handleNext} onBack={onBack} />
-          </motion.div>
-        )}
+    <FullScreenLayout backgroundPattern="grid" showFooter={false}>
+      <div className="h-full overflow-y-auto px-8 py-10">
+        <div className="mx-auto flex min-h-full w-full max-w-[640px] flex-col items-center">
+          <OnboardingHeader
+            email={currentUser?.email}
+            isAuthenticated={isAuthenticated}
+            isLoggingOut={logoutMutation.isPending}
+            onLogout={handleLogout}
+          />
 
-        {currentStep === "consent" && (
-          <motion.div
-            key="consent"
-            custom={direction}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            variants={stepVariants}
-            transition={{ duration: 0.3 }}
-            className="min-h-0 w-full flex-1"
+          <SkipSetupProvider
+            onSkipSetup={IS_DEV && isAuthenticated ? handleSkip : undefined}
           >
-            <ConsentStep
-              onNext={handleNext}
-              onBack={onBack}
-              requirements={consentRequirement}
-              onSubmittingChange={setConsentSubmitting}
-            />
-          </motion.div>
-        )}
+            <div className="mt-10 w-full">
+              <AnimatePresence mode="wait" custom={direction}>
+                {currentStep === "project-select" && (
+                  <motion.div
+                    key="project-select"
+                    custom={direction}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    variants={stepVariants}
+                    transition={{ duration: 0.3 }}
+                    className="w-full"
+                  >
+                    <ProjectSelectStep onNext={handleNext} onBack={onBack} />
+                  </motion.div>
+                )}
 
-        {currentStep === "connect-github" && (
-          <motion.div
-            key="connect-github"
-            custom={direction}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            variants={stepVariants}
-            transition={{ duration: 0.3 }}
-            className="min-h-0 w-full flex-1"
-          >
-            <ConnectGitHubStep onNext={handleNext} onBack={onBack} />
-          </motion.div>
-        )}
+                {currentStep === "consent" && (
+                  <motion.div
+                    key="consent"
+                    custom={direction}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    variants={stepVariants}
+                    transition={{ duration: 0.3 }}
+                    className="w-full"
+                  >
+                    <ConsentStep
+                      onNext={handleNext}
+                      onBack={onBack}
+                      requirements={consentRequirement}
+                      onSubmittingChange={setConsentSubmitting}
+                    />
+                  </motion.div>
+                )}
 
-        {currentStep === "install-cli" && (
-          <motion.div
-            key="install-cli"
-            custom={direction}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            variants={stepVariants}
-            transition={{ duration: 0.3 }}
-            className="min-h-0 w-full flex-1"
-          >
-            <InstallCliStep onNext={handleNext} onBack={handleBack} />
-          </motion.div>
-        )}
+                {currentStep === "connect-github" && (
+                  <motion.div
+                    key="connect-github"
+                    custom={direction}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    variants={stepVariants}
+                    transition={{ duration: 0.3 }}
+                    className="w-full"
+                  >
+                    <ConnectGitHubStep onNext={handleNext} onBack={onBack} />
+                  </motion.div>
+                )}
 
-        {currentStep === "select-repo" && (
-          <motion.div
-            key="select-repo"
-            custom={direction}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            variants={stepVariants}
-            transition={{ duration: 0.3 }}
-            className="min-h-0 w-full flex-1"
+                {currentStep === "install-cli" && (
+                  <motion.div
+                    key="install-cli"
+                    custom={direction}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    variants={stepVariants}
+                    transition={{ duration: 0.3 }}
+                    className="w-full"
+                  >
+                    <InstallCliStep onNext={handleNext} onBack={handleBack} />
+                  </motion.div>
+                )}
+
+                {currentStep === "select-repo" && (
+                  <motion.div
+                    key="select-repo"
+                    custom={direction}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    variants={stepVariants}
+                    transition={{ duration: 0.3 }}
+                    className="w-full"
+                  >
+                    <SelectRepoStep
+                      onComplete={handleComplete}
+                      onBack={handleBack}
+                      selectedDirectory={selectedDirectory}
+                      detectedRepo={detectedRepo}
+                      isDetectingRepo={isDetectingRepo}
+                      onDirectoryChange={handleDirectoryChange}
+                      selectedCloudRepo={selectedCloudRepo}
+                      onCloudRepoChange={handleCloudRepoChange}
+                      hasGithubIntegration={hasGithubIntegration}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </SkipSetupProvider>
+
+          <Button
+            size="sm"
+            variant="link-muted"
+            className="mt-4 min-h-11"
+            onClick={onOpenSupport}
           >
-            <SelectRepoStep
-              onComplete={handleComplete}
-              onBack={handleBack}
-              selectedDirectory={selectedDirectory}
-              detectedRepo={detectedRepo}
-              isDetectingRepo={isDetectingRepo}
-              onDirectoryChange={handleDirectoryChange}
-              selectedCloudRepo={selectedCloudRepo}
-              onCloudRepoChange={handleCloudRepoChange}
-              hasGithubIntegration={hasGithubIntegration}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
+            <Lifebuoy size={14} />
+            Get support
+          </Button>
+        </div>
+      </div>
     </FullScreenLayout>
   );
 }
