@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -13,6 +13,7 @@ from posthog.models.scoping import team_scope
 
 from products.experiments.backend.facade.contracts import PulseExperimentLifecycleResult
 from products.subscriptions.backend.facade import adoption
+from products.subscriptions.backend.facade.outcomes import ProvisionedOutcome
 from products.subscriptions.backend.logic import adoption_reconciliation
 from products.subscriptions.backend.models import (
     ProactivePreparedArtifact,
@@ -208,6 +209,109 @@ def test_reconcile_activated_experiment_records_start_date_as_adoption_timestamp
     assert artifact.status == ProactivePreparedArtifact.Status.ADOPTED
     assert artifact.adoption_source == ProactivePreparedArtifact.AdoptionSource.EXPERIMENT_ACTIVATED
     assert artifact.adopted_at == started_at
+
+
+@pytest.mark.django_db
+def test_adoption_dispatches_one_new_pending_outcome_only_after_commit(
+    team, monkeypatch, django_capture_on_commit_callbacks
+) -> None:
+    artifact = create_artifact(team, status=ProactivePreparedArtifact.Status.PREPARED, experiment_id=123)
+    due_at = datetime(2026, 9, 15, tzinfo=UTC)
+    outcome_id = uuid4()
+    dispatched: list[tuple[int, UUID, datetime]] = []
+    monkeypatch.setattr(
+        adoption,
+        "get_pulse_experiment_lifecycle",
+        lambda **_kwargs: PulseExperimentLifecycleResult(
+            experiment_id=123,
+            state="activated",
+            start_date=timezone.now() - timedelta(minutes=5),
+        ),
+    )
+    monkeypatch.setattr(
+        adoption,
+        "provision_outcome_for_adopted_artifact",
+        lambda **_kwargs: ProvisionedOutcome(outcome_id=outcome_id, status="pending", created=True, due_at=due_at),
+    )
+    monkeypatch.setattr(
+        adoption,
+        "start_proactive_outcome_readout",
+        lambda *, team_id, outcome_id, due_at: dispatched.append((team_id, outcome_id, due_at)),
+    )
+
+    with django_capture_on_commit_callbacks(execute=False) as callbacks:
+        adoption.reconcile_prepared_artifact(team_id=team.id, artifact_id=artifact.id)
+        assert dispatched == []
+
+    assert len(callbacks) == 1
+    callbacks[0]()
+    adoption.reconcile_prepared_artifact(team_id=team.id, artifact_id=artifact.id)
+    assert dispatched == [(team.id, outcome_id, due_at)]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "provisioned",
+    [
+        ProvisionedOutcome(outcome_id=uuid4(), status="unavailable", created=True, due_at=None),
+        ProvisionedOutcome(
+            outcome_id=uuid4(), status="pending", created=False, due_at=datetime(2026, 9, 15, tzinfo=UTC)
+        ),
+    ],
+)
+def test_adoption_does_not_dispatch_unavailable_or_preexisting_outcomes(
+    team, monkeypatch, django_capture_on_commit_callbacks, provisioned: ProvisionedOutcome
+) -> None:
+    artifact = create_artifact(team, status=ProactivePreparedArtifact.Status.PREPARED, experiment_id=123)
+    monkeypatch.setattr(
+        adoption,
+        "get_pulse_experiment_lifecycle",
+        lambda **_kwargs: PulseExperimentLifecycleResult(
+            experiment_id=123,
+            state="activated",
+            start_date=timezone.now() - timedelta(minutes=5),
+        ),
+    )
+    monkeypatch.setattr(adoption, "provision_outcome_for_adopted_artifact", lambda **_kwargs: provisioned)
+    dispatched: list[object] = []
+    monkeypatch.setattr(adoption, "start_proactive_outcome_readout", lambda **_kwargs: dispatched.append(object()))
+
+    with django_capture_on_commit_callbacks(execute=True):
+        adoption.reconcile_prepared_artifact(team_id=team.id, artifact_id=artifact.id)
+
+    assert dispatched == []
+
+
+@pytest.mark.django_db
+def test_rolled_back_adoption_does_not_dispatch_outcome(team, monkeypatch, django_capture_on_commit_callbacks) -> None:
+    artifact = create_artifact(team, status=ProactivePreparedArtifact.Status.PREPARED, experiment_id=123)
+    monkeypatch.setattr(
+        adoption,
+        "get_pulse_experiment_lifecycle",
+        lambda **_kwargs: PulseExperimentLifecycleResult(
+            experiment_id=123,
+            state="activated",
+            start_date=timezone.now() - timedelta(minutes=5),
+        ),
+    )
+    monkeypatch.setattr(
+        adoption,
+        "provision_outcome_for_adopted_artifact",
+        lambda **_kwargs: ProvisionedOutcome(
+            outcome_id=uuid4(), status="pending", created=True, due_at=datetime(2026, 9, 15, tzinfo=UTC)
+        ),
+    )
+    dispatched: list[object] = []
+    monkeypatch.setattr(adoption, "start_proactive_outcome_readout", lambda **_kwargs: dispatched.append(object()))
+
+    with django_capture_on_commit_callbacks(execute=False) as callbacks:
+        with pytest.raises(RuntimeError, match="rollback"):
+            with adoption.transaction.atomic():
+                adoption.reconcile_prepared_artifact(team_id=team.id, artifact_id=artifact.id)
+                raise RuntimeError("rollback")
+
+    assert callbacks == []
+    assert dispatched == []
 
 
 @pytest.mark.django_db

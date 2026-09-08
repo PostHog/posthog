@@ -25,6 +25,7 @@ class ProvisionedOutcome:
     outcome_id: UUID
     status: str
     created: bool
+    due_at: datetime | None
 
 
 @dataclass(frozen=True)
@@ -66,7 +67,12 @@ def provision_outcome_for_adopted_artifact(*, team_id: int, artifact_id: UUID) -
             artifact=artifact,
             defaults={"team_id": team_id, **defaults},
         )
-        return ProvisionedOutcome(outcome_id=outcome.id, status=outcome.status, created=created)
+        return ProvisionedOutcome(
+            outcome_id=outcome.id,
+            status=outcome.status,
+            created=created,
+            due_at=outcome.due_at,
+        )
 
 
 def read_outcome_once(*, team_id: int, outcome_id: UUID) -> OutcomeReadResult:

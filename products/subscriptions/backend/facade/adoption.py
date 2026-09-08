@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
+from django.db import transaction
 from django.utils import timezone
 
 from products.experiments.backend.facade import get_pulse_experiment_lifecycle
+from products.subscriptions.backend.facade.outcomes import provision_outcome_for_adopted_artifact
 from products.subscriptions.backend.models import ProactivePreparedArtifact
+from products.subscriptions.backend.temporal.client import start_proactive_outcome_readout
 from products.tasks.backend.facade.draft_publication import get_draft_publication_lifecycle
 
 
@@ -38,24 +42,21 @@ def _reconcile_draft_pr(*, artifact: ProactivePreparedArtifact) -> None:
         caller_id=binding.caller_id,
         publication_id=binding.publication_id,
     )
-    candidate = ProactivePreparedArtifact.objects.for_team(artifact.team_id).filter(
-        id=artifact.id,
-        kind=ProactivePreparedArtifact.Kind.DRAFT_PR,
-        status__in=[
-            ProactivePreparedArtifact.Status.PREPARING,
-            ProactivePreparedArtifact.Status.PREPARED,
-        ],
-        adopted_at__isnull=True,
-    )
     if lifecycle.remote_state == "merged" and lifecycle.merged_at is not None:
-        candidate.update(
-            status=ProactivePreparedArtifact.Status.ADOPTED,
+        _adopt_artifact(
+            team_id=artifact.team_id,
+            artifact_id=artifact.id,
+            kind=ProactivePreparedArtifact.Kind.DRAFT_PR,
             adoption_source=ProactivePreparedArtifact.AdoptionSource.DRAFT_PR_MERGED,
             adopted_at=lifecycle.merged_at,
-            updated_at=timezone.now(),
         )
     elif binding.is_own_publication and lifecycle.remote_state == "open":
-        candidate.filter(status=ProactivePreparedArtifact.Status.PREPARING).update(
+        ProactivePreparedArtifact.objects.for_team(artifact.team_id).filter(
+            id=artifact.id,
+            kind=ProactivePreparedArtifact.Kind.DRAFT_PR,
+            status=ProactivePreparedArtifact.Status.PREPARING,
+            adopted_at__isnull=True,
+        ).update(
             status=ProactivePreparedArtifact.Status.PREPARED,
             url=lifecycle.pr_url,
             prepared_at=timezone.now(),
@@ -71,20 +72,80 @@ def _reconcile_experiment_draft(*, artifact: ProactivePreparedArtifact) -> None:
     if lifecycle.state != "activated" or lifecycle.start_date is None:
         return
 
-    ProactivePreparedArtifact.objects.for_team(artifact.team_id).filter(
-        id=artifact.id,
+    _adopt_artifact(
+        team_id=artifact.team_id,
+        artifact_id=artifact.id,
         kind=ProactivePreparedArtifact.Kind.EXPERIMENT_DRAFT,
-        status__in=[
-            ProactivePreparedArtifact.Status.PREPARING,
-            ProactivePreparedArtifact.Status.PREPARED,
-        ],
-        adopted_at__isnull=True,
-    ).update(
-        status=ProactivePreparedArtifact.Status.ADOPTED,
         adoption_source=ProactivePreparedArtifact.AdoptionSource.EXPERIMENT_ACTIVATED,
         adopted_at=lifecycle.start_date,
-        updated_at=timezone.now(),
     )
+
+
+def _adopt_artifact(
+    *,
+    team_id: int,
+    artifact_id: UUID,
+    kind: str,
+    adoption_source: str,
+    adopted_at: datetime,
+) -> None:
+    """Record adoption and schedule a new eligible readout after the local commit.
+
+    The external lifecycle was deliberately read by the caller before entering this
+    transaction. A process crash after commit but before the Temporal start can miss
+    this alpha readout; no second delivery ledger or recovery loop is introduced here.
+    """
+    with transaction.atomic():
+        artifact = (
+            ProactivePreparedArtifact.objects.for_team(team_id)
+            .select_for_update()
+            .filter(
+                id=artifact_id,
+                kind=kind,
+                status__in=[
+                    ProactivePreparedArtifact.Status.PREPARING,
+                    ProactivePreparedArtifact.Status.PREPARED,
+                ],
+                adopted_at__isnull=True,
+            )
+            .first()
+        )
+        if artifact is None:
+            return
+        updated = (
+            ProactivePreparedArtifact.objects.for_team(team_id)
+            .filter(
+                id=artifact.id,
+                kind=kind,
+                status__in=[
+                    ProactivePreparedArtifact.Status.PREPARING,
+                    ProactivePreparedArtifact.Status.PREPARED,
+                ],
+                adopted_at__isnull=True,
+            )
+            .update(
+                status=ProactivePreparedArtifact.Status.ADOPTED,
+                adoption_source=adoption_source,
+                adopted_at=adopted_at,
+                updated_at=timezone.now(),
+            )
+        )
+        if updated != 1:
+            return
+        provisioned = provision_outcome_for_adopted_artifact(team_id=team_id, artifact_id=artifact.id)
+        if (
+            provisioned is not None
+            and provisioned.created
+            and provisioned.status == "pending"
+            and provisioned.due_at is not None
+        ):
+            transaction.on_commit(
+                lambda outcome_id=provisioned.outcome_id, due_at=provisioned.due_at: start_proactive_outcome_readout(
+                    team_id=team_id,
+                    outcome_id=outcome_id,
+                    due_at=due_at,
+                )
+            )
 
 
 class _DraftPublicationBinding:
