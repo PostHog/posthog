@@ -626,6 +626,7 @@ export function GatewayServerDetail({
           open
           serverName={server.name}
           fixedAuthType={gatewayConnectAuthType(server)}
+          isCustomServer={!server.template_id}
           onSubmit={handleConnectSubmit}
           onClose={() => setConnectOpen(false)}
         />

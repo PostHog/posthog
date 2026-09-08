@@ -12,9 +12,10 @@
  * * `verified` - Verified
  * * `community` - Community
  */
-export type TrustTierEnumApi = (typeof TrustTierEnumApi)[keyof typeof TrustTierEnumApi]
+export type CommunitySkillTrustTierEnumApi =
+    (typeof CommunitySkillTrustTierEnumApi)[keyof typeof CommunitySkillTrustTierEnumApi]
 
-export const TrustTierEnumApi = {
+export const CommunitySkillTrustTierEnumApi = {
     Official: 'official',
     Verified: 'verified',
     Community: 'community',
@@ -65,7 +66,7 @@ export interface CommunitySkillListApi {
      * * `official` - Official
      * * `verified` - Verified
      * * `community` - Community */
-    trust_tier: TrustTierEnumApi
+    trust_tier: CommunitySkillTrustTierEnumApi
     /** GitHub handle (or name) of the contributor who published the skill. */
     readonly author_handle: string
     /** Link to the skill's source directory on GitHub. */
@@ -133,7 +134,7 @@ export interface CommunitySkillApi {
      * * `official` - Official
      * * `verified` - Verified
      * * `community` - Community */
-    trust_tier: TrustTierEnumApi
+    trust_tier: CommunitySkillTrustTierEnumApi
     /** GitHub handle (or name) of the contributor who published the skill. */
     readonly author_handle: string
     /** Link to the skill's source directory on GitHub. */
@@ -688,6 +689,14 @@ export interface CommunitySkillPublishResultApi {
     pr_number: number
     /** Name of the branch created in the community-skills repo. */
     branch: string
+}
+
+export interface LLMSkillRenameApi {
+    /**
+     * New name for the skill. Must be unique in the project, and must not start with 'signals-scout-' or 'review-hog-'.
+     * @maxLength 64
+     */
+    new_name: string
 }
 
 export interface LLMSkillVersionSummaryApi {

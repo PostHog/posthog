@@ -68,6 +68,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         sessionContext: null,
         allTools: tools as any,
         scopeGatedTools: [],
+        flagGatedTools: [],
         gatewayToolsEnabled: false,
         distinctId: 'test-distinct-id',
         renderUiEnabled: false,
@@ -370,6 +371,9 @@ describe('ToolExecutor', () => {
             },
         ])('$label', async ({ useSingleExec, renderUiEnabled, expectStructuredContent }) => {
             getToolByNameSpy = vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                build() {
+                    return this.base
+                },
                 base: {
                     schema: z.object({}),
                     handler: async () => ({

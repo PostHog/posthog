@@ -105,6 +105,7 @@ const meta: Meta<typeof ReportTriageFocusView> = {
     nextReport,
     expanded: false,
     prShortcut: "create",
+    canRemoveSelfFromReviewers: true,
     actions: createPrActions(),
     reviewers: (
       <span className="rounded bg-(--gray-3) px-1.5 py-0.5 text-[12px] text-gray-11">
@@ -136,6 +137,10 @@ export const ExistingPr: Story = {
 
 export const ExpandedSummary: Story = {
   args: { expanded: true },
+};
+
+export const NotAReviewer: Story = {
+  args: { canRemoveSelfFromReviewers: false },
 };
 
 export const LongTitle: Story = {

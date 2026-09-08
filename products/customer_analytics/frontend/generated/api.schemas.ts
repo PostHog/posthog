@@ -1142,6 +1142,46 @@ export const BounceRatePageViewModeApi = {
     UniqPageScreenAutocaptures: 'uniq_page_screen_autocaptures',
 } as const
 
+export type CustomBotFieldApi = (typeof CustomBotFieldApi)[keyof typeof CustomBotFieldApi]
+
+export const CustomBotFieldApi = {
+    RawUserAgent: '$raw_user_agent',
+    Ip: '$ip',
+    Lib: '$lib',
+    Host: '$host',
+    Pathname: '$pathname',
+    CurrentUrl: '$current_url',
+    Browser: '$browser',
+    Os: '$os',
+    BrowserLanguage: '$browser_language',
+    ScreenWidth: '$screen_width',
+    ScreenHeight: '$screen_height',
+    GeoipCountryCode: '$geoip_country_code',
+    Referrer: '$referrer',
+    ReferringDomain: '$referring_domain',
+} as const
+
+export type CustomBotMatcherApi = (typeof CustomBotMatcherApi)[keyof typeof CustomBotMatcherApi]
+
+export const CustomBotMatcherApi = {
+    Contains: 'contains',
+    Regex: 'regex',
+    Cidr: 'cidr',
+} as const
+
+export interface CustomBotDefinitionApi {
+    /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
+    category?: string | null
+    id: string
+    /** The event property this rule reads. */
+    key: CustomBotFieldApi
+    matcher: CustomBotMatcherApi
+    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
+    name: string
+    /** Matched against the property named by `key`. */
+    pattern: string
+}
+
 export type FilterLogicalOperatorApi = (typeof FilterLogicalOperatorApi)[keyof typeof FilterLogicalOperatorApi]
 
 export const FilterLogicalOperatorApi = {
@@ -1293,6 +1333,7 @@ export interface HogQLQueryModifiersApi {
     bounceRateDurationSeconds?: number | null
     bounceRatePageViewMode?: BounceRatePageViewModeApi | null
     convertToProjectTimezone?: boolean | null
+    customBotDefinitions?: CustomBotDefinitionApi[] | null
     customChannelTypeRules?: CustomChannelRuleApi[] | null
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifierApi[] | null
     debug?: boolean | null
@@ -2283,9 +2324,9 @@ export interface CustomPropertyOptionApi {
  * * `tracked` - tracked
  * * `ignored` - ignored
  */
-export type AccountSegmentEnumApi = (typeof AccountSegmentEnumApi)[keyof typeof AccountSegmentEnumApi]
+export type SyncSegmentEnumApi = (typeof SyncSegmentEnumApi)[keyof typeof SyncSegmentEnumApi]
 
-export const AccountSegmentEnumApi = {
+export const SyncSegmentEnumApi = {
     Tracked: 'tracked',
     Ignored: 'ignored',
 } as const
@@ -2319,7 +2360,7 @@ export interface CustomPropertySyncRunApi {
      *
      * * `tracked` - tracked
      * * `ignored` - ignored */
-    readonly account_segment: AccountSegmentEnumApi | null
+    readonly account_segment: SyncSegmentEnumApi | null
     /** Current account sync phase. Person and group property runs return null.
      *
      * * `staging` - staging
@@ -2536,8 +2577,10 @@ export interface CustomPropertyDefinitionApi {
     readonly created_by: number | null
     /** @nullable */
     readonly updated_at: string | null
-    /** Workflows that use this property, resolved by definition id. */
+    /** Workflows that use this property, resolved by definition id when the caller can view workflows. */
     readonly references: readonly CustomPropertyReferenceApi[]
+    /** Whether a workflow updates this property. Always returned, even when workflow details are hidden. */
+    readonly has_workflow_reference: boolean
 }
 
 export interface PaginatedCustomPropertyDefinitionListApi {
@@ -2608,8 +2651,10 @@ export interface PatchedCustomPropertyDefinitionApi {
     readonly created_by?: number | null
     /** @nullable */
     readonly updated_at?: string | null
-    /** Workflows that use this property, resolved by definition id. */
+    /** Workflows that use this property, resolved by definition id when the caller can view workflows. */
     readonly references?: readonly CustomPropertyReferenceApi[]
+    /** Whether a workflow updates this property. Always returned, even when workflow details are hidden. */
+    readonly has_workflow_reference?: boolean
 }
 
 /**
@@ -2803,6 +2848,281 @@ export interface PatchedCustomerProfileConfigApi {
     readonly updated_at?: string | null
 }
 
+export interface CustomerTaskAccountApi {
+    /** UUID of the linked account. */
+    readonly id: string
+    /** Name of the linked account. */
+    readonly name: string
+}
+
+/**
+ * * `open` - Open
+ * * `in_progress` - In progress
+ * * `completed` - Completed
+ * * `canceled` - Canceled
+ */
+export type CustomerTaskStatusEnumApi = (typeof CustomerTaskStatusEnumApi)[keyof typeof CustomerTaskStatusEnumApi]
+
+export const CustomerTaskStatusEnumApi = {
+    Open: 'open',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Canceled: 'canceled',
+} as const
+
+export interface CustomerTaskUserApi {
+    /** PostHog user ID. */
+    readonly id: number
+    /** Email address of the user. */
+    readonly email: string
+    /** First name of the user. */
+    readonly first_name: string
+    /** Last name of the user. */
+    readonly last_name: string
+}
+
+export interface CustomerTaskApi {
+    /** UUID of the task. */
+    readonly id: string
+    /** Linked account, if any. */
+    readonly account: CustomerTaskAccountApi | null
+    /** Task name. */
+    readonly name: string
+    /**
+     * Task description, if any.
+     * @nullable
+     */
+    readonly description: string | null
+    /** Task lifecycle status.
+     *
+     * * `open` - Open
+     * * `in_progress` - In progress
+     * * `completed` - Completed
+     * * `canceled` - Canceled */
+    readonly status: CustomerTaskStatusEnumApi
+    /** Assigned project member, if any. */
+    readonly assigned_to: CustomerTaskUserApi | null
+    /**
+     * Task deadline, if any.
+     * @nullable
+     */
+    readonly due_at: string | null
+    /**
+     * When the task was completed, if applicable.
+     * @nullable
+     */
+    readonly completed_at: string | null
+    /** User credited with completion, if known. */
+    readonly completed_by: CustomerTaskUserApi | null
+    /** User who created the task, if known. */
+    readonly created_by: CustomerTaskUserApi | null
+    /**
+     * When the task was archived.
+     * @nullable
+     */
+    readonly archived_at: string | null
+    /** When the task was created. */
+    readonly created_at: string
+    /** When the task was last updated. */
+    readonly updated_at: string
+    /** Whether the current user can edit this task. */
+    readonly can_edit: boolean
+    /** Whether the current user can restore this task. */
+    readonly can_restore: boolean
+}
+
+export interface CustomerTaskPageApi {
+    /** Total number of matching tasks. */
+    readonly count: number
+    /**
+     * URL of the next page, if available.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, if available.
+     * @nullable
+     */
+    readonly previous: string | null
+    /** Tasks in this page. */
+    readonly results: readonly CustomerTaskApi[]
+}
+
+export interface CustomerTaskCreateApi {
+    /**
+     * UUID of a visible account, or null for an accountless task.
+     * @nullable
+     */
+    account_id?: string | null
+    /**
+     * Task name.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * Task description, or null to leave it empty.
+     * @nullable
+     */
+    description?: string | null
+    /**
+     * PostHog user ID to assign, or null to leave unassigned.
+     * @nullable
+     */
+    assigned_to_id?: number | null
+    /**
+     * ISO 8601 deadline, or null for no deadline.
+     * @nullable
+     */
+    due_at?: string | null
+    /** Initial task status.
+     *
+     * * `open` - Open
+     * * `in_progress` - In progress
+     * * `completed` - Completed
+     * * `canceled` - Canceled */
+    status?: CustomerTaskStatusEnumApi
+}
+
+export interface CustomerTaskUpdateApi {
+    /**
+     * UUID of a visible account, or null to remove the account link.
+     * @nullable
+     */
+    account_id?: string | null
+    /**
+     * Replacement task name.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * Replacement description, or null to clear it.
+     * @nullable
+     */
+    description?: string | null
+    /**
+     * Replacement assignee ID, or null to unassign.
+     * @nullable
+     */
+    assigned_to_id?: number | null
+    /**
+     * Replacement ISO 8601 deadline, or null to clear it.
+     * @nullable
+     */
+    due_at?: string | null
+    /** Replacement task status.
+     *
+     * * `open` - Open
+     * * `in_progress` - In progress
+     * * `completed` - Completed
+     * * `canceled` - Canceled */
+    status?: CustomerTaskStatusEnumApi
+}
+
+export interface PatchedCustomerTaskUpdateApi {
+    /**
+     * UUID of a visible account, or null to remove the account link.
+     * @nullable
+     */
+    account_id?: string | null
+    /**
+     * Replacement task name.
+     * @maxLength 400
+     */
+    name?: string
+    /**
+     * Replacement description, or null to clear it.
+     * @nullable
+     */
+    description?: string | null
+    /**
+     * Replacement assignee ID, or null to unassign.
+     * @nullable
+     */
+    assigned_to_id?: number | null
+    /**
+     * Replacement ISO 8601 deadline, or null to clear it.
+     * @nullable
+     */
+    due_at?: string | null
+    /** Replacement task status.
+     *
+     * * `open` - Open
+     * * `in_progress` - In progress
+     * * `completed` - Completed
+     * * `canceled` - Canceled */
+    status?: CustomerTaskStatusEnumApi
+}
+
+/**
+ * * `created` - Created
+ * * `updated` - Updated
+ * * `archived` - Archived
+ * * `restored` - Restored
+ */
+export type CustomerTaskActivityTypeEnumApi =
+    (typeof CustomerTaskActivityTypeEnumApi)[keyof typeof CustomerTaskActivityTypeEnumApi]
+
+export const CustomerTaskActivityTypeEnumApi = {
+    Created: 'created',
+    Updated: 'updated',
+    Archived: 'archived',
+    Restored: 'restored',
+} as const
+
+/**
+ * Value before the change.
+ */
+export type CustomerTaskChangeApiBefore = string | number | boolean | { [key: string]: unknown } | null
+
+/**
+ * Value after the change.
+ */
+export type CustomerTaskChangeApiAfter = string | number | boolean | { [key: string]: unknown } | null
+
+export interface CustomerTaskChangeApi {
+    /** Semantic task field that changed. */
+    readonly field: string
+    /** Value before the change. */
+    readonly before: CustomerTaskChangeApiBefore
+    /** Value after the change. */
+    readonly after: CustomerTaskChangeApiAfter
+}
+
+export interface CustomerTaskActivityApi {
+    /** UUID of the activity. */
+    readonly id: string
+    /** Action that produced the activity.
+     *
+     * * `created` - Created
+     * * `updated` - Updated
+     * * `archived` - Archived
+     * * `restored` - Restored */
+    readonly activity_type: CustomerTaskActivityTypeEnumApi
+    /** Semantic field changes in this action. */
+    readonly changes: readonly CustomerTaskChangeApi[]
+    /** User who made the change, if known. */
+    readonly actor: CustomerTaskUserApi | null
+    /** When the activity was recorded. */
+    readonly created_at: string
+}
+
+export interface CustomerTaskActivityPageApi {
+    /** Total number of matching activities. */
+    readonly count: number
+    /**
+     * URL of the next page, if available.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, if available.
+     * @nullable
+     */
+    readonly previous: string | null
+    /** Activities in this page. */
+    readonly results: readonly CustomerTaskActivityApi[]
+}
+
 /**
  * The caller's event stream — a live feed of selected accounts' events posted to a
  * Slack channel of their choice. One stream per user per project.
@@ -2957,9 +3277,10 @@ export const FeatureRequestStatusEnumApi = {
  * * `medium` - Medium
  * * `low` - Low
  */
-export type RequestPriorityEnumApi = (typeof RequestPriorityEnumApi)[keyof typeof RequestPriorityEnumApi]
+export type FeatureRequestPriorityEnumApi =
+    (typeof FeatureRequestPriorityEnumApi)[keyof typeof FeatureRequestPriorityEnumApi]
 
-export const RequestPriorityEnumApi = {
+export const FeatureRequestPriorityEnumApi = {
     High: 'high',
     Medium: 'medium',
     Low: 'low',
@@ -3050,7 +3371,7 @@ export interface FeatureRequestApi {
      * * `high` - High
      * * `medium` - Medium
      * * `low` - Low */
-    readonly request_priority: RequestPriorityEnumApi | null
+    readonly request_priority: FeatureRequestPriorityEnumApi | null
     /** Whether the request is archived. */
     readonly is_archived: boolean
     /**
@@ -3177,7 +3498,7 @@ export interface FeatureRequestUpdateApi {
      * * `high` - High
      * * `medium` - Medium
      * * `low` - Low */
-    request_priority?: RequestPriorityEnumApi | null
+    request_priority?: FeatureRequestPriorityEnumApi | null
 }
 
 export interface PatchedFeatureRequestUpdateApi {
@@ -3212,7 +3533,7 @@ export interface PatchedFeatureRequestUpdateApi {
      * * `high` - High
      * * `medium` - Medium
      * * `low` - Low */
-    request_priority?: RequestPriorityEnumApi | null
+    request_priority?: FeatureRequestPriorityEnumApi | null
 }
 
 export interface FeatureRequestAddAccountApi {
@@ -3362,9 +3683,10 @@ export interface FeatureRequestHistoryChangeApi {
 /**
  * * `manual` - Manual
  */
-export type ChangeSourceEnumApi = (typeof ChangeSourceEnumApi)[keyof typeof ChangeSourceEnumApi]
+export type FeatureRequestHistorySourceEnumApi =
+    (typeof FeatureRequestHistorySourceEnumApi)[keyof typeof FeatureRequestHistorySourceEnumApi]
 
-export const ChangeSourceEnumApi = {
+export const FeatureRequestHistorySourceEnumApi = {
     Manual: 'manual',
 } as const
 
@@ -3378,7 +3700,7 @@ export interface FeatureRequestHistoryApi {
     /** System that recorded the request change.
      *
      * * `manual` - Manual */
-    readonly change_source: ChangeSourceEnumApi
+    readonly change_source: FeatureRequestHistorySourceEnumApi
     /**
      * ID of the user who changed the request, if known.
      * @nullable
@@ -3425,7 +3747,7 @@ export interface FeatureRequestStatusHistoryApi {
     /** System that recorded the status change.
      *
      * * `manual` - Manual */
-    readonly change_source: ChangeSourceEnumApi
+    readonly change_source: FeatureRequestHistorySourceEnumApi
     /**
      * ID of the user who changed the status, if known.
      * @nullable
@@ -3496,9 +3818,9 @@ export const GroupUsageMetricDisplayEnumApi = {
  * * `count` - count
  * * `sum` - sum
  */
-export type MathEnumApi = (typeof MathEnumApi)[keyof typeof MathEnumApi]
+export type GroupUsageMetricMathEnumApi = (typeof GroupUsageMetricMathEnumApi)[keyof typeof GroupUsageMetricMathEnumApi]
 
-export const MathEnumApi = {
+export const GroupUsageMetricMathEnumApi = {
     Count: 'count',
     Sum: 'sum',
 } as const
@@ -3541,7 +3863,7 @@ export interface GroupUsageMetricApi {
      *
      * * `count` - count
      * * `sum` - sum */
-    math?: MathEnumApi
+    math?: GroupUsageMetricMathEnumApi
     /**
      * Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.
      * @maxLength 255
@@ -3597,7 +3919,7 @@ export interface PatchedGroupUsageMetricApi {
      *
      * * `count` - count
      * * `sum` - sum */
-    math?: MathEnumApi
+    math?: GroupUsageMetricMathEnumApi
     /**
      * Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.
      * @maxLength 255
@@ -3700,7 +4022,7 @@ export type AccountsListParams = {
      */
     ordering?: string
     /**
-     * Case-insensitive substring search across account name and external ID.
+     * Case-insensitive substring search across account name and external ID. A query holding an email address also matches accounts that list it as a known email, and a query holding a domain matches accounts that own that email domain.
      */
     search?: string
     /**
@@ -3871,6 +4193,102 @@ export type CustomerProfileConfigsListParams = {
     limit?: number
     /**
      * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type CustomerTasksListParams = {
+    /**
+     * Filter by account UUID.
+     */
+    account_id?: string
+    /**
+     * Which archive state to include.
+     *
+     * * `active` - active
+     * * `archived` - archived
+     * * `all` - all
+     * @minLength 1
+     */
+    archive_state?: CustomerTasksListArchiveState
+    /**
+     * Filter by me, unassigned, or one user ID.
+     * @minLength 1
+     */
+    assigned_to?: string
+    /**
+     * Inclusive lower deadline bound.
+     */
+    due_after?: string
+    /**
+     * Exclusive upper deadline bound.
+     */
+    due_before?: string
+    /**
+     * Filter tasks by whether a deadline exists.
+     */
+    has_due_at?: boolean
+    /**
+     * Page size, from 1 to 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Number of rows to skip.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Sort by task name, status, assignee, deadline, last update, account, or creation time. Prefix with - for descending order.
+     *
+     * * `name` - name
+     * * `-name` - -name
+     * * `status` - status
+     * * `-status` - -status
+     * * `assigned_to` - assigned_to
+     * * `-assigned_to` - -assigned_to
+     * * `due_at` - due_at
+     * * `-due_at` - -due_at
+     * * `updated_at` - updated_at
+     * * `-updated_at` - -updated_at
+     * * `account` - account
+     * * `-account` - -account
+     * * `created_at` - created_at
+     * * `-created_at` - -created_at
+     * @minLength 1
+     */
+    ordering?: string
+    /**
+     * Search task name and description.
+     */
+    search?: string
+    /**
+     * Comma-separated task statuses.
+     * @minLength 1
+     */
+    statuses?: string
+}
+
+export type CustomerTasksListArchiveState =
+    (typeof CustomerTasksListArchiveState)[keyof typeof CustomerTasksListArchiveState]
+
+export const CustomerTasksListArchiveState = {
+    Active: 'active',
+    Archived: 'archived',
+    All: 'all',
+} as const
+
+export type CustomerTasksActivitiesListParams = {
+    /**
+     * Page size, from 1 to 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Number of rows to skip.
+     * @minimum 0
      */
     offset?: number
 }

@@ -4,17 +4,14 @@ import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 
-import {
-    TargetTypeEnumApi,
-    type SubscriptionsListTargetType,
-} from 'products/subscriptions/frontend/generated/api.schemas'
+import { SubscriptionsListTargetType } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { SubscriptionsTab, subscriptionsSceneLogic } from '../subscriptionsSceneLogic'
+import { TARGET_TYPE_LABEL } from './subscriptionLabels'
 
 const CHANNEL_FILTER_OPTIONS: { label: string; value: SubscriptionsListTargetType | null }[] = [
     { label: 'All channels', value: null },
-    { label: 'Email', value: TargetTypeEnumApi.Email },
-    { label: 'Slack', value: TargetTypeEnumApi.Slack },
+    ...Object.values(SubscriptionsListTargetType).map((value) => ({ label: TARGET_TYPE_LABEL[value], value })),
 ]
 
 export function SubscriptionsFiltersBar(): JSX.Element {

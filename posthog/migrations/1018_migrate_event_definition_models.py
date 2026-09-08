@@ -42,8 +42,6 @@ def reverse_content_type(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("event_definitions", "0001_initial"),
-        ("ee", "0038_alter_enterpriseeventdefinition_eventdefinition_ptr_and_more"),
         ("posthog", "1017_survey_form_content"),
     ]
 

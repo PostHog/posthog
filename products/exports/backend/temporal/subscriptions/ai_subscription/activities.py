@@ -19,6 +19,7 @@ from posthog.sync import database_sync_to_async
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     build_ai_subscription_report,
+    build_ai_teams_card,
     build_chart_image_urls,
     send_email_ai_subscription_credit_limited,
     send_email_ai_subscription_report,
@@ -32,6 +33,7 @@ from products.exports.backend.temporal.subscriptions.delivery_common import (
     deliver_slack,
     strip_null_bytes,
 )
+from products.exports.backend.temporal.subscriptions.delivery_webhook import deliver_teams_webhook
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
@@ -42,6 +44,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     DeliverSubscriptionResult,
     GenerateAIReportInputs,
     GenerateAIReportResult,
+    QueryErrorDetails,
     RecipientResult,
 )
 
@@ -79,31 +82,67 @@ def _snapshot_report(snapshot: dict | None) -> str | None:
 class DiagnosticCounts:
     failed_step_count: int
     total_step_count: int
-    error_types: list[str]
+    query_errors: list[QueryErrorDetails]
+
+    @property
+    def error_types(self) -> list[str]:
+        return sorted({error["type"] for error in self.query_errors if error["type"]})
 
 
-def _tally_diagnostics(steps: list[tuple[bool, str | None]]) -> DiagnosticCounts:
-    # Failed/total step counts plus sorted distinct failure types from (ok, error_type)
-    # pairs — shared by the persisted-snapshot and in-memory diagnostic paths.
-    failed = [error_type for ok, error_type in steps if not ok]
-    error_types = sorted({str(error_type) for error_type in failed if error_type})
-    return DiagnosticCounts(failed_step_count=len(failed), total_step_count=len(steps), error_types=error_types)
+def _query_error_details(
+    error_type: str | None, error_code: str | None, error_message: str | None
+) -> QueryErrorDetails:
+    return {
+        "type": error_type,
+        "code": error_code,
+        "message": error_message,
+    }
+
+
+def _string_or_none(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _tally_diagnostics(steps: list[QueryErrorDetails | None]) -> DiagnosticCounts:
+    # One typed object keeps every failed query's type, code, and safe message paired. None marks a
+    # successful step. The same representation is built from persisted and in-memory diagnostics.
+    query_errors = [step for step in steps if step is not None]
+    return DiagnosticCounts(
+        failed_step_count=len(query_errors),
+        total_step_count=len(steps),
+        query_errors=query_errors,
+    )
 
 
 def _snapshot_diagnostic_counts(snapshot: dict | None) -> DiagnosticCounts:
     # The prior run's failure shape, read back from the persisted diagnostics on Temporal redispatch.
     diagnostics = snapshot.get(AI_REPORT_DIAGNOSTICS_KEY) if snapshot else None
     if not isinstance(diagnostics, list):
-        return DiagnosticCounts(failed_step_count=0, total_step_count=0, error_types=[])
+        return DiagnosticCounts(failed_step_count=0, total_step_count=0, query_errors=[])
     # Only well-formed dict entries count — a malformed one would inflate the total and mask an
     # all-failed report; `ok is not False` keeps a missing/None ok out of the failed set.
     return _tally_diagnostics(
-        [(d.get("ok") is not False, d.get("error_type")) for d in diagnostics if isinstance(d, dict)]
+        [
+            None
+            if d.get("ok") is not False
+            else _query_error_details(
+                _string_or_none(d.get("error_type")),
+                _string_or_none(d.get("error_code")),
+                _string_or_none(d.get("human_readable_error")),
+            )
+            for d in diagnostics
+            if isinstance(d, dict)
+        ]
     )
 
 
 def _report_diagnostic_counts(result: AiReportResult) -> DiagnosticCounts:
-    return _tally_diagnostics([(d.ok, d.error_type) for d in result.diagnostics])
+    return _tally_diagnostics(
+        [
+            None if d.ok else _query_error_details(d.error_type, d.error_code, d.human_readable_error)
+            for d in result.diagnostics
+        ]
+    )
 
 
 async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult, prompt: str | None) -> None:
@@ -229,7 +268,7 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
             aborted=False,
             failed_step_count=counts.failed_step_count,
             total_step_count=counts.total_step_count,
-            query_error_types=counts.error_types,
+            query_errors=counts.query_errors,
             target_type=subscription.target_type,
         )
 
@@ -300,7 +339,7 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         # PromptRejectedError messages are handcrafted rejections (empty/too long/no creator), safe to show.
         recipient_results = [
             RecipientResult(
-                recipient=subscription.target_value,
+                recipient=subscription.recipient_label,
                 status="failed",
                 error={"message": str(exc), "type": "PromptRejectedError"},
                 human_readable_error=str(exc),
@@ -321,7 +360,7 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         aborted=False,
         failed_step_count=counts.failed_step_count,
         total_step_count=counts.total_step_count,
-        query_error_types=counts.error_types,
+        query_errors=counts.query_errors,
         target_type=subscription.target_type,
     )
 
@@ -383,6 +422,9 @@ async def _deliver_ai_subscription(
                 charts=chart_images,
             ),
         )
+    if subscription.target_type == Subscription.SubscriptionTarget.TEAMS:
+        card = build_ai_teams_card(subscription, markdown, delivery_id=delivery_id)
+        return await deliver_teams_webhook(subscription, recipient_results, body=card)
     # `validate_subscription_for_delivery` auto-disables unsupported targets up front,
     # so reaching here means an invariant was violated.
     raise ApplicationError(
