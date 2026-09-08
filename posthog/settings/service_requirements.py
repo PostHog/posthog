@@ -17,7 +17,9 @@ if SKIP_SERVICE_VERSION_REQUIREMENTS and not (TEST or DEBUG):
     logger.warning(["Skipping service version requirements. This is dangerous and PostHog might not work as expected!"])
 
 SERVICE_VERSION_REQUIREMENTS = [
-    ServiceVersionRequirement(service="postgresql", supported_version=">=11.0.0,<=14.1.0"),
+    # Floor tracks Django's minimum for the PostgreSQL backend: below it the driver
+    # refuses to connect, so no migration can run. test_version_requirement.py binds them.
+    ServiceVersionRequirement(service="postgresql", supported_version=">=14.0.0"),
     ServiceVersionRequirement(service="redis", supported_version=">=7.0.0,<8.0.0"),
     ServiceVersionRequirement(service="clickhouse", supported_version=">=24.8,<=25.12"),
 ]

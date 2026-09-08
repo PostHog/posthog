@@ -18,11 +18,13 @@ import shutil
 import warnings
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.core.management.commands.migrate import Command as DjangoMigrateCommand
-from django.db import DEFAULT_DB_ALIAS
+from django.db import DEFAULT_DB_ALIAS, NotSupportedError
 from django.db.migrations.recorder import MigrationRecorder
 
 from posthog.management.migration_profiling.profiler import profile_migrations
@@ -36,6 +38,9 @@ from common.migration_utils import (
     temporary_max_migration,
     temporary_migration_file,
 )
+
+if TYPE_CHECKING:
+    from django.db.backends.base.base import BaseDatabaseWrapper
 
 
 def get_managed_apps() -> set[str]:
@@ -189,6 +194,37 @@ def rollback_orphaned_migration(app_label: str, migration_name: str, previous: s
         return False
 
 
+# Exit code for a database this build cannot migrate. Callers use it to tell an
+# unsupported server apart from a transient connection failure, which is worth
+# retrying. Matches sysexits.h EX_CONFIG.
+UNSUPPORTED_DATABASE_EXIT_CODE = 78
+
+
+def check_database_version(connection: BaseDatabaseWrapper) -> None:
+    """Stop with recovery steps when the server is older than Django supports.
+
+    Django refuses to connect below its minimum version, so without this the run
+    dies on its first query with a raw driver error and no way forward.
+    """
+    try:
+        connection.ensure_connection()
+    except NotSupportedError as exc:
+        raise CommandError(
+            f"{exc}\n\n"
+            "No migration ran, so the database is unchanged. Upgrade the PostgreSQL "
+            "server to a supported version, then deploy again.\n\n"
+            "On a Docker Compose deployment:\n"
+            "  1. Back up the data:\n"
+            "     docker compose exec -T db pg_dumpall --clean -U posthog | gzip > posthog-backup.sql.gz\n"
+            "  2. Stop the stack, then delete the old postgres-data volume.\n"
+            "  3. Start the db service again. It uses the PostgreSQL version PostHog pins.\n"
+            "  4. Restore the data:\n"
+            "     gunzip -c posthog-backup.sql.gz | docker compose exec -T db psql -U posthog\n\n"
+            "Run './bin/upgrade-postgres --help' for more detail.",
+            returncode=UNSUPPORTED_DATABASE_EXIT_CODE,
+        ) from exc
+
+
 class Command(DjangoMigrateCommand):
     """Extended migrate command with caching and orphan detection."""
 
@@ -236,6 +272,8 @@ class Command(DjangoMigrateCommand):
         from django.db import connections
 
         connection = connections[database]
+
+        check_database_version(connection)
 
         # Check for orphaned migrations before proceeding
         if not skip_orphan_check and not options.get("check_unapplied"):

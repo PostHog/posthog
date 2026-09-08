@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+from django.conf import settings
+from django.db.backends.postgresql.features import DatabaseFeatures as PostgresFeatures
 from django.test.testcases import TestCase
 
 from semantic_version.base import SimpleSpec, Version
@@ -95,3 +97,15 @@ class TestServiceVersionRequirement(TestCase):
         v5 = ServiceVersionRequirement(service="postgresql", supported_version=">=11.0.0,<=13.0.0")
         in_range, _ = v5.is_service_in_accepted_version()
         self.assertEqual(in_range, True)
+
+    def test_postgres_requirement_starts_at_the_version_django_needs(self):
+        # Below Django's floor the driver refuses to connect, so migrations cannot
+        # run. A requirement that advertises anything lower sends operators to a
+        # PostgreSQL version PostHog cannot migrate.
+        requirement = next(r for r in settings.SERVICE_VERSION_REQUIREMENTS if r.service == "postgresql")
+        minimum = PostgresFeatures.minimum_database_version
+        assert minimum is not None
+        major = minimum[0]
+
+        assert requirement.supported_version.match(Version(major=major, minor=0, patch=0))
+        assert not requirement.supported_version.match(Version(major=major - 1, minor=99, patch=0))
