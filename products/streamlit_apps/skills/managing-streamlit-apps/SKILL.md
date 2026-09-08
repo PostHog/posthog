@@ -37,7 +37,8 @@ Call `streamlit-apps-set-source` again: it creates the next version and activate
 Every call ships the complete app, so pass `files` and `assets` again too; a version holds only what that call carried.
 A running sandbox is stopped so it can't keep serving stale code — call `streamlit-apps-start` afterwards to serve the new version.
 Versions are immutable, but not permanent: `streamlit-apps-versions` lists the newest 50, and non-active versions older than 30 days are deleted along with their code.
-There is no rollback tool: to roll back, set the old source again (fetch it from your conversation or wherever it's kept — versions store the zip, not an inline source view).
+There is no rollback tool: to roll back, set the old `source`, `files`, and `assets` again, so a rollback needs a saved copy of the complete bundle.
+Fetch that copy from your conversation or wherever it's kept — versions store the zip, not an inline source view.
 
 ## Stopping, idling, and deleting
 
