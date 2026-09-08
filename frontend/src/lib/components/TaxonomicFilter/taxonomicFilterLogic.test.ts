@@ -1400,6 +1400,30 @@ describe('taxonomicFilterLogic', () => {
         })
     })
 
+    describe.each([TaxonomicFilterGroupType.Cohorts, TaxonomicFilterGroupType.CohortsWithAllUsers])(
+        '%s cohort endpoint',
+        (groupType) => {
+            let testLogic: ReturnType<typeof taxonomicFilterLogic.build>
+
+            beforeEach(() => {
+                testLogic = taxonomicFilterLogic({
+                    taxonomicFilterLogicKey: `cohortEndpointTest-${groupType}`,
+                    taxonomicGroupTypes: [groupType],
+                })
+                testLogic.mount()
+            })
+
+            afterEach(() => {
+                testLogic.unmount()
+            })
+
+            it('asks the cohorts endpoint for the trimmed basic payload', () => {
+                const cohortGroup = testLogic.values.taxonomicGroups.find((g) => g.type === groupType)
+                expect(cohortGroup?.endpoint).toContain('basic=true')
+            })
+        }
+    )
+
     describe('Persons group getValue tolerates pinned items missing distinct_ids', () => {
         let testLogic: ReturnType<typeof taxonomicFilterLogic.build>
 
