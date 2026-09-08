@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { deepEqual as equal } from 'fast-equals'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { useEffect, useId, useRef, useState } from 'react'
 
 import {
@@ -51,15 +52,17 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
+import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
-import { NodeKind, RecordingsQuery } from '~/queries/schema/schema-general'
+import { NodeKind, ProductIntentContext, ProductKey, RecordingsQuery } from '~/queries/schema/schema-general'
 import {
     PropertyFilterType,
     PropertyOperator,
@@ -86,6 +89,7 @@ import { ProductAnalyticsOverLimitBanner } from './ProductAnalyticsOverLimitBann
 import {
     DEFAULT_RECORDING_FILTERS_ORDER_BY,
     DURATION_KEYS,
+    convertUniversalFiltersToRecordingsQuery,
     deriveOperand,
     isValidRecordingOrder,
     recordingsQueryToUniversalFilters,
@@ -1030,6 +1034,27 @@ export const ReplayFiltersTab = ({
                         )}
                         <div className="flex gap-2 ml-auto">
                             {resetButton}
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                data-attr="replay-save-filters-as-scanner"
+                                tooltip="Create a Replay Vision scanner that keeps watching sessions matching these filters"
+                                onClick={() => {
+                                    const query = convertUniversalFiltersToRecordingsQuery(filters)
+                                    void addProductIntentForCrossSell({
+                                        from: ProductKey.SESSION_REPLAY,
+                                        to: ProductKey.REPLAY_VISION,
+                                        intent_context: ProductIntentContext.SESSION_REPLAY_SAVE_FILTERS_AS_SCANNER,
+                                    })
+                                    router.actions.push(
+                                        combineUrl(urls.replayVisionScannerConfigure('new'), {
+                                            filters: JSON.stringify(query),
+                                        }).url
+                                    )
+                                }}
+                            >
+                                Create scanner from filters
+                            </LemonButton>
                             <LemonButton type="primary" size="small" onClick={() => setIsSaveFiltersModalOpen(true)}>
                                 Save as new filter
                             </LemonButton>
