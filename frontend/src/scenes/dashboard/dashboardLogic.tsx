@@ -3929,8 +3929,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             // Cache values before the long-running await — the logic may unmount
-            const { currentTeamId, effectiveRefreshFilters, urlFilters } = values
-            const urlVariables = values.currentDashboardVariables
+            const { currentTeamId, effectiveRefreshFilters, settingsForRefresh, urlFilters } = values
+            const urlVariables = settingsForRefresh.variables
 
             actions.setRefreshStatus(insight.short_id, true, true)
 

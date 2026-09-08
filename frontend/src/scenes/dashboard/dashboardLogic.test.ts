@@ -3227,6 +3227,30 @@ describe('dashboardLogic', () => {
             payloadSpy.mockRestore()
         })
 
+        it('uses visible SQL variable values when refreshing one tile before Preview', async () => {
+            const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(0)
+            await mountDashboardWithVariable({})
+            const getInsightWithRetrySpy = jest
+                .spyOn(dashboardUtils, 'getInsightWithRetry')
+                .mockImplementation(async (_teamId, insight) => insight)
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.overrideVariableValue(variableId, 'draft value', false)
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.refreshDashboardItem({ tile: logic.values.insightTiles[0] })
+                }).toFinishAllListeners()
+
+                expect(getInsightWithRetrySpy).toHaveBeenCalledTimes(1)
+                expect(getInsightWithRetrySpy.mock.calls[0][7]).toEqual({})
+            } finally {
+                getInsightWithRetrySpy.mockRestore()
+                payloadSpy.mockRestore()
+            }
+        })
+
         it('makes Preview available when a SQL variable changes during an older preview', async () => {
             const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(0)
             await mountDashboardWithVariable({})
