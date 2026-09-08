@@ -24,6 +24,14 @@ describe('alerts utils', () => {
                 },
             }) as AlertType
 
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        const pinClock = (instant: string): void => {
+            jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] }).setSystemTime(new Date(instant))
+        }
+
         it.each([
             ['finished once the date passed', '2026-01-01', false, true],
             ['still running before the date', '2026-12-31', true, false],
@@ -31,11 +39,23 @@ describe('alerts utils', () => {
             ['past date but still enabled', '2026-01-01', true, false],
             ['finished on the date itself', '2026-06-01', false, true],
         ])('%s', (_name, date, enabled, expected) => {
-            expect(isTargetDatePassed(targetAlert(date, enabled), new Date('2026-06-01'))).toBe(expected)
+            pinClock('2026-06-01T12:00:00Z')
+            expect(isTargetDatePassed(targetAlert(date, enabled), 'UTC')).toBe(expected)
+        })
+
+        // Tests run on UTC, so each instant below puts the browser on the other side of midnight
+        // from the project. Both rows fail if the browser calendar decides the verdict.
+        it.each([
+            ['a project that already reached the target date', '2026-06-01T20:00:00Z', 'Pacific/Auckland', true],
+            ['a project that has not reached it yet', '2026-06-02T02:00:00Z', 'America/Los_Angeles', false],
+        ])('reads the target date on the project calendar: %s', (_name, instant, timezone, expected) => {
+            pinClock(instant)
+            expect(isTargetDatePassed(targetAlert('2026-06-02', false), timezone)).toBe(expected)
         })
 
         it('is false for a non-target alert', () => {
-            expect(isTargetDatePassed({ enabled: false } as AlertType, new Date('2026-06-01'))).toBe(false)
+            pinClock('2026-06-01T12:00:00Z')
+            expect(isTargetDatePassed({ enabled: false } as AlertType, 'UTC')).toBe(false)
         })
     })
 

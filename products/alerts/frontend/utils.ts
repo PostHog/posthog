@@ -1,4 +1,4 @@
-import { dayjs } from 'lib/dayjs'
+import { dayjs, dayjsNowInTimezone } from 'lib/dayjs'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { AlertState, ForecastConditionType } from '~/queries/schema/schema-general'
@@ -114,10 +114,12 @@ export function isFailedDelivery(check: AlertCheck): boolean {
     return check.investigation_status !== 'pending' && check.investigation_status !== 'running'
 }
 
-export function isTargetDatePassed(alert: AlertType, today: Date): boolean {
+/** The server expires a target alert on the project's calendar date, so the label has to read the
+ * same clock. A browser in another timezone would otherwise disagree for part of every day. */
+export function isTargetDatePassed(alert: AlertType, projectTimezone: string): boolean {
     const config = alert.forecast_config
     if (config?.condition !== ForecastConditionType.TARGET_BY_DATE || !config.target_date) {
         return false
     }
-    return !alert.enabled && !dayjs(config.target_date).isAfter(dayjs(today), 'day')
+    return !alert.enabled && !dayjs(config.target_date).isAfter(dayjsNowInTimezone(projectTimezone), 'day')
 }

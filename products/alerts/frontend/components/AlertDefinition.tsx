@@ -1,7 +1,10 @@
+import { useValues } from 'kea'
 import { ReactNode } from 'react'
 
 import { IconCalendar, IconClock } from '@posthog/icons'
 import { LemonBanner, LemonTag, Link } from '@posthog/lemon-ui'
+
+import { teamLogic } from 'scenes/teamLogic'
 
 import { AlertState } from '~/queries/schema/schema-general'
 
@@ -24,8 +27,10 @@ export function AlertDefinitionRow({ label, children, className }: AlertDefiniti
 }
 
 export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+
     if (!alert.enabled) {
-        return isTargetDatePassed(alert, new Date()) ? (
+        return isTargetDatePassed(alert, currentTeam?.timezone ?? 'UTC') ? (
             <LemonTag type="muted">Target date passed</LemonTag>
         ) : (
             <LemonTag type="muted">Disabled</LemonTag>
