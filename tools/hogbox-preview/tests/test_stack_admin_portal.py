@@ -1,9 +1,9 @@
-"""Unit tests for the opt-in Django admin flag in the preview stack.
+"""Unit tests for the Django admin flag in the preview stack env.
 
 Self-contained: no network, no live box. ``write_override`` only touches
 ``backend.write_file``, so a recording fake backend is enough to assert the
-default omits the admin portal — a preview is served on a PUBLIC URL and its
-seeded demo user is staff, so an always-on /admin would be world-reachable.
+generated compose override turns the admin portal on — without it, ee/urls.py
+registers no /admin route and the SPA rewrites /admin to /project/1/admin.
 
     cd tools/hogbox-preview && python -m unittest discover tests
 """
@@ -22,8 +22,6 @@ try:
 except ImportError:
     HAVE_SDK = False
 
-_ENV_LINE = "- ADMIN_PORTAL_ENABLED=1"
-
 
 class _RecordingBackend:
     """Duck-typed stand-in for a PreviewBackend: write_override only calls
@@ -36,20 +34,14 @@ class _RecordingBackend:
         self.files[remote_path] = content if isinstance(content, str) else content.decode()
 
 
-def _override(stack, backend: _RecordingBackend) -> str:
-    stack.write_override()
-    return backend.files[f"{stack.repo_dir}/{stack.OVERRIDE}"]
-
-
 @unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
 class PreviewAdminPortalTest(unittest.TestCase):
-    def test_default_override_has_no_admin_portal(self):
+    def test_override_enables_the_admin_portal(self):
         backend = _RecordingBackend()
-        self.assertNotIn(_ENV_LINE, _override(PostHogPreviewStack(backend), backend))
-
-    def test_opt_in_puts_the_flag_in_the_web_env(self):
-        backend = _RecordingBackend()
-        self.assertIn(_ENV_LINE, _override(PostHogPreviewStack(backend, admin_portal=True), backend))
+        stack = PostHogPreviewStack(backend)
+        stack.write_override()
+        override = backend.files[f"{stack.repo_dir}/{stack.OVERRIDE}"]
+        self.assertIn("- ADMIN_PORTAL_ENABLED=1", override)
 
 
 if __name__ == "__main__":

@@ -129,7 +129,6 @@ class PostHogPreviewStack:
         reset_db: bool = False,
         mount: bool = True,
         frontend_dist_tar: str | None = None,
-        admin_portal: bool = False,
     ):
         self.backend = backend
         # One random Django SECRET_KEY per stack (i.e. per provisioned box). Pinned
@@ -153,12 +152,6 @@ class PostHogPreviewStack:
         # Turbo cache). When set, swap_frontend serves the PR's own frontend
         # instead of the golden image's :master SPA. None => keep :master.
         self.frontend_dist_tar = frontend_dist_tar
-        # Opt-in Django admin (/admin). OFF by default, and the default MUST stay
-        # off: a preview is served on a PUBLIC URL and seeds a staff user with
-        # published credentials (generate_demo_data defaults --staff to True, and
-        # posthog's User.is_superuser is a read-only alias for is_staff), so an
-        # always-on admin hands the whole Django admin to anyone who opens the box.
-        self.admin_portal = admin_portal
 
     # --- public API ----------------------------------------------------------
     def bring_up(self) -> str:
@@ -349,15 +342,16 @@ class PostHogPreviewStack:
             # companion settings change that reads this from the env; it's an
             # inert no-op on an image that predates it.
             "      - USE_LOCAL_SETUP=1",
-        ]
-        if self.admin_portal:
             # ee/urls.py registers /admin/* only when ADMIN_PORTAL_ENABLED is true,
             # and ee/settings.py defaults it to DEMO or DEBUG — both false here. So
-            # without this line Django has no /admin route at all, and the request
-            # falls through to the SPA, which prefixes the path with the project id
-            # (/admin -> /project/1/admin). Off by default keeps the generated
-            # override identical to the golden bake's baked copy.
-            lines.append("      - ADMIN_PORTAL_ENABLED=1")
+            # without this, Django has no /admin route at all: the request falls
+            # through to the SPA, which prefixes any path it doesn't know with the
+            # project id, and /admin lands on /project/1/admin. A box reaches admin
+            # only over the tailnet (hogland's box-front is an internal NLB behind
+            # split-DNS), and the seeded demo user is staff, so /admin is as exposed
+            # as the rest of the preview and no more.
+            "      - ADMIN_PORTAL_ENABLED=1",
+        ]
         lines += [
             "  plugins:",
             f"    image: {self.CDP_IMAGE}",

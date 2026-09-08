@@ -146,12 +146,7 @@ cd tools/hogbox-preview
 # omits --frontend-dist and swaps the frontend in afterwards (below) so the FE
 # build runs in parallel; the flag stays for a single-shot local build.
 python -m hogbox_preview --host "$HOG_HOST" --name "preview-pr-$PR" up \
-  --branch "pull/$PR/head" [--frontend-dist /path/to/frontend-dist.tgz] [--no-seed] \
-  [--admin-portal]
-
-# --admin-portal serves Django admin at /admin on that box. It is off by default:
-# a preview URL is public and the seeded demo user is staff, so admin would be
-# open to anyone who finds the box. Use it only on a box you can throw away.
+  --branch "pull/$PR/head" [--frontend-dist /path/to/frontend-dist.tgz] [--no-seed]
 
 # deferred frontend swap onto the already-up box (what CI runs once the parallel
 # build-frontend job finishes): resolves the live box by pen name, no restore.

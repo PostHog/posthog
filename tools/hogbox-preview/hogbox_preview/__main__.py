@@ -56,7 +56,6 @@ def build_stack(backend: HoglandBackend, args: argparse.Namespace) -> PostHogPre
         seed_demo_data=not getattr(args, "no_seed", False),
         reset_db=getattr(args, "reset_db", False),
         frontend_dist_tar=getattr(args, "frontend_dist", None),
-        admin_portal=getattr(args, "admin_portal", False),
     )
 
 
@@ -222,11 +221,6 @@ def main(argv: list[str] | None = None) -> int:
         "--frontend-dist",
         default=None,
         help="path to a gzipped tar of a prebuilt frontend/dist; serves the PR's own frontend (else the image's :master SPA)",
-    )
-    up.add_argument(
-        "--admin-portal",
-        action="store_true",
-        help="serve Django admin at /admin (off by default: the box is public and its seeded demo user is staff)",
     )
     up.set_defaults(func=cmd_up)
 
