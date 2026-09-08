@@ -20,8 +20,6 @@ from .mcp_filter_coverage import McpFilterCoverageCheck
 from .pr_concurrency import PrConcurrencyCheck
 from .pr_event_fanout import PrEventFanoutCheck
 from .required_gates import RequiredGateCheck
-from .reusable_secret_passthrough import ReusableSecretPassthroughCheck
-from .secret_inventory import SecretInventoryCheck
 from .semgrep_services_coverage import SemgrepServicesCoverageCheck
 
 CHECKS: list[WorkflowCheck] = [
@@ -34,8 +32,6 @@ CHECKS: list[WorkflowCheck] = [
     RequiredGateCheck(),
     PrEventFanoutCheck(),
     McpFilterCoverageCheck(),
-    SecretInventoryCheck(),
-    ReusableSecretPassthroughCheck(),
 ]
 
 
