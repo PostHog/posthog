@@ -106,22 +106,23 @@ class TestValidateCredentials:
         assert is_valid is expected_valid
         assert error == expected_error
 
+    @pytest.mark.parametrize(
+        "raised, expected_error",
+        [
+            (Exception("boom"), UNREACHABLE_ERROR),
+            (requests.exceptions.ConnectionError("refused"), UNREACHABLE_ERROR),
+            (requests.exceptions.SSLError("bad cert"), TLS_ERROR),
+        ],
+    )
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_credentials_reports_an_unreachable_cluster(self, mock_session):
+    def test_validate_credentials_transport_failure_mapping(self, mock_session, raised, expected_error):
         mock_session.return_value.headers = {}
-        mock_session.return_value.get.side_effect = Exception("boom")
+        mock_session.return_value.get.side_effect = raised
 
         assert validate_credentials("https://es.example.com", ElasticsearchAuth(api_key="k")) == (
             False,
-            UNREACHABLE_ERROR,
+            expected_error,
         )
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_credentials_reports_a_tls_failure_separately(self, mock_session):
-        mock_session.return_value.headers = {}
-        mock_session.return_value.get.side_effect = requests.exceptions.SSLError("bad cert")
-
-        assert validate_credentials("https://es.example.com", ElasticsearchAuth(api_key="k")) == (False, TLS_ERROR)
 
 
 class TestListIndices:

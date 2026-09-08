@@ -32,9 +32,9 @@ NON_JSON_RESPONSE_ERROR = "Elasticsearch returned a non-JSON response"
 _ES_FLOAT_TYPES = frozenset({"float", "double", "half_float", "scaled_float"})
 
 
-# Setup-time copy for each failure the root-info probe can tell apart. A single
-# "could not connect with the provided credentials" message blames the credentials for a
-# cluster that was never reached, so people re-enter a key that was correct all along.
+# Setup-time copy, one message per failure the root-info probe can tell apart. Collapsing them
+# into one blames the credentials for a cluster that was never reached, so someone re-enters a
+# key that was correct all along.
 CREDENTIALS_REJECTED_ERROR = (
     "Elasticsearch rejected your credentials. Check the username and password, or the API key, then try again."
 )
@@ -113,8 +113,8 @@ def validate_credentials(host: str, auth: ElasticsearchAuth) -> tuple[bool, str 
         return False, CREDENTIALS_REJECTED_ERROR
     if response.status_code == 403:
         return False, FORBIDDEN_ERROR
-    # 429 and 5xx are the cluster being busy or unhealthy rather than anything about the URL or
-    # the credentials, so don't send people off to re-check either.
+    # A 429 or 5xx means the cluster is busy or unhealthy, not that the URL or the credentials
+    # are wrong, so neither is worth re-checking.
     if response.status_code == 429 or response.status_code >= 500:
         return False, CLUSTER_UNAVAILABLE_ERROR
     return False, UNEXPECTED_RESPONSE_ERROR
