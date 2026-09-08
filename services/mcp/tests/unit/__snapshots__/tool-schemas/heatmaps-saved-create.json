@@ -8,20 +8,12 @@
         "data_url": {
             "anyOf": [
                 {
-                    "anyOf": [
-                        {
-                            "format": "uri",
-                            "maxLength": 2000,
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
+                    "format": "uri",
+                    "maxLength": 2000,
+                    "type": "string"
                 },
                 {
-                    "maxLength": 0,
-                    "type": "string"
+                    "type": "null"
                 }
             ],
             "description": "URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted."

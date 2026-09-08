@@ -6,18 +6,10 @@
             "type": "string"
         },
         "documentation_url": {
-            "anyOf": [
-                {
-                    "format": "uri",
-                    "maxLength": 800,
-                    "type": "string"
-                },
-                {
-                    "maxLength": 0,
-                    "type": "string"
-                }
-            ],
-            "description": "URL to external documentation for this feature. Shown to users in the opt-in UI."
+            "description": "URL to external documentation for this feature. Shown to users in the opt-in UI.",
+            "format": "uri",
+            "maxLength": 800,
+            "type": "string"
         },
         "id": {
             "description": "A UUID string identifying this early access feature.",
