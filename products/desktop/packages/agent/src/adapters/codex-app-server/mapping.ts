@@ -512,7 +512,6 @@ function commandLocations(item: AppServerItem): ToolCallLocation[] | undefined {
   return paths.map((path) => ({ path }));
 }
 
-/** `_meta.posthog`, so the desktop renderer routes MCP UI apps regardless of adapter. */
 function toolCallMeta(
   item: AppServerItem,
   tool: ToolDescriptor,
