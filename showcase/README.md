@@ -130,15 +130,41 @@ Empirical timing data extracted from PostHog's production CI ([`workflows/ci-bac
 | [**`replay-vision (3/3)`**](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546489)  | **312s** (5m 12s) |   **83s** (1m 23s)    | **144s** (2m 24s)  |    **26.6%**     |            **~165s** (2m 45s)             | **47% faster** |
 | [**`field-notes, apm`**](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546811)     | **379s** (6m 19s) |   **93s** (1m 33s)    | **170s** (2m 50s)  |    **24.5%**     |            **~190s** (3m 10s)             | **50% faster** |
 
-**Specific Step Breakdown per Runner (Workflow Source vs. Verified Execution Logs):**
+**Specific Step Breakdown per Runner (Verified Start & End Line Links):**
 
-- [**`Start services`**](https://github.com/PostHog/posthog/blob/master/.github/workflows/ci-backend.yml#L804-L814) (`docker compose up -d`): **5s** (e.g. [Job 102169546873 Step 5](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873#step:5:1))
-- [**`Wait for Docker services`**](https://github.com/PostHog/posthog/blob/master/.github/workflows/ci-backend.yml#L885-L886) (`bin/ci-wait-for-docker wait`): **25s – 30s** (e.g. [Job 102169546873 Step 17](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873#step:17:1))
-- [**`Prime test_posthog from cached schema`**](https://github.com/PostHog/posthog/blob/master/.github/workflows/ci-backend.yml#L902-L920) (`schema.sql.gz` restore into Docker container): **38s – 45s** (e.g. [Job 102169546873 Step 19](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873#step:19:1))
-- [**`Register Temporal search attributes`**](https://github.com/PostHog/posthog/blob/master/.github/workflows/ci-backend.yml#L942-L950) in Docker: **13s – 15s** (e.g. [Job 102169546873 Step 21](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873#step:21:1))
-- [**`Run product tests`**](https://github.com/PostHog/posthog/blob/master/.github/workflows/ci-backend.yml#L977) (Actual pytest execution): e.g. [Job 102169546873 Step 27](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873#step:27:1) (**23s**) vs. 86s setup.
-- [**`Migrate test_posthog from scratch`**](https://github.com/PostHog/posthog/blob/master/.github/workflows/ci-backend.yml#L921-L941) (On cache miss): **+17m – 22m penalty** per runner.
-- **Total Overhead:** **~80s – 100s per runner** before the first test runs.
+Using representative job [`tasks (3/5)` (Job 102169546465)](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546465) from PR #95897:
+
+1. **Background Docker Launch (`docker compose up -d`)**:
+   - [Start: Step 5 Line 40](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546465#step:5:40) (`17:38:51` — `Docker Compose launch started in background (pid 2041)`)
+   - [End: Step 5 Line 303](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546465#step:5:303) (`17:38:57` — Step 5 completion, duration 6s)
+2. **Blocked Wait for Docker Services**:
+   - Background launch ran for **51s** in parallel with Python/pnpm installation (Steps 6–16), but was still not ready when Step 17 began.
+   - [Start: Step 17 Line 1](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546465#step:17:1) (`17:39:42` — `bin/ci-wait-for-docker wait objectstorage`)
+   - [End: Step 17 Line 50](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546465#step:17:50) (`17:40:08` — `Background docker compose launch finished after 26s`, all services ready)
+   - _Total Docker launch duration:_ `17:38:51` → `17:40:08` = **77s**. Runner blocked idle in Step 17 = **26s**.
+3. **Prime `test_posthog` from cached schema (`schema.sql.gz` restore into Docker container)**:
+   - [Start: Step 19 Line 1](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546465#step:19:1) (`17:40:09` — `./bin/hogli db:restore-test-db`)
+   - [End: Step 19 Line 119](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546465#step:19:119) (`17:40:56` — `Restored test_posthog from .postgres-backups/schema-latest.sql.gz`)
+   - _Duration:_ `17:40:09` → `17:40:56` = **47s**.
+4. **Register Temporal Search Attributes in Docker**:
+   - [Start: Step 21 Line 1](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546465#step:21:1) (`17:40:56` — `bin/wait-for-docker temporal`)
+   - [End: Step 21 Line 57](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546465#step:21:57) (`17:41:09` — `[info] Done`)
+   - _Duration:_ `17:40:56` → `17:41:12` = **16s**.
+5. **Total Blocked Docker Setup on Runner**:
+   - `6s (Step 5 launch) + 26s (Step 17 wait) + 47s (Step 19 restore) + 16s (Step 21 temporal) = 95s (1m 35s)`!
+6. **Actual Pytest Execution (`Run product tests`)**:
+   - [Start: Step 27 Line 1](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546465#step:27:1) (`17:41:17` — pytest suite starts)
+   - [End: Step 27 Line 164](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546465#step:27:164) (`17:43:22` — `118 passed in 122.95s`)
+   - _Duration:_ `17:41:17` → `17:43:22` = **125s (2m 05s)**.
+
+And in fast job [`ai-gateway, replay` (Job 102169546873)](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873):
+
+- Wait for Docker: [Start Step 17:1](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873#step:17:1) (`17:39:21`) → [End Step 17:57](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873#step:17:57) (`17:39:49`, 28s)
+- Prime DB: [Start Step 19:1](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873#step:19:1) (`17:39:49`) → [End Step 19:119](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873#step:19:119) (`17:40:27`, 38s)
+- Temporal: [Start Step 21:1](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873#step:21:1) (`17:40:27`) → [End Step 21:57](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873#step:21:57) (`17:40:42`, 15s)
+- Actual Pytest: [Start Step 27:1](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873#step:27:1) (`17:40:46`) → [End Step 27:177](https://github.com/PostHog/posthog/actions/runs/34257945157/job/102169546873#step:27:177) (`17:41:09`, 23s)
+- _Total Setup Overhead: 86s vs 23s of actual tests (46.2% of total 186s job)._
+
 - **Fleet Impact:** Across 25 parallel matrix jobs per PR, Docker spinup burns **~36.7 runner-minutes per run**. With in-process `enve` services on tmpfs (~2.8s startup + restore), setup overhead is virtually eliminated, cutting typical 4-minute jobs down to ~2 minutes.
 
 #### Tradeoffs & Design Decisions
