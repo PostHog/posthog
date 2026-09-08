@@ -437,6 +437,7 @@ class TaskRunRedisStream:
             and now - last_activity_at < TASK_RUN_STREAM_RELAY_ACTIVITY_REFRESH_INTERVAL_SECONDS
         ):
             return
+        _relay_activity_refreshed_at.pop(self._stream_key, None)
         _relay_activity_refreshed_at[self._stream_key] = now
         try:
             await self._redis_client.set(
@@ -448,11 +449,9 @@ class TaskRunRedisStream:
             if _relay_activity_refreshed_at.get(self._stream_key) == now:
                 _relay_activity_refreshed_at.pop(self._stream_key, None)
             raise
-        if len(_relay_activity_refreshed_at) > TASK_RUN_STREAM_RELAY_ACTIVITY_CACHE_MAX_SIZE:
-            stale_before = now - TASK_RUN_STREAM_RELAY_ACTIVITY_REFRESH_INTERVAL_SECONDS
-            for key, refreshed_at in list(_relay_activity_refreshed_at.items()):
-                if refreshed_at < stale_before:
-                    _relay_activity_refreshed_at.pop(key, None)
+        while len(_relay_activity_refreshed_at) > TASK_RUN_STREAM_RELAY_ACTIVITY_CACHE_MAX_SIZE:
+            oldest_key = next(iter(_relay_activity_refreshed_at))
+            _relay_activity_refreshed_at.pop(oldest_key, None)
 
     async def get_relay_activity_at(self) -> float | None:
         activity_raw = await self._redis_client.get(get_task_run_stream_relay_activity_key(self._stream_key))

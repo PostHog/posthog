@@ -575,7 +575,7 @@ async def poll_for_turn(
             turn_started
             and turn_relevant_lines == 0
             and durable_log_stale_seconds >= NO_TURN_OUTPUT_FLOOR_SECONDS
-            and await _relay_activity_is_stale(task_run, NO_TURN_OUTPUT_FLOOR_SECONDS)
+            and await _relay_activity_is_stale(refreshed, NO_TURN_OUTPUT_FLOOR_SECONDS)
         ):
             _raise_poll_timeout(
                 task_run,

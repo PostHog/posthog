@@ -857,6 +857,8 @@ class TestPollForTurnTimeoutDiagnosis:
             ]
         )
         fake = FakeTaskRun()
+        refreshed = FakeTaskRun()
+        cast(Any, refreshed).state = {"sandbox_event_ingest_enabled": False}
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
@@ -866,14 +868,15 @@ class TestPollForTurnTimeoutDiagnosis:
             patch(
                 "products.tasks.backend.logic.services.custom_prompt_internals._relay_activity_is_stale",
                 new=AsyncMock(return_value=True),
-            ),
-            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+            ) as relay_stale,
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=refreshed),
         ):
             with pytest.raises(TurnPollTimeout) as exc_info:
                 await poll_for_turn(fake, skip_lines=0)
 
         assert exc_info.value.stage == "no_turn_output"
         assert exc_info.value.elapsed == 40
+        relay_stale.assert_awaited_once_with(refreshed, 30)
 
     @pytest.mark.asyncio
     async def test_live_relay_activity_keeps_a_buffered_response_alive(self):

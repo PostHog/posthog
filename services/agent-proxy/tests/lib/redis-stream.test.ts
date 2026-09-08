@@ -527,6 +527,25 @@ describe('redis-stream', () => {
             expect(await redis.get(getRelayActivityKey(streamKey))).toBe('105')
             vi.useRealTimers()
         })
+
+        it('evicts the oldest entry when the shared cache is full', async () => {
+            const redis = new FakeRedis()
+            const streams = Array.from(
+                { length: 10_002 },
+                (_, index) => new TaskRunRedisStream(`task-run-stream:${index}`, redis as unknown as Redis)
+            )
+            vi.useFakeTimers()
+            vi.setSystemTime(100_000)
+
+            for (const stream of streams) {
+                await stream.recordRelayActivity()
+            }
+            await redis.del(getRelayActivityKey('task-run-stream:0'))
+            await streams[0]!.recordRelayActivity()
+
+            expect(await redis.get(getRelayActivityKey('task-run-stream:0'))).toBe('100')
+            vi.useRealTimers()
+        })
     })
 
     // -----------------------------------------------------------------------

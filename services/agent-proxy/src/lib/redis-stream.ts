@@ -421,6 +421,7 @@ export class TaskRunRedisStream {
         if (!force && lastActivityAt !== undefined && now - lastActivityAt < RELAY_ACTIVITY_REFRESH_INTERVAL_MS) {
             return
         }
+        relayActivityRefreshedAt.delete(this.streamKey)
         relayActivityRefreshedAt.set(this.streamKey, now)
         try {
             await this.redis.set(getRelayActivityKey(this.streamKey), String(now / 1000), 'EX', this.timeout)
@@ -430,12 +431,10 @@ export class TaskRunRedisStream {
             }
             throw err
         }
-        if (relayActivityRefreshedAt.size > RELAY_ACTIVITY_CACHE_MAX_SIZE) {
-            const staleBefore = now - RELAY_ACTIVITY_REFRESH_INTERVAL_MS
-            for (const [key, refreshedAt] of relayActivityRefreshedAt) {
-                if (refreshedAt < staleBefore) {
-                    relayActivityRefreshedAt.delete(key)
-                }
+        while (relayActivityRefreshedAt.size > RELAY_ACTIVITY_CACHE_MAX_SIZE) {
+            const oldestKey = relayActivityRefreshedAt.keys().next().value
+            if (oldestKey !== undefined) {
+                relayActivityRefreshedAt.delete(oldestKey)
             }
         }
     }

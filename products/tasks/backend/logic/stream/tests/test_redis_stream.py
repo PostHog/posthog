@@ -15,6 +15,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunStreamAlreadyCompleted,
     TaskRunStreamCompletionSequenceMismatch,
     TaskRunStreamSequenceGap,
+    _relay_activity_refreshed_at,
     _stream_id_sort_key,
     get_task_run_stream_completed_key,
     get_task_run_stream_key,
@@ -81,6 +82,21 @@ async def test_record_relay_activity_force_bypasses_shared_throttle() -> None:
     finally:
         redis_stream._redis_client.set = original_set
         await redis_stream.delete_stream()
+
+
+@pytest.mark.asyncio
+async def test_record_relay_activity_enforces_shared_cache_bound() -> None:
+    streams = [_new_stream() for _ in range(3)]
+    try:
+        with patch("products.tasks.backend.logic.stream.redis_stream.TASK_RUN_STREAM_RELAY_ACTIVITY_CACHE_MAX_SIZE", 2):
+            for stream in streams:
+                await stream.record_relay_activity()
+
+        assert len(_relay_activity_refreshed_at) <= 2
+        assert streams[0]._stream_key not in _relay_activity_refreshed_at
+    finally:
+        for stream in streams:
+            await stream.delete_stream()
 
 
 @pytest.mark.asyncio
