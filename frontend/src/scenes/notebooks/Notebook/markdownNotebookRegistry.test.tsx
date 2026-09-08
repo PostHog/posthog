@@ -458,6 +458,20 @@ describe('markdownNotebookRegistry', () => {
         expect(attributes.vizQuery).toMatchObject({ display: 'ActionsBar' })
     })
 
+    describe('non-string titles on resource nodes', () => {
+        // Regression: a title written as `<Person title={2026} />` reaches serializedText as a
+        // number, so summarizing it threw and the whole block rendered as an error boundary.
+        it.each([
+            ['Person', { title: 2026 }, 'Person'],
+            ['Group', { title: true }, 'Group'],
+            ['Latex', { content: 2026 }, 'LaTeX'],
+        ])('falls back to the contextual title for %s', (tagName, props, expected) => {
+            const definition = NOTEBOOK_MARKDOWN_REGISTRY.components[tagName]
+
+            expect(definition.getTitle?.({ id: 'block-1', type: 'component', tagName, props })).toEqual(expected)
+        })
+    })
+
     describe('getQueryTitle', () => {
         it.each([
             [

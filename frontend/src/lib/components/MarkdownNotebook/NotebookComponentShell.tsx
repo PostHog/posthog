@@ -145,7 +145,7 @@ export function NotebookComponentShell({
     const rawTitle = (getNotebookStringProp(node.props.title) ?? '').trim()
     const userTitle = rawTitle && rawTitle !== titleDisplay.label ? rawTitle : ''
     const titlePlaceholder = toolbarTitle ?? (isTitleEditable ? 'Add a title' : titleDisplay.label)
-    const publishedTitle = toolbarExtras?.title?.trim() || null
+    const publishedTitle = (getNotebookStringProp(toolbarExtras?.title) ?? '').trim() || null
     const resolvedTitle = isTitleEditable ? userTitle || toolbarTitle || null : publishedTitle || toolbarTitle || null
     const titleStatus = isTitleEditable ? null : toolbarExtras?.titleStatus
     const filtersLabel = componentPanels.filters ? 'Hide filters' : 'Show filters'

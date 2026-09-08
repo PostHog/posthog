@@ -941,7 +941,7 @@ export interface notebookNodeLogicValues {
     sourceComment: CommentType | null | undefined
     sqlV2ReturnVariable: string
     sqlV2ReturnVariableUsage: NotebookDependencyUsage[]
-    title: any
+    title: string
     titlePlaceholder: string
     titleStatus: NotebookComponentToolbarTitleStatus | null
     usageByVariable: Record<string, NotebookDependencyUsage[]>
@@ -1087,7 +1087,7 @@ export interface notebookNodeLogicMeta {
         Settings: (arg: any) => NotebookNodeSettings | null
         settingsPlacement: (arg: any) => NotebookNodeSettingsPlacement
         editableTitle: (arg: any) => boolean
-        title: (titlePlaceholder: string, nodeAttributes: any, editableTitle: boolean) => any
+        title: (titlePlaceholder: string, nodeAttributes: any, editableTitle: boolean) => string
         children: (nodeAttributes: any) => NotebookNodeResource[]
         exportedGlobals: (nodeAttributes: any) => {
             name: string
@@ -1404,8 +1404,11 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
         title: [
             (s) => [s.titlePlaceholder, s.nodeAttributes, s.editableTitle],
-            (titlePlaceholder: string, nodeAttributes, editableTitle: boolean) =>
-                (editableTitle ? nodeAttributes.title : null) || titlePlaceholder,
+            // Markdown notebooks parse props loosely, so `title` can arrive as a number or an
+            // object. Only a string is a title; anything else falls back to the placeholder.
+            (titlePlaceholder: string, nodeAttributes, editableTitle: boolean): string =>
+                (editableTitle && typeof nodeAttributes.title === 'string' ? nodeAttributes.title : '') ||
+                titlePlaceholder,
         ],
         // TODO: Fix the typing of nodeAttributes
         children: [

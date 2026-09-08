@@ -560,8 +560,10 @@ export function getSeriesTitle(query: Record<string, NotebookPropValue>): string
     return events.length ? events.join(', ') : null
 }
 
-export function summarizeTitle(value: string | null | undefined): string | null {
-    const oneLineValue = value?.replace(/\s+/g, ' ').trim()
+export function summarizeTitle(value: unknown): string | null {
+    // serializedText is typed as returning a string, but resource nodes pass a raw `title` prop
+    // straight through, and parsed markdown props can be numbers, booleans, or objects.
+    const oneLineValue = getUnknownStringProp(value)?.replace(/\s+/g, ' ').trim()
     if (!oneLineValue) {
         return null
     }
