@@ -13,14 +13,16 @@ const MAX_LOG_BYTES = 128 * 1024 * 1024;
 const IDLE_GAP_SECONDS = 240;
 const MAX_COMMANDS = 24;
 const MAX_GUIDANCE = 20;
+const MAX_GUIDANCE_LENGTH = 200;
 
+// Keep in step with SECRET_PATTERNS in products/tasks/backend/logic/services/task_analysis.py.
 const SECRET_PATTERNS: RegExp[] = [
-  /ghp_[A-Za-z0-9]{20,}/,
+  /\bgh[opsur]_[A-Za-z0-9]{20,}/,
   /github_pat_[A-Za-z0-9_]{20,}/,
   /\bsk-[A-Za-z0-9_-]{16,}/,
   /\bAKIA[0-9A-Z]{12,}/,
   /\bxox[abprs]-[A-Za-z0-9-]{10,}/,
-  /\bphx_[A-Za-z0-9]{20,}/,
+  /\bph[aersx]_[A-Za-z0-9]{16,}/,
   /bearer\s+[A-Za-z0-9._~+/=-]{16,}/i,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
 ];
@@ -59,7 +61,9 @@ const BLOCKER_KINDS = [
 
 const GUIDANCE_PATTERN =
   /(?:\.agents|\.claude)\/skills\/[\w-]+|products\/[\w-]+\/skills\/[\w-]+|AGENTS\.md|CLAUDE\.md|pull_request_template\.md|\/context\/[\w./-]+\.md/g;
-const COMMAND_SPLIT = /\s*(?:&&|\|\||;|\|)\s*/;
+const SKILL_TITLE_PATTERN = /^Skill:\s*([\w-]+)/i;
+const SKILL_TOOL_PATTERN = /(?:^|\/)skills?[-_]?get$/i;
+const COMMAND_KINDS = new Set(["execute", "read", "search"]);
 const SKIPPED_HEADS = new Set(["echo", "cd", "export", "true"]);
 const TWO_WORD_HEADS = new Set([
   "git",
@@ -94,6 +98,13 @@ interface ParsedLine {
   callFailed: boolean;
   callId: string | null;
   command: string | null;
+  guidance: string[];
+}
+
+interface RecordedRange {
+  index: number;
+  start: number;
+  end: number;
 }
 
 let reportQueue: Promise<unknown> = Promise.resolve();
@@ -107,14 +118,18 @@ function errorResult(message: string): LocalToolResult {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 
-// Desktop ships on its own schedule with no orchestration against backend deploys, so a
-// report can hit an older server contract. The API throws a raw `Failed request: [400] {...}`
-// blob that loses the activity silently. Turn a rejection into an actionable error so the
-// model can correct the input and retry.
-function reportRejectionResult(error: unknown): LocalToolResult {
+// The API throws a raw `Failed request: [400] {...}` blob for a rejection, and a timeout or a
+// dropped connection throws anything else. Only the first means the server saw the activity
+// and refused it; the second is safe to retry because the server ignores an exact duplicate.
+function reportFailureResult(error: unknown): LocalToolResult {
   const message = error instanceof Error ? error.message : String(error);
+  if (/Failed request: \[4\d\d\]/.test(message)) {
+    return errorResult(
+      `The activity was rejected by the server and was not recorded. Correct the flagged field and call report_activity again. Server response: ${message}`,
+    );
+  }
   return errorResult(
-    `The activity was rejected by the server and was not recorded. Correct the flagged field and call report_activity again. Server response: ${message}`,
+    `The activity report did not complete (${message}). Call report_activity again with the same arguments; the server ignores an exact duplicate, so a retry cannot store it twice.`,
   );
 }
 
@@ -123,6 +138,17 @@ const ANSI_PATTERN = /(?:\u001b|\\u001b)\[[0-9;]*m/g;
 
 function normalizeForMatch(text: string): string {
   return text.replace(ANSI_PATTERN, "").replace(/\s+/g, " ").trim();
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function containsWholeTerm(text: string, term: string): boolean {
+  return new RegExp(
+    `(?<![A-Za-z0-9_])${escapeRegExp(term)}(?![A-Za-z0-9_])`,
+    "i",
+  ).test(text);
 }
 
 async function findAttachedLog(cwd: string): Promise<string | null> {
@@ -163,18 +189,52 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function commandFrom(
-  rawInput: unknown,
-  title: unknown,
-  kind: unknown,
-): string | null {
-  const input = asRecord(rawInput);
-  const command = input?.command;
+// Codex puts the shell command in `title` and sends no `rawInput` at all. Claude sends an
+// empty `rawInput` on `tool_call` and the real one on `tool_call_update`, and its title is a
+// description, so an empty `rawInput` must not fall back to the title.
+function commandFrom(call: Record<string, unknown>): string | null {
+  const command = asRecord(call.rawInput)?.command;
   if (typeof command === "string" && command.trim()) return command;
-  if (kind === "execute" && typeof title === "string" && title.trim()) {
+  const title = call.title;
+  if (
+    !("rawInput" in call) &&
+    COMMAND_KINDS.has(String(call.kind)) &&
+    typeof title === "string" &&
+    title.trim()
+  ) {
     return title;
   }
   return null;
+}
+
+function skillNameFrom(call: Record<string, unknown>): string | null {
+  const title = typeof call.title === "string" ? call.title : "";
+  const fromTitle = title.match(SKILL_TITLE_PATTERN)?.[1];
+  if (fromTitle) return fromTitle;
+  const input = asRecord(call.rawInput);
+  const named = input?.skill_name ?? input?.skill;
+  if (typeof named === "string" && named.trim()) return named.trim();
+  if (SKILL_TOOL_PATTERN.test(title) && typeof input?.name === "string") {
+    return input.name;
+  }
+  return null;
+}
+
+function guidanceFrom(call: Record<string, unknown>): string[] {
+  if (call.kind === "edit") return [];
+  const found = new Set<string>();
+  const skill = skillNameFrom(call);
+  if (skill) found.add(`skill:${skill}`);
+  const sources: string[] = [];
+  collectStrings(call.rawInput, sources);
+  collectStrings(call.locations, sources);
+  if (typeof call.title === "string") sources.push(call.title);
+  for (const source of sources) {
+    for (const match of source.match(GUIDANCE_PATTERN) ?? []) {
+      found.add(match.replace(/^.*\/context\//, "wiki/"));
+    }
+  }
+  return [...found].map((entry) => entry.slice(0, MAX_GUIDANCE_LENGTH));
 }
 
 function parseLine(raw: string): ParsedLine {
@@ -186,6 +246,7 @@ function parseLine(raw: string): ParsedLine {
     callFailed: false,
     callId: null,
     command: null,
+    guidance: [],
   };
   let parsed: unknown;
   try {
@@ -208,11 +269,8 @@ function parseLine(raw: string): ParsedLine {
     line.callId = typeof toolCall.id === "string" ? toolCall.id : null;
     if (event.type === "tool_call_started") {
       line.callStarted = true;
-      line.command = commandFrom(
-        toolCall.rawInput,
-        toolCall.title,
-        toolCall.kind,
-      );
+      line.command = commandFrom(toolCall);
+      line.guidance = guidanceFrom(toolCall);
     } else if (
       event.type === "tool_call_updated" &&
       toolCall.status === "failed"
@@ -229,27 +287,38 @@ function parseLine(raw: string): ParsedLine {
     typeof update.toolCallId === "string" ? update.toolCallId : null;
   if (update.sessionUpdate === "tool_call") {
     line.callStarted = true;
+    line.command = commandFrom(update);
+    line.guidance = guidanceFrom(update);
   } else if (update.sessionUpdate === "tool_call_update") {
-    line.command = commandFrom(update.rawInput, update.title, update.kind);
+    line.command = commandFrom(update);
+    line.guidance = guidanceFrom(update);
     if (update.status === "failed") line.callFailed = true;
   }
   return line;
 }
 
-let logCache: { key: string; lines: ParsedLine[] } | null = null;
+interface ParsedLog {
+  key: string;
+  lines: ParsedLine[];
+}
 
-async function readParsedLog(cwd: string): Promise<ParsedLine[] | null> {
+let logCache: ParsedLog | null = null;
+const recordedRanges = new Map<string, RecordedRange[]>();
+
+async function readParsedLog(cwd: string): Promise<ParsedLog | null> {
   const logPath = await findAttachedLog(cwd);
   if (!logPath) return null;
   try {
     const { size, mtimeMs } = await stat(logPath);
     if (size > MAX_LOG_BYTES) return null;
-    const cacheKey = `${logPath}:${size}:${mtimeMs}`;
-    if (logCache?.key === cacheKey) return logCache.lines;
-    const raw = await readFile(logPath, "utf8");
-    const lines = raw.split("\n").map(parseLine);
-    logCache = { key: cacheKey, lines };
-    return lines;
+    const key = `${logPath}:${size}:${mtimeMs}`;
+    if (logCache?.key === key) return logCache;
+    const lines = (await readFile(logPath, "utf8")).split("\n");
+    while (lines.length > 0 && lines[lines.length - 1].trim() === "") {
+      lines.pop();
+    }
+    logCache = { key, lines: lines.map(parseLine) };
+    return logCache;
   } catch {
     return null;
   }
@@ -278,9 +347,52 @@ function quoteAppearsInLines(quote: string, lines: ParsedLine[]): boolean {
   );
 }
 
+// Splits on `&&`, `||`, `;`, `|`, and newlines outside single or double quotes, so a quoted
+// pipe or semicolon inside a `python -c` or `jq` program does not become a command head.
+function splitShellCommands(command: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let quote: string | null = null;
+  for (let i = 0; i < command.length; i++) {
+    const char = command[i];
+    if (quote) {
+      current += char;
+      if (char === "\\" && quote === '"' && i + 1 < command.length) {
+        current += command[++i];
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      current += char;
+      continue;
+    }
+    if (char === "\\" && i + 1 < command.length) {
+      current += char + command[++i];
+      continue;
+    }
+    if (char === "\n" || char === ";" || char === "|" || char === "&") {
+      const pair = command.slice(i, i + 2);
+      if (char === "&" && pair !== "&&") {
+        current += char;
+        continue;
+      }
+      parts.push(current);
+      current = "";
+      if (pair === "&&" || pair === "||") i += 1;
+      continue;
+    }
+    current += char;
+  }
+  parts.push(current);
+  return parts;
+}
+
 function commandHeads(command: string): string[] {
   const heads: string[] = [];
-  for (const part of command.split(COMMAND_SPLIT)) {
+  for (const part of splitShellCommands(command)) {
     const words = part.trim().split(/\s+/).filter(Boolean);
     if (words.length === 0 || SKIPPED_HEADS.has(words[0])) continue;
     const head =
@@ -292,17 +404,39 @@ function commandHeads(command: string): string[] {
   return heads;
 }
 
-function computeActivityMetrics(lines: ParsedLine[]): ComputedActivityMetrics {
+function lastTimestampBefore(
+  lines: ParsedLine[],
+  index: number,
+): number | null {
+  for (let i = index - 1; i >= 0; i--) {
+    if (lines[i].timestamp !== null) return lines[i].timestamp;
+  }
+  return null;
+}
+
+// `seconds` runs from the last timestamp before the range to the last timestamp inside it, so
+// consecutive activities partition the run and a gap before an activity belongs to it.
+function computeActivityMetrics(
+  lines: ParsedLine[],
+  startIndex: number,
+  endIndex: number,
+): ComputedActivityMetrics {
+  const startedIds = new Set<string>();
   const failedIds = new Set<string>();
+  let startedWithoutId = 0;
   let failedWithoutId = 0;
-  let toolCalls = 0;
   const seenCommandIds = new Set<string>();
   const commands: string[] = [];
   const guidance = new Set<string>();
   const stamps: number[] = [];
-  for (const line of lines) {
+  const before = lastTimestampBefore(lines, startIndex);
+  if (before !== null) stamps.push(before);
+  for (const line of lines.slice(startIndex, endIndex)) {
     if (line.timestamp !== null) stamps.push(line.timestamp);
-    if (line.callStarted) toolCalls += 1;
+    if (line.callStarted) {
+      if (line.callId) startedIds.add(line.callId);
+      else startedWithoutId += 1;
+    }
     if (line.callFailed) {
       if (line.callId) failedIds.add(line.callId);
       else failedWithoutId += 1;
@@ -315,11 +449,11 @@ function computeActivityMetrics(lines: ParsedLine[]): ComputedActivityMetrics {
           if (commands[commands.length - 1] !== head) commands.push(head);
         }
       }
-      for (const match of line.command.match(GUIDANCE_PATTERN) ?? []) {
-        guidance.add(match.replace(/^.*\/context\//, "wiki/"));
-      }
     }
+    for (const entry of line.guidance) guidance.add(entry);
   }
+  const toolCalls = startedIds.size + startedWithoutId;
+  const failedStarted = [...failedIds].filter((id) => startedIds.has(id));
   let seconds = 0;
   let idle = 0;
   if (stamps.length > 1) {
@@ -331,7 +465,7 @@ function computeActivityMetrics(lines: ParsedLine[]): ComputedActivityMetrics {
   }
   return {
     tool_calls: toolCalls,
-    failed_calls: Math.min(toolCalls, failedIds.size + failedWithoutId),
+    failed_calls: Math.min(toolCalls, failedStarted.length + failedWithoutId),
     seconds: Math.max(0, seconds),
     idle_seconds: Math.min(Math.max(0, idle), Math.max(0, seconds)),
     commands: commands.slice(0, MAX_COMMANDS),
@@ -350,11 +484,21 @@ function findSecretLike(record: unknown): string | null {
   return null;
 }
 
+function overlappingRange(
+  ranges: RecordedRange[],
+  start: number,
+  end: number,
+): RecordedRange | null {
+  return (
+    ranges.find((range) => start <= range.end && end >= range.start) ?? null
+  );
+}
+
 export const reportActivityTool = defineLocalTool({
   name: "report_activity",
   description:
     "Record one activity from a task-run analysis: a span of the run log where the agent worked toward one goal. " +
-    `Call once per activity in log order (at most ${MAX_ACTIVITIES_PER_RUN} per run). ` +
+    `Call once per activity in log order, without overlapping line ranges (at most ${MAX_ACTIVITIES_PER_RUN} per run). ` +
     "Give the line range; the tool counts tool calls, failures, seconds, and idle time from those lines. " +
     "The evidence quote must appear inside the line range — copy it exactly from your jq output; the tool checks and rejects mismatches. " +
     "Do not suggest fixes. Record what the agent tried, how it ended, and what blocked it.",
@@ -388,14 +532,14 @@ export const reportActivityTool = defineLocalTool({
       .max(300)
       .optional()
       .describe(
-        "The command or step that removed the blocker, when the agent found one.",
+        "The command or step that removed the blocker, when the agent found one. Requires blocker_kind.",
       ),
     evidence: z
       .string()
       .min(10)
       .max(200)
       .describe(
-        "One exact quote from the run log inside the line range. Must contain blocker_name when set.",
+        "One exact quote from the run log inside the line range. Must contain blocker_name as a whole word when set.",
       ),
     start_line: z
       .number()
@@ -438,12 +582,17 @@ export const reportActivityTool = defineLocalTool({
       if (args.blocker_name && !args.blocker_kind) {
         return errorResult("blocker_name requires blocker_kind.");
       }
+      if (args.repair && !args.blocker_kind) {
+        return errorResult(
+          "repair requires blocker_kind — a repair only makes sense for a named blocker.",
+        );
+      }
       if (
         args.blocker_name &&
-        !args.evidence.toLowerCase().includes(args.blocker_name.toLowerCase())
+        !containsWholeTerm(args.evidence, args.blocker_name)
       ) {
         return errorResult(
-          "evidence must contain blocker_name — quote the log line that names the blocker.",
+          "evidence must contain blocker_name as a whole word — quote the log line that names the blocker.",
         );
       }
       if (findSecretLike(args)) {
@@ -452,21 +601,27 @@ export const reportActivityTool = defineLocalTool({
         );
       }
 
-      const lines = await readParsedLog(ctx.cwd);
-      if (lines === null) {
+      const log = await readParsedLog(ctx.cwd);
+      if (log === null) {
         return errorResult(
           `No run log was found under ${ATTACHMENTS_DIR} (or it is too large to verify against). Evidence is verified against the attached .jsonl log; check the attachment exists.`,
         );
       }
-      if (args.start_line > lines.length) {
+      const { lines } = log;
+      if (args.end_line > lines.length) {
         return errorResult(
-          `start_line ${args.start_line} is past the end of the log (${lines.length} lines).`,
+          `end_line ${args.end_line} is past the end of the log (${lines.length} lines). The last line is ${lines.length}; check the range with wc -l.`,
         );
       }
-      const span = lines.slice(
-        args.start_line - 1,
-        Math.min(args.end_line, lines.length),
-      );
+      const ranges = recordedRanges.get(log.key) ?? [];
+      const clash = overlappingRange(ranges, args.start_line, args.end_line);
+      if (clash) {
+        const nextStart = Math.max(...ranges.map((range) => range.end)) + 1;
+        return errorResult(
+          `Activity ${clash.index + 1} already covers lines ${clash.start}-${clash.end}. Activities arrive in log order without overlap; start this one at line ${nextStart} or later.`,
+        );
+      }
+      const span = lines.slice(args.start_line - 1, args.end_line);
       if (!quoteAppearsInLines(args.evidence, span)) {
         return errorResult(
           `evidence was not found in log lines ${args.start_line}-${args.end_line} — copy the text exactly as your jq query printed it, and check the line range.`,
@@ -483,7 +638,7 @@ export const reportActivityTool = defineLocalTool({
         evidence: args.evidence,
         start_line: args.start_line,
         end_line: args.end_line,
-        ...computeActivityMetrics(span),
+        ...computeActivityMetrics(lines, args.start_line - 1, args.end_line),
       };
       try {
         const { activity_index } = await withReportDeadline(
@@ -496,17 +651,21 @@ export const reportActivityTool = defineLocalTool({
             ),
           "activity report",
         );
+        recordedRanges.set(log.key, [
+          ...ranges,
+          { index: activity_index, start: args.start_line, end: args.end_line },
+        ]);
         const remaining = MAX_ACTIVITIES_PER_RUN - activity_index - 1;
         return {
           content: [
             {
               type: "text",
-              text: `Recorded activity ${activity_index + 1} (${args.goal_kind}, ${args.outcome}): ${activity.tool_calls} tool calls, ${activity.failed_calls} failed, ${activity.seconds}s, ${activity.idle_seconds}s idle. ${remaining} more allowed.`,
+              text: `Recorded activity ${activity_index + 1} (${args.goal_kind}, ${args.outcome}) for lines ${args.start_line}-${args.end_line} of ${lines.length}: ${activity.tool_calls} tool calls, ${activity.failed_calls} failed, ${activity.seconds}s, ${activity.idle_seconds}s idle. ${remaining} more allowed; merge adjacent activities with the same goal_kind if the run needs more.`,
             },
           ],
         };
       } catch (error) {
-        return reportRejectionResult(error);
+        return reportFailureResult(error);
       }
     }),
 });
