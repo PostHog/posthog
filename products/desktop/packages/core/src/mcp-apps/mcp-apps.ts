@@ -25,10 +25,10 @@ import {
   type McpResourceUiMeta,
   type McpServerConnectionConfig,
   type McpToolUiAssociation,
-  type McpToolUiMeta,
+  type McpToolUiVisibility,
   type McpUiResource,
-  POSTHOG_EXEC_TOOL_KEY,
   resolveResultResourceUri,
+  resolveToolRegistrationMetadata,
 } from "./schemas";
 
 function summarizeResult(result: unknown): Record<string, unknown> {
@@ -52,6 +52,7 @@ function summarizeResult(result: unknown): Record<string, unknown> {
 
 const UI_MIME_TYPE = "text/html;profile=mcp-app";
 const MAX_HTML_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_DISCOVERY_PAGES = 100;
 const DISCOVERY_FAILURE_BACKOFF_MS = 60_000;
 
 interface ServerConnection {
@@ -68,6 +69,8 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
   private resourceCache = new Map<string, McpUiResource>();
   private toolAssociations = new Map<string, McpToolUiAssociation>();
   private toolDefinitions = new Map<string, Tool>();
+  private toolVisibilities = new Map<string, McpToolUiVisibility[]>();
+  private serverToolKeys = new Map<string, Set<string>>();
   private serverConfigs = new Map<string, McpServerConnectionConfig>();
   private configResolver?: (serverName: string) => Promise<void>;
   private pendingConnections = new Map<string, Promise<ServerConnection>>();
@@ -103,6 +106,20 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
         map.delete(key);
       }
     }
+  }
+
+  private clearServerDiscoveryData(serverName: string): void {
+    const toolKeys = this.serverToolKeys.get(serverName);
+    if (toolKeys) {
+      for (const toolKey of toolKeys) {
+        this.toolAssociations.delete(toolKey);
+        this.toolDefinitions.delete(toolKey);
+        this.toolVisibilities.delete(toolKey);
+      }
+    }
+    this.serverToolKeys.delete(serverName);
+    this.evictServerEntries(this.resourceCache, serverName);
+    this.evictServerEntries(this.resourceMetaCache, serverName);
   }
 
   /**
@@ -176,18 +193,60 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     } satisfies McpAppsDiscoveryCompleteEvent);
   }
 
+  private async listAllTools(
+    client: Client,
+    serverName: string,
+  ): Promise<Tool[]> {
+    const tools: Tool[] = [];
+    let cursor: string | undefined;
+
+    for (let page = 0; page < MAX_DISCOVERY_PAGES; page++) {
+      const result = await client.listTools(cursor ? { cursor } : undefined);
+      tools.push(...result.tools);
+      cursor = result.nextCursor;
+      if (!cursor) return tools;
+    }
+
+    this.log.warn("Tool discovery reached the page limit", {
+      serverName,
+      pageLimit: MAX_DISCOVERY_PAGES,
+    });
+    return tools;
+  }
+
+  private async listAllResources(
+    client: Client,
+    serverName: string,
+  ): Promise<McpResourceUiMeta[]> {
+    const resources: McpResourceUiMeta[] = [];
+    let cursor: string | undefined;
+
+    for (let page = 0; page < MAX_DISCOVERY_PAGES; page++) {
+      const result = await client.listResources(
+        cursor ? { cursor } : undefined,
+      );
+      resources.push(...(result.resources as McpResourceUiMeta[]));
+      cursor = result.nextCursor;
+      if (!cursor) return resources;
+    }
+
+    this.log.warn("Resource discovery reached the page limit", {
+      serverName,
+      pageLimit: MAX_DISCOVERY_PAGES,
+    });
+    return resources;
+  }
+
   /**
-   * Connect to a single server and call listTools() to discover which
-   * tools have _meta.ui fields. The connection is kept for later reuse
-   * (proxy calls, resource reads, lazy HTML fetches). Throws on connection
-   * or listTools failure — callers decide whether that is fatal.
+   * Connect to a single server and discover tool and resource metadata. The
+   * connection stays open for proxy calls, resource reads, and HTML fetches.
    */
   private async discoverServerUiTools(serverName: string): Promise<void> {
     const conn = await this.getOrCreateConnection(serverName);
 
-    const [toolsList, resourcesList] = await Promise.all([
-      conn.client.listTools(),
-      conn.client.listResources().catch((err) => {
+    const [tools, resources] = await Promise.all([
+      this.listAllTools(conn.client, serverName),
+      this.listAllResources(conn.client, serverName).catch((err) => {
         this.log.warn("listResources failed during discovery", {
           serverName,
           error: err instanceof Error ? err.message : String(err),
@@ -198,43 +257,51 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
 
     this.log.info("discoverServerUiTools: listed tools", {
       serverName,
-      toolNames: toolsList.tools.map((t) => t.name),
+      toolNames: tools.map((tool) => tool.name),
       hasExecTool:
         serverName === BUILTIN_POSTHOG_SERVER_NAME &&
-        toolsList.tools.some((t) => t.name === EXEC_TOOL_NAME),
-      resourceUris: resourcesList?.resources.map((r) => r.uri),
+        tools.some((tool) => tool.name === EXEC_TOOL_NAME),
+      resourceUris: resources?.map((resource) => resource.uri),
     });
 
-    for (const tool of toolsList.tools) {
-      if (
-        serverName === BUILTIN_POSTHOG_SERVER_NAME &&
-        tool.name === EXEC_TOOL_NAME
-      ) {
-        this.toolDefinitions.set(POSTHOG_EXEC_TOOL_KEY, tool);
+    this.clearServerDiscoveryData(serverName);
+    const serverToolKeys = new Set<string>();
+
+    for (const tool of tools) {
+      const toolKey = `mcp__${serverName}__${tool.name}`;
+      const { resourceUri, visibility } = resolveToolRegistrationMetadata(tool);
+
+      serverToolKeys.add(toolKey);
+      this.toolDefinitions.set(toolKey, tool);
+      this.toolVisibilities.set(toolKey, visibility);
+
+      if (!resourceUri) continue;
+      if (!resourceUri.startsWith("ui://")) {
+        this.log.warn("Ignoring MCP App tool with a non-ui resource URI", {
+          serverName,
+          toolName: tool.name,
+          resourceUri,
+        });
+        continue;
       }
 
-      const uiMeta = (tool as McpToolUiMeta)._meta?.ui;
-      if (!uiMeta?.resourceUri) continue;
-
-      const toolKey = `mcp__${serverName}__${tool.name}`;
       this.toolAssociations.set(toolKey, {
         toolKey,
         serverName,
         toolName: tool.name,
-        resourceUri: uiMeta.resourceUri,
-        visibility: uiMeta.visibility,
+        resourceUri,
+        visibility,
       });
-      this.toolDefinitions.set(toolKey, tool);
     }
+    this.serverToolKeys.set(serverName, serverToolKeys);
 
-    // Cache resource metadata (CSP, permissions) for use in fetchUiResource
-    if (resourcesList) {
-      for (const resource of resourcesList.resources) {
-        const meta = resource as McpResourceUiMeta;
-        if (meta._meta?.ui) {
+    // Cache resource metadata because some servers omit it from read responses.
+    if (resources) {
+      for (const resource of resources) {
+        if (resource._meta?.ui) {
           this.resourceMetaCache.set(
             this.resourceKey(serverName, resource.uri),
-            meta,
+            resource,
           );
         }
       }
@@ -452,6 +519,14 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     serverName: string,
     resourceUri: string,
   ): Promise<McpUiResource | null> {
+    if (!resourceUri.startsWith("ui://")) {
+      this.log.warn("Rejecting executable MCP App resource with a non-ui URI", {
+        serverName,
+        resourceUri,
+      });
+      return null;
+    }
+
     const key = this.resourceKey(serverName, resourceUri);
     const cached = this.resourceCache.get(key);
     if (cached) {
@@ -593,7 +668,13 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     return has;
   }
 
-  getToolDefinition(toolKey: string): Tool | null {
+  async getToolDefinition(toolKey: string): Promise<Tool | null> {
+    const existing = this.toolDefinitions.get(toolKey);
+    if (existing) return existing;
+
+    const mcp = parseMcpToolName(toolKey);
+    if (!mcp) return null;
+    await this.ensureServerDiscovered(mcp.server);
     return this.toolDefinitions.get(toolKey) ?? null;
   }
 
@@ -602,12 +683,17 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     toolName: string,
     args?: Record<string, unknown>,
   ): Promise<unknown> {
-    // Validate visibility: reject if tool is model-only
+    await this.ensureServerDiscovered(serverName);
+
     const toolKey = `mcp__${serverName}__${toolName}`;
-    const association = this.toolAssociations.get(toolKey);
-    if (association?.visibility && !association.visibility.includes("app")) {
+    if (!this.toolDefinitions.has(toolKey)) {
+      throw new Error(`Tool "${toolName}" is not available to apps`);
+    }
+
+    const visibility = this.toolVisibilities.get(toolKey);
+    if (!visibility?.includes("app")) {
       throw new Error(
-        `Tool "${toolName}" is not accessible to apps (visibility: ${association.visibility.join(", ")})`,
+        `Tool "${toolName}" is not accessible to apps (visibility: ${visibility?.join(", ") ?? "unknown"})`,
       );
     }
 
@@ -621,11 +707,7 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
   }
 
   async proxyResourceRead(serverName: string, uri: string): Promise<unknown> {
-    // Only allow ui:// scheme reads
-    if (!uri.startsWith("ui://")) {
-      throw new Error(`Only ui:// URIs are allowed, got: ${uri}`);
-    }
-
+    // Arbitrary schemes stay confined to the app's captured MCP server.
     const conn = await this.getOrCreateConnection(serverName);
     const result = await conn.client.readResource({ uri });
     return result;
@@ -696,6 +778,8 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     this.resourceMetaCache.clear();
     this.toolAssociations.clear();
     this.toolDefinitions.clear();
+    this.toolVisibilities.clear();
+    this.serverToolKeys.clear();
     this.pendingConnections.clear();
     this.pendingFetches.clear();
     this.discoveredServers.clear();
@@ -725,6 +809,7 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     this.discoveredServers.delete(serverName);
     this.unavailableServers.delete(serverName);
     this.discoveryFailedAt.delete(serverName);
+    this.clearServerDiscoveryData(serverName);
 
     const conn = this.connections.get(serverName);
     if (!conn) return;
@@ -738,15 +823,6 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
       });
     }
     this.connections.delete(serverName);
-
-    for (const [key, assoc] of this.toolAssociations) {
-      if (assoc.serverName === serverName) {
-        this.toolAssociations.delete(key);
-      }
-    }
-
-    this.evictServerEntries(this.resourceCache, serverName);
-    this.evictServerEntries(this.resourceMetaCache, serverName);
   }
 
   async cleanup(): Promise<void> {
@@ -763,6 +839,8 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     this.resourceMetaCache.clear();
     this.toolAssociations.clear();
     this.toolDefinitions.clear();
+    this.toolVisibilities.clear();
+    this.serverToolKeys.clear();
     this.serverConfigs.clear();
     this.pendingConnections.clear();
     this.pendingFetches.clear();

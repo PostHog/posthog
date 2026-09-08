@@ -258,6 +258,18 @@ MCP Apps render tool-provided HTML UIs inside sandboxed iframes.
 
 The core service manages MCP server connections, caches resources, and proxies UI calls. `useAppBridge` handles `@modelcontextprotocol/ext-apps` host communication, tRPC routing, theme, display mode, and dimensions.
 
+A tool can select an app in its registration metadata or in one call result.
+A result-level `_meta.ui.resourceUri` takes precedence, which lets one tool show different interfaces for different calls.
+Desktop preserves complete successful `CallToolResult` values across Claude, Codex, and Pi so the app receives `structuredContent`, `_meta`, and content blocks.
+Pi still throws when a result has `isError`, so Pi failure semantics remain unchanged.
+
+Desktop runs executable app HTML only when the resource uses a `ui://` URI and the exact `text/html;profile=mcp-app` MIME type.
+The app can read other resource URI schemes through the same MCP server.
+Desktop does not fetch those resource URIs directly.
+
+Result and cancellation events include the tool call ID.
+The host uses this ID so concurrent calls to the same tool cannot send data to each other's app.
+
 ## References
 
 - [AGENTS.md](../AGENTS.md)

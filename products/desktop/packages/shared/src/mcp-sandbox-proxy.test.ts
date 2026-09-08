@@ -14,6 +14,27 @@ describe("sandboxProxyHtml", () => {
     expect(sandboxProxyHtml).toContain("ui/notifications/sandbox-proxy-ready");
   });
 
+  it("retries readiness on a bounded schedule until resource-ready", () => {
+    const retrySchedule = sandboxProxyHtml.match(
+      /var readyRetryDelays = \[([^\]]+)\]/,
+    );
+    const retryDelays = retrySchedule?.[1]
+      .split(",")
+      .map((delay) => Number(delay.trim()));
+
+    expect(retryDelays).toEqual([50, 150, 500, 1000, 2000, 4000]);
+    expect(sandboxProxyHtml).toContain("readyRetryDelays.forEach");
+    expect(sandboxProxyHtml).toContain("if (sent) return;");
+
+    const resourceReadyHandler = sandboxProxyHtml.indexOf(
+      'data.method === "ui/notifications/sandbox-resource-ready"',
+    );
+    expect(resourceReadyHandler).toBeGreaterThan(-1);
+    expect(
+      sandboxProxyHtml.indexOf("sent = true", resourceReadyHandler),
+    ).toBeGreaterThan(resourceReadyHandler);
+  });
+
   it("listens for sandbox-resource-ready message", () => {
     expect(sandboxProxyHtml).toContain(
       "ui/notifications/sandbox-resource-ready",

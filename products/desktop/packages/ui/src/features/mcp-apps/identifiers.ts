@@ -6,6 +6,7 @@ export type McpAppHostComponent = ComponentType<
     mcpToolName: string;
     serverName: string;
     toolName: string;
+    resourceUri?: string;
   }
 >;
 

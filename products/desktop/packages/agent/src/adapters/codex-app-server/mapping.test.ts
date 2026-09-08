@@ -6,6 +6,22 @@ import {
 } from "./mapping";
 import { APP_SERVER_NOTIFICATIONS } from "./protocol";
 
+const COMPLETE_MCP_RESULT = {
+  content: [
+    { type: "text", text: "42 rows" },
+    {
+      type: "resource",
+      resource: {
+        uri: "ui://posthog/query-result",
+        mimeType: "text/html",
+        text: "interactive result",
+      },
+    },
+  ],
+  structuredContent: { columns: ["count"], rows: [[42]] },
+  _meta: { ui: { resourceUri: "ui://posthog/query-result" } },
+};
+
 describe("mapAppServerNotification", () => {
   it("maps an agent message delta to an ACP agent_message_chunk", () => {
     const result = mapAppServerNotification(
@@ -686,6 +702,45 @@ describe("mapHistoryItem", () => {
     });
   });
 
+  it("replays a completed MCP call with its full raw result", () => {
+    expect(
+      mapHistoryItem("s-1", {
+        type: "mcpToolCall",
+        id: "m1",
+        server: "posthog",
+        tool: "query",
+        status: "completed",
+        arguments: { sql: "SELECT 1" },
+        result: COMPLETE_MCP_RESULT,
+      }),
+    ).toEqual([
+      {
+        sessionId: "s-1",
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: "m1",
+          title: "posthog/query",
+          kind: "other",
+          status: "completed",
+          rawInput: { sql: "SELECT 1" },
+          rawOutput: COMPLETE_MCP_RESULT,
+          content: [
+            {
+              type: "content",
+              content: { type: "text", text: "42 rows" },
+            },
+          ],
+          _meta: {
+            posthog: {
+              toolName: "mcp__posthog__query",
+              mcp: { server: "posthog", tool: "query" },
+            },
+          },
+        },
+      },
+    ]);
+  });
+
   it("does not replay ephemeral reasoning items", () => {
     expect(mapHistoryItem("s-1", { type: "reasoning", id: "r1" })).toEqual([]);
   });
@@ -719,7 +774,7 @@ describe("mcpToolCall result rendering", () => {
           tool: "query",
           status: "completed",
           arguments: { sql: "SELECT 1" },
-          result: { content: [{ type: "text", text: "42 rows" }] },
+          result: COMPLETE_MCP_RESULT,
         },
       }),
     ).toEqual({
@@ -731,6 +786,7 @@ describe("mcpToolCall result rendering", () => {
         content: [
           { type: "content", content: { type: "text", text: "42 rows" } },
         ],
+        rawOutput: COMPLETE_MCP_RESULT,
       },
     });
   });

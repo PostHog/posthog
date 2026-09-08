@@ -168,8 +168,8 @@ export const sandboxProxyHtml: string = `<!DOCTYPE html>
       });
 
       // Notify host that proxy is ready to receive HTML.
-      // Retry a few times because the host's useEffect listener may not be
-      // registered yet when src= loads faster than React's effect cycle.
+      // Retry for several seconds because the host listener may register after
+      // the iframe loads during a slow render or process handoff.
       var readyMsg = {
         jsonrpc: "2.0",
         method: "ui/notifications/sandbox-proxy-ready",
@@ -183,9 +183,11 @@ export const sandboxProxyHtml: string = `<!DOCTYPE html>
       }
 
       // The host removes its listener on first receipt, so retries are harmless
+      var readyRetryDelays = [50, 150, 500, 1000, 2000, 4000];
       sendReady();
-      setTimeout(sendReady, 50);
-      setTimeout(sendReady, 150);
+      readyRetryDelays.forEach(function (delay) {
+        setTimeout(sendReady, delay);
+      });
     };
 
     // Fire and forget, similar to IIFE

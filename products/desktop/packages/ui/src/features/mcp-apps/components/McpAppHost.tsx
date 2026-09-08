@@ -1,20 +1,19 @@
-import type { McpUiDisplayMode } from "@modelcontextprotocol/ext-apps/app-bridge";
+import type {
+  AppBridge,
+  McpUiDisplayMode,
+} from "@modelcontextprotocol/ext-apps/app-bridge";
 import type {
   CallToolResult,
   ReadResourceResult,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { ArrowsIn, ArrowsOut, Plugs, X } from "@phosphor-icons/react";
-import {
-  POSTHOG_EXEC_TOOL_KEY,
-  resolveResultResourceUri,
-} from "@posthog/core/mcp-apps/schemas";
 import { useService } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
+import { Button, Text } from "@posthog/quill";
 import type { ToolViewProps } from "@posthog/ui/features/sessions/components/session-update/toolCallUtils";
 import { logger } from "@posthog/ui/shell/logger";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
-import { Box, Flex, IconButton, Text } from "@radix-ui/themes";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -24,7 +23,10 @@ import {
   MCP_SANDBOX_PROXY_URL,
   type McpSandboxProxyUrlProvider,
 } from "../identifiers";
-import { toCallToolResult } from "../utils/mcp-app-host-utils";
+import {
+  isMcpAppEventForToolCall,
+  sendToolResultOnce,
+} from "../utils/mcp-app-host-utils";
 
 const log = logger.scope("mcp-app-host");
 
@@ -32,6 +34,7 @@ interface McpAppHostProps extends ToolViewProps {
   mcpToolName: string;
   serverName: string;
   toolName: string;
+  resourceUri?: string;
 }
 
 export function McpAppHost({
@@ -39,6 +42,7 @@ export function McpAppHost({
   mcpToolName,
   serverName,
   toolName,
+  resourceUri,
 }: McpAppHostProps) {
   const trpc = useHostTRPC();
   const getSandboxProxyUrl = useService<McpSandboxProxyUrlProvider>(
@@ -49,23 +53,18 @@ export function McpAppHost({
     [getSandboxProxyUrl],
   );
   const containerRef = useRef<HTMLDivElement>(null);
-  const [_phase, setPhase] = useState<Phase>("loading");
+  const [, setPhase] = useState<Phase>("loading");
   const [displayMode, setDisplayMode] = useState<McpUiDisplayMode>("inline");
   const [iframeHeight, setIframeHeight] = useState(300);
   const [containerWidth, setContainerWidth] = useState(640);
   const [iframeEl, setIframeEl] = useState<HTMLIFrameElement | null>(null);
   const isDarkMode = useThemeStore((s) => s.isDarkMode);
 
-  const isExec = mcpToolName === POSTHOG_EXEC_TOOL_KEY;
-  const execResourceUri = isExec
-    ? resolveResultResourceUri(toolCall.rawOutput)
-    : undefined;
-
   const { data: uiResource, isLoading: resourceLoading } = useQuery(
-    isExec
+    resourceUri
       ? trpc.mcpApps.getUiResourceByUri.queryOptions(
-          { serverName, resourceUri: execResourceUri ?? "" },
-          { staleTime: Number.POSITIVE_INFINITY, enabled: !!execResourceUri },
+          { serverName, resourceUri },
+          { staleTime: Number.POSITIVE_INFINITY },
         )
       : trpc.mcpApps.getUiResource.queryOptions(
           { toolKey: mcpToolName },
@@ -83,7 +82,7 @@ export function McpAppHost({
   useEffect(() => {
     log.info("McpAppHost render", {
       mcpToolName,
-      isExec,
+      selectedResourceUri: resourceUri,
       toolCallId: toolCall.toolCallId,
       status: toolCall.status,
       resourceLoading,
@@ -92,7 +91,7 @@ export function McpAppHost({
     });
   }, [
     mcpToolName,
-    isExec,
+    resourceUri,
     toolCall.toolCallId,
     toolCall.status,
     resourceLoading,
@@ -108,6 +107,36 @@ export function McpAppHost({
   );
   const openLinkMut = useMutation(trpc.mcpApps.openLink.mutationOptions());
 
+  const deliveredResultsRef = useRef(new WeakMap<object, Set<string>>());
+  const deliverResult = useCallback(
+    (bridge: AppBridge, rawOutput: unknown) => {
+      if (
+        sendToolResultOnce(
+          deliveredResultsRef.current,
+          bridge,
+          toolCall.toolCallId,
+          rawOutput,
+        )
+      ) {
+        log.info("Sending tool result to app", {
+          mcpToolName,
+          toolCallId: toolCall.toolCallId,
+        });
+      }
+    },
+    [mcpToolName, toolCall.toolCallId],
+  );
+  const replayCompletedResult = useCallback(
+    (bridge: AppBridge) => {
+      if (toolCall.status !== "completed" && toolCall.status !== "failed") {
+        return;
+      }
+      if (toolCall.rawOutput == null) return;
+      deliverResult(bridge, toolCall.rawOutput);
+    },
+    [deliverResult, toolCall.rawOutput, toolCall.status],
+  );
+
   const { sendWhenReady } = useAppBridge({
     iframeEl,
     uiResource: uiResource,
@@ -121,6 +150,7 @@ export function McpAppHost({
     onPhaseChange: setPhase,
     onSizeChange: setIframeHeight,
     onDisplayModeChange: setDisplayMode,
+    onBridgeInitialized: replayCompletedResult,
     proxyToolCall: proxyToolCallMut.mutateAsync as (args: {
       serverName: string;
       toolName: string;
@@ -133,71 +163,33 @@ export function McpAppHost({
     openLink: openLinkMut.mutateAsync,
   });
 
-  const sentResultForCallRef = useRef<string | null>(null);
-  const sendResultOnce = useCallback(
-    (raw: unknown) => {
-      if (sentResultForCallRef.current === toolCall.toolCallId) return;
-      sentResultForCallRef.current = toolCall.toolCallId;
-      const toolResult = toCallToolResult(raw);
-      log.info("Sending tool result to app", { mcpToolName, toolResult });
-      sendWhenReady((bridge) => bridge.sendToolResult(toolResult));
-    },
-    [toolCall.toolCallId, sendWhenReady, mcpToolName],
-  );
-
-  // Forward tool results from subscriptions
   useSubscription(
     trpc.mcpApps.onToolResult.subscriptionOptions(
       { toolKey: mcpToolName },
       {
         onData: (event) => {
-          if (isExec) {
-            if (event.toolCallId !== toolCall.toolCallId) return;
-            sendResultOnce(event.result);
-            return;
-          }
-          const toolResult = toCallToolResult(event.result);
-          log.info("Sending tool result to app", {
-            mcpToolName,
-            toolResult,
-          });
-
-          sendWhenReady((bridge) => bridge.sendToolResult(toolResult));
+          if (!isMcpAppEventForToolCall(event, toolCall.toolCallId)) return;
+          sendWhenReady((bridge) => deliverResult(bridge, event.result));
         },
       },
     ),
   );
 
   useEffect(() => {
-    if (!isExec) return;
     if (toolCall.status !== "completed" && toolCall.status !== "failed") return;
-    if (toolCall.rawOutput == null) {
-      log.info("exec replay skipped: no rawOutput on toolCall", {
-        toolCallId: toolCall.toolCallId,
-        status: toolCall.status,
-      });
-      return;
-    }
-    log.info("exec replay: sending result from toolCall prop", {
-      toolCallId: toolCall.toolCallId,
-    });
-    sendResultOnce(toolCall.rawOutput);
-  }, [
-    isExec,
-    toolCall.status,
-    toolCall.rawOutput,
-    toolCall.toolCallId,
-    sendResultOnce,
-  ]);
+    if (toolCall.rawOutput == null) return;
+    sendWhenReady((bridge) => deliverResult(bridge, toolCall.rawOutput));
+  }, [deliverResult, sendWhenReady, toolCall.rawOutput, toolCall.status]);
 
-  // Forward tool cancellations from subscriptions
   useSubscription(
     trpc.mcpApps.onToolCancelled.subscriptionOptions(
       { toolKey: mcpToolName },
       {
-        onData: () => {
+        onData: (event) => {
+          if (!isMcpAppEventForToolCall(event, toolCall.toolCallId)) return;
           log.info("Received tool cancellation from subscription", {
             mcpToolName,
+            toolCallId: toolCall.toolCallId,
           });
           sendWhenReady((bridge) => bridge.sendToolCancelled({}));
         },
@@ -237,6 +229,7 @@ export function McpAppHost({
 
   const iframeElement = (
     <iframe
+      key={`${uiResource.serverName}\n${uiResource.uri}`}
       ref={setIframeEl}
       src={sandboxProxyUrl}
       // allow-same-origin would resolve this frame to the host's own origin.
@@ -250,13 +243,12 @@ export function McpAppHost({
   );
 
   const fullscreenToggle = (
-    <Flex justify="end" className="py-0.5">
-      <IconButton
-        size="1"
-        variant="ghost"
-        color="gray"
-        onClick={(e) => {
-          e.stopPropagation();
+    <div className="flex justify-end py-0.5">
+      <Button
+        size="icon-xs"
+        variant="default"
+        onClick={(event) => {
+          event.stopPropagation();
           const newMode = displayMode === "inline" ? "fullscreen" : "inline";
           setDisplayMode(newMode);
         }}
@@ -264,13 +256,9 @@ export function McpAppHost({
           displayMode === "inline" ? "Expand to fullscreen" : "Exit fullscreen"
         }
       >
-        {displayMode === "inline" ? (
-          <ArrowsOut size={12} />
-        ) : (
-          <ArrowsIn size={12} />
-        )}
-      </IconButton>
-    </Flex>
+        {displayMode === "inline" ? <ArrowsOut /> : <ArrowsIn />}
+      </Button>
+    </div>
   );
 
   if (displayMode === "fullscreen") {
@@ -281,38 +269,28 @@ export function McpAppHost({
           {fullscreenToggle}
 
           {createPortal(
-            <Box
-              className="pointer-events-auto absolute inset-0 flex flex-col bg-gray-1"
-              style={{
-                transition: "opacity 150ms ease",
-              }}
-            >
-              <Flex
-                align="center"
-                justify="between"
-                className="border-gray-6 border-b px-4 py-2"
-              >
-                <Flex align="center" gap="2">
+            <div className="pointer-events-auto absolute inset-0 flex flex-col bg-gray-1 transition-opacity duration-150">
+              <div className="flex items-center justify-between border-gray-6 border-b px-4 py-2">
+                <div className="flex items-center gap-2">
                   <Plugs size={14} className="text-gray-11" />
-                  <Text className="text-gray-11 text-sm">
+                  <Text render={<span />} size="sm" className="text-gray-11">
                     {serverName} - {toolName}
                   </Text>
-                </Flex>
-                <IconButton
-                  size="1"
-                  variant="ghost"
-                  color="gray"
+                </div>
+                <Button
+                  size="icon-xs"
+                  variant="default"
                   onClick={() => {
                     setDisplayMode("inline");
                   }}
                   title="Exit fullscreen (Escape)"
                 >
-                  <X size={14} />
-                </IconButton>
-              </Flex>
+                  <X />
+                </Button>
+              </div>
 
-              <Box className="flex-1 overflow-hidden p-4">{iframeElement}</Box>
-            </Box>,
+              <div className="flex-1 overflow-hidden p-4">{iframeElement}</div>
+            </div>,
             portalTarget,
           )}
         </>
@@ -321,14 +299,14 @@ export function McpAppHost({
   }
 
   return (
-    <Box>
+    <div>
       {fullscreenToggle}
-      <Box
+      <div
         ref={containerRef}
         className="overflow-hidden rounded-lg border border-gray-6"
       >
         {iframeElement}
-      </Box>
-    </Box>
+      </div>
+    </div>
   );
 }

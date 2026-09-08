@@ -22,6 +22,7 @@ import type { ManagedServer, ServerManager } from "./server-manager";
 import {
   type BridgedContent,
   invokeTool,
+  type McpToolDetails,
   type SearchableTool,
   type ToolBridge,
 } from "./tool-bridge";
@@ -57,7 +58,12 @@ export type McpProxyDetails =
   | { kind: "error"; message: string }
   | { kind: "search"; query: string; hits: Hit[] }
   | { kind: "connect"; server: string; toolCount: number }
-  | { kind: "call"; server: string; tool: string; piName: string };
+  | ({
+      kind: "call";
+      server: string;
+      tool: string;
+      piName: string;
+    } & Partial<McpToolDetails>);
 
 function normalize(s: string): string {
   return s.toLowerCase().replace(/[-_]/g, " ");
@@ -328,7 +334,7 @@ async function callOrConnect(
 
   manager.touch(owner);
   const timeoutMs = manager.getRequestTimeoutMs(owner);
-  const { content } = await invokeTool(
+  const { content, mcpResult } = await invokeTool(
     client,
     owner,
     meta.mcpName,
@@ -338,7 +344,16 @@ async function callOrConnect(
   );
   return {
     content,
-    details: { kind: "call", server: owner, tool: meta.mcpName, piName: name },
+    details: {
+      kind: "call",
+      server: owner,
+      tool: meta.mcpName,
+      piName: name,
+      posthog: {
+        mcp: { server: owner, tool: meta.mcpName },
+        ...(mcpResult !== undefined ? { mcpResult } : {}),
+      },
+    },
   };
 }
 

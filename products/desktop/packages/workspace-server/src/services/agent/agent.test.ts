@@ -35,6 +35,7 @@ const mockAcpClient = vi.hoisted(() => ({
             _meta?: { codeToolKind?: string };
           };
         }) => Promise<unknown>;
+        sessionUpdate: (params: unknown) => Promise<unknown>;
       }
     | undefined,
 }));
@@ -282,6 +283,18 @@ const baseSessionParams = {
   apiHost: "https://app.posthog.com",
   projectId: 1,
 };
+
+async function sendSessionUpdate(
+  update: Record<string, unknown>,
+): Promise<void> {
+  if (!mockAcpClient.current) {
+    throw new Error("Expected the ACP client to be initialized");
+  }
+  await mockAcpClient.current.sessionUpdate({
+    sessionId: "test-session-id",
+    update,
+  });
+}
 
 describe("AgentService", () => {
   let service: AgentService;
@@ -821,6 +834,72 @@ describe("AgentService", () => {
           reasoningEffort: "xhigh",
         }),
       );
+    });
+  });
+
+  describe("MCP tool lifecycle", () => {
+    const toolCallUpdate = {
+      sessionUpdate: "tool_call",
+      toolCallId: "tool-call-1",
+      title: "Query PostHog",
+      rawInput: { query: "select 1" },
+      _meta: {
+        posthog: {
+          toolName: "mcp__posthog__query",
+          mcp: { server: "posthog", tool: "query" },
+        },
+      },
+    };
+
+    it("forwards tool input from canonical PostHog metadata", async () => {
+      await service.startSession(baseSessionParams);
+
+      await sendSessionUpdate(toolCallUpdate);
+
+      expect(deps.mcpAppsService.notifyToolInput).toHaveBeenCalledWith(
+        "mcp__posthog__query",
+        "tool-call-1",
+        { query: "select 1" },
+      );
+    });
+
+    it("treats a completed historical tool call as terminal", async () => {
+      await service.startSession(baseSessionParams);
+
+      await sendSessionUpdate({
+        ...toolCallUpdate,
+        status: "completed",
+        rawOutput: { result: "historical" },
+      });
+
+      expect(deps.mcpAppsService.notifyToolResult).toHaveBeenCalledWith(
+        "mcp__posthog__query",
+        "tool-call-1",
+        { result: "historical" },
+        false,
+      );
+      expect(service.hasActiveSessions()).toBe(false);
+    });
+
+    it("uses the tracked tool key when completion metadata is absent", async () => {
+      await service.startSession(baseSessionParams);
+      await sendSessionUpdate(toolCallUpdate);
+      expect(service.hasActiveSessions()).toBe(true);
+
+      await sendSessionUpdate({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-call-1",
+        status: "completed",
+        rawOutput: { result: "ok" },
+      });
+
+      expect(deps.mcpAppsService.notifyToolResult).toHaveBeenCalledWith(
+        "mcp__posthog__query",
+        "tool-call-1",
+        { result: "ok" },
+        false,
+      );
+      expect(service.hasActiveSessions()).toBe(false);
     });
   });
 

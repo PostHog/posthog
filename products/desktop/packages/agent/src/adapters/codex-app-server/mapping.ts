@@ -177,6 +177,11 @@ export function parseUnifiedDiff(diff: string): {
   return { oldText: oldLines.join("\n"), newText: newLines.join("\n") };
 }
 
+type AppServerMcpResult = {
+  content?: unknown;
+  [key: string]: unknown;
+};
+
 export type AppServerItem = {
   type?: string;
   id?: string;
@@ -192,7 +197,7 @@ export type AppServerItem = {
   arguments?: unknown;
   aggregatedOutput?: string | null;
   changes?: Array<{ path?: string; diff?: string; kind?: unknown }>;
-  result?: { content?: unknown } | null;
+  result?: AppServerMcpResult | null;
   error?: { message?: string } | null;
   // Present on message/reasoning items replayed from thread history.
   text?: string;
@@ -320,6 +325,9 @@ export function mapHistoryItem(
                   }
                 : {}),
             ...(content ? { content } : {}),
+            ...(item.type === "mcpToolCall" && item.result != null
+              ? { rawOutput: item.result }
+              : {}),
           },
         },
       ];
@@ -555,6 +563,9 @@ function mapItem(
       toolCallId: item.id,
       status: mapStatus(item.status),
       ...(content ? { content } : {}),
+      ...(item.type === "mcpToolCall" && item.result != null
+        ? { rawOutput: item.result }
+        : {}),
     },
   };
 }
