@@ -1906,9 +1906,11 @@ class TestAlertSimulateForecast(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Not enough history to forecast." in str(response.json())
 
+    @mock.patch("products.alerts.backend.presentation.views.alert.capture_exception")
     @mock.patch("products.alerts.backend.presentation.views.alert.simulate_forecast_on_insight")
-    def test_simulate_forecast_engine_error_returns_503(self, mock_simulate_forecast) -> None:
-        mock_simulate_forecast.side_effect = ForecastExecutionError("internal details")
+    def test_simulate_forecast_engine_error_returns_503(self, mock_simulate_forecast, mock_capture) -> None:
+        error = ForecastExecutionError("internal details")
+        mock_simulate_forecast.side_effect = error
         with mock.patch(
             "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
         ):
@@ -1923,6 +1925,13 @@ class TestAlertSimulateForecast(APIBaseTest):
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         data = response.json()
         assert data["detail"] == "Forecast simulation is temporarily unavailable. Try again."
+        assert mock_capture.call_args.args[0] is error
+        assert mock_capture.call_args.kwargs["additional_properties"] == {
+            "feature": "alerts",
+            "team_id": self.team.id,
+            "insight_id": str(self.insight["id"]),
+            "forecast_condition": "future_breach",
+        }
 
     @mock.patch("products.alerts.backend.presentation.views.alert.simulate_forecast_on_insight")
     def test_simulate_forecast_capacity_error_returns_429(self, mock_simulate_forecast) -> None:

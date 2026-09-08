@@ -1566,7 +1566,18 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError(str(e))
         except ForecastSimulationCapacityExceeded:
             raise Throttled(detail="Too many forecasts are already running. Try again shortly.")
-        except ForecastExecutionError:
+        except ForecastExecutionError as error:
+            # The 503 body carries no cause and the engine logs the outcome without the exception,
+            # so report it here. Otherwise a backend launch failure is invisible past the failure rate.
+            capture_exception(
+                error,
+                additional_properties={
+                    "feature": "alerts",
+                    "team_id": self.team.id,
+                    "insight_id": str(insight.id),
+                    "forecast_condition": forecast_config.get("condition"),
+                },
+            )
             return Response(
                 {"detail": "Forecast simulation is temporarily unavailable. Try again."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
