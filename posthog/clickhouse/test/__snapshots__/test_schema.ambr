@@ -8441,6 +8441,41 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_web_bots_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_web_bots_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+      time_window_start DateTime64(6, 'UTC'),
+      bot_name String,
+      category String,
+      host Nullable(String),
+      pathname Nullable(String),
+      requests UInt64,
+      last_seen DateTime64(6, 'UTC'),
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+      expires_at DateTime64(6, 'UTC')
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.web_bots_preaggregated', '{replica}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (
+      team_id,
+      job_id,
+      time_window_start,
+      bot_name,
+      category,
+      isNull(host),
+      ifNull(host, ''),
+      isNull(pathname),
+      ifNull(pathname, '')
+  )
+  TTL toDateTime(expires_at)
+  SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
 # name: test_create_table_query[sharded_web_bounces_dimensional_preaggregated]
   '''
   
@@ -8998,6 +9033,26 @@
   ORDER BY (_topic, _partition)
   SETTINGS
       index_granularity = 8192
+  
+  '''
+# ---
+# name: test_create_table_query[web_bots_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS web_bots_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+      time_window_start DateTime64(6, 'UTC'),
+      bot_name String,
+      category String,
+      host Nullable(String),
+      pathname Nullable(String),
+      requests UInt64,
+      last_seen DateTime64(6, 'UTC'),
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+      expires_at DateTime64(6, 'UTC')
+  ) ENGINE = Distributed('aux', 'posthog_test', 'sharded_web_bots_preaggregated', sipHash64(job_id))
   
   '''
 # ---
@@ -13687,6 +13742,41 @@
   ORDER BY (pipeline, lane, metric, timestamp, key)
   
   SETTINGS ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_web_bots_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_web_bots_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+      time_window_start DateTime64(6, 'UTC'),
+      bot_name String,
+      category String,
+      host Nullable(String),
+      pathname Nullable(String),
+      requests UInt64,
+      last_seen DateTime64(6, 'UTC'),
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+      expires_at DateTime64(6, 'UTC')
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.web_bots_preaggregated', '{replica}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (
+      team_id,
+      job_id,
+      time_window_start,
+      bot_name,
+      category,
+      isNull(host),
+      ifNull(host, ''),
+      isNull(pathname),
+      ifNull(pathname, '')
+  )
+  TTL toDateTime(expires_at)
+  SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
   
   '''
 # ---
