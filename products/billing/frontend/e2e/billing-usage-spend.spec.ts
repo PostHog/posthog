@@ -177,7 +177,12 @@ test.describe('Billing usage and spend', () => {
     let workspace: PlaywrightWorkspaceSetupResult
 
     test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+        // Two projects, so a project selection can be partial. The filter lists the organization's projects.
+        workspace = await playwrightSetup.createWorkspace({
+            skip_onboarding: true,
+            no_demo_data: true,
+            additional_teams: 1,
+        })
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
