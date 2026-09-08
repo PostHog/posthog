@@ -519,11 +519,11 @@ class TestCreateObservationActivity:
             org.is_ai_data_processing_approved = False
             org.save()
 
+        # Both gates would refuse, so the consent case reporting no credit figures is what proves
+        # consent is checked first.
         with (
             patch(
                 "products.replay_vision.backend.temporal.activities.create_observation.quota_state",
-                # The consent case never reaches the quota gate, so its expected credit figures being
-                # None is what proves consent is checked first.
                 return_value=QuotaSnapshot(
                     credit_limit=5,
                     credits_used=5,
@@ -539,11 +539,22 @@ class TestCreateObservationActivity:
             for session_id in ("sess-a", "sess-b"):
                 assert self._admit(scanner, session_id).was_created is False
             assert self._admit(sibling, "sess-c").was_created is False
+            # Flip consent so the same scanner is now refused for the other reason, which the dedup
+            # key holds separately.
+            org = scanner.team.organization
+            org.is_ai_data_processing_approved = reason == "consent"
+            org.save()
+            assert self._admit(scanner, "sess-d").was_created is False
 
-        # Two sessions on one scanner share an event; a second scanner reports separately.
-        assert [c.kwargs["properties"]["scanner_id"] for c in capture.call_args_list] == [
-            str(scanner.id),
-            str(sibling.id),
+        emitted = [
+            (c.kwargs["properties"]["scanner_id"], c.kwargs["properties"]["reason"]) for c in capture.call_args_list
+        ]
+        # Two sessions on one scanner share an event; another scanner, or another reason, reports on
+        # its own.
+        assert emitted == [
+            (str(scanner.id), reason),
+            (str(sibling.id), reason),
+            (str(scanner.id), "quota" if reason == "consent" else "consent"),
         ]
         kwargs = capture.call_args_list[0].kwargs
         assert kwargs["event"] == "replay_vision_scan_blocked"

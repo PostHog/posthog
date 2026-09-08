@@ -11,8 +11,8 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog import redis
+from posthog.event_usage import groups
 from posthog.models.organization import OrganizationMembership
-from posthog.settings import SITE_URL
 
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.enqueue_claims import release_enqueue_claim
@@ -25,6 +25,7 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.models.replay_scanner_backfill import BackfillStatus, ReplayScannerBackfill
 from products.replay_vision.backend.quota import (
     BillingPeriod,
+    QuotaState,
     ScannerBudget,
     compute_scanner_budget,
     current_period_bounds,
@@ -42,11 +43,6 @@ from products.replay_vision.backend.temporal.metrics import (
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot, ScannerSnapshot
 from products.replay_vision.backend.temporal.types import CreateObservationInputs, CreateObservationOutput
 
-# Why a scan stopped before it created an observation row. `scanner_limit` is absent because its
-# branch runs inside the admission transaction, where a Redis call and an analytics call would hold
-# a row lock across two network round trips.
-ScanBlockedReason = Literal["quota", "consent"]
-
 # One event per scanner and reason per hour. Without a gate, an org past its limit emits one event
 # for every session it refuses, which is its entire scan volume.
 _SCAN_BLOCKED_DEDUP_TTL_SECONDS = 60 * 60
@@ -59,24 +55,18 @@ def _build_scanner_snapshot(scanner: ReplayScanner) -> dict[str, Any]:
 def _capture_scan_blocked(
     *,
     scanner: ReplayScanner,
-    reason: ScanBlockedReason,
+    reason: Literal["quota", "consent"],
     triggered_by: ObservationTrigger,
-    credit_limit: int | None = None,
-    credits_used: int | None = None,
+    quota: QuotaState | None = None,
 ) -> None:
     """Internal cross-customer telemetry for a scan refused before it created a row.
 
-    A refused scan leaves nothing behind: no observation row, and so no `$recording_observed` event
-    and no scan event either. The refusal reaches only a Prometheus counter whose labels carry no
-    team, so which teams lose scans, and why, cannot be answered. Scan volume per team is
-    long-tailed, so the aggregate counter cannot stand in: a small team losing every scan disappears
-    inside a total the busiest teams dominate.
+    The Prometheus skip counters carry no team label, so this event is the only per-team record of a
+    refused scan.
     """
     dedup_key = f"@posthog/replay-vision/scan-blocked/{reason}/{scanner.pk}"
     try:
-        # SET NX is the dedup gate and the retry gate at once: an activity retry re-enters this
-        # branch, and the key is already held. A Redis failure skips the event instead of emitting
-        # it, so an outage cannot turn a fully-refused org into one event per session.
+        # Also the retry gate: an activity retry re-enters this branch and the key is already held.
         if not redis.get_client().set(dedup_key, b"1", nx=True, ex=_SCAN_BLOCKED_DEDUP_TTL_SECONDS):
             return
         posthoganalytics.capture(
@@ -86,21 +76,14 @@ def _capture_scan_blocked(
                 "reason": reason,
                 "scanner_id": str(scanner.pk),
                 "scanner_type": scanner.scanner_type,
-                # Separates the scheduled sweeps and backfills, which carry most of the spend, from
-                # the user-initiated triggers that already report their own refusals from the API.
                 "triggered_by": str(triggered_by),
                 # None for a reason that has no cap behind it, such as missing consent.
-                "credit_limit": credit_limit,
-                "credits_used": credits_used,
+                "credit_limit": quota.credit_limit if quota else None,
+                "credits_used": quota.credits_used if quota else None,
                 "team_id": scanner.team_id,
                 "organization_id": str(scanner.team.organization_id),
             },
-            # Mirrors posthog.event_usage.groups() without fetching the Team row.
-            groups={
-                "instance": SITE_URL,
-                "organization": str(scanner.team.organization_id),
-                "project": str(scanner.team.uuid),
-            },
+            groups=groups(scanner.team.organization, scanner.team),
         )
     except Exception:
         # Fail-soft: the scan is already refused and the caller returns next, so raising here would
@@ -296,13 +279,7 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
             "Skipping observation: monthly quota exhausted",
             extra={"scanner_id": str(inputs.scanner_id), "team_id": inputs.team_id, "session_id": inputs.session_id},
         )
-        _capture_scan_blocked(
-            scanner=scanner,
-            reason="quota",
-            triggered_by=inputs.triggered_by,
-            credit_limit=quota.credit_limit,
-            credits_used=quota.credits_used,
-        )
+        _capture_scan_blocked(scanner=scanner, reason="quota", triggered_by=inputs.triggered_by, quota=quota)
         return CreateObservationOutput(
             observation_id=None,
             was_created=False,
@@ -345,6 +322,8 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
                     reclaimed_output = _reclaim_own_pending_insert(inputs)
                     if reclaimed_output is not None:
                         return reclaimed_output
+                    # No blocked event here: this refusal holds the admission row lock, which cannot
+                    # wait on a Redis and an analytics round trip.
                     record_scanner_limit_reached("admission")
                     activity.logger.info(
                         "Skipping observation: scanner credit limit reached",
