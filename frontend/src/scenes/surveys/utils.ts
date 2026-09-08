@@ -1378,29 +1378,19 @@ export function getSurveyDisplayConditionsSummary(survey: Survey | NewSurvey): S
 }
 
 /**
- * True when posthog-js emits an intermediate `survey sent` event per answered question, sharing one
- * `$survey_submission_id`, with only the last carrying `$survey_completed: true`. Requiring the
- * property to be `true` is what keeps a notification from firing once per question, so it is only
- * worth requiring here.
+ * posthog-js sets `$survey_completed` on every `survey sent` event, so an intermediate partial event
+ * carries an explicit `false` and only the final one carries `true`. Matching `= true` is what keeps
+ * a notification from firing once per answered question.
  *
- * An API survey has no posthog-js rendering it. The integrator sends one event per submission from
- * their own code and marks a partial one with an explicit `$survey_completed: false`, the way
- * posthog-js does, so absent means completed there whatever `enable_partial_responses` says.
- */
-export function surveyEmitsPartialSentEvents(survey: Pick<Survey, 'type' | 'enable_partial_responses'>): boolean {
-    return (survey.enable_partial_responses ?? false) && survey.type !== SurveyType.API
-}
-
-/**
- * Without intermediate partial events, posthog-js has no partial submission to distinguish a
- * complete one from, so it never sets `$survey_completed` and requiring `= true` matches nothing.
- * Accept the property being absent as completed too, the same way the response summary counts them
- * (`enable_partial_responses` branch in `ee/surveys/summaries/headline_summary.py`). An explicit
- * `false` stays excluded: a survey switched from partial to non-partial keeps its old partials.
+ * Every other producer leaves the property off the event entirely: the mobile SDKs do not implement
+ * partial responses, and an API survey's events come from the integrator's own code. Matching
+ * `= true` alone would notify no one for a completed submission there, so treat the property being
+ * absent as completed too, the same way the response summary counts them (`enable_partial_responses`
+ * branch in `ee/surveys/summaries/headline_summary.py`). An explicit `false` stays excluded, so a
+ * posthog-js partial event still does not notify.
  */
 export function getSurveyNotificationFilters(
     surveyId: string,
-    emitsPartialSentEvents: boolean,
     extraSentEventProperties: EventPropertyFilter[] = []
 ): CyclotronJobFiltersType {
     const surveyIdProperty: EventPropertyFilter = {
@@ -1439,15 +1429,11 @@ export function getSurveyNotificationFilters(
                 type: 'events',
                 properties: sentEventProperties,
             },
-            ...(emitsPartialSentEvents
-                ? []
-                : [
-                      {
-                          id: SurveyEventName.SENT,
-                          type: 'events' as const,
-                          properties: completedUnsetEventProperties,
-                      },
-                  ]),
+            {
+                id: SurveyEventName.SENT,
+                type: 'events',
+                properties: completedUnsetEventProperties,
+            },
             {
                 id: SurveyEventName.DISMISSED,
                 type: 'events',

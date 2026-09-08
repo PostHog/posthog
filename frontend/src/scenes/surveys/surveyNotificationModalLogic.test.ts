@@ -250,15 +250,11 @@ describe('surveyNotificationModalLogic', () => {
             value: 'Chrome',
             operator: PropertyOperator.Exact,
         }
-        const saved = getSurveyNotificationFilters('survey-abc', false)
+        const saved = getSurveyNotificationFilters('survey-abc')
         const branch = saved.events![branchIndex]
         branch.properties = [...(branch.properties ?? []), customRestriction]
 
-        const merged = mergeResponseFiltersIntoExistingFilters(
-            saved,
-            getSurveyNotificationFilters('survey-abc', false),
-            []
-        )
+        const merged = mergeResponseFiltersIntoExistingFilters(saved, getSurveyNotificationFilters('survey-abc'), [])
 
         const sentBranches = merged?.events?.filter((event) => event.id === SurveyEventName.SENT)
         expect(sentBranches).toHaveLength(2)
@@ -274,7 +270,7 @@ describe('surveyNotificationModalLogic', () => {
             value: 'Chrome',
             operator: PropertyOperator.Exact,
         }
-        const saved = getSurveyNotificationFilters('survey-abc', false)
+        const saved = getSurveyNotificationFilters('survey-abc')
         saved.events![0].properties = [...(saved.events![0].properties ?? []), customRestriction]
 
         // Reloading between saves is what makes this bite: the restriction lands on both branches,
@@ -282,16 +278,8 @@ describe('surveyNotificationModalLogic', () => {
         // deduplicated by object identity would keep both copies and double them on every save.
         const reload = (filters: HogFunctionType['filters']): HogFunctionType['filters'] =>
             JSON.parse(JSON.stringify(filters))
-        let merged = mergeResponseFiltersIntoExistingFilters(
-            saved,
-            getSurveyNotificationFilters('survey-abc', false),
-            []
-        )
-        merged = mergeResponseFiltersIntoExistingFilters(
-            reload(merged),
-            getSurveyNotificationFilters('survey-abc', false),
-            []
-        )
+        let merged = mergeResponseFiltersIntoExistingFilters(saved, getSurveyNotificationFilters('survey-abc'), [])
+        merged = mergeResponseFiltersIntoExistingFilters(reload(merged), getSurveyNotificationFilters('survey-abc'), [])
 
         const sentBranches = merged?.events?.filter((event) => event.id === SurveyEventName.SENT)
         for (const sentBranch of sentBranches ?? []) {
@@ -306,14 +294,10 @@ describe('surveyNotificationModalLogic', () => {
     // dismissal-only. Rebuilding them unconditionally would hand it back the completed-response
     // branches on the next unrelated save, sending exactly what the user opted out of.
     it('leaves a dismissal-only notification without sent branches', () => {
-        const saved = getSurveyNotificationFilters('survey-abc', false)
+        const saved = getSurveyNotificationFilters('survey-abc')
         saved.events = saved.events?.filter((event) => event.id === SurveyEventName.DISMISSED)
 
-        const merged = mergeResponseFiltersIntoExistingFilters(
-            saved,
-            getSurveyNotificationFilters('survey-abc', false),
-            []
-        )
+        const merged = mergeResponseFiltersIntoExistingFilters(saved, getSurveyNotificationFilters('survey-abc'), [])
 
         expect(merged?.events?.filter((event) => event.id === SurveyEventName.SENT)).toHaveLength(0)
         expect(merged?.events?.filter((event) => event.id === SurveyEventName.DISMISSED)).toHaveLength(1)
