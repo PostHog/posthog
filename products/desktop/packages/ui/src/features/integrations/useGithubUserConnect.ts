@@ -42,6 +42,10 @@ interface Result {
   reset: () => void;
 }
 
+interface GithubConnectResult extends Result {
+  connectUser: () => Promise<void>;
+}
+
 export function invalidateGithubQueries(
   queryClient: QueryClient,
   projectId: number | null = null,
@@ -240,7 +244,7 @@ export function useGithubConnect({
   projectId,
   projectHasTeamIntegration,
   onConnected,
-}: ConnectOptions): Result {
+}: ConnectOptions): GithubConnectResult {
   const connectService = useService<GithubConnectService>(
     GITHUB_CONNECT_SERVICE,
   );
@@ -277,5 +281,20 @@ export function useGithubConnect({
     machine,
   ]);
 
-  return machineToResult(machine, connect);
+  const connectUser = useCallback(async () => {
+    if (machine.stateRef.current === "connecting") return;
+    if (projectId === null) return;
+    machine.beginConnecting();
+    try {
+      await connectService.connectUser(projectId);
+      machine.scheduleDevPolling();
+      machine.scheduleUserFlowTimeout();
+    } catch (error) {
+      machine.finishWithError(
+        toConnectError(error, "Failed to start GitHub connection"),
+      );
+    }
+  }, [connectService, machine, projectId]);
+
+  return { ...machineToResult(machine, connect), connectUser };
 }

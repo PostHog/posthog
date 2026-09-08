@@ -74,7 +74,11 @@ export function ConnectGitHubStep({ onNext, onBack }: ConnectGitHubStepProps) {
             </GithubConnectionEmpty>
             <StepActions
               primaryAction={
-                <Button size="lg" variant="outline" onClick={handleContinue}>
+                <Button
+                  size="lg"
+                  variant={isConnected ? "primary" : "outline"}
+                  onClick={handleContinue}
+                >
                   {isConnected ? "Continue" : "Skip for now"}
                   <ArrowRight size={16} weight="bold" />
                 </Button>

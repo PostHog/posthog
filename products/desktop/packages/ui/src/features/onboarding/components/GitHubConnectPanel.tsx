@@ -3,12 +3,14 @@ import {
   ArrowsClockwise,
   CheckCircle,
   GearSix,
+  Info,
   Plus,
   Trash,
   WarningCircle,
 } from "@phosphor-icons/react";
 import {
   GITHUB_CONNECT_PENDING_APPROVAL_CODE,
+  isGithubConnectAlreadyLinked,
   isGithubConnectPendingApproval,
 } from "@posthog/core/integrations/connectErrors";
 import { githubInvalidationKeys } from "@posthog/core/integrations/connectMachine";
@@ -113,6 +115,7 @@ export function GitHubConnectPanel() {
     hasError: hasConnectError,
     isPending: awaitingApproval,
     connect: handleConnectGitHub,
+    connectUser: handleConnectAdditionalGitHub,
     reset: resetConnect,
   } = useGithubConnect({
     projectId: selectedProjectId,
@@ -148,6 +151,11 @@ export function GitHubConnectPanel() {
   ) => {
     markConnectStarted(flowType, isRetry);
     void handleConnectGitHub();
+  };
+
+  const initiateAdditionalConnect = () => {
+    markConnectStarted("user_new");
+    void handleConnectAdditionalGitHub();
   };
 
   useEffect(() => {
@@ -236,6 +244,7 @@ export function GitHubConnectPanel() {
     isConnecting,
     isPending: awaitingApproval,
   });
+  const isAlreadyLinked = isGithubConnectAlreadyLinked(connectError);
 
   const hasGitIntegration = githubUserIntegrations.length > 0;
   const { data: githubInstallRequests } = useGithubInstallRequests();
@@ -246,8 +255,12 @@ export function GitHubConnectPanel() {
   });
   const isAwaitingApproval = approvalState === "awaiting";
   const isApprovedNotLinked = approvalState === "approved";
-  const { failedInstallationIds, reposByInstallationId } =
-    useUserRepositoryIntegration();
+  const {
+    failedInstallationIds,
+    reposByInstallationId,
+    isRefreshingRepos,
+    refreshRepositories,
+  } = useUserRepositoryIntegration();
   const anyIntegrationStale = isAnyIntegrationStale(
     githubUserIntegrations,
     failedInstallationIds,
@@ -263,9 +276,9 @@ export function GitHubConnectPanel() {
     [hasGitIntegration, projectsWithGithub, selectedProjectId],
   );
   const [selectedAlternativeId] = useState<number | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const refreshGithubState = async () => {
-    setIsRefreshing(true);
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
+  const checkGithubState = async () => {
+    setIsCheckingStatus(true);
     try {
       await Promise.all(
         githubInvalidationKeys(selectedProjectId).map((queryKey) =>
@@ -273,7 +286,7 @@ export function GitHubConnectPanel() {
         ),
       );
     } finally {
-      setIsRefreshing(false);
+      setIsCheckingStatus(false);
     }
   };
   const selectedAlternative = useMemo(() => {
@@ -411,7 +424,7 @@ export function GitHubConnectPanel() {
                           try {
                             await reconnect(
                               installationId,
-                              handleConnectGitHub,
+                              handleConnectAdditionalGitHub,
                             );
                           } catch {
                             // The pre-connect disconnect failed, so no
@@ -474,39 +487,72 @@ export function GitHubConnectPanel() {
               );
             })}
             <div className="flex flex-wrap items-center gap-2">
-              {isRefreshing ? (
-                <Skeleton className="h-8 w-20 rounded-md" />
+              {isRefreshingRepos ? (
+                <Skeleton className="h-6 w-[76px] rounded-md" />
               ) : (
                 <Button
                   size="sm"
                   variant="default"
-                  onClick={() => void refreshGithubState()}
+                  onClick={() => void refreshRepositories()}
                 >
                   <ArrowsClockwise size={12} />
                   Refresh
                 </Button>
               )}
               {isConnecting ? (
-                <Skeleton className="h-8 w-44 rounded-md" />
+                <Skeleton className="h-6 w-[171px] rounded-md" />
               ) : (
                 <Button
                   size="sm"
                   variant="link-muted"
-                  onClick={() => initiateConnect("user_new")}
+                  onClick={initiateAdditionalConnect}
                 >
                   <Plus size={12} />
                   Add another GitHub org
                 </Button>
               )}
             </div>
+            {defaultPanelMessage && (
+              <Item
+                variant="muted"
+                size="sm"
+                tone={
+                  isAlreadyLinked
+                    ? "info"
+                    : hasConnectError
+                      ? "destructive"
+                      : "warning"
+                }
+              >
+                <ItemMedia variant="icon">
+                  {isAlreadyLinked ? (
+                    <Info size={15} weight="fill" />
+                  ) : (
+                    <WarningCircle size={15} weight="fill" />
+                  )}
+                </ItemMedia>
+                <ItemContent>
+                  <ItemTitle>
+                    {isAlreadyLinked
+                      ? "No other GitHub organizations to add"
+                      : hasConnectError
+                        ? "Couldn't connect GitHub"
+                        : timedOut
+                          ? "GitHub did not respond"
+                          : "Waiting for approval"}
+                  </ItemTitle>
+                  <ItemDescription>{defaultPanelMessage}</ItemDescription>
+                </ItemContent>
+              </Item>
+            )}
           </div>
         ) : isAwaitingApproval ? (
           <Button
             size="sm"
             variant="outline"
             className="self-start"
-            loading={isRefreshing}
-            onClick={() => void refreshGithubState()}
+            loading={isCheckingStatus}
+            onClick={() => void checkGithubState()}
           >
             <ArrowsClockwise size={12} />
             Check again

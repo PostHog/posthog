@@ -74,9 +74,26 @@ export function toConnectError(
   error: unknown,
   fallbackMessage: string,
 ): ConnectError {
+  const body =
+    error && typeof error === "object" && "body" in error
+      ? (error as { body?: unknown }).body
+      : null;
+  const detail =
+    body && typeof body === "object" && "detail" in body
+      ? (body as { detail?: unknown }).detail
+      : null;
+  const code =
+    body && typeof body === "object" && "code" in body
+      ? (body as { code?: unknown }).code
+      : null;
   return {
-    message: error instanceof Error ? error.message : fallbackMessage,
-    code: null,
+    message:
+      typeof detail === "string" && detail
+        ? detail
+        : error instanceof Error
+          ? error.message
+          : fallbackMessage,
+    code: typeof code === "string" ? code : null,
   };
 }
 
