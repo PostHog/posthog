@@ -325,7 +325,8 @@ export const accountSidebarConfigLogic = kea<accountSidebarConfigLogicType>([
                 beginConfiguring: () => true,
                 cancelConfiguring: () => false,
                 persistPinnedPropertiesSuccess: () => false,
-                persistPinnedPropertiesFailure: () => false,
+                // A failed save keeps the selector open, so the user can retry or correct the
+                // draft that the request did not store.
             },
         ],
         draftPinnedProperties: [
@@ -401,9 +402,6 @@ export const accountSidebarConfigLogic = kea<accountSidebarConfigLogicType>([
         },
         persistPinnedPropertiesSuccess: ({ config }) => {
             actions.setDraftPinnedProperties([...config.pinned_properties])
-        },
-        persistPinnedPropertiesFailure: () => {
-            actions.setDraftPinnedProperties(values.resolvedPinnedProperties.map(({ reference }) => reference))
         },
     })),
     afterMount(({ actions, props }) => {
