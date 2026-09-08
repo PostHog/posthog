@@ -10,7 +10,6 @@ from temporalio import common, workflow
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.weekly_digest.activities import (
     count_organizations,
-    count_teams,
     generate_dashboard_lookup,
     generate_error_issue_lookup,
     generate_event_definition_lookup,
@@ -25,7 +24,7 @@ from posthog.temporal.weekly_digest.activities import (
     generate_survey_lookup,
     generate_usage_trends_lookup,
     generate_user_notification_lookup,
-    list_team_id_batches,
+    list_team_id_ranges,
     send_weekly_digest_batch,
 )
 from posthog.temporal.weekly_digest.types import (
@@ -110,35 +109,16 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, input: GenerateDigestDataInput) -> None:
-        batch_size = input.common.batch_size
-
-        batch_is_team_id_range = workflow.patched("weekly-digest-team-id-batches")
-
-        if batch_is_team_id_range:
-            id_batches = await workflow.execute_activity(
-                list_team_id_batches,
-                input.common,
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=common.RetryPolicy(
-                    maximum_attempts=2,
-                    initial_interval=timedelta(minutes=1),
-                ),
-                heartbeat_timeout=timedelta(minutes=1),
-            )
-
-            team_batches = [(id_batch.start, id_batch.end) for id_batch in id_batches]
-        else:
-            team_count = await workflow.execute_activity(
-                count_teams,
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=common.RetryPolicy(
-                    maximum_attempts=2,
-                    initial_interval=timedelta(minutes=1),
-                ),
-                heartbeat_timeout=timedelta(minutes=1),
-            )
-
-            team_batches = [(i, i + batch_size) for i in range(0, team_count, batch_size)]
+        team_id_ranges = await workflow.execute_activity(
+            list_team_id_ranges,
+            input.common,
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=2,
+                initial_interval=timedelta(minutes=1),
+            ),
+            heartbeat_timeout=timedelta(minutes=1),
+        )
 
         generators = [
             generate_dashboard_lookup,
@@ -161,8 +141,7 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
                 workflow.execute_activity(
                     generator,
                     GenerateDigestDataBatchInput(
-                        batch=batch,
-                        batch_is_team_id_range=batch_is_team_id_range,
+                        team_id_range=team_id_range,
                         digest=input.digest,
                         common=input.common,
                     ),
@@ -173,7 +152,7 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
                     ),
                     heartbeat_timeout=timedelta(minutes=2),
                 )
-                for batch, generator in itertools.product(team_batches, generators)
+                for team_id_range, generator in itertools.product(team_id_ranges, generators)
             ]
         )
 
@@ -187,6 +166,7 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
             heartbeat_timeout=timedelta(minutes=1),
         )
 
+        batch_size = input.common.batch_size
         org_batches = [(i, i + batch_size) for i in range(0, organization_count, batch_size)]
 
         await asyncio.gather(

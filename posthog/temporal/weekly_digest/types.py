@@ -41,7 +41,7 @@ class GenerateDigestDataInput(BaseModel):
     common: CommonInput
 
 
-class TeamIdBatch(BaseModel):
+class TeamIdRange(BaseModel):
     """A half-open [start, end) range of team ids."""
 
     start: int
@@ -49,12 +49,9 @@ class TeamIdBatch(BaseModel):
 
 
 class GenerateDigestDataBatchInput(BaseModel):
-    batch: tuple[int, int]
+    team_id_range: TeamIdRange
     digest: Digest
     common: CommonInput
-    # True when `batch` is a [start, end) range of team ids. Runs started before this field
-    # existed decode it to False, and keep the old meaning of `batch`: a pair of row offsets.
-    batch_is_team_id_range: bool = False
 
 
 class GenerateOrganizationDigestInput(BaseModel):

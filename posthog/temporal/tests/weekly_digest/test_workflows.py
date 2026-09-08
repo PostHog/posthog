@@ -15,7 +15,7 @@ from posthog.temporal.weekly_digest.types import (
     GenerateDigestDataInput,
     SendWeeklyDigestBatchInput,
     SendWeeklyDigestInput,
-    TeamIdBatch,
+    TeamIdRange,
     WeeklyDigestInput,
 )
 from posthog.temporal.weekly_digest.workflows import (
@@ -108,7 +108,7 @@ async def test_generate_digest_data_workflow():
     TEST_BATCH_SIZE = 2
 
     activity_calls = {
-        "team_id_batches": 0,
+        "team_id_ranges": 0,
         "count_organizations": 0,
         "dashboard": 0,
         "event_definition": 0,
@@ -126,10 +126,10 @@ async def test_generate_digest_data_workflow():
         "org_digest": 0,
     }
 
-    @activity.defn(name="list-team-id-batches")
-    async def list_team_id_batches_mocked(input) -> list[TeamIdBatch]:
-        activity_calls["team_id_batches"] += 1
-        return [TeamIdBatch(start=i, end=i + TEST_BATCH_SIZE) for i in range(1, TEST_TEAM_COUNT + 1, TEST_BATCH_SIZE)]
+    @activity.defn(name="list-team-id-ranges")
+    async def list_team_id_ranges_mocked(input) -> list[TeamIdRange]:
+        activity_calls["team_id_ranges"] += 1
+        return [TeamIdRange(start=i, end=i + TEST_BATCH_SIZE) for i in range(1, TEST_TEAM_COUNT + 1, TEST_BATCH_SIZE)]
 
     @activity.defn(name="count-organizations")
     async def count_organizations_mocked() -> int:
@@ -199,7 +199,7 @@ async def test_generate_digest_data_workflow():
             task_queue=task_queue_name,
             workflows=[GenerateDigestDataWorkflow],
             activities=[
-                list_team_id_batches_mocked,
+                list_team_id_ranges_mocked,
                 count_organizations_mocked,
                 generate_dashboard_lookup_mocked,
                 generate_event_definition_lookup_mocked,
@@ -232,7 +232,7 @@ async def test_generate_digest_data_workflow():
                 task_queue=task_queue_name,
             )
 
-    assert activity_calls["team_id_batches"] == 1
+    assert activity_calls["team_id_ranges"] == 1
     assert activity_calls["count_organizations"] == 1
 
     # Calculate expected batches for teams
