@@ -142,12 +142,26 @@ export interface StreamlitConnectInfoApi {
     expires_in: number
 }
 
+/**
+ * Extra text files to ship next to app.py, keyed by project-relative path (for example 'utils.py' or 'data/config.json'), each as plain text (max 1 MB).
+ */
+export type CreateVersionFromSourceInputApiFiles = { [key: string]: string }
+
+/**
+ * Extra binary files to ship next to app.py, keyed by project-relative path (for example 'data/events.parquet'), each as standard base64 text.
+ */
+export type CreateVersionFromSourceInputApiAssets = { [key: string]: string }
+
 export interface CreateVersionFromSourceInputApi {
     /**
      * Full Python source for the Streamlit app's root app.py file, as free text (max 1 MB). Becomes a new version and is set as the active version.
      * @maxLength 1048576
      */
     source: string
+    /** Extra text files to ship next to app.py, keyed by project-relative path (for example 'utils.py' or 'data/config.json'), each as plain text (max 1 MB). */
+    files?: CreateVersionFromSourceInputApiFiles
+    /** Extra binary files to ship next to app.py, keyed by project-relative path (for example 'data/events.parquet'), each as standard base64 text. */
+    assets?: CreateVersionFromSourceInputApiAssets
 }
 
 export interface StreamlitAppStatusApi {

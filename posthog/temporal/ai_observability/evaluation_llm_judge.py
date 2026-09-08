@@ -416,6 +416,13 @@ def call_llm_judge(
         increment_errors("connection_error", provider=provider)
         raise
 
+    except temporalio.exceptions.CancelledError:
+        # A worker drain or a workflow cancel interrupts the judge at whatever line it reached, so
+        # the fingerprint differs per cancellation. Logging it would file a new error tracking issue
+        # every time, so track it as a metric and re-raise for the retry policy instead.
+        increment_errors("cancelled", provider=provider)
+        raise
+
     except Exception as e:
         logger.exception(
             "Unhandled error from LLM client",
