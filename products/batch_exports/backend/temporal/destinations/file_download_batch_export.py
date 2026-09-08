@@ -392,9 +392,10 @@ class FileDownloadBatchExportWorkflow(PostHogWorkflow):
             interval=f"every {int(interval_delta.total_seconds())} seconds",
         )
 
-        # A run that failed for a reason the user has to resolve comes back as a plain
-        # `BatchExportResult`, so it uploaded no files and there is nothing to generate downloads for.
-        if not isinstance(result, S3BatchExportResult):
+        # A failed run gets no download links, even where some files did reach the bucket. The
+        # `isinstance` arm is unreachable in practice, since every failure comes back as a plain
+        # `BatchExportResult`; it narrows the type for `files_uploaded` below.
+        if result.error is not None or not isinstance(result, S3BatchExportResult):
             return FileDownloadBatchExportResult(records_completed=0, bytes_exported=0, error=result.error)
 
         file_downloads = await workflow.execute_activity(
