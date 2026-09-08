@@ -289,7 +289,7 @@ Make those runs pass, and never let untrusted code reach a secret.
 - Comment or label only on same-repo PRs — the fork token can't write.
 - To act on a fork PR with secrets/write (reviewer or label bots), use `pull_request_target`: base-repo permissions, but it must **never check out and run fork code**. That's why those workflows can't fold into a `pull_request` parent.
 - First-time contributors need maintainer approval before workflows run (`action_required`) — expected.
-- Depot CI runs no fork PR at all. A required check that Depot posts is satisfied on the merge queue's in-repo `trunk-merge/**` branch instead, and a maintainer re-pushes the branch in-repo when a PR needs a full run before that. See [Pull requests from forks](../../../docs/published/handbook/engineering/fork-pull-requests.md).
+- Depot CI runs no fork PR at all; the merge queue's in-repo branch carries any required check Depot posts. See [Pull requests from forks](../../../docs/published/handbook/engineering/fork-pull-requests.md).
 
 ## Timeouts
 
