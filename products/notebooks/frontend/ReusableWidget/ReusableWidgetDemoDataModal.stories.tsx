@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { mswDecorator } from '~/mocks/browser'
+
 import { ReusableWidgetDemoDataModal } from './ReusableWidgetDemoDataModal'
 
 const columns = [
@@ -25,6 +27,7 @@ const frame = {
 const meta: Meta<typeof ReusableWidgetDemoDataModal> = {
     title: 'Products/Notebooks/Reusable widget demo data',
     component: ReusableWidgetDemoDataModal,
+    decorators: [mswDecorator({})],
     args: {
         projectId: 1,
         widgetId: '00000000-0000-4000-8000-000000000041',
@@ -48,6 +51,7 @@ const meta: Meta<typeof ReusableWidgetDemoDataModal> = {
         },
     },
     parameters: {
+        testOptions: { snapshotTargetSelector: '.LemonModal' },
         msw: {
             mocks: {
                 get: { '/api/projects/:team_id/notebook_widgets/:id/frames/:frame_name/': [200, frame] },
