@@ -1102,9 +1102,8 @@ class DockerSandbox(SandboxBase):
                 )
             return
 
-        if self._launch_and_check(
-            command, **({"max_attempts": 480} if claude_model_access == "own-subscription" else {})
-        ):
+        max_attempts = 480 if claude_model_access == "own-subscription" else 20
+        if self._launch_and_check(command, max_attempts=max_attempts):
             logger.info(f"Agent-server started on port {self._host_port}")
             return
 
@@ -1149,9 +1148,7 @@ class DockerSandbox(SandboxBase):
                 posthog_exec_permission_regex=exec_permission_regex,
                 claude_model_access=claude_model_access,
             )
-            if self._launch_and_check(
-                command, **({"max_attempts": 480} if claude_model_access == "own-subscription" else {})
-            ):
+            if self._launch_and_check(command, max_attempts=max_attempts):
                 logger.info(f"Agent-server started on port {self._host_port} (without --baseBranch)")
                 return
 

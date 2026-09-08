@@ -275,7 +275,7 @@ def send_agent_command(
         "json": payload,
         "headers": headers,
         "timeout": min(timeout, 5) if method == "credential_response" else timeout,
-        **({"allow_redirects": False} if method == "credential_response" else {}),
+        "allow_redirects": method != "credential_response",
         "params": query_params or None,
     }
 

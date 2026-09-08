@@ -70,9 +70,7 @@ export class CredentialRelay {
     this.pending.delete(params.requestId);
     clearTimeout(pending.timer);
     this.completedRequestId = params.requestId;
-    if (params.error) {
-      pending.reject(new CredentialRelayError("no_token"));
-    } else if (params.token) {
+    if (params.token && !params.error) {
       pending.resolve(params.token);
     } else {
       pending.reject(new CredentialRelayError("no_token"));
