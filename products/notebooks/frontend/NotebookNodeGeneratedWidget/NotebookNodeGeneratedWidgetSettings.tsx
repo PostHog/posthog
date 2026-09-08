@@ -1,8 +1,8 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { router } from 'kea-router'
 
 import { LemonBanner, LemonButton, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
+import { useComponentPanelState } from 'lib/components/MarkdownNotebook/componentPanelContext'
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -11,7 +11,6 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { notebookNodeLogic } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 import type { NotebookNodeAttributeProperties } from 'scenes/notebooks/types'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import {
     ReusableWidgetPickerLogicProps,
@@ -34,6 +33,7 @@ export function NotebookNodeGeneratedWidgetSettings({
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodeGeneratedWidgetAttributes>): JSX.Element {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
+    const componentPanelState = useComponentPanelState()
     const { isEditable, notebookLogic } = useValues(nodeLogic)
     const { currentTeamId } = useValues(teamLogic)
     const logicProps: NotebookNodeGeneratedWidgetLogicProps = {
@@ -151,13 +151,7 @@ export function NotebookNodeGeneratedWidgetSettings({
     return (
         <div className="flex flex-col gap-3 p-3">
             {status.is_reusable && status.widget_id ? (
-                <LemonBanner
-                    type="info"
-                    action={{
-                        children: 'Open reusable widget',
-                        onClick: () => router.actions.push(urls.reusableWidget(status.widget_id!)),
-                    }}
-                >
+                <LemonBanner type="info">
                     <div className="flex flex-wrap items-center gap-2">
                         <span>
                             This widget is shared. Changes from its catalog page update every unpinned instance.
@@ -380,7 +374,7 @@ export function NotebookNodeGeneratedWidgetSettings({
             {forkError ? <LemonBanner type="error">{forkError}</LemonBanner> : null}
 
             <NotebookWidgetGenerationModal logicProps={logicProps} />
-            <NotebookWidgetSourceModal {...logicProps} />
+            {!componentPanelState ? <NotebookWidgetSourceModal {...logicProps} /> : null}
             <ReusableWidgetPickerModal {...pickerProps} />
         </div>
     )

@@ -411,13 +411,15 @@ describe('NotebookNodeGeneratedWidget', () => {
             label: 'runs a green widget immediately when it has no data access',
             frameNames: [],
             autoRuns: true,
+            isReusable: true,
         },
         {
             label: 'requires consent for a green widget with dataframe access',
             frameNames: ['events_df'],
             autoRuns: false,
+            isReusable: false,
         },
-    ])('$label', async ({ frameNames, autoRuns }) => {
+    ])('$label', async ({ frameNames, autoRuns, isReusable }) => {
         const versionId = '00000000-0000-0000-0000-000000000008'
         const buildHash = 'c'.repeat(64)
         const securityReview = {
@@ -442,9 +444,10 @@ describe('NotebookNodeGeneratedWidget', () => {
             has_versions: true,
             active_job: null,
             security_review: securityReview,
-            is_reusable: false,
+            is_reusable: isReusable,
             build_hash: buildHash,
         })
+        jest.mocked(notebooksWidgetSource).mockResolvedValue({ source: 'export default function Widget() {}' })
         jest.mocked(notebooksWidgetVersions).mockResolvedValue({
             results: [
                 {
@@ -473,13 +476,44 @@ describe('NotebookNodeGeneratedWidget', () => {
             </BindLogic>
         )
 
-        await screen.findByText('Automated review: No potential issues flagged')
+        await screen.findByLabelText('More actions')
         await waitFor(() => expect(container.querySelector('iframe') !== null).toBe(autoRuns))
         expect(screen.queryByText('Review this widget before running it') !== null).toBe(!autoRuns)
         expect(container.querySelector('[data-attr="notebook-widget-run"]') !== null).toBe(!autoRuns)
         expect(container.querySelector('iframe')?.getAttribute('src') ?? null).toBe(
             autoRuns ? 'https://example.com/reviewed-widget.html#theme=light' : null
         )
+        const results = container.querySelector('.MarkdownNotebook__component-panel--results')!
+        if (autoRuns) {
+            expect(within(results as HTMLElement).queryByText('View source')).toBeNull()
+            expect(
+                within(results as HTMLElement).queryByText('Automated review: No potential issues flagged')
+            ).toBeNull()
+            expect(within(results as HTMLElement).queryByText(`Build ${buildHash.slice(0, 12)}`)).toBeNull()
+        }
+        expect(screen.queryByText('Open reusable widget')).toBeNull()
+        fireEvent.click(screen.getByLabelText('More actions'))
+        expect(screen.queryByText('Open reusable widget') !== null).toBe(isReusable)
+        if (isReusable) {
+            expect(screen.getByText('Open reusable widget').closest('a')?.getAttribute('href')).toContain(
+                '/notebooks/widgets/00000000-0000-0000-0000-000000000009'
+            )
+        }
+        const sourceMenuItem = document.querySelector('[role="menuitem"][data-attr="notebook-widget-view-source"]')!
+        expect(sourceMenuItem).not.toBeNull()
+        expect(screen.getAllByText('Automated review: No potential issues flagged')).toHaveLength(autoRuns ? 1 : 2)
+        expect(screen.getAllByText(`Build ${buildHash.slice(0, 12)}`)).toHaveLength(autoRuns ? 1 : 2)
+        fireEvent.click(sourceMenuItem)
+        await waitFor(() =>
+            expect(notebooksWidgetSource).toHaveBeenCalledWith(
+                String(MOCK_TEAM_ID),
+                SHORT_ID,
+                'globe',
+                { version_id: versionId },
+                expect.objectContaining({ signal: expect.anything() })
+            )
+        )
+        expect(screen.getAllByText('Widget source')).toHaveLength(1)
     })
 
     it('opens regeneration from a failed preview when the filters are closed', async () => {

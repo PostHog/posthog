@@ -1,5 +1,4 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconPlayFilled } from '@posthog/icons'
@@ -8,10 +7,10 @@ import type { NotebookComponentToolbarProps } from 'lib/components/MarkdownNoteb
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { notebookNodeGeneratedWidgetLogic } from './notebookNodeGeneratedWidgetLogic'
 import { NotebookWidgetPublishModal } from './NotebookWidgetPublishModal'
+import { NotebookWidgetSourceModal } from './NotebookWidgetSourceModal'
 import { DEFAULT_WIDGET_MODEL, isWidgetModel } from './widgetModels'
 
 export function NotebookGeneratedWidgetRunButton({
@@ -19,9 +18,9 @@ export function NotebookGeneratedWidgetRunButton({
     updateProps,
 }: NotebookComponentToolbarProps): JSX.Element | null {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { canEditNotebook, isShared } = useValues(mountedNotebookLogic)
+    const { isShared } = useValues(mountedNotebookLogic)
 
-    if (isShared || !canEditNotebook) {
+    if (isShared) {
         return null
     }
 
@@ -63,7 +62,7 @@ function EditableNotebookGeneratedWidgetRunButton({
     const { runDataDependencies } = useActions(logic)
 
     useEffect(() => {
-        if (!status?.instance_id || !status.has_versions) {
+        if (!canEditNotebook || !status?.instance_id || !status.has_versions) {
             return
         }
         const version = status.pinned_version_id ?? undefined
@@ -94,28 +93,26 @@ function EditableNotebookGeneratedWidgetRunButton({
         ) {
             updateProps({ nodeId, id: status.widget_id, version, inputs })
         }
-    }, [nodeId, node.props.id, node.props.inputs, node.props.version, status, updateProps])
+    }, [canEditNotebook, nodeId, node.props.id, node.props.inputs, node.props.version, status, updateProps])
 
     return (
         <>
-            <LemonButton
-                data-attr="notebook-generated-widget-run-button"
-                size="xsmall"
-                type="primary"
-                icon={<IconPlayFilled color="var(--success)" />}
-                onClick={runDataDependencies}
-                loading={dataRefreshInFlight}
-                disabledReason={runDataDependenciesDisabledReason ?? undefined}
-                tooltip="Run widget data cells"
-            >
-                Run
-            </LemonButton>
-            {status?.is_reusable && status.widget_id ? (
-                <LemonButton size="xsmall" onClick={() => router.actions.push(urls.reusableWidget(status.widget_id!))}>
-                    Open reusable widget
+            {canEditNotebook ? (
+                <LemonButton
+                    data-attr="notebook-generated-widget-run-button"
+                    size="xsmall"
+                    type="primary"
+                    icon={<IconPlayFilled color="var(--success)" />}
+                    onClick={runDataDependencies}
+                    loading={dataRefreshInFlight}
+                    disabledReason={runDataDependenciesDisabledReason ?? undefined}
+                    tooltip="Run widget data cells"
+                >
+                    Run
                 </LemonButton>
             ) : null}
-            <NotebookWidgetPublishModal {...logicProps} />
+            {canEditNotebook ? <NotebookWidgetPublishModal {...logicProps} /> : null}
+            <NotebookWidgetSourceModal {...logicProps} />
         </>
     )
 }

@@ -42,6 +42,8 @@ Reusable widgets remain behind the `notebook-generated-widgets` feature flag and
 
 ## Generated-code trust model
 
+In notebooks, the widget title's **More actions** (`…`) menu contains **Open reusable widget**, **View source**, the automated review result, and the selected build identifier. Running widgets show their preview without a source and review toolbar. Widgets that require approval still show the review gate before running.
+
 Generated widget source is arbitrary React and JavaScript. It is not a restricted widget schema, and PostHog does not claim to make it safe by parsing an AST, matching source text, or blocking selected syntax. JavaScript can construct equivalent behavior dynamically, so source-shape validation would create a false security boundary while breaking legitimate widgets.
 
 The generated-code trust flow works as follows:
