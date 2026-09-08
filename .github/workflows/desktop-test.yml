@@ -130,7 +130,20 @@ jobs:
     integration-test:
         needs: changes
         # Fail closed: if change detection itself failed, run instead of skipping.
-        if: ${{ !cancelled() && github.event_name != 'merge_group' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true') }}
+        #
+        # Also skipped on trunk-merge/** heads. Trunk's queue opens a real PR, so
+        # the merge_group arm never matches and this ran on every batch. Every
+        # batched PR already ran it in full, and depot-macos-26 is the suite's only
+        # macOS runner, where an hour-long wait at peak holds the queue instead of
+        # one author's PR. Scoped to same-repo heads so a fork cannot opt out by
+        # naming its branch trunk-merge/**. While the live-model `e2e` job still
+        # needs this one, it skips there too, the cascade merge_group relies on.
+        if: >-
+            !cancelled() &&
+            github.event_name != 'merge_group' &&
+            !(github.event.pull_request.head.repo.full_name == github.repository &&
+            startsWith(github.head_ref, 'trunk-merge/')) &&
+            (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true')
         runs-on: depot-macos-26
         timeout-minutes: 45
         permissions:

@@ -93,9 +93,6 @@ function dotMark(dot: TaskDot, decorative = false): ReactElement {
       {...naming}
       className={cn(
         "block shrink-0 rounded-full",
-        // ph-pulse is the app's existing flash, but it has no reduced-motion
-        // rule of its own — hold a static dot rather than blinking at someone
-        // who asked us not to.
         dot.pulse && "ph-pulse motion-reduce:animate-none",
       )}
       style={{

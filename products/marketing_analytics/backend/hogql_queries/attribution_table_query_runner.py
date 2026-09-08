@@ -117,6 +117,7 @@ class MarketingAnalyticsAttributionQueryRunner(AttributionQueryRunnerBase[Market
                 exprs=[
                     self._touchpoint_condition(),
                     *self._lookback_date_conditions(date_range),
+                    *self._test_account_conditions(),
                 ]
             ),
             group_by=[ast.Field(chain=[_BREAKDOWN_VALUE])],

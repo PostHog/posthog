@@ -754,7 +754,12 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         key,
         subscribers: existing.subscriberCount,
       });
-      void this.emitCurrentSnapshot(key);
+      // Until the first snapshot is out, the bootstrap in flight delivers it to
+      // every subscriber. Replaying here would fetch and emit the transcript a
+      // second time, and each emit is serialized once per subscription.
+      if (existing.hasEmittedSnapshot) {
+        void this.emitCurrentSnapshot(key);
+      }
       return;
     }
 

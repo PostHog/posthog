@@ -236,6 +236,12 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   filters into `/inbox/reports` before opening it.
   Picking a preview report stays on `/activity` and renders that already-loaded
   report beside the feed while its detail query refreshes in the background.
+- **An activity row acts on its task from the same menu the spaces surfaces use.** `useActivityTaskMenu` builds one `TaskRowMenuProps` per row and `ActivityRow` hangs it off a `TaskRowDropdownMenu`, beside the mark-read and copy-link buttons the row already reveals on hover, so pin, "Add to Command Center", "File to…" and Archive can't drift from the space lists.
+  Rename, hand off and analysis are the items the feed drops: the first needs an inline editor the feed has no row for, and the other two need the task itself, which an activity row does not carry.
+  The actions are built once for the feed and handed to the rows, the way `useSpaceTaskActions` serves the tree — one pin and one archive mutation for the page instead of one per row.
+  The hover actions overlay the row's right edge, because the row is a button and they cannot sit inside it, so the row reserves a trailing lane sized to how many it is showing.
+- **Activity drops archived tasks, the way a space's lists do.** Archive is local to the machine, so the server's activity read model still returns their rows; `deriveActivityFeedContent` filters them out of what it renders, which is also what makes archiving from a row legible.
+  Unreads stay whole, because "Mark all as read" acts on them and an archived task's unread update still counts against the badge.
 - **Which pane shows is view state, not a route.** `channelPaneStore` holds it,
   separately from the scoped channel (`currentChannelStore`): "back to channels"
   browses the list while the route, the main pane and the scoped channel stay

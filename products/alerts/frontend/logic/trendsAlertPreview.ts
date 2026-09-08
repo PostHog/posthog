@@ -6,9 +6,25 @@ export interface TrendsAlertPreviewSeries {
     relative: boolean
 }
 
+export interface TrendsBreakdownAlertPreviewRow {
+    key: string
+    label: string
+    data: number[]
+}
+
+export interface TrendsBreakdownAlertPreview {
+    rows: TrendsBreakdownAlertPreviewRow[]
+    labels?: string[]
+}
+
 interface AlertCheckPreviewInput {
     calculated_value: number | null
     created_at: string
+}
+
+interface DerivedPoint {
+    value: number | null
+    index: number
 }
 
 export function deriveAlertCheckPreviewSeries(
@@ -32,17 +48,15 @@ export function deriveAlertCheckPreviewSeries(
     }
 }
 
-export function deriveTrendsAlertPreviewSeries(
+/** One point per interval transition, kept in raw interval order. `index` is the position of the
+ *  earlier interval. A `null` value marks a percentage change that has no meaning because the
+ *  earlier interval was zero. */
+function deriveRelativePoints(
     values: number[],
-    labels: string[] | undefined,
     conditionType: AlertConditionType,
     thresholdType: InsightThresholdType
-): TrendsAlertPreviewSeries {
-    if (conditionType === AlertConditionType.ABSOLUTE_VALUE) {
-        return { values, labels, relative: false }
-    }
-
-    const derivedPoints = values.slice(1).map((current, index) => {
+): DerivedPoint[] {
+    return values.slice(1).map((current, index) => {
         const previous = values[index]
         const numerator =
             conditionType === AlertConditionType.RELATIVE_INCREASE ? current - previous : previous - current
@@ -54,7 +68,19 @@ export function deriveTrendsAlertPreviewSeries(
         }
         return { value: (numerator / previous) * 100, index }
     })
-    const availablePoints = derivedPoints.filter(
+}
+
+export function deriveTrendsAlertPreviewSeries(
+    values: number[],
+    labels: string[] | undefined,
+    conditionType: AlertConditionType,
+    thresholdType: InsightThresholdType
+): TrendsAlertPreviewSeries {
+    if (conditionType === AlertConditionType.ABSOLUTE_VALUE) {
+        return { values, labels, relative: false }
+    }
+
+    const availablePoints = deriveRelativePoints(values, conditionType, thresholdType).filter(
         (point): point is { value: number; index: number } => point.value !== null
     )
 
@@ -62,5 +88,37 @@ export function deriveTrendsAlertPreviewSeries(
         values: availablePoints.map((point) => point.value),
         labels: labels ? availablePoints.map((point) => labels[point.index + 1]) : undefined,
         relative: true,
+    }
+}
+
+/** The breakdown rows and the one set of labels they all sit on. A relative point compares an
+ *  interval to the one before it, so it belongs to the later interval and the first raw label names
+ *  no point. A row without a usable comparison for an interval gets `NaN` there, which the chart
+ *  draws as a gap. Every row needs the same grid: if each row instead dropped its own unusable
+ *  comparisons, rows with different numbers of comparisons would put different intervals on the same
+ *  x position. */
+export function deriveTrendsBreakdownAlertPreview(
+    series: TrendsBreakdownAlertPreviewRow[] | undefined,
+    labels: string[] | undefined,
+    conditionType: AlertConditionType,
+    thresholdType: InsightThresholdType
+): TrendsBreakdownAlertPreview | null {
+    if (!series) {
+        return null
+    }
+    const relative = conditionType !== AlertConditionType.ABSOLUTE_VALUE
+
+    return {
+        // Trend results declare `data` as a required array, but breakdown rows can arrive without it.
+        rows: series
+            .filter(({ data }) => Array.isArray(data))
+            .map(({ key, label, data }) => ({
+                key,
+                label,
+                data: relative
+                    ? deriveRelativePoints(data, conditionType, thresholdType).map((point) => point.value ?? NaN)
+                    : data,
+            })),
+        labels: relative ? labels?.slice(1) : labels,
     }
 }

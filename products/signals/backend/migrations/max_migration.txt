@@ -1,1 +1,1 @@
-0117_drop_signalscoutconfig_team_id_fk_idx
+0119_squash_2026_09_07_schema_addons
