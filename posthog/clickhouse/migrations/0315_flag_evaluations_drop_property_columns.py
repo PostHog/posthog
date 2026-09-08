@@ -40,32 +40,28 @@ def _drop_columns_sql(table: str) -> str:
 
 
 operations = [
-    # 1. Drop the MV and Kafka table first: the Kafka engine does not support
-    # ALTER ... DROP COLUMN, so they must be recreated rather than altered.
+    # The Kafka engine does not support ALTER ... DROP COLUMN, so the MV and Kafka
+    # table must be recreated rather than altered.
     run_sql_with_exceptions(DROP_FLAG_EVALUATIONS_MV_SQL, node_roles=[NodeRole.INGESTION_MEDIUM]),
     run_sql_with_exceptions(DROP_KAFKA_FLAG_EVALUATIONS_TABLE_SQL, node_roles=[NodeRole.INGESTION_MEDIUM]),
-    # 2. Drop the columns from the writable Distributed table (ingestion layer)
     run_sql_with_exceptions(
         _drop_columns_sql(FLAG_EVALUATIONS_WRITABLE_TABLE),
         node_roles=[NodeRole.INGESTION_MEDIUM],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
-    # 3. Drop the columns from the sharded storage table (main cluster, one op per shard)
     run_sql_with_exceptions(
         _drop_columns_sql(FLAG_EVALUATIONS_DATA_TABLE),
         node_roles=[NodeRole.DATA],
         sharded=True,
         is_alter_on_replicated_table=True,
     ),
-    # 4. Drop the columns from the Distributed read table (main cluster)
     run_sql_with_exceptions(
         _drop_columns_sql(FLAG_EVALUATIONS_TABLE),
         node_roles=[NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
-    # 5. Recreate the Kafka table and MV without the dropped columns
     run_sql_with_exceptions(KAFKA_FLAG_EVALUATIONS_TABLE_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]),
     run_sql_with_exceptions(FLAG_EVALUATIONS_MV_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]),
 ]
