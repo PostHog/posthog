@@ -76,11 +76,9 @@ from posthog.utils import get_crontab, get_instance_region
 
 from products.approvals.backend.tasks import expire_old_change_requests, validate_pending_change_requests
 from products.canvas.backend.tasks import cleanup_canvas_builds, sweep_canvas_builds
-from products.conversations.backend.tasks import (
-    flush_pending_email_replies,
-    poll_teams_shared_channels,
-    wake_snoozed_tickets,
-)
+from products.conversations.backend.tasks.email import flush_pending_email_replies
+from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
+from products.conversations.backend.tasks.teams import poll_teams_shared_channels
 from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
 from products.data_warehouse.backend.facade.tasks import (
     reconcile_all_managed_warehouse_tables_task,
