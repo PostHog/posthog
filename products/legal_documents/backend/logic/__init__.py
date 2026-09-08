@@ -23,11 +23,12 @@ from posthog.email import EmailMessage, get_email_team_and_org_context, is_email
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.ph_client import get_feature_flag_or_none
 from posthog.storage import object_storage
 
-from ee.billing.billing_manager import BillingManager
+from ee.billing.billing_manager import BillingManager, StartupProgramLabel
 
-from ..facade.enums import DocumentType
+from ..facade.enums import BaaBlockReason, DocumentType
 from ..models import LegalDocument
 from ..storage import signed_pdf_storage_key
 from . import pandadoc as pandadoc_client
@@ -36,6 +37,12 @@ logger = structlog.get_logger(__name__)
 
 # Addon types that entitle an organization to a BAA.
 BAA_ADDON_TYPES = frozenset({"boost", "scale", "enterprise"})
+
+# Startup program organizations always pay with credits, and credits do not cover
+# a BAA, whatever addon they hold. YC organizations keep BAA access. Staff enable
+# the override flag for an organization that pays for a BAA later.
+BAA_BLOCKED_STARTUP_PROGRAM_LABEL: StartupProgramLabel = "Startup"
+BAA_STARTUP_PROGRAM_OVERRIDE_FLAG = "legal-documents-baa-startup-override"
 
 # PostHog-side mailbox used both as the CC recipient on every signing envelope
 # and as the document owner. PandaDoc sends the signing email on behalf of the
@@ -72,13 +79,33 @@ def template_id_matches_document(document: LegalDocument, template_id: str) -> b
     return not expected or expected == template_id
 
 
-def has_qualifying_baa_addon(organization: Organization) -> bool:
+def _baa_startup_program_override_enabled(organization: Organization, distinct_id: str) -> bool:
+    organization_id = str(organization.id)
+    # The flag targets the organization group. Local evaluation keeps a flags-service
+    # round trip out of the create request, and an unresolved flag keeps the block.
+    return (
+        get_feature_flag_or_none(
+            BAA_STARTUP_PROGRAM_OVERRIDE_FLAG,
+            distinct_id,
+            groups={"organization": organization_id},
+            group_properties={"organization": {"id": organization_id}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+        is True
+    )
+
+
+def get_baa_block_reason(organization: Organization, distinct_id: str) -> BaaBlockReason | None:
     billing = BillingManager(get_cached_instance_license()).get_billing(organization)
+    on_startup_program = billing.get("startup_program_label") == BAA_BLOCKED_STARTUP_PROGRAM_LABEL
+    if on_startup_program and not _baa_startup_program_override_enabled(organization, distinct_id):
+        return BaaBlockReason.STARTUP_PROGRAM
     for product in billing.get("products") or []:
         for addon in product.get("addons") or []:
             if addon.get("type") in BAA_ADDON_TYPES and addon.get("subscribed"):
-                return True
-    return False
+                return None
+    return BaaBlockReason.NO_QUALIFYING_ADDON
 
 
 def exists_for_organization_and_type(organization_id: UUID, document_type: str) -> bool:

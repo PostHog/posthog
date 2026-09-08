@@ -27,7 +27,7 @@ from ..logic.pandadoc import (
 )
 from ..models import LegalDocument
 from . import contracts
-from .enums import LegalDocumentStatus
+from .enums import BaaBlockReason, LegalDocumentStatus
 
 logger = structlog.get_logger(__name__)
 
@@ -80,8 +80,8 @@ def get_signed_pdf_download_url(document_id: UUID, organization_id: UUID) -> str
     return logic.get_signed_pdf_presigned_url(document)
 
 
-def has_qualifying_baa_addon(organization: Organization) -> bool:
-    return logic.has_qualifying_baa_addon(organization)
+def get_baa_block_reason(organization: Organization, distinct_id: str) -> BaaBlockReason | None:
+    return logic.get_baa_block_reason(organization, distinct_id)
 
 
 def verify_pandadoc_webhook_signature(*, secret: str, body: bytes, signature: str) -> bool:

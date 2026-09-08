@@ -6,7 +6,7 @@ from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import IntegrityError
 from django.test import override_settings
@@ -38,15 +38,16 @@ DPA_PAYLOAD = {
 }
 
 
-def _billing_with_addons(addon_types_subscribed: set[str]) -> dict[str, Any]:
+def _billing_with_addons(addon_types_subscribed: set[str], startup_program_label: str | None = None) -> dict[str, Any]:
     return {
+        "startup_program_label": startup_program_label,
         "products": [
             {
                 "type": "platform_and_support",
                 "addons": [{"type": addon_type, "subscribed": True} for addon_type in addon_types_subscribed]
                 + [{"type": "unrelated", "subscribed": False}],
             }
-        ]
+        ],
     }
 
 
@@ -80,6 +81,39 @@ class TestLegalDocumentAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertIn("Boost, Scale, or Enterprise", response.json()["detail"])
         self.assertFalse(LegalDocument.objects.exists())
+
+    @parameterized.expand(
+        [
+            ("startup_with_boost", "Startup", {"boost"}, False, status.HTTP_403_FORBIDDEN),
+            ("startup_without_addon", "Startup", set(), False, status.HTTP_403_FORBIDDEN),
+            ("startup_with_override_flag", "Startup", {"boost"}, True, status.HTTP_201_CREATED),
+            ("yc", "YC", {"boost"}, False, status.HTTP_201_CREATED),
+        ]
+    )
+    @patch("products.legal_documents.backend.logic.get_feature_flag_or_none")
+    @patch("products.legal_documents.backend.logic.BillingManager")
+    def test_create_baa_respects_startup_program(
+        self,
+        _name: str,
+        startup_program_label: str | None,
+        addons: set[str],
+        override_enabled: bool,
+        expected_status: int,
+        mock_manager_cls: MagicMock,
+        mock_flag: MagicMock,
+    ) -> None:
+        mock_manager_cls.return_value.get_billing.return_value = _billing_with_addons(addons, startup_program_label)
+        mock_flag.return_value = True if override_enabled else None
+
+        response = self.client.post(self.url, BAA_PAYLOAD, format="json")
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        created = LegalDocument.objects.filter(document_type="BAA").exists()
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            self.assertIn("startup program credits", response.json()["detail"])
+            self.assertFalse(created)
+        else:
+            self.assertTrue(created)
 
     def test_create_dpa_succeeds(self) -> None:
         response = self.client.post(self.url, DPA_PAYLOAD, format="json")
@@ -166,8 +200,8 @@ class TestLegalDocumentAPI(APIBaseTest):
     @patch("products.legal_documents.backend.logic.posthoganalytics.capture")
     def test_create_baa_fires_submitted_event(self, mock_capture) -> None:
         with patch(
-            "products.legal_documents.backend.logic.has_qualifying_baa_addon",
-            return_value=True,
+            "products.legal_documents.backend.logic.get_baa_block_reason",
+            return_value=None,
         ):
             response = self.client.post(self.url, BAA_PAYLOAD, format="json")
 
@@ -207,7 +241,7 @@ class TestLegalDocumentAPI(APIBaseTest):
         self.assertIn("already has a DPA", second.json()["detail"])
         self.assertEqual(LegalDocument.objects.filter(document_type="DPA").count(), 1)
 
-    @patch("products.legal_documents.backend.logic.has_qualifying_baa_addon", return_value=True)
+    @patch("products.legal_documents.backend.logic.get_baa_block_reason", return_value=None)
     def test_only_one_baa_per_organization(self, _mock_addon) -> None:
         first = self.client.post(self.url, BAA_PAYLOAD, format="json")
         self.assertEqual(first.status_code, status.HTTP_201_CREATED)
@@ -217,7 +251,7 @@ class TestLegalDocumentAPI(APIBaseTest):
         self.assertIn("already has a BAA", second.json()["detail"])
         self.assertEqual(LegalDocument.objects.filter(document_type="BAA").count(), 1)
 
-    @patch("products.legal_documents.backend.logic.has_qualifying_baa_addon", return_value=True)
+    @patch("products.legal_documents.backend.logic.get_baa_block_reason", return_value=None)
     def test_baa_and_dpa_can_coexist_in_same_organization(self, _mock_addon) -> None:
         baa_response = self.client.post(self.url, BAA_PAYLOAD, format="json")
         dpa_response = self.client.post(self.url, DPA_PAYLOAD, format="json")
