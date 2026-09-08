@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import builtins
 from dataclasses import asdict
+from functools import cached_property
 from typing import Any, cast
 from uuid import UUID
 
@@ -43,12 +44,14 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import (
     PostHogFeatureFlagPermission,
     TeamMemberAccessPermission,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
     is_service_auth,
 )
@@ -781,6 +784,22 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestStatusHistorySerializer(instance=history, many=True).data)
 
 
+class UserConfigCanonicalTeamAccessPermission(BasePermission):
+    message = "You don't have access to the project."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        if not request.user.is_authenticated:
+            return True
+        config_view = cast(UserCustomerAnalyticsConfigViewSet, view)
+        canonical_team = config_view.canonical_team
+        if canonical_team.id == config_view.team_id:
+            return True
+        scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
+        if scoped_team_ids and canonical_team.id not in scoped_team_ids:
+            return False
+        return config_view.user_permissions.team(canonical_team).effective_membership_level is not None
+
+
 class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "account"
     scope_object_read_actions = ["retrieve"]
@@ -788,6 +807,19 @@ class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
     serializer_class = UserCustomerAnalyticsConfigSerializer
     queryset = None
     lookup_value_regex = "@me"
+    permission_classes = [UserConfigCanonicalTeamAccessPermission]
+
+    @cached_property
+    def canonical_team(self) -> Team:
+        return self.team.parent_team or self.team
+
+    @cached_property
+    def user_access_control(self) -> UserAccessControl:
+        return UserAccessControl(
+            user=cast(User, self.request.user),
+            team=self.canonical_team,
+            organization_id=self.organization_id,
+        )
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         # Browser viewers can personalize their own sidebar without account edit access.

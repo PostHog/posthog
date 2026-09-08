@@ -216,15 +216,31 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
             ("personal", "account:write", status.HTTP_200_OK),
             ("oauth", "account:read", status.HTTP_403_FORBIDDEN),
             ("oauth", "account:write", status.HTTP_200_OK),
+            ("personal", "account:write", status.HTTP_403_FORBIDDEN, "child_only"),
+            ("personal", "account:write", status.HTTP_200_OK, "parent_and_child"),
+            ("oauth", "account:write", status.HTTP_403_FORBIDDEN, "child_only"),
+            ("oauth", "account:write", status.HTTP_200_OK, "parent_and_child"),
         ]
     )
-    def test_token_requires_write_scope(self, kind: str, scope: str, expected_status: int) -> None:
+    def test_token_requires_write_scope(
+        self, kind: str, scope: str, expected_status: int, environment_scope: str | None = None
+    ) -> None:
         pinned = [{"kind": "custom_property", "id": str(self._custom_property().id)}]
         self.client.patch(self.endpoint, {"pinned_properties": pinned}, format="json")
+        endpoint = self.endpoint
+        scoped_teams: list[int] = []
+        if environment_scope:
+            environment = Team.objects.create(organization=self.organization, parent_team=self.team)
+            endpoint = f"/api/projects/{environment.id}/user_customer_analytics_config/@me/"
+            scoped_teams = [environment.id] + ([self.team.id] if environment_scope == "parent_and_child" else [])
         if kind == "personal":
             token = generate_random_token_personal()
             PersonalAPIKey.objects.create(
-                user=self.user, label="Sidebar test", secure_value=hash_key_value(token), scopes=[scope]
+                user=self.user,
+                label="Sidebar test",
+                secure_value=hash_key_value(token),
+                scopes=[scope],
+                scoped_teams=scoped_teams,
             )
         else:
             application = OAuthApplication.objects.create(
@@ -242,14 +258,49 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
                 token=token,
                 scope=scope,
                 expires=timezone.now() + timedelta(hours=1),
+                scoped_teams=scoped_teams,
             )
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
-        self.assertEqual(self.client.get(self.endpoint).status_code, status.HTTP_200_OK)
-        response = self.client.patch(self.endpoint, {"pinned_properties": []}, format="json")
+        expected_read_status = status.HTTP_403_FORBIDDEN if environment_scope == "child_only" else status.HTTP_200_OK
+        self.assertEqual(self.client.get(endpoint).status_code, expected_read_status)
+        response = self.client.patch(endpoint, {"pinned_properties": []}, format="json")
         self.assertEqual(response.status_code, expected_status, response.json())
         expected_pins = [] if expected_status == status.HTTP_200_OK else pinned
-        self.assertEqual(self.client.get(self.endpoint).json(), {"pinned_properties": expected_pins})
+        config = UserCustomerAnalyticsConfig.objects.for_team(self.team.id).get(user_id=self.user.id)
+        self.assertEqual(config.properties["pinned_properties"], expected_pins)
+
+    @parameterized.expand([("project",), ("customer_analytics",)])
+    def test_child_access_does_not_grant_parent_access(self, resource: str) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team)
+        member = User.objects.create_and_join(self.organization, "child-member@example.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource=resource,
+            resource_id=str(self.team.id) if resource == "project" else None,
+            access_level="none",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(
+            team=environment,
+            resource=resource,
+            resource_id=str(environment.id) if resource == "project" else None,
+            access_level="member" if resource == "project" else "editor",
+            organization_member=membership,
+        )
+        self.client.force_login(member)
+        endpoint = f"/api/projects/{environment.id}/user_customer_analytics_config/@me/"
+        self.assertEqual(self.client.get(endpoint).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            self.client.patch(endpoint, {"pinned_properties": []}, format="json").status_code, status.HTTP_403_FORBIDDEN
+        )
+        self.assertFalse(UserCustomerAnalyticsConfig.objects.for_team(self.team.id).filter(user_id=member.id).exists())
 
     def test_session_viewer_can_personalize_their_sidebar(self) -> None:
         self.organization.available_product_features = [
