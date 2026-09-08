@@ -628,6 +628,17 @@ export interface OnboardingAbandonedProperties {
   duration_seconds: number;
 }
 
+export type OnboardingLandingDestination =
+  | "spaces"
+  | "self-driving"
+  | "canvases"
+  | "agents"
+  | "tasks";
+
+export interface OnboardingLandingDestinationSelectedProperties {
+  destination: OnboardingLandingDestination;
+}
+
 export interface AiConsentGateShownProperties {
   is_org_admin: boolean;
   outstanding_ai_consent: boolean;
@@ -1631,6 +1642,9 @@ export const ANALYTICS_EVENTS = {
   ONBOARDING_CLI_RUN_COMPLETED: "Onboarding cli run completed",
   ONBOARDING_COMPLETED: "Onboarding completed",
   ONBOARDING_ABANDONED: "Onboarding abandoned",
+  ONBOARDING_LANDING_VIEWED: "Onboarding landing viewed",
+  ONBOARDING_LANDING_DESTINATION_SELECTED:
+    "Onboarding landing destination selected",
   AI_CONSENT_GATE_SHOWN: "Ai consent gate shown",
   AI_CONSENT_APPROVED: "Ai consent approved",
   AI_CONSENT_GRANTED_INAPP: "Ai consent granted in-app",
@@ -1843,6 +1857,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.ONBOARDING_CLI_RUN_COMPLETED]: OnboardingCliRunCompletedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_COMPLETED]: OnboardingCompletedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_ABANDONED]: OnboardingAbandonedProperties;
+  [ANALYTICS_EVENTS.ONBOARDING_LANDING_VIEWED]: never;
+  [ANALYTICS_EVENTS.ONBOARDING_LANDING_DESTINATION_SELECTED]: OnboardingLandingDestinationSelectedProperties;
   [ANALYTICS_EVENTS.AI_CONSENT_GATE_SHOWN]: AiConsentGateShownProperties;
   [ANALYTICS_EVENTS.AI_CONSENT_APPROVED]: never;
   [ANALYTICS_EVENTS.AI_CONSENT_GRANTED_INAPP]: never;

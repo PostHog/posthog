@@ -1,12 +1,16 @@
+import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
-import { Switch } from "@posthog/quill";
+import { Button, Switch } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import {
   EFFORT_LEVEL_DOCS_URLS,
   EFFORT_LEVEL_LABELS,
   EFFORT_LEVELS,
 } from "@posthog/shared/domain-types";
+import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import { useTabsSnapshot } from "@posthog/ui/features/browser-tabs/useBrowserTabs";
+import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
 import {
   MISSION_CONTROL_CLIENT,
   type MissionControlClient,
@@ -35,6 +39,11 @@ import {
   useSettingsStore,
 } from "@posthog/ui/features/settings/settingsStore";
 import { track } from "@posthog/ui/shell/analytics";
+import {
+  isOnboardingTab,
+  ONBOARDING_TAB_HREF,
+  restoreOnboardingTab,
+} from "@posthog/ui/shell/onboardingTab";
 import type { ThemePreference } from "@posthog/ui/shell/themeStore";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
@@ -57,6 +66,10 @@ const MESSAGING_MODE_OPTIONS = [
 
 export function GeneralSettings() {
   const hostTRPC = useHostTRPC();
+  const authIdentity = useAuthStateValue(getAuthIdentity);
+  const tabsSnapshot = useTabsSnapshot();
+  const openBrowserTab = useOpenBrowserTab();
+  const onboardingTabIsOpen = tabsSnapshot.tabs.some(isOnboardingTab);
 
   const theme = useThemeStore((state) => state.theme);
   const setTheme = useThemeStore((state) => state.setTheme);
@@ -244,6 +257,12 @@ export function GeneralSettings() {
     [sendMessagesWith, setSendMessagesWith],
   );
 
+  const handleAddOnboardingTab = useCallback(() => {
+    if (!authIdentity || onboardingTabIsOpen) return;
+    void restoreOnboardingTab(authIdentity);
+    openBrowserTab(ONBOARDING_TAB_HREF);
+  }, [authIdentity, onboardingTabIsOpen, openBrowserTab]);
+
   return (
     <div className="flex flex-col gap-7">
       <AccountSection />
@@ -267,6 +286,29 @@ export function GeneralSettings() {
             </SettingsCardRow>
           </SettingsCard>
         )}
+      </SettingsSection>
+
+      <SettingsSection
+        label="Onboarding"
+        description="Return to the onboarding guide"
+      >
+        <SettingsCard>
+          <SettingsCardRow
+            label="Onboarding tab"
+            description="Add the onboarding guide to your tabs"
+          >
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              data-attr="settings-add-onboarding-tab"
+              disabled={!authIdentity || onboardingTabIsOpen}
+              onClick={handleAddOnboardingTab}
+            >
+              {onboardingTabIsOpen ? "Added" : "Add tab"}
+            </Button>
+          </SettingsCardRow>
+        </SettingsCard>
       </SettingsSection>
 
       <SettingsSection

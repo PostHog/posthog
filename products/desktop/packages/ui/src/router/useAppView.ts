@@ -23,6 +23,7 @@ export type AppViewType =
   | "context"
   | "skills"
   | "mcp-servers"
+  | "onboarding"
   | "settings";
 
 export interface AppView {
@@ -82,6 +83,8 @@ function deriveFromMatches(matches: Match[]): AppView {
       return { type: "skills" };
     case "/mcp-servers":
       return { type: "mcp-servers" };
+    case "/onboarding-landing":
+      return { type: "onboarding" };
     case "/settings/$category":
     case "/settings/":
       return { type: "settings" };

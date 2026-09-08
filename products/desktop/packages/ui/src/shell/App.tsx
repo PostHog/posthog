@@ -1,4 +1,5 @@
 import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
+import { useService } from "@posthog/di/react";
 import { ToastProvider } from "@posthog/quill";
 import { EXTERNAL_LINKS, isNotAuthenticatedError } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
@@ -14,6 +15,10 @@ import {
 } from "@posthog/ui/features/auth/useAuthMutations";
 import { useAuthSession } from "@posthog/ui/features/auth/useAuthSession";
 import { useIsOrgAdmin } from "@posthog/ui/features/auth/useOrgRole";
+import {
+  BROWSER_TABS_CLIENT,
+  type BrowserTabsClient,
+} from "@posthog/ui/features/browser-tabs/browserTabsClient";
 import { CanvasGenerationToaster } from "@posthog/ui/features/canvas/freeform/useCanvasGenerationToasts";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { showChannelList } from "@posthog/ui/features/canvas/stores/channelPaneStore";
@@ -37,6 +42,7 @@ import {
 import { ErrorBoundary } from "@posthog/ui/shell/ErrorBoundary";
 import { ensureSession } from "@posthog/ui/shell/firstRun";
 import { logger } from "@posthog/ui/shell/logger";
+import { ensureOnboardingTab } from "@posthog/ui/shell/onboardingTab";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import {
   rememberStartupLocation,
@@ -57,6 +63,7 @@ const log = logger.scope("app");
 
 function App({ devToolbar }: AppProps) {
   const { isBootstrapped } = useAuthSession();
+  const browserTabsClient = useService<BrowserTabsClient>(BROWSER_TABS_CLIENT);
   const authState = useAuthStateValue((state) => state);
   const hasCompletedOnboarding = useOnboardingStore(
     (state) => state.hasCompletedOnboarding,
@@ -180,6 +187,11 @@ function App({ devToolbar }: AppProps) {
           authenticatedClient,
           spacesLayoutEnabledRef.current,
         );
+        try {
+          await ensureOnboardingTab(startupIdentity, browserTabsClient);
+        } catch (error) {
+          log.warn("Failed to open onboarding tab", { error });
+        }
         if (firstRun) {
           showChannelList({ keepForRoute: firstRun.generalChannelId });
           useSpaceTreeStore.getState().expandSpace(firstRun.generalChannelId);
@@ -203,6 +215,7 @@ function App({ devToolbar }: AppProps) {
     initialRouteLoaded,
     startupIdentity,
     authenticatedClient,
+    browserTabsClient,
   ]);
 
   useEffect(() => {

@@ -1,0 +1,14 @@
+.onboarding-cycle-flow__path {
+  fill: none;
+  stroke: currentColor;
+  stroke-dasharray: 3 7;
+  stroke-linecap: round;
+  stroke-width: 1.25;
+}
+
+.onboarding-cycle-flow__traveler {
+  fill: var(--accent-9);
+  filter: drop-shadow(
+    0 0 4px color-mix(in srgb, var(--accent-9) 55%, transparent)
+  );
+}

@@ -104,10 +104,15 @@ differ. Desktop ships first.
 ### Opening, replacing, and blank tabs
 - **Navigating while a tab is active replaces that tab's location in place**
   (in-tab navigation). It does *not* open or focus another tab, ever.
-- **New tabs come only from explicit new-tab actions.** `+` and Cmd/Ctrl+T open
+- **New tabs usually come from explicit new-tab actions.** `+` and Cmd/Ctrl+T open
   `/activity`. Cmd/Ctrl-clicking a navigation destination opens that destination's
   root in a new tab (the rail in Spaces, the sidebar in the legacy layout).
-- `openTab` always appends. There is no dedup to focus an existing tab.
+- App startup adds `/onboarding-landing` as an inactive tab unless the user closed
+  it. Its links use explicit new-tab actions so the onboarding page stays open.
+  General settings can add the tab again after the user closes it.
+- `openTab` always appends. It activates the new tab by default. A caller can set
+  `activate: false` to keep the current tab active. There is no dedup to focus an
+  existing tab.
 
 ### Closing
 - Closing the active tab focuses its neighbour.

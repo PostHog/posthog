@@ -1,4 +1,5 @@
 import { MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
 import { useService } from "@posthog/di/react";
 import {
   closeTab as closeTabLocal,
@@ -14,6 +15,7 @@ import {
   type TabsSnapshot,
   type TabViewState,
 } from "@posthog/shared";
+import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { channelSectionFor } from "@posthog/ui/features/canvas/channelSections";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
@@ -47,6 +49,7 @@ import { getTaskInputSessionId } from "@posthog/ui/features/task-detail/taskInpu
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useAppView } from "@posthog/ui/router/useAppView";
+import { markOnboardingTabClosed } from "@posthog/ui/shell/onboardingTab";
 import { isMac } from "@posthog/ui/utils/platform";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -133,6 +136,7 @@ type TabRef = {
 function BrowserTabStripImpl() {
   const spacesLayout = useChannelsLayout();
   const snapshot = useTabsSnapshot();
+  const authIdentity = useAuthStateValue(getAuthIdentity);
   const navigate = useNavigate();
   const router = useRouter();
   const client = useService<BrowserTabsClient>(BROWSER_TABS_CLIENT);
@@ -769,6 +773,9 @@ function BrowserTabStripImpl() {
           case "context":
             navigate({ to: "/context", search: { path: undefined }, state });
             break;
+          case "onboarding":
+            navigate({ to: "/onboarding-landing", state });
+            break;
           case "settings":
             navigate({ to: "/settings", state });
             break;
@@ -810,10 +817,18 @@ function BrowserTabStripImpl() {
     else landOnDefault();
   };
 
+  const recordClosedOnboardingTabs = (tabIds: readonly string[]): void => {
+    if (!authIdentity) return;
+    const closedIds = new Set(tabIds);
+    const closedTabs = readMirror().tabs.filter((tab) => closedIds.has(tab.id));
+    void markOnboardingTabClosed(authIdentity, closedTabs);
+  };
+
   // Close applies locally and navigates to the survivor in the same tick — the
   // /website index therefore always renders against the post-close snapshot
   // and can't redirect (re-opening a tab) mid-flight.
   const handleClose = (tabId: string) => {
+    recordClosedOnboardingTabs([tabId]);
     useDraftStore
       .getState()
       .actions.setDraft(getTaskInputSessionId(tabId), null);
@@ -847,6 +862,7 @@ function BrowserTabStripImpl() {
   // always survives) takes focus if the active tab was among those closed.
   const handleCloseMany = (tabIds: string[], anchorTabId: string) => {
     if (tabIds.length === 0) return;
+    recordClosedOnboardingTabs(tabIds);
     const draftActions = useDraftStore.getState().actions;
     for (const tabId of tabIds) {
       draftActions.setDraft(getTaskInputSessionId(tabId), null);
