@@ -1,4 +1,4 @@
-import { Node } from '~/queries/schema/schema-general'
+import { MarketingAnalyticsDrillDownLevel, Node } from '~/queries/schema/schema-general'
 import {
     isAccountsQuery,
     isAccountsTableQuery,
@@ -129,7 +129,14 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.displayResponseError)
         features.add(QueryFeature.selectAndOrderByColumns)
-        features.add(QueryFeature.campaignMappingActions)
+        // Ad group and ad levels keep Campaign and Source as parent context, where they hold the
+        // platform's own names rather than the UTM tags a mapping works on.
+        if (
+            query.drillDownLevel !== MarketingAnalyticsDrillDownLevel.AdGroup &&
+            query.drillDownLevel !== MarketingAnalyticsDrillDownLevel.Ad
+        ) {
+            features.add(QueryFeature.campaignMappingActions)
+        }
     }
 
     if (isTracesQuery(query)) {

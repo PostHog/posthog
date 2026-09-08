@@ -10,6 +10,7 @@ import {
     MappingTypes,
     extractStringValue,
     getMappableColumn,
+    isMappableValue,
     getAutoMatchedCampaigns,
     getAvailableIntegrationsForCampaign,
     getAvailableIntegrationsForSource,
@@ -27,6 +28,10 @@ export interface CampaignMappingCellActionsProps {
 }
 
 export function CampaignMappingCellActions({ columnName, value }: CampaignMappingCellActionsProps): JSX.Element | null {
+    if (!isMappableValue(value)) {
+        return null
+    }
+
     switch (getMappableColumn(columnName)) {
         case MappableColumn.Source:
             return <SourceCellActions value={value} />
