@@ -112,7 +112,7 @@ export function HogFlowTreeNode({
                 <>
                     {step}
                     {branchesOpen && (
-                        <div className="flex flex-col gap-3 pt-2">
+                        <div className="flex flex-col gap-3 pt-2" data-workflow-tree-branch-content={node.action.id}>
                             {visibleBranches.map((branch, index) => {
                                 const branchIndex = branch.edge.type === 'branch' ? (branch.edge.index ?? index) : null
                                 const branchColor = getHogFlowBranchColor(branchIndex)

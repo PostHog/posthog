@@ -75,7 +75,20 @@ export function HogFlowTreeEditor(): JSX.Element {
 
         const candidates = Array.from(
             treeRef.current?.querySelectorAll<HTMLElement>('[data-workflow-tree-dropzone-candidate]') ?? []
-        ).filter((candidate) => candidate.dataset.workflowTreeDropzoneDisabled !== 'true')
+        ).filter((candidate) => {
+            if (candidate.dataset.workflowTreeDropzoneDisabled === 'true') {
+                return false
+            }
+
+            let ancestor: HTMLElement | null = candidate
+            while (ancestor) {
+                if (ancestor.dataset.workflowTreeBranchContent === draggedActionIdRef.current) {
+                    return false
+                }
+                ancestor = ancestor.parentElement
+            }
+            return true
+        })
         const closestDropzone = candidates.reduce<HTMLElement | null>((closest, candidate) => {
             if (!closest) {
                 return candidate
