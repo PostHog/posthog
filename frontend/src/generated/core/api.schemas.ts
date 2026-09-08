@@ -1756,6 +1756,8 @@ export interface TeamMarketingAnalyticsConfigApi {
      * * `time_decay` - Time Decay
      * * `position_based` - Position Based */
     attribution_mode?: AttributionModeEnumApi
+    /** Whether marketing analytics drops traffic matching the project's test-account filters. Off by default. */
+    filter_test_accounts?: boolean
     /** Manual campaign name aliases, keyed by integration type then by canonical campaign name, with the list of names that should be folded into it. Applied before automatic matching. */
     campaign_name_mappings?: MarketingAnalyticsCampaignNameMappingsApi
     /** Custom UTM source values to fold into an integration, keyed by integration type. A UTM source can only belong to one integration. */
@@ -1805,6 +1807,11 @@ export interface TeamWorkflowsConfigApi {
      * * `opt_out` - Opt Out
      * * `opt_in` - Opt In */
     email_tracking_consent_mode?: EmailTrackingConsentModeEnumApi
+}
+
+export interface TeamFeatureFlagPolicyConfigApi {
+    /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
+    require_tags?: boolean
 }
 
 /**
@@ -2629,6 +2636,7 @@ export interface ProjectBackwardCompatApi {
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
     workflows_config?: TeamWorkflowsConfigApi
+    feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     base_currency?: BaseCurrencyEnumApi
     /**
      * Enables capturing clicks that had no effect (rage-click detection).
@@ -3489,6 +3497,7 @@ export interface PatchedProjectBackwardCompatApi {
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
     workflows_config?: TeamWorkflowsConfigApi
+    feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     base_currency?: BaseCurrencyEnumApi
     /**
      * Enables capturing clicks that had no effect (rage-click detection).
@@ -4066,7 +4075,11 @@ export interface BulkUpdateTagsRequestApi {
      * * `remove` - remove
      * * `set` - set */
     action: BulkUpdateTagsActionEnumApi
-    /** Tag names to add, remove, or set. */
+    /**
+     * Tag names to add, remove, or set.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
     tags: string[]
 }
 
@@ -4961,6 +4974,19 @@ export interface OnboardingSkipRequestApi {
 }
 
 /**
+ * Request body for PATCH /api/users/@me/product_intro_seen.
+ */
+export interface PatchedProductIntroSeenApi {
+    /**
+     * Which key in `has_seen_product_intro_for` to set. Any string is accepted: besides the product keys, the map holds keys composed per team and keys for surfaces that are not products.
+     * @maxLength 128
+     */
+    product_key?: string
+    /** Whether the intro counts as seen. Send false to show it again. */
+    seen?: boolean
+}
+
+/**
  * * `ios` - iOS
  * * `android` - Android
  * * `web` - Web
@@ -5439,3 +5465,5 @@ export type UsersLoginSessionsListParams = {
     email?: string
     is_staff?: boolean
 }
+
+export type UsersProductIntroSeenPartialUpdate200 = { [key: string]: boolean }

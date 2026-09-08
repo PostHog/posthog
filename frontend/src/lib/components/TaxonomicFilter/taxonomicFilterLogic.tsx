@@ -149,6 +149,124 @@ function indexAfterLastMetaGroup(
     return 0
 }
 
+const MUTUALLY_EXCLUSIVE_GROUP_PAIRS: [TaxonomicFilterGroupType, TaxonomicFilterGroupType][] = [
+    [TaxonomicFilterGroupType.PageviewUrls, TaxonomicFilterGroupType.PageviewEvents],
+    [TaxonomicFilterGroupType.Screens, TaxonomicFilterGroupType.ScreenEvents],
+]
+
+const META_GROUP_ORDER: TaxonomicFilterGroupType[] = [
+    TaxonomicFilterGroupType.SuggestedFilters,
+    TaxonomicFilterGroupType.RecentFilters,
+    TaxonomicFilterGroupType.PinnedFilters,
+]
+
+const AUTO_INJECTED_META_GROUP_TYPES: TaxonomicFilterGroupType[] = [
+    TaxonomicFilterGroupType.RecentFilters,
+    TaxonomicFilterGroupType.PinnedFilters,
+]
+
+const PROMOTED_SHORTCUT_GROUP_TYPES: TaxonomicFilterGroupType[] = [
+    TaxonomicFilterGroupType.PageviewUrls,
+    TaxonomicFilterGroupType.Screens,
+    TaxonomicFilterGroupType.EmailAddresses,
+]
+
+/** Drop the group types no group serves, and the second half of every mutually exclusive pair. */
+export function resolveAvailableGroupTypes(
+    groupTypes: TaxonomicFilterGroupType[],
+    availableGroupTypes: Set<TaxonomicFilterGroupType>
+): TaxonomicFilterGroupType[] {
+    const excluded = new Set<TaxonomicFilterGroupType>()
+    for (const [preferred, ignored] of MUTUALLY_EXCLUSIVE_GROUP_PAIRS) {
+        if (groupTypes.includes(preferred) && groupTypes.includes(ignored)) {
+            console.warn(`TaxonomicFilter: ${preferred} and ${ignored} are mutually exclusive, ignoring ${ignored}`)
+            excluded.add(ignored)
+        }
+    }
+
+    return groupTypes.filter((groupType) => !excluded.has(groupType) && availableGroupTypes.has(groupType))
+}
+
+/** In the pill variant the SuggestedFilters ("All") tab is the default cross-group landing spot
+ *  whenever there's more than one substantive group to aggregate. It stays opt-in for the control
+ *  variant, so the control arm only shows it where a call site explicitly requests it. The rebuild
+ *  path (useTaxonomicFilter.ts) injects unconditionally because it has no per-variant arm to protect.
+ *
+ *  With one real group there's nothing for "All" to aggregate, so drop it (a call site may have
+ *  prepended SuggestedFilters — see TaxonomicPropertyFilter). Recent/Pinned then follow the group
+ *  instead of leading, and the group's own list floats recent/pinned items to the top (see
+ *  infiniteListLogic `items`). */
+function resolveSuggestedFiltersGroup(
+    groupTypes: TaxonomicFilterGroupType[],
+    availableGroupTypes: Set<TaxonomicFilterGroupType>,
+    substantiveGroupCount: number,
+    isPillVariant: boolean
+): TaxonomicFilterGroupType[] {
+    if (substantiveGroupCount === 1) {
+        const suggestedIdx = groupTypes.indexOf(TaxonomicFilterGroupType.SuggestedFilters)
+        if (suggestedIdx === -1) {
+            return groupTypes
+        }
+        return [...groupTypes.slice(0, suggestedIdx), ...groupTypes.slice(suggestedIdx + 1)]
+    }
+
+    const shouldLeadWithSuggested =
+        isPillVariant &&
+        substantiveGroupCount >= 2 &&
+        availableGroupTypes.has(TaxonomicFilterGroupType.SuggestedFilters) &&
+        !groupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)
+
+    return shouldLeadWithSuggested ? [TaxonomicFilterGroupType.SuggestedFilters, ...groupTypes] : groupTypes
+}
+
+/** RecentFilters and PinnedFilters are auto-injected after existing meta groups (including
+ *  SuggestedFilters when present) for multi-group filters, but after the sole group when there's only
+ *  one, so the group itself leads. */
+export function injectAutoMetaGroups(
+    groupTypes: TaxonomicFilterGroupType[],
+    availableGroupTypes: Set<TaxonomicFilterGroupType>,
+    singleSubstantiveGroup: boolean
+): TaxonomicFilterGroupType[] {
+    const withMetaGroups = [...groupTypes]
+    for (const metaType of AUTO_INJECTED_META_GROUP_TYPES) {
+        if (availableGroupTypes.has(metaType) && !withMetaGroups.includes(metaType)) {
+            const insertAt = singleSubstantiveGroup
+                ? withMetaGroups.length
+                : indexAfterLastMetaGroup(withMetaGroups, META_GROUP_ORDER)
+            withMetaGroups.splice(insertAt, 0, metaType)
+        }
+    }
+    return withMetaGroups
+}
+
+/** Move the shortcut groups to the top positions, after the meta groups. Elements only joins them when
+ *  the project sends `$autocapture`, because it has nothing to show otherwise. */
+function promoteShortcutGroups(
+    groupTypes: TaxonomicFilterGroupType[],
+    eventNames: string[]
+): TaxonomicFilterGroupType[] {
+    const shortcutGroups = eventNames.includes('$autocapture')
+        ? [...PROMOTED_SHORTCUT_GROUP_TYPES, TaxonomicFilterGroupType.Elements]
+        : PROMOTED_SHORTCUT_GROUP_TYPES
+
+    const promoted = [...groupTypes]
+    const toInsert: TaxonomicFilterGroupType[] = []
+    for (const groupType of shortcutGroups) {
+        const idx = promoted.indexOf(groupType)
+        if (idx !== -1) {
+            promoted.splice(idx, 1)
+            toInsert.push(groupType)
+        }
+    }
+
+    if (toInsert.length === 0) {
+        return groupTypes
+    }
+
+    promoted.splice(indexAfterLastMetaGroup(promoted, META_GROUP_ORDER), 0, ...toInsert)
+    return promoted
+}
+
 const SHORTCUT_TO_PROPERTY_FILTER_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
     TaxonomicFilterGroupType.PageviewUrls,
     TaxonomicFilterGroupType.PageviewEvents,
@@ -174,6 +292,9 @@ const REDISTRIBUTION_PRIORITY_GROUPS: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.Screens,
 ]
 
+// With three or more groups on screen the list is already varied, so each group keeps its own slots.
+const REDISTRIBUTION_MAX_GROUPS = 3
+
 export type TopMatchItem = TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType }
 
 export const SKELETON_ROWS_PER_GROUP = 3
@@ -181,6 +302,84 @@ export const SKELETON_ROWS_PER_GROUP = 3
 export const REVEAL_BARRIER_TIMEOUT_MS = 5000
 
 export { isSkeletonItem, type SkeletonItem } from 'lib/components/TaxonomicFilter/types'
+
+type TopMatchAllocation = Map<TaxonomicFilterGroupType, TopMatchItem[]>
+
+function groupTopMatchesByGroupType(items: TopMatchItem[]): TopMatchAllocation {
+    const byGroup: TopMatchAllocation = new Map()
+    for (const item of items) {
+        const groupItems = byGroup.get(item.group)
+        if (groupItems) {
+            groupItems.push(item)
+        } else {
+            byGroup.set(item.group, [item])
+        }
+    }
+    return byGroup
+}
+
+function allocateDefaultSlots(byGroup: TopMatchAllocation): TopMatchAllocation {
+    const allocated: TopMatchAllocation = new Map()
+    for (const [groupType, groupItems] of byGroup) {
+        allocated.set(groupType, groupItems.slice(0, DEFAULT_SLOTS_PER_GROUP))
+    }
+    return allocated
+}
+
+function countAllocatedItems(allocated: TopMatchAllocation): number {
+    return Array.from(allocated.values()).reduce((total, groupItems) => total + groupItems.length, 0)
+}
+
+/** Groups named in `REDISTRIBUTION_PRIORITY_GROUPS` take surplus slots first, in that order. Every
+ *  other present group follows in arrival order. */
+function surplusFillOrder(presentGroups: TaxonomicFilterGroupType[]): TaxonomicFilterGroupType[] {
+    return [
+        ...REDISTRIBUTION_PRIORITY_GROUPS.filter((groupType) => presentGroups.includes(groupType)),
+        ...presentGroups.filter((groupType) => !REDISTRIBUTION_PRIORITY_GROUPS.includes(groupType)),
+    ]
+}
+
+/** Hand the unused slots of the empty groups to the groups that have more than `DEFAULT_SLOTS_PER_GROUP`
+ *  matches, up to `MAX_TOP_MATCHES_PER_GROUP` each. */
+export function fillSurplusSlots(
+    byGroup: TopMatchAllocation,
+    allocated: TopMatchAllocation,
+    surplusSlots: number
+): TopMatchAllocation {
+    const filled: TopMatchAllocation = new Map(allocated)
+    let surplus = surplusSlots
+
+    for (const groupType of surplusFillOrder(Array.from(byGroup.keys()))) {
+        if (surplus <= 0) {
+            break
+        }
+        const currentlyAllocated = filled.get(groupType) || []
+        const extra = byGroup
+            .get(groupType)!
+            .slice(currentlyAllocated.length, MAX_TOP_MATCHES_PER_GROUP)
+            .slice(0, surplus)
+        if (extra.length > 0) {
+            filled.set(groupType, [...currentlyAllocated, ...extra])
+            surplus -= extra.length
+        }
+    }
+
+    return filled
+}
+
+/** Flatten the per-group allocations into one list. `groupTypeOrder` sets the display order when it is
+ *  given, otherwise the groups keep the order in which their first match arrived. */
+function flattenTopMatchesInDisplayOrder(
+    allocated: TopMatchAllocation,
+    groupTypeOrder: TaxonomicFilterGroupType[]
+): TopMatchItem[] {
+    const displayOrder =
+        groupTypeOrder.length > 0
+            ? groupTypeOrder.filter((groupType) => allocated.has(groupType))
+            : Array.from(allocated.keys())
+
+    return displayOrder.flatMap((groupType) => allocated.get(groupType) ?? [])
+}
 
 export function redistributeTopMatches(
     items: TopMatchItem[],
@@ -191,60 +390,26 @@ export function redistributeTopMatches(
         return []
     }
 
-    const byGroup = new Map<TaxonomicFilterGroupType, TopMatchItem[]>()
-    for (const item of items) {
-        if (!byGroup.has(item.group)) {
-            byGroup.set(item.group, [])
-        }
-        byGroup.get(item.group)!.push(item)
-    }
+    const byGroup = groupTopMatchesByGroupType(items)
+    const defaultAllocation = allocateDefaultSlots(byGroup)
+    const surplusSlots = DEFAULT_SLOTS_PER_GROUP * activeGroupCount - countAllocatedItems(defaultAllocation)
+    const hasSurplusToSpread = byGroup.size < REDISTRIBUTION_MAX_GROUPS && surplusSlots > 0
 
-    const allocated = new Map<TaxonomicFilterGroupType, TopMatchItem[]>()
-    let usedSlots = 0
-    for (const [groupType, groupItems] of byGroup) {
-        const take = Math.min(groupItems.length, DEFAULT_SLOTS_PER_GROUP)
-        allocated.set(groupType, groupItems.slice(0, take))
-        usedSlots += take
-    }
+    return flattenTopMatchesInDisplayOrder(
+        hasSurplusToSpread ? fillSurplusSlots(byGroup, defaultAllocation, surplusSlots) : defaultAllocation,
+        groupTypeOrder
+    )
+}
 
-    if (byGroup.size < 3) {
-        const totalSlots = DEFAULT_SLOTS_PER_GROUP * activeGroupCount
-        let surplus = totalSlots - usedSlots
-        if (surplus > 0) {
-            const presentGroups = Array.from(byGroup.keys())
-            const priorityOrder = [
-                ...REDISTRIBUTION_PRIORITY_GROUPS.filter((g) => presentGroups.includes(g)),
-                ...presentGroups.filter((g) => !REDISTRIBUTION_PRIORITY_GROUPS.includes(g)),
-            ]
-
-            for (const groupType of priorityOrder) {
-                if (surplus <= 0) {
-                    break
-                }
-                const groupItems = byGroup.get(groupType)!
-                const currentlyAllocated = allocated.get(groupType) || []
-                const remaining = groupItems.slice(currentlyAllocated.length, MAX_TOP_MATCHES_PER_GROUP)
-                const extra = Math.min(remaining.length, surplus)
-                if (extra > 0) {
-                    allocated.set(groupType, [...currentlyAllocated, ...remaining.slice(0, extra)])
-                    surplus -= extra
-                }
-            }
-        }
-    }
-
-    const displayOrder =
-        groupTypeOrder.length > 0 ? groupTypeOrder.filter((g) => allocated.has(g)) : Array.from(allocated.keys())
-
-    const result: TopMatchItem[] = []
-    for (const groupType of displayOrder) {
-        const groupItems = allocated.get(groupType)
-        if (groupItems) {
-            result.push(...groupItems)
-        }
-    }
-
-    return result
+// The shortcut groups match on the *value* someone typed, so their rows are whole URLs,
+// screen names or email addresses. In the cross-category list that put long URLs above the
+// property names people usually search for, so they rank last there. The tab order keeps them
+// up front.
+export function demoteValueShortcutGroups(groupTypes: TaxonomicFilterGroupType[]): TaxonomicFilterGroupType[] {
+    return [
+        ...groupTypes.filter((groupType) => !SHORTCUT_TO_PROPERTY_FILTER_GROUP_TYPES.has(groupType)),
+        ...groupTypes.filter((groupType) => SHORTCUT_TO_PROPERTY_FILTER_GROUP_TYPES.has(groupType)),
+    ]
 }
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
@@ -408,6 +573,7 @@ export interface taxonomicFilterLogicValues {
     selectedItemMeta: any
     selectedProperties: TaxonomicFilterGroupValueMap
     showNumericalPropsOnly: any
+    suggestedFilterGroupOrder: TaxonomicFilterGroupType[]
     suggestedFiltersLabel: any
     taxonomicFilterLogicKey: string
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
@@ -583,12 +749,12 @@ export interface taxonomicFilterLogicMeta {
         groupAnalyticsTaxonomicGroupNames: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentTeamId: number | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => TaxonomicFilterGroup[]
         groupAnalyticsTaxonomicGroups: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentProjectId: number | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => TaxonomicFilterGroup[]
         infiniteListLogics: (
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
@@ -619,20 +785,22 @@ export interface taxonomicFilterLogicMeta {
             taxonomicGroups: TaxonomicFilterGroup[],
             taxonomicGroupTypes: TaxonomicFilterGroupType[]
         ) => string
+        suggestedFilterGroupOrder: (
+            taxonomicGroupTypes: TaxonomicFilterGroupType[],
+            metaGroupTypes: Set<string>
+        ) => TaxonomicFilterGroupType[]
         redistributedTopMatchItems: (
             topMatchItems: (TaxonomicDefinitionTypes & {
                 group: TaxonomicFilterGroupType
             })[],
-            taxonomicGroupTypes: TaxonomicFilterGroupType[],
-            metaGroupTypes: Set<string>
+            suggestedFilterGroupOrder: TaxonomicFilterGroupType[]
         ) => TopMatchItem[]
         topMatchItemsWithSkeletons: (
             redistributedTopMatchItems: TopMatchItem[],
-            taxonomicGroupTypes: TaxonomicFilterGroupType[],
+            suggestedFilterGroupOrder: TaxonomicFilterGroupType[],
             loadingGroupTypes: TaxonomicFilterGroupType[],
             taxonomicGroups: TaxonomicFilterGroup[],
             searchQuery: string,
-            metaGroupTypes: Set<string>,
             revealBarrierOpen: boolean
         ) => (SkeletonItem | TopMatchItem)[]
     }
@@ -2006,101 +2174,26 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 const resolvedGroupTypes: TaxonomicFilterGroupType[] =
                     groupTypes || taxonomicGroups.map((group) => group.type)
 
-                const mutuallyExclusivePairs: [TaxonomicFilterGroupType, TaxonomicFilterGroupType][] = [
-                    [TaxonomicFilterGroupType.PageviewUrls, TaxonomicFilterGroupType.PageviewEvents],
-                    [TaxonomicFilterGroupType.Screens, TaxonomicFilterGroupType.ScreenEvents],
-                ]
-                const excluded = new Set<TaxonomicFilterGroupType>()
-                for (const [a, b] of mutuallyExclusivePairs) {
-                    if (resolvedGroupTypes.includes(a) && resolvedGroupTypes.includes(b)) {
-                        console.warn(`TaxonomicFilter: ${a} and ${b} are mutually exclusive, ignoring ${b}`)
-                        excluded.add(b)
-                    }
-                }
+                const filtered = resolveAvailableGroupTypes(resolvedGroupTypes, availableGroupTypes)
 
-                const filtered = resolvedGroupTypes.filter((groupType) => {
-                    if (excluded.has(groupType)) {
-                        return false
-                    }
-                    return availableGroupTypes.has(groupType)
-                })
-
-                // In the pill variant the SuggestedFilters ("All") tab is the default
-                // cross-group landing spot whenever there's more than one substantive
-                // group to aggregate. It stays opt-in for the control variant, so the
-                // control arm only shows it where a call site explicitly requests it.
-                // The rebuild path (useTaxonomicFilter.ts) injects unconditionally
-                // because it has no per-variant arm to protect.
                 const pillVariant = featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN] === 'pill'
                 const substantiveGroupCount = filtered.filter((t) => !META_GROUP_TYPES.has(t)).length
                 const singleSubstantiveGroup = substantiveGroupCount === 1
 
-                const metaGroupOrder = [
-                    TaxonomicFilterGroupType.SuggestedFilters,
-                    TaxonomicFilterGroupType.RecentFilters,
-                    TaxonomicFilterGroupType.PinnedFilters,
-                ]
+                const withSuggested = resolveSuggestedFiltersGroup(
+                    filtered,
+                    availableGroupTypes,
+                    substantiveGroupCount,
+                    pillVariant
+                )
+                const withMetaGroups = injectAutoMetaGroups(withSuggested, availableGroupTypes, singleSubstantiveGroup)
 
+                // With a single substantive group there's nothing to reorder above it, and promoting
+                // the shortcut groups would push the group below its own Recent/Pinned tabs.
                 if (singleSubstantiveGroup) {
-                    // With one real group there's nothing for "All" to aggregate, so drop it
-                    // (a call site may have prepended SuggestedFilters — see TaxonomicPropertyFilter).
-                    // Recent/Pinned then follow the group instead of leading, and the group's own
-                    // list floats recent/pinned items to the top (see infiniteListLogic `items`).
-                    const suggestedIdx = filtered.indexOf(TaxonomicFilterGroupType.SuggestedFilters)
-                    if (suggestedIdx !== -1) {
-                        filtered.splice(suggestedIdx, 1)
-                    }
-                } else if (
-                    pillVariant &&
-                    availableGroupTypes.has(TaxonomicFilterGroupType.SuggestedFilters) &&
-                    !filtered.includes(TaxonomicFilterGroupType.SuggestedFilters) &&
-                    substantiveGroupCount >= 2
-                ) {
-                    filtered.unshift(TaxonomicFilterGroupType.SuggestedFilters)
+                    return withMetaGroups
                 }
-
-                // RecentFilters and PinnedFilters are auto-injected after existing meta groups
-                // (including SuggestedFilters when present) for multi-group filters, but after the
-                // sole group when there's only one — so the group itself leads.
-                const autoInjectGroups = [
-                    TaxonomicFilterGroupType.RecentFilters,
-                    TaxonomicFilterGroupType.PinnedFilters,
-                ]
-                for (const metaType of autoInjectGroups) {
-                    if (availableGroupTypes.has(metaType) && !filtered.includes(metaType)) {
-                        const insertAt = singleSubstantiveGroup
-                            ? filtered.length
-                            : indexAfterLastMetaGroup(filtered, metaGroupOrder)
-                        filtered.splice(insertAt, 0, metaType)
-                    }
-                }
-
-                // Promote shortcut groups to top positions (after meta groups). With a single
-                // substantive group there's nothing to reorder above it, and doing so would push
-                // the group below its own Recent/Pinned tabs, so skip it.
-                if (!singleSubstantiveGroup) {
-                    const shortcutGroups: TaxonomicFilterGroupType[] = [
-                        TaxonomicFilterGroupType.PageviewUrls,
-                        TaxonomicFilterGroupType.Screens,
-                        TaxonomicFilterGroupType.EmailAddresses,
-                        ...(eventNames.includes('$autocapture') ? [TaxonomicFilterGroupType.Elements] : []),
-                    ]
-
-                    const toInsert: TaxonomicFilterGroupType[] = []
-                    for (const groupType of shortcutGroups) {
-                        const idx = filtered.indexOf(groupType)
-                        if (idx !== -1) {
-                            filtered.splice(idx, 1)
-                            toInsert.push(groupType)
-                        }
-                    }
-
-                    if (toInsert.length > 0) {
-                        filtered.splice(indexAfterLastMetaGroup(filtered, metaGroupOrder), 0, ...toInsert)
-                    }
-                }
-
-                return filtered
+                return promoteShortcutGroups(withMetaGroups, eventNames)
             },
             { resultEqualityCheck: objectsEqual },
         ],
@@ -2324,41 +2417,41 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     .join('')
             },
         ],
-        redistributedTopMatchItems: [
-            (s) => [s.topMatchItems, s.taxonomicGroupTypes, s.metaGroupTypes],
+        suggestedFilterGroupOrder: [
+            // The order the cross-category "All" list renders its groups in. Every consumer of that
+            // list must read this, so the skeleton rows and the revealed rows land in the same place.
+            (s) => [s.taxonomicGroupTypes, s.metaGroupTypes],
             (
-                topMatchItems: TopMatchItem[],
                 taxonomicGroupTypes: TaxonomicFilterGroupType[],
                 metaGroupTypes: Set<string>
-            ): TopMatchItem[] => {
-                const nonMetaGroups = taxonomicGroupTypes.filter((t) => !metaGroupTypes.has(t))
-                return redistributeTopMatches(topMatchItems, nonMetaGroups.length, nonMetaGroups)
-            },
+            ): TaxonomicFilterGroupType[] =>
+                demoteValueShortcutGroups(taxonomicGroupTypes.filter((t) => !metaGroupTypes.has(t))),
+        ],
+        redistributedTopMatchItems: [
+            (s) => [s.topMatchItems, s.suggestedFilterGroupOrder],
+            (topMatchItems: TopMatchItem[], groupOrder: TaxonomicFilterGroupType[]): TopMatchItem[] =>
+                redistributeTopMatches(topMatchItems, groupOrder.length, groupOrder),
         ],
         topMatchItemsWithSkeletons: [
             (s) => [
                 s.redistributedTopMatchItems,
-                s.taxonomicGroupTypes,
+                s.suggestedFilterGroupOrder,
                 s.loadingGroupTypes,
                 s.taxonomicGroups,
                 s.searchQuery,
-                s.metaGroupTypes,
                 s.revealBarrierOpen,
             ],
             (
                 redistributed: TopMatchItem[],
-                taxonomicGroupTypes: TaxonomicFilterGroupType[],
+                groupOrder: TaxonomicFilterGroupType[],
                 loadingGroupTypes: TaxonomicFilterGroupType[],
                 taxonomicGroups: TaxonomicFilterGroup[],
                 searchQuery: string,
-                metaGroupTypes: Set<string>,
                 revealBarrierOpen: boolean
             ): (TopMatchItem | SkeletonItem)[] => {
                 if (!searchQuery) {
                     return redistributed
                 }
-
-                const nonMetaGroups = taxonomicGroupTypes.filter((t) => !metaGroupTypes.has(t))
 
                 const buildSkeletons = (groupType: TaxonomicFilterGroupType): SkeletonItem[] => {
                     const groupDef = taxonomicGroups.find((g) => g.type === groupType)
@@ -2375,14 +2468,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 // when a slower group finishes.
                 if (!revealBarrierOpen) {
                     const result: SkeletonItem[] = []
-                    for (const groupType of nonMetaGroups) {
+                    for (const groupType of groupOrder) {
                         result.push(...buildSkeletons(groupType))
                     }
                     return result
                 }
 
                 const result: (TopMatchItem | SkeletonItem)[] = []
-                for (const groupType of nonMetaGroups) {
+                for (const groupType of groupOrder) {
                     const groupItems = redistributed.filter((item) => item.group === groupType)
                     if (groupItems.length > 0) {
                         result.push(...groupItems)

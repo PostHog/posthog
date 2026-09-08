@@ -2,25 +2,18 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from typing import TYPE_CHECKING
 
 from posthog.dataclasses import frozen
 
-if TYPE_CHECKING:
-    from markdown_to_mrkdwn import SlackMarkdownConverter
-
-_SLACK_MRKDWN_CONVERTER: SlackMarkdownConverter | None = None
-SLACK_SECTION_TEXT_MAX_LEN = 2900
-
-# Matches a converter-emitted Slack angle token: `<dest>` or `<dest|label>`. Input `<`/`>`
-# are escaped before conversion, so any literal angle bracket here was produced by the converter.
-_SLACK_ANGLE_TOKEN_RE = re.compile(r"<([^<>|]*)(\|[^<>]*)?>")
+# A Slack `markdown` block takes Markdown directly, and Slack budgets 12,000 characters across
+# every markdown block in one message. A message carries one, and the headroom covers the blocks
+# around it.
+SLACK_MARKDOWN_TEXT_MAX_LEN = 11500
 
 # A summary places a chart inline with a markdown link targeting `chart:<chart_id>`. Slack cannot
-# place an image mid-sentence and degrades the link badly either way: the mrkdwn converter emits a
-# `<chart:id|label>` token that `_defang_unsafe_slack_tokens` escapes into visible `&lt;…&gt;`, and
-# the excerpt path shows the raw `[label](chart:id)` syntax. So the link is reduced to its label
-# first; report delivery renders the charts as image blocks after the prose instead.
+# place an image mid-sentence, and the link degrades badly if left alone: `chart:` is no scheme a
+# reader can follow, so the label becomes a dead link in the prose. So the link is reduced to its
+# label first; report delivery renders the charts as image blocks after the prose instead.
 #
 # The shapes matched are the ones the inbox's markdown parse resolves and therefore draws a chart
 # for: any target rather than the id charset (a typo is just as unrenderable), all three CommonMark
@@ -82,6 +75,31 @@ def escape_slack_mrkdwn(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+# The Slack tokens that can address somebody or lie about where they point: the mentions
+# (`<@U…>`, `<#C…>`, `<!here>`, `<!subteam^S…>`) and the labelled link form, whose `<dest|label>`
+# shape lets the label say one thing while the link goes somewhere else. A bare `<https://…>` is
+# neither — it links to exactly what it displays — so it is left for Slack to render.
+_SLACK_TOKEN_RE = re.compile(r"<(?:[@#!][^<>]*|[^<>|]*\|[^<>]*)>")
+
+
+def defuse_slack_tokens(text: str) -> str:
+    """Neutralize Slack's own tokens in untrusted Markdown, leaving the rest of the text alone.
+
+    Slack parses these tokens inside a markdown block, so raw content from a report, a GitHub
+    issue, or a support ticket reaches a reader as a live `@here`, a live mention, or a link whose
+    label hides its destination. Escaping the angle brackets stops all three, and Slack renders the
+    escaped form back as the literal characters.
+
+    Only a token is rewritten. Escaping every `<` instead corrupts the three things that carry
+    angle brackets innocently: a code span (`Vec<T>`), a CommonMark autolink, and an angle-bracket
+    link destination, none of which decode the entity back.
+
+    `&` is left alone throughout. Slack decodes an entity for display without re-reading the result
+    as a token, so escaping it buys no safety, and it does not decode inside a link destination,
+    where `&amp;` would corrupt every query string a report links to."""
+    return _SLACK_TOKEN_RE.sub(lambda m: m.group(0).replace("<", "&lt;").replace(">", "&gt;"), text)
+
+
 def is_safe_slack_http_url(value: object) -> bool:
     """Allow only URL forms that cannot break out of a Slack `<url|label>` token."""
     if not isinstance(value, str):
@@ -91,39 +109,24 @@ def is_safe_slack_http_url(value: object) -> bool:
     return not any(char in value for char in ("<", ">", "|"))
 
 
-def _defang_unsafe_slack_tokens(text: str) -> str:
-    """Render converter-created non-URL angle tokens as inert literal text."""
-
-    def _replace(match: re.Match[str]) -> str:
-        if is_safe_slack_http_url(match.group(1)):
-            return match.group(0)
-        return match.group(0).replace("<", "&lt;").replace(">", "&gt;")
-
-    return _SLACK_ANGLE_TOKEN_RE.sub(_replace, text)
-
-
-def _get_slack_mrkdwn_converter() -> SlackMarkdownConverter:
-    """Lazily import and cache the converter so it stays off the django.setup() path."""
-    global _SLACK_MRKDWN_CONVERTER
-    if _SLACK_MRKDWN_CONVERTER is None:
-        from markdown_to_mrkdwn import (
-            SlackMarkdownConverter,  # noqa: PLC0415 — keeps the dep off the app-registry startup path
-        )
-
-        _SLACK_MRKDWN_CONVERTER = SlackMarkdownConverter()
-    return _SLACK_MRKDWN_CONVERTER
-
-
-def markdown_to_slack_mrkdwn(text: str) -> str:
-    """Convert untrusted Markdown to Slack mrkdwn without allowing mention injection."""
-    return _defang_unsafe_slack_tokens(_get_slack_mrkdwn_converter().convert(escape_slack_mrkdwn(text)))
-
-
-def truncate_slack_section(text: str) -> str:
-    """Keep mrkdwn below Slack's 3000-character section limit with headroom."""
-    if len(text) <= SLACK_SECTION_TEXT_MAX_LEN:
+def truncate_slack_text(text: str, limit: int) -> str:
+    """Keep text below the block's character limit with headroom."""
+    if len(text) <= limit:
         return text
-    return text[: SLACK_SECTION_TEXT_MAX_LEN - 1].rstrip() + "…"
+    return text[: limit - 1].rstrip() + "…"
+
+
+def slack_markdown_block(text: str) -> dict:
+    """The Slack block that renders Markdown, for text `prepare_slack_markdown` has already made safe."""
+    return {"type": "markdown", "text": text}
+
+
+def prepare_slack_markdown(text: str) -> str:
+    """Make untrusted Markdown safe to hand Slack, and keep it inside one markdown block.
+
+    Defusing precedes truncation so a trailing cut can only shorten an already-inert token, never
+    leave a live mention behind."""
+    return truncate_slack_text(defuse_slack_tokens(text), SLACK_MARKDOWN_TEXT_MAX_LEN)
 
 
 # A top-of-line ATX heading (`# `…`###### `). The scout writes its summary in Markdown, so its own
@@ -274,17 +277,18 @@ def group_segments_to_limit(segments: list[str], limit: int = MAX_THREAD_SEGMENT
 # End of a sentence, allowing a closing quote or bracket before the space that follows it.
 _SENTENCE_END_RE = re.compile(r"[.!?…][\"')\]]*\s")
 _WHITESPACE_RUN_RE = re.compile(r"\s+")
-# A converter-emitted angle token left open at the end of a candidate chunk, as in `<https://ex`.
-# Slack renders each half of a broken link as visible junk, so a cut here moves back before the `<`.
-_TRAILING_OPEN_ANGLE_RE = re.compile(r"<[^<>]*$")
+# A Markdown construct left open at the end of a candidate chunk: a link whose destination has not
+# closed (`[label](https://ex`), or a label that has not (`[the failing`). Slack renders each half
+# of a split link as visible junk, so a cut here moves back before the `[` that opened it.
+_OPEN_MARKDOWN_LINK_RE = re.compile(r"\[[^\[\]]*\]\([^()]*$|\[[^\[\]]*$")
 # A break earlier than this share of the limit spends a whole reply on a stub, so the ladder in
 # `_line_break_index` prefers the next (later-breaking) rung over an early sentence or word end.
 _MIN_LINE_BREAK_FILL = 0.6
 
 
-def _pull_back_before_open_angle(window: str, index: int) -> int:
-    """Move a cut back before an angle token it would otherwise split, or leave it alone."""
-    match = _TRAILING_OPEN_ANGLE_RE.search(window[:index])
+def _pull_back_before_open_link(window: str, index: int) -> int:
+    """Move a cut back before a Markdown link it would otherwise split, or leave it alone."""
+    match = _OPEN_MARKDOWN_LINK_RE.search(window[:index])
     return match.start() if match else index
 
 
@@ -293,44 +297,44 @@ def _line_break_index(line: str, limit: int) -> int:
 
     Tries a sentence end, then any whitespace, so a reply never opens mid-word. Falls back to the
     limit only for an unbreakable run such as a long URL or an encoded blob. Every rung stays out of
-    an angle token, because half a link is worse to read than an early break."""
+    a Markdown link, because half a link is worse to read than an early break."""
     window = line[:limit]
     floor = int(limit * _MIN_LINE_BREAK_FILL)
     for pattern in (_SENTENCE_END_RE, _WHITESPACE_RUN_RE):
         matches = list(pattern.finditer(window))
         if not matches:
             continue
-        index = _pull_back_before_open_angle(window, matches[-1].end())
+        index = _pull_back_before_open_link(window, matches[-1].end())
         if index >= floor:
             return index
-    hard_cut = _pull_back_before_open_angle(window, limit)
-    # A token longer than the whole window has nowhere safe to break, so the link is split anyway.
+    hard_cut = _pull_back_before_open_link(window, limit)
+    # A link longer than the whole window has nowhere safe to break, so it is split anyway.
     return hard_cut if hard_cut > 0 else limit
 
 
-def chunk_slack_mrkdwn(text: str) -> list[str]:
-    """Split converted mrkdwn into chunks that each fit one Slack section, breaking on line ends.
+def chunk_slack_text(text: str, limit: int) -> list[str]:
+    """Split text into chunks that each fit one Slack block, breaking on line ends.
 
     A line longer than the limit on its own breaks at the best boundary `_line_break_index` finds,
     so a report written as unbroken prose still reads as sentences. Returns no empty chunks, so the
-    tail of a long report reaches the channel instead of being clipped at the section cap."""
+    tail of a long report reaches the channel instead of being clipped at the block's cap."""
     text = text.strip()
     if not text:
         return []
-    if len(text) <= SLACK_SECTION_TEXT_MAX_LEN:
+    if len(text) <= limit:
         return [text]
     chunks: list[str] = []
     current = ""
     for line in text.split("\n"):
-        while len(line) > SLACK_SECTION_TEXT_MAX_LEN:
+        while len(line) > limit:
             if current:
                 chunks.append(current.rstrip())
                 current = ""
-            cut = _line_break_index(line, SLACK_SECTION_TEXT_MAX_LEN)
+            cut = _line_break_index(line, limit)
             chunks.append(line[:cut].rstrip())
             line = line[cut:]
         candidate = f"{current}\n{line}" if current else line
-        if len(candidate) > SLACK_SECTION_TEXT_MAX_LEN:
+        if len(candidate) > limit:
             if current:
                 chunks.append(current.rstrip())
             current = line

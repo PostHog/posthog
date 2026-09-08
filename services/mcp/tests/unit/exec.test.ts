@@ -1177,6 +1177,77 @@ describe('exec tool', () => {
         })
     })
 
+    describe('flag-gated tool redirects', () => {
+        const notebooksCreateMarkdown = makeMockTool({ name: 'notebooks-create-markdown' })
+
+        it('names the successor a flag retired the tool for', async () => {
+            const exec = createExec([notebooksCreateMarkdown], undefined, {
+                flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],
+            })
+            await expect(exec.handler(mockContext, { command: 'call notebooks-create {}' })).rejects.toThrow(
+                /retired[\s\S]*notebooks-create-markdown/
+            )
+            await expect(exec.handler(mockContext, { command: 'info notebooks-create' })).rejects.toThrow(
+                /notebooks-create-markdown/
+            )
+        })
+
+        it('reports a gated tool with no successor as not enabled, not as unknown', async () => {
+            const exec = createExec([notebooksCreateMarkdown], undefined, {
+                flagGatedTools: [{ name: 'notebooks-add-cell', supersededBy: [] }],
+            })
+            await expect(exec.handler(mockContext, { command: 'call notebooks-add-cell {}' })).rejects.toThrow(
+                /is not enabled on this PostHog connection/
+            )
+            await expect(exec.handler(mockContext, { command: 'call notebooks-add-cell {}' })).rejects.not.toThrow(
+                /Unknown tool/
+            )
+        })
+
+        // A successor behind its own gate is no more callable than the tool it replaced,
+        // so pointing at it would send the agent on a second dead-end round trip.
+        it('falls back to the not-enabled message when no declared successor is registered', async () => {
+            const exec = createExec([makeMockTool()], undefined, {
+                flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],
+            })
+            await expect(exec.handler(mockContext, { command: 'call notebooks-create {}' })).rejects.toThrow(
+                /is not enabled on this PostHog connection/
+            )
+        })
+
+        // The hint is free text, so an author can name a tool that is behind its own
+        // gate here. Held to the same rule as the successors, or the redirect trades
+        // one dead end for another.
+        it.each<[string, string, boolean]>([
+            ['a tool the catalog serves', 'Pair it with notebooks-create-markdown for the new shape.', true],
+            ['a tool this connection cannot serve', 'Read the notebook with notebooks-get first.', false],
+            ['a hyphenated word that is not a tool', 'The revamped notebooks are cell-based.', true],
+        ])('holds a hint naming %s to the same reachability rule', async (_case, redirectHint, kept) => {
+            const exec = createExec([notebooksCreateMarkdown], undefined, {
+                flagGatedTools: [
+                    { name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'], redirectHint },
+                ],
+            })
+
+            const message = await exec.handler(mockContext, { command: 'call notebooks-create {}' }).then(
+                () => '',
+                (error: Error) => error.message
+            )
+
+            expect(message).toContain('is retired on this PostHog connection')
+            expect(message.includes(redirectHint)).toBe(kept)
+        })
+
+        it('still reports a name we do not own as unknown', async () => {
+            const exec = createExec([notebooksCreateMarkdown], undefined, {
+                flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],
+            })
+            await expect(exec.handler(mockContext, { command: 'call not-a-posthog-tool {}' })).rejects.toThrow(
+                /Unknown tool[\s\S]*search not-a-posthog-tool/
+            )
+        })
+    })
+
     describe('deprecated tool redirects', () => {
         it.each([
             ['read-data-warehouse-schema', 'execute-sql'],
@@ -1598,11 +1669,11 @@ describe('exec tool', () => {
                 return formatInputValidationError('query-logs', result.error!, input, wrapperSchema)
             }
 
-            it('tells the caller to nest the fields it sent at the top level', () => {
+            it('shows the accepted shape, with the fields the caller sent nested inside it', () => {
                 const message = formatFor({ dateRange: { date_from: '-1h' }, limit: 10 })
 
                 expect(message).toBe(
-                    'Invalid input for "query-logs": missing required parameter: query; the fields you sent belong inside it, so resend them as {"query": {...}}'
+                    'Invalid input for "query-logs": missing required parameter: query; the fields you sent belong inside it, so resend them as {"query": {"dateRange": ..., "limit": ...}}'
                 )
             })
 
@@ -1611,7 +1682,49 @@ describe('exec tool', () => {
                 // fails again on the same ambiguous message.
                 const message = formatFor({ orderBy: 'newest', limit: 10 })
 
-                expect(message).toContain('resend them as {"query": {...}}')
+                expect(message).toContain('resend them as {"query": {"orderBy": ..., "limit": ...}}')
+            })
+
+            it('names only wrapper fields, so an undeclared key cannot reach the message', () => {
+                // The rendered shape is returned to the caller and recorded as the
+                // analytics error message, so every key in it has to come from the
+                // tool's own schema rather than the caller's payload.
+                const message = formatFor({ limit: 10, sneaky_key: 'x' })
+
+                expect(message).toContain('{"query": {"limit": ...}}')
+                expect(message).not.toContain('sneaky_key')
+            })
+
+            it('caps the fields it names so a large payload cannot inflate the message', () => {
+                const wide = z.object({
+                    query: z.object(
+                        Object.fromEntries(
+                            Array.from({ length: 8 }, (_unused, index) => [`field${index}`, z.string().optional()])
+                        )
+                    ),
+                })
+                const input = Object.fromEntries(Array.from({ length: 8 }, (_unused, index) => [`field${index}`, 'x']))
+                const result = wide.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+
+                const message = formatInputValidationError('query-logs', result.error!, input, wide)
+
+                expect(message).toContain('{"query": {"field0": ..., "field1": ..., "field2": ..., "field3": ...')
+                expect(message).toContain('...}}')
+                expect(message).not.toContain('"field5"')
+            })
+
+            it('falls back to the bare shape when no key the caller sent belongs to the wrapper', () => {
+                // A union-typed wrapper the caller half-guessed still gets a shape to
+                // copy, rather than a message naming fields the wrapper never had.
+                const looseWrapper = z.object({ query: z.looseObject({}).refine(() => true) })
+                const input = { unknown_field: 1 }
+                const result = looseWrapper.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+
+                expect(formatInputValidationError('query-logs', result.error!, input, looseWrapper)).toContain(
+                    'resend them as {"query": {...}}'
+                )
             })
 
             it.each([
@@ -1648,11 +1761,11 @@ describe('exec tool', () => {
                 }
 
                 it.each([
-                    ['vision-scanners-get', 'scanner_id'],
-                    ['vision-observations-retrieve', 'observation_id'],
-                ])('names the key %s dropped, so the caller can see it was not read', (toolName, sentKey) => {
+                    ['vision-scanners-get', 'scanner_id', 'replay scanner'],
+                    ['vision-observations-retrieve', 'observation_id', 'replay observation'],
+                ])('names the key %s dropped, so the caller can see it was not read', (toolName, sentKey, entity) => {
                     expect(formatFor(toolName, { [sentKey]: SOME_UUID })).toBe(
-                        `Invalid input for "${toolName}": missing required parameter: id; this tool ignored these keys it does not accept: "${sentKey}"`
+                        `Invalid input for "${toolName}": missing required parameter: id (A UUID string identifying this ${entity}.); this tool ignored these keys it does not accept: "${sentKey}"`
                     )
                 })
 
@@ -1676,20 +1789,20 @@ describe('exec tool', () => {
                     // was dropped: the caller omitted the observation id rather than
                     // having a key silently discarded.
                     expect(formatFor('vision-scanners-observations-get', { scanner_id: SOME_UUID })).toBe(
-                        'Invalid input for "vision-scanners-observations-get": missing required parameter: id'
+                        'Invalid input for "vision-scanners-observations-get": missing required parameter: id (A UUID string identifying this replay observation.)'
                     )
                 })
 
-                it('keeps the bare message for a caller that sent nothing at all', () => {
+                it('names no ignored keys for a caller that sent nothing at all', () => {
                     expect(formatFor('vision-scanners-get', {})).toBe(
-                        'Invalid input for "vision-scanners-get": missing required parameter: id'
+                        'Invalid input for "vision-scanners-get": missing required parameter: id (A UUID string identifying this replay scanner.)'
                     )
                 })
 
                 it('says nothing was ignored when the schema rejected the keys instead', () => {
                     // This tool's schema is strict, so `hash` was refused rather than dropped.
                     expect(formatFor('change-requests-approve-execute', { hash: 'x', confirmation: 'confirm' })).toBe(
-                        'Invalid input for "change-requests-approve-execute": missing required parameter: confirmation_hash; unexpected property: hash'
+                        'Invalid input for "change-requests-approve-execute": missing required parameter: confirmation_hash (The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.); unexpected property: hash'
                     )
                 })
 
@@ -1710,7 +1823,64 @@ describe('exec tool', () => {
                 expect(result.success).toBe(false)
 
                 expect(formatInputValidationError('query-logs', result.error!, input, tool.schema)).toContain(
-                    'resend them as {"query": {...}}'
+                    'resend them as {"query": {"dateRange": ..., "limit": ...}}'
+                )
+            })
+        })
+
+        // A caller that omits an identifier usually never held one, so a rejection
+        // naming only the field sends it back to retry the same empty call. These
+        // lock in that the field's own description rides along with the rejection.
+        describe('a missing parameter whose schema documents where the value comes from', () => {
+            const formatFor = (schema: ZodObjectAny, input: unknown): string => {
+                const result = schema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+                return formatInputValidationError('some-tool', result.error!, input, schema)
+            }
+
+            it('tells the caller which tool returns the identifier it omitted', () => {
+                const schema = z.object({ short_id: z.string().describe('Get it from `notebooks-list`.') })
+
+                expect(formatFor(schema, {})).toBe(
+                    'Invalid input for "some-tool": missing required parameter: short_id (Get it from `notebooks-list`.)'
+                )
+            })
+
+            it('names the field alone when its schema documents nothing', () => {
+                const schema = z.object({ short_id: z.string() })
+
+                expect(formatFor(schema, {})).toBe(
+                    'Invalid input for "some-tool": missing required parameter: short_id'
+                )
+            })
+
+            it('caps a long description so the analytics error message stays bounded', () => {
+                const schema = z.object({ short_id: z.string().describe('word '.repeat(100)) })
+                const message = formatFor(schema, {})
+
+                expect(message.length).toBeLessThan(300)
+                expect(message).toContain('...)')
+            })
+
+            it('leaves a nested miss alone, since that field is not the one to fill next', () => {
+                const schema = z.object({
+                    query: z.object({ limit: z.number().describe('How many rows to return.') }),
+                })
+
+                expect(formatFor(schema, { query: {} })).toBe(
+                    'Invalid input for "some-tool": missing required parameter: query.limit'
+                )
+            })
+
+            it('fires for the real generated notebooks-retrieve tool, not just a stand-in schema', () => {
+                // The failure this whole branch exists for: agents call the shipped
+                // tool with no short_id, so its rejection has to name notebooks-list.
+                const tool = GENERATED_TOOL_MAP['notebooks-retrieve']!()
+                const result = tool.schema.safeParse({}, { reportInput: true })
+                expect(result.success).toBe(false)
+
+                expect(formatInputValidationError('notebooks-retrieve', result.error!, {}, tool.schema)).toContain(
+                    '`notebooks-list`'
                 )
             })
         })

@@ -273,6 +273,20 @@ class TestSetCustomPropertyValue(BaseTest):
         with pytest.raises(IntegrityError):
             self._set(definition=definition, value="enterprise")
 
+    @patch(f"{LOGIC_MODULE}.CustomPropertyValue")
+    def test_losing_the_active_value_clear_race_surfaces_as_a_conflict(self, mock_value_model):
+        definition = self._create_property_definition()
+        active_rows = mock_value_model.objects.for_team.return_value.filter.return_value
+        active_rows.first.return_value = MagicMock(id=uuid4())
+        active_rows.filter.return_value.update.return_value = 0
+
+        with pytest.raises(CustomPropertyValueConflict):
+            set_account_custom_properties_by_id(
+                team_id=self.team.id,
+                account_id=self.account.id,
+                properties={str(definition.id): None},
+            )
+
 
 class TestSetAccountCustomPropertiesById(BaseTest):
     def setUp(self):
@@ -624,6 +638,33 @@ class TestSetExternalAccountCustomProperties(BaseTest):
         assert result.error is None
         assert result.values is not None
         assert {(v.value) for v in result.values} == {"enterprise", 42.0}
+
+    def test_batch_clears_an_active_value_and_returns_only_set_values(self):
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan", display_type=DisplayType.TEXT)
+        seats = create_custom_property_definition(team_id=self.team.id, name="Seats", display_type=DisplayType.NUMBER)
+        region = create_custom_property_definition(team_id=self.team.id, name="Region", display_type=DisplayType.TEXT)
+        facade.set_external_account_custom_properties(
+            self.team.id, "acme-1", properties={str(plan.id): "enterprise", str(region.id): "US"}
+        )
+
+        result = facade.set_external_account_custom_properties(
+            self.team.id, "acme-1", properties={str(plan.id): None, str(seats.id): 42}
+        )
+
+        assert result.error is None
+        assert result.values is not None
+        assert [(value.definition_id, value.value) for value in result.values] == [(seats.id, 42.0)]
+        assert (
+            not CustomPropertyValue.objects.for_team(self.team.id)
+            .filter(account=self.account, definition=plan, is_deleted=False)
+            .exists()
+        )
+        assert (
+            CustomPropertyValue.objects.for_team(self.team.id)
+            .get(account=self.account, definition=region, is_deleted=False)
+            .value_str
+            == "US"
+        )
 
     def test_unknown_external_id_returns_account_not_found(self):
         plan = create_custom_property_definition(team_id=self.team.id, name="Plan")

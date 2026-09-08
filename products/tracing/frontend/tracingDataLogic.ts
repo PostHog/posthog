@@ -538,8 +538,11 @@ export interface tracingDataLogicActions {
             ts?: string | null
         }
     }
-    runQuery: (force?: boolean) => {
-        force: boolean
+    refreshQuery: () => {
+        value: true
+    }
+    runQuery: () => {
+        value: true
     }
     setAggregationAbortController: (controller: AbortController | null) => {
         controller: AbortController | null
@@ -684,9 +687,11 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         handleFilterChange: (filterType: string, extraProps?: Record<string, unknown>) => ({ filterType, extraProps }),
         // A completed 2D brush on the latency heatmap — maps to a date range + duration chips.
         applyHeatmapBrush: (selection: HeatmapBrushSelection) => ({ selection }),
-        // `force` marks a user-initiated refresh: it re-reads the clock and drops the cached
-        // scopes, so an unchanged relative range still refetches. Filter writes leave it false.
-        runQuery: (force: boolean = false) => ({ force }),
+        runQuery: true,
+        // An explicit user refresh. Same fetches as runQuery, but the window is re-anchored to
+        // the clock and the scope-skip caches below are dropped first, so the charts and the
+        // count re-hit the API even though nothing about the query changed.
+        refreshQuery: true,
         fetchNextPage: true,
         loadMoreTraceSpans: true,
         setTracePagination: (hasMore: boolean, nextOffset: number | null) => ({ hasMore, nextOffset }),
@@ -1451,16 +1456,16 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         // while the user moves windows around within it. The compare-flame refetch (viewer UI
         // state) lives in tracingViewerLogic.
         updateComparisonWindows: () => actions.fetchAggregation(),
-        runQuery: ({ force }) => {
-            // The sparkline, count and heatmap skip their fetch while the scope key is unchanged.
-            // A relative range ('-30M') keeps that key identical however far the window has moved,
-            // so a refresh has to drop the keys, and re-anchor the window the chart draws against.
-            if (force) {
-                actions.refreshWindowAnchor()
-                cache.sparklineScope = undefined
-                cache.matchingCountsScope = undefined
-                cache.latencyHeatmapScope = undefined
-            }
+        refreshQuery: () => {
+            // A relative range ('-30M') keeps the scope key identical however far the window has
+            // moved, so the refresh re-anchors the window the chart draws against as well.
+            actions.refreshWindowAnchor()
+            cache.sparklineScope = undefined
+            cache.matchingCountsScope = undefined
+            cache.latencyHeatmapScope = undefined
+            actions.runQuery()
+        },
+        runQuery: () => {
             actions.clearSpans()
             // The time sparkline is always fetched — it keeps the chart warm when the user flips back
             // to timestamp sort. Duration sort additionally fetches the histogram that replaces it
