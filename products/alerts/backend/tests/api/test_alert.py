@@ -2181,6 +2181,39 @@ class TestForecastSimulateGuards(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert message in response.content.decode()
 
+    @parameterized.expand(
+        [
+            ("target_today", {"interval": "day"}, 0, "The target date must be in the future."),
+            ("target_in_the_past", {"interval": "day"}, -1, "The target date must be in the future."),
+            ("target_past_reach_cap", {"interval": "day"}, 120, "A forecast target must be within 92 days."),
+            ("target_needs_too_many_buckets", {"interval": "hour"}, 30, "at most 250 future points"),
+        ]
+    )
+    def test_simulate_forecast_rejects_out_of_range_target_dates(
+        self, _name: str, query_extra: dict, day_offset: int, message: str
+    ) -> None:
+        insight = self._insight(query_extra)
+        target_date = datetime.now(UTC).date() + timedelta(days=day_offset)
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": insight["id"],
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "target_by_date",
+                        "target": 100,
+                        "target_direction": "at_least",
+                        "target_date": target_date.isoformat(),
+                    },
+                },
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert message in response.content.decode()
+
 
 class TestAlertTestDelivery(APIBaseTest):
     def setUp(self):

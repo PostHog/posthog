@@ -40,6 +40,7 @@ from products.alerts.backend.forecasting.engine import (
     bounded_training_points,
     default_horizon,
     get_forecast_engine,
+    horizon_for_target_date,
     intervals_between,
     min_forecast_points,
     validate_forecast_horizon,
@@ -77,6 +78,23 @@ def _horizon_from_config(
             "Use a coarser insight interval."
         )
     return horizon
+
+
+def _validate_simulation_target_date(
+    config: TargetByDateForecastConfig, interval: IntervalType | None, project_timezone: str
+) -> None:
+    """Bound a preview's target date the same way the create path bounds it.
+
+    validate_forecast_horizon only bounds a future_breach horizon, so an out-of-range target date
+    stays unbounded until extraction raises InsufficientHistoryError. That error is not a ValueError,
+    so the endpoint cannot map it to a 400 and returns a 500 instead. This check also makes a preview
+    report the same message that saving the alert reports.
+    """
+    try:
+        target_date = date.fromisoformat(config.target_date)
+    except ValueError:
+        raise ValueError(f"Target date isn't a valid date: {config.target_date}")
+    horizon_for_target_date(target_date, interval, datetime.now(ZoneInfo(project_timezone)).date())
 
 
 def _required_history_points(horizon: int, interval: IntervalType | None) -> int:
@@ -402,6 +420,9 @@ def simulate_forecast_on_insight(
     validate_forecast_interval(trends_query.interval)
     parsed = ForecastConfig.model_validate(forecast_config)
     validate_forecast_horizon(parsed, trends_query.interval)
+    config = parsed.root
+    if isinstance(config, TargetByDateForecastConfig):
+        _validate_simulation_target_date(config, trends_query.interval, team.timezone)
 
     context = SimulationContext(
         team=team,
@@ -410,14 +431,18 @@ def simulate_forecast_on_insight(
         series_index=series_index,
         date_from=date_from,
     )
-    result, interval_value = extractor.simulate(insight, query, context)
+    try:
+        result, interval_value = extractor.simulate(insight, query, context)
+    except InsufficientHistoryError as error:
+        # Extraction re-derives the target horizon against its own clock, so a date that passes the
+        # check above can still fail here when the project-local day rolls over between the two.
+        raise ValueError(str(error)) from error
     if not result.series:
         raise ValueError("Not enough data points to forecast.")
 
     dates, values = _clean_points(result)
     if not dates:
         raise ValueError("Not enough data points to forecast.")
-    config = parsed.root
     try:
         horizon = _horizon_from_config(config, result.interval_type, date.fromisoformat(dates[-1][:10]))
     except InsufficientHistoryError as error:
