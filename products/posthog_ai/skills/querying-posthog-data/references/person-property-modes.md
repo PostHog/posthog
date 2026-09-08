@@ -50,6 +50,10 @@ GROUP BY current_type
 
 Regardless of mode, querying `persons.properties.X` directly (from the `persons` table, not via `events`) always returns the current value.
 
+## The single-person lookup exception
+
+One query shape does not follow event-time semantics: a lookup whose select list is only `any(person.properties.<key>)` calls, with a WHERE containing exactly one `person.id = constant` predicate and no timestamp bound. The query planner rewrites this shape to read the `persons` table, so it returns the person's **current** property values instead of an arbitrary event-time snapshot, and it answers even when the person has no events. Any timestamp bound, bare field, base field (`person.id`, `person.created_at`, whole `person.properties`), `argMax`, decorated call, `distinct_id` predicate, or extra predicate disables the rewrite and keeps events semantics. The rewrite never applies in the `person_id_no_override_properties_on_events` mode or on data-warehouse direct connections. For a person lookup, prefer querying `persons` directly.
+
 ## How to check the mode
 
 The project metadata in the system prompt indicates which mode is active.
