@@ -2276,7 +2276,7 @@ export class PostHogAPIClient {
     const data = await this.api.get("/api/projects/{project_id}/", {
       path: { project_id: projectId.toString() },
     });
-    return data as Schemas.Team;
+    return data as Schemas.ProjectBackwardCompat;
   }
 
   /**
@@ -5169,7 +5169,7 @@ export class PostHogAPIClient {
   async updateTeam(updates: {
     session_recording_opt_in?: boolean;
     autocapture_exceptions_opt_in?: boolean;
-  }): Promise<Schemas.Team> {
+  }): Promise<Schemas.ProjectBackwardCompat> {
     const teamId = await this.getTeamId();
     const url = new URL(`${this.api.baseUrl}/api/projects/${teamId}/`);
     const response = await this.api.fetcher.fetch({
@@ -5209,7 +5209,7 @@ export class PostHogAPIClient {
       );
     }
 
-    return (await response.json()) as Schemas.Team;
+    return (await response.json()) as Schemas.ProjectBackwardCompat;
   }
 
   async getSignalReport(reportId: string): Promise<SignalReport | null> {

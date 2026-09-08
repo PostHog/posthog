@@ -87,12 +87,6 @@ tools:
             id:
                 cast: string-int
         soft_delete: true
-    environments-evaluation-context-suggestions-create:
-        operation: environments_evaluation_context_suggestions_create
-        enabled: false
-    environments-evaluation-context-suggestions-destroy:
-        operation: environments_evaluation_context_suggestions_destroy
-        enabled: false
     feature-flag-archive:
         operation: feature_flags_archive_create
         enabled: true
