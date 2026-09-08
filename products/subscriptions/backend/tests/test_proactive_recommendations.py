@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -25,7 +26,11 @@ from products.subscriptions.backend.facade.proactive import (
     read_recommendation_appendix,
     recent_recommendation_memory,
 )
-from products.subscriptions.backend.models import ProactiveRecommendation
+from products.subscriptions.backend.models import (
+    ProactivePreparedArtifact,
+    ProactiveRecommendation,
+    ProactiveRecommendationOutcome,
+)
 from products.tasks.backend.facade.repository_authorization import (
     AuthorizableRepository,
     ResolvedStagedRepositoryBinding,
@@ -316,7 +321,13 @@ def test_recent_memory_byte_cap_counts_the_complete_projection(team, monkeypatch
     newest = rows[0]
     exact_size = len(
         json.dumps(
-            {"semantic_key": newest.semantic_key, "title": newest.title, "created_at": newest.created_at},
+            {
+                "semantic_key": newest.semantic_key,
+                "title": newest.title,
+                "created_at": newest.created_at,
+                "outcome_status": newest.outcome_status,
+                "outcome_summary": newest.outcome_summary,
+            },
             sort_keys=True,
             separators=(",", ":"),
         ).encode()
@@ -326,6 +337,99 @@ def test_recent_memory_byte_cap_counts_the_complete_projection(team, monkeypatch
     bounded = recent_recommendation_memory(team_id=team.id, subscription_id=123)
 
     assert bounded == (newest,)
+
+
+def _memory_recommendation_with_outcome(
+    team,
+    *,
+    semantic_key: str,
+    outcome_status: str | None,
+    metric_name: str | None = "Activation",
+    delta: Decimal | None = Decimal("2"),
+) -> None:
+    run = claim_recommendation_run(
+        team_id=team.id,
+        subscription_id=123,
+        delivery_id=uuid4(),
+        actor_id=456,
+        snapshot={"report": semantic_key},
+    )
+    finalize_recommendation_run(team_id=team.id, run_id=run.id, result=_result(_recommendation(semantic_key)))
+    recommendation = ProactiveRecommendation.objects.for_team(team.id).get(run_id=run.id)
+    if outcome_status is None:
+        return
+    artifact = ProactivePreparedArtifact.objects.for_team(team.id).create(
+        team_id=team.id,
+        run_id=run.id,
+        recommendation=recommendation,
+        kind=ProactivePreparedArtifact.Kind.EXPERIMENT_DRAFT,
+        status=ProactivePreparedArtifact.Status.ADOPTED,
+        artifact_config_hash="a" * 64,
+        input_hash="b" * 64,
+    )
+    ProactiveRecommendationOutcome.objects.for_team(team.id).create(
+        team_id=team.id,
+        artifact=artifact,
+        status=outcome_status,
+        metric_name=metric_name,
+        delta=delta,
+    )
+
+
+@pytest.mark.django_db
+def test_recent_memory_projects_only_safe_outcome_readouts(team) -> None:
+    _memory_recommendation_with_outcome(team, semantic_key="none", outcome_status=None)
+    _memory_recommendation_with_outcome(
+        team, semantic_key="pending", outcome_status=ProactiveRecommendationOutcome.Status.PENDING
+    )
+    _memory_recommendation_with_outcome(
+        team, semantic_key="unavailable", outcome_status=ProactiveRecommendationOutcome.Status.UNAVAILABLE
+    )
+    _memory_recommendation_with_outcome(
+        team, semantic_key="improved", outcome_status=ProactiveRecommendationOutcome.Status.IMPROVED, delta=Decimal("2")
+    )
+    _memory_recommendation_with_outcome(
+        team,
+        semantic_key="regressed",
+        outcome_status=ProactiveRecommendationOutcome.Status.REGRESSED,
+        delta=Decimal("-2"),
+    )
+    _memory_recommendation_with_outcome(
+        team,
+        semantic_key="inconclusive",
+        outcome_status=ProactiveRecommendationOutcome.Status.INCONCLUSIVE,
+        delta=Decimal("0"),
+    )
+
+    memory = {item.semantic_key: item for item in recent_recommendation_memory(team_id=team.id, subscription_id=123)}
+
+    assert (memory["none"].outcome_status, memory["none"].outcome_summary) == (None, None)
+    assert (memory["pending"].outcome_status, memory["pending"].outcome_summary) == (None, None)
+    assert (memory["unavailable"].outcome_status, memory["unavailable"].outcome_summary) == ("unavailable", None)
+    assert (memory["improved"].outcome_status, memory["improved"].outcome_summary) == (
+        "improved",
+        "Metric movement after adoption: Activation increased by 2 (the expected direction).",
+    )
+    assert (memory["regressed"].outcome_status, memory["regressed"].outcome_summary) == (
+        "regressed",
+        "Metric movement after adoption: Activation decreased by 2 (the opposite direction).",
+    )
+    assert (memory["inconclusive"].outcome_status, memory["inconclusive"].outcome_summary) == (
+        "inconclusive",
+        "Metric movement after adoption: Activation was inconclusive.",
+    )
+
+
+@pytest.mark.django_db
+def test_recent_memory_reads_outcomes_in_its_existing_single_query(team, django_assert_num_queries) -> None:
+    _memory_recommendation_with_outcome(
+        team, semantic_key="improved", outcome_status=ProactiveRecommendationOutcome.Status.IMPROVED
+    )
+
+    with django_assert_num_queries(1):
+        memory = recent_recommendation_memory(team_id=team.id, subscription_id=123)
+
+    assert memory[0].outcome_status == "improved"
 
 
 @pytest.mark.django_db

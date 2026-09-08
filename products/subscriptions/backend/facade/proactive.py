@@ -6,6 +6,7 @@ import json
 import hashlib
 from collections.abc import Mapping
 from datetime import timedelta
+from decimal import Decimal
 from typing import cast
 from uuid import UUID
 
@@ -53,6 +54,8 @@ class RecommendationMemoryDTO:
     semantic_key: str
     title: str
     created_at: str
+    outcome_status: str | None = None
+    outcome_summary: str | None = None
 
 
 @frozen
@@ -366,6 +369,7 @@ def recent_recommendation_memory(*, team_id: int, subscription_id: int) -> tuple
     rows = (
         ProactiveRecommendation.objects.for_team(team_id)
         .filter(run__subscription_id=subscription_id, created_at__gte=timezone.now() - timedelta(days=90))
+        .select_related("prepared_artifact__outcome")
         .order_by("-created_at")[:MAX_MEMORY_ROWS]
     )
     result: list[RecommendationMemoryDTO] = []
@@ -374,8 +378,13 @@ def recent_recommendation_memory(*, team_id: int, subscription_id: int) -> tuple
         title = row.recommendation.get("title") if isinstance(row.recommendation, dict) else None
         if not isinstance(title, str):
             continue
+        outcome_status, outcome_summary = _memory_outcome(row)
         item = RecommendationMemoryDTO(
-            semantic_key=row.semantic_key, title=title, created_at=row.created_at.isoformat()
+            semantic_key=row.semantic_key,
+            title=title,
+            created_at=row.created_at.isoformat(),
+            outcome_status=outcome_status,
+            outcome_summary=outcome_summary,
         )
         size = len(json.dumps(_memory_item_payload(item), sort_keys=True, separators=(",", ":")).encode())
         if used + size > MAX_MEMORY_BYTES:
@@ -393,11 +402,49 @@ def _recent_semantic_keys(*, team_id: int, subscription_id: int) -> list[str]:
     )
 
 
-def _memory_item_payload(item: RecommendationMemoryDTO) -> dict[str, str]:
+def _memory_outcome(row: ProactiveRecommendation) -> tuple[str | None, str | None]:
+    artifact = getattr(row, "prepared_artifact", None)
+    outcome = getattr(artifact, "outcome", None) if artifact is not None else None
+    if outcome is None or outcome.status == "pending":
+        return None, None
+    if outcome.status == "unavailable":
+        return "unavailable", None
+    if outcome.status not in {"improved", "regressed", "inconclusive"}:
+        return None, None
+    return outcome.status, _outcome_memory_summary(
+        status=outcome.status,
+        metric_name=outcome.metric_name,
+        delta=outcome.delta,
+    )
+
+
+def _outcome_memory_summary(*, status: str, metric_name: str | None, delta: Decimal | None) -> str | None:
+    if not metric_name:
+        return None
+    metric = metric_name[:300]
+    if status == "inconclusive":
+        return f"Metric movement after adoption: {metric} was inconclusive."
+    if status not in {"improved", "regressed"} or delta is None or delta == 0:
+        return None
+    movement = "increased" if delta > 0 else "decreased"
+    direction = "expected" if status == "improved" else "opposite"
+    return (
+        f"Metric movement after adoption: {metric} {movement} by {_format_memory_decimal(abs(delta))} "
+        f"(the {direction} direction)."
+    )
+
+
+def _format_memory_decimal(value: Decimal) -> str:
+    return format(value.normalize(), "f")
+
+
+def _memory_item_payload(item: RecommendationMemoryDTO) -> dict[str, str | None]:
     return {
         "semantic_key": item.semantic_key,
         "title": item.title,
         "created_at": item.created_at,
+        "outcome_status": item.outcome_status,
+        "outcome_summary": item.outcome_summary,
     }
 
 
