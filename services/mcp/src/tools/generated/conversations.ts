@@ -67,6 +67,7 @@ const conversationsTicketsList = (): ToolBase<
                     'unread_team_count',
                     'created_at',
                     'updated_at',
+                    'archived_at',
                 ])
             ),
         } as typeof result
@@ -236,6 +237,7 @@ const conversationsTicketsRetrieve = (): ToolBase<
             'distinct_id',
             'created_at',
             'updated_at',
+            'archived_at',
         ]) as typeof result
         return withAgentNote(
             await withPostHogUrl(context, filtered, `/support/tickets/${filtered.id}`),
