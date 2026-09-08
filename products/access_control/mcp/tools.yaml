@@ -12,13 +12,13 @@ tools:
     access-control-default-objects-list:
         operation: organizations_projects_access_control_default_objects_retrieve
         enabled: true
-        list: true
         scopes:
             - access_control:read
         annotations:
             readOnly: true
             destructive: false
             idempotent: true
+        list: true
         title: List the project's object-level default rules
         description: >
             Rules on single objects (for example a dashboard, a notebook or a warehouse table) that apply to everyone in
@@ -32,18 +32,18 @@ tools:
     access-control-default-properties-list:
         operation: organizations_projects_access_control_default_properties_retrieve
         enabled: true
-        list: true
         scopes:
             - access_control:read
         annotations:
             readOnly: true
             destructive: false
             idempotent: true
+        list: true
         title: List the project's property default rules
         description: >
-            Property rules that apply to everyone in the project without a rule of their own on that property: which person and event
-            properties are hidden (`none`), read-only (`read`), or open (`read_write`). Every property is `read_write`
-            unless a rule says otherwise.
+            Property rules that apply to everyone in the project without a rule of their own on that property: which
+            person and event properties are hidden (`none`), read-only (`read`), or open (`read_write`). Every property
+            is `read_write` unless a rule says otherwise.
         param_overrides:
             id:
                 description: |
@@ -53,9 +53,6 @@ tools:
     access-control-defaults-get:
         operation: organizations_projects_access_control_defaults_retrieve
         enabled: true
-        response:
-            exclude:
-                - can_edit
         scopes:
             - access_control:read
         annotations:
@@ -65,10 +62,10 @@ tools:
         title: Get the project's default access
         description: >
             The access everyone in the project gets unless a rule of their own, or a role's rule, says otherwise: the
-            default project level (member or admin) and the default level per tool (none, viewer, editor, manager),
-            with the lowest and highest level each tool allows. Also lists which tools accept rules on single objects,
-            such as one dashboard or one notebook. Start here to understand a project's baseline before checking a
-            member or a role.
+            default project level (member or admin) and the default level per tool (none, viewer, editor, manager), with
+            the lowest and highest level each tool allows. Also lists which tools accept rules on single objects, such
+            as one dashboard or one notebook. Start here to understand a project's baseline before checking a member or
+            a role.
         agent_note: >
             access-control-members-list or access-control-roles-list show who deviates from this baseline.
             access-control-default-objects-list and access-control-default-properties-list show defaults set on single
@@ -79,22 +76,25 @@ tools:
                     Project id. If omitted, uses the active project.
                 optional: true
                 fallback: projectId
+        response:
+            exclude:
+                - can_edit
     access-control-member-objects-list:
         operation: organizations_projects_access_control_member_objects_retrieve
         enabled: true
-        list: true
         scopes:
             - access_control:read
         annotations:
             readOnly: true
             destructive: false
             idempotent: true
+        list: true
         title: List a member's object-level rules
         description: >
-            The rules configured for a member on single objects, for example a dashboard, a notebook or a
-            warehouse table they are given access to, or blocked from, regardless of their tool-level access. Only the
-            member's own rules are returned. An empty list means the member has no object rules of their own. Their
-            tool-level access still applies.
+            The rules configured for a member on single objects, for example a dashboard, a notebook or a warehouse
+            table they are given access to, or blocked from, regardless of their tool-level access. Only the member's
+            own rules are returned. An empty list means the member has no object rules of their own. Their tool-level
+            access still applies.
         agent_note: >
             The member's tool-level access is on access-control-members-list. Object rules from the member's roles are
             on access-control-role-objects-list, one call per role from role-members-list.
@@ -110,18 +110,18 @@ tools:
     access-control-member-properties-list:
         operation: organizations_projects_access_control_member_properties_retrieve
         enabled: true
-        list: true
         scopes:
             - access_control:read
         annotations:
             readOnly: true
             destructive: false
             idempotent: true
+        list: true
         title: List a member's property rules
         description: >
-            The property rules configured for a member: which person and event properties they cannot see (`none`),
-            can only read (`read`), or can read and write (`read_write`). Every property is `read_write` unless a rule
-            says otherwise. Only the member's own rules are returned.
+            The property rules configured for a member: which person and event properties they cannot see (`none`), can
+            only read (`read`), or can read and write (`read_write`). Every property is `read_write` unless a rule says
+            otherwise. Only the member's own rules are returned.
         agent_note: >
             Property rules from the member's roles are on access-control-role-properties-list, one call per role from
             role-members-list. Rules for everyone in the project are on access-control-default-properties-list.
@@ -137,32 +137,27 @@ tools:
     access-control-members-list:
         operation: organizations_projects_access_control_members_retrieve
         enabled: true
-        response:
-            exclude:
-                - project.minimum
-                - project.maximum
-                - resources.*.minimum
-                - resources.*.maximum
-        list: true
         scopes:
             - access_control:read
         annotations:
             readOnly: true
             destructive: false
             idempotent: true
+        list: true
         title: Resolve every member's access in the project
         description: >
             For every organization member, the access enforced in the project: to the project itself and to each tool
             (dashboards, insights, feature flags, and so on). Per entry, `access_level` is the member's own stored rule
-            (null when none), `effective_access_level` is what is enforced, and `inherited_access` says where that
-            level comes from when it is not the member's own rule: `source_subject` is `role` or `default`, and
-            `source` is `org_admin` when the member is an organization admin with full access to everything. Pass `member_id` (an
-            `organization_membership_id`, from this tool or org-members-list) for one member. The
-            checking-member-access skill explains how the levels combine.
+            (null when none), `effective_access_level` is what is enforced, and `inherited_access` says where that level
+            comes from when it is not the member's own rule: `source_subject` is `role` or `default`, and `source` is
+            `org_admin` when the member is an organization admin with full access to everything. Pass `member_id` (an
+            `organization_membership_id`, from this tool or org-members-list) for one member. The checking-member-access
+            skill explains how the levels combine.
         agent_note: >
-            For a question about one object, for example a dashboard or a table, call access-control-member-objects-list; for a person or
-            event property, access-control-member-properties-list. Rules a role sets on objects or properties are only
-            on the role-objects and role-properties tools. Level bounds per tool are on access-control-defaults-get.
+            For a question about one object, for example a dashboard or a table, call
+            access-control-member-objects-list; for a person or event property, access-control-member-properties-list.
+            Rules a role sets on objects or properties are only on the role-objects and role-properties tools. Level
+            bounds per tool are on access-control-defaults-get.
         param_overrides:
             id:
                 description: |
@@ -172,20 +167,26 @@ tools:
             member_id:
                 description: |
                     Optional. Narrow the result to one member, by organization membership id.
+        response:
+            exclude:
+                - project.minimum
+                - project.maximum
+                - resources.*.minimum
+                - resources.*.maximum
     access-control-role-objects-list:
         operation: organizations_projects_access_control_role_objects_retrieve
         enabled: true
-        list: true
         scopes:
             - access_control:read
         annotations:
             readOnly: true
             destructive: false
             idempotent: true
+        list: true
         title: List a role's object-level rules
         description: >
-            The rules configured for a role on single objects, for example a dashboard, a notebook or a warehouse
-            table the role's members are given access to, or blocked from, regardless of their tool-level access.
+            The rules configured for a role on single objects, for example a dashboard, a notebook or a warehouse table
+            the role's members are given access to, or blocked from, regardless of their tool-level access.
         param_overrides:
             id:
                 description: |
@@ -198,13 +199,13 @@ tools:
     access-control-role-properties-list:
         operation: organizations_projects_access_control_role_properties_retrieve
         enabled: true
-        list: true
         scopes:
             - access_control:read
         annotations:
             readOnly: true
             destructive: false
             idempotent: true
+        list: true
         title: List a role's property rules
         description: >
             The property rules configured for a role: which person and event properties the role's members cannot see
@@ -221,19 +222,13 @@ tools:
     access-control-roles-list:
         operation: organizations_projects_access_control_roles_retrieve
         enabled: true
-        response:
-            exclude:
-                - project.minimum
-                - project.maximum
-                - resources.*.minimum
-                - resources.*.maximum
-        list: true
         scopes:
             - access_control:read
         annotations:
             readOnly: true
             destructive: false
             idempotent: true
+        list: true
         title: Resolve every role's access in the project
         description: >
             For every role in the organization, the access it grants in the project: to the project itself and to each
@@ -241,8 +236,8 @@ tools:
             members get from it, and `inherited_access` says where that level comes from when the role has no rule of
             its own. Pass `role_id` for one role.
         agent_note: >
-            A member's enforced level already includes their roles, so for a person use access-control-members-list.
-            For a role's rules on one object or property, call access-control-role-objects-list or
+            A member's enforced level already includes their roles, so for a person use access-control-members-list. For
+            a role's rules on one object or property, call access-control-role-objects-list or
             access-control-role-properties-list. roles-list gives role ids and role-members-list gives who is in a role.
         param_overrides:
             id:
@@ -253,6 +248,12 @@ tools:
             role_id:
                 description: |
                     Optional. Narrow the result to one role, by role id.
+        response:
+            exclude:
+                - project.minimum
+                - project.maximum
+                - resources.*.minimum
+                - resources.*.maximum
     property-access-controls-create:
         operation: property_access_controls_create
         enabled: false

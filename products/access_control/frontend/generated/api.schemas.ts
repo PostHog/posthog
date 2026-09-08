@@ -120,14 +120,14 @@ export const OrganizationMembershipLevelEnumApi = {
 } as const
 
 /**
- * * `object` - object
- * * `parent_object` - parent_object
- * * `resource` - resource
- * * `parent_resource` - parent_resource
- * * `system_default` - system_default
- * * `org_admin` - org_admin
- * * `creator` - creator
- * * `org_membership` - org_membership
+ * * `object` - Object
+ * * `parent_object` - Parent Object
+ * * `resource` - Resource
+ * * `parent_resource` - Parent Resource
+ * * `system_default` - System Default
+ * * `org_admin` - Org Admin
+ * * `creator` - Creator
+ * * `org_membership` - Org Membership
  */
 export type ResolvedAccessSourceEnumApi = (typeof ResolvedAccessSourceEnumApi)[keyof typeof ResolvedAccessSourceEnumApi]
 
@@ -143,9 +143,9 @@ export const ResolvedAccessSourceEnumApi = {
 } as const
 
 /**
- * * `member` - member
- * * `role` - role
- * * `default` - default
+ * * `member` - Member
+ * * `role` - Role
+ * * `default` - Default
  */
 export type ResolvedAccessSourceSubjectEnumApi =
     (typeof ResolvedAccessSourceSubjectEnumApi)[keyof typeof ResolvedAccessSourceSubjectEnumApi]
@@ -164,20 +164,20 @@ export interface ResolvedAccessApi {
     access_level: string
     /** How the level was derived: a rule on the object, its parent object, the resource, the parent resource, the PostHog default, an organization admin's or a creator's full access, or organization membership when the object is the organization itself.
      *
-     * * `object` - object
-     * * `parent_object` - parent_object
-     * * `resource` - resource
-     * * `parent_resource` - parent_resource
-     * * `system_default` - system_default
-     * * `org_admin` - org_admin
-     * * `creator` - creator
-     * * `org_membership` - org_membership */
+     * * `object` - Object
+     * * `parent_object` - Parent Object
+     * * `resource` - Resource
+     * * `parent_resource` - Parent Resource
+     * * `system_default` - System Default
+     * * `org_admin` - Org Admin
+     * * `creator` - Creator
+     * * `org_membership` - Org Membership */
     source: ResolvedAccessSourceEnumApi
     /** Whose rule decided: a member's own, a role's, or the default for everyone in the project. Null when no rule did.
      *
-     * * `member` - member
-     * * `role` - role
-     * * `default` - default */
+     * * `member` - Member
+     * * `role` - Role
+     * * `default` - Default */
     source_subject: ResolvedAccessSourceSubjectEnumApi | null
     /** The resource the deciding rule belongs to. */
     source_resource: string
