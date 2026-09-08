@@ -25,13 +25,14 @@ class TestMaterializedViewFailureCheck(BaseTest):
         status: str | None = None,
         latest_error: str | None = None,
         deleted: bool | None = False,
+        is_materialized: bool = True,
     ) -> DataWarehouseSavedQuery:
         return DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name=name,
             query={"kind": "HogQLQuery", "query": "select 1"},
             created_by=self.user,
-            is_materialized=True,
+            is_materialized=is_materialized,
             status=status,
             latest_error=latest_error,
             deleted=deleted,
@@ -99,6 +100,13 @@ class TestMaterializedViewFailureCheck(BaseTest):
 
     def test_a_deleted_view_is_not_reported(self) -> None:
         view = self._view(deleted=True)
+        self._job(view, DataModelingJobStatus.FAILED)
+        assert self._detected_ids() == set()
+
+    def test_a_view_that_is_no_longer_materialized_is_not_reported(self) -> None:
+        # Reverting a materialization leaves its last failed run as the newest job.
+        # Nothing is expected to refresh the view any more, so there is no stale data to warn about.
+        view = self._view(is_materialized=False)
         self._job(view, DataModelingJobStatus.FAILED)
         assert self._detected_ids() == set()
 

@@ -125,6 +125,7 @@ jobs:
                       "capture": 102,
                       "capture-load-gen": 38,
                       "capture-logs": 87,
+                      "capture-apm-metrics": 5,
                       "cohort-core": 22,
                       "cohort-event-shuffler": 25,
                       "cohort-seeder": 77,
@@ -910,7 +911,7 @@ jobs:
         name: Rust Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         permissions: {}
         steps:
             - name: Check all Rust jobs

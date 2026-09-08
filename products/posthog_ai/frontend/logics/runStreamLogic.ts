@@ -18,7 +18,6 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { delay } from 'lib/utils/async'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -28,9 +27,15 @@ import type { TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi } from '
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { UserType } from '../../../../frontend/src/types'
+import { deliverPermissionResponse, isPermissionTargetEnded } from '../policy/permissionDelivery'
 import { isPlanPermissionRequest } from '../policy/permissionUtils'
 import { parseSandboxQuestions } from '../policy/questionUtils'
-import { defaultPermissionDecision, findAllowOptionId, isFullAutoMode, isPersistPromptTool } from '../policy/toolPolicy'
+import {
+    defaultPermissionDecision,
+    findAllowOptionId,
+    isConnectedProjectTool,
+    isFullAutoMode,
+} from '../policy/toolPolicy'
 import type {
     ContextUsage,
     PermissionRequestRecord,
@@ -70,6 +75,7 @@ import {
 } from '../types/wireTypes'
 import { extractContextBlockLines } from '../utils/posthogContextBlock'
 import { getClaudeCodeMeta, resolveToolCall } from '../utils/toolResolver'
+import { computeTurnTrailers } from '../utils/turnTrailers'
 import { attachedContextLogic } from './attachedContextLogic'
 import { debugLogsLogic } from './debugLogsLogic'
 import { registerHmrStreamAbort } from './devHmrStreamAbort'
@@ -361,6 +367,7 @@ function normalizeNotificationEntry(entry: unknown): StoredLogEntry | null {
     return {
         type: 'notification',
         ...(typeof entry.timestamp === 'string' ? { timestamp: entry.timestamp } : {}),
+        ...(typeof entry.source_run_id === 'string' ? { source_run_id: entry.source_run_id } : {}),
         notification: entry.notification,
     } as StoredLogEntry
 }
@@ -368,6 +375,29 @@ function normalizeNotificationEntry(entry: unknown): StoredLogEntry | null {
 function isResumeRun(run: { state?: unknown }): boolean {
     const state = run.state
     return isRecord(state) && typeof state.resume_from_run_id === 'string' && state.resume_from_run_id !== ''
+}
+
+function normalizeHistory(entries: unknown[], runId: string, resumed: boolean): StoredLogEntry[] {
+    // Match Desktop's run-marker scoping without changing the shared log payload or its deduplication keys.
+    // A resume chain without a marker has unknown ownership; a single-run history belongs to its requested run.
+    let sourceRunId: string | undefined = resumed ? undefined : runId
+    return entries.flatMap((raw) => {
+        const entry = normalizeNotificationEntry(raw)
+        if (!entry) {
+            return []
+        }
+        const { method, params } = entry.notification
+        const marker =
+            method === '_posthog/sdk_session'
+                ? params?.taskRunId
+                : method === '_posthog/run_started'
+                  ? params?.runId
+                  : undefined
+        if (typeof marker === 'string') {
+            sourceRunId = marker
+        }
+        return [{ ...entry, source_run_id: sourceRunId }]
+    })
 }
 
 /**
@@ -689,7 +719,8 @@ function parsePermissionOption(raw: unknown): PermissionOption | null {
  * its runtime check.
  */
 export function parsePermissionRequestFrame(
-    frame: PermissionRequestFrame | PosthogPermissionRequestParams
+    frame: PermissionRequestFrame | PosthogPermissionRequestParams,
+    sourceRunId?: string
 ): PermissionRequestRecord | null {
     const requestId = frame.requestId
     if (typeof requestId !== 'string') {
@@ -726,6 +757,7 @@ export function parsePermissionRequestFrame(
 
     return {
         requestId,
+        sourceRunId,
         toolCallId,
         toolName,
         options,
@@ -903,7 +935,14 @@ function isResumeContextPrompt(text: string): boolean {
  * through. Steady-state live frames after the drain are appended directly and never deduped.
  */
 function dedupeBufferedAgainstHistory(buffered: StoredLogEntry[], history: StoredLogEntry[]): StoredLogEntry[] {
-    const seamKey = (entry: StoredLogEntry): string => JSON.stringify(entry.notification)
+    const seamKey = (entry: StoredLogEntry): string =>
+        JSON.stringify([
+            entry.notification.method === '_posthog/permission_request' ||
+            entry.notification.method === '_posthog/permission_resolved'
+                ? entry.source_run_id
+                : undefined,
+            entry.notification,
+        ])
     const historicalCounts = new Map<string, number>()
     for (const entry of history) {
         const key = seamKey(entry)
@@ -1189,7 +1228,8 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             continue
         }
         if (method === '_posthog/turn_complete') {
-            items.push({ id: `turn-${separatorSeq++}`, type: 'turn_separator' })
+            const traceId = typeof params.traceId === 'string' ? params.traceId : undefined
+            items.push({ id: `turn-${separatorSeq++}`, type: 'turn_separator', ...(traceId && { traceId }) })
             continue
         }
         if (method === '_posthog/progress') {
@@ -1402,9 +1442,11 @@ export interface runStreamLogicValues {
     hasGitArtifacts: boolean
     isBootstrapResumeRun: boolean
     isThinking: boolean
+    latestTurnTraceId: string | null
     log: RunLog
     logBootstrapLoading: boolean
     pendingPermissionRequest: PermissionRequestRecord | null
+    permissionResponseRequestIds: Set<string>
     reconnectAttempt: number
     resolvedPermissionRequestIds: Set<string>
     resourcesUsed: ResourceProduct[]
@@ -1465,6 +1507,9 @@ export interface runStreamLogicActions {
         taskId: string
         traceId?: string | undefined
     }
+    cancelPermissionDelivery: () => {
+        value: true
+    }
     cancelRun: (run?: { runId: string; taskId: string }) => {
         run:
             | {
@@ -1478,6 +1523,19 @@ export interface runStreamLogicActions {
     }
     closeSse: () => {
         value: true
+    }
+    deliverPermission: (
+        record: PermissionRequestRecord,
+        optionId: string,
+        customInput?: string,
+        answers?: Record<string, string>,
+        automatic?: boolean
+    ) => {
+        answers: Record<string, string> | undefined
+        automatic: boolean
+        customInput: string | undefined
+        optionId: string
+        record: PermissionRequestRecord
     }
     handleStreamError: (envelope: StreamErrorEnvelope) => StreamErrorEnvelope
     handleTerminalStatus: (status: {
@@ -1541,7 +1599,10 @@ export interface runStreamLogicActions {
         taskId: string
         traceId?: string | undefined
     }
-    permissionResponseFailed: () => {
+    permissionResponseFailed: (requestId: string) => {
+        requestId: string
+    }
+    permissionRunChanged: () => {
         value: true
     }
     pushConversationCleared: () => {
@@ -1623,7 +1684,12 @@ export interface runStreamLogicActions {
 export interface runStreamLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        respondingToPermission: (
+            permissionResponseRequestIds: Set<string>,
+            pendingPermissionRequest: PermissionRequestRecord | null
+        ) => boolean
         foldedThread: (log: RunLog, isBootstrapResumeRun: boolean) => FoldedThread
+        latestTurnTraceId: (threadItems: ThreadItem[]) => string | null
         threadItems: (foldedThread: FoldedThread, showDebugLogs: boolean) => ThreadItem[]
         toolInvocations: (foldedThread: FoldedThread) => Map<string, ToolInvocation>
         isThinking: (
@@ -1767,9 +1833,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
         }),
         /**
          * Entry point for every parsed permission request. Applies the default tool policy
-         * (`toolPolicy`): auto-approve built-in tools + non-destructive PostHog exec, prompt
-         * for update/delete exec (and other MCP). Replayed-from-history requests are never
-         * auto-approved — they're a read-only restore and the run may already be terminal.
+         * (`toolPolicy`): auto-approve built-in tools and PostHog exec in the task's project, but
+         * prompt for connected-project calls and other MCP. Replayed-from-history requests are
+         * never auto-approved because the run may already be terminal.
          */
         routePermissionRequest: (record: PermissionRequestRecord, replayedFromHistory: boolean = false) => ({
             record,
@@ -1777,6 +1843,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
         }),
         /** Silently POST `allow` for a request the default policy auto-approves (no card shown). */
         autoApprovePermissionRequest: (record: PermissionRequestRecord, optionId: string) => ({ record, optionId }),
+        deliverPermission: (
+            record: PermissionRequestRecord,
+            optionId: string,
+            customInput?: string,
+            answers?: Record<string, string>,
+            automatic: boolean = false
+        ) => ({ record, optionId, customInput, answers, automatic }),
+        cancelPermissionDelivery: true,
+        permissionRunChanged: true,
         /** Pin a requestId as seen without surfacing a card, so a reconnect replay can't re-process it. */
         markPermissionRequestSeen: (requestId: string) => ({ requestId }),
         /**
@@ -1808,7 +1883,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
          * Internal: the reply POST failed. Resets the in-flight flag (so the surviving card's
          * buttons re-enable for retry) without coupling that reset to unrelated stream errors.
          */
-        permissionResponseFailed: true,
+        permissionResponseFailed: (requestId: string) => ({ requestId }),
         handleTerminalStatus: (status: {
             status: RunStatus
             errorMessage?: string | null
@@ -2026,6 +2101,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 markPermissionRequestResolved: (state, { requestId }) =>
                     state?.requestId === requestId ? null : state,
                 clearPermissionRequest: () => null,
+                permissionRunChanged: () => null,
                 // A terminal run can't accept approvals — drop a card re-derived from its history.
                 handleTerminalStatus: (state, { status }) => (isTerminalRunStatus(status) ? null : state),
                 reset: () => null,
@@ -2046,6 +2122,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     next.add(requestId)
                     return next
                 },
+                permissionRunChanged: () => new Set<string>(),
                 reset: () => new Set<string>(),
             },
         ],
@@ -2059,20 +2136,24 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     next.add(requestId)
                     return next
                 },
+                permissionRunChanged: () => new Set<string>(),
                 reset: () => new Set<string>(),
             },
         ],
         // In-flight state for the approval reply POST — drives the input card's loading/disabled
         // props. Cleared on resolution (success) and on the POST's own failure (the card stays
         // pending, so the buttons must re-enable for retry).
-        respondingToPermission: [
-            false,
+        permissionResponseRequestIds: [
+            new Set<string>(),
             {
-                respondToPermission: () => true,
-                markPermissionRequestResolved: () => false,
-                clearPermissionRequest: () => false,
-                permissionResponseFailed: () => false,
-                reset: () => false,
+                deliverPermission: (state, { record }) => new Set([...state, record.requestId]),
+                markPermissionRequestResolved: (state, { requestId }) =>
+                    new Set([...state].filter((id) => id !== requestId)),
+                clearPermissionRequest: () => new Set<string>(),
+                permissionResponseFailed: (state, { requestId }) =>
+                    new Set([...state].filter((id) => id !== requestId)),
+                cancelPermissionDelivery: () => new Set<string>(),
+                reset: () => new Set<string>(),
             },
         ],
         currentMode: [
@@ -2172,6 +2253,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
         ],
     }),
     selectors({
+        respondingToPermission: [
+            (s) => [s.permissionResponseRequestIds, s.pendingPermissionRequest],
+            (ids: Set<string>, record: PermissionRequestRecord | null): boolean =>
+                record ? ids.has(record.requestId) : ids.size > 0,
+        ],
         /**
          * Pure projection of the ordered log into the rendered thread plus the tool-invocation map.
          * Memoized on `log` identity, so it recomputes only when a frame is actually appended.
@@ -2179,6 +2265,16 @@ export const runStreamLogic = kea<runStreamLogicType>([
         foldedThread: [
             (s) => [s.log, s.isBootstrapResumeRun],
             (log: RunLog, isResumeRun: boolean): FoldedThread => foldLogToThread(log.entries, { isResumeRun }),
+        ],
+        latestTurnTraceId: [
+            (s) => [s.threadItems],
+            (threadItems: ThreadItem[]): string | null => {
+                // Trailer-derived, not the raw last separator: synthetic trailing separators
+                // (idle-resume/error frames) carry no trace id and are not turns.
+                const trailers = computeTurnTrailers(threadItems)
+                const lastTurn = [...trailers.values()].find((trailer) => trailer.isLastTurn)
+                return lastTurn?.traceId ?? null
+            },
         ],
         threadItems: [
             (s) => [s.foldedThread, s.showDebugLogs],
@@ -2363,6 +2459,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
     }),
     listeners(({ values, actions, cache, props }) => ({
         bootstrapRun: async ({ taskId, runId, justCreatedRun }, breakpoint) => {
+            if (cache.activeRun && (cache.activeRun.runId !== runId || cache.activeRun.taskId !== taskId)) {
+                actions.cancelPermissionDelivery()
+                actions.permissionRunChanged()
+                cache.activeRun = undefined
+            }
             const projectId = values.currentProjectId
             if (projectId === null) {
                 actions.handleStreamError({ errorTitle: 'No current project', retryable: false })
@@ -2395,10 +2496,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 const replayEntries = replayResult
                 breakpoint()
                 if (values.log.entries.length === 0) {
-                    replayEntries
-                        .map(normalizeNotificationEntry)
-                        .filter((entry): entry is StoredLogEntry => entry !== null)
-                        .forEach((entry) => actions.ingestAcpFrame(entry, 'replay'))
+                    normalizeHistory(replayEntries, runId, isResumeRun(replayRun)).forEach((entry) =>
+                        actions.ingestAcpFrame(entry, 'replay')
+                    )
                 }
 
                 if (isTerminalRunStatus(replayRun.status ?? null)) {
@@ -2476,9 +2576,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
 
             // The full resume-chain S3 snapshot — replayed as `replay`, so the projection renders
             // persisted human turns and side-effect telemetry stays suppressed for history.
-            const history = entries
-                .map(normalizeNotificationEntry)
-                .filter((entry): entry is StoredLogEntry => entry !== null)
+            const history = normalizeHistory(entries, runId, isResumeRun(run))
             history.forEach((entry) => actions.ingestAcpFrame(entry, 'replay'))
 
             if (terminal) {
@@ -2518,7 +2616,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
             cache.streamEnded = false
             cache.streamTokenRefreshes = 0
             const previousRun = cache.activeRun as { taskId: string; runId: string } | undefined
-            if (previousRun && previousRun.runId !== runId) {
+            if (cache.permissionRunId && cache.permissionRunId !== runId) {
+                actions.cancelPermissionDelivery()
+                actions.permissionRunChanged()
+            }
+            cache.permissionRunId = runId
+            if (previousRun && (previousRun.runId !== runId || previousRun.taskId !== taskId)) {
+                actions.cancelPermissionDelivery()
+                actions.permissionRunChanged()
                 // The cursor is a Redis id from the previous run's stream — it addresses nothing in
                 // this one, so resuming from it can skip this run's opening frames.
                 cache.lastEventId = undefined
@@ -2578,19 +2683,20 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     return
                 }
                 if (isNotificationFrame(parsed)) {
+                    const entry = { ...parsed, source_run_id: runId }
                     // During the bootstrap window the SSE is connected before the S3 snapshot lands,
                     // so buffer live notification frames instead of appending them; the drain
                     // reconciles them against the snapshot once it loads (see `bootstrapRun`). Steady
                     // state (and every send/reconnect open, which never buffers) appends directly.
                     if (cache.bufferingLiveFrames) {
-                        ;(cache.bufferedLiveFrames as StoredLogEntry[]).push(parsed)
+                        ;(cache.bufferedLiveFrames as StoredLogEntry[]).push(entry)
                     } else {
-                        actions.ingestAcpFrame(parsed, 'live')
+                        actions.ingestAcpFrame(entry, 'live')
                     }
                 } else if (isPermissionRequestFrame(parsed)) {
                     // requestId-keyed dedup: this top-level envelope isn't a notification, so a
                     // reconnect's resume could re-deliver it verbatim.
-                    const record = parsePermissionRequestFrame(parsed)
+                    const record = parsePermissionRequestFrame(parsed, runId)
                     if (
                         record &&
                         !values.seenPermissionRequestIds.has(record.requestId) &&
@@ -2850,20 +2956,24 @@ export const runStreamLogic = kea<runStreamLogicType>([
             }
         },
         routePermissionRequest: ({ record, replayedFromHistory }) => {
+            if (
+                props.replayOnly ||
+                !record.sourceRunId ||
+                record.sourceRunId !== cache.activeRun?.runId ||
+                isTerminalRunStatus(values.currentRunStatus)
+            ) {
+                return
+            }
             // Replayed history is a read-only restore — never auto-approve (the run may be terminal).
-            // In full-auto (`bypassPermissions`) the user opted out of tool approvals entirely, so any
-            // relayed tool request is answered with its allow option — but questions and plan approvals
-            // still surface, since auto-answering those would pick an option on the user's behalf.
-            // Otherwise: persist/publish tools (dashboards, feature flags, surveys, hog functions,
-            // workflows) must still prompt when this run is a foreground stream (rendered in a surface
-            // the user is watching and can respond in), even though `defaultPermissionDecision` would
-            // auto-approve them as non-destructive. Background and headless runs keep auto-approving.
+            // Full-auto covers the task's selected project. Questions, plan approvals, and calls into
+            // connected projects still surface because the task did not authorize them.
             const fullAuto =
-                isFullAutoMode(values.currentMode) && !record.questions?.length && !isPlanPermissionRequest(record)
-            const isForegroundStream = values.foregroundStreamKeys.has(props.streamKey)
-            const forcePromptForForeground = !fullAuto && isForegroundStream && isPersistPromptTool(record)
+                isFullAutoMode(values.currentMode) &&
+                !record.questions?.length &&
+                !isPlanPermissionRequest(record) &&
+                !isConnectedProjectTool(record)
             const decision = fullAuto ? 'auto_allow' : defaultPermissionDecision(record)
-            if (!replayedFromHistory && !forcePromptForForeground && decision === 'auto_allow') {
+            if (!replayedFromHistory && decision === 'auto_allow') {
                 const optionId = findAllowOptionId(record)
                 if (optionId) {
                     actions.autoApprovePermissionRequest(record, optionId)
@@ -2875,19 +2985,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
         autoApprovePermissionRequest: async ({ record, optionId }) => {
             // Pin it seen up front so a reconnect replay can't re-process the same request mid-POST.
             actions.markPermissionRequestSeen(record.requestId)
-            // A persist tool routed here because no foreground surface was registered yet may have
-            // raced a mounting surface's registration (the SSE frame can land before the layout
-            // effect flushes). Yield one macrotask and re-check; if the stream became foreground,
-            // surface the card instead of silently persisting. Plain `delay`, not a kea breakpoint —
-            // a breakpoint would let a second rapid frame cancel this listener pre-POST and stall
-            // the agent. Full-auto runs skip the re-check — they never prompt for persist tools.
-            if (!isFullAutoMode(values.currentMode) && isPersistPromptTool(record)) {
-                await delay(0)
-                if (values.foregroundStreamKeys.has(props.streamKey)) {
-                    actions.ingestPermissionRequest(record)
-                    return
-                }
-            }
             const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
             const resolvedToolCall = resolveToolCall(record.rawToolCall)
             posthog.capture('permission_auto_approved', {
@@ -2905,19 +3002,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 actions.ingestPermissionRequest(record)
                 return
             }
-            try {
-                await tasksRunsCommandCreate(String(values.currentProjectId), activeRun.taskId, activeRun.runId, {
-                    jsonrpc: '2.0',
-                    method: 'permission_response',
-                    params: { requestId: record.requestId, optionId },
-                })
-                actions.markPermissionRequestResolved(record.requestId)
-            } catch (error) {
-                // The auto-approve command failed — don't leave the agent silently blocked. Fall back to
-                // the manual card so the user can respond.
-                posthog.captureException(error)
-                actions.ingestPermissionRequest(record)
-            }
+            actions.deliverPermission(record, optionId, undefined, undefined, true)
         },
         ingestPermissionRequest: ({ record, replayedFromHistory }) => {
             if (replayedFromHistory) {
@@ -2938,34 +3023,105 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 execution_type: 'sandbox',
             })
         },
-        respondToPermission: async ({ requestId, optionId, customInput, answers }) => {
+        respondToPermission: ({ requestId, optionId, customInput, answers }) => {
+            const record = values.pendingPermissionRequest
+            if (record?.requestId === requestId) {
+                actions.deliverPermission(record, optionId, customInput, answers)
+            }
+        },
+        deliverPermission: async ({ record, optionId, customInput, answers, automatic }) => {
             const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
-            if (!activeRun || values.currentProjectId == null) {
-                // No live run to command — keep the card so the user can retry once the stream resolves.
-                actions.permissionResponseFailed()
-                lemonToast.error('Failed to send approval. Please try again.')
+            const projectId = values.currentProjectId
+            if (
+                !activeRun ||
+                projectId == null ||
+                record.sourceRunId !== activeRun.runId ||
+                isTerminalRunStatus(values.currentRunStatus) ||
+                props.replayOnly
+            ) {
+                actions.permissionResponseFailed(record.requestId)
                 return
             }
-            try {
-                // PERMISSION_RESPONDED telemetry is emitted server-side by the tasks relay. The renderer
-                // commands the run it is streaming (`cache.activeRun`); on a persistent sandbox the run
-                // only advances when the old one dies and the successor takes over — which is exactly the
-                // run the renderer has re-resolved, so the reply lands where it belongs.
-                await tasksRunsCommandCreate(String(values.currentProjectId), activeRun.taskId, activeRun.runId, {
-                    jsonrpc: '2.0',
-                    method: 'permission_response',
-                    params: { requestId, optionId, customInput, answers },
-                })
-                actions.markPermissionRequestResolved(requestId)
-            } catch (error) {
-                // A failed reply POST does not mean the run died — the agent is still alive and
-                // blocked on this same approval. Keep the failure local to the card (re-enable its
-                // buttons for a retry) instead of tearing down the stream, which would release the
-                // chat lock and hide the still-pending request behind the normal input.
-                posthog.captureException(error)
-                actions.permissionResponseFailed()
-                lemonToast.error('Failed to send approval. Please try again.')
+            const deliveries = (cache.permissionDeliveries ??= new Map<string, AbortController>()) as Map<
+                string,
+                AbortController
+            >
+            const key = `permission-delivery:${activeRun.runId}:${record.requestId}`
+            if (deliveries.has(key)) {
+                return
             }
+            if (values.resolvedPermissionRequestIds.has(record.requestId)) {
+                actions.permissionResponseFailed(record.requestId)
+                return
+            }
+            const controller = new AbortController()
+            const disposables = cache.disposables
+            deliveries.set(key, controller)
+            disposables.add(
+                () => () => {
+                    controller.abort()
+                    deliveries.delete(key)
+                },
+                key,
+                { pauseOnPageHidden: false }
+            )
+            const params = {
+                requestId: record.requestId,
+                optionId,
+                customInput,
+                answers: answers ? { ...answers } : undefined,
+            }
+            try {
+                await deliverPermissionResponse(
+                    (signal) =>
+                        tasksRunsCommandCreate(
+                            String(projectId),
+                            activeRun.taskId,
+                            activeRun.runId,
+                            {
+                                jsonrpc: '2.0',
+                                method: 'permission_response',
+                                params,
+                            },
+                            { signal }
+                        ),
+                    controller.signal
+                )
+                if (!controller.signal.aborted && !disposables.isDisposed) {
+                    actions.markPermissionRequestResolved(record.requestId)
+                }
+            } catch (error) {
+                if (controller.signal.aborted || disposables.isDisposed) {
+                    return
+                }
+                posthog.captureException(error)
+                // The run ended before the approval arrived, so every further attempt gets the same
+                // rejection. Drop the card instead of asking for a retry that cannot succeed.
+                if (isPermissionTargetEnded(error)) {
+                    actions.clearPermissionRequest()
+                    lemonToast.error("This run has ended, so the approval wasn't sent. Send a new message to continue.")
+                    return
+                }
+                if (automatic) {
+                    actions.ingestPermissionRequest(record)
+                }
+                actions.permissionResponseFailed(record.requestId)
+                lemonToast.error('Failed to send approval. Please try again.')
+            } finally {
+                disposables.dispose(key)
+            }
+        },
+        cancelPermissionDelivery: () => {
+            const deliveries = cache.permissionDeliveries as Map<string, AbortController> | undefined
+            for (const key of deliveries?.keys() ?? []) {
+                cache.disposables.dispose(key)
+            }
+        },
+        markPermissionRequestResolved: ({ requestId }) => {
+            cache.disposables.dispose(`permission-delivery:${cache.activeRun?.runId}:${requestId}`)
+        },
+        clearPermissionRequest: () => {
+            actions.cancelPermissionDelivery()
         },
         cancelRun: async ({ run }) => {
             // Cancel a run through the generic tasks relay — the same command PostHog Desktop issues. The
@@ -2975,6 +3131,12 @@ export const runStreamLogic = kea<runStreamLogicType>([
             const target = run ?? (cache.activeRun as { taskId: string; runId: string } | undefined)
             if (!target || values.currentProjectId == null) {
                 return
+            }
+            // An approval waiting on agent startup outlives this command — the terminal frame that stops
+            // it is a round trip away, so the agent can still accept work the user just canceled. Drop
+            // the delivery here. A warm Run is not the streamed run, so its deliveries are not ours.
+            if (target.runId === (cache.activeRun as { runId: string } | undefined)?.runId) {
+                actions.cancelPermissionDelivery()
             }
             try {
                 await tasksRunsCommandCreate(String(values.currentProjectId), target.taskId, target.runId, {
@@ -2991,6 +3153,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             if (!isTerminalRunStatus(status)) {
                 return
             }
+            actions.cancelPermissionDelivery()
             cache.disposables.dispose('reconnect-backoff')
             cache.disposables.dispose('event-source')
 
@@ -3066,6 +3229,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             })
         },
         closeSse: () => {
+            actions.cancelPermissionDelivery()
             cache.activeRun = undefined
             cache.lastEventId = undefined
             cache.disposables.dispose('reconnect-backoff')
@@ -3074,9 +3238,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
             cache.disposables.dispose('event-source')
         },
         reset: () => {
+            actions.cancelPermissionDelivery()
             // `log` clears via its own reducer on `reset`, so the projection empties with it. The
             // per-frame invocation tracker mirrors the log, so it must clear alongside it.
             cache.trackedToolInvocations = undefined
+            cache.permissionRunId = undefined
             cache.activeRun = undefined
             cache.turnStartedAtMs = undefined
             cache.isBootstrapping = false
@@ -3243,7 +3409,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // are re-derived on bootstrap (a reload mid-approval would otherwise lose the card while
             // the agent stays blocked), and a resolution observed here clears the local card.
             if (isPosthogNotification(notification, '_posthog/permission_request')) {
-                const record = parsePermissionRequestFrame(notification.params ?? {})
+                const record = parsePermissionRequestFrame(notification.params ?? {}, entry.source_run_id)
                 if (
                     record &&
                     !values.seenPermissionRequestIds.has(record.requestId) &&
@@ -3255,7 +3421,12 @@ export const runStreamLogic = kea<runStreamLogicType>([
             }
             if (isPosthogNotification(notification, '_posthog/permission_resolved')) {
                 const requestId = notification.params?.requestId
-                if (typeof requestId === 'string' && requestId) {
+                if (
+                    typeof requestId === 'string' &&
+                    requestId &&
+                    entry.source_run_id === cache.activeRun?.runId &&
+                    entry.source_run_id
+                ) {
                     actions.markPermissionRequestResolved(requestId)
                 }
                 return

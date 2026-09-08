@@ -1303,6 +1303,13 @@ class TestLLMPromptListQuerySerializerValidationNoDB(SimpleTestCase):
         assert not serializer.is_valid()
         assert "order_by" in serializer.errors
 
+    def test_rejects_invalid_label(self) -> None:
+        # An invalid label must fail here rather than fall through to a latest-version
+        # response; the naming rules themselves are covered by the shared validator's tests.
+        serializer = LLMPromptListQuerySerializer(data={"label": "latest"})
+        assert not serializer.is_valid()
+        assert "label" in serializer.errors
+
 
 class TestLLMPromptLabelsAPI(APIBaseTest):
     def create_prompt_version(
@@ -1432,6 +1439,25 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
         # One batched all_labels query + one prefetch_related("labels") query — must not scale with prompt count.
         label_queries = [q for q in queries.captured_queries if "llmpromptlabel" in q["sql"].lower()]
         assert len(label_queries) == 2
+
+    def test_list_with_label_returns_labeled_versions_and_omits_unlabeled_prompts(self) -> None:
+        self.create_prompt_version(name="prompt-a", version=1, is_latest=False)
+        self.create_prompt_version(name="prompt-a", version=2)
+        self.create_prompt_version(name="prompt-b", version=1)
+        self.create_prompt_version(name="prompt-c", version=1)
+        assert self._set_label("prompt-a", "production", 1).status_code == status.HTTP_201_CREATED
+        assert self._set_label("prompt-b", "production", 1).status_code == status.HTTP_201_CREATED
+        assert self._set_label("prompt-c", "staging", 1).status_code == status.HTTP_201_CREATED
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?label=production&order_by=name")
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert [(entry["name"], entry["version"]) for entry in results] == [("prompt-a", 1), ("prompt-b", 1)]
+        # The labeled row keeps its version-history metadata even though it is not latest.
+        assert results[0]["is_latest"] is False
+        assert results[0]["latest_version"] == 2
+        assert results[0]["prompt"] == "Prompt content"
 
     def test_archive_prompt_deletes_its_labels(self):
         self.create_prompt_version(version=1)

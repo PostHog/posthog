@@ -49,7 +49,7 @@ def transform_materialized_insight_response(
         result: The result.data dict from _execute_query_and_respond(). Modified in-place.
         original_query: The original insight query definition (TrendsQuery, etc.)
         team: The team for query runner context.
-        now: Pin date range to this timestamp (e.g., saved_query.last_run_at) instead of datetime.now().
+        now: Pin date range to the materialization time instead of datetime.now().
     """
     query_kind = original_query.get("kind")
 

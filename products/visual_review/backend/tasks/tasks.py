@@ -8,6 +8,7 @@ NOTE: Imports are done inside functions to avoid circular imports
 when Celery loads this module at startup.
 """
 
+import time
 from uuid import UUID
 
 import structlog
@@ -15,9 +16,13 @@ from celery import shared_task
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping import with_team_scope
+from posthog.scoping_audit import skip_team_scope_audit
 
+from ..db import READER_DB
 from ..logic.errors import HashIntegrityError
+from ..models import Repo
 
 logger = structlog.get_logger(__name__)
 TRACER = trace.get_tracer(__name__)
@@ -154,3 +159,50 @@ def post_approval_comment(self, team_id: int, run_id: str, add_images: bool = Fa
             logger.warning("visual_review.approval_comment_giving_up", run_id=run_id)
     except Exception:
         logger.exception("visual_review.approval_comment_task_failed", run_id=run_id, team_id=team_id)
+
+
+@shared_task(
+    name="products.visual_review.backend.tasks.sweep_visual_review_retention",
+    ignore_result=True,
+)
+@skip_team_scope_audit  # cross-team housekeeping; sweep_repo scopes every query to the repo's team
+def sweep_visual_review_retention() -> None:
+    """Apply the retention policy to every repo.
+
+    One repo's failure must not stop the rest, so each repo is swept on its
+    own and the next daily run retries whatever failed.
+    """
+    from ..logic import retention  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    deadline = time.monotonic() + retention.SWEEP_TIME_BUDGET_SECONDS
+    # A handful of rows, materialized so the sweep does not hold a reader cursor
+    # open for its whole run.
+    # nosemgrep: idor-lookup-without-team — cross-team retention sweep, no user input
+    repos = list(Repo.objects.unscoped().using(READER_DB).order_by("created_at"))
+    for swept, repo in enumerate(repos):
+        if time.monotonic() >= deadline:
+            logger.warning(
+                "visual_review.retention_sweep_budget_exhausted",
+                repos_swept=swept,
+                repos_total=len(repos),
+            )
+            break
+        try:
+            result = retention.sweep_repo(repo, deadline=deadline)
+        except Exception as e:
+            capture_exception(e)
+            logger.exception(
+                "visual_review.retention_sweep_failed",
+                repo_id=str(repo.id),
+                team_id=repo.team_id,
+            )
+            continue
+
+        logger.info(
+            "visual_review.retention_sweep_completed",
+            repo_id=str(repo.id),
+            team_id=repo.team_id,
+            runs_deleted=result.runs_deleted,
+            artifacts_deleted=result.artifacts_deleted,
+            objects_leaked=result.objects_leaked,
+        )
