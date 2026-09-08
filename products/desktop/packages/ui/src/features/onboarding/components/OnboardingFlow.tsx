@@ -70,7 +70,15 @@ interface OnboardingFlowProps {
   onOpenSupport?: () => void;
 }
 
-function OnboardingHeader({
+function OnboardingHeader() {
+  return (
+    <header className="flex w-full justify-center">
+      <ProductWordmark />
+    </header>
+  );
+}
+
+function OnboardingAccount({
   email,
   isAuthenticated,
   isLoggingOut,
@@ -81,39 +89,33 @@ function OnboardingHeader({
   isLoggingOut: boolean;
   onLogout: () => void;
 }) {
+  if (!isAuthenticated) return null;
+
   return (
-    <header className="flex w-full max-w-[480px] flex-col items-center gap-3">
-      <ProductWordmark />
-      {isAuthenticated && (
-        <Item
-          variant="muted"
-          tone="success"
-          size="sm"
-          className="w-full max-w-[360px] py-1"
-        >
-          <ItemMedia variant="icon">
-            <CheckCircle size={14} weight="fill" />
-          </ItemMedia>
-          <ItemContent>
-            <ItemTitle className="max-w-full truncate font-normal text-xs">
-              Signed in as {email ?? "your PostHog account"}
-            </ItemTitle>
-          </ItemContent>
-          <ItemActions>
-            <Button
-              size="xs"
-              variant="link-muted"
-              className="min-h-11"
-              onClick={onLogout}
-              loading={isLoggingOut}
-            >
-              <SignOut size={14} />
-              Log out
-            </Button>
-          </ItemActions>
-        </Item>
-      )}
-    </header>
+    <aside className="absolute top-10 right-8 z-[2] w-[380px] max-w-[calc(100%-4rem)]">
+      <Item variant="muted" size="sm" className="w-full py-1">
+        <ItemMedia variant="icon">
+          <CheckCircle size={14} weight="fill" className="text-(--green-11)" />
+        </ItemMedia>
+        <ItemContent>
+          <ItemTitle className="max-w-full truncate font-normal text-xs">
+            Signed in as {email ?? "your PostHog account"}
+          </ItemTitle>
+        </ItemContent>
+        <ItemActions>
+          <Button
+            size="xs"
+            variant="link-muted"
+            className="min-h-11"
+            onClick={onLogout}
+            loading={isLoggingOut}
+          >
+            <SignOut size={14} />
+            Log out
+          </Button>
+        </ItemActions>
+      </Item>
+    </aside>
   );
 }
 
@@ -359,19 +361,21 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
 
   return (
     <FullScreenLayout backgroundPattern="grid" showFooter={false}>
+      <OnboardingAccount
+        email={currentUser?.email}
+        isAuthenticated={isAuthenticated}
+        isLoggingOut={logoutMutation.isPending}
+        onLogout={handleLogout}
+      />
       <div className="h-full overflow-y-auto px-8 py-10">
-        <div className="mx-auto flex min-h-full w-full max-w-[640px] flex-col items-center">
-          <OnboardingHeader
-            email={currentUser?.email}
-            isAuthenticated={isAuthenticated}
-            isLoggingOut={logoutMutation.isPending}
-            onLogout={handleLogout}
-          />
+        <div className="mx-auto flex min-h-full w-full max-w-[720px] flex-col items-center">
+          <OnboardingHeader />
 
           <SkipSetupProvider
             onSkipSetup={IS_DEV && isAuthenticated ? handleSkip : undefined}
           >
-            <div className="mt-10 w-full">
+            <div aria-hidden="true" className="h-16 shrink-0" />
+            <div className="w-full">
               <AnimatePresence mode="wait" custom={direction}>
                 {currentStep === "project-select" && (
                   <motion.div
