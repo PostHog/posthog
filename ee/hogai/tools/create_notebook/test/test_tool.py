@@ -39,21 +39,27 @@ class TestCreateNotebookTool(BaseTest):
 
     @parameterized.expand(
         [
-            ("sql_v2 enabled", True, SQL_V2_CELL_GUIDANCE, LEGACY_CELL_GUIDANCE),
-            ("sql_v2 disabled", False, LEGACY_CELL_GUIDANCE, SQL_V2_CELL_GUIDANCE),
+            ("sql_v2 and widgets", True, True, SQL_V2_CELL_GUIDANCE, LEGACY_CELL_GUIDANCE),
+            ("sql_v2 only", True, False, SQL_V2_CELL_GUIDANCE, LEGACY_CELL_GUIDANCE),
+            ("widgets only", False, True, LEGACY_CELL_GUIDANCE, SQL_V2_CELL_GUIDANCE),
+            ("neither enabled", False, False, LEGACY_CELL_GUIDANCE, SQL_V2_CELL_GUIDANCE),
         ]
     )
     def test_description_offers_only_runnable_cell_tags(
-        self, _name: str, sql_v2_enabled: bool, expected: str, unexpected: str
+        self, _name: str, sql_v2_enabled: bool, widgets_enabled: bool, expected: str, unexpected: str
     ) -> None:
-        with patch(
-            "products.notebooks.backend.facade.api.is_sql_v2_enabled",
-            return_value=sql_v2_enabled,
+        with (
+            patch("products.notebooks.backend.widgets.settings", DEBUG=False, TEST=False),
+            patch("products.notebooks.backend.facade.api.is_sql_v2_enabled", return_value=sql_v2_enabled),
+            patch("products.notebooks.backend.widgets.posthoganalytics.feature_enabled", return_value=widgets_enabled),
         ):
             tool = async_to_sync(CreateNotebookTool.create_tool_class)(team=self.team, user=self.user)
 
         assert expected in tool.description
         assert unexpected not in tool.description
+        assert ('<Widget title="' in tool.description) == widgets_enabled
+        if widgets_enabled:
+            assert "click Generate widget" in tool.description
 
     def test_returns_error_when_both_content_and_draft_content_provided(self):
         result, artifact = async_to_sync(self.tool._arun_impl)(

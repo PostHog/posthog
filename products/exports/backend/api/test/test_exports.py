@@ -36,6 +36,7 @@ from posthog.settings import (
 )
 from posthog.tasks import exporter
 from posthog.temporal.session_replay.rasterize_recording.types import RASTERIZE_WORKFLOW_TIMEOUT
+from posthog.test.insight_queries import browser_filtered_pageview_query
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -137,7 +138,7 @@ class TestExports(APIBaseTest):
 
         cls.dashboard = Dashboard.objects.create(team=cls.team, name="example dashboard", created_by=cls.user)
         cls.insight = Insight.objects.create(
-            filters=Filter(data=cls.insight_filter_dict).to_dict(),
+            query=browser_filtered_pageview_query(),
             team=cls.team,
             created_by=cls.user,
             name="example insight",
