@@ -575,6 +575,116 @@ describe("AgentServer HTTP Mode", () => {
       });
     }, 30000);
 
+    it.each([
+      {
+        label: "uses a valid run-state system prompt",
+        systemPrompt: {
+          type: "preset",
+          preset: "claude_code",
+          append: "Run-state system prompt.",
+        },
+        includesRunStatePrompt: true,
+      },
+      {
+        label: "ignores an invalid run-state system prompt",
+        systemPrompt: {
+          type: "preset",
+          preset: "unknown",
+          append: "Run-state system prompt.",
+        },
+        includesRunStatePrompt: false,
+      },
+    ])(
+      "$label",
+      async ({ systemPrompt, includesRunStatePrompt }) => {
+        mswServer.use(
+          http.get(
+            "http://localhost:8000/api/projects/:projectId/tasks/:taskId/runs/:runId/",
+            () =>
+              HttpResponse.json(
+                createTaskRun({
+                  id: "test-run-id",
+                  task: "test-task-id",
+                  state: { systemPrompt },
+                }),
+              ),
+          ),
+        );
+
+        const testServer = createServer() as unknown as {
+          start(): Promise<void>;
+          session: {
+            sessionMeta: { systemPrompt: string | { append: string } };
+          } | null;
+        };
+        await testServer.start();
+
+        const systemPromptValue = testServer.session?.sessionMeta.systemPrompt;
+        const prompt =
+          typeof systemPromptValue === "string"
+            ? systemPromptValue
+            : systemPromptValue?.append;
+
+        expect(prompt?.includes("Run-state system prompt.")).toBe(
+          includesRunStatePrompt,
+        );
+        if (includesRunStatePrompt) {
+          expect(
+            prompt?.indexOf("Operate as an expert product engineer."),
+          ).toBeLessThan(prompt?.indexOf("Run-state system prompt.") ?? -1);
+          expect(prompt?.indexOf("Run-state system prompt.")).toBeLessThan(
+            prompt?.indexOf("# Cloud Task Execution") ?? -1,
+          );
+        }
+      },
+      30000,
+    );
+
+    it("keeps the run-state system prompt after a transient run fetch failure", async () => {
+      let attempts = 0;
+      mswServer.use(
+        http.get(
+          "http://localhost:8000/api/projects/:projectId/tasks/:taskId/runs/:runId/",
+          () => {
+            attempts += 1;
+            if (attempts === 1) {
+              return new HttpResponse(null, { status: 503 });
+            }
+            return HttpResponse.json(
+              createTaskRun({
+                id: "test-run-id",
+                task: "test-task-id",
+                state: {
+                  systemPrompt: {
+                    type: "preset",
+                    preset: "claude_code",
+                    append: "Run-state system prompt.",
+                  },
+                },
+              }),
+            );
+          },
+        ),
+      );
+
+      const testServer = createServer() as unknown as {
+        start(): Promise<void>;
+        session: {
+          sessionMeta: { systemPrompt: string | { append: string } };
+        } | null;
+      };
+      await testServer.start();
+
+      const systemPromptValue = testServer.session?.sessionMeta.systemPrompt;
+      const prompt =
+        typeof systemPromptValue === "string"
+          ? systemPromptValue
+          : systemPromptValue?.append;
+
+      expect(attempts).toBeGreaterThan(1);
+      expect(prompt).toContain("Run-state system prompt.");
+    }, 30000);
+
     it("enables repository tools for a repository-less cloud session", async () => {
       await mkdir("/tmp/workspace", { recursive: true });
       mswServer.use(

@@ -2774,6 +2774,8 @@ export type QueryStatus = {
     task_id?: string
     query_progress?: ClickhouseQueryProgress
     labels?: string[]
+    bytes_read?: integer
+    budget_remaining_bytes?: integer
 }
 
 export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase {
