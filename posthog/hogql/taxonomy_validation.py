@@ -41,9 +41,7 @@ TRIGRAM_SIMILARITY_THRESHOLD = 0.3
 
 # Above this many definitions in the project, ranking every one of them by `similarity()` costs more
 # than the pg_trgm `%` lookup, even though `%` reads posting lists fleet-wide. `similarity()` builds
-# the trigram sets of both sides per row and runs once per unknown name, so at the cap the lookup
-# still stays in the tens of milliseconds. That crossover sits far below the one the `?search=`
-# substring match uses (`PROJECT_SCAN_MAX_DEFINITIONS`).
+# the trigram sets of both sides per row, so this sits far below `PROJECT_SCAN_MAX_DEFINITIONS`.
 SIMILARITY_SCAN_MAX_DEFINITIONS = 5_000
 
 # How many unknown names in one query get a suggestion. One lookup covers the whole batch, but

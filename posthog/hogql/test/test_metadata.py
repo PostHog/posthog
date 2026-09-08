@@ -416,9 +416,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
     def test_metadata_suggestion_lookup_follows_the_search_plan(
         self, _name: str, max_definitions: int, expects_trigram_operator: bool
     ) -> None:
-        # No index serves `similarity(name, ...) >= 0.3`, so a big project pays a read of its whole
-        # taxonomy per suggestion. Past the cap the lookup goes back to the `%` operator, which the
-        # trigram index answers.
+        # No index serves `similarity(name, ...) >= 0.3`, so past the cap the lookup has to reach the
+        # candidates through the trigram index instead.
         cache.clear()
         EventDefinition.objects.create(team=self.team, name="$pageview")
 
@@ -428,7 +427,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         ):
             metadata = self._select("SELECT count() FROM events WHERE event = 'pageview'")
 
-        # Either plan has to reach the same suggestion.
         self.assertEqual(metadata.warnings[0].fix, "'$pageview'")
         candidate_reads = [q["sql"] for q in captured.captured_queries if "SIMILARITY(" in q["sql"].upper()]
         self.assertEqual(len(candidate_reads), 1, candidate_reads)
