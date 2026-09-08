@@ -12844,7 +12844,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
-    def test_run_for_any_deactivated_org_returns_429_without_gateway_check(self, mock_gate):
+    def test_run_for_deactivated_org_is_denied_by_access_control_before_usage_gate(self, mock_gate):
         self.organization.is_active = False
         self.organization.is_not_active_reason = "Past due invoice"
         self.organization.save()
@@ -12856,8 +12856,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertEqual(response.json()["code"], "organization_deactivated")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertFalse(TaskRun.objects.filter(task=task).exists())
         mock_gate.assert_not_called()
 
