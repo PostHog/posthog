@@ -6,6 +6,8 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
 from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -200,6 +202,18 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(response.json()["code"], "locked")
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.is_ai_training_opted_in, False)
+
+    def test_listing_organizations_reads_the_baa_once_regardless_of_count(self):
+        Organization.objects.bootstrap(self.user)
+        Organization.objects.bootstrap(self.user)
+
+        with CaptureQueriesContext(connection) as context:
+            response = self.client.get("/api/organizations/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(response.json()["results"]), 3)
+        legal_document_queries = [q for q in context.captured_queries if "legal_documents_legaldocument" in q["sql"]]
+        self.assertEqual(len(legal_document_queries), 1)
 
     def test_cant_update_plugins_access_level(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

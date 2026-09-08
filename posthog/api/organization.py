@@ -59,7 +59,7 @@ from posthog.utils import get_safe_cache, safe_cache_set
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 from products.access_control.backend.models.role import Role
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
-from products.legal_documents.backend.facade.api import has_signed_baa
+from products.legal_documents.backend.facade.api import SIGNED_BAA_ANNOTATION, annotate_signed_baa, has_signed_baa
 
 
 class PremiumMultiorganizationPermission(permissions.BasePermission):
@@ -295,6 +295,11 @@ class OrganizationSerializer(
 
     @extend_schema_field(serializers.BooleanField())
     def get_has_signed_baa(self, instance: Organization) -> bool:
+        # The list route annotates this in the organizations query. The single-organization
+        # routes do not go through that queryset, so they fall back to one lookup.
+        annotated = getattr(instance, SIGNED_BAA_ANNOTATION, None)
+        if annotated is not None:
+            return annotated
         return has_signed_baa(instance.id)
 
     @extend_schema_field(serializers.DictField(child=serializers.CharField()))
@@ -540,7 +545,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if scoped_organizations := self.request.successful_authenticator.access_token.scoped_organizations:
                 queryset = queryset.filter(id__in=scoped_organizations)
 
-        return queryset
+        return annotate_signed_baa(queryset)
 
     def safely_get_object(self, queryset):
         return self.organization
