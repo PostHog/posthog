@@ -1,5 +1,6 @@
-import { cleanup, render } from '@testing-library/react'
+import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { BindLogic } from 'kea'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -53,6 +54,17 @@ describe('DashboardAiSync', () => {
     const editableDashboard = (): ReturnType<typeof dashboardResult> => ({
         ...dashboardResult(7, []),
         user_access_level: AccessControlLevel.Editor,
+    })
+    const editableDashboardWithTile = (): ReturnType<typeof dashboardResult> => ({
+        ...editableDashboard(),
+        tiles: [
+            {
+                id: 41,
+                layouts: {},
+                color: null,
+                text: { id: 91, body: 'Dashboard status', last_modified_at: '2026-01-01T00:00:00Z' },
+            },
+        ],
     })
 
     it('registers the exact dashboard mutation tools for completed calls', () => {
@@ -116,16 +128,18 @@ describe('DashboardAiSync', () => {
             preflight: { cloud: true },
             expected: true,
         },
-    ])('sets the apply-back registration active=$expected when $name', ({ flags, view, preflight, expected }) => {
+    ])('mounts the apply-back owner=$expected when $name', ({ flags, view, preflight, expected }) => {
         const maxLogic = maxGlobalLogic()
         maxLogic.mount()
         setFlags(flags)
         maxLogic.actions.setPhaiViewMode(view)
         preflightLogic.actions.loadPreflightSuccess(preflight as any)
+        const dashboard = editableDashboardWithTile()
 
-        render(<DashboardAiSync dashboardId={7} />)
+        render(<Dashboard id="7" dashboard={dashboard} placement={DashboardPlacement.Dashboard} />)
 
-        expect(jest.mocked(useMcpToolApplyBack).mock.calls[0][0].active).toBe(expected)
+        expect(useMcpToolApplyBack).toHaveBeenCalledTimes(expected ? 1 : 0)
+        expect(dashboardAiSyncLogic({ dashboardId: 7 }).isMounted()).toBe(expected)
         maxLogic.unmount()
     })
 
@@ -145,19 +159,60 @@ describe('DashboardAiSync', () => {
         { name: 'export placement', placement: DashboardPlacement.Export },
         { name: 'project homepage placement', placement: DashboardPlacement.ProjectHomepage },
     ])('does not mount the bridge for $name', ({ placement }) => {
-        const dashboard = editableDashboard()
+        const dashboard = editableDashboardWithTile()
 
         render(<Dashboard id="7" dashboard={dashboard} placement={placement} />)
 
         expect(useMcpToolApplyBack).not.toHaveBeenCalled()
+        expect(dashboardAiSyncLogic({ dashboardId: 7 }).isMounted()).toBe(false)
     })
 
     it('does not mount the bridge for a read-only dashboard', () => {
-        const dashboard = { ...editableDashboard(), user_access_level: AccessControlLevel.Viewer }
+        const dashboard = { ...editableDashboardWithTile(), user_access_level: AccessControlLevel.Viewer }
 
         render(<Dashboard id="7" dashboard={dashboard} placement={DashboardPlacement.Dashboard} />)
 
         expect(useMcpToolApplyBack).not.toHaveBeenCalled()
+        expect(dashboardAiSyncLogic({ dashboardId: 7 }).isMounted()).toBe(false)
+    })
+
+    it('disposes pending synchronization without telemetry when the scene gate turns off', async () => {
+        const dashboard = editableDashboardWithTile()
+        const sceneLogic = dashboardLogic({ id: 7, dashboard, placement: DashboardPlacement.Dashboard })
+        let resolveDashboardReload!: () => void
+        const pendingReload = new Promise<void>((resolve) => {
+            resolveDashboardReload = resolve
+        })
+        const loadDashboard = jest.spyOn(sceneLogic.asyncActions, 'loadDashboard').mockReturnValue(pendingReload)
+        jest.mocked(posthog.capture).mockClear()
+        const maxLogic = maxGlobalLogic()
+        maxLogic.mount()
+        maxLogic.actions.setPhaiViewMode('new')
+        const { rerender } = render(<Dashboard id="7" dashboard={dashboard} placement={DashboardPlacement.Dashboard} />)
+        const syncLogic = dashboardAiSyncLogic({ dashboardId: 7 })
+
+        act(() =>
+            syncLogic.actions.queueDashboardSync({
+                family: 'dashboard',
+                dashboardId: 7,
+                tileIds: [],
+                insightIds: [],
+                deletesDashboard: false,
+            })
+        )
+        expect(loadDashboard).toHaveBeenCalledTimes(1)
+
+        act(() => setFlags([FEATURE_FLAGS.PHAI_SANDBOX_MODE]))
+        rerender(<Dashboard id="7" dashboard={dashboard} placement={DashboardPlacement.Dashboard} />)
+        resolveDashboardReload()
+        await pendingReload
+        await Promise.resolve()
+        await Promise.resolve()
+
+        await waitFor(() => expect(dashboardAiSyncLogic({ dashboardId: 7 }).isMounted()).toBe(false))
+        expect(posthog.capture).not.toHaveBeenCalledWith('dashboard ai sync completed', expect.anything())
+        loadDashboard.mockRestore()
+        maxLogic.unmount()
     })
 
     it('does not mount the bridge before the dashboard loads', () => {

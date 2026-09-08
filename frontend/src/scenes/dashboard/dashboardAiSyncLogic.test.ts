@@ -591,6 +591,62 @@ describe('resolveDashboardAiMutation candidate classification', () => {
         ).toBeNull()
     })
 
+    it.each([
+        ['another dashboard', [8], [{ id: 61, dashboard_id: 8, deleted: false }], { 101: [8], alpha: [8] }],
+        ['no dashboards', [], [], { 101: [], alpha: [] }],
+    ])(
+        'reloads the prior open owner when an insight update replaces membership with %s',
+        (_case, dashboards, dashboardTiles, expectedOwnership) => {
+            const ownership: DashboardAiKnownOwnership = {
+                ...emptyOwnership(),
+                insightDashboardsById: { 101: [7], alpha: [7] },
+            }
+            const result = resolveFor(
+                'insight-update',
+                { id: 'alpha', dashboards },
+                { id: 101, short_id: 'alpha', dashboard_tiles: dashboardTiles },
+                ownership
+            )
+
+            expect(result.candidate).toEqual({
+                family: 'insight',
+                dashboardId,
+                tileIds: [],
+                insightIds: [101, 'alpha'],
+                deletesDashboard: false,
+            })
+            expect(result.ownership.insightDashboardsById).toEqual(expectedOwnership)
+        }
+    )
+
+    it.each([
+        ['the request retains the open dashboard but the response removes it', [7], []],
+        [
+            'the request removes the open dashboard but the response retains it',
+            [8],
+            [{ id: 41, dashboard_id: 7, deleted: false }],
+        ],
+        [
+            'the replacement memberships disagree outside the open dashboard',
+            [8],
+            [{ id: 61, dashboard_id: 9, deleted: false }],
+        ],
+    ])('rejects an insight update when %s', (_case, dashboards, dashboardTiles) => {
+        const ownership: DashboardAiKnownOwnership = {
+            ...emptyOwnership(),
+            insightDashboardsById: { 101: [7], alpha: [7] },
+        }
+
+        const result = resolveFor(
+            'insight-update',
+            { id: 'alpha', dashboards },
+            { id: 101, short_id: 'alpha', dashboard_tiles: dashboardTiles },
+            ownership
+        )
+
+        expect(result).toEqual({ candidate: null, ownership })
+    })
+
     it('deletes an insight owned by a current tile and removes both identifier forms immutably', () => {
         const ownership: DashboardAiKnownOwnership = {
             ...emptyOwnership(),
@@ -699,6 +755,39 @@ describe('resolveDashboardAiMutation candidate classification', () => {
         expect(learned.subscriptionDashboardById).toEqual({ 51: 7 })
     })
 
+    it('refreshes the prior open owner when a subscription moves to an agreed new dashboard', () => {
+        const ownership: DashboardAiKnownOwnership = {
+            ...emptyOwnership(),
+            subscriptionDashboardById: { 51: 7 },
+        }
+
+        const result = resolveFor(
+            'subscriptions-partial-update',
+            { id: 51, dashboard: 8 },
+            { id: 51, dashboard: 8 },
+            ownership
+        )
+
+        expect(result.candidate).toMatchObject({ family: 'subscription', dashboardId: 7 })
+        expect(result.ownership.subscriptionDashboardById).toEqual({ 51: 8 })
+    })
+
+    it('rejects a subscription move when request and response owners disagree', () => {
+        const ownership: DashboardAiKnownOwnership = {
+            ...emptyOwnership(),
+            subscriptionDashboardById: { 51: 7 },
+        }
+
+        const result = resolveFor(
+            'subscriptions-partial-update',
+            { id: 51, dashboard: 8 },
+            { id: 51, dashboard: 9 },
+            ownership
+        )
+
+        expect(result).toEqual({ candidate: null, ownership })
+    })
+
     it('rejects learned subscription ownership for another dashboard and unsafe IDs', () => {
         const ownership: DashboardAiKnownOwnership = {
             ...emptyOwnership(),
@@ -762,6 +851,45 @@ describe('resolveDashboardAiMutation candidate classification', () => {
             insightIds: [101, 'alpha'],
             deletesDashboard: false,
         })
+    })
+
+    it('refreshes the prior open insight when an alert moves to an agreed new insight', () => {
+        const ownership: DashboardAiKnownOwnership = {
+            ...emptyOwnership(),
+            alertInsightById: { 'alert-new': '101' },
+        }
+
+        const result = resolveFor(
+            'alert-update',
+            { id: 'alert-new', insight: 999 },
+            { id: 'alert-new', insight: 999 },
+            ownership
+        )
+
+        expect(result.candidate).toEqual({
+            family: 'alert',
+            dashboardId,
+            tileIds: [41],
+            insightIds: [101, 'alpha'],
+            deletesDashboard: false,
+        })
+        expect(result.ownership.alertInsightById).toEqual({ 'alert-new': '999' })
+    })
+
+    it('rejects an alert move when request and response owners disagree', () => {
+        const ownership: DashboardAiKnownOwnership = {
+            ...emptyOwnership(),
+            alertInsightById: { 'alert-new': '101' },
+        }
+
+        const result = resolveFor(
+            'alert-update',
+            { id: 'alert-new', insight: 999 },
+            { id: 'alert-new', insight: 888 },
+            ownership
+        )
+
+        expect(result).toEqual({ candidate: null, ownership })
     })
 
     it('resolves a cold ID-only alert delete from committed tile alert IDs and removes that ownership', () => {
@@ -1038,6 +1166,36 @@ describe('resolveDashboardAiMutation candidate classification', () => {
             listSpy.mockRestore()
         })
 
+        it('refreshes the mounted prior subscription owner before replacing learned ownership', async () => {
+            initKeaTests()
+            mockCommittedDashboard = committedDashboard()
+            mockLoadDashboard.mockReset()
+            const listSpy = jest.spyOn(api.subscriptions, 'list').mockResolvedValue({ results: [] })
+            const mountedSubscriptions = subscriptionsLogic({ dashboardId })
+            mountedSubscriptions.mount()
+            await waitFor(() => expect(mountedSubscriptions.values.subscriptionsLoading).toBe(false))
+            listSpy.mockClear()
+            const logic = dashboardAiSyncLogic({ dashboardId })
+            logic.mount()
+            logic.actions.setKnownOwnership({
+                ...emptyOwnership(),
+                subscriptionDashboardById: { 71: dashboardId },
+            })
+
+            logic.actions.applyToolCompletion(
+                eventFor('subscriptions-partial-update', { id: 71, dashboard: 8 }, { id: 71, dashboard: 8 }),
+                { id: 71, dashboard: 8 }
+            )
+
+            await waitFor(() => expect(listSpy).toHaveBeenCalledWith({ dashboardId }))
+            expect(logic.values.knownOwnership.subscriptionDashboardById).toEqual({ 71: 8 })
+            expect(mockLoadDashboard).not.toHaveBeenCalled()
+
+            logic.unmount()
+            mountedSubscriptions.unmount()
+            listSpy.mockRestore()
+        })
+
         it('reloads an authoritative insight create and highlights its exact committed tile', async () => {
             initKeaTests()
             mockCommittedDashboard = committedDashboard()
@@ -1070,6 +1228,37 @@ describe('resolveDashboardAiMutation candidate classification', () => {
                 { dashboards: [7] }
             )
             expect(mockLoadDashboard).toHaveBeenCalledTimes(1)
+            logic.unmount()
+        })
+
+        it('reloads an insight removed from the open dashboard without highlighting a tile', async () => {
+            initKeaTests()
+            mockCommittedDashboard = dashboardWithInsight(41, 101, 'alpha')
+            const reload = deferred<void>()
+            mockLoadDashboard.mockReset().mockReturnValue(reload.promise)
+            const logic = dashboardAiSyncLogic({ dashboardId })
+            logic.mount()
+            logic.actions.setKnownOwnership({
+                ...emptyOwnership(),
+                insightDashboardsById: { 101: [dashboardId], alpha: [dashboardId] },
+            })
+
+            logic.actions.applyToolCompletion(
+                eventFor(
+                    'insight-update',
+                    { id: 'alpha', dashboards: [] },
+                    { id: 101, short_id: 'alpha', dashboard_tiles: [] }
+                ),
+                { id: 'alpha', dashboards: [] }
+            )
+            expect(mockLoadDashboard).toHaveBeenCalledTimes(1)
+
+            mockCommittedDashboard = { ...committedDashboard(), tiles: [] }
+            reload.resolve()
+            await waitFor(() => expect(logic.values.activeBatch).toBeNull())
+
+            expect(logic.values.transientHighlightedTileIds).toEqual([])
+            expect(logic.values.knownOwnership.insightDashboardsById).toEqual({ 101: [], alpha: [] })
             logic.unmount()
         })
 
@@ -1349,6 +1538,39 @@ describe('resolveDashboardAiMutation candidate classification', () => {
                 { insight: 999 }
             )
             expect(alertListSpy).toHaveBeenCalledTimes(1)
+            expect(mockLoadDashboard).not.toHaveBeenCalled()
+
+            logic.unmount()
+            mountedAlerts.unmount()
+            alertListSpy.mockRestore()
+        })
+
+        it('refreshes the mounted prior alert owner before replacing learned ownership', async () => {
+            initKeaTests()
+            mockCommittedDashboard = dashboardWithInsight(41, 101, 'alpha')
+            mockLoadDashboard.mockReset()
+            const alertListSpy = jest.spyOn(api.alerts, 'list').mockResolvedValue({ results: [], count: 0 })
+            const insightLogicProps = insightLogicPropsForDashboard(mockCommittedDashboard)!
+            const mountedAlerts = insightAlertsLogic({
+                insightId: 101,
+                insightLogicProps,
+                deferInitialAlertsLoad: true,
+            })
+            mountedAlerts.mount()
+            const logic = dashboardAiSyncLogic({ dashboardId })
+            logic.mount()
+            logic.actions.setKnownOwnership({
+                ...emptyOwnership(),
+                alertInsightById: { 'alert-new': '101' },
+            })
+
+            logic.actions.applyToolCompletion(
+                eventFor('alert-update', { id: 'alert-new', insight: 999 }, { id: 'alert-new', insight: 999 }),
+                { id: 'alert-new', insight: 999 }
+            )
+
+            await waitFor(() => expect(alertListSpy).toHaveBeenCalledWith(101))
+            expect(logic.values.knownOwnership.alertInsightById).toEqual({ 'alert-new': '999' })
             expect(mockLoadDashboard).not.toHaveBeenCalled()
 
             logic.unmount()

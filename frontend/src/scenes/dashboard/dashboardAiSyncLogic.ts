@@ -529,7 +529,7 @@ function parseAuthoritativeDashboardTiles(
     output: Record<string, unknown>
 ): Array<{ tileId: number; dashboardId: number }> | null {
     const records = asRecordArray(output.dashboard_tiles)
-    if (!records || records.length === 0) {
+    if (!records) {
         return null
     }
     const activeTiles: Array<{ tileId: number; dashboardId: number }> = []
@@ -576,6 +576,10 @@ function learnInsightOwnership(
     return { ...knownOwnership, insightDashboardsById }
 }
 
+function sameDashboardMembership(left: number[], right: number[]): boolean {
+    return left.length === right.length && left.every((dashboardId, index) => dashboardId === right[index])
+}
+
 function resolveInsightMutation(
     target: DashboardAiSyncTarget,
     knownOwnership: DashboardAiKnownOwnership,
@@ -604,20 +608,36 @@ function resolveInsightMutation(
         }
         const requestedDashboards = requestDashboardMembership(input)
         const responseTiles = parseAuthoritativeDashboardTiles(output)
-        if (
-            requestedDashboards === null ||
-            (requestedDashboards !== undefined && !requestedDashboards.includes(target.dashboardId)) ||
-            !responseTiles
-        ) {
-            return { candidate: null, ownership: knownOwnership }
-        }
-        const matchingTiles = responseTiles.filter((tile) => tile.dashboardId === target.dashboardId)
-        if (matchingTiles.length !== 1) {
+        if (requestedDashboards === null || !responseTiles) {
             return { candidate: null, ownership: knownOwnership }
         }
         const dashboardIds = sortedUniqueNumbers(responseTiles.map((tile) => tile.dashboardId))
+        if (requestedDashboards !== undefined && !sameDashboardMembership(requestedDashboards, dashboardIds)) {
+            return { candidate: null, ownership: knownOwnership }
+        }
+        const matchingTiles = responseTiles.filter((tile) => tile.dashboardId === target.dashboardId)
+        if (matchingTiles.length > 1) {
+            return { candidate: null, ownership: knownOwnership }
+        }
+        const currentTarget = resolveTargetInsight(target, identity.identifiers)
+        const wasKnownOnTarget = identity.identifiers.some((identifier) =>
+            knownOwnership.insightDashboardsById[String(identifier)]?.includes(target.dashboardId)
+        )
+        if (
+            matchingTiles.length === 0 &&
+            (toolName !== 'insight-update' ||
+                requestedDashboards === undefined ||
+                (!currentTarget && !wasKnownOnTarget))
+        ) {
+            return { candidate: null, ownership: knownOwnership }
+        }
         return {
-            candidate: candidate('insight', target.dashboardId, [matchingTiles[0].tileId], identity.identifiers),
+            candidate: candidate(
+                'insight',
+                target.dashboardId,
+                matchingTiles.length === 1 ? [matchingTiles[0].tileId] : [],
+                identity.identifiers
+            ),
             ownership: learnInsightOwnership(knownOwnership, identity, dashboardIds),
         }
     }
@@ -674,24 +694,42 @@ function resolveSubscriptionMutation(
         return { candidate: null, ownership: knownOwnership }
     }
     const knownDashboardId = knownOwnership.subscriptionDashboardById[subscriptionId]
-    if (knownDashboardId !== undefined && outputDashboardId !== undefined && knownDashboardId !== outputDashboardId) {
+    const subscriptionDashboardById = { ...knownOwnership.subscriptionDashboardById }
+    if (toolName === 'subscriptions-delete') {
+        if (
+            knownDashboardId !== undefined &&
+            ((requestDashboardId !== undefined && requestDashboardId !== knownDashboardId) ||
+                (outputDashboardId !== undefined && outputDashboardId !== knownDashboardId))
+        ) {
+            return { candidate: null, ownership: knownOwnership }
+        }
+        const priorDashboardId = knownDashboardId ?? outputDashboardId ?? requestDashboardId
+        if (priorDashboardId !== target.dashboardId) {
+            return { candidate: null, ownership: knownOwnership }
+        }
+        delete subscriptionDashboardById[subscriptionId]
+        return {
+            candidate: candidate('subscription', target.dashboardId),
+            ownership: { ...knownOwnership, subscriptionDashboardById },
+        }
+    }
+
+    const movesFromKnownOwner =
+        knownDashboardId !== undefined &&
+        ((requestDashboardId !== undefined && requestDashboardId !== knownDashboardId) ||
+            (outputDashboardId !== undefined && outputDashboardId !== knownDashboardId))
+    if (movesFromKnownOwner && (requestDashboardId === undefined || outputDashboardId === undefined)) {
         return { candidate: null, ownership: knownOwnership }
     }
-    const ownedDashboardId = outputDashboardId ?? knownDashboardId
+    const postDashboardId = outputDashboardId ?? knownDashboardId
     if (
-        ownedDashboardId === undefined ||
-        ownedDashboardId !== target.dashboardId ||
-        (toolName === 'subscriptions-create' && requestDashboardId !== ownedDashboardId)
+        postDashboardId === undefined ||
+        (knownDashboardId !== target.dashboardId && postDashboardId !== target.dashboardId) ||
+        (toolName === 'subscriptions-create' && requestDashboardId !== postDashboardId)
     ) {
         return { candidate: null, ownership: knownOwnership }
     }
-
-    const subscriptionDashboardById = { ...knownOwnership.subscriptionDashboardById }
-    if (toolName === 'subscriptions-delete') {
-        delete subscriptionDashboardById[subscriptionId]
-    } else {
-        subscriptionDashboardById[subscriptionId] = ownedDashboardId
-    }
+    subscriptionDashboardById[subscriptionId] = postDashboardId
     return {
         candidate: candidate('subscription', target.dashboardId),
         ownership: { ...knownOwnership, subscriptionDashboardById },
@@ -728,6 +766,26 @@ function alertInsightIdentity(output: Record<string, unknown>): InsightIdentity 
     }
 }
 
+function insightIdentifiersAgree(
+    target: DashboardAiSyncTarget,
+    left: InsightIdentifier,
+    right: InsightIdentifier
+): boolean {
+    if (left === right) {
+        return true
+    }
+    const leftTarget = resolveTargetInsight(target, [left])
+    const rightTarget = resolveTargetInsight(target, [right])
+    return leftTarget !== null && rightTarget !== null && leftTarget.tileId === rightTarget.tileId
+}
+
+function canonicalInsightKey(identity: InsightIdentity | undefined, fallback?: InsightIdentifier): string | null {
+    if (identity?.numericId !== null && identity?.numericId !== undefined) {
+        return String(identity.numericId)
+    }
+    return identity?.shortId ?? (fallback === undefined ? null : String(fallback))
+}
+
 function resolveAlertMutation(
     target: DashboardAiSyncTarget,
     knownOwnership: DashboardAiKnownOwnership,
@@ -756,43 +814,96 @@ function resolveAlertMutation(
         return { candidate: null, ownership: knownOwnership }
     }
 
-    const learnedInsightKey = knownOwnership.alertInsightById[alertId]
-    const evidence: InsightIdentifier[] = [
-        ...(requestInsightId === undefined ? [] : [requestInsightId]),
-        ...(responseIdentity === undefined ? [] : responseIdentity.identifiers),
-        ...(learnedInsightKey === undefined ? [] : [asInsightIdentifier(learnedInsightKey)!]),
-    ]
-    let ownedInsight = resolveTargetInsight(target, evidence)
-    if (!ownedInsight && toolName === 'alert-delete' && evidence.length === 0) {
-        ownedInsight = targetInsightForAlertId(target, alertId)
-    }
-    if (!ownedInsight) {
+    if (responseIdentity !== undefined && !identitiesAgreeWithTarget(target, responseIdentity, requestInsightId)) {
         return { candidate: null, ownership: knownOwnership }
     }
 
-    const alertInsightById = { ...knownOwnership.alertInsightById }
-    const canonicalInsightKey = ownedInsight.numericId === null ? ownedInsight.shortId : String(ownedInsight.numericId)
-    if (!canonicalInsightKey) {
-        return { candidate: null, ownership: knownOwnership }
+    const learnedInsightKey = knownOwnership.alertInsightById[alertId]
+    let learnedInsightId: InsightIdentifier | undefined
+    if (learnedInsightKey !== undefined) {
+        const parsedLearnedInsightId = asInsightIdentifier(learnedInsightKey)
+        if (parsedLearnedInsightId === null) {
+            return { candidate: null, ownership: knownOwnership }
+        }
+        learnedInsightId = parsedLearnedInsightId
     }
+    const alertInsightById = { ...knownOwnership.alertInsightById }
     if (toolName === 'alert-delete') {
+        if (
+            learnedInsightId !== undefined &&
+            ((requestInsightId !== undefined && !insightIdentifiersAgree(target, requestInsightId, learnedInsightId)) ||
+                (responseIdentity !== undefined &&
+                    !identitiesAgreeWithTarget(target, responseIdentity, learnedInsightId)))
+        ) {
+            return { candidate: null, ownership: knownOwnership }
+        }
+        let ownedInsight = learnedInsightId ? resolveTargetInsight(target, [learnedInsightId]) : null
+        if (learnedInsightId !== undefined && !ownedInsight) {
+            return { candidate: null, ownership: knownOwnership }
+        }
+        ownedInsight ??= requestInsightId === undefined ? null : resolveTargetInsight(target, [requestInsightId])
+        ownedInsight ??= responseIdentity ? resolveTargetInsight(target, responseIdentity.identifiers) : null
+        ownedInsight ??= targetInsightForAlertId(target, alertId)
+        if (!ownedInsight) {
+            return { candidate: null, ownership: knownOwnership }
+        }
+        const ownedInsightKey = ownedInsight.numericId === null ? ownedInsight.shortId : String(ownedInsight.numericId)
+        if (!ownedInsightKey) {
+            return { candidate: null, ownership: knownOwnership }
+        }
         const owningTile = target.tiles.find((tile) => tile.tileId === ownedInsight!.tileId)
         for (const currentAlertId of owningTile?.alertIds ?? []) {
             const currentAlertKey = asResourceKey(currentAlertId)
             if (currentAlertKey) {
-                alertInsightById[currentAlertKey] = canonicalInsightKey
+                alertInsightById[currentAlertKey] = ownedInsightKey
             }
         }
         delete alertInsightById[alertId]
-    } else {
-        alertInsightById[alertId] = canonicalInsightKey
+        return {
+            candidate: candidate(
+                'alert',
+                target.dashboardId,
+                [ownedInsight.tileId],
+                identifiersForTargetInsight(ownedInsight)
+            ),
+            ownership: { ...knownOwnership, alertInsightById },
+        }
     }
+
+    if (learnedInsightId !== undefined) {
+        const requestMovesOwner =
+            requestInsightId !== undefined && !insightIdentifiersAgree(target, requestInsightId, learnedInsightId)
+        const responseMovesOwner =
+            responseIdentity !== undefined && !identitiesAgreeWithTarget(target, responseIdentity, learnedInsightId)
+        if (
+            (requestMovesOwner || responseMovesOwner) &&
+            (requestInsightId === undefined || responseIdentity === undefined)
+        ) {
+            return { candidate: null, ownership: knownOwnership }
+        }
+    }
+
+    const priorInsight = learnedInsightId ? resolveTargetInsight(target, [learnedInsightId]) : null
+    const postInsight = responseIdentity
+        ? resolveTargetInsight(target, responseIdentity.identifiers)
+        : requestInsightId === undefined
+          ? priorInsight
+          : resolveTargetInsight(target, [requestInsightId])
+    if (!priorInsight && !postInsight) {
+        return { candidate: null, ownership: knownOwnership }
+    }
+    const postInsightKey = canonicalInsightKey(responseIdentity, requestInsightId ?? learnedInsightId)
+    if (!postInsightKey) {
+        return { candidate: null, ownership: knownOwnership }
+    }
+    alertInsightById[alertId] = postInsightKey
+    const affectedInsights = [priorInsight, postInsight].filter((insight): insight is TargetInsight => insight !== null)
     return {
         candidate: candidate(
             'alert',
             target.dashboardId,
-            [ownedInsight.tileId],
-            identifiersForTargetInsight(ownedInsight)
+            affectedInsights.map((insight) => insight.tileId),
+            affectedInsights.flatMap(identifiersForTargetInsight)
         ),
         ownership: { ...knownOwnership, alertInsightById },
     }
@@ -965,17 +1076,18 @@ function refreshMountedInsightAlerts(
     dashboard: DashboardType<QueryBasedInsightModel> | null,
     candidate: DashboardAiSyncCandidate
 ): void {
-    const insight = dashboard?.tiles.find((tile) => candidate.tileIds.includes(tile.id))?.insight
-    if (!insight?.id) {
-        return
+    for (const tile of dashboard?.tiles ?? []) {
+        const insight = tile.insight
+        if (!candidate.tileIds.includes(tile.id) || !insight?.id) {
+            continue
+        }
+        const insightLogicProps = {
+            dashboardItemId: insight.short_id,
+            dashboardId,
+            cachedInsight: insight,
+        }
+        insightAlertsLogic.findMounted({ insightId: insight.id, insightLogicProps })?.actions.loadAlerts()
     }
-
-    const insightLogicProps = {
-        dashboardItemId: insight.short_id,
-        dashboardId,
-        cachedInsight: insight,
-    }
-    insightAlertsLogic.findMounted({ insightId: insight.id, insightLogicProps })?.actions.loadAlerts()
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -1070,21 +1182,24 @@ export const dashboardAiSyncLogic: LogicWrapper<dashboardAiSyncLogicType> = kea<
                 return
             }
 
-            actions.setKnownOwnership(resolution.ownership)
             const candidate = resolution.candidate
             if (candidate.deletesDashboard) {
+                actions.setKnownOwnership(resolution.ownership)
                 router.actions.push(urls.dashboards())
                 return
             }
             if (candidate.family === 'subscription') {
                 subscriptionsLogic.findMounted({ dashboardId: props.dashboardId })?.actions.loadAllSubscriptions()
+                actions.setKnownOwnership(resolution.ownership)
                 return
             }
             if (candidate.family === 'alert') {
                 refreshMountedInsightAlerts(props.dashboardId, dashboard, candidate)
+                actions.setKnownOwnership(resolution.ownership)
                 return
             }
             actions.queueDashboardSync(candidate)
+            actions.setKnownOwnership(resolution.ownership)
         },
         queueDashboardSync: ({ candidate }) => {
             const batch = batchFromCandidate(candidate)

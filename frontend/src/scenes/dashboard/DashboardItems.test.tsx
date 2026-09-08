@@ -14,13 +14,6 @@ import { DashboardMode, DashboardPlacement } from '~/types'
 
 import { DashboardItems } from './DashboardItems'
 
-jest.mock('./dashboardAiSyncLogic', () => ({
-    dashboardAiSyncLogic: jest.fn((props: { dashboardId: number }) => ({
-        __mock: 'dashboardAiSyncLogic',
-        props,
-    })),
-}))
-
 jest.mock('kea', () => ({
     ...jest.requireActual('kea'),
     useValues: jest.fn(),
@@ -257,7 +250,6 @@ let mockHighlightTileIdParam: unknown
 let mockHighlightedTileId: number | null = null
 let mockDashboardLoading = false
 let mockDashboardRevealReadyKey: string | null = null
-let mockTransientHighlightedTileIds: number[] = []
 
 type DashboardTileFixture = {
     id: number
@@ -306,10 +298,6 @@ function installDashboardValues(getTiles: () => DashboardTileFixture[]): void {
 
         if (logic === dashboardsModel) {
             return { nameSortedDashboards: [] }
-        }
-
-        if (logic?.__mock === 'dashboardAiSyncLogic') {
-            return { transientHighlightedTileIds: mockTransientHighlightedTileIds }
         }
 
         return {}
@@ -361,7 +349,6 @@ describe('DashboardItems', () => {
         mockHighlightedTileId = null
         mockDashboardLoading = false
         mockDashboardRevealReadyKey = null
-        mockTransientHighlightedTileIds = []
         installAnimationFrameMocks()
         Object.defineProperty(window, 'matchMedia', {
             configurable: true,
@@ -406,10 +393,6 @@ describe('DashboardItems', () => {
                 return {
                     nameSortedDashboards: [{ id: 6, name: 'Other dashboard' }],
                 }
-            }
-
-            if (logic?.__mock === 'dashboardAiSyncLogic') {
-                return { transientHighlightedTileIds: mockTransientHighlightedTileIds }
             }
 
             return {}
@@ -771,14 +754,13 @@ describe('DashboardItems', () => {
         ['widget', { id: 41, widget: { id: 104, widget_type: 'error_tracking_list', config: {} } }],
         ['error', { id: 41, error: { type: 'ValidationError', message: 'Invalid filters' } }],
     ] as const)('renders a transient highlight without scrolling for a %s tile', (_kind, tile) => {
-        mockTransientHighlightedTileIds = [41]
         installDashboardValues(() => [tile])
         const scrollIntoView = jest.fn()
         const scrollTo = jest.fn()
         Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView })
         Object.defineProperty(window, 'scrollTo', { configurable: true, value: scrollTo })
 
-        const { container } = render(<DashboardItems />)
+        const { container } = render(<DashboardItems transientHighlightedTileIds={[41]} />)
         const target = container.querySelector('[data-dashboard-tile-id="41"]') as HTMLElement
         act(flushAllAnimationFrames)
 

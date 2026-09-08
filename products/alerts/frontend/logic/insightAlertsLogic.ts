@@ -1,4 +1,17 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    BreakPointFunction,
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -256,8 +269,10 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
     loaders(({ props }) => ({
         alerts: {
             __default: [] as AlertType[],
-            loadAlerts: async () => {
+            loadAlerts: async (_?: unknown, breakpoint?: BreakPointFunction) => {
+                breakpoint?.()
                 const response = await api.alerts.list(props.insightId)
+                breakpoint?.()
                 return response.results
             },
         },

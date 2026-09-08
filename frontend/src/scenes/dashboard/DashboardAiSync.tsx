@@ -1,20 +1,35 @@
 import { useActions, useValues } from 'kea'
-
-import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
+import { useEffect } from 'react'
 
 import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
 import { DASHBOARD_AI_MUTATION_TOOLS, dashboardAiSyncLogic } from './dashboardAiSyncLogic'
 
-export function DashboardAiSync({ dashboardId }: { dashboardId: number }): null {
+interface DashboardAiSyncProps {
+    dashboardId: number
+    onTransientHighlightedTileIdsChange?: (tileIds: number[]) => void
+}
+
+export function DashboardAiSync({ dashboardId, onTransientHighlightedTileIdsChange }: DashboardAiSyncProps): null {
     const { applyToolCompletion } = useActions(dashboardAiSyncLogic({ dashboardId }))
-    const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
+    const { transientHighlightedTileIds } = useValues(dashboardAiSyncLogic({ dashboardId }))
+
+    useEffect(() => {
+        onTransientHighlightedTileIdsChange?.(transientHighlightedTileIds)
+    }, [onTransientHighlightedTileIdsChange, transientHighlightedTileIds])
+
+    useEffect(
+        () => () => {
+            onTransientHighlightedTileIdsChange?.([])
+        },
+        [onTransientHighlightedTileIdsChange]
+    )
 
     useMcpToolApplyBack({
         tools: [...DASHBOARD_AI_MUTATION_TOOLS],
         targetKey: `dashboard:${dashboardId}`,
         applyOn: 'tool_call_completed',
-        active: sceneIntegrationEnabled,
+        active: true,
         onApply: (event, { innerInput }) => applyToolCompletion(event, innerInput),
     })
 

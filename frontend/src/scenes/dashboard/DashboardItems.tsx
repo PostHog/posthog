@@ -41,7 +41,6 @@ import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType }
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
 
-import { dashboardAiSyncLogic } from './dashboardAiSyncLogic'
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
 
@@ -55,6 +54,7 @@ const TILE_HIGHLIGHT_DURATION_MS = 3000
 
 interface DashboardItemsProps {
     showCreateAnomalyAlertButton?: boolean
+    transientHighlightedTileIds?: number[]
 }
 
 /**
@@ -81,7 +81,10 @@ const MemoizedDashboardButtonTileItem = memo(
 const MemoizedDashboardErrorTileItem = memo(DashboardErrorTileItem, gridTilePropsEqual) as typeof DashboardErrorTileItem
 const MemoizedDashboardWidgetItem = memo(DashboardWidgetItem, gridTilePropsEqual) as typeof DashboardWidgetItem
 
-export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsProps = {}): JSX.Element {
+export function DashboardItems({
+    showCreateAnomalyAlertButton,
+    transientHighlightedTileIds = [],
+}: DashboardItemsProps = {}): JSX.Element {
     const {
         dashboard,
         tiles,
@@ -109,7 +112,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         widgetRefreshStatus,
         scrollToBottomSignal,
     } = useValues(dashboardLogic)
-    const { transientHighlightedTileIds = [] } = useValues(dashboardAiSyncLogic({ dashboardId: dashboard?.id ?? 0 }))
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
         updateLayouts,
