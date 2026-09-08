@@ -1,5 +1,6 @@
 import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -7,6 +8,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { AccountsEvents } from 'products/customer_analytics/frontend/components/Accounts/constants'
 import type {
     AccountRelationshipDefinitionApi,
     CustomPropertyDefinitionApi,
@@ -217,6 +219,7 @@ describe('accountSidebarConfigLogic', () => {
     })
 
     it('saves once while a request is active and adopts the server response', async () => {
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
         let releasePatch: (() => void) | undefined
         let patchCount = 0
         let submittedBody: unknown
@@ -258,6 +261,11 @@ describe('accountSidebarConfigLogic', () => {
             (submittedBody as UserCustomerAnalyticsConfigApi).pinned_properties
         )
         expect(logic.values.isConfiguring).toBe(false)
+        expect(captureSpy).toHaveBeenCalledWith(AccountsEvents.PinnedPropertiesSaved, {
+            pinned_count: 2,
+            custom_property_count: 1,
+            relationship_count: 1,
+        })
     })
 
     it('keeps the draft open for retry and shows one notification when saving fails', async () => {
