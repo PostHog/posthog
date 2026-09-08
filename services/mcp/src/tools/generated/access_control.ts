@@ -243,7 +243,7 @@ const accessControlMembersList = (): ToolBase<
         } as typeof result
         return withAgentNote(
             await withPostHogUrl(context, filtered, '/settings/environment-access-control'),
-            'For one dashboard, insight, notebook or table, call access-control-member-objects-list; for a person or event property, access-control-member-properties-list. Rules a role sets on objects or properties are only on the role-objects and role-properties tools. Level bounds per tool are on access-control-defaults-get.\n'
+            'For a question about one object, for example a dashboard or a table, call access-control-member-objects-list; for a person or event property, access-control-member-properties-list. Rules a role sets on objects or properties are only on the role-objects and role-properties tools. Level bounds per tool are on access-control-defaults-get.\n'
         )
     },
 })

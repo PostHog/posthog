@@ -21,7 +21,7 @@ tools:
             idempotent: true
         title: List the project's object-level default rules
         description: >
-            Rules on single objects (a dashboard, an insight, a notebook, a warehouse table) that apply to everyone
+            Rules on single objects (for example a dashboard, a notebook or a warehouse table) that apply to everyone
             without a rule of their own on that object. Each rule names the object and the level it sets.
         param_overrides:
             id:
@@ -91,8 +91,8 @@ tools:
             idempotent: true
         title: List one member's object-level rules
         description: >
-            The one-off rules configured for one member on single objects: the dashboards, insights, notebooks and
-            warehouse tables they are given access to, or blocked from, regardless of their tool-level access. Only the
+            The one-off rules configured for one member on single objects, for example a dashboard, a notebook or a
+            warehouse table they are given access to, or blocked from, regardless of their tool-level access. Only the
             member's own rules are returned. An empty list means no member-specific object rules, not no access.
         agent_note: >
             The member's tool-level access is on access-control-members-list. Object rules from the member's roles are
@@ -159,7 +159,7 @@ tools:
             `organization_membership_id`, from this tool or org-members-list) for one member. The
             checking-member-access skill explains how the levels combine.
         agent_note: >
-            For one dashboard, insight, notebook or table, call access-control-member-objects-list; for a person or
+            For a question about one object, for example a dashboard or a table, call access-control-member-objects-list; for a person or
             event property, access-control-member-properties-list. Rules a role sets on objects or properties are only
             on the role-objects and role-properties tools. Level bounds per tool are on access-control-defaults-get.
         param_overrides:
@@ -183,8 +183,8 @@ tools:
             idempotent: true
         title: List one role's object-level rules
         description: >
-            The rules configured for one role on single objects: the dashboards, insights, notebooks and warehouse
-            tables the role's members are given access to, or blocked from, regardless of their tool-level access.
+            The rules configured for one role on single objects, for example a dashboard, a notebook or a warehouse
+            table the role's members are given access to, or blocked from, regardless of their tool-level access.
         param_overrides:
             id:
                 description: |

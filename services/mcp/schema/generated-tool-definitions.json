@@ -1,6 +1,6 @@
 {
     "access-control-default-objects-list": {
-        "description": "Rules on single objects (a dashboard, an insight, a notebook, a warehouse table) that apply to everyone without a rule of their own on that object. Each rule names the object and the level it sets.",
+        "description": "Rules on single objects (for example a dashboard, a notebook or a warehouse table) that apply to everyone without a rule of their own on that object. Each rule names the object and the level it sets.",
         "category": "Access control",
         "feature": "access_control",
         "summary": "List the project's object-level default rules",
@@ -42,7 +42,7 @@
         }
     },
     "access-control-member-objects-list": {
-        "description": "The one-off rules configured for one member on single objects: the dashboards, insights, notebooks and warehouse tables they are given access to, or blocked from, regardless of their tool-level access. Only the member's own rules are returned. An empty list means no member-specific object rules, not no access.",
+        "description": "The one-off rules configured for one member on single objects, for example a dashboard, a notebook or a warehouse table they are given access to, or blocked from, regardless of their tool-level access. Only the member's own rules are returned. An empty list means no member-specific object rules, not no access.",
         "category": "Access control",
         "feature": "access_control",
         "summary": "List one member's object-level rules",
@@ -84,7 +84,7 @@
         }
     },
     "access-control-role-objects-list": {
-        "description": "The rules configured for one role on single objects: the dashboards, insights, notebooks and warehouse tables the role's members are given access to, or blocked from, regardless of their tool-level access.",
+        "description": "The rules configured for one role on single objects, for example a dashboard, a notebook or a warehouse table the role's members are given access to, or blocked from, regardless of their tool-level access.",
         "category": "Access control",
         "feature": "access_control",
         "summary": "List one role's object-level rules",
