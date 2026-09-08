@@ -714,7 +714,6 @@ _HTTP_METHODS = frozenset({"get", "put", "post", "delete", "options", "head", "p
 
 # Match finalized paths (after {parent_lookup_*} substitution) for postprocessing.
 _ORG_PROJECTS_FINAL_RE = re.compile(r"^/api/organizations/[^/]+/projects/")
-_PROJECT_ENVS_FINAL_RE = re.compile(r"^/api/projects/[^/]+/environments/")
 
 
 def _get_product_from_module(module: str) -> str | None:
@@ -1198,12 +1197,9 @@ def custom_postprocessing_hook(result, generator, request, public):
             # - /api/organizations/{id}/projects/… paths must NOT have projects_ stripped — that
             #   segment is the resource name, not a router namespace, and stripping it collapses
             #   everything to e.g. "list"/"create" which then collides with top-level org paths.
-            # - /api/projects/{id}/environments/… paths must NOT have environments_ stripped for the
-            #   same reason — those are sub-resources, not the main /api/environments/ router.
             # - Everything else: strip projects_/environments_ (router-namespace noise).
             is_org_dup = (path, method.upper()) in _org_paths_with_project_dup
             is_org_projects = bool(_ORG_PROJECTS_FINAL_RE.match(path))
-            is_project_envs = bool(_PROJECT_ENVS_FINAL_RE.match(path))
 
             if is_org_dup:
                 definition["deprecated"] = True
@@ -1224,8 +1220,7 @@ def custom_postprocessing_hook(result, generator, request, public):
                 op_id = definition["operationId"]
                 if not is_org_projects:
                     op_id = op_id.replace("projects_", "", 1)
-                if not is_project_envs:
-                    op_id = op_id.replace("environments_", "", 1)
+                op_id = op_id.replace("environments_", "", 1)
                 definition["operationId"] = op_id
 
             if "parameters" in definition:

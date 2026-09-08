@@ -68,10 +68,10 @@ from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.synthetic_user import SyntheticUser
 
-from products.data_modeling.backend.facade.api import is_materialization_fresh, saved_query_materialized_at
-from products.data_warehouse.backend.facade.api import trigger_saved_query_schedule
+from products.data_modeling.backend.facade.api import materialize_saved_query, saved_query_materialized_at
 from products.endpoints.backend.exceptions import EndpointAtCapacity, EndpointQueryTooExpensive
 from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
+from products.endpoints.backend.logic.materialized_serving import serving_state_for_version
 from products.endpoints.backend.logic.pagination import EndpointPagination
 from products.endpoints.backend.logic.strategies import EndpointQueryStrategy, strategy_for
 from products.endpoints.backend.logs import build_execution_message, log_endpoint_execution
@@ -298,6 +298,26 @@ def _endpoint_refresh_mode_to_refresh_type(
     return RefreshType.FORCE_BLOCKING
 
 
+def can_serve_from_materialized(
+    team: Team,
+    endpoint: Endpoint,
+    version: EndpointVersion,
+    data: EndpointRunRequest,
+    materialized_at: datetime | None,
+) -> bool:
+    """Whether this run request can be served from the version's materialized table.
+
+    Reads materialization state from the DB — the authoritative source. The throttle
+    caches the same snapshot in rate_limit.py; that cache is intentionally not consulted here.
+    """
+    if not version.is_materialized or not version.saved_query or not version.saved_query.table:
+        return False
+    state = serving_state_for_version(
+        version, strategy_for(endpoint, version, team), ready=True, materialized_at=materialized_at
+    )
+    return state.serves(data)
+
+
 class EndpointExecutionService(PydanticModelMixin):
     """Executes an endpoint version, choosing the best execution path."""
 
@@ -402,42 +422,8 @@ class EndpointExecutionService(PydanticModelMixin):
         version: EndpointVersion,
         materialized_at: datetime | None,
     ) -> bool:
-        """
-        Decide whether to use materialized table or inline execution.
-
-        Reads materialization state from the DB — the authoritative source. (The redis
-        "materialization ready" cache in rate_limit.py only classifies requests for
-        throttling and is intentionally not consulted here.)
-
-        Returns False if:
-        - Not materialized
-        - Materialization incomplete/failed
-        - Materialized data is stale (older than the version's data freshness target)
-        - User overrides present (variables, query)
-        - 'direct' mode requested (explicitly bypass materialization)
-        """
-        if not version.is_materialized or not version.saved_query:
-            return False
-
-        if not version.saved_query.table or materialized_at is None:
-            return False
-
-        # Check if materialized data is stale. Keyed on the version's freshness target, not
-        # saved_query.sync_frequency_interval — the v2 schedule migration nulls that field.
-        if not is_materialization_fresh(materialized_at, version.data_freshness_seconds):
-            return False
-
-        # 'direct' mode explicitly bypasses materialization to run the original query
-        if data.refresh == EndpointRefreshMode.DIRECT:
-            return False
-
-        # Check if variables are valid for materialized execution
-        if data.variables:
-            strategy = strategy_for(endpoint, version, self.team)
-            if not strategy.can_serve_variables_from_materialized(set(data.variables.keys())):
-                return False
-
-        return True
+        """Decide whether to use materialized table or inline execution."""
+        return can_serve_from_materialized(self.team, endpoint, version, data, materialized_at)
 
     def _should_shadow_ducklake(self, endpoint: Endpoint, version: EndpointVersion | None) -> bool:
         # Flag is scoped to orgs with a duckgres server; the worker re-checks before querying.
@@ -852,7 +838,7 @@ class EndpointExecutionService(PydanticModelMixin):
                 strategy.clean_response_sentinels(result.data)
 
             try:
-                strategy.transform_materialized_response(result.data, saved_query)
+                strategy.transform_materialized_response(result.data, saved_query, materialized_at)
             except MaterializedSeriesMismatchError:
                 # Series drift: query was likely edited after materialization. Trigger a refresh
                 # so future materialized reads succeed; the caller serves this request inline.
@@ -861,7 +847,18 @@ class EndpointExecutionService(PydanticModelMixin):
                     endpoint_name=endpoint.name,
                     saved_query_id=saved_query.id,
                 )
-                trigger_saved_query_schedule(saved_query)
+                try:
+                    # Nobody asked for this run, so it must not clear the suspension or reset the
+                    # failure window that stopped a repeatedly failing model.
+                    materialize_saved_query(saved_query, resume=False)
+                except Exception:
+                    # The caller still has to see the mismatch to fall back to inline, so a refresh
+                    # we could not start must not replace it on the way out.
+                    logger.exception(
+                        "Failed to trigger re-materialization after series mismatch",
+                        endpoint_name=endpoint.name,
+                        saved_query_id=saved_query.id,
+                    )
                 raise
 
             # Freshness relative to the configured target: >1.0 means behind SLA.

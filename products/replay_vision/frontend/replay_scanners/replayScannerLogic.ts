@@ -52,7 +52,7 @@ import type {
     ReplayObservationApi,
     TagSuggestionApi,
 } from '../generated/api.schemas'
-import type { ScannerTypeEnumApi } from '../generated/api.schemas'
+import type { ScannerCreationMethodEnumApi, ScannerTypeEnumApi } from '../generated/api.schemas'
 import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
 import { refreshVisionQuota } from '../logics/visionQuotaLogic'
@@ -317,6 +317,7 @@ export interface replayScannerLogicValues {
     chartDateFrom: string | null
     chartDateTo: string | null
     copyingAllObservations: boolean
+    creationMethod: ScannerCreationMethodEnumApi
     creditLimitState: CreditLimitState
     durationValidationError: string | null
     estimateRequestVersion: number
@@ -823,7 +824,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         copyAllObservationsFinished: true,
     }),
 
-    forms(({ props, actions }) => ({
+    forms(({ props, actions, values }) => ({
         scanner: {
             defaults: newScanner(
                 props.id === 'new' ? currentTemplateKey() : null,
@@ -904,7 +905,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 const body = apiScanner.query == null ? omitQuery(apiScanner) : apiScanner
                 try {
                     if (props.id === 'new') {
-                        const response = await visionScannersCreate(String(teamId), scannerToApiBody(body))
+                        // Telemetry only, and only on create: the API reports it and drops it, so a
+                        // saved scanner can be attributed to how it was built. An edit says nothing
+                        // about that, so the update payload below leaves it out.
+                        const response = await visionScannersCreate(
+                            String(teamId),
+                            scannerToApiBody({ ...body, creation_method: values.creationMethod })
+                        )
                         actions.scannerSaved(scanner)
                         router.actions.replace(urls.replayVision(response.id))
                         // First scheduled results are minutes away, so the copy matches the Overview's
@@ -1047,6 +1054,17 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             null as DraftScannerResponseApi | null,
             {
                 startFromTemplate: () => null,
+            },
+        ],
+        // How the form standing in front of the user was built, sent with the create request so the
+        // saved scanner can be attributed. Last path taken wins, because each of these replaces the
+        // form: someone who drafts with AI and then picks a template saved the template's scanner.
+        creationMethod: [
+            'scratch' as ScannerCreationMethodEnumApi,
+            {
+                draftScannerFromGoal: () => 'ai' as ScannerCreationMethodEnumApi,
+                startFromTemplate: (_, { templateKey }) =>
+                    (templateKey ? 'template' : 'scratch') as ScannerCreationMethodEnumApi,
             },
         ],
         // Which tag's cohort is being created, so tag rows can show a per-row spinner.
@@ -1695,7 +1713,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             // still edits normally.
             rebuildExperimentContext: async () => {
                 const targeting = values.scanner?.experiment_targeting
-                if (!targeting?.experiment_id || values.experimentContext) {
+                if (!targeting?.experiment_id) {
+                    // A card left over from earlier targeting would keep offering variants of an
+                    // experiment this scanner no longer watches, and the picker would re-persist it.
+                    if (values.experimentContext) {
+                        actions.setExperimentContext(null)
+                    }
+                    return
+                }
+                if (values.experimentContext?.experiment.id === targeting.experiment_id) {
                     return
                 }
                 try {
@@ -1705,7 +1731,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // response restores a card for targeting the scanner no longer carries, which a later
                     // variant change would then re-persist.
                     const current = values.scanner?.experiment_targeting
-                    if (current?.experiment_id !== targeting.experiment_id || values.experimentContext) {
+                    if (
+                        current?.experiment_id !== targeting.experiment_id ||
+                        values.experimentContext?.experiment.id === targeting.experiment_id
+                    ) {
                         return
                     }
                     actions.setExperimentContext({ experiment, variantKey: current.variant ?? null })
@@ -1805,7 +1834,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     ...(goalDraft.credit_limit != null
                         ? { credit_limit: goalDraft.credit_limit, credit_limit_enabled: true }
                         : {}),
+                    // The experiment the goal named, if any. It watches that experiment's
+                    // participants, which the query itself can't express — the backend derives the
+                    // exposure filter from this field at scan time.
+                    experiment_targeting: goalDraft.experiment_targeting ?? null,
                 })
+                // Loads the targeted experiment so the Triggers step shows its card and variant
+                // picker, the same way it does for a scanner started from the experiment itself.
+                actions.rebuildExperimentContext()
                 // Solved dials mark a goal-flow draft, which reviews on the overview; legacy drafts
                 // open the details step. The goal flow is already on the overview (pushed on request),
                 // so this only navigates the legacy path.

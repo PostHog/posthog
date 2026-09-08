@@ -264,8 +264,16 @@ class TestAppleSearchAdsTransport:
         ]
     )
     def test_client_secret_rejects_an_unusable_private_key(self, _name: str, private_key: str) -> None:
-        with pytest.raises(AppleSearchAdsAuthError):
+        with pytest.raises(AppleSearchAdsAuthError) as raised:
             build_client_secret(_with_key(private_key))
+
+        # `validate_credentials` shows this string in the setup form, so it must not carry the
+        # crypto backend's own wording. The cause still has it for error tracking.
+        message = str(raised.value)
+        assert "unencrypted EC (P-256) PEM" in message
+        assert "cryptography.io" not in message
+        assert "PEM file" not in message
+        assert raised.value.__cause__ is not None
 
     @parameterized.expand([(V5, "orgId=555"), (V1, "adAccountId=123456789")])
     def test_requests_carry_the_bearer_token_and_the_versions_context_id(

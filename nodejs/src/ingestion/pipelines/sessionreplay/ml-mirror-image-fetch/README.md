@@ -104,6 +104,8 @@ Path patterns:
 
 **1.5** The producer collects only the `src` attribute on `img`, `image`, and `picture` elements. Other source attributes are out of scope until this specification adds them.
 
+**1.6** The lane does not collect or fetch an advertising or analytics beacon. A beacon is a URL whose host and decoded path match an entry in the shared list [`tracking_beacons.txt`](../../../../../../rust/replay-anonymizer/src/tracking_beacons.txt). An entry is a host pattern followed by a path prefix. The host pattern is an exact host, `*.` followed by a domain to match every host below it, or `*` to match every host. The path prefix is compared case-insensitively with the start of the decoded path, after runs of `/` collapse to one. A prefix that does not end with `/` must end at a segment boundary, which is the end of the path, a `/`, or a `;`. A prefix of `/` alone matches every path on the host, and a whole-host entry therefore refuses every image on that host, including a visible ad creative, because nothing on an ad-serving host is a customer's content. The list refuses `*/` as an entry. The producer applies the list when it collects a URL. The fetcher applies the same list, through the shared URL policy, to every job it reads from the frontier and to every redirect target. A frontier job that matches is dropped without a request, a crawl-history write, or a dead-letter record, and `ml_image_fetch_consumer_skipped_total` counts it by decline reason, so a beacon queued before its entry existed leaves the backlog at parse speed. A redirect target that matches ends the URL as a terminal `bad_redirect` result in crawl history, after the request that returned the redirect. Nobody sees the one-pixel image a beacon serves, so it has no value as training data, and a fetch of it reports a conversion or a visit to the network behind it. A credential refusal under requirement 1.2 takes precedence over this list. A list change ships only with an image build of both the mirror and the fetcher.
+
 ### 2. Opt-out signals
 
 **2.1** Sites can refuse fetching by signaling this via these files:
@@ -455,7 +457,7 @@ A fetch batch can publish more frontier records than it consumed. This can occur
 
 **11.6** Every metric label defined by this lane uses a fixed set of values or the bounded integer partition set of the frontier topic. HTTP responses use `2xx`, `3xx`, `4xx`, `5xx`, or `other`. Republish destination classes use `frontier` or `delay`. Republish topic classes use `frontier`, `retry_1m`, `retry_10m`, or `retry_1h`. Image scrub sources use `inline` or `url`. Unexpected scrub source formats use `other`. No label defined by this lane contains a configured Kafka topic name, registrable domain, provider domain, origin, host, URL, image ref, team, project, exception message, or other external value.
 
-**11.7** The lane counts republished URLs by reason and bounded destination class. For each used topic class in a fetch batch, it observes the number of Kafka record delivery attempts, the number of attempted registrable-domain keys, and the wall time from topic-class scheduling until all started delivery attempts settle. It also observes total republish flush wall time and counts batches that reached the republish finalization deadline.
+**11.7** The lane counts frontier jobs it skips as unwanted, by decline reason, separately from invalid frontier input. The lane counts republished URLs by reason and bounded destination class. For each used topic class in a fetch batch, it observes the number of Kafka record delivery attempts, the number of attempted registrable-domain keys, and the wall time from topic-class scheduling until all started delivery attempts settle. It also observes total republish flush wall time and counts batches that reached the republish finalization deadline.
 
 It counts transient retry causes as `timeout`, `error`, `rate_limited`, or `server_error`. It also counts republish failures, crawl-history keys affected by failed operations, and retry records by outcome.
 
@@ -528,6 +530,8 @@ The fetch URL keeps the original query verbatim. The global ref uses a canonical
 **13.12** For `srcset` and CSS `image-set()`, the mirror selects the candidate with the largest width or pixel density. It declines a malformed or mixed `srcset`. The first candidate wins a tie.
 
 **13.13** The mirror processes inline base64 images and remote URLs in image-bearing CSS properties. It keeps same-document fragment URLs unchanged and does not collect font or import URLs.
+
+**13.14** The mirror does not collect the `src`, `rr_src`, or `srcset` of an `img` element that nobody can see. An element cannot be seen when it has the `hidden` attribute, when its inline style sets `display` to `none`, or when its width and height are both at most one pixel. The mirror reads each dimension from the inline style first and from the `width` or `height` attribute second. A dimension that is not a pixel length, for example `100%`, is unknown and does not count as one pixel. The element keeps the media placeholder, and the mirror counts the decline as `hidden_pixel`. The fetcher cannot apply this rule, because the frontier carries only the URL.
 
 ### 14. HTTP request/response
 
