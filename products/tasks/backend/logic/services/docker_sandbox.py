@@ -886,6 +886,7 @@ class DockerSandbox(SandboxBase):
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
         posthog_exec_permission_regex: str | None = None,
+        claude_model_access: str | None = None,
     ) -> str:
         # The host proxy URL (e.g. localhost:8003) is unreachable from inside the container;
         # rewrite it the same way POSTHOG_API_URL is for Docker sandboxes.
@@ -910,6 +911,7 @@ class DockerSandbox(SandboxBase):
             benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
         )
+        subscription_flag = " --claudeSubscription" if claude_model_access == "own-subscription" else ""
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         # Only append when opted in: agent-server builds without the option reject unknown
         # flags, so default runs (and resumes of old snapshots) must not see it.
@@ -933,7 +935,7 @@ class DockerSandbox(SandboxBase):
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
-            f"{domains_flag}{repo_ready_flag}{exec_permission_flag}"
+            f"{domains_flag}{repo_ready_flag}{exec_permission_flag}{subscription_flag}"
         )
 
         # agentsh injects HTTP_PROXY pointing at a per-session egress proxy port; undici
@@ -949,12 +951,12 @@ class DockerSandbox(SandboxBase):
         if allowed_domains is not None:
             return (
                 f"cd /scripts && {initialize_env_file} && "
-                f"({build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &)"
+                f"({build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} & echo $! > /tmp/agent-server.pid)"
             )
         else:
-            return f"cd /scripts && {initialize_env_file} && (nohup {server_cmd} > /tmp/agent-server.log 2>&1 &)"
+            return f"cd /scripts && {initialize_env_file} && (nohup {server_cmd} > /tmp/agent-server.log 2>&1 & echo $! > /tmp/agent-server.pid)"
 
-    def _launch_and_check(self, command: str) -> bool:
+    def _launch_and_check(self, command: str, *, max_attempts: int = 20) -> bool:
         """Execute the agent-server command and wait for the health check.
 
         Returns True if the server started successfully, False otherwise.
@@ -963,7 +965,7 @@ class DockerSandbox(SandboxBase):
         if result.exit_code != 0:
             logger.warning(f"Agent-server process failed to launch in sandbox {self.id}: {result.stderr}")
             return False
-        return self._wait_for_health_check(max_attempts=20)
+        return self._wait_for_health_check(max_attempts=max_attempts)
 
     def _install_gh_guard(self) -> None:
         """Install the gh PATH shim at runtime so it's present regardless of image age.
@@ -1004,6 +1006,7 @@ class DockerSandbox(SandboxBase):
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
+        claude_model_access: str | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -1084,6 +1087,7 @@ class DockerSandbox(SandboxBase):
             benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
             posthog_exec_permission_regex=exec_permission_regex,
+            claude_model_access=claude_model_access,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
@@ -1098,7 +1102,8 @@ class DockerSandbox(SandboxBase):
                 )
             return
 
-        if self._launch_and_check(command):
+        max_attempts = 300 if claude_model_access == "own-subscription" else 20
+        if self._launch_and_check(command, max_attempts=max_attempts):
             logger.info(f"Agent-server started on port {self._host_port}")
             return
 
@@ -1141,8 +1146,9 @@ class DockerSandbox(SandboxBase):
                 benjamin_enabled=benjamin_enabled,
                 peer_messaging=peer_messaging,
                 posthog_exec_permission_regex=exec_permission_regex,
+                claude_model_access=claude_model_access,
             )
-            if self._launch_and_check(command):
+            if self._launch_and_check(command, max_attempts=max_attempts):
                 logger.info(f"Agent-server started on port {self._host_port} (without --baseBranch)")
                 return
 
@@ -1157,8 +1163,10 @@ class DockerSandbox(SandboxBase):
             capture=False,
         )
 
-    def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None:
-        if self._wait_for_health_check(max_attempts=240):
+    def wait_for_agent_server_ready(
+        self, allowed_domains: list[str] | None = None, *, claude_model_access: str | None = None
+    ) -> None:
+        if self._wait_for_health_check(max_attempts=300 if claude_model_access == "own-subscription" else 240):
             logger.info(f"Agent-server ready on port {self._host_port}")
             return
         log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
@@ -1225,7 +1233,9 @@ class DockerSandbox(SandboxBase):
     def _wait_for_health_check(self, max_attempts: int = 60, poll_interval: float = 0.5) -> bool:
         """Poll health endpoint until server is ready (single remote call)."""
 
-        return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval)
+        return wait_for_health_check(
+            self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval, pid_file="/tmp/agent-server.pid"
+        )
 
     def read_agent_server_session_init_ms(self) -> int | None:
         return self._read_health_session_init_ms(AGENT_SERVER_PORT)
