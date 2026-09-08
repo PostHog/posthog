@@ -15,7 +15,7 @@ use crate::record::KafkaBillingUsageRecord;
 const HOURLY_TTL_SECONDS: u64 = 25 * 60 * 60;
 const DAILY_TTL_SECONDS: u64 = 31 * 24 * 60 * 60;
 const DEFAULT_FLUSH_CONCURRENCY: usize = 16;
-const DEFAULT_MAX_PENDING_ENTRIES: usize = 1_000_000;
+const DEFAULT_MAX_PENDING_ENTRIES: usize = 250_000;
 const REDIS_CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
 const REDIS_RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_PAST_TIMESTAMP: ChronoDuration = ChronoDuration::days(7);
@@ -405,6 +405,8 @@ async fn flush_tick(
                 metrics::gauge!("usage_ingestion_redis_counter_connected").set(0.0);
                 metrics::gauge!("usage_ingestion_redis_counter_accumulator_scopes")
                     .set(retained_scopes as f64);
+                metrics::gauge!("usage_ingestion_redis_counter_accumulator_entries")
+                    .set(retained_deltas as f64);
                 metrics::counter!("usage_ingestion_redis_counter_errors_total").increment(1);
                 return;
             }
@@ -412,6 +414,12 @@ async fn flush_tick(
     }
     let counters = accumulator.drain();
     metrics::gauge!("usage_ingestion_redis_counter_accumulator_scopes").set(counters.len() as f64);
+    metrics::gauge!("usage_ingestion_redis_counter_accumulator_entries").set(
+        counters
+            .iter()
+            .map(|counters| counters.entries.len())
+            .sum::<usize>() as f64,
+    );
     let outcome = flush_with_concurrency(
         Arc::clone(store.as_ref().unwrap()),
         counters,
@@ -545,24 +553,35 @@ mod tests {
 
     #[test]
     fn connection_failure_retains_pending_deltas() {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
         let accumulator = CounterAccumulator::default();
         accumulator
             .add(42, Uuid::nil(), "events", "event", 1, Utc::now())
             .unwrap();
         let mut store = None;
-
-        tokio::runtime::Builder::new_current_thread()
+        let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .unwrap()
-            .block_on(flush_tick(
+            .unwrap();
+
+        metrics::with_local_recorder(&recorder, || {
+            runtime.block_on(flush_tick(
                 &accumulator,
                 "://invalid",
                 CounterConfig::default(),
                 &mut store,
             ));
+        });
 
         assert!(store.is_none());
+        assert_eq!(
+            gauge(
+                &snapshotter,
+                "usage_ingestion_redis_counter_accumulator_entries"
+            ),
+            Some(4.0)
+        );
         let retained = accumulator.drain();
         assert_eq!(retained.len(), 2);
         assert_eq!(
