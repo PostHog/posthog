@@ -2,7 +2,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { LemonTag } from '@posthog/lemon-ui'
 
@@ -72,6 +72,21 @@ function OrderingScene({ recentlySubscribedChannelIds }: { recentlySubscribedCha
     )
 }
 
+function MultipleSelectionScene(): JSX.Element {
+    const [selectedChannels, setSelectedChannels] = useState(['C1|#alerts', 'C5|#incidents'])
+
+    return (
+        <div className="p-4 max-w-md">
+            <SlackChannelPicker
+                integration={integration}
+                mode="multiple"
+                value={selectedChannels}
+                onChange={setSelectedChannels}
+            />
+        </div>
+    )
+}
+
 type StoryArgs = { recentlySubscribedChannelIds: string[] }
 
 const meta: Meta<StoryArgs> = {
@@ -105,6 +120,10 @@ export const Alphabetical: Story = {
 // (most recent first); everything else stays alphabetical below them.
 export const RecentlySubscribedFirst: Story = {
     args: { recentlySubscribedChannelIds: ['C4', 'C1'] },
+}
+
+export const MultipleSelection: Story = {
+    render: () => <MultipleSelectionScene />,
 }
 
 // Typing a channel name and clicking away drops the search, because the picker takes an option

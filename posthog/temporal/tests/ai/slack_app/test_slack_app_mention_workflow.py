@@ -24,6 +24,8 @@ from posthog.temporal.ai.slack_app.types import (
     SlackRepoSelectionOutcome,
 )
 
+from products.slack_app.backend.services.slack_messages import SlackThreadMessage
+
 
 def _message(
     ts: str,
@@ -64,7 +66,7 @@ class _Recorder:
         self.forward_results: dict[str, bool] = {}
         # ts -> thread snapshot; missing means a one-message thread. An empty list is what
         # a deleted trigger message reads as.
-        self.thread_messages: dict[str, list[dict[str, str]]] = {}
+        self.thread_messages: dict[str, list[SlackThreadMessage]] = {}
         # ts -> cascade mode; missing means "auto" with a fixed repository.
         self.cascade_modes: dict[str, Literal["auto", "no_repo", "agent_needed"]] = {}
         # ts per personal-GitHub gate call, in execution order.
@@ -126,16 +128,16 @@ def _fake_activities(rec: _Recorder) -> list:
     @activity.defn(name="collect_posthog_code_thread_messages_activity")
     async def collect(
         inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
-    ) -> list[dict[str, str]]:
+    ) -> list[SlackThreadMessage]:
         ts = inputs.event["ts"]
-        return rec.thread_messages.get(ts, [{"user": "U1", "text": inputs.event["text"]}])
+        return rec.thread_messages.get(ts, [SlackThreadMessage(user="U1", text=inputs.event["text"])])
 
     @activity.defn(name="cascade_posthog_code_repository_activity")
     async def cascade(
         inputs: PostHogCodeSlackMentionWorkflowInputs,
         event_text: str,
         user_id: int | None = None,
-        thread_messages: list[dict[str, str]] | None = None,
+        thread_messages: list[SlackThreadMessage] | None = None,
         mention_ts: str | None = None,
     ) -> PostHogCodeRepoCascadeOutcome:
         mode = rec.cascade_modes.get(inputs.event["ts"], "auto")
@@ -143,7 +145,7 @@ def _fake_activities(rec: _Recorder) -> list:
         return PostHogCodeRepoCascadeOutcome(mode=mode, repository=repository, reason="test")
 
     @activity.defn(name="classify_posthog_code_task_needs_repo_activity")
-    async def needs_repo(event_text: str, thread_messages: list[dict[str, str]]) -> bool:
+    async def needs_repo(event_text: str, thread_messages: list[SlackThreadMessage]) -> bool:
         rec.needs_repo_calls.append(event_text)
         return True
 
@@ -152,7 +154,7 @@ def _fake_activities(rec: _Recorder) -> list:
         inputs: PostHogCodeSlackMentionWorkflowInputs,
         channel: str,
         event: dict[str, Any],
-        thread_messages: list[dict[str, str]],
+        thread_messages: list[SlackThreadMessage],
         user_id: int,
     ) -> SlackRepoSelectionOutcome:
         return SlackRepoSelectionOutcome(status="failed", repository=None, reason="agent crashed")
@@ -196,7 +198,7 @@ def _fake_activities(rec: _Recorder) -> list:
         slack_user_id: str,
         user_id: int,
         event: dict[str, Any],
-        thread_messages: list[dict[str, str]],
+        thread_messages: list[SlackThreadMessage],
         repository: str | None,
         repo_research_task_id: str | None = None,
         repo_research_run_id: str | None = None,
