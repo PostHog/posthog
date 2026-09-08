@@ -90,6 +90,16 @@ class TestNextCheckAtAfterScheduleRestrictionChange:
             out = next_check_at_after_schedule_restriction_change(alert)
             assert out == datetime(2026, 4, 6, 16, 0, 0, tzinfo=UTC)
 
+    def test_custom_schedule_start_time_inside_blocked_window_snaps_to_first_unblocked_minute(self) -> None:
+        with freeze_time("2026-04-06T20:00:00Z"):
+            alert = self._hourly_alert(
+                schedule_restriction={"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
+                schedule_start_time={"time": "22:30"},
+                next_check_at=None,
+            )
+            out = next_check_at_after_schedule_restriction_change(alert)
+            assert out == datetime(2026, 4, 7, 7, 0, tzinfo=UTC)
+
     def test_does_not_keep_stale_snap_when_earlier_runs_are_allowed(self) -> None:
         with freeze_time("2026-04-06T16:44:00Z"):
             alert = self._hourly_alert(
