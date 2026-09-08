@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 from typing import Any
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import MagicMock, patch
+
+from django.db import close_old_connections, connection, transaction
+from django.db.utils import OperationalError
 
 from parameterized import parameterized
 
-from posthog.models import Tag
+from posthog.models import Tag, Team
 from posthog.models.comment import Comment
 
 from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, ZendeskImportJob
@@ -16,8 +21,10 @@ from products.conversations.backend.temporal.zendesk_import.activities import (
     ImportBatchInput,
     UpdateJobProgressInput,
     UpdateJobStatusInput,
+    _BuiltTicket,
     _import_ticket_batch_sync,
     _parse_zendesk_datetime,
+    _persist_ticket_batch,
     _update_job_progress_sync,
     _update_job_status_sync,
 )
@@ -614,6 +621,61 @@ class TestZendeskImportBatchActivity(BaseTest):
 
         self.assertEqual((result.imported, result.skipped, result.failed), (0, 0, 1))
         self.assertFalse(Ticket.objects.filter(team=self.team, zendesk_ticket_id=404).exists())
+
+
+class TestZendeskTicketNumberAllocationConcurrency(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @parameterized.expand([("advisory",), ("team_row",)])
+    def test_import_waits_for_each_bridge_lock(self, held_lock: str) -> None:
+        lock_acquired = Event()
+        release_lock = Event()
+
+        def hold_allocation_lock() -> None:
+            close_old_connections()
+            try:
+                with transaction.atomic():
+                    if held_lock == "advisory":
+                        Ticket.objects.lock_ticket_number_allocation(self.team.id)
+                    else:
+                        Team.objects.select_for_update().get(id=self.team.id)
+                    lock_acquired.set()
+                    if not release_lock.wait(timeout=5):
+                        raise TimeoutError("test did not release the allocation lock")
+            finally:
+                close_old_connections()
+
+        built = _BuiltTicket(
+            ticket=Ticket(
+                team=self.team,
+                widget_session_id="zendesk-lock-bridge",
+                distinct_id="requester@example.com",
+                channel_source=Channel.EMAIL,
+            ),
+            comments=[],
+            tag_names=[],
+            customer_message_count=0,
+            agent_reply_count=0,
+            created_at=None,
+            updated_at=None,
+        )
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            lock_future = executor.submit(hold_allocation_lock)
+            if not lock_acquired.wait(timeout=5):
+                release_lock.set()
+                lock_future.result(timeout=1)
+                self.fail(f"allocator did not acquire the {held_lock} lock")
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SET lock_timeout = '250ms'")
+                with self.assertRaisesRegex(OperationalError, "canceling statement due to lock timeout"):
+                    _persist_ticket_batch(self.team, [built], {})
+            finally:
+                with connection.cursor() as cursor:
+                    cursor.execute("SET lock_timeout = 0")
+                release_lock.set()
+            lock_future.result(timeout=5)
 
 
 class TestZendeskImportJobUpdates(BaseTest):
