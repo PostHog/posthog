@@ -113,6 +113,28 @@ class TestClearUnusableBreakdownColorsCommand(BaseTest):
 
         assert self._stored(dashboard) == []
 
+    def test_leaves_a_dashboard_whose_colors_all_apply(self) -> None:
+        # A row needing no change must be skipped before the write, not rewritten with the same
+        # value. Rewriting every row would also report every dashboard as changed, which buries the
+        # rows an operator has to read.
+        dashboard = self._dashboard("Fine", [_CHROME, _FIREFOX])
+
+        output = self._run("--live-run")
+
+        assert self._stored(dashboard) == [_CHROME, _FIREFOX]
+        assert f"dashboard {dashboard.id}" not in output
+
+    def test_dashboard_id_scopes_the_run_to_that_dashboard(self) -> None:
+        # An operator repairing one dashboard must not clear the rest of the team's. A filter on the
+        # wrong field would widen a targeted run into a team-wide one.
+        target = self._dashboard("Target", {"Chrome": "preset-1"})
+        other = self._dashboard("Other", {"Firefox": "preset-2"})
+
+        self._run("--live-run", f"--dashboard-id={target.id}")
+
+        assert self._stored(target) == []
+        assert self._stored(other) == {"Firefox": "preset-2"}
+
     def test_dry_run_reports_the_change_without_writing(self) -> None:
         dashboard = self._dashboard("Affected", {"Chrome": "preset-1"})
 
