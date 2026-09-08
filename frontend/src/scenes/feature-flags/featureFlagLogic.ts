@@ -938,6 +938,7 @@ export interface featureFlagLogicValues {
     featureFlagMissing: boolean
     featureFlagRefresh: FeatureFlagType | null
     featureFlagRefreshLoading: boolean
+    featureFlagRestoreLoading: boolean
     featureFlagTouched: boolean
     featureFlagTouches: Record<string, boolean>
     featureFlagValidationErrors: DeepPartialMap<
@@ -1466,6 +1467,9 @@ export interface featureFlagLogicActions {
     }
     restoreFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => {
         featureFlag: Partial<FeatureFlagType>
+    }
+    restoreFeatureFlagFinished: () => {
+        value: true
     }
     resumeRecurringScheduledChange: (scheduledChangeId: number) => {
         scheduledChangeId: number
@@ -2167,6 +2171,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setFeatureFlagMissing: true,
         deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         restoreFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
+        restoreFeatureFlagFinished: true,
         setRemoteConfigEnabled: (enabled: boolean) => ({ enabled }),
         resetEncryptedPayload: () => ({}),
         setMultivariateEnabled: (enabled: boolean) => ({ enabled }),
@@ -2544,6 +2549,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
         featureFlagMissing: [false, { setFeatureFlagMissing: () => true }],
+        featureFlagRestoreLoading: [
+            false,
+            {
+                restoreFeatureFlag: () => true,
+                restoreFeatureFlagFinished: () => false,
+            },
+        ],
         isEditingFlag: [
             false,
             {
@@ -3969,22 +3981,26 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             })
         },
         restoreFeatureFlag: async ({ featureFlag }) => {
-            await deleteWithUndo({
-                endpoint: `projects/${values.currentProjectId}/feature_flags`,
-                object: { name: featureFlag.key, id: featureFlag.id },
-                undo: true,
-                callback: (undo) => {
-                    if (undo) {
-                        deleteFromTree('feature_flag', String(featureFlag.id))
-                    } else {
-                        refreshTreeItem('feature_flag', String(featureFlag.id))
-                    }
-                    actions.loadFeatureFlag()
-                    // The flag is no longer deleted, so its real verdict may differ from the retained
-                    // DELETED one. Refetch it so the banner reflects the restored flag.
-                    actions.loadFeatureFlagStatus()
-                },
-            })
+            try {
+                await deleteWithUndo({
+                    endpoint: `projects/${values.currentProjectId}/feature_flags`,
+                    object: { name: featureFlag.key, id: featureFlag.id },
+                    undo: true,
+                    callback: (undo) => {
+                        if (undo) {
+                            deleteFromTree('feature_flag', String(featureFlag.id))
+                        } else {
+                            refreshTreeItem('feature_flag', String(featureFlag.id))
+                        }
+                        actions.loadFeatureFlag()
+                        // The flag is no longer deleted, so its real verdict may differ from the retained
+                        // DELETED one. Refetch it so the banner reflects the restored flag.
+                        actions.loadFeatureFlagStatus()
+                    },
+                })
+            } finally {
+                actions.restoreFeatureFlagFinished()
+            }
         },
         setMultivariateEnabled: async ({ enabled }) => {
             if (enabled) {

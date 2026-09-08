@@ -136,6 +136,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         accessDeniedToFeatureFlag,
         earlyAccessFeaturesList,
         featureFlagActiveUpdateLoading,
+        featureFlagRestoreLoading,
         dependentFlags,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
@@ -431,7 +432,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 <ButtonPrimitive
                                     menuItem
                                     variant="danger"
-                                    disabled={!!disabledReason}
+                                    disabled={!!disabledReason || featureFlagRestoreLoading}
                                     {...(disabledReason && { tooltip: disabledReason })}
                                     data-attr={featureFlag.deleted ? 'restore-feature-flag' : 'delete-feature-flag'}
                                     onClick={() => {
@@ -470,6 +471,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     ? {
                                           children: 'Restore',
                                           onClick: () => restoreFeatureFlag(featureFlag),
+                                          loading: featureFlagRestoreLoading,
                                           'data-attr': 'restore-feature-flag-banner',
                                       }
                                     : undefined
@@ -551,7 +553,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     {({ disabledReason }) => (
                                         <SceneMenuBarItem
                                             variant="destructive"
-                                            disabled={!!disabledReason}
+                                            disabled={!!disabledReason || featureFlagRestoreLoading}
                                             data-attr={
                                                 featureFlag.deleted
                                                     ? `${RESOURCE_TYPE}-menubar-restore`
