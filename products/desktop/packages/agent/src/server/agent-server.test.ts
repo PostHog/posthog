@@ -2286,7 +2286,7 @@ describe("AgentServer HTTP Mode", () => {
       expect(response.headers.get("content-type")).toBe("text/event-stream");
     }, 20000);
 
-    it("emits transport keepalive events while idle", async () => {
+    it("emits transport keepalive comments while idle", async () => {
       const keepaliveCallback: { current: (() => void) | null } = {
         current: null,
       };
@@ -2374,10 +2374,11 @@ describe("AgentServer HTTP Mode", () => {
           const { done, value } = await reader.read();
           if (done) break;
           streamText += decoder.decode(value, { stream: true });
-          if (streamText.includes('data: {"type":"keepalive"}\n\n')) break;
+          if (streamText.includes(": keepalive\n\n")) break;
         }
 
-        expect(streamText).toContain('data: {"type":"keepalive"}\n\n');
+        expect(streamText).toContain(": keepalive\n\n");
+        expect(streamText).not.toContain('"type":"keepalive"');
       } finally {
         await reader?.cancel();
         server = undefined;

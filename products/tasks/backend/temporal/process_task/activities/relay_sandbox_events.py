@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 import asyncio
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -444,17 +445,21 @@ async def _relay_loop(
                         event_source.response.raise_for_status()
                         last_event_time[0] = time.monotonic()
 
-                        async for sse_event in event_source.aiter_sse():
-                            if not sse_event.data:
+                        async for sse_data, is_transport_keepalive in _iter_sse_data(event_source):
+                            if is_transport_keepalive:
+                                await _record_relay_activity_best_effort(redis_stream, run_id)
+                                last_event_time[0] = time.monotonic()
+                                continue
+                            if not sse_data:
                                 continue
 
                             try:
-                                event_data = json.loads(sse_event.data)
+                                event_data = json.loads(sse_data)
                             except json.JSONDecodeError:
                                 logger.warning(
                                     "relay_sandbox_events_invalid_json",
                                     run_id=run_id,
-                                    data=sse_event.data[:200],
+                                    data=sse_data[:200],
                                 )
                                 continue
 
@@ -672,6 +677,32 @@ async def _record_relay_activity_best_effort(
         await redis_stream.record_relay_activity(force=force)
     except Exception as error:
         logger.warning("relay_sandbox_events_record_activity_failed", run_id=run_id, error=str(error))
+
+
+async def _iter_sse_data(event_source: Any) -> AsyncIterator[tuple[str, bool]]:
+    """Yield SSE data and expose comment keepalives that httpx-sse normally discards."""
+    line_iterator = getattr(event_source.response, "aiter_lines", None)
+    if not callable(line_iterator):
+        async for sse_event in event_source.aiter_sse():
+            yield sse_event.data, False
+        return
+
+    data_lines: list[str] = []
+    async for line in line_iterator():
+        if line.startswith(":"):
+            if line[1:].strip() == "keepalive":
+                yield "", True
+            continue
+        if not line:
+            if data_lines:
+                yield "\n".join(data_lines), False
+                data_lines = []
+            continue
+        field, separator, value = line.partition(":")
+        if field == "data" and separator:
+            data_lines.append(value[1:] if value.startswith(" ") else value)
+    if data_lines:
+        yield "\n".join(data_lines), False
 
 
 def _is_session_update(event_data: dict) -> bool:

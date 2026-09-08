@@ -594,17 +594,25 @@ class TestRelaySandboxEventsErrorHandling:
         }
 
         class SuccessfulEventSource:
-            response = SimpleNamespace(raise_for_status=lambda: None)
+            class Response:
+                @staticmethod
+                def raise_for_status() -> None:
+                    return None
+
+                @staticmethod
+                async def aiter_lines():
+                    yield ": keepalive"
+                    yield ""
+                    yield f"data: {json.dumps(terminal_event)}"
+                    yield ""
+
+            response = Response()
 
             async def __aenter__(self) -> "SuccessfulEventSource":
                 return self
 
             async def __aexit__(self, *_args: object) -> None:
                 return None
-
-            async def aiter_sse(self):
-                yield SimpleNamespace(data='{"type":"keepalive"}')
-                yield SimpleNamespace(data=json.dumps(terminal_event))
 
         def fake_connect_sse(*_args: object, **_kwargs: object) -> SuccessfulEventSource:
             return SuccessfulEventSource()
