@@ -112,7 +112,7 @@ function pickTokenBucketRetryDelayMs(refillPerSecond: number): number {
 
 const teamEmailCapDelayedTotal = new Counter({
     name: 'cdp_team_email_cap_delayed_total',
-    help: 'Workflow email sends delayed by the team trust-tier sending cap (or that would have been, in shadow mode).',
+    help: 'Workflow email sends delayed by the team trust-tier sending cap (or that would have been, in shadow mode). Bucket `error` counts a failed claim, where no cap was reached.',
     labelNames: ['tier', 'bucket', 'mode'],
 })
 
@@ -447,7 +447,9 @@ export class EmailService {
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: capDelay.retryDelayMs })
                 addLog(
                     'info',
-                    `This project reached its email sending limit of ${capDelay.label}. Retrying this email in ${Math.round(capDelay.retryDelayMs / 1000)}s. The limit rises as the project builds a clean sending history.`
+                    capDelay.label
+                        ? `This project reached its email sending limit of ${capDelay.label}. Retrying this email in ${Math.round(capDelay.retryDelayMs / 1000)}s. The limit rises as the project builds a clean sending history. The Reputation tab in workflows shows your current allowance.`
+                        : `PostHog could not check this project's email sending limit. Retrying this email in ${Math.round(capDelay.retryDelayMs / 1000)}s. This is a temporary problem on our side, and not a limit your project reached.`
                 )
                 return result
             }
@@ -566,6 +568,7 @@ export class EmailService {
      * trust-tier buckets.
      *
      * Returns the delay to reschedule with when a cap is reached, or null when the send may go out.
+     * A delay with a null label means the claim itself failed, not that a cap denied the send.
      * Two buckets, not one: the daily cap bounds how much damage a team can do to the shared SES
      * account's reputation, and the hourly cap forces that volume to spread out so complaint
      * feedback (which lags by hours) arrives while the team's total volume is still small.
@@ -578,7 +581,7 @@ export class EmailService {
         invocation: CyclotronJobInvocationHogFunction,
         isTest: boolean,
         recipients: number = 1
-    ): Promise<{ retryDelayMs: number; label: string } | null> {
+    ): Promise<{ retryDelayMs: number; label: string | null } | null> {
         const mode: TeamEmailCapMode = this.sesConfig.teamEmailCapMode ?? 'off'
         if (mode === 'off' || isTest || !this.teamEmailRateLimiter) {
             return null
@@ -615,7 +618,17 @@ export class EmailService {
             if (claim.granted) {
                 return null
             }
-            const denied = buckets[claim.deniedIndex ?? 1]
+            if (claim.deniedIndex === null) {
+                // The claim failed rather than being denied, so no cap was reached. The null label
+                // keeps the caller from naming a limit the project never hit. Wait on the hourly
+                // bucket's cadence, the shorter of the two, because nothing must refill first.
+                teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: 'error', mode })
+                return {
+                    retryDelayMs: pickTokenBucketRetryDelayMs(buckets[0].refillPerSecond),
+                    label: null,
+                }
+            }
+            const denied = buckets[claim.deniedIndex]
             teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: denied.name, mode })
             return {
                 retryDelayMs: pickTokenBucketRetryDelayMs(denied.refillPerSecond),
