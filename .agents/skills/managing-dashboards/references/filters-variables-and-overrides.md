@@ -25,6 +25,15 @@ Before you change one layer, define its precedence with every other affected lay
 - Check tiles that opt out of dashboard filters separately from tiles that add their own filters.
 - Apply the same resolved state to dashboard detail, `run_insights`, streaming, export, and the frontend preview.
 
+## Saved filter views
+
+- Store a small shared view list on the dashboard when views do not need separate access rules.
+- Keep saved views distinct from the dashboard's default filters.
+- Apply a selected view through URL filters so users can share and clear it.
+- Let dashboard editors manage views. Let dashboard viewers select views.
+- Hide saved filter views from public, embedded, product-embedded, and export surfaces unless a later contract adds them.
+- Gate both the UI and dashboard mutations during rollout.
+
 ## Failure cases
 
 | Change               | Check                                                                              |
