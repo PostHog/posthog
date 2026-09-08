@@ -30,6 +30,10 @@ from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, He
 
 # Stamped on every scored event, so a chart can tell this pool definition from a later one.
 POOL_NAME = "newborn"
+# The pool of a scores object written before the column existed: a seeded sample of the state rows
+# the day's examples did not cover. The grader reads objects up to 14 days old, so a change of pool
+# definition puts two populations in one AUC series unless the older one keeps its own name.
+LEGACY_POOL_NAME = "sampled"
 
 CANDIDATE_ROLE = "candidate"
 CHAMPION_ROLE = "champion"
@@ -42,6 +46,7 @@ _SCORE_TYPES: dict[str, pa.DataType] = {
     "team_id": pa.int64(),
     "report_created_at": pa.timestamp("us", tz="UTC"),
     "snapshot_date": pa.date32(),
+    "pool": pa.string(),
     "model_version": pa.string(),
     "model_role": pa.string(),
     "feature_schema_version": pa.int64(),
@@ -82,6 +87,9 @@ class HeadGrade:
     horizon_days: int
     # The partition the scores were written on, which is `horizon_days` before the grading day.
     scoring_partition: str
+    # The pool definition the scored rows came from, carried so the AUC series can be read per pool
+    # rather than split by hand on the day a definition changed.
+    pool: str
     model_version: str
     model_role: str
     rows: int
@@ -106,6 +114,7 @@ class HeadGrade:
             "head": self.head,
             "horizon_days": self.horizon_days,
             "scoring_partition": self.scoring_partition,
+            "pool": self.pool,
             "model_version": self.model_version,
             "model_role": self.model_role,
             **self.metrics(),
@@ -172,6 +181,19 @@ def leaked_report_ids(pool: pd.DataFrame, example_report_ids: Collection[object]
     return sorted(str(report_id) for report_id in pool.index if report_id in covered)
 
 
+def scored_pool(scores: pd.DataFrame) -> str:
+    """The pool definition a scores object was written under.
+
+    One partition is written by one run, so the column holds a single value. An object written
+    before the column existed is a sample of the old pool, and must not be graded as the current
+    one.
+    """
+    if "pool" not in scores:
+        return LEGACY_POOL_NAME
+    values = scores["pool"].dropna().unique()
+    return str(values[0]) if len(values) else LEGACY_POOL_NAME
+
+
 def score_pool(
     pool: pd.DataFrame, labels: pd.DataFrame, models: Sequence[UnseenModel], *, snapshot_date: datetime.date
 ) -> pd.DataFrame:
@@ -198,6 +220,7 @@ def score_pool(
                 "team_id": team_ids,
                 "report_created_at": created_at,
                 "snapshot_date": snapshot_date,
+                "pool": POOL_NAME,
                 "model_version": model.model_version,
                 "model_role": model.model_role,
                 "feature_schema_version": model.feature_schema_version,
@@ -290,7 +313,7 @@ def graded_rows(head_scores: pd.DataFrame, labels: pd.DataFrame, head: Head) -> 
     return graded
 
 
-def head_grades(graded: pd.DataFrame, head: Head, *, scoring_partition: str) -> list[HeadGrade]:
+def head_grades(graded: pd.DataFrame, head: Head, *, pool: str, scoring_partition: str) -> list[HeadGrade]:
     """The unseen read per model that scored this head, over the in-cohort rows."""
     grades: list[HeadGrade] = []
     kept = graded[graded["in_cohort"]]
@@ -301,6 +324,7 @@ def head_grades(graded: pd.DataFrame, head: Head, *, scoring_partition: str) -> 
                 head=head.name,
                 horizon_days=head.horizon_days,
                 scoring_partition=scoring_partition,
+                pool=pool,
                 model_version=str(model_version),
                 model_role=str(model_role),
                 rows=len(rows),
@@ -314,7 +338,7 @@ def head_grades(graded: pd.DataFrame, head: Head, *, scoring_partition: str) -> 
 
 
 def report_grade_rows(
-    graded_by_head: Mapping[str, pd.DataFrame], *, horizon_days: int, scoring_partition: str
+    graded_by_head: Mapping[str, pd.DataFrame], *, pool: str, horizon_days: int, scoring_partition: str
 ) -> list[dict[str, object]]:
     """One dict per (report, model) carrying every head graded at this horizon.
 
@@ -331,6 +355,7 @@ def report_grade_rows(
                     "report_id": record["report_id"],
                     "team_id": _int_or_none(record["team_id"]),
                     "scoring_partition": scoring_partition,
+                    "pool": pool,
                     "model_version": record["model_version"],
                     "model_role": record["model_role"],
                     "horizon_days": horizon_days,

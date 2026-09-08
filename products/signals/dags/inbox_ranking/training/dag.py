@@ -91,6 +91,7 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     report_grade_rows,
     score_event_rows,
     score_pool,
+    scored_pool,
     scores_table,
     unseen_pool,
 )
@@ -595,6 +596,7 @@ def inbox_ranking_unseen_graded(context: dagster.AssetExecutionContext) -> None:
             skipped.update({head.name: f"no unseen scores for dt={scoring_partition}" for head in heads})
             continue
         scores = table.to_pandas()
+        pool = scored_pool(scores)
         graded_by_head: dict[str, pd.DataFrame] = {}
         for head in heads:
             missing = missing_label_columns(labels, head)
@@ -607,9 +609,9 @@ def inbox_ranking_unseen_graded(context: dagster.AssetExecutionContext) -> None:
                 continue
             graded = graded_rows(head_scores, labels, head)
             graded_by_head[head.name] = graded
-            grades.extend(head_grades(graded, head, scoring_partition=scoring_partition))
+            grades.extend(head_grades(graded, head, pool=pool, scoring_partition=scoring_partition))
         report_rows.extend(
-            report_grade_rows(graded_by_head, horizon_days=horizon_days, scoring_partition=scoring_partition)
+            report_grade_rows(graded_by_head, pool=pool, horizon_days=horizon_days, scoring_partition=scoring_partition)
         )
 
     for grade in grades:
