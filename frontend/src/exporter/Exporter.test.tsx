@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react'
+import { fireEvent, render, waitFor } from '@testing-library/react'
 
 import { Exporter } from '~/exporter/Exporter'
 import { ExportType, ExportedData } from '~/exporter/types'
@@ -6,6 +6,10 @@ import { initKeaTests } from '~/test/init'
 
 beforeEach(() => {
     initKeaTests()
+})
+
+afterEach(() => {
+    jest.restoreAllMocks()
 })
 
 function makeDashboardExport(overrides: Partial<ExportedData> = {}): ExportedData {
@@ -53,6 +57,35 @@ describe('Exporter (shared dashboard)', () => {
         const headings = getAllByText('My shared dashboard')
         expect(headings.length).toBeGreaterThan(0)
         expect(getAllByText(/Auto refresh every/i).length).toBeGreaterThan(0)
+    })
+
+    it('renders the share once the password is accepted, without reloading', async () => {
+        const unlocked = makeDashboardExport()
+        const realFetch = global.fetch
+        // Only the share URL is answered here - everything else stays on the suite's usual mocks
+        jest.spyOn(global, 'fetch').mockImplementation(async (url, options: RequestInit = {}) => {
+            if (url !== window.location.href) {
+                return realFetch(url, options)
+            }
+            if (options.method === 'POST') {
+                return { status: 200, json: async () => ({ shareToken: 'jwt-token' }) } as any
+            }
+            return { ok: true, json: async () => unlocked } as any
+        })
+
+        const { getByPlaceholderText, getByText, getAllByText } = render(<Exporter type={ExportType.Unlock} />)
+        fireEvent.change(getByPlaceholderText('••••••••••'), { target: { value: 'correct' } })
+        fireEvent.click(getByText('Unlock'))
+
+        await waitFor(() => expect(getAllByText('My shared dashboard').length).toBeGreaterThan(0))
+    })
+
+    it('applies the share theme to the unlock screen', () => {
+        render(<Exporter type={ExportType.Unlock} theme="dark" />)
+
+        expect(document.body.getAttribute('theme')).toBe('dark')
+
+        document.body.removeAttribute('theme')
     })
 
     it('does not show auto refresh text for image exports', () => {
