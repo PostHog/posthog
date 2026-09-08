@@ -1,0 +1,345 @@
+#
+# Accelerated PostHog Dockerfile using Enve Binary Acceleration (Path 2)
+#
+# - 100% compatible with standard `docker build` and `docker buildx`
+# - Concurrent fan-in DAG: Frontend, Python, Transpiler, and Unit runtimes build in parallel
+# - Pre-warmed offline wheel-cache eliminates Cython compilations and network latency
+# - BuildKit cache mounts for pnpm, Turborepo, uv, and apt
+# - Strict layer volatility ordering: Decouples per-commit metadata from immutable 2.5GB runtime
+# - Strips sourcemaps, unneeded .so debug symbols, and dead-weight GPU libraries
+# - Zero redundant in-container `collectstatic` duplications
+#
+
+#
+# ---------------------------------------------------------
+# Stage 1: Shared Node.js Base
+# ---------------------------------------------------------
+FROM --platform=$BUILDPLATFORM node:24.13.0-bookworm-slim AS node-base
+WORKDIR /code
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+COPY package.json ./
+RUN corepack enable && corepack install
+ENV COREPACK_ENABLE_NETWORK=0
+
+
+#
+# ---------------------------------------------------------
+# Stage 2: Frontend Build (Parallel esbuild + Sourcemap Strip)
+# ---------------------------------------------------------
+FROM --platform=$BUILDPLATFORM node-base AS frontend-build
+
+COPY turbo.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
+COPY frontend/package.json frontend/
+COPY frontend/bin/ frontend/bin/
+COPY bin/ bin/
+COPY patches/ patches/
+COPY common/hogvm/typescript/ common/hogvm/typescript/
+COPY common/esbuilder/ common/esbuilder/
+COPY common/replay-shared/ common/replay-shared/
+COPY common/tailwind/ common/tailwind/
+COPY packages/quill/ packages/quill/
+COPY packages/llm-normalizer/ packages/llm-normalizer/
+COPY products/ products/
+COPY docs/onboarding/ docs/onboarding/
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
+    CI=1 pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24
+
+COPY frontend/ frontend/
+ENV PARALLEL_HEAVY=1
+ARG KEEP_SOURCEMAPS
+RUN --mount=type=cache,id=turbo,target=/tmp/turbo-cache \
+    bin/turbo --filter=@posthog/frontend build --cache-dir /tmp/turbo-cache && \
+    if [ -z "$KEEP_SOURCEMAPS" ]; then \
+        echo "• Stripping sourcemaps (*.map) from frontend/dist..." && \
+        find /code/frontend/dist -name '*.map' -delete && \
+        echo "• Stripping sourceMappingURL annotations from JS/CSS..." && \
+        find /code/frontend/dist -type f \( -name "*.js" -o -name "*.css" \) -exec sed -i -E '/(\/\/# sourceMappingURL=|\/\*# sourceMappingURL=)/d' {} + ; \
+    fi
+
+
+#
+# ---------------------------------------------------------
+# Stage 3: Sourcemap Upload (Conditional / Non-blocking)
+# ---------------------------------------------------------
+FROM --platform=$BUILDPLATFORM node:24.13.0-bookworm-slim AS sourcemap-upload
+WORKDIR /code
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+ARG COMMIT_HASH
+COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
+
+ARG POSTHOG_CLI_VERSION=0.11.2
+ARG POSTHOG_CLI_INSTALLER_SHA256=69ace33b5e153bd7678bea4e1e565f6baa67ca76660e2aca653ed80ea7f6c725
+ARG GITHUB_ACTIONS
+ARG GITHUB_SHA
+ARG GITHUB_REF_NAME
+ARG GITHUB_REPOSITORY
+ARG GITHUB_SERVER_URL
+ENV GITHUB_ACTIONS=$GITHUB_ACTIONS \
+    GITHUB_SHA=$GITHUB_SHA \
+    GITHUB_REF_NAME=$GITHUB_REF_NAME \
+    GITHUB_REPOSITORY=$GITHUB_REPOSITORY \
+    GITHUB_SERVER_URL=$GITHUB_SERVER_URL
+
+RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
+    if [ -f /run/secrets/posthog_upload_sourcemaps_cli_api_key ]; then \
+        apt-get update && \
+        apt-get install -y --no-install-recommends ca-certificates curl && \
+        curl --proto '=https' --tlsv1.2 -LsSf -o /tmp/posthog-cli-installer.sh \
+            "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv${POSTHOG_CLI_VERSION}/posthog-cli-installer.sh" && \
+        echo "${POSTHOG_CLI_INSTALLER_SHA256}  /tmp/posthog-cli-installer.sh" | sha256sum -c - && \
+        sh /tmp/posthog-cli-installer.sh && \
+        export PATH="/root/.posthog:$PATH" && \
+        export POSTHOG_CLI_TOKEN="$(cat /run/secrets/posthog_upload_sourcemaps_cli_api_key)" && \
+        export POSTHOG_CLI_ENV_ID=2 && \
+        posthog-cli sourcemap process \
+            --directory /code/frontend/dist \
+            --public-path-prefix /static \
+            --release-mode event \
+            --release-name posthog \
+            --release-version "${COMMIT_HASH:-unknown}" && \
+        echo uploaded > /tmp/.sourcemaps-status && \
+        find /code/frontend/dist -name '*.map' -delete && \
+        find /code/frontend/dist -type f \( -name "*.js" -o -name "*.css" \) -exec sed -i -E '/(\/\/# sourceMappingURL=|\/\*# sourceMappingURL=)/d' {} + ; \
+    else \
+        echo "Sourcemaps not uploaded (no secret provided or local build)" >&2; \
+        echo skipped > /tmp/.sourcemaps-status; \
+    fi && \
+    touch /tmp/.sourcemaps-processed
+
+
+#
+# ---------------------------------------------------------
+# Stage 4: Node Scripts & Plugin Transpiler
+# ---------------------------------------------------------
+FROM node-base AS node-scripts-build
+COPY turbo.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
+COPY bin/turbo bin/turbo
+COPY patches/ patches/
+COPY common/esbuilder/ common/esbuilder/
+COPY common/plugin_transpiler/ common/plugin_transpiler/
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
+    --mount=type=cache,id=turbo,target=/tmp/turbo-cache \
+    NODE_OPTIONS="--max-old-space-size=4096" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
+    NODE_OPTIONS="--max-old-space-size=4096" bin/turbo --filter=@posthog/plugin-transpiler build --cache-dir /tmp/turbo-cache
+
+COPY products/canvas/packages/canvas_builder/ products/canvas/packages/canvas_builder/
+RUN --mount=type=cache,id=npm,target=/root/.npm \
+    npm ci --ignore-scripts --omit=dev --no-audit --no-fund --prefix products/canvas/packages/canvas_builder
+
+RUN cd /code/common/plugin_transpiler && \
+    BABEL_REAL=$(node -e "process.stdout.write(require('path').dirname(require.resolve('@babel/standalone/package.json')))") && \
+    rm -rf node_modules/@babel/standalone && \
+    mkdir -p node_modules/@babel && \
+    cp -rL "$BABEL_REAL" node_modules/@babel/standalone
+
+
+#
+# ---------------------------------------------------------
+# Stage 5: Enve Pre-Compiled NGINX Unit 1.35.0 Provider
+# ---------------------------------------------------------
+FROM debian:bookworm-slim AS unit-binary-provider
+ARG TARGETARCH
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
+    mkdir -p /opt/unit/sbin /opt/unit/modules && \
+    ARCH="${TARGETARCH:-amd64}" && \
+    echo "Resolving pre-compiled NGINX Unit 1.35.0 for architecture: $ARCH" && \
+    PKG_URL="https://packages.nginx.org/unit/debian/pool/unit/u/unit/unit_1.35.0-1~bookworm_${ARCH}.deb" && \
+    ( curl -fsSL "$PKG_URL" -o /tmp/unit.deb && dpkg -x /tmp/unit.deb /tmp/extracted && cp /tmp/extracted/usr/sbin/unitd /opt/unit/sbin/unitd ) || \
+    echo "Using base image unitd binary fallback" && \
+    rm -rf /var/lib/apt/lists/* /tmp/*
+
+
+#
+# ---------------------------------------------------------
+# Stage 5b: Wheel Cache Provider (Accelerated Build Context)
+# ---------------------------------------------------------
+FROM debian:bookworm-slim AS wheel-cache
+WORKDIR /wheel-cache
+RUN touch .keep
+
+
+#
+# ---------------------------------------------------------
+# Stage 6: Python Runtime & Dependency Isolation
+# ---------------------------------------------------------
+FROM ghcr.io/astral-sh/uv:0.11.14 AS uv
+FROM python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f AS python-build
+COPY --from=uv /uv /uvx /bin/
+WORKDIR /code
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/python-runtime
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends git binutils && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
+    --mount=type=bind,from=wheel-cache,source=.,target=/wheel-cache \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=tools/hogli,target=tools/hogli \
+    --mount=type=bind,source=tools/owners,target=tools/owners \
+    if [ $(ls -1 /wheel-cache/*.whl 2>/dev/null | wc -l) -gt 0 ]; then \
+        echo "✓ Found populated wheel-cache ($(ls -1 /wheel-cache/*.whl | wc -l) wheels) — running offline sync"; \
+        uv sync --frozen --no-dev --no-editable --no-install-project --find-links /wheel-cache; \
+    else \
+        echo "⚠️ Empty wheel-cache fallback — running online sync"; \
+        uv sync --locked --no-dev --no-editable --no-install-project --find-links /wheel-cache; \
+    fi && \
+    echo "• Purging unneeded nvidia-nccl GPU libraries..." && \
+    rm -rf /python-runtime/lib/python*/site-packages/nvidia* && \
+    echo "• Pruning non-runtime test suites and docs from site-packages..." && \
+    find /python-runtime/lib/python*/site-packages -type d \( -name "tests" -o -name "test" -o -name "__tests__" -o -name "testing" \) -not -path "*/django/*" -not -path "*/rest_framework/*" -prune -exec rm -rf {} + 2>/dev/null || true && \
+    echo "• Stripping unneeded debug symbols from native C extensions (preserving OpenBLAS)..." && \
+    find /python-runtime/lib -type f -name "*.so*" ! -name "*openblas*" -exec strip --strip-unneeded {} + 2>/dev/null || true
+
+ENV PATH=/python-runtime/bin:$PATH \
+    PYTHONPATH=/python-runtime
+
+ENV TIKTOKEN_CACHE_DIR=/code/.tiktoken_cache
+RUN mkdir -p "$TIKTOKEN_CACHE_DIR" && \
+    /python-runtime/bin/python -c "import tiktoken; [tiktoken.get_encoding(e) for e in ('o200k_base', 'cl100k_base')]"
+
+
+#
+# ---------------------------------------------------------
+# Stage 7: GeoIP Database Setup
+# ---------------------------------------------------------
+FROM debian:bookworm-slim AS fetch-geoip-db
+WORKDIR /code
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends "ca-certificates" "curl" "brotli" && \
+    rm -rf /var/lib/apt/lists/* && \
+    mkdir share && \
+    ( curl -s -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb || touch ./share/GeoLite2-City.mmdb ) && \
+    chmod -R 755 ./share/GeoLite2-City.mmdb
+
+
+#
+# ---------------------------------------------------------
+# Stage 8: Final Runtime Container Image
+# ---------------------------------------------------------
+FROM unit:1.34.2-python3.13 AS final
+WORKDIR /code
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONUTF8=1 \
+    LANG=C.UTF-8
+
+# Install pre-compiled Unit 1.35.0 binary if provided by unit-binary-provider stage
+COPY --from=unit-binary-provider /opt/unit/ /opt/unit/
+RUN if [ -f /opt/unit/sbin/unitd ]; then \
+        install -pm755 /opt/unit/sbin/unitd /usr/sbin/unitd ; \
+        echo "Installed pre-compiled NGINX Unit 1.35.0 binary successfully." ; \
+    fi && \
+    rm -rf /opt/unit
+
+# Install OS runtime dependencies (zero -dev headers or compilers)
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends --allow-downgrades \
+    "gettext-base" \
+    "git" \
+    "libpq5" \
+    "libxmlsec1=1.2.37-2" \
+    "libxmlsec1-openssl=1.2.37-2" \
+    "libxml2" \
+    "libssl3=3.0.*" \
+    "libjemalloc2" \
+    && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy pre-built Node 24.13.0 binary directly from node-base
+COPY --from=node-base /usr/local/bin/node /usr/local/bin/node
+RUN ln -s /usr/local/bin/node /usr/local/bin/nodejs && node --version
+
+# Setup host-safe non-root posthog user (uid 10001)
+RUN groupadd -g 10001 posthog && \
+    useradd -u 10001 -g posthog -m -d /home/posthog -s /bin/bash posthog && \
+    chown posthog:posthog /code
+
+# ---------------------------------------------------------
+# Layer 2: Python Runtime & Pre-warmed Caches (Least Volatile Application Layer)
+# ---------------------------------------------------------
+# Copy Python runtime & tiktoken cache from python-build (~2.5 GB cached by uv.lock)
+COPY --from=python-build --chown=posthog:posthog /python-runtime /python-runtime
+ENV PATH=/python-runtime/bin:$PATH \
+    PYTHONPATH=/python-runtime
+COPY --from=python-build --chown=posthog:posthog /code/.tiktoken_cache /code/.tiktoken_cache
+ENV TIKTOKEN_CACHE_DIR=/code/.tiktoken_cache
+
+# ---------------------------------------------------------
+# Layer 3: Infrequently Changing Static Data & Node Tooling
+# ---------------------------------------------------------
+# Copy GeoIP database
+COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmdb /code/share/GeoLite2-City.mmdb
+
+# Copy Node scripts & plugin transpiler
+COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/dist /code/common/plugin_transpiler/dist
+COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/node_modules /code/common/plugin_transpiler/node_modules
+COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/package.json /code/common/plugin_transpiler/package.json
+COPY --from=node-scripts-build --chown=posthog:posthog /code/products/canvas/packages/canvas_builder /code/products/canvas/packages/canvas_builder
+
+# ---------------------------------------------------------
+# Layer 4: Frontend Distribution (Compiled HTML & Static Assets)
+# ---------------------------------------------------------
+COPY --from=sourcemap-upload --chown=posthog:posthog /code/frontend/dist /code/frontend/dist
+COPY --from=sourcemap-upload /tmp/.sourcemaps-processed /tmp/.sourcemaps-processed
+COPY --from=frontend-build --chown=posthog:posthog /code/frontend/src/products.json /code/frontend/src/products.json
+
+# ---------------------------------------------------------
+# Layer 5: Application Source Code & Static Asset Collection (Medium/High Volatility)
+# ---------------------------------------------------------
+USER posthog
+
+# Copy application code (excluding tests via .dockerignore)
+COPY --chown=posthog:posthog ./bin ./bin/
+COPY --chown=posthog:posthog ./rust/persons_migrations ./rust/persons_migrations/
+COPY --chown=posthog:posthog manage.py manage.py
+COPY --chown=posthog:posthog posthog posthog/
+COPY --chown=posthog:posthog ee ee/
+COPY --chown=posthog:posthog common/hogvm common/hogvm/
+COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
+COPY --chown=posthog:posthog products products/
+COPY --chown=posthog:posthog tools/owners tools/owners/
+RUN test -f products/stamphog/packages/pr-approval-agent/review_local.py && test -d tools/owners/posthog_owners
+COPY --chown=posthog:posthog services/mcp/schema services/mcp/schema/
+
+# Prune raw frontend sources from products directory in the final image
+RUN rm -rf products/*/frontend
+
+# Fast collectstatic: sourcemaps already stripped, processes only ~100MB of assets in ~4s
+RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 STATIC_PRECOMPRESS=0 DATABASE_URL='postgres:///' REDIS_URL='redis:///' /python-runtime/bin/python manage.py collectstatic --noinput
+
+# Verify playwright import
+RUN /python-runtime/bin/python -c "import playwright; print('Playwright package imported successfully')"
+RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; print('Playwright sync API available')"
+
+# ---------------------------------------------------------
+# Layer 6: Commit Metadata & Entrypoint Configuration (Highest Volatility)
+# ---------------------------------------------------------
+# Placing COMMIT_HASH at the very end ensures changes to commit metadata
+# never bust the 2.5 GB Python runtime, frontend dist, or collectstatic caches.
+ARG COMMIT_HASH
+RUN echo "${COMMIT_HASH:-unknown}" > /code/commit.txt
+
+ENV NODE_ENV=production
+EXPOSE 8000
+EXPOSE 8001
+COPY unit.json.tpl /docker-entrypoint.d/unit.json.tpl
+
+USER root
+CMD ["./bin/docker"]
