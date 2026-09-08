@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adyen.sett
     ENDPOINT_DESCRIPTIONS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    AdyenEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -47,6 +48,15 @@ Create an API credential in your Adyen Customer Area under **Developers > API cr
 Pick the environment that matches where you created the API key — a test key won't work against live."""
 
 
+def _missing_identifier_message(config: AdyenSourceConfig, endpoint: AdyenEndpointConfig) -> str | None:
+    """Why this table can't sync with the identifiers the source config carries, if it can't."""
+    if endpoint.requires_balance_platform and not (config.balance_platform or "").strip():
+        return "Add your balance platform ID to the source to sync this table."
+    if endpoint.requires_merchant_account and not (config.merchant_account or "").strip():
+        return "Add your merchant account to the source to sync this table."
+    return None
+
+
 @SourceRegistry.register
 class AdyenSource(ResumableSource[AdyenSourceConfig, AdyenResumeConfig]):
     # Adyen versions each of its APIs separately (Transfers v4, Configuration v2, Management v3),
@@ -63,6 +73,23 @@ class AdyenSource(ResumableSource[AdyenSourceConfig, AdyenResumeConfig]):
         return {
             "401 Client Error: Unauthorized": "Adyen rejected the API key. Check the key, and that it matches the environment you selected.",
             "403 Client Error: Forbidden": "Adyen denied access. Check that the API credential has the roles needed for the tables you're syncing.",
+            # `_require_identifier` raises these when a selected table needs an identifier the
+            # source config doesn't carry. No retry can fill in a field, so stop and name it.
+            # `test_a_configuration_error_stops_the_job_instead_of_retrying` pins the wording.
+            "Balance platform ID is required to sync this table.": "This table needs your balance platform ID. Add it to the source, or stop syncing the table.",
+            "Merchant account is required to sync this table.": "This table needs your merchant account. Add it to the source, or stop syncing the table.",
+            "Balance platform ID contains unsupported characters.": "The balance platform ID on this source isn't a valid Adyen identifier. Check it and try again.",
+            "Merchant account contains unsupported characters.": "The merchant account on this source isn't a valid Adyen identifier. Check it and try again.",
+        }
+
+    def get_endpoint_permissions(
+        self, config: AdyenSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
+    ) -> dict[str, str | None]:
+        # A table whose identifier is missing can never sync, so block it in the table picker
+        # instead of letting the first sync fail.
+        return {
+            name: _missing_identifier_message(config, ADYEN_ENDPOINTS[name]) if name in ADYEN_ENDPOINTS else None
+            for name in endpoints
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -84,12 +111,8 @@ class AdyenSource(ResumableSource[AdyenSourceConfig, AdyenResumeConfig]):
         # Adyen accounts reach either the balance platform tables or the merchant report, rarely
         # both, so a table whose identifier is missing starts unselected instead of failing its
         # first sync.
-        has_platform = bool((config.balance_platform or "").strip())
-        has_merchant = bool((config.merchant_account or "").strip())
         should_sync_default = {
-            name: (has_platform or not endpoint.requires_balance_platform)
-            and (has_merchant or not endpoint.requires_merchant_account)
-            for name, endpoint in ADYEN_ENDPOINTS.items()
+            name: _missing_identifier_message(config, endpoint) is None for name, endpoint in ADYEN_ENDPOINTS.items()
         }
 
         return build_endpoint_schemas(
@@ -107,6 +130,12 @@ class AdyenSource(ResumableSource[AdyenSourceConfig, AdyenResumeConfig]):
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        endpoint = ADYEN_ENDPOINTS.get(schema_name) if schema_name else None
+        if endpoint is not None:
+            missing = _missing_identifier_message(config, endpoint)
+            if missing is not None:
+                return False, missing
+
         return validate_adyen_credentials(
             environment=config.environment,
             api_key=config.api_key,
