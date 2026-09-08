@@ -152,9 +152,17 @@ class TestOrganizationAPI(APIBaseTest):
         response_rename = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "QWERTY"})
 
         self.assertEqual(response_rename.status_code, status.HTTP_200_OK)
+        self.assertEqual(response_rename.json()["slug"], "qwerty")
 
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.name, "QWERTY")
+        self.assertEqual(self.organization.slug, "qwerty")
+
+        response_slug = self.client.patch(f"/api/organizations/{self.organization.id}", {"slug": "hijacked"})
+
+        self.assertEqual(response_slug.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.slug, "qwerty")
 
     def test_update_organization_if_owner(self):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
