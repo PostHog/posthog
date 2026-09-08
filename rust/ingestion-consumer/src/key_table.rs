@@ -50,7 +50,7 @@ struct KeyState {
     /// The queue's front messages were sent once and failed. Their next
     /// dispatch is a [`SendKind::Resend`]; a key parked only as unroutable
     /// has never been sent, so its retry stays a strictly checked first send.
-    replaying: bool,
+    redelivering: bool,
 }
 
 impl KeyState {
@@ -59,7 +59,7 @@ impl KeyState {
             queue: VecDeque::new(),
             outstanding: false,
             parked: false,
-            replaying: false,
+            redelivering: false,
         }
     }
 }
@@ -125,7 +125,7 @@ impl KeyTable {
     }
 
     /// Return a failed run to the front of its queue, ahead of anything that
-    /// arrived while the run was in flight, so the replay keeps offset order.
+    /// arrived while the run was in flight, so the redelivery keeps offset order.
     fn requeue_front(&mut self, key: &str, messages: Vec<SerializedKafkaMessage>) {
         self.queued_messages += messages.len();
         self.queued_bytes += payload_bytes(&messages);
@@ -133,7 +133,7 @@ impl KeyTable {
             .keys
             .entry(key.to_string())
             .or_insert_with(KeyState::new);
-        state.replaying = true;
+        state.redelivering = true;
         for message in messages.into_iter().rev() {
             state.queue.push_front(message);
         }
@@ -150,7 +150,7 @@ impl KeyTable {
         let run: Vec<SerializedKafkaMessage> = state.queue.drain(..).collect();
         state.outstanding = true;
         state.parked = false;
-        state.replaying = false;
+        state.redelivering = false;
         self.outstanding_keys += 1;
         // Saturate so an accounting bug publishes zero to the gauges instead
         // of a wrapped huge value.
@@ -190,9 +190,9 @@ impl KeyTable {
         self.keys.get(key).map_or(0, |state| state.queue.len())
     }
 
-    /// Whether the key's next dispatch replays messages from a failed send.
-    fn is_replaying(&self, key: &str) -> bool {
-        self.keys.get(key).is_some_and(|state| state.replaying)
+    /// Whether the key's next dispatch redelivers messages from a failed send.
+    fn is_redelivering(&self, key: &str) -> bool {
+        self.keys.get(key).is_some_and(|state| state.redelivering)
     }
 
     /// Clear the key's outstanding flag when its request settles. Returns
@@ -380,7 +380,7 @@ impl Scheduler for KeyTableScheduler {
                     }
                     // Failed work waits for the parked-retry deadline instead
                     // of retrying at once, so a failing worker pool gets a
-                    // pause before the replay.
+                    // pause before the redelivery.
                     if self.table.queued_len(key) > 0 {
                         self.table.park(key);
                     } else if self.table.evict_if_idle(key) {
@@ -420,7 +420,7 @@ impl Scheduler for KeyTableScheduler {
             };
             // A key parked only as unroutable has never been sent: its retry
             // is a first send, checked strictly by the order sentinel.
-            let kind = if self.table.is_replaying(&key) {
+            let kind = if self.table.is_redelivering(&key) {
                 SendKind::Resend
             } else {
                 SendKind::Fresh
@@ -742,11 +742,47 @@ mod tests {
         assert_eq!(sched.table().parked_keys(), 1);
         assert_eq!(sched.table().outstanding_keys(), 0);
 
-        // The retry replays the failed run ahead of the later arrival.
+        // The retry redelivers the failed run ahead of the later arrival.
         let effects = sched.on_deadline(&snapshot(&[A, B], &[]), Deadline::ParkedRetry);
         assert_eq!(effects.dispatches.len(), 1);
         assert_eq!(effects.dispatches[0].kind, SendKind::Resend);
         assert_eq!(offsets_of(&effects.dispatches[0]), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_a_run_that_fails_twice_is_resent_again_and_ends_clean() {
+        let mut sched = scheduler();
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", vec![run("t:a", &[1, 2])]);
+        let _ = sched.on_groups(&snapshot(&[A], &[]), "b2", vec![run("t:a", &[3])]);
+        let _ = sched.on_settled(&snapshot(&[A], &[]), failed(A, vec![run("t:a", &[1, 2])]));
+        let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::ParkedRetry);
+        assert_eq!(effects.dispatches[0].kind, SendKind::Resend);
+        assert_eq!(offsets_of(&effects.dispatches[0]), vec![1, 2, 3]);
+
+        // The resend fails too: requeue, park, wait for the next deadline.
+        let effects = sched.on_settled(
+            &snapshot(&[A], &[]),
+            failed(A, vec![run("t:a", &[1, 2, 3])]),
+        );
+        assert!(effects.dispatches.is_empty());
+        assert_eq!(effects.deferred.send_failed, 1);
+        assert_eq!(sched.table().parked_keys(), 1);
+        assert_eq!(sched.table().outstanding_keys(), 0);
+        assert_eq!(sched.table().queued_messages(), 3);
+
+        // The second retry is still a resend, in the same order.
+        let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::ParkedRetry);
+        assert_eq!(effects.dispatches.len(), 1);
+        assert_eq!(effects.dispatches[0].kind, SendKind::Resend);
+        assert_eq!(offsets_of(&effects.dispatches[0]), vec![1, 2, 3]);
+        assert_eq!(sched.table().parked_keys(), 0);
+        assert_eq!(sched.table().outstanding_keys(), 1);
+
+        // Delivery empties the key and evicts it.
+        let effects = sched.on_settled(&snapshot(&[A], &[]), delivered(A, &["t:a"]));
+        assert_eq!(effects.evicted_keys, vec!["t:a".to_string()]);
+        assert_eq!(sched.table().key_count(), 0);
+        assert_eq!(sched.table().outstanding_keys(), 0);
     }
 
     #[test]
@@ -893,7 +929,7 @@ mod tests {
         let effects = sched.on_settled(&snapshot(&[A], &[]), delivered(A, &["t:a"]));
         assert_eq!(record(&effects), 0);
 
-        // The failed prefix replays once, and every offset goes out in order.
+        // The failed prefix is redelivered once, and every offset goes out in order.
         assert_eq!(sent, vec![1, 2, 1, 2, 3, 4]);
         assert_eq!(effects.evicted_keys, vec!["t:a".to_string()]);
         assert_eq!(sched.table().key_count(), 0);
