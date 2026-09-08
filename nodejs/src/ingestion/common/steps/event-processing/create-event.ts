@@ -58,12 +58,17 @@ export function resolvePersonMode(person: Person | undefined, processPerson: boo
  * `processPerson` is false, and `createEvent` strips every `$group_N` key the sender
  * supplied, so the event reaches ClickHouse with no group columns and group-scoped
  * insights never see it. Report the loss, because the sender has no other signal.
+ *
+ * Stay quiet when `personProcessingForcedOff` is set. Person processing is then off for
+ * every event on the project, so the sender cannot keep its groups by changing what it
+ * sends, and the warning would name a remediation that is not available to it.
  */
 export function detectIgnoredGroups(
     preIngestionEvent: PreIngestionEvent,
-    processPerson: boolean
+    processPerson: boolean,
+    personProcessingForcedOff: boolean
 ): PipelineWarning | null {
-    if (processPerson) {
+    if (processPerson || personProcessingForcedOff) {
         return null
     }
 

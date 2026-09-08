@@ -6,6 +6,7 @@ import { castTimestampOrNow } from '~/common/utils/utils'
 import { isOkResult } from '~/ingestion/framework/results'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createTestMessage } from '~/tests/helpers/kafka-message'
+import { createTestTeam } from '~/tests/helpers/team'
 import { Person, PersonMode, PreIngestionEvent, ProjectId, TimestampFormat } from '~/types'
 
 import { CreateEventStepInput, createCreateEventStep } from './create-event-step'
@@ -45,6 +46,7 @@ describe('create-event-step', () => {
                 processPerson: true,
                 historicalMigration: false,
                 headers: createTestEventHeaders(),
+                team: createTestTeam(),
                 message: mockMessage,
                 lastStep: 'prepareEventStep',
             }
@@ -81,6 +83,7 @@ describe('create-event-step', () => {
                 processPerson: false,
                 historicalMigration: false,
                 headers: createTestEventHeaders(),
+                team: createTestTeam(),
                 message: mockMessage,
                 lastStep: 'prepareEventStep',
             }
@@ -100,6 +103,35 @@ describe('create-event-step', () => {
             ])
         })
 
+        it.each([
+            [
+                'a skip-person restriction is applied',
+                { headers: createTestEventHeaders({ force_disable_person_processing: true }) },
+            ],
+            [
+                'the project opted out of person processing',
+                { team: createTestTeam({ person_processing_opt_out: true }) },
+            ],
+        ])('stays quiet about the ignored groups when %s', async (_name, forcedOff) => {
+            const step = createCreateEventStep(EVENTS_OUTPUT)
+            mockPreparedEvent.properties.$groups = { organization: 'acme' }
+            const input = {
+                person: mockPerson,
+                preparedEvent: mockPreparedEvent,
+                processPerson: false,
+                historicalMigration: false,
+                headers: createTestEventHeaders(),
+                team: createTestTeam(),
+                message: mockMessage,
+                lastStep: 'prepareEventStep',
+                ...forcedOff,
+            }
+
+            const result = await step(input)
+
+            expect(result.warnings).toEqual([])
+        })
+
         it('should create event with processPerson=false', async () => {
             const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {
@@ -108,6 +140,7 @@ describe('create-event-step', () => {
                 processPerson: false,
                 historicalMigration: false,
                 headers: createTestEventHeaders(),
+                team: createTestTeam(),
                 message: mockMessage,
                 lastStep: 'prepareEventStep',
             }
@@ -138,6 +171,7 @@ describe('create-event-step', () => {
                 processPerson: true,
                 historicalMigration: false,
                 headers: createTestEventHeaders(),
+                team: createTestTeam(),
                 message: mockMessage,
                 lastStep: 'prepareEventStep',
             }
@@ -167,6 +201,7 @@ describe('create-event-step', () => {
                 processPerson: true,
                 historicalMigration: false,
                 headers: createTestEventHeaders(),
+                team: createTestTeam(),
                 message: mockMessage,
                 lastStep: 'prepareEventStep',
             }
@@ -192,6 +227,7 @@ describe('create-event-step', () => {
                 processPerson: true,
                 historicalMigration: false,
                 headers: createTestEventHeaders(),
+                team: createTestTeam(),
                 message: mockMessage,
                 lastStep: 'prepareEventStep',
             }
@@ -224,6 +260,7 @@ describe('create-event-step', () => {
                 processPerson: true,
                 historicalMigration: false,
                 headers: createTestEventHeaders(),
+                team: createTestTeam(),
                 message: mockMessage,
                 lastStep: 'prepareEventStep',
             }
@@ -250,6 +287,7 @@ describe('create-event-step', () => {
                 processPerson: true,
                 historicalMigration: false,
                 headers: createTestEventHeaders(),
+                team: createTestTeam(),
                 message: mockMessage,
                 customProperty: 'test',
                 lastStep: 'prepareEventStep',
@@ -271,6 +309,7 @@ describe('create-event-step', () => {
                 processPerson: true,
                 historicalMigration: false,
                 headers: createTestEventHeaders(),
+                team: createTestTeam(),
                 message: mockMessage,
                 lastStep: 'prepareEventStep',
             }
@@ -302,6 +341,7 @@ describe('create-event-step', () => {
                     processPerson: true,
                     historicalMigration: false,
                     headers: createTestEventHeaders(),
+                    team: createTestTeam(),
                     message: mockMessage,
                     lastStep: 'prepareEventStep',
                 }
@@ -335,6 +375,7 @@ describe('create-event-step', () => {
                     processPerson: true,
                     historicalMigration: false,
                     headers: createTestEventHeaders(),
+                    team: createTestTeam(),
                     message: mockMessage,
                 }
                 const result = await step(input)
@@ -379,6 +420,7 @@ describe('create-event-step', () => {
                     processPerson: true,
                     historicalMigration: false,
                     headers: createTestEventHeaders(),
+                    team: createTestTeam(),
                     message: mockMessage,
                 })
 
@@ -402,6 +444,7 @@ describe('create-event-step', () => {
                     processPerson: true,
                     historicalMigration: false,
                     headers: createTestEventHeaders(),
+                    team: createTestTeam(),
                     message: mockMessage,
                 })
 
@@ -421,6 +464,7 @@ describe('create-event-step', () => {
                     processPerson: true,
                     historicalMigration: true,
                     headers: createTestEventHeaders(),
+                    team: createTestTeam(),
                     message: mockMessage,
                     lastStep: 'prepareEventStep',
                 }
@@ -442,6 +486,7 @@ describe('create-event-step', () => {
                     processPerson: true,
                     historicalMigration: false,
                     headers: createTestEventHeaders(),
+                    team: createTestTeam(),
                     message: mockMessage,
                     lastStep: 'prepareEventStep',
                 }
@@ -474,6 +519,7 @@ describe('create-event-step', () => {
                     processPerson: config.processPerson,
                     historicalMigration: false,
                     headers: createTestEventHeaders(),
+                    team: createTestTeam(),
                     message: mockMessage,
                     lastStep: 'prepareEventStep',
                 }
@@ -497,6 +543,7 @@ describe('create-event-step', () => {
                     processPerson: true,
                     historicalMigration: false,
                     headers: createTestEventHeaders(),
+                    team: createTestTeam(),
                     message: mockMessage,
                     lastStep: 'prepareEventStep',
                 }
@@ -519,6 +566,7 @@ describe('create-event-step', () => {
                     processPerson: true,
                     historicalMigration: false,
                     headers: createTestEventHeaders(),
+                    team: createTestTeam(),
                     message: mockMessage,
                     lastStep: 'prepareEventStep',
                 }
@@ -540,6 +588,7 @@ describe('create-event-step', () => {
                     processPerson: true,
                     historicalMigration: false,
                     headers: createTestEventHeaders(),
+                    team: createTestTeam(),
                     message: mockMessage,
                     lastStep: 'prepareEventStep',
                 }
@@ -561,6 +610,7 @@ describe('create-event-step', () => {
                     processPerson: true,
                     historicalMigration: false,
                     headers: createTestEventHeaders(),
+                    team: createTestTeam(),
                     message: mockMessage,
                     lastStep: 'prepareEventStep',
                 }
@@ -582,6 +632,7 @@ describe('create-event-step', () => {
                     processPerson: false,
                     historicalMigration: false,
                     headers: createTestEventHeaders(),
+                    team: createTestTeam(),
                     message: mockMessage,
                     lastStep: 'prepareEventStep',
                 }

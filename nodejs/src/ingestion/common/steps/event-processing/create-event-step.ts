@@ -7,7 +7,7 @@ import { createEvent, detectIgnoredGroups } from '~/ingestion/common/steps/event
 import { EventUsageRecord } from '~/ingestion/common/steps/usage-records-steps'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { EventHeaders, Person, PreIngestionEvent } from '~/types'
+import { EventHeaders, Person, PreIngestionEvent, Team } from '~/types'
 
 import { EventToEmit } from './emit-event-step'
 
@@ -40,6 +40,7 @@ export interface CreateEventStepInput {
     historicalMigration: boolean
     headers: EventHeaders
     message: Message
+    team: Team
     eventUsageRecords?: EventUsageRecord[]
     eventUsageBatch?: UsageRecordBatch
 }
@@ -67,13 +68,19 @@ export function createCreateEventStep<O extends string, T extends CreateEventSte
             historicalMigration,
             headers,
             message,
+            team,
             eventUsageRecords,
             eventUsageBatch,
         } = input
 
         const capturedAt = headers.now ?? null
+        // A skip-person restriction or the project's person processing opt-out writes
+        // `$process_person_profile: false` onto every event of the project, which the
+        // sender cannot override, so a personless event there is not the sender's choice.
+        const personProcessingForcedOff =
+            headers.force_disable_person_processing === true || team.person_processing_opt_out === true
         // Read before createEvent, which strips the group keys it reports on.
-        const ignoredGroupsWarning = detectIgnoredGroups(preparedEvent, processPerson)
+        const ignoredGroupsWarning = detectIgnoredGroups(preparedEvent, processPerson, personProcessingForcedOff)
         const rawEvent = createEvent(preparedEvent, person, processPerson, historicalMigration, capturedAt)
         const eventsToEmit: EventToEmit<O>[] = [{ event: rawEvent, output }]
 
