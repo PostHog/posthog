@@ -51,17 +51,26 @@ export const HostileLinks: Story = {
         ].join('\n'),
         segments: [],
     },
-    // `storybook/test` belongs to the frontend workspace and does not resolve from `products/`.
-    play: ({ canvasElement }) => {
+    // `storybook/test` belongs to the frontend workspace and does not resolve from `products/`, so the
+    // wait and the assertions are by hand. An empty canvas passes the element counts vacuously, so the
+    // prose has to arrive before anything is asserted.
+    play: async ({ canvasElement }) => {
+        let text = ''
+        for (let attempt = 0; attempt < 40; attempt++) {
+            text = canvasElement.textContent ?? ''
+            if (text.includes('click here')) {
+                break
+            }
+            await new Promise((resolve) => setTimeout(resolve, 50))
+        }
         const check = (ok: boolean, failure: string): void => {
             if (!ok) {
                 throw new Error(failure)
             }
         }
-        const text = canvasElement.textContent ?? ''
+        check(text.includes('click here'), 'the prose never rendered, or a link label was dropped')
+        check(text.includes('@member:1 and @role:1'), 'a mention resolved into a chip')
         check(canvasElement.querySelectorAll('a').length === 0, 'a clickable link reached the reader')
         check(canvasElement.querySelectorAll('img').length === 0, 'an image fired a request')
-        check(text.includes('click here'), 'a link label was dropped instead of kept as text')
-        check(text.includes('@member:1 and @role:1'), 'a mention resolved into a chip')
     },
 }
