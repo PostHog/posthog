@@ -7,7 +7,10 @@ import {
 // Hosts that predate the token (and Storybook/tests, which have no host binding)
 // default to the desktop posture, so existing behavior is unchanged unless a host
 // explicitly opts out.
-const DEFAULT_CAPABILITIES: HostCapabilities = { localWorkspaces: true };
+const DEFAULT_CAPABILITIES: HostCapabilities = {
+  localWorkspaces: true,
+  embeddedBrowser: true,
+};
 
 /** Read the current host's coarse capabilities. Safe when unbound. */
 export function useHostCapabilities(): HostCapabilities {

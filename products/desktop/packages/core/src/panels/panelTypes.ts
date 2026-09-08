@@ -15,6 +15,11 @@ export type TabData =
       cwd: string;
     }
   | {
+      type: "browser";
+      browserId: string;
+      url: string;
+    }
+  | {
       type: "action";
       actionId: string;
       command: string;

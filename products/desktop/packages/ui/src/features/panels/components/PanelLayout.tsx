@@ -2,6 +2,7 @@ import { DragDropProvider } from "@dnd-kit/react";
 import type { Task } from "@posthog/shared/domain-types";
 import type React from "react";
 import { useCallback, useEffect } from "react";
+import { useBrowserViewCleanup } from "../../embedded-browser/useBrowserViewCleanup";
 import { useDragDropHandlers } from "../hooks/useDragDropHandlers";
 import { usePanelKeyboardShortcuts } from "../hooks/usePanelKeyboardShortcuts";
 import {
@@ -72,6 +73,13 @@ const PanelLayoutRenderer: React.FC<{
     [layoutState, taskId],
   );
 
+  const handleAddBrowser = useCallback(
+    (panelId: string) => {
+      layoutState.addBrowserTab(taskId, panelId);
+    },
+    [layoutState, taskId],
+  );
+
   const handleSplitPanel = useCallback(
     (panelId: string, direction: SplitDirection) => {
       const layout = usePanelLayoutStore.getState().getLayout(taskId);
@@ -128,6 +136,7 @@ const PanelLayoutRenderer: React.FC<{
             onActiveTabChange={handleSetActiveTab}
             onPanelFocus={handlePanelFocus}
             onAddTerminal={handleAddTerminal}
+            onAddBrowser={handleAddBrowser}
             onSplitPanel={handleSplitPanel}
           />
         );
@@ -156,6 +165,7 @@ const PanelLayoutRenderer: React.FC<{
       handleKeepTab,
       handlePanelFocus,
       handleAddTerminal,
+      handleAddBrowser,
       handleSplitPanel,
       setGroupRef,
       handleLayout,
@@ -171,6 +181,7 @@ export const PanelLayout: React.FC<PanelLayoutProps> = ({ taskId, task }) => {
   const dragDropHandlers = useDragDropHandlers(taskId);
 
   usePanelKeyboardShortcuts(taskId);
+  useBrowserViewCleanup(taskId);
 
   useEffect(() => {
     if (!layout) {

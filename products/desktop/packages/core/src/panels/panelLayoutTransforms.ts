@@ -730,6 +730,59 @@ export function addTerminalTab(
   return { panelTree: updatedTree };
 }
 
+export function addBrowserTab(
+  layout: TaskLayout,
+  panelId: string,
+): Partial<TaskLayout> {
+  const tabId = `browser-${Date.now()}`;
+  const updatedTree = updateTreeNode(layout.panelTree, panelId, (panel) => {
+    if (panel.type !== "leaf") return panel;
+    return addTabToPanel(panel, {
+      id: tabId,
+      label: "Browser",
+      // url starts empty: the panel shows a URL prompt and fills this in on
+      // the first navigation, so the tab restores to that page next launch.
+      data: { type: "browser", browserId: tabId, url: "" },
+      component: null,
+      draggable: true,
+      closeable: true,
+    });
+  });
+
+  return { panelTree: updatedTree };
+}
+
+/** Persist a browser tab's current page so a reopen/restart restores it. */
+export function updateBrowserTabUrl(
+  layout: TaskLayout,
+  tabId: string,
+  url: string,
+): Partial<TaskLayout> {
+  const tabLocation = findTabInTree(layout.panelTree, tabId);
+  if (!tabLocation) return {};
+
+  const updatedTree = updateTreeNode(
+    layout.panelTree,
+    tabLocation.panelId,
+    (panel) => {
+      if (panel.type !== "leaf") return panel;
+
+      const updatedTabs = panel.content.tabs.map((tab) =>
+        tab.id === tabId && tab.data.type === "browser"
+          ? { ...tab, data: { ...tab.data, url } }
+          : tab,
+      );
+
+      return {
+        ...panel,
+        content: { ...panel.content, tabs: updatedTabs },
+      };
+    },
+  );
+
+  return { panelTree: updatedTree };
+}
+
 export function addActionTab(
   layout: TaskLayout,
   panelId: string,

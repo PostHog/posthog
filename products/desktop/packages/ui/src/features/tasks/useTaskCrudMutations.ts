@@ -12,6 +12,7 @@ import {
 } from "@posthog/core/tasks/taskDeletionService";
 import { useService } from "@posthog/di/react";
 import type { Task } from "@posthog/shared/domain-types";
+import { destroyTaskBrowserViews } from "@posthog/ui/features/embedded-browser/useBrowserViewCleanup";
 import { destroyTaskTerminals } from "@posthog/ui/features/terminal/destroyTaskTerminals";
 import { useAuthenticatedMutation } from "@posthog/ui/hooks/useAuthenticatedMutation";
 import { logger } from "@posthog/ui/shell/logger";
@@ -36,6 +37,11 @@ export async function releaseDeletedTaskResources(
     destroyTaskTerminals(taskId);
   } catch (error) {
     log.error("Failed to release terminals for deleted task", error);
+  }
+  try {
+    destroyTaskBrowserViews(taskId);
+  } catch (error) {
+    log.error("Failed to release browser views for deleted task", error);
   }
 }
 
