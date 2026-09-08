@@ -229,10 +229,17 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         return contexts.get("mcp_analytics_viewed", 0) >= 1
 
     def has_activated_metrics(self) -> bool:
-        # The user has charted or queried metrics. Charting/querying is only possible
-        # once metrics have reached the team (a metric name has to exist to pick), so an
-        # engagement signal is itself proof of ingestion — and ingestion on its own is a
-        # connected pipeline, not an activated product.
+        # Two independent paths activate metrics:
+        #
+        # 1. Engagement: the user has charted or queried metrics. Charting/querying is only
+        #    possible once metrics have reached the team (a metric name has to exist to pick),
+        #    so an engagement signal is itself proof of ingestion.
+        #
+        # 2. Ingestion: the team has metric data flowing. While the viewer sat behind a
+        #    private-alpha allowlist, engagement-only activation was circular — only
+        #    allowlisted teams could ever fire the UI events — so a team sending data with
+        #    no UI access could never activate. Data flowing is the outcome the product
+        #    intent describes, whether or not anyone has opened the viewer yet.
         #
         # We deliberately do NOT gate on `metrics_first_ingested`: that context fires only
         # when the frontend observes a no-metrics -> has-metrics flip in-session, so a team
@@ -247,7 +254,14 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
             return False
 
         contexts = intent.contexts or {}
-        return contexts.get("metrics_viewer_query_run", 0) >= 1 or contexts.get("metrics_sql_query_run", 0) >= 1
+        if contexts.get("metrics_viewer_query_run", 0) >= 1 or contexts.get("metrics_sql_query_run", 0) >= 1:
+            return True
+
+        # Local import: this module loads during django.setup() (via posthog.models), and the
+        # metrics query runner pulls in HogQL execution (circular).
+        from products.metrics.backend.has_metrics_query_runner import team_has_metrics  # noqa: PLC0415
+
+        return team_has_metrics(self.team)
 
     def has_activated_workflows(self) -> bool:
         # At least one workflow needs to be active (not just drafted)
