@@ -617,6 +617,16 @@ export interface ScoutConfig {
    * the field itself is absent entirely on backends predating it.
    */
   scout_origin?: "canonical" | "custom";
+  /**
+   * Extra write access this one scout's runs carry, as scope strings from
+   * `SCOUT_GRANTABLE_WRITE_SCOPES`. Empty means the scout reads the project and
+   * writes only what every scout may write: notebooks, its findings, and its own
+   * memory. Each scope is project-wide and object-level, so a scout holding
+   * `dashboard:write` can change or delete any dashboard in the project, not only
+   * the ones it made. A dry run never holds the grant. Absent entirely on backends
+   * predating the field.
+   */
+  write_scopes?: string[];
   run_interval_minutes: number;
   /**
    * Cron schedule the scout runs on, evaluated in the project timezone. Null when
@@ -2554,6 +2564,12 @@ export class PostHogAPIClient {
       /** A cron expression puts the scout on a calendar; null returns it to the rolling cadence. */
       run_cron_schedule?: string | null;
       auto_pause_exempt?: boolean;
+      /**
+       * The complete grant to hold, not a delta: an omitted scope is revoked, and
+       * `[]` leaves the scout read-only. Only the person the scout's runs act as or
+       * a project admin may change it, so the API is what refuses everyone else.
+       */
+      write_scopes?: string[];
     },
   ): Promise<ScoutConfig> {
     const urlPath = `/api/projects/${projectId}/signals/scout/configs/${configId}/`;

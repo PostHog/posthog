@@ -15,6 +15,8 @@ export interface ScoutConfigUpdate {
   run_interval_minutes?: number;
   run_cron_schedule?: string | null;
   auto_pause_exempt?: boolean;
+  /** The complete grant to hold; `[]` leaves the scout read-only. */
+  write_scopes?: string[];
 }
 
 const CONFIG_SETTINGS = [
@@ -23,7 +25,22 @@ const CONFIG_SETTINGS = [
   "run_interval_minutes",
   "run_cron_schedule",
   "auto_pause_exempt",
+  "write_scopes",
 ] as const;
+
+/**
+ * A setting's value, safe to ship. A grant goes as its size: the count answers whether people
+ * widen or narrow write access, and the event schema stays scalar like the cloud client's.
+ */
+function trackedValue(
+  value: boolean | number | string | string[] | null | undefined,
+): boolean | number | string | null {
+  if (Array.isArray(value)) return value.length;
+  // Explicit null, not undefined: an optional setting like `auto_pause_exempt` has no prior value
+  // on an older backend, and undefined would drop the key on serialization and split the two
+  // clients' event shape.
+  return value ?? null;
+}
 
 function trackConfigChange(
   previousConfig: ScoutConfig | undefined,
@@ -38,11 +55,8 @@ function trackConfigChange(
       skill_name: previousConfig.skill_name,
       scout_origin: getScoutOrigin(previousConfig),
       setting,
-      new_value: newValue,
-      // Explicit null, not undefined: `auto_pause_exempt` is optional, and the
-      // cloud client normalizes an unknown prior value to null. Undefined would
-      // drop the key on serialization and split the two clients' event shape.
-      old_value: previousConfig[setting] ?? null,
+      new_value: trackedValue(newValue),
+      old_value: trackedValue(previousConfig[setting]),
       success,
     });
   }

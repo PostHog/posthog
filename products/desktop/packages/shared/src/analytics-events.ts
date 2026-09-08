@@ -1025,7 +1025,9 @@ export interface ScoutConfigChangedProperties {
     | "emit"
     | "run_interval_minutes"
     | "run_cron_schedule"
-    | "auto_pause_exempt";
+    | "auto_pause_exempt"
+    | "write_scopes";
+  /** A `write_scopes` grant goes as the number of scopes it holds, never the scopes themselves. */
   new_value: boolean | number | string | null;
   /** Null when the backend predates the setting and never sent a value. */
   old_value: boolean | number | string | null;
