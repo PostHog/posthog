@@ -59,6 +59,11 @@
             "description": "Filter tasks to the runs spawned by this workflow's 'Create AI task' action.",
             "type": "string"
         },
+        "include_description": {
+            "default": true,
+            "description": "Whether each row carries the task description body. Defaults to true. Pass false when the client does not render the description, to drop the field that dominates the list payload.",
+            "type": "boolean"
+        },
         "internal": {
             "description": "Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks, or 'true' to list only internal tasks. All values are available to any team member; access stays governed by task visibility.\n\n* `true` - true\n* `false` - false\n* `all` - all",
             "enum": ["true", "false", "all"],
