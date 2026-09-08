@@ -3528,6 +3528,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     actions.setViewLoading(true)
                     actions.setViewQueryLoading(true)
 
+                    const viewDetail = api.dataWarehouseSavedQueries
+                        .get(viewId, { includeMaterialization: false })
+                        .then(
+                            (loaded) => ({ view: loaded, failed: false }),
+                            () => ({ view: null, failed: true })
+                        )
+
                     if (values.dataWarehouseSavedQueries.length === 0) {
                         await dataWarehouseViewsLogic.asyncActions.loadDataWarehouseSavedQueries()
                     }
@@ -3542,14 +3549,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                     // Fetch the full view with query if not already loaded
                     if (!view.query) {
-                        try {
-                            view = await api.dataWarehouseSavedQueries.get(viewId)
-                        } catch {
+                        const detail = await viewDetail
+                        if (detail.failed || !detail.view) {
                             lemonToast.error('Failed to load view details')
                             actions.setViewLoading(false)
                             actions.setViewQueryLoading(false)
                             return
                         }
+                        view = detail.view
                     }
 
                     const queryToOpen = searchParams.open_query ? searchParams.open_query : (view.query?.query ?? '')
