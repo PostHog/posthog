@@ -8,6 +8,8 @@ scout budgets work (`products/signals/backend/scout_harness/team_limits.py`).
 
 import json
 
+from django.db import connection
+
 import posthoganalytics
 
 from posthog.schema import DetectorType
@@ -22,6 +24,15 @@ PAYLOAD_MAX_ALERTS_KEY = "max_llm_alerts_per_team"
 # Applies when the payload is absent, malformed, or unreadable. Deliberately small:
 # a team that wants more asks, and the flag grants it with no deploy.
 DEFAULT_MAX_LLM_ALERTS_PER_TEAM = 5
+
+_LLM_ALERT_LIMIT_LOCK_NAMESPACE = 1_277_970_509
+
+
+def lock_llm_alert_limit(*, team_id: int) -> None:
+    """Serialize the count and write for one team's enabled AI alerts."""
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [_LLM_ALERT_LIMIT_LOCK_NAMESPACE, team_id])
+
 
 # Fixed distinct_id for the payload read — the cap is per team, not per person, and the
 # flag must be served for this id for the payload to be readable at all.

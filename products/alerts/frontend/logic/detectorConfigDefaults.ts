@@ -1,4 +1,4 @@
-import { AlertCalculationInterval, SingleDetectorConfig } from '~/queries/schema/schema-general'
+import { AlertCalculationInterval, SingleDetectorConfig, ZScoreDetectorConfig } from '~/queries/schema/schema-general'
 
 export const DEFAULT_ANOMALY_DETECTION_THRESHOLD = 0.95
 
@@ -20,7 +20,7 @@ export function getDefaultWindow(interval?: AlertCalculationInterval): number {
     }
 }
 
-export function getDefaultZScoreDetectorConfig(window: number): SingleDetectorConfig {
+export function getDefaultZScoreDetectorConfig(window: number): ZScoreDetectorConfig {
     return {
         type: 'zscore',
         threshold: DEFAULT_ANOMALY_DETECTION_THRESHOLD,
@@ -31,12 +31,13 @@ export function getDefaultZScoreDetectorConfig(window: number): SingleDetectorCo
 
 /** The model reports its own confidence, so this is the confidence the alert requires before firing. */
 export const DEFAULT_LLM_DETECTION_CONFIDENCE = 0.7
+export const MAX_LLM_DETECTOR_WINDOW = 400
 
 export function getDefaultLLMDetectorConfig(window: number): SingleDetectorConfig {
     return {
         type: 'llm',
         threshold: DEFAULT_LLM_DETECTION_CONFIDENCE,
-        window,
+        window: Math.min(window, MAX_LLM_DETECTOR_WINDOW),
     }
 }
 

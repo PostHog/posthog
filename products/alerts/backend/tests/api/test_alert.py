@@ -2498,7 +2498,7 @@ class TestLLMDetectorValidation(APIBaseTest):
         }
         self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=insight_data).json()
 
-    def _body(self, *, detector_config: dict[str, Any] | None, **overrides: Any) -> dict[str, Any]:
+    def _body(self, *, detector_config: Any, **overrides: Any) -> dict[str, Any]:
         return {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
@@ -2511,7 +2511,7 @@ class TestLLMDetectorValidation(APIBaseTest):
             **overrides,
         }
 
-    def _create(self, detector_config: dict[str, Any] | None, **overrides: Any):
+    def _create(self, detector_config: Any, **overrides: Any):
         return self.client.post(
             f"/api/projects/{self.team.id}/alerts", self._body(detector_config=detector_config, **overrides)
         )
@@ -2530,6 +2530,7 @@ class TestLLMDetectorValidation(APIBaseTest):
             ),
             ("instructions_too_long", {"type": "llm", "instructions": "x" * 2001}, "characters or fewer"),
             ("instructions_not_text", {"type": "llm", "instructions": 5}, "must be text"),
+            ("window_too_long", {"type": "llm", "window": 401}, "between 5 and 400"),
         ]
     )
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
@@ -2546,12 +2547,58 @@ class TestLLMDetectorValidation(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "not enabled for your account" in response.json()["detail"]
 
+    @parameterized.expand([("scalar_config", "llm"), ("scalar_detectors", {"type": "ensemble", "detectors": 1})])
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_malformed_detector_containers_return_400(self, _name: str, detector_config: Any, _flag) -> None:
+        response = self._create(detector_config)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "Invalid detector configuration" in response.json()["detail"]
+
+    def test_flag_off_allows_edits_and_disabling_but_blocks_reenabling(self) -> None:
+        with mock.patch("posthoganalytics.feature_enabled", return_value=True):
+            created = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        endpoint = f"/api/projects/{self.team.id}/alerts/{created.json()['id']}"
+
+        with mock.patch("posthoganalytics.feature_enabled", return_value=False):
+            edited = self.client.patch(
+                endpoint,
+                {"name": "Renamed", "detector_config": {"type": "llm", "threshold": 0.7, "window": 90}},
+            )
+            disabled = self.client.patch(
+                endpoint,
+                {"enabled": False, "detector_config": {"type": "llm", "threshold": 0.7, "window": 90}},
+            )
+            reenabled = self.client.patch(endpoint, {"enabled": True})
+
+        assert edited.status_code == status.HTTP_200_OK, edited.content
+        assert disabled.status_code == status.HTTP_200_OK, disabled.content
+        assert reenabled.status_code == status.HTTP_400_BAD_REQUEST, reenabled.content
+        assert "not enabled for your account" in reenabled.json()["detail"]
+
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_rejected_on_the_real_time_cadence(self, _flag) -> None:
         response = self._create({"type": "llm", "threshold": 0.7, "window": 90}, calculation_interval="real_time")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert response.json()["attr"] == "calculation_interval"
+
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_rejected_for_a_breakdown_insight(self, _flag) -> None:
+        insight_data = {
+            "query": {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "interval": "day",
+                "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event"},
+            }
+        }
+        breakdown_insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=insight_data).json()
+        response = self._create({"type": "llm", "threshold": 0.7, "window": 90}, insight=breakdown_insight["id"])
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "does not support breakdown insights" in response.json()["detail"]
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_created_with_instructions_stripped(self, _flag) -> None:
@@ -2598,3 +2645,19 @@ class TestLLMDetectorValidation(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "not enabled for your account" in response.json()["detail"]
+
+    @mock.patch("posthog.rate_limit.AlertLLMSimulationThrottle.rate", new="2/minute")
+    @mock.patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @mock.patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_llm_simulation_is_rate_limited_per_team(self, _flag, _rate_limit_enabled) -> None:
+        cache.clear()
+        endpoint = f"/api/projects/{self.team.id}/alerts/simulate"
+        payload = {
+            "insight": self.insight["id"],
+            "detector_config": {"type": "llm", "threshold": 0.7, "window": 90},
+        }
+
+        assert self.client.post(endpoint, payload).status_code == status.HTTP_400_BAD_REQUEST
+        assert self.client.post(endpoint, payload).status_code == status.HTTP_400_BAD_REQUEST
+        assert self.client.post(endpoint, payload).status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        cache.clear()

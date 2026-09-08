@@ -6664,12 +6664,14 @@ export type SingleDetectorConfig =
     | PCADetectorConfig
     | LLMDetectorConfig
 
+export type EnsembleSubDetectorConfig = Exclude<SingleDetectorConfig, LLMDetectorConfig>
+
 export interface EnsembleDetectorConfig {
     type: 'ensemble'
     /** How to combine sub-detector results */
     operator: EnsembleOperator
     /** Sub-detector configurations (minimum 2) */
-    detectors: SingleDetectorConfig[]
+    detectors: EnsembleSubDetectorConfig[]
 }
 
 /**

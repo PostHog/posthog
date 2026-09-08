@@ -1633,6 +1633,23 @@ class AlertTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
             return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
 
 
+class AlertLLMSimulationThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "alert_llm_simulation"
+    rate = "10/minute"
+
+    def allow_request(self, request, view):
+        data = request.data
+        detector_config = data.get("detector_config") if isinstance(data, dict) else None
+        if not isinstance(detector_config, dict) or detector_config.get("type") != "llm":
+            return True
+        return super().allow_request(request, view)
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+
+
 class UserInterviewInviteThrottle(PersonalApiKeyOrUserRateThrottle):
     # Cap how often a team can fire the user-interview send_invites action.
     #

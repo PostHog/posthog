@@ -65,7 +65,6 @@ export const alertsCreateBodyDetectorConfigOneOneDetectorsItemNineTypeDefault = 
 export const alertsCreateBodyDetectorConfigOneOneDetectorsItemOnezeroTypeDefault = `lof`
 export const alertsCreateBodyDetectorConfigOneOneDetectorsItemOneoneTypeDefault = `ocsvm`
 export const alertsCreateBodyDetectorConfigOneOneDetectorsItemOnetwoTypeDefault = `pca`
-export const alertsCreateBodyDetectorConfigOneOneDetectorsItemOnethreeTypeDefault = `llm`
 export const alertsCreateBodyDetectorConfigOneOneTypeDefault = `ensemble`
 export const alertsCreateBodyDetectorConfigOneTwoTypeDefault = `zscore`
 export const alertsCreateBodyDetectorConfigOneThreeTypeDefault = `mad`
@@ -739,31 +738,6 @@ export const AlertsCreateBody = () => zod.object({
                                                 'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                             ),
                                     }),
-                                    zod.object({
-                                        instructions: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                'What counts as unusual or interesting for this metric, in your own words. Optional.'
-                                            ),
-                                        threshold: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                'Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)'
-                                            ),
-                                        type: zod
-                                            .enum(['llm'])
-                                            .default(
-                                                alertsCreateBodyDetectorConfigOneOneDetectorsItemOnethreeTypeDefault
-                                            ),
-                                        window: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                'How many recent points the model is shown (default: based on calculation interval)'
-                                            ),
-                                    }),
                                 ])
                             )
                             .describe('Sub-detector configurations (minimum 2)'),
@@ -1417,7 +1391,6 @@ export const alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemNineTypeDef
 export const alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemOnezeroTypeDefault = `lof`
 export const alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemOneoneTypeDefault = `ocsvm`
 export const alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemOnetwoTypeDefault = `pca`
-export const alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemOnethreeTypeDefault = `llm`
 export const alertsPartialUpdateBodyDetectorConfigOneOneTypeDefault = `ensemble`
 export const alertsPartialUpdateBodyDetectorConfigOneTwoTypeDefault = `zscore`
 export const alertsPartialUpdateBodyDetectorConfigOneThreeTypeDefault = `mad`
@@ -2114,31 +2087,6 @@ export const AlertsPartialUpdateBody = () => zod.object({
                                                 'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
                                             ),
                                     }),
-                                    zod.object({
-                                        instructions: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                'What counts as unusual or interesting for this metric, in your own words. Optional.'
-                                            ),
-                                        threshold: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                'Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)'
-                                            ),
-                                        type: zod
-                                            .enum(['llm'])
-                                            .default(
-                                                alertsPartialUpdateBodyDetectorConfigOneOneDetectorsItemOnethreeTypeDefault
-                                            ),
-                                        window: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                'How many recent points the model is shown (default: based on calculation interval)'
-                                            ),
-                                    }),
                                 ])
                             )
                             .describe('Sub-detector configurations (minimum 2)'),
@@ -2765,7 +2713,6 @@ export const alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemNineTypeDe
 export const alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemOnezeroTypeDefault = `lof`
 export const alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemOneoneTypeDefault = `ocsvm`
 export const alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemOnetwoTypeDefault = `pca`
-export const alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemOnethreeTypeDefault = `llm`
 export const alertsSimulateCreateBodyDetectorConfigOneOneTypeDefault = `ensemble`
 export const alertsSimulateCreateBodyDetectorConfigOneTwoTypeDefault = `zscore`
 export const alertsSimulateCreateBodyDetectorConfigOneThreeTypeDefault = `mad`
@@ -3318,31 +3265,6 @@ export const AlertsSimulateCreateBody = () => zod.object({
                                     .optional()
                                     .describe(
                                         'Rolling window size — how many historical data points to train on (default: based on calculation interval)'
-                                    ),
-                            }),
-                            zod.object({
-                                instructions: zod
-                                    .union([zod.string(), zod.null()])
-                                    .optional()
-                                    .describe(
-                                        'What counts as unusual or interesting for this metric, in your own words. Optional.'
-                                    ),
-                                threshold: zod
-                                    .union([zod.number(), zod.null()])
-                                    .optional()
-                                    .describe(
-                                        'Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)'
-                                    ),
-                                type: zod
-                                    .enum(['llm'])
-                                    .default(
-                                        alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemOnethreeTypeDefault
-                                    ),
-                                window: zod
-                                    .union([zod.number(), zod.null()])
-                                    .optional()
-                                    .describe(
-                                        'How many recent points the model is shown (default: based on calculation interval)'
                                     ),
                             }),
                         ])

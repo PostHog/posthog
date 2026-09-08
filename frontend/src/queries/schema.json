@@ -21790,7 +21790,7 @@
                 "detectors": {
                     "description": "Sub-detector configurations (minimum 2)",
                     "items": {
-                        "$ref": "#/definitions/SingleDetectorConfig"
+                        "$ref": "#/definitions/EnsembleSubDetectorConfig"
                     },
                     "type": "array"
                 },
@@ -21809,6 +21809,52 @@
         "EnsembleOperator": {
             "enum": ["and", "or"],
             "type": "string"
+        },
+        "EnsembleSubDetectorConfig": {
+            "description": "A single (leaf) detector config",
+            "discriminator": {
+                "propertyName": "type"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/ZScoreDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/MADDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/IQRDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/ThresholdDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/ECODDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/COPODDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/IsolationForestDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/KNNDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/HBOSDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/LOFDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/OCSVMDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/PCADetectorConfig"
+                }
+            ],
+            "required": ["type"],
+            "type": "object"
         },
         "EntityNode": {
             "additionalProperties": false,

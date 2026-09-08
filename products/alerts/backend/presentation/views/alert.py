@@ -47,10 +47,11 @@ from posthog.models import User
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.permissions import get_authenticator_scopes
-from posthog.rate_limit import AlertTestDeliveryThrottle
+from posthog.rate_limit import AlertLLMSimulationThrottle, AlertTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
+from posthog.tasks.alerts.detectors.llm.detector import MAX_PROMPT_POINTS
 from posthog.tasks.alerts.schedule_restriction import validate_and_normalize_schedule_restriction
 from posthog.tasks.alerts.utils import (
     next_check_at_after_schedule_restriction_change,
@@ -78,6 +79,7 @@ from products.alerts.backend.insight_alert_state_machine import (
 from products.alerts.backend.llm_detector_limits import (
     LLM_DETECTOR_FLAG,
     count_enabled_llm_alerts,
+    lock_llm_alert_limit,
     max_llm_alerts_per_team,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
@@ -136,28 +138,26 @@ def _insight_alert_flag_enabled(context: dict[str, Any], flag: str) -> bool:
 MAX_DETECTOR_INSTRUCTIONS_CHARS = 2000
 
 
-def _detector_types(detector_config: dict[str, Any] | None) -> set[str]:
+def _detector_types(detector_config: Any) -> set[str]:
     """Every detector type named in a config, flattening an ensemble's sub-detectors."""
-    if not detector_config:
+    if not isinstance(detector_config, dict):
         return set()
     types = {detector_config.get("type")}
-    for sub in detector_config.get("detectors") or []:
+    detectors = detector_config.get("detectors")
+    for sub in detectors if isinstance(detectors, list) else []:
         if isinstance(sub, dict):
             types.add(sub.get("type"))
     return {detector_type for detector_type in types if detector_type}
 
 
-def _enforce_llm_detector_rules(context: dict[str, Any], detector_config: dict[str, Any] | None) -> None:
+def _enforce_llm_detector_rules(detector_config: Any) -> None:
     """Gate and constrain the AI detector, shared by create/update and simulate.
 
     Runs on the raw config before schema validation, so each rule can explain itself
     instead of collapsing into the generic "Invalid detector configuration."
     """
-    if not detector_config or DetectorType.LLM.value not in _detector_types(detector_config):
+    if not isinstance(detector_config, dict) or DetectorType.LLM.value not in _detector_types(detector_config):
         return
-
-    if not _insight_alert_flag_enabled(context, LLM_DETECTOR_FLAG):
-        raise ValidationError("The AI detector is not enabled for your account.")
 
     if detector_config.get("type") != DetectorType.LLM.value:
         # Every check of an ensemble scores every sub-detector, so one AI sub-detector
@@ -181,9 +181,16 @@ def _enforce_llm_detector_rules(context: dict[str, Any], detector_config: dict[s
             )
 
 
-def _normalize_llm_detector_config(detector_config: dict[str, Any] | None) -> dict[str, Any] | None:
+def _enforce_llm_feature_access(context: dict[str, Any], detector_config: Any) -> None:
+    if DetectorType.LLM.value in _detector_types(detector_config) and not _insight_alert_flag_enabled(
+        context, LLM_DETECTOR_FLAG
+    ):
+        raise ValidationError("The AI detector is not enabled for your account.")
+
+
+def _normalize_llm_detector_config(detector_config: Any) -> Any:
     """Store the author's instructions stripped, and drop them when they are only whitespace."""
-    if not detector_config or detector_config.get("type") != DetectorType.LLM.value:
+    if not isinstance(detector_config, dict) or detector_config.get("type") != DetectorType.LLM.value:
         return detector_config
     instructions = detector_config.get("instructions")
     if not isinstance(instructions, str):
@@ -662,11 +669,19 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         subscribed_users = validated_data.pop("subscribed_users")
         threshold_data = validated_data.pop("threshold", None)
 
-        if threshold_data:
-            threshold_instance = self.add_threshold(threshold_data, validated_data)
-            validated_data["threshold"] = threshold_instance
+        with transaction.atomic():
+            lock_llm_alert_limit(team_id=team.id)
+            _enforce_llm_alert_limit(
+                self.context,
+                detector_config=validated_data.get("detector_config"),
+                enabled=validated_data.get("enabled", True) is True,
+                instance_id=None,
+            )
+            if threshold_data:
+                threshold_instance = self.add_threshold(threshold_data, validated_data)
+                validated_data["threshold"] = threshold_instance
 
-        instance: AlertConfiguration = super().create(validated_data)
+            instance: AlertConfiguration = super().create(validated_data)
 
         for user in subscribed_users:
             AlertSubscription.objects.create(
@@ -683,6 +698,14 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     def update(self, instance, validated_data):
         enabled_changed = "enabled" in validated_data and validated_data["enabled"] != instance.enabled
         resulting_enabled = validated_data.get("enabled", instance.enabled)
+        resulting_detector_config = validated_data.get("detector_config", instance.detector_config)
+        lock_llm_alert_limit(team_id=instance.team_id)
+        _enforce_llm_alert_limit(
+            self.context,
+            detector_config=resulting_detector_config,
+            enabled=resulting_enabled is True,
+            instance_id=str(instance.id),
+        )
         if enabled_changed and validated_data["enabled"]:
             apply_enable(instance)
 
@@ -775,7 +798,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
         import pydantic
 
-        _enforce_llm_detector_rules(self.context, value)
+        _enforce_llm_detector_rules(value)
         value = _normalize_llm_detector_config(value)
 
         try:
@@ -811,6 +834,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         }
 
         for param, (min_val, max_val, label) in PARAM_RANGES.items():
+            if param == "window" and config.get("type") == DetectorType.LLM.value:
+                max_val = MAX_PROMPT_POINTS
             val = config.get(param)
             if val is not None:
                 if val < min_val or val > max_val:
@@ -922,6 +947,15 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             raise ValidationError(str(e))
 
         if (detector_config or {}).get("type") == DetectorType.LLM.value:
+            previous_is_llm = bool(
+                self.instance and (self.instance.detector_config or {}).get("type") == DetectorType.LLM.value
+            )
+            resulting_enabled = attrs.get("enabled", self.instance.enabled if self.instance else True) is True
+            needs_feature_access = (
+                self.instance is None or not previous_is_llm or (not self.instance.enabled and resulting_enabled)
+            )
+            if needs_feature_access:
+                _enforce_llm_feature_access(self.context, detector_config)
             # A model call per tick on the finest cadence is a cost profile we don't want to
             # ship before there's a budget model, and the real-time evaluate budget (3 minutes,
             # 2 attempts) leaves little room for one.
@@ -934,13 +968,6 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                         ]
                     }
                 )
-            _enforce_llm_alert_limit(
-                self.context,
-                detector_config=detector_config,
-                enabled=attrs.get("enabled", self.instance.enabled if self.instance else True) is True,
-                instance_id=str(self.instance.id) if self.instance else None,
-            )
-
         organization = self.context["get_organization"]()
         _validate_interval_entitlement(
             calculation_interval=calculation_interval,
@@ -1064,7 +1091,8 @@ class AlertSimulateSerializer(serializers.Serializer):
 
         # Same gate as create/update: previewing a flag-gated detector must be rejected the
         # same way saving one is, or the preview becomes the way to use it.
-        _enforce_llm_detector_rules(self.context, value)
+        _enforce_llm_detector_rules(value)
+        _enforce_llm_feature_access(self.context, value)
         value = _normalize_llm_detector_config(value)
 
         try:
@@ -1480,7 +1508,13 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     # Returns an insight's computed result series, so it requires insight read in addition to
     # alert read — an alert-scoped token must not read insight/query data it isn't scoped for.
     # (Object-level insight viewer access is enforced separately in AlertSimulateSerializer.)
-    @action(detail=False, methods=["POST"], url_path="simulate", required_scopes=["alert:read", "insight:read"])
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="simulate",
+        required_scopes=["alert:read", "insight:read"],
+        throttle_classes=[AlertLLMSimulationThrottle],
+    )
     def simulate(self, request, *args, **kwargs):
         serializer = AlertSimulateSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
