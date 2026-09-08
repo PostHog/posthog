@@ -25,6 +25,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use common_kafka_consumer::{TopicOffsetLedger, TopicPartition};
+use ingestion_consumer::commit_pacer::CommitPacer;
 use ingestion_consumer::config::CompletionGranularity;
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::discovery::reconcile_membership;
@@ -420,6 +421,10 @@ impl WorkerIngestService for FakeWorkerGrpc {
 
 // ── Test harness ───────────────────────────────────────────────────────────
 
+/// The commit interval at group granularity: short next to the 10 s waits,
+/// long enough that one send's burst of completions is one commit.
+const COMMIT_INTERVAL: Duration = Duration::from_millis(500);
+
 struct Harness {
     pub workers: Vec<FakeWorker>,
     pub registry: Arc<WorkerRegistry>,
@@ -449,7 +454,12 @@ fn make_kafka_consumer(
     group_id: &str,
     instance_id: Option<&str>,
 ) -> StreamConsumer<SentinelContext> {
-    make_kafka_consumer_with_context(topic, group_id, instance_id, SentinelContext::detached())
+    make_kafka_consumer_with_context(
+        topic,
+        group_id,
+        instance_id,
+        SentinelContext::detached(CommitPacer::immediate()),
+    )
 }
 
 /// Like `make_kafka_consumer`, under a context the test keeps a hand on.
@@ -647,7 +657,10 @@ impl Harness {
         let _monitor = manager.monitor_background();
 
         let group_id = format!("e2e-{}", Uuid::new_v4());
-        let context = SentinelContext::detached();
+        let context = SentinelContext::detached(CommitPacer::for_granularity(
+            completion_granularity,
+            COMMIT_INTERVAL,
+        ));
         let ledger = context.topic_offset_ledger();
         let kafka_consumer = make_kafka_consumer_with_context(topic, &group_id, None, context);
 
@@ -723,7 +736,10 @@ impl Harness {
         let handle = manager.register("consumer", ComponentOptions::new());
         self.shutdown = handle.shutdown_token();
 
-        let context = SentinelContext::detached();
+        let context = SentinelContext::detached(CommitPacer::for_granularity(
+            self.completion_granularity,
+            COMMIT_INTERVAL,
+        ));
         self.ledger = context.topic_offset_ledger();
         let kafka_consumer =
             make_kafka_consumer_with_context(&self.topic, &self.group_id, None, context);

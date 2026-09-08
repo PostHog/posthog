@@ -16,7 +16,7 @@ use tracing::{error, info, warn};
 
 use crate::batcher::{make_batch_id, Batcher, BatcherOutputs};
 use crate::commit_monitor::spawn_commit_monitor;
-use crate::commit_pacer::ImmediateCommitPacer;
+use crate::commit_pacer::CommitPacer;
 use crate::commit_sentinel::{CommitSentinel, CommitViolation};
 use crate::config::{CompletionGranularity, Config};
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
@@ -382,7 +382,11 @@ impl IngestionConsumer {
             config.consumer_batch_size,
             config.consumer_batch_size_kb,
         );
-        let commit_sentinel = Arc::new(CommitSentinel::new(ImmediateCommitPacer::new()));
+        let commit_pacer = CommitPacer::for_granularity(
+            config.consumer_completion_granularity,
+            Duration::from_millis(config.consumer_commit_interval_ms),
+        );
+        let commit_sentinel = Arc::new(CommitSentinel::new(commit_pacer));
         commit_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
         let key_sentinel = batcher.key_order_sentinel();
         key_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
@@ -463,6 +467,10 @@ impl IngestionConsumer {
         );
 
         self.run(completions, errors).await;
+        // Accepted work the pacer still holds would replay after the restart.
+        if let Err(err) = self.commit_all() {
+            warn!(error = %err, "Could not commit the pending frontiers on exit");
+        }
         info!("Consumer loop stopped");
     }
 
@@ -480,6 +488,14 @@ impl IngestionConsumer {
             // Consumer-level concurrency: how many Kafka batches are being
             // processed in parallel, bounded by `max_in_flight_batches`.
             gauge!("ingestion_consumer_in_flight_batches").set(in_flight_polls.len() as f64);
+
+            // Frontiers the pacer held back while the loop was collecting.
+            // Asked here and not beside `collect_batch`, where a due tick
+            // would drop a collection in progress.
+            if let Err(err) = self.commit_due() {
+                self.fail_commit(err);
+                return;
+            }
 
             if accepting_new_batches && in_flight_polls.len() < self.max_in_flight_batches {
                 tokio::select! {
@@ -622,7 +638,10 @@ impl IngestionConsumer {
                         "batcher error channel closed"
                     ))),
                 },
-                _ = heartbeat.tick() => self.handle.report_healthy(),
+                _ = heartbeat.tick() => {
+                    self.handle.report_healthy();
+                    self.commit_due().map_err(Failure::Commit)?;
+                }
             }
         }
 
@@ -640,7 +659,8 @@ impl IngestionConsumer {
                 self.settle_poll(&poll.partitions);
                 self.commit_due().map_err(Failure::Commit)?;
             }
-            // Each completion settled and committed as it arrived.
+            // Each completion settled as it arrived; the pacer commits on
+            // its interval.
             CompletionGranularity::Group => {}
         }
         emit_latest_processed_timestamp_metrics(&poll.partitions, &self.group_id);
@@ -660,8 +680,8 @@ impl IngestionConsumer {
 
     /// Apply one wake's completions. At `poll` granularity a completion only
     /// credits its poll. At `group` granularity it also settles on the
-    /// ledger, and the wake drains what else is queued so one commit carries
-    /// every partition that advanced while the loop was busy.
+    /// ledger; the wake drains what else is queued, then asks the pacer,
+    /// which coalesces the frontiers on its interval.
     ///
     /// The drain stops as soon as the oldest poll is covered. The caller pops
     /// that poll before the next completion is matched, and a later poll may
@@ -706,7 +726,15 @@ impl IngestionConsumer {
 
     /// Commit what the pacer holds due, if anything.
     fn commit_due(&self) -> anyhow::Result<()> {
-        match self.commit_sentinel.take_due() {
+        match self.commit_sentinel.take_due(Instant::now()) {
+            Some(offsets) => self.commit_offsets(&offsets),
+            None => Ok(()),
+        }
+    }
+
+    /// Commit everything the pacer holds, whatever its interval.
+    fn commit_all(&self) -> anyhow::Result<()> {
+        match self.commit_sentinel.take_all() {
             Some(offsets) => self.commit_offsets(&offsets),
             None => Ok(()),
         }
@@ -1271,7 +1299,7 @@ mod tests {
     #[test]
     fn a_settled_poll_hands_its_frontier_to_the_pacer() {
         let ledger = TopicOffsetLedger::new();
-        let sentinel = CommitSentinel::new(ImmediateCommitPacer::new());
+        let sentinel = CommitSentinel::new(CommitPacer::immediate());
         let tp = TopicPartition::new("test", 0);
         let partitions = HashMap::from([(tp.clone(), charged(&ledger, &tp, 10, 11))]);
 
@@ -1279,7 +1307,7 @@ mod tests {
 
         assert_eq!((settlement.settled, settlement.advanced), (1, 1));
         assert_eq!(
-            sentinel.take_due(),
+            sentinel.take_due(Instant::now()),
             Some(HashMap::from([(tp, MessageOffset(12))]))
         );
     }
@@ -1287,14 +1315,14 @@ mod tests {
     #[test]
     fn a_gap_in_what_kafka_delivered_fires_the_sentinel_and_still_commits() {
         let ledger = TopicOffsetLedger::new();
-        let sentinel = CommitSentinel::new(ImmediateCommitPacer::new());
+        let sentinel = CommitSentinel::new(CommitPacer::immediate());
         let tp = TopicPartition::new("test", 0);
         let first = HashMap::from([(tp.clone(), charged(&ledger, &tp, 10, 11))]);
         assert!(settle_partitions(&ledger, &sentinel, &first)
             .violations
             .is_empty());
         assert_eq!(
-            sentinel.take_due(),
+            sentinel.take_due(Instant::now()),
             Some(HashMap::from([(tp.clone(), MessageOffset(12))]))
         );
 
@@ -1308,7 +1336,7 @@ mod tests {
         assert_eq!(settlement.violations[0].prev_committed, 12);
         assert_eq!(settlement.violations[0].span.first, 14);
         assert_eq!(
-            sentinel.take_due(),
+            sentinel.take_due(Instant::now()),
             Some(HashMap::from([(tp, MessageOffset(16))]))
         );
     }
@@ -1316,7 +1344,7 @@ mod tests {
     #[test]
     fn a_rejected_slice_hands_nothing_to_the_pacer() {
         let ledger = TopicOffsetLedger::new();
-        let sentinel = CommitSentinel::new(ImmediateCommitPacer::new());
+        let sentinel = CommitSentinel::new(CommitPacer::immediate());
         let tp = TopicPartition::new("test", 0);
         let partitions = HashMap::from([(tp.clone(), charged(&ledger, &tp, 10, 11))]);
         // The partition left and came back while the poll was in flight.
@@ -1325,13 +1353,13 @@ mod tests {
         let settlement = settle_partitions(&ledger, &sentinel, &partitions);
 
         assert_eq!((settlement.settled, settlement.advanced), (0, 0));
-        assert!(sentinel.take_due().is_none());
+        assert!(sentinel.take_due(Instant::now()).is_none());
     }
 
     #[test]
     fn a_poll_behind_an_incomplete_one_hands_nothing_to_the_pacer() {
         let ledger = TopicOffsetLedger::new();
-        let sentinel = CommitSentinel::new(ImmediateCommitPacer::new());
+        let sentinel = CommitSentinel::new(CommitPacer::immediate());
         let tp = TopicPartition::new("test", 0);
         let _older = charged(&ledger, &tp, 10, 11);
         let newer = HashMap::from([(tp.clone(), charged(&ledger, &tp, 12, 13))]);
@@ -1339,7 +1367,7 @@ mod tests {
         let settlement = settle_partitions(&ledger, &sentinel, &newer);
 
         assert_eq!((settlement.settled, settlement.advanced), (1, 0));
-        assert!(sentinel.take_due().is_none());
+        assert!(sentinel.take_due(Instant::now()).is_none());
     }
 
     #[test]
@@ -1397,7 +1425,7 @@ mod tests {
     }
 
     fn sentinel() -> CommitSentinel {
-        CommitSentinel::new(ImmediateCommitPacer::new())
+        CommitSentinel::new(CommitPacer::immediate())
     }
 
     #[test]
@@ -1414,7 +1442,7 @@ mod tests {
             &completion(0, 0, &[12], 1),
         );
         assert!(
-            sentinel.take_due().is_none(),
+            sentinel.take_due(Instant::now()).is_none(),
             "the window base is still incomplete"
         );
 
@@ -1425,7 +1453,7 @@ mod tests {
             &completion(0, 0, &[10, 11], 2),
         );
         assert_eq!(
-            sentinel.take_due(),
+            sentinel.take_due(Instant::now()),
             Some(HashMap::from([(p0, MessageOffset(13))])),
             "the late completion releases the whole prefix"
         );
@@ -1454,7 +1482,7 @@ mod tests {
         );
 
         assert_eq!(
-            sentinel.take_due(),
+            sentinel.take_due(Instant::now()),
             Some(HashMap::from([(p0, MessageOffset(12))])),
             "partition 1 waits for offset 20"
         );
@@ -1479,7 +1507,7 @@ mod tests {
             &completion(0, 0, &[10], 1),
         );
 
-        assert!(sentinel.take_due().is_none());
+        assert!(sentinel.take_due(Instant::now()).is_none());
         assert_eq!(
             ledger.held(&p0).offsets,
             1,
@@ -1503,7 +1531,7 @@ mod tests {
             &completion(0, 0, &[10, 11], 1),
         );
 
-        assert!(sentinel.take_due().is_none());
+        assert!(sentinel.take_due(Instant::now()).is_none());
         assert_eq!(ledger.held(&p0).offsets, 2);
     }
 }

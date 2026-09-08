@@ -201,6 +201,14 @@ pub struct Config {
     #[envconfig(from = "CONSUMER_COMPLETION_GRANULARITY", default = "poll")]
     pub consumer_completion_granularity: CompletionGranularity,
 
+    /// At `group` granularity, the least time between two commits
+    /// (milliseconds). Groups complete one send at a time, so without it each
+    /// resolved send would be a commit. Accepted work waits at most this plus
+    /// one collection before it is committed. Unused at `poll` granularity,
+    /// where each poll commits as it completes.
+    #[envconfig(from = "CONSUMER_COMMIT_INTERVAL_MS", default = "500")]
+    pub consumer_commit_interval_ms: u64,
+
     // ---- Debug API ----
     /// Serve the real-time debug API (`/debug/load`, `/debug/state`,
     /// `/debug/events` SSE) on the health server, recording structured events
