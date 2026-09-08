@@ -822,8 +822,6 @@ class TestSandboxTaskIdPlumbing:
 
 
 class TestRetiredProduct:
-    """The legacy wizard route refuses every credential with the upgrade path."""
-
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "user",
