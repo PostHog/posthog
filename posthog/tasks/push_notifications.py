@@ -12,12 +12,19 @@ from typing import Any
 
 import structlog
 from celery import shared_task
+from prometheus_client import Counter
 
 from posthog.models.user import User
 from posthog.push_notifications import send_push_to_user
 from posthog.scoping_audit import skip_team_scope_audit
 
 logger = structlog.get_logger(__name__)
+
+PUSH_DELIVERY_OUTCOMES_TOTAL = Counter(
+    "posthog_push_delivery_outcomes_total",
+    "Expo push delivery task outcomes. Accepted means Expo returned a successful ticket, not final device delivery.",
+    labelnames=["kind", "outcome"],
+)
 
 
 @shared_task(ignore_result=True)
@@ -40,19 +47,24 @@ def send_user_push(
     e.g. devices whose presence beacon says they're already watching the task
     that triggered this push.
     """
+    notification_kind = str((data or {}).get("notificationKind", "other"))
     try:
         user = User.objects.get(pk=user_id)
     except User.DoesNotExist:
+        PUSH_DELIVERY_OUTCOMES_TOTAL.labels(kind=notification_kind, outcome="user_missing").inc()
         logger.warning("send_user_push.user_not_found", user_id=user_id)
         return
 
     try:
-        send_push_to_user(
+        accepted = send_push_to_user(
             user,
             title=title,
             body=body,
             data=data,
             suppressed_push_token_ids=suppressed_push_token_ids,
         )
+        outcome = "accepted" if accepted > 0 else "none_accepted"
+        PUSH_DELIVERY_OUTCOMES_TOTAL.labels(kind=notification_kind, outcome=outcome).inc()
     except Exception:
+        PUSH_DELIVERY_OUTCOMES_TOTAL.labels(kind=notification_kind, outcome="failed").inc()
         logger.warning("send_user_push.failed", user_id=user_id, exc_info=True)

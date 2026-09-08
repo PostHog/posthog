@@ -4,13 +4,13 @@ import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useActions, useMountedLogic, useValues } from 'kea'
 
+import { featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { FeaturePreviewGateConfig } from '~/types'
 
-import { featurePreviewsLogic } from '../../FeaturePreviews/featurePreviewsLogic'
 import { FeaturePreviewSceneGate } from './FeaturePreviewSceneGate'
 
 jest.mock('posthog-js')
@@ -29,6 +29,8 @@ jest.mock('scenes/sceneLogic', () => ({
 jest.mock('scenes/scenes', () => ({
     sceneConfigurations: {
         CustomerAnalytics: { name: 'Customer analytics', description: 'Analytics for customers', iconType: 'default' },
+        Error404: { name: 'Not found', iconType: 'default' },
+        Metrics: { name: 'Metrics', description: 'Application metrics', iconType: 'default' },
     },
 }))
 
@@ -100,11 +102,13 @@ function setupMocks({
     activeSceneId = null,
     featureFlags = {},
     cloud = true,
+    isDebug = false,
 }: {
     earlyAccessFeatures?: Array<{ flagKey: string; enabled: boolean; stage?: string }>
     activeSceneId?: string | null
     featureFlags?: Record<string, boolean | string>
     cloud?: boolean
+    isDebug?: boolean
 } = {}): void {
     mockedUseMountedLogic.mockReturnValue({})
 
@@ -119,7 +123,7 @@ function setupMocks({
             return { featureFlags }
         }
         if (isPreflightLogicRef(logic)) {
-            return { preflight: { cloud } }
+            return { preflight: { cloud, is_debug: isDebug } }
         }
         return {}
     })
@@ -250,6 +254,19 @@ describe('FeaturePreviewSceneGate', () => {
             expect(screen.getByTestId('scene-title-section')).toHaveTextContent('Customer analytics')
         })
 
+        test('config sceneId overrides the active scene for the title, so a flag-hidden route is not titled "Not found"', () => {
+            setupMocks({ activeSceneId: 'Error404' })
+
+            render(
+                <FeaturePreviewSceneGate config={{ ...BASE_CONFIG, sceneId: 'Metrics' }}>
+                    {CHILDREN}
+                </FeaturePreviewSceneGate>
+            )
+
+            expect(screen.getByTestId('scene-title-section')).toHaveTextContent('Metrics')
+            expect(screen.queryByText('Not found')).not.toBeInTheDocument()
+        })
+
         test('does not show toggle for a different feature flag key', () => {
             setupMocks({
                 earlyAccessFeatures: [{ flagKey: 'some-other-flag', enabled: true }],
@@ -260,6 +277,47 @@ describe('FeaturePreviewSceneGate', () => {
             expect(screen.getByText('Open feature previews')).toBeInTheDocument()
             expect(screen.queryByRole('switch')).not.toBeInTheDocument()
         })
+
+        test.each([
+            [false, false, false],
+            [true, false, true],
+            [false, true, true],
+        ])('with cloud=%s and is_debug=%s the toggle switch is enabled: %s', (cloud, isDebug, expectedEnabled) => {
+            setupMocks({
+                earlyAccessFeatures: [{ flagKey: BASE_CONFIG.flag, enabled: false }],
+                cloud,
+                isDebug,
+            })
+
+            render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
+
+            const toggle = screen.getByRole('switch')
+            if (expectedEnabled) {
+                expect(toggle).toBeEnabled()
+            } else {
+                expect(toggle).toBeDisabled()
+            }
+        })
+
+        test.each([
+            [false, false, true],
+            [true, false, false],
+            [false, true, false],
+        ])(
+            'with cloud=%s and is_debug=%s the PERSISTED_FEATURE_FLAGS note is shown: %s',
+            (cloud, isDebug, expectedVisible) => {
+                setupMocks({ earlyAccessFeatures: [], cloud, isDebug })
+
+                render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
+
+                const note = screen.queryByText(/controlled by the PERSISTED_FEATURE_FLAGS environment variable/)
+                if (expectedVisible) {
+                    expect(note).toBeInTheDocument()
+                } else {
+                    expect(note).not.toBeInTheDocument()
+                }
+            }
+        )
     })
 
     describe('request access', () => {

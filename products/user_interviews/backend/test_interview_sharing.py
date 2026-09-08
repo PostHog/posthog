@@ -19,7 +19,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
 
-from posthog.api.sharing import check_can_edit_sharing_configuration
+from posthog.api.sharing import check_can_access_sharing_configuration
 from posthog.api.test.test_sharing import mock_exporter_template
 from posthog.models.sharing_configuration import SharingConfiguration
 
@@ -1453,6 +1453,6 @@ class TestSharingConfigurationCanAccess(APIBaseTest):
         view = Mock(team=self.team)
 
         with self.assertRaises(PermissionDenied) as caught:
-            check_can_edit_sharing_configuration(view, request, share)
+            check_can_access_sharing_configuration(view, request, share)
 
         assert "cannot be shared through this endpoint" in str(caught.exception)

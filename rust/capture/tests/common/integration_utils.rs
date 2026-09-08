@@ -7,12 +7,13 @@ use std::time::Duration;
 
 use capture::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
-    config::{AiRouting, CaptureMode},
+    config::CaptureMode,
+    outputs::{OutputRegistry, PublishEvents},
     quota_limiters::CaptureQuotaLimiter,
     router::router,
-    sinks::Event,
     time::TimeSource,
     v0_request::{DataType, ProcessedEvent},
+    v1::test_utils::TestStateBuilder,
 };
 use chrono::{DateTime, Utc};
 
@@ -1031,13 +1032,8 @@ impl MemorySink {
 }
 
 #[async_trait]
-impl Event for MemorySink {
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        self.events.lock().unwrap().push(event);
-        Ok(())
-    }
-
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl PublishEvents for MemorySink {
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().unwrap().extend_from_slice(&events);
         Ok(())
     }
@@ -1059,16 +1055,32 @@ pub fn test_lifecycle_handlers() -> (
 }
 
 fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
-    build_router_for_mode_at(unit.mode, unit.fixed_time)
+    build_router_for_mode_at(unit.mode, unit.fixed_time, None)
 }
 
 // Builds a capture router for a given mode with test defaults, so route-registration
 // tests can assert which paths a mode serves without constructing a full TestCase.
 pub fn build_router_for_mode(mode: CaptureMode) -> Router {
-    build_router_for_mode_at(mode, DEFAULT_TEST_TIME).0
+    build_router_for_mode_at(mode, DEFAULT_TEST_TIME, None).0
 }
 
-fn build_router_for_mode_at(mode: CaptureMode, fixed_time: &str) -> (Router, MemorySink) {
+// Same, plus a v1 sink router. The v1 paths stay unregistered without one, so a
+// mode-gating assertion needs a sink to tell "this mode does not serve the path"
+// apart from "this deployment has no v1 sink".
+pub fn build_router_for_mode_with_v1_sink(mode: CaptureMode) -> Router {
+    let v1_sink_router = TestStateBuilder::new()
+        .with_capture_mode(mode)
+        .build()
+        .state
+        .v1_sink_router;
+    build_router_for_mode_at(mode, DEFAULT_TEST_TIME, v1_sink_router).0
+}
+
+fn build_router_for_mode_at(
+    mode: CaptureMode,
+    fixed_time: &str,
+    v1_sink_router: Option<Arc<capture::v1::sinks::Router>>,
+) -> (Router, MemorySink) {
     let (readiness, liveness, _monitor) = test_lifecycle_handlers();
     let sink = MemorySink::default();
     let timesource = FixedTime {
@@ -1095,7 +1107,7 @@ fn build_router_for_mode_at(mode: CaptureMode, fixed_time: &str) -> (Router, Mem
             timesource,
             readiness,
             liveness,
-            Arc::new(sink.clone()),
+            Arc::new(OutputRegistry::single(sink.clone())),
             redis,
             None, // global_rate_limiter_token_distinctid
             quota_limiter,
@@ -1109,21 +1121,21 @@ fn build_router_for_mode_at(mode: CaptureMode, fixed_time: &str) -> (Router, Mem
             historical_rerouting_threshold_days,
             is_mirror_deploy,
             verbose_sample_percent,
-            26_214_400,         // 25MB default for AI endpoint
-            None,               // ai_blob_storage
-            None,               // body_chunk_read_timeout_ms
-            256,                // body_read_chunk_size_kb
-            10 * 1024 * 1024,   // capture_v1_max_compressed_body_bytes
-            50 * 1024 * 1024,   // capture_v1_max_decompressed_body_bytes
-            None,               // overflow_limiter
-            None,               // ai_events_overflow_limiter
-            None,               // replay_overflow_limiter
-            None,               // v1_sink_router
-            8,                  // capture_v1_scatter_gather_min_batch
-            None,               // ai_gateway_signing_secret
-            AiRouting::Primary, // ai_routing
-            false,              // ai_events_overflow_enabled
-            None,               // ingestion_warning_emitter
+            26_214_400,       // 25MB default for AI endpoint
+            983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+            None,             // body_chunk_read_timeout_ms
+            256,              // body_read_chunk_size_kb
+            10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+            50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+            None,             // overflow_limiter
+            None,             // ai_events_overflow_limiter
+            None,             // ai_byte_rate_limiter
+            None,             // replay_overflow_limiter
+            v1_sink_router,
+            8,     // capture_v1_scatter_gather_min_batch
+            None,  // ai_gateway_signing_secret
+            false, // ai_events_overflow_enabled
+            None,  // ingestion_warning_emitter
         ),
         sink,
     )

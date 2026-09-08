@@ -25,14 +25,26 @@ export interface SessionState {
   sessions: Record<string, AgentSession>;
   /** Index mapping taskId -> taskRunId for O(1) lookups */
   taskIdIndex: Record<string, string>;
+  /** Task ids whose first/resumed agent session is being created. */
+  startingTaskIds: Record<string, { previousRunId?: string; runId?: string }>;
 }
 
 export const sessionStore = createStore<SessionState>()(
   immer(() => ({
     sessions: {},
     taskIdIndex: {},
+    startingTaskIds: {},
   })),
 );
+
+function clearMatchingStartingTask(
+  state: SessionState,
+  session: AgentSession,
+): void {
+  if (state.startingTaskIds[session.taskId]?.runId === session.taskRunId) {
+    delete state.startingTaskIds[session.taskId];
+  }
+}
 
 /**
  * How many messages to drain off the head of a queue, honoring both options:
@@ -92,8 +104,39 @@ export const sessionStoreSetters = {
         delete state.sessions[existingTaskRunId];
       }
 
-      state.sessions[session.taskRunId] = session;
+      const existingSession =
+        existingTaskRunId === session.taskRunId
+          ? state.sessions[session.taskRunId]
+          : undefined;
+      state.sessions[session.taskRunId] = {
+        ...session,
+        ...(existingSession?.firstPromptForRunId === session.taskRunId
+          ? { firstPromptForRunId: session.taskRunId }
+          : {}),
+        ...(existingSession?.resumeAncestorRunIds &&
+        !session.resumeAncestorRunIds
+          ? { resumeAncestorRunIds: existingSession.resumeAncestorRunIds }
+          : {}),
+      };
       state.taskIdIndex[session.taskId] = session.taskRunId;
+      const startingTask = state.startingTaskIds[session.taskId];
+      if (
+        startingTask &&
+        !startingTask.runId &&
+        startingTask.previousRunId !== session.taskRunId
+      ) {
+        startingTask.runId = session.taskRunId;
+      }
+      const storedSession = state.sessions[session.taskRunId];
+      if (
+        storedSession.firstPromptForRunId === session.taskRunId ||
+        storedSession.status === "error" ||
+        (storedSession.status === "disconnected" &&
+          !!storedSession.errorMessage) ||
+        isTerminalStatus(storedSession.cloudStatus)
+      ) {
+        clearMatchingStartingTask(state, storedSession);
+      }
     });
   },
 
@@ -102,15 +145,43 @@ export const sessionStoreSetters = {
       const session = state.sessions[taskRunId];
       if (session) {
         delete state.taskIdIndex[session.taskId];
+        delete state.startingTaskIds[session.taskId];
       }
       delete state.sessions[taskRunId];
     });
   },
 
+  setTaskStarting: (taskId: string, runId?: string) => {
+    sessionStore.setState((state) => {
+      const marker = state.startingTaskIds[taskId];
+      if (marker) {
+        if (runId) marker.runId = runId;
+        return;
+      }
+      state.startingTaskIds[taskId] = {
+        previousRunId: state.taskIdIndex[taskId],
+        runId,
+      };
+    });
+  },
+
+  clearTaskStarting: (taskId: string) => {
+    sessionStore.setState((state) => {
+      delete state.startingTaskIds[taskId];
+    });
+  },
+
   updateSession: (taskRunId: string, updates: Partial<AgentSession>) => {
     sessionStore.setState((state) => {
-      if (state.sessions[taskRunId]) {
-        Object.assign(state.sessions[taskRunId], updates);
+      const session = state.sessions[taskRunId];
+      if (!session) return;
+      Object.assign(session, updates);
+      if (
+        updates.firstPromptForRunId === taskRunId ||
+        updates.status === "error" ||
+        (updates.status === "disconnected" && !!updates.errorMessage)
+      ) {
+        clearMatchingStartingTask(state, session);
       }
     });
   },
@@ -145,6 +216,7 @@ export const sessionStoreSetters = {
       if (session && session.events.length > 0) {
         session.events = [];
         session.processedLineCount = 0;
+        session.transcriptWindowStart = 0;
       }
     });
   },
@@ -152,6 +224,10 @@ export const sessionStoreSetters = {
   /**
    * Replace a session's transcript in place (rehydration after eviction),
    * preserving its live status/config. No-op if the session is gone.
+   *
+   * The restore reads a whole log rather than a window, so it also retires any
+   * paging index: left behind, it would offer to prepend chain entries the
+   * restored transcript already holds.
    */
   restoreEvents: (
     taskRunId: string,
@@ -164,6 +240,7 @@ export const sessionStoreSetters = {
         for (const event of events) Object.freeze(event);
         session.events = events;
         session.processedLineCount = lineCount;
+        session.transcriptWindowStart = 0;
       }
     });
   },
@@ -196,6 +273,9 @@ export const sessionStoreSetters = {
       if (fields.errorMessage !== undefined)
         session.cloudErrorMessage = fields.errorMessage;
       if (fields.branch !== undefined) session.cloudBranch = fields.branch;
+      if (fields.status !== undefined && isTerminalStatus(fields.status)) {
+        clearMatchingStartingTask(state, session);
+      }
     });
   },
 
@@ -404,6 +484,18 @@ export const sessionStoreSetters = {
     });
   },
 
+  removeOptimisticItems: (taskRunId: string, ids: string[]): void => {
+    const removed = new Set(ids);
+    sessionStore.setState((state) => {
+      const session = state.sessions[taskRunId];
+      if (session) {
+        session.optimisticItems = session.optimisticItems.filter(
+          (item) => !removed.has(item.id),
+        );
+      }
+    });
+  },
+
   replaceOptimisticWithEvent: (taskRunId: string, event: AcpMessage): void => {
     sessionStore.setState((state) => {
       const session = state.sessions[taskRunId];
@@ -430,6 +522,7 @@ export const sessionStoreSetters = {
     sessionStore.setState((state) => {
       state.sessions = {};
       state.taskIdIndex = {};
+      state.startingTaskIds = {};
     });
   },
 };

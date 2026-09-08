@@ -15,7 +15,7 @@ from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQuer
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team, User
 from posthog.models.group_type_mapping import get_group_types_for_project
-from posthog.security.llm_prompt_sanitization import sanitize_user_text
+from posthog.security.llm_prompt_sanitization import sanitize_core_memory_text, sanitize_user_text
 
 from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import (
@@ -23,16 +23,21 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
     EVENT_SELECTION_PROMPT_NAME,
     PLAN_GENERATION_PROMPT,
     PLANNER_PROMPT_NAME,
+    prepend_hogql_query_writing_rules,
     render_prompt,
     resolve_prompt,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
+    MAX_CHART_CATEGORIES,
+    MAX_CHARTS_PER_REPORT,
     EnrichedPromptSpec,
     QueryPlan,
     RelevantEvents,
 )
+from products.posthog_ai.backend.models.assistant import CoreMemory
 
 from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.utils.feature_flags import is_core_memory_disabled
 
 logger = structlog.get_logger(__name__)
 
@@ -87,7 +92,7 @@ WINDOW_PLACEHOLDERS = (
 )
 # Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
 # improvements reach existing subscriptions instead of only new ones.
-AI_QUERY_PLAN_VERSION = 4
+AI_QUERY_PLAN_VERSION = 6
 
 
 DEFAULT_PLANNER_MODEL = "gpt-4.1"
@@ -437,7 +442,23 @@ def _event_property_names(team: Team, events: list[str], per_event_limit: int) -
     return by_event
 
 
-def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequence[str] = ()) -> str:
+def _load_core_memory_text(team: Team, user: User) -> str:
+    if is_core_memory_disabled(team, user):
+        return ""
+    try:
+        memory = CoreMemory.objects.filter(team=team).only("text").first()
+    except Exception:
+        logger.warning("ai_subscription.core_memory_load_failed", team_id=team.pk, exc_info=True)
+        return ""
+    return sanitize_core_memory_text(memory.formatted_text) if memory else ""
+
+
+def build_context_blob(
+    team: Team,
+    window: ReportWindow,
+    relevant_events: Sequence[str] = (),
+    core_memory_text: str = "",
+) -> str:
     # Only a hint — the planner's actual event names arrive via `relevant_events` from the Postgres
     # taxonomy — so a ClickHouse timeout on the 30-day scan behind it degrades rather than costing the
     # whole report, as `_llm_selected_events` already does. None means "unknown", never "none".
@@ -524,6 +545,9 @@ def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequen
             "the account itself via the raw key $group_<index>, e.g. uniq($group_2), never bare "
             "group_<index>; no JOIN needed): " + ", ".join(group_labels)
         )
+    safe_core_memory = sanitize_core_memory_text(core_memory_text)
+    if safe_core_memory:
+        lines.extend(("", "<core_memory>", safe_core_memory, "</core_memory>"))
     return "\n".join(lines)
 
 
@@ -549,9 +573,17 @@ def generate_query_plan(
         posthog_properties=posthog_properties,
     ).with_structured_output(QueryPlan, method="json_schema", include_raw=False)
 
+    planner_prompt = prepend_hogql_query_writing_rules(
+        resolve_prompt(team, PLANNER_PROMPT_NAME, PLAN_GENERATION_PROMPT)
+    )
     rendered_prompt = render_prompt(
-        resolve_prompt(team, PLANNER_PROMPT_NAME, PLAN_GENERATION_PROMPT),
-        {"context_blob": context_blob, "cleaned_prompt": cleaned_prompt},
+        planner_prompt,
+        {
+            "context_blob": context_blob,
+            "cleaned_prompt": cleaned_prompt,
+            "max_charts": str(MAX_CHARTS_PER_REPORT),
+            "max_categories": str(MAX_CHART_CATEGORIES),
+        },
     )
 
     result = llm.invoke([("system", rendered_prompt)])
@@ -570,7 +602,12 @@ def build_enriched_prompt(
 ) -> EnrichedPromptSpec:
     cleaned = sanitize_prompt(prompt)
     relevant_events = _select_relevant_events(team, user, cleaned, trace_correlation_id)
-    context_blob = build_context_blob(team, window, relevant_events=relevant_events)
+    context_blob = build_context_blob(
+        team,
+        window,
+        relevant_events=relevant_events,
+        core_memory_text=_load_core_memory_text(team, user),
+    )
     plan = generate_query_plan(
         cleaned_prompt=cleaned,
         context_blob=context_blob,
@@ -586,6 +623,7 @@ def build_enriched_prompt(
 def build_frozen_prompt(
     *,
     team: Team,
+    user: User,
     prompt: Optional[str],
     window: ReportWindow,
     ai_query_plan: dict,
@@ -608,7 +646,12 @@ def build_frozen_prompt(
     # wrong field. The version bump guarantees pre-relevant_events envelopes re-plan rather than
     # silently running with an empty list.
     relevant_events = ai_query_plan.get("relevant_events") or []
-    context_blob = build_context_blob(team, window, relevant_events=relevant_events)
+    context_blob = build_context_blob(
+        team,
+        window,
+        relevant_events=relevant_events,
+        core_memory_text=_load_core_memory_text(team, user),
+    )
     return EnrichedPromptSpec(
         cleaned_prompt=cleaned, context_blob=context_blob, plan=plan, relevant_events=relevant_events
     )

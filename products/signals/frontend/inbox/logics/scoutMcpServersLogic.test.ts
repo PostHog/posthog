@@ -1,4 +1,6 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -8,18 +10,43 @@ import type {
     ConnectionStateEnumApi,
     MCPServiceAccountApi,
     MCPServiceAccountServerApi,
+    UserBasicApi,
 } from 'products/mcp_store/frontend/generated/api.schemas'
 
 import { scoutMcpServersLogic } from './scoutMcpServersLogic'
 
-function server(id: string, name: string, connectionState: ConnectionStateEnumApi): MCPServiceAccountServerApi {
+const YOU: UserBasicApi = {
+    id: MOCK_DEFAULT_USER.id,
+    uuid: MOCK_DEFAULT_USER.uuid,
+    email: MOCK_DEFAULT_USER.email,
+    hedgehog_config: null,
+}
+
+const TEAMMATE: UserBasicApi = {
+    id: MOCK_DEFAULT_USER.id + 1,
+    uuid: 'teammate-uuid',
+    email: 'teammate@posthog.com',
+    hedgehog_config: null,
+}
+
+function server(
+    id: string,
+    name: string,
+    connectionState: ConnectionStateEnumApi,
+    sharedBy: UserBasicApi = YOU,
+    scope: MCPServiceAccountServerApi['scope'] = 'team'
+): MCPServiceAccountServerApi {
     return {
         id,
+        shared_by: sharedBy,
+        scope,
         name,
         description: `${name} workspace`,
+        url: `https://mcp.${name.toLowerCase()}.example.com/mcp`,
         icon_key: name.toLowerCase(),
         icon_domain: `${name.toLowerCase()}.com`,
         connection_state: connectionState,
+        reachable: true,
     }
 }
 
@@ -43,6 +70,10 @@ function account(
     }
 }
 
+function listResponse<T>(results: T[]): [number, { count: number; next: null; previous: null; results: T[] }] {
+    return [200, { count: results.length, next: null, previous: null, results }]
+}
+
 describe('scoutMcpServersLogic', () => {
     let logic: ReturnType<typeof scoutMcpServersLogic.build> | undefined
 
@@ -54,21 +85,19 @@ describe('scoutMcpServersLogic', () => {
         logic?.unmount()
     })
 
-    it('shows Scout grants and separates servers that still need setup', async () => {
-        const notion = server('notion-id', 'Notion', 'missing_credential')
-        const linear = server('linear-id', 'Linear', 'ready')
-        const zendesk = server('zendesk-id', 'Zendesk', 'ready')
+    it('offers only team shares from the scout account, one row per server, preferring a ready share', async () => {
+        const personalNotion = server('notion-id', 'Notion', 'ready', YOU, 'personal')
+        const staleLinear = server('linear-id', 'linear', 'needs_reauth', YOU)
+        const readyLinear = server('linear-id', 'linear', 'ready', TEAMMATE)
+        const github = server('github-id', 'GitHub', 'ready', TEAMMATE)
+        const supportZendesk = server('zendesk-id', 'Zendesk', 'ready')
         useMocks({
             get: {
-                '/api/projects/:team_id/mcp_gateway/service_accounts/': () => [
-                    200,
-                    {
-                        count: 2,
-                        next: null,
-                        previous: null,
-                        results: [account('support', [zendesk]), account('scout', [notion, linear])],
-                    },
-                ],
+                '/api/projects/:team_id/mcp_gateway/service_accounts/': () =>
+                    listResponse([
+                        account('support', [supportZendesk]),
+                        account('scout', [personalNotion, staleLinear, readyLinear, github]),
+                    ]),
             },
         })
 
@@ -76,37 +105,10 @@ describe('scoutMcpServersLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.scoutServers).toEqual([notion, linear])
-        expect(logic.values.isScoutMcpAccessEnabled).toBe(true)
-        expect(logic.values.readyScoutServers).toEqual([linear])
-        expect(logic.values.availableScoutServers).toEqual([linear])
-        expect(logic.values.scoutServersNeedingSetup).toEqual([notion])
-    })
-
-    it('does not expose ready servers when MCP access is paused', async () => {
-        const linear = server('linear-id', 'Linear', 'ready')
-        useMocks({
-            get: {
-                '/api/projects/:team_id/mcp_gateway/service_accounts/': () => [
-                    200,
-                    {
-                        count: 1,
-                        next: null,
-                        previous: null,
-                        results: [account('scout', [linear], { status: 'paused' })],
-                    },
-                ],
-            },
-        })
-
-        logic = scoutMcpServersLogic()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.scoutServers).toEqual([linear])
-        expect(logic.values.isScoutMcpAccessEnabled).toBe(false)
-        expect(logic.values.readyScoutServers).toEqual([linear])
-        expect(logic.values.availableScoutServers).toEqual([])
-        expect(logic.values.scoutServersNeedingSetup).toEqual([])
+        expect(logic.values.scoutServers).toEqual([personalNotion, staleLinear, readyLinear, github])
+        // The personal grant never backs a scout run, so it never shows. The two team shares
+        // of Linear collapse to one row, and the ready one carries it so the health tag does
+        // not report a problem the run does not have. Sorting ignores case.
+        expect(logic.values.teamScoutServers).toEqual([github, readyLinear])
     })
 })

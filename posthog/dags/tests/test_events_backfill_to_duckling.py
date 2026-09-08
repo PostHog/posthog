@@ -22,6 +22,8 @@ from posthog.dags.events_backfill_to_duckling import (
 
 from products.managed_warehouse.backend.facade.contracts import DuckgresStoredBucketConfig
 
+pytestmark = pytest.mark.django_db
+
 
 @dataclass
 class _FakeRow:

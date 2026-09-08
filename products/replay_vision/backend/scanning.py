@@ -27,7 +27,7 @@ from products.replay_vision.backend.enqueue_claims import (
 from products.replay_vision.backend.inline_scan import create_inline_scanner, find_inline_scanner, inline_scan_key
 from products.replay_vision.backend.models.replay_observation import TERMINAL_STATUSES, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
-from products.replay_vision.backend.quota import compute_quota_snapshot
+from products.replay_vision.backend.quota import compute_scanner_budget, quota_state
 from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.temporal.constants import (
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
@@ -37,6 +37,34 @@ from products.replay_vision.backend.temporal.constants import (
 
 # One page of recordings. Above this the in-flight caps bind long before the batch does.
 MAX_SESSIONS_PER_SCAN = 200
+
+# Every outcome `start_observations` can report, mirroring the API's `scan_outcome` choices. Listed so a
+# batch reports all of them and a zero is a measured zero rather than a key nobody wrote.
+SCAN_OUTCOMES: tuple[str, ...] = (
+    "started",
+    "already_running",
+    "already_scanned",
+    "skipped_limit",
+    "skipped_quota",
+    "skipped_scanner_limit",
+    "failed",
+)
+
+
+def scan_outcome_counts(results: list[dict[str, str]]) -> dict[str, int]:
+    """Per-outcome counts for one batch, shaped as analytics properties.
+
+    A batch reports how many sessions it asked for and how many started, which says how many produced
+    nothing but never why. A reused answer costs nothing and is a cache hit; a quota skip is a customer
+    hitting a wall. Those need opposite responses and are indistinguishable today. The counts sum to the
+    number of sessions requested.
+    """
+    counts: dict[str, int] = dict.fromkeys(SCAN_OUTCOMES, 0)
+    for result in results:
+        outcome = str(result["scan_outcome"])
+        # An outcome outside the known set still counts, so the sum keeps holding if one is added.
+        counts[outcome] = counts.get(outcome, 0) + 1
+    return {f"outcome_{outcome}": count for outcome, count in counts.items()}
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -84,12 +112,21 @@ def scan_headroom(*, team: Team, model: str, scanner: ReplayScanner | None) -> S
             MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight - pending_enqueue_claims_for_team(team.id),
         ),
     )
-    snapshot = compute_quota_snapshot(team.organization_id)
+    snapshot = quota_state(team.organization_id)
     cost = observation_credits_for_model(model)
-    # Uncapped org, or a free model that spends nothing: quota can't bind. Otherwise, how many of THIS
-    # model's cost fit.
-    quota_limit = in_flight_limit if snapshot.remaining is None or cost <= 0 else snapshot.remaining // cost
-    # Report quota as the reason only when it's the strictly tighter limit.
+    # None means nothing binds: an uncapped org (or scanner), or a free model that spends nothing.
+    affordable = snapshot.affordable_count(cost)
+    quota_limit = in_flight_limit if affordable is None else affordable
+    scanner_affordable = compute_scanner_budget(scanner).affordable_count(cost) if scanner is not None else None
+    scanner_limit = in_flight_limit if scanner_affordable is None else scanner_affordable
+    # Report whichever limit is strictly tighter, so the user knows which one to raise.
+    if scanner_limit < in_flight_limit and scanner_limit <= quota_limit:
+        return ScanHeadroom(
+            max_starts=scanner_limit,
+            skip_reason="skipped_scanner_limit",
+            team_rows=team_in_flight,
+            scanner_rows=scanner_in_flight,
+        )
     if quota_limit < in_flight_limit:
         return ScanHeadroom(
             max_starts=quota_limit,
@@ -271,6 +308,7 @@ def retry_observation(*, observation: ReplayObservation, user: User) -> tuple[Re
     from products.replay_vision.backend.api.trigger import (  # noqa: PLC0415
         WorkflowStartOutcome,
         check_observation_quota,
+        check_scanner_quota,
         check_team_in_flight_capacity,
         claim_apply_scanner_slot,
         start_apply_scanner_workflow,
@@ -295,6 +333,7 @@ def retry_observation(*, observation: ReplayObservation, user: User) -> tuple[Re
     # Raises QuotaLimitExceeded / Throttled, which callers already know how to render. Kept as
     # exceptions rather than outcomes so the API's existing 402 and 429 messages are unchanged.
     check_observation_quota(scanner.team.organization_id, observation_credits_for_model(scanner.model))
+    check_scanner_quota(scanner)
     check_team_in_flight_capacity(scanner.team_id)
 
     # Locked so two concurrent retries can't both pass the status check and both delete the row.

@@ -116,6 +116,22 @@ def _fallback_team_ids() -> list[int]:
     return list(DEFAULT_ENROLLED_TEAM_IDS) if (is_cloud() or settings.DEBUG) else []
 
 
+def read_flag_payload(flag_key: str, distinct_id: str = SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID) -> dict | None:
+    """Read + parse one flag's JSON payload for the synthetic discovery distinct id.
+
+    Returns the parsed dict, or `None` when the payload is absent / not an object / unreadable; a
+    read error never breaks the caller, which applies its own fallback to `None`.
+    """
+    try:
+        payload = posthoganalytics.get_feature_flag_payload(flag_key, distinct_id, match_value=True)
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        return payload if isinstance(payload, dict) else None
+    except Exception as error:
+        capture_exception(error)
+        return None
+
+
 def _read_flag_payload() -> dict | None:
     """Read + parse the `signals-scout` flag's JSON payload once.
 
@@ -126,16 +142,7 @@ def _read_flag_payload() -> dict | None:
     Enrollment and per-team configs both derive from a single call to this so they always see
     the same snapshot. Mirrors `posthog/temporal/ai_observability/team_discovery.py`.
     """
-    try:
-        payload = posthoganalytics.get_feature_flag_payload(
-            SIGNALS_SCOUT_DOGFOOD_FLAG, SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID, match_value=True
-        )
-        if isinstance(payload, str):
-            payload = json.loads(payload)
-        return payload if isinstance(payload, dict) else None
-    except Exception as error:
-        capture_exception(error)
-        return None
+    return read_flag_payload(SIGNALS_SCOUT_DOGFOOD_FLAG)
 
 
 # Sentinel inside `guaranteed_team_ids` that enrolls EVERY team which already has scout configs,
@@ -321,6 +328,37 @@ def _resolve_global_max_runs_per_tick(payload: dict | None, default: int) -> int
     if isinstance(override, int) and not isinstance(override, bool) and override > 0:
         return override
     return default
+
+
+DISPATCH_SMEAR_SECONDS_KEY = "dispatch_smear_seconds"
+
+
+def _resolve_dispatch_smear_seconds(payload: dict | None, default: int) -> int:
+    if payload is None:
+        return default
+    override = payload.get(DISPATCH_SMEAR_SECONDS_KEY)
+    if isinstance(override, int) and not isinstance(override, bool) and override >= 0:
+        return override
+    return default
+
+
+# Flag payload key toggling slot-aligned dispatch anchors (the coordinator's `_slot_anchor`). On,
+# a dispatched scout's `last_run_at` is stamped at its own stable slot on the tick grid, so tick
+# latency stops pushing whole cohorts onto later ticks and merging them into ever larger waves.
+# Set `false` to fall back to stamping the wall clock, which is the only way back to the previous
+# behaviour without a deploy. Absent / malformed → on.
+SLOT_ALIGNED_DISPATCH_KEY = "slot_aligned_dispatch"
+
+
+def _resolve_slot_aligned_dispatch(payload: dict | None) -> bool:
+    """Whether the coordinator stamps slot-aligned dispatch anchors. Only a literal boolean is
+    honored, so a typo'd override can't silently flip the fleet's dispatch spread either way."""
+    if payload is None:
+        return True
+    override = payload.get(SLOT_ALIGNED_DISPATCH_KEY)
+    if isinstance(override, bool):
+        return override
+    return True
 
 
 def _resolve_github_read_access(team_id: int, team_configs: dict[int, dict], default_team_config: dict) -> bool:

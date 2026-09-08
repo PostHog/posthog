@@ -62,14 +62,23 @@ class TestIsBatchAlreadyProcessed:
 
     @parameterized.expand(
         [
-            # (name, redis_exists, helper_state, expected_result)
-            ("redis_hit_no_helper", 1, None, True),
-            ("redis_hit_short_circuits_helper", 1, False, True),
-            ("redis_miss_no_helper", 0, None, False),
-            ("redis_miss_helper_hit", 0, True, True),
-            ("redis_miss_helper_miss", 0, False, False),
-            ("redis_unavailable_no_helper", None, None, False),
-            ("redis_unavailable_helper_hit", None, True, True),
+            # (name, redis_exists, helper_state, is_first_attempt, expected_result)
+            ("redis_hit_no_helper", 1, None, False, True),
+            ("redis_hit_short_circuits_helper", 1, False, False, True),
+            ("redis_miss_no_helper", 0, None, False, False),
+            ("redis_miss_helper_hit", 0, True, False, True),
+            ("redis_miss_helper_miss", 0, False, False, False),
+            ("redis_unavailable_no_helper", None, None, False, False),
+            ("redis_unavailable_helper_hit", None, True, False, True),
+            # A first delivery has no half-finished predecessor, so the scan is skipped even
+            # though the helper would have reported a commit. Contrast redis_miss_helper_hit.
+            ("first_attempt_skips_helper", 0, True, True, False),
+            # The Redis flag still wins on a first attempt — a batch redelivered after its
+            # flag was written must not be loaded twice.
+            ("first_attempt_redis_hit", 1, None, True, True),
+            # Redis down leaves the fast path inconclusive, so the scan is the only check
+            # left and must run whatever the attempt number says.
+            ("first_attempt_redis_unavailable_still_scans", None, True, True, True),
         ]
     )
     def test_decision_matrix(
@@ -77,6 +86,7 @@ class TestIsBatchAlreadyProcessed:
         _name: str,
         redis_exists: int | None,
         helper_state: bool | None,
+        is_first_attempt: bool,
         expected_result: bool,
     ):
         client = _redis_client(redis_exists)
@@ -90,6 +100,7 @@ class TestIsBatchAlreadyProcessed:
                 run_uuid="r",
                 batch_index=0,
                 delta_table_ref=helper,
+                is_first_attempt=is_first_attempt,
             )
 
         assert result is expected_result

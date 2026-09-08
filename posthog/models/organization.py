@@ -1,5 +1,4 @@
 import sys
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import cache as functools_cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, Union
@@ -7,12 +6,13 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, Union
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models.query import QuerySet
 from django.db.models.query_utils import Q
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
+from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 
 import structlog
@@ -21,9 +21,10 @@ from rest_framework import exceptions
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, MAX_SLUG_LENGTH, AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.utils import LowercaseSlugField, UUIDTModel, create_with_slug, sane_repr
+from posthog.models.utils import LowercaseSlugField, UUIDTModel, create_with_slug, generate_slug_candidates, sane_repr
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -69,7 +70,7 @@ class OrganizationUsageInfo(TypedDict):
     period: list[str] | None
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class BillingPeriod:
     start: datetime
     end: datetime
@@ -110,6 +111,9 @@ class OrganizationManager(models.Manager):
             kwargs["default_anonymize_ips"] = default_anonymize_ips()
         if "is_ai_training_opted_in" not in kwargs:
             kwargs["is_ai_training_opted_in"] = default_is_ai_training_opted_in()
+        # New organizations start on the most-specific resolution. Existing ones opt in.
+        if "uses_most_specific_access_resolution" not in kwargs:
+            kwargs["uses_most_specific_access_resolution"] = True
         return create_with_slug(super().create, *args, **kwargs)
 
     def bootstrap(
@@ -185,6 +189,18 @@ class Organization(ModelActivityMixin, UUIDTModel):
         BAYESIAN = "bayesian", "Bayesian"
         FREQUENTIST = "frequentist", "Frequentist"
 
+    class DeactivationReason(models.TextChoices):
+        UNPAID_BALANCE = "Access revoked due to unpaid balance.", "Unpaid balance"
+        COMPLIANCE_REVIEW = "Access disabled for compliance review.", "Compliance review"
+        TERMS_OF_SERVICE_VIOLATION = (
+            "Access revoked due to terms of service violation.",
+            "Terms of service violation",
+        )
+        DESKTOP_ABUSE = (
+            "Suspected PostHog Desktop abuse. Contact PostHog support if you think this is a mistake.",
+            "Desktop abuse",
+        )
+
     members = models.ManyToManyField(
         "posthog.User",
         through="posthog.OrganizationMembership",
@@ -195,6 +211,8 @@ class Organization(ModelActivityMixin, UUIDTModel):
 
     # General settings
     name = models.CharField(max_length=64)
+    # Name this instance last saw in the DB; save() compares it to self.name to detect a rename.
+    _loaded_name: Optional[str] = None
     slug: LowercaseSlugField = LowercaseSlugField(unique=True, max_length=MAX_SLUG_LENGTH)
     logo_media = models.ForeignKey("posthog.UploadedMedia", on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -215,6 +233,8 @@ class Organization(ModelActivityMixin, UUIDTModel):
         ),
         max_length=200,
     )
+    # Transient flag set by the pre_save signal to communicate active-state changes to post_save.
+    _is_active_changed: bool = False
 
     # Security / management settings
     session_cookie_age = models.IntegerField(
@@ -264,7 +284,19 @@ class Organization(ModelActivityMixin, UUIDTModel):
         db_default=True,
         help_text="When False, members (below admin) only see themselves in the members list and only project members in access control.",
     )
+    uses_most_specific_access_resolution = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="When True, access controls resolve with the most specific matching rule. When False, the legacy resolution order applies.",
+    )
     allow_publicly_shared_resources = models.BooleanField(default=True)
+    read_only_mcp_access = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="When True, requests through the PostHog MCP server can read but not change this organization's data.",
+    )
     default_role = models.ForeignKey(
         "ee.Role",
         on_delete=models.SET_NULL,
@@ -321,6 +353,9 @@ class Organization(ModelActivityMixin, UUIDTModel):
         oauth_applications: models.Manager[Any]
     # Scoring levels defined in billing::customer::TrustScores
     customer_trust_scores = models.JSONField(default=dict, null=True, blank=True)
+    # Managed by Billing: whether the org had an active subscription (or active trial)
+    # at last customer sync. NULL = never synced = unknown; consumers must fail open on NULL.
+    has_active_subscription = models.BooleanField(null=True, blank=True)
 
     # DEPRECATED attributes (should be removed on next major version)
     setup_section_2_completed = models.BooleanField(default=True)
@@ -337,6 +372,47 @@ class Organization(ModelActivityMixin, UUIDTModel):
         return self.name
 
     __repr__ = sane_repr("name")
+
+    @classmethod
+    def from_db(cls, db: Any, field_names: Any, values: Any) -> "Organization":
+        instance = super().from_db(db, field_names, values)
+        instance._loaded_name = instance.__dict__.get("name")
+        return instance
+
+    def refresh_from_db(self, using: Any = None, fields: Any = None, from_queryset: Any = None) -> None:
+        super().refresh_from_db(using=using, fields=fields, from_queryset=from_queryset)
+        if fields is None or "name" in fields:
+            self._loaded_name = self.name
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        update_fields = kwargs.get("update_fields")
+        name_is_written = update_fields is None or "name" in update_fields
+        renamed = (
+            not self._state.adding
+            and name_is_written
+            and self._loaded_name is not None
+            and self._loaded_name != self.name
+        )
+        # Read self.name only after a rename is known, so a deferred name costs no query.
+        base_slug = slugify(self.name)[:MAX_SLUG_LENGTH] if renamed else ""
+        if renamed and base_slug != self.slug:
+            if update_fields is not None:
+                kwargs["update_fields"] = {*update_fields, "slug"}
+            self._save_with_regenerated_slug(base_slug, *args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
+        if name_is_written and "name" in self.__dict__:
+            self._loaded_name = self.name
+
+    def _save_with_regenerated_slug(self, base_slug: str, *args: Any, **kwargs: Any) -> None:
+        for candidate in generate_slug_candidates(base_slug):
+            self.slug = candidate
+            try:
+                with transaction.atomic():
+                    return super().save(*args, **kwargs)
+            except IntegrityError:
+                continue
+        raise Exception("Could not save organization with a unique slug in 10 tries!")
 
     @property
     def _billing_plan_details(self) -> tuple[str | None, str | None]:
@@ -595,6 +671,38 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
         instance.update_available_product_features()
         if not is_cloud():
             instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
+
+
+@receiver(models.signals.pre_save, sender=Organization)
+def remember_organization_is_active_change(sender, instance: Organization, **kwargs):
+    instance._is_active_changed = False
+    if instance._state.adding:
+        return
+
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "is_active" not in update_fields:
+        return
+
+    previous_is_active = sender.objects.filter(pk=instance.pk).values_list("is_active", flat=True).first()
+    instance._is_active_changed = previous_is_active != instance.is_active
+
+
+@receiver(post_save, sender=Organization)
+def invalidate_llm_gateway_quota_cache_on_active_state_change(sender, instance: Organization, created: bool, **kwargs):
+    if created or not instance._is_active_changed:
+        return
+
+    organization_id = instance.pk
+
+    def _invalidate_cache():
+        from posthog.models.team import Team
+
+        from ee.billing.quota_limiting import invalidate_llm_gateway_quota_cache
+
+        team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
+        invalidate_llm_gateway_quota_cache(team_ids)
+
+    transaction.on_commit(_invalidate_cache)
 
 
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):

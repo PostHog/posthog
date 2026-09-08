@@ -16,6 +16,12 @@ class HiBobEndpointConfig:
     primary_key: str = "id"
 
 
+# Name of the employee time-off calendars stream. It fans out over employee ids
+# (the search endpoint resolves the holiday calendar per employee), so it needs
+# bespoke transport rather than the shared single-page path — routed by name in
+# hibob.py.
+TIME_OFF_CALENDARS = "time_off_calendars"
+
 # HiBob has no updated-at filter on employees (Airbyte is full-refresh only and
 # Fivetran re-imports most tables every sync), so every stream is an honest
 # full refresh. The time off changes endpoint has a `since` param but its rows
@@ -34,6 +40,14 @@ HIBOB_ENDPOINTS: dict[str, HiBobEndpointConfig] = {
         name="tasks",
         path="/v1/tasks",
         data_key="tasks",
+    ),
+    TIME_OFF_CALENDARS: HiBobEndpointConfig(
+        name=TIME_OFF_CALENDARS,
+        path="/v1/timeoff/calendars/employees/search",
+        data_key="items",
+        method="POST",
+        # One resolved calendar per employee, so the employee id is table-wide unique.
+        primary_key="employeeId",
     ),
 }
 

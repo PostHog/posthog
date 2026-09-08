@@ -23,8 +23,8 @@ const IS_DEV = import.meta.env.DEV;
 const POLL_INTERVAL_MS = 3_000;
 const POLL_TIMEOUT_MS = 300_000;
 
-export type GithubUserConnectState = ConnectState;
-export type GithubUserConnectError = ConnectError;
+type GithubUserConnectState = ConnectState;
+type GithubUserConnectError = ConnectError;
 
 interface Options {
   projectId: number | null;
@@ -36,6 +36,8 @@ interface Result {
   isConnecting: boolean;
   isTimedOut: boolean;
   hasError: boolean;
+  /** GitHub is waiting on an org owner to approve the install. */
+  isPending: boolean;
   connect: () => Promise<void>;
   reset: () => void;
 }
@@ -110,6 +112,12 @@ function useConnectStateMachine(
     onError: (cbError) => {
       stopPolling();
       dispatch({ type: "fail", error: cbError });
+    },
+    onPending: () => {
+      stopPolling();
+      dispatch({ type: "pending" });
+      // The install request row exists server-side now; refresh so banners pick it up.
+      invalidate(projectId);
     },
     onTimedOut: () => {
       stopPolling();

@@ -70,6 +70,7 @@ from products.experiments.backend.hogql_queries.experiment_query_context import 
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_entity_key,
     get_multiple_variant_handling_from_experiment,
+    has_activation_config,
 )
 from products.experiments.backend.hogql_queries.utils import (
     aggregate_variants_across_breakdowns,
@@ -108,6 +109,11 @@ DEFAULT_EXPOSURE_TTL_SECONDS = {
 # instead of failing atomically on every attempt.
 PRECOMPUTE_MAX_WINDOW_DAYS = 7
 
+# Spread frozen chunk expiries so an experiment's history does not expire all at once
+# (see TtlSchedule.default_ttl_jitter_seconds). 14 days means roughly one chunk expiry
+# per day for a months-long experiment; a larger value would only keep data on disk longer.
+PRECOMPUTE_TTL_JITTER_SECONDS = 14 * 24 * 60 * 60
+
 # Upper bound on how far past the experiment end a metric-events build may scan.
 # retention_window_end is an unrestricted user-supplied integer; without a cap, a huge
 # window would stretch the precompute horizon into thousands of daily jobs before the
@@ -121,6 +127,7 @@ def experiment_precompute_ttl_schedule(team_timezone: str) -> TtlSchedule:
         DEFAULT_EXPOSURE_TTL_SECONDS,
         team_timezone,
         max_window_days=PRECOMPUTE_MAX_WINDOW_DAYS,
+        default_ttl_jitter_seconds=PRECOMPUTE_TTL_JITTER_SECONDS,
     )
 
 
@@ -419,6 +426,11 @@ class ExperimentQueryRunner(QueryRunner):
         ):
             return False
 
+        # Activation-mode exposures can't be cached per day: the flag→activation ordering
+        # crosses bucket boundaries.
+        if has_activation_config(self.experiment.exposure_criteria):
+            return False
+
         return not has_uncalculated_cohorts(self.team, self.experiment.exposure_criteria, self.metric)
 
     def _precompute_skip_reason(self) -> Optional[str]:
@@ -434,6 +446,8 @@ class ExperimentQueryRunner(QueryRunner):
             self.experiment.end_date,
         ):
             return "min_runtime"
+        if has_activation_config(self.experiment.exposure_criteria):
+            return "activation_config"
         if has_uncalculated_cohorts(self.team, self.experiment.exposure_criteria, self.metric):
             return "cohort_not_calculated"
         if self.is_data_warehouse_query:
@@ -466,9 +480,9 @@ class ExperimentQueryRunner(QueryRunner):
 
     def _metric_events_precompute_applicable(self) -> bool:
         """
-        Metric-events precompute supports ordered funnels, count/sum-style mean
-        metrics, and retention metrics, in all cases without breakdowns, CUPED,
-        or data warehouse sources.
+        Metric-events precompute supports ordered funnels, numeric mean metrics
+        (count/sum/avg/min/max), and retention metrics, in all cases without
+        breakdowns, CUPED, or data warehouse sources.
         """
         if self._get_breakdowns_for_builder() or self.cuped_config.enabled or self.is_data_warehouse_query:
             return False
@@ -484,7 +498,16 @@ class ExperimentQueryRunner(QueryRunner):
             if is_session_property_metric(source):
                 return False
             math_type = getattr(source, "math", None) or ExperimentMetricMathType.TOTAL
-            return math_type in (ExperimentMetricMathType.TOTAL, ExperimentMetricMathType.SUM)
+            # These math types are safe because the build query stores the same
+            # coalesced per-event float regardless of math type, and the math is
+            # applied at read time by build_value_aggregation_expr on both paths.
+            return math_type in (
+                ExperimentMetricMathType.TOTAL,
+                ExperimentMetricMathType.SUM,
+                ExperimentMetricMathType.AVG,
+                ExperimentMetricMathType.MIN,
+                ExperimentMetricMathType.MAX,
+            )
         if isinstance(self.metric, ExperimentRetentionMetric):
             if not isinstance(self.metric.start_event, (EventsNode, ActionsNode)) or not isinstance(
                 self.metric.completion_event, (EventsNode, ActionsNode)
@@ -508,20 +531,16 @@ class ExperimentQueryRunner(QueryRunner):
         )
 
         # Get the "missing" (not directly accessible) parameters required for the builder
-        (
-            exposure_config,
-            multiple_variant_handling,
-            filter_test_accounts,
-        ) = get_exposure_config_params_for_builder(
+        exposure_params = get_exposure_config_params_for_builder(
             self.experiment.exposure_criteria, self.team, self.experiment.start_date
         )
 
         builder = ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=self.feature_flag_key,
-            exposure_config=exposure_config,
-            filter_test_accounts=filter_test_accounts,
-            multiple_variant_handling=multiple_variant_handling,
+            exposure_config=exposure_params.exposure_config,
+            filter_test_accounts=exposure_params.filter_test_accounts,
+            multiple_variant_handling=exposure_params.multiple_variant_handling,
             variants=self.variants,
             date_range_query=self.date_range_query,
             entity_key=self.entity_key,
@@ -529,6 +548,7 @@ class ExperimentQueryRunner(QueryRunner):
             breakdowns=self._get_breakdowns_for_builder(),
             only_count_matured_users=self.experiment.only_count_matured_users,
             cuped_config=self.cuped_config,
+            activation_config=exposure_params.activation_config,
         )
 
         should_precompute = self._should_precompute()
@@ -883,15 +903,20 @@ class ExperimentQueryRunner(QueryRunner):
         from posthog.schema import ActionsNode, ExperimentEventExposureConfig
 
         exposure_config: ExperimentEventExposureConfig | ActionsNode
+        activation_config: ExperimentEventExposureConfig | ActionsNode | None = None
         if self.actors_query.exposureConfig is not None:
+            # An explicit override replaces the whole exposure definition, including any
+            # stored activation event.
             exposure_config = resolve_exposure_config_for_builder(
                 self.actors_query.exposureConfig, self.team, self.experiment.start_date
             )
         else:
             # Same resolution as the main experiment query, so the actor list matches the counts.
-            exposure_config, _, _ = get_exposure_config_params_for_builder(
+            exposure_params = get_exposure_config_params_for_builder(
                 self.experiment.exposure_criteria, self.team, self.experiment.start_date
             )
+            exposure_config = exposure_params.exposure_config
+            activation_config = exposure_params.activation_config
 
         # Get multiple variant handling
         if self.actors_query.multipleVariantHandling is not None:
@@ -955,6 +980,7 @@ class ExperimentQueryRunner(QueryRunner):
             funnel_step=funnel_step,
             funnel_step_breakdown=funnel_step_breakdown,
             include_recordings=self.actors_query.includeRecordings or False,
+            activation_config=activation_config,
         )
 
         # Step 0 is the exposure step: return everyone exposed to the variant,

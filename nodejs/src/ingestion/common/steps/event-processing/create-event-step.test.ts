@@ -253,7 +253,7 @@ describe('create-event-step', () => {
             if (isOkResult(result)) {
                 const event = result.value.eventsToEmit[0].event
                 expect(event.timestamp).toBeTruthy()
-                expect(event.created_at).toBeNull()
+                expect(event.created_at).toBeTruthy()
                 expect(event.person_created_at).toBeTruthy()
             }
         })

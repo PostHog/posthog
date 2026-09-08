@@ -1,11 +1,13 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { decodeParams } from 'kea-router'
+
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { oauthAuthorizeLogic } from './oauthAuthorizeLogic'
+import { describeOAuthError, oauthAuthorizeLogic } from './oauthAuthorizeLogic'
 
 describe('oauthAuthorizeLogic', () => {
     let logic: ReturnType<typeof oauthAuthorizeLogic.build>
@@ -28,8 +30,13 @@ describe('oauthAuthorizeLogic', () => {
 
     const effectiveScopesCases: { name: string; scopes: string[]; apply?: () => void; expected: string[] }[] = [
         {
-            name: 'grants the full requested set, collapsed to the highest action',
+            name: 'grants both halves of the pair for an object at write level',
             scopes: ['openid', 'feature_flag:read', 'feature_flag:write', 'insight:read'],
+            expected: ['openid', 'feature_flag:read', 'feature_flag:write', 'insight:read'],
+        },
+        {
+            name: 'keeps the write half alone when the read half was never requested',
+            scopes: ['openid', 'feature_flag:write', 'insight:read'],
             expected: ['openid', 'feature_flag:write', 'insight:read'],
         },
         {
@@ -206,7 +213,7 @@ describe('oauthAuthorizeLogic', () => {
         expect(row).toMatchObject({ locked: true, value: 'write' })
         expect(row?.description).toContain('Write')
         expect(logic.values.effectiveScopes).toContain('feature_flag:write')
-        expect(logic.values.effectiveScopes).not.toContain('feature_flag:read')
+        expect(logic.values.effectiveScopes).toContain('feature_flag:read')
     })
 
     it('resets access selections when scopes are reloaded', () => {
@@ -291,5 +298,109 @@ describe('oauthAuthorizeLogic', () => {
         logic.actions.setRequiredAccessLevel('team')
         expect(logic.values.selectedOrganization).toBe(expectedOrg)
         expect(logic.values.oauthAuthorization.scoped_teams).toEqual(expectedTeams)
+    })
+
+    // Opaque client-owned params must reach the API byte-for-byte, whatever they look like.
+    describe('OAuth parameter passthrough', () => {
+        const JSON_STATE = '{"flow_id":"5a8f3d48-c841-4375-b06d-5c828c86282d","provider":"posthog"}'
+
+        let sentBody: Record<string, any>
+
+        beforeEach(() => {
+            sentBody = {}
+            useMocks({
+                post: {
+                    '/oauth/authorize/': async ({ request }) => {
+                        sentBody = (await request.json()) as Record<string, any>
+                        // No `redirect_to`, so the logic does not navigate the test page away.
+                        return {}
+                    },
+                },
+            })
+        })
+
+        const authorizeWithSearch = async (search: string): Promise<Record<string, any>> => {
+            // `replaceState` rather than `router.actions.push`: push rebuilds the search string
+            // from kea-router's decoded values, so it cannot reproduce a raw inbound URL.
+            window.history.replaceState({}, '', `/oauth/authorize${search}`)
+            await logic.asyncActions.cancel().catch(() => undefined)
+            return sentBody
+        }
+
+        it('sends a JSON state as the verbatim string the client provided', async () => {
+            const search = `?client_id=abc&state=${encodeURIComponent(JSON_STATE)}`
+            // This is what kea-router hands to `searchParams` — the value we must not send.
+            expect(decodeParams(search, '?').state).toEqual({
+                flow_id: '5a8f3d48-c841-4375-b06d-5c828c86282d',
+                provider: 'posthog',
+            })
+
+            const body = await authorizeWithSearch(search)
+            expect(body.state).toBe(JSON_STATE)
+            expect(body.client_id).toBe('abc')
+        })
+
+        it.each([
+            ['a boolean-like state', 'true'],
+            ['a numeric state with a leading zero', '0123'],
+            ['an array-like state', '[1,2]'],
+        ])('sends %s unchanged', async (_name, state) => {
+            const body = await authorizeWithSearch(`?state=${encodeURIComponent(state)}`)
+            expect(body.state).toBe(state)
+        })
+
+        it('sends null for a parameter the client omitted', async () => {
+            const body = await authorizeWithSearch('?client_id=abc')
+            expect(body.state).toBeNull()
+            expect(body.nonce).toBeNull()
+        })
+    })
+
+    describe('describeOAuthError', () => {
+        it('names the parameter that the serializer rejected', () => {
+            expect(describeOAuthError({ state: ['Not a valid string.'] })).toBe(
+                'The application sent an incorrect authorization request. ' +
+                    'The parameter "state" is not correct: Not a valid string.'
+            )
+        })
+
+        it('describes every rejected parameter', () => {
+            expect(describeOAuthError({ state: ['Not a valid string.'], scope: ['Unknown scope.'] })).toBe(
+                'The application sent an incorrect authorization request. ' +
+                    'The parameter "state" is not correct: Not a valid string. ' +
+                    'The parameter "scope" is not correct: Unknown scope.'
+            )
+        })
+
+        it('uses a non-field error as its own sentence', () => {
+            expect(describeOAuthError({ non_field_errors: ['The request expired.'] })).toBe(
+                'The application sent an incorrect authorization request. The request expired.'
+            )
+        })
+
+        // `/oauth/authorize/` also fails with the RFC 6749 envelope (views.py:1274). Its keys
+        // are not parameter names, and `ApiError.message` would show the code, not the prose.
+        it('prefers the description over the code in an OAuth error envelope', () => {
+            expect(
+                describeOAuthError({
+                    error: 'access_denied',
+                    error_description: 'This organization has disabled AI data processing.',
+                })
+            ).toBe('This organization has disabled AI data processing.')
+        })
+
+        it.each([
+            ['no body', undefined],
+            ['a null body', null],
+            ['a plain string body', 'Bad Request'],
+            ['an array body', ['Bad Request']],
+            ['a body without messages', { state: [] }],
+            // Would otherwise read as a parameter named "error".
+            ['an envelope with no description', { error: 'invalid_client' }],
+            // DRF always sends a list, so a bare string is not a field error.
+            ['a non-list field value', { state: 'Not a valid string.' }],
+        ])('returns null for %s, so the caller falls back', (_name, data) => {
+            expect(describeOAuthError(data)).toBeNull()
+        })
     })
 })

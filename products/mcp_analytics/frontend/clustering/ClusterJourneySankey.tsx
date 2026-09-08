@@ -1,10 +1,14 @@
 import { useMemo } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
+import type { ChartTheme } from '@posthog/quill-charts'
+
+import { useChartTheme } from 'lib/charts/hooks'
 
 import sankey, { sankeyLeft, sankeyLinkHorizontal } from '~/vendor/d3/sankey'
 
 import type { MCPIntentClusterJourneyApi, MCPIntentClusterJourneyPathApi } from '../generated/api.schemas'
+import { ERROR_SERIES, PRIMARY_SERIES, seriesColor } from './seriesColors'
 
 const WIDTH = 720
 const HEIGHT = 300
@@ -31,7 +35,7 @@ function describePath(path: MCPIntentClusterJourneyPathApi): string {
     return labels.filter((label, idx) => label !== ENDED_LABEL || idx === labels.indexOf(ENDED_LABEL)).join(' → ')
 }
 
-function nodeFill(kind: NodeKind): string {
+function nodeFill(kind: NodeKind, theme: ChartTheme): string {
     switch (kind) {
         case 'init':
             return 'var(--muted)'
@@ -40,10 +44,10 @@ function nodeFill(kind: NodeKind): string {
         case 'completed':
             return 'var(--success)'
         case 'error':
-            return 'var(--danger)'
+            return seriesColor(theme, ERROR_SERIES)
         case 'tool':
         default:
-            return 'var(--accent)'
+            return seriesColor(theme, PRIMARY_SERIES)
     }
 }
 
@@ -111,6 +115,7 @@ interface Props {
 }
 
 export function ClusterJourneySankey({ journey }: Props): JSX.Element | null {
+    const theme = useChartTheme()
     const graph = useMemo(() => (journey ? buildGraph(journey.paths) : { nodes: [], links: [] }), [journey])
 
     const layout = useMemo(() => {
@@ -171,7 +176,7 @@ export function ClusterJourneySankey({ journey }: Props): JSX.Element | null {
                     <g>
                         {layout.links.map((link, idx) => {
                             const path = linkGen(link) ?? ''
-                            const stroke = link.outcome === 'error' ? 'var(--danger)' : 'var(--accent)'
+                            const stroke = seriesColor(theme, link.outcome === 'error' ? ERROR_SERIES : PRIMARY_SERIES)
                             const sourceName = (link.source as unknown as JourneyNode).name
                             const targetName = (link.target as unknown as JourneyNode).name
                             const pct =
@@ -219,7 +224,7 @@ export function ClusterJourneySankey({ journey }: Props): JSX.Element | null {
                                     height={Math.max(1, node.y1 - node.y0)}
                                     rx={2}
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ fill: nodeFill(node.kind) }}
+                                    style={{ fill: nodeFill(node.kind, theme) }}
                                 />
                                 <text
                                     x={node.x0 + (node.x1 - node.x0) / 2}

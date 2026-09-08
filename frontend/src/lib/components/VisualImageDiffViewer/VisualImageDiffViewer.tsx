@@ -2,7 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { LemonSegmentedButton, LemonSlider, LemonSwitch, LemonTag, type LemonTagType } from '@posthog/lemon-ui'
 
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { cn } from 'lib/utils/css-classes'
+
+import { OverlayRect } from './OverlayRect'
 
 export type VisualDiffResult = 'changed' | 'new' | 'removed' | 'unchanged'
 
@@ -14,6 +17,17 @@ export interface DiffOverlayBox {
     y: number
     width: number
     height: number
+}
+
+/**
+ * A run of rows the current image gained or lost, in natural image coordinates.
+ * A deleted band's rows are not in the current image, so its `y` is the seam the
+ * removed rows left behind, not the top of a region that is still there.
+ */
+export interface DiffOverlayBand {
+    y: number
+    rows: number
+    kind: 'inserted' | 'deleted'
 }
 
 export interface VisualImageDiffViewerProps {
@@ -46,6 +60,14 @@ export interface VisualImageDiffViewerProps {
      * viewBox + preserveAspectRatio="none". Empty array == no overlays.
      */
     diffOverlayBoxes?: DiffOverlayBox[]
+    /**
+     * Rows the current image gained or lost, in the same vertical coord space
+     * as `diffOverlayBoxes`. Each band spans the full width, so it carries no
+     * x. Drawn in their own color because a band is where content moved, not
+     * where it changed, and unlike clusters they stay visible when the cluster
+     * toggle is off.
+     */
+    diffOverlayBands?: DiffOverlayBand[]
     /**
      * Natural-pixel dimensions of the bbox coord space — the diff
      * image's dimensions, which equal current/baseline when sizes
@@ -96,12 +118,15 @@ interface ImagePanelProps {
     imgStyle?: React.CSSProperties
     /** When set, draw bbox outlines over the image at these natural-coord positions. */
     overlayBoxes?: DiffOverlayBox[]
+    /** Shift bands, drawn in the same coord space as `overlayBoxes`. */
+    overlayBands?: DiffOverlayBand[]
     overlayWidth?: number
     overlayHeight?: number
     /** Highlighted cluster index — that one box renders emphasized. */
     highlightedOverlayIndex?: number | null
     /** Fires on hover so a parent panel can sync. */
     onOverlayHover?: (index: number | null) => void
+    onClick?: () => void
 }
 
 function ImagePanel({
@@ -111,41 +136,61 @@ function ImagePanel({
     imgClassName,
     imgStyle,
     overlayBoxes,
+    overlayBands,
     overlayWidth,
     overlayHeight,
     highlightedOverlayIndex,
     onOverlayHover,
+    onClick,
 }: ImagePanelProps): JSX.Element {
-    const hasOverlay = !!url && !!overlayBoxes && overlayBoxes.length > 0 && !!overlayWidth && !!overlayHeight
+    const boxCount = (overlayBoxes?.length ?? 0) + (overlayBands?.length ?? 0)
+    const hasOverlay = !!url && boxCount > 0 && !!overlayWidth && !!overlayHeight
+    const image = url ? (
+        // `block` on the inline-block wrapper kills the implicit
+        // baseline-descender gap that nudges the SVG overlay a few
+        // pixels below the image's actual bottom edge.
+        <div className="relative inline-block max-w-full leading-none">
+            <img
+                src={url}
+                alt={label}
+                loading="lazy"
+                decoding="async"
+                className={cn('block h-auto bg-black/5', imgClassName || 'max-w-full')}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={imgStyle}
+            />
+            {hasOverlay && (
+                <BboxOverlay
+                    boxes={overlayBoxes ?? []}
+                    bands={overlayBands}
+                    width={overlayWidth!}
+                    height={overlayHeight!}
+                    highlightedIndex={highlightedOverlayIndex ?? null}
+                    onHover={onOverlayHover}
+                />
+            )}
+        </div>
+    ) : null
+
     return (
         <div className="overflow-hidden rounded-lg border bg-bg-light inline-block max-w-full">
             <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wide border-b bg-bg-3000">
                 {label}
             </div>
-            {url ? (
-                // `block` on the inline-block wrapper kills the implicit
-                // baseline-descender gap that nudges the SVG overlay a few
-                // pixels below the image's actual bottom edge.
-                <div className="relative inline-block max-w-full leading-none">
-                    <img
-                        src={url}
-                        alt={label}
-                        loading="lazy"
-                        decoding="async"
-                        className={cn('block h-auto bg-black/5', imgClassName || 'max-w-full')}
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={imgStyle}
-                    />
-                    {hasOverlay && (
-                        <BboxOverlay
-                            boxes={overlayBoxes!}
-                            width={overlayWidth!}
-                            height={overlayHeight!}
-                            highlightedIndex={highlightedOverlayIndex ?? null}
-                            onHover={onOverlayHover}
-                        />
-                    )}
-                </div>
+            {image ? (
+                onClick ? (
+                    <button
+                        type="button"
+                        onClick={onClick}
+                        aria-label={`View ${label.toLowerCase()} snapshot full screen`}
+                        data-attr="visual-review-zoom-image"
+                        className="block max-w-full cursor-zoom-in border-0 bg-transparent p-0 text-left"
+                    >
+                        {image}
+                    </button>
+                ) : (
+                    image
+                )
             ) : (
                 <EmptyImageState title={emptyTitle} />
             )}
@@ -155,6 +200,8 @@ function ImagePanel({
 
 interface BboxOverlayProps {
     boxes: DiffOverlayBox[]
+    /** Rows the current image gained or lost. Not numbered and not hoverable. */
+    bands?: DiffOverlayBand[]
     /** Natural pixel coord space the bboxes live in. */
     width: number
     height: number
@@ -166,11 +213,22 @@ interface BboxOverlayProps {
 
 // Warm orange palette to match the mockup — distinct from the
 // blue-tinted "Before/After" labels and the green/red of result tags.
+// These are literal colors rather than tokens because they are drawn over a
+// screenshot, so they have to read the same whatever theme the page is in.
 const OVERLAY_STROKE = 'rgb(245, 134, 52)'
 const OVERLAY_FILL_DEFAULT = 'rgba(245, 134, 52, 0.10)'
 const OVERLAY_FILL_HIGHLIGHT = 'rgba(245, 134, 52, 0.28)'
 
-function BboxOverlay({ boxes, width, height, highlightedIndex, onHover }: BboxOverlayProps): JSX.Element {
+// Violet for shift bands, so a band is never read as a change region.
+const BAND_STROKE = 'rgb(124, 92, 214)'
+const BAND_FILL = 'rgba(124, 92, 214, 0.22)'
+
+// A deleted band marks a seam, not a region, so it gets a fixed thin height
+// instead of the rows it removed. A deletion at the bottom edge sits at
+// y = height, so the seam is clamped to keep it inside the image.
+const BAND_SEAM_HEIGHT = 3
+
+function BboxOverlay({ boxes, bands, width, height, highlightedIndex, onHover }: BboxOverlayProps): JSX.Element {
     return (
         <>
             <svg
@@ -185,11 +243,40 @@ function BboxOverlay({ boxes, width, height, highlightedIndex, onHover }: BboxOv
                 viewBox={`0 0 ${width} ${height}`}
                 preserveAspectRatio="none"
             >
+                {/* A band spans the whole image, so it reads as a rule across the
+                 * diff rather than as a region of it. Inserted rows are there to
+                 * fill. Deleted rows are not, so their band marks the solid seam
+                 * they left behind instead of covering the rows below it. */}
+                {(bands ?? []).map((band, i) =>
+                    band.kind === 'deleted' ? (
+                        <OverlayRect
+                            key={`band-${i}`}
+                            x={0}
+                            y={Math.max(0, Math.min(band.y, height - BAND_SEAM_HEIGHT))}
+                            width={width}
+                            height={BAND_SEAM_HEIGHT}
+                            fill={BAND_STROKE}
+                            stroke={BAND_STROKE}
+                            strokeWidth={2}
+                        />
+                    ) : (
+                        <OverlayRect
+                            key={`band-${i}`}
+                            x={0}
+                            y={band.y}
+                            width={width}
+                            height={band.rows}
+                            fill={BAND_FILL}
+                            stroke={BAND_STROKE}
+                            strokeWidth={2}
+                        />
+                    )
+                )}
                 {boxes.map((b, i) => {
                     const isHighlighted = highlightedIndex === i
                     const isDimmed = highlightedIndex !== null && !isHighlighted
                     return (
-                        <rect
+                        <OverlayRect
                             key={i}
                             x={b.x}
                             y={b.y}
@@ -200,14 +287,8 @@ function BboxOverlay({ boxes, width, height, highlightedIndex, onHover }: BboxOv
                             strokeWidth={isHighlighted ? 3 : 2}
                             strokeDasharray={isHighlighted ? undefined : '4 3'}
                             opacity={isDimmed ? 0.4 : 1}
-                            vectorEffect="non-scaling-stroke"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                pointerEvents: onHover ? 'auto' : 'none',
-                                cursor: onHover ? 'pointer' : undefined,
-                            }}
-                            onMouseEnter={onHover ? () => onHover(i) : undefined}
-                            onMouseLeave={onHover ? () => onHover(null) : undefined}
+                            onHover={onHover}
+                            index={i}
                         />
                     )
                 })}
@@ -282,6 +363,7 @@ export function VisualImageDiffViewer({
     currentWidth,
     currentHeight,
     diffOverlayBoxes,
+    diffOverlayBands,
     diffOverlayWidth,
     diffOverlayHeight,
     highlightedOverlayIndex,
@@ -297,6 +379,13 @@ export function VisualImageDiffViewer({
     const hasOverlayBoxes = !!diffOverlayBoxes && diffOverlayBoxes.length > 0
     const [showClusters, setShowClusters] = useState(true)
     const overlayBoxesIfShown = showClusters ? diffOverlayBoxes : undefined
+    // Bands stay on with the cluster toggle off. A shift band is what the
+    // toggle is meant to leave behind: where the page moved, not what changed.
+    const hasOverlayContent = (overlayBoxesIfShown?.length ?? 0) + (diffOverlayBands?.length ?? 0) > 0
+    // Overlays live in the diff image's coord space. When that space is the
+    // padded size they line up with neither the baseline nor the current
+    // image, so every surface that draws over one of those two has to check.
+    const overlayCoordsMatch = overlayCoordWidth === imageWidth && overlayCoordHeight === imageHeight
     const supportsComparison = isComparisonResult(result)
     const hasBothImages = Boolean(baselineUrl && currentUrl)
     const hasDiffImage = Boolean(diffUrl)
@@ -353,6 +442,17 @@ export function VisualImageDiffViewer({
         return pixelated
     }
 
+    // The diff raster and the overlays live in the diff image's coord space, so
+    // on the shared canvas they cover that space's fraction of it, the way an
+    // image layer does. The diff is current-sized when the pair aligned, and it
+    // then has to land on the current image instead of stretching over the empty
+    // area a taller baseline leaves behind. Without alignment the diff is the
+    // padded union size, and this leaves it filling the whole canvas.
+    const diffLayerIsFractional = Boolean(
+        stageAspectRatio && canvasWidth && canvasHeight && overlayCoordWidth && overlayCoordHeight
+    )
+    const diffLayerClass = diffLayerIsFractional ? 'absolute top-0 left-0' : 'absolute top-0 left-0 w-full h-full'
+
     const [internalMode, setInternalMode] = useState<ComparisonMode>('sideBySide')
     const requestedMode = controlledMode ?? internalMode
     const mode: ComparisonMode = effectiveMode(requestedMode, supportsComparison, hasDiffImage)
@@ -364,6 +464,7 @@ export function VisualImageDiffViewer({
     const [blendPercentage, setBlendPercentage] = useState(50)
     const [showDiffOverlay, setShowDiffOverlay] = useState(false)
     const [diffOverlayOpacity, setDiffOverlayOpacity] = useState(55)
+    const [zoomedImage, setZoomedImage] = useState<{ url: string; label: string } | null>(null)
     const [flicker, setFlicker] = useState(false)
     const [flickerCurrentVisible, setFlickerCurrentVisible] = useState(false)
     const [draggingSplit, setDraggingSplit] = useState(false)
@@ -453,6 +554,7 @@ export function VisualImageDiffViewer({
                         label="Diff"
                         emptyTitle="No diff image available"
                         overlayBoxes={overlayBoxesIfShown}
+                        overlayBands={diffOverlayBands}
                         overlayWidth={overlayCoordWidth}
                         overlayHeight={overlayCoordHeight}
                         highlightedOverlayIndex={highlightedOverlayIndex}
@@ -467,8 +569,6 @@ export function VisualImageDiffViewer({
             // judge against, and bboxes were computed against current.
             // Skip when the bbox coord space doesn't match the rendered
             // image (size-mismatch case).
-            const overlaySafeOnAfter =
-                !!overlayBoxesIfShown && overlayCoordWidth === imageWidth && overlayCoordHeight === imageHeight
             return (
                 <div className="flex flex-col gap-3 p-3 lg:flex-row lg:justify-center lg:items-start">
                     <ImagePanel
@@ -477,6 +577,11 @@ export function VisualImageDiffViewer({
                         emptyTitle="Before snapshot missing"
                         imgClassName={pixelatedClass}
                         imgStyle={pixelatedStyle}
+                        onClick={
+                            baselineUrl
+                                ? () => setZoomedImage({ url: baselineUrl, label: 'Before snapshot' })
+                                : undefined
+                        }
                     />
                     <ImagePanel
                         url={currentUrl}
@@ -484,7 +589,11 @@ export function VisualImageDiffViewer({
                         emptyTitle="After snapshot missing"
                         imgClassName={pixelatedClass}
                         imgStyle={pixelatedStyle}
-                        overlayBoxes={overlaySafeOnAfter ? overlayBoxesIfShown : undefined}
+                        onClick={
+                            currentUrl ? () => setZoomedImage({ url: currentUrl, label: 'After snapshot' }) : undefined
+                        }
+                        overlayBoxes={overlayCoordsMatch ? overlayBoxesIfShown : undefined}
+                        overlayBands={overlayCoordsMatch ? diffOverlayBands : undefined}
                         overlayWidth={overlayCoordWidth}
                         overlayHeight={overlayCoordHeight}
                         highlightedOverlayIndex={highlightedOverlayIndex}
@@ -583,9 +692,12 @@ export function VisualImageDiffViewer({
                             <img
                                 src={diffUrl as string}
                                 alt="Diff overlay"
-                                className="absolute top-0 left-0 w-full h-full mix-blend-screen pointer-events-none"
+                                className={cn(diffLayerClass, 'mix-blend-screen pointer-events-none')}
                                 // eslint-disable-next-line react/forbid-dom-props
-                                style={{ opacity: diffOverlayOpacity / 100 }}
+                                style={{
+                                    ...layerStyle(overlayCoordWidth, overlayCoordHeight),
+                                    opacity: diffOverlayOpacity / 100,
+                                }}
                             />
                         )}
 
@@ -597,19 +709,24 @@ export function VisualImageDiffViewer({
                          * in padded coords that don't align with either
                          * baseline or current). */}
                         {(mode === 'blend' || mode === 'split') &&
-                            !!overlayBoxesIfShown &&
-                            overlayBoxesIfShown.length > 0 &&
+                            hasOverlayContent &&
                             !!overlayCoordWidth &&
                             !!overlayCoordHeight &&
-                            overlayCoordWidth === imageWidth &&
-                            overlayCoordHeight === imageHeight && (
-                                <BboxOverlay
-                                    boxes={overlayBoxesIfShown}
-                                    width={overlayCoordWidth}
-                                    height={overlayCoordHeight}
-                                    highlightedIndex={highlightedOverlayIndex ?? null}
-                                    onHover={onOverlayHover}
-                                />
+                            overlayCoordsMatch && (
+                                <div
+                                    className={cn(diffLayerClass, 'pointer-events-none')}
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={layerStyle(overlayCoordWidth, overlayCoordHeight)}
+                                >
+                                    <BboxOverlay
+                                        boxes={overlayBoxesIfShown ?? []}
+                                        bands={diffOverlayBands}
+                                        width={overlayCoordWidth}
+                                        height={overlayCoordHeight}
+                                        highlightedIndex={highlightedOverlayIndex ?? null}
+                                        onHover={onOverlayHover}
+                                    />
+                                </div>
                             )}
 
                         {/* Split drag handle — inside image area */}
@@ -662,19 +779,24 @@ export function VisualImageDiffViewer({
                                  * After side still syncs with the sidebar
                                  * panel (without it the After-side bboxes were
                                  * silently non-interactive). */}
-                                {!!overlayBoxesIfShown &&
-                                    overlayBoxesIfShown.length > 0 &&
+                                {hasOverlayContent &&
                                     !!overlayCoordWidth &&
                                     !!overlayCoordHeight &&
-                                    overlayCoordWidth === imageWidth &&
-                                    overlayCoordHeight === imageHeight && (
-                                        <BboxOverlay
-                                            boxes={overlayBoxesIfShown}
-                                            width={overlayCoordWidth}
-                                            height={overlayCoordHeight}
-                                            highlightedIndex={highlightedOverlayIndex ?? null}
-                                            onHover={onOverlayHover}
-                                        />
+                                    overlayCoordsMatch && (
+                                        <div
+                                            className={cn(diffLayerClass, 'pointer-events-none')}
+                                            // eslint-disable-next-line react/forbid-dom-props
+                                            style={layerStyle(overlayCoordWidth, overlayCoordHeight)}
+                                        >
+                                            <BboxOverlay
+                                                boxes={overlayBoxesIfShown ?? []}
+                                                bands={diffOverlayBands}
+                                                width={overlayCoordWidth}
+                                                height={overlayCoordHeight}
+                                                highlightedIndex={highlightedOverlayIndex ?? null}
+                                                onHover={onOverlayHover}
+                                            />
+                                        </div>
                                     )}
                             </div>
                         </div>
@@ -724,95 +846,112 @@ export function VisualImageDiffViewer({
     }
 
     return (
-        <section className={cn('overflow-hidden rounded-xl border bg-surface-primary shadow-sm', className)}>
-            <div className="border-b bg-gradient-to-r from-bg-light via-bg-light to-bg-light/70 p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                        <LemonTag type={RESULT_TAG_TYPES[result]}>{RESULT_LABELS[result]}</LemonTag>
-                        {diffLabel && <LemonTag type="muted">{diffLabel}</LemonTag>}
-                        {hasOverlayBoxes && (
-                            <LemonSwitch
-                                checked={showClusters}
-                                onChange={setShowClusters}
-                                size="xsmall"
-                                label="Clusters"
-                                bordered
+        <>
+            <section className={cn('overflow-hidden rounded-xl border bg-surface-primary shadow-sm', className)}>
+                <div className="border-b bg-gradient-to-r from-bg-light via-bg-light to-bg-light/70 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <LemonTag type={RESULT_TAG_TYPES[result]}>{RESULT_LABELS[result]}</LemonTag>
+                            {diffLabel && <LemonTag type="muted">{diffLabel}</LemonTag>}
+                            {hasOverlayBoxes && (
+                                <LemonSwitch
+                                    checked={showClusters}
+                                    onChange={setShowClusters}
+                                    size="xsmall"
+                                    label="Clusters"
+                                    bordered
+                                />
+                            )}
+                            {isSmallImage && (
+                                <LemonTag type="highlight" className="font-bold">
+                                    Enlarged 2x for review
+                                </LemonTag>
+                            )}
+                        </div>
+                        {supportsComparison && (
+                            <LemonSegmentedButton
+                                size="small"
+                                value={mode}
+                                onChange={(newMode) => setMode(newMode)}
+                                options={comparisonModes}
                             />
                         )}
-                        {isSmallImage && (
-                            <LemonTag type="highlight" className="font-bold">
-                                Enlarged 2x for review
-                            </LemonTag>
-                        )}
                     </div>
-                    {supportsComparison && (
-                        <LemonSegmentedButton
-                            size="small"
-                            value={mode}
-                            onChange={(newMode) => setMode(newMode)}
-                            options={comparisonModes}
-                        />
-                    )}
-                </div>
 
-                {supportsComparison && mode !== 'sideBySide' && mode !== 'diff' && (
-                    <div className="mt-3 flex flex-wrap items-center gap-4 rounded-lg border bg-surface-primary px-3 py-2">
-                        {mode === 'split' && hasBothImages && (
-                            <LemonSwitch checked={flicker} onChange={setFlicker} size="small" label="Flicker" />
-                        )}
-                        {mode === 'blend' && (
-                            <div className="flex min-w-60 flex-1 items-center gap-3">
-                                <span className="text-xs text-muted-foreground whitespace-nowrap">Before → After</span>
-                                <LemonSlider
-                                    min={0}
-                                    max={100}
-                                    step={1}
-                                    value={blendPercentage}
-                                    onChange={setBlendPercentage}
-                                    className="m-0 w-full"
-                                />
-                                <span className="text-xs tabular-nums text-muted-foreground w-10 text-right">
-                                    {blendPercentage}%
-                                </span>
-                            </div>
-                        )}
-                        {hasDiffImage && (
-                            <>
-                                <LemonSwitch
-                                    checked={showDiffOverlay}
-                                    onChange={setShowDiffOverlay}
-                                    size="small"
-                                    label="Diff overlay"
-                                />
-                                <div
-                                    className={cn(
-                                        'flex min-w-60 flex-1 items-center gap-3 transition-opacity',
-                                        showDiffOverlay ? 'opacity-100' : 'opacity-40 pointer-events-none'
-                                    )}
-                                    aria-hidden={!showDiffOverlay}
-                                >
+                    {supportsComparison && mode !== 'sideBySide' && mode !== 'diff' && (
+                        <div className="mt-3 flex flex-wrap items-center gap-4 rounded-lg border bg-surface-primary px-3 py-2">
+                            {mode === 'split' && hasBothImages && (
+                                <LemonSwitch checked={flicker} onChange={setFlicker} size="small" label="Flicker" />
+                            )}
+                            {mode === 'blend' && (
+                                <div className="flex min-w-60 flex-1 items-center gap-3">
                                     <span className="text-xs text-muted-foreground whitespace-nowrap">
-                                        Overlay opacity
+                                        Before → After
                                     </span>
                                     <LemonSlider
                                         min={0}
                                         max={100}
                                         step={1}
-                                        value={diffOverlayOpacity}
-                                        onChange={setDiffOverlayOpacity}
+                                        value={blendPercentage}
+                                        onChange={setBlendPercentage}
                                         className="m-0 w-full"
                                     />
                                     <span className="text-xs tabular-nums text-muted-foreground w-10 text-right">
-                                        {diffOverlayOpacity}%
+                                        {blendPercentage}%
                                     </span>
                                 </div>
-                            </>
-                        )}
-                    </div>
-                )}
-            </div>
+                            )}
+                            {hasDiffImage && (
+                                <>
+                                    <LemonSwitch
+                                        checked={showDiffOverlay}
+                                        onChange={setShowDiffOverlay}
+                                        size="small"
+                                        label="Diff overlay"
+                                    />
+                                    <div
+                                        className={cn(
+                                            'flex min-w-60 flex-1 items-center gap-3 transition-opacity',
+                                            showDiffOverlay ? 'opacity-100' : 'opacity-40 pointer-events-none'
+                                        )}
+                                        aria-hidden={!showDiffOverlay}
+                                    >
+                                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                            Overlay opacity
+                                        </span>
+                                        <LemonSlider
+                                            min={0}
+                                            max={100}
+                                            step={1}
+                                            value={diffOverlayOpacity}
+                                            onChange={setDiffOverlayOpacity}
+                                            className="m-0 w-full"
+                                        />
+                                        <span className="text-xs tabular-nums text-muted-foreground w-10 text-right">
+                                            {diffOverlayOpacity}%
+                                        </span>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    )}
+                </div>
 
-            {supportsComparison ? renderComparisonBody() : renderSingleImageBody()}
-        </section>
+                {supportsComparison ? renderComparisonBody() : renderSingleImageBody()}
+            </section>
+            <LemonModal
+                isOpen={!!zoomedImage}
+                onClose={() => setZoomedImage(null)}
+                fullScreen
+                simple
+                data-attr="visual-review-zoomed-image"
+            >
+                <div className="flex h-full min-h-0 items-center justify-center bg-bg-3000 p-4">
+                    {zoomedImage && (
+                        <img src={zoomedImage.url} alt={zoomedImage.label} className="h-full w-full object-contain" />
+                    )}
+                </div>
+            </LemonModal>
+        </>
     )
 }

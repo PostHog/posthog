@@ -6,13 +6,14 @@ import {
   LazyReviewPage as ReviewPage,
 } from "../../code-review/components/LazyReviewPages";
 import type { Tab } from "../../panels/panelTypes";
+import { PiSessionView } from "../../pi-sessions/PiSessionView";
+import { PostHogObjectPage } from "../../posthog-objects/PostHogObjectPage";
 import { ArtifactPreview } from "../../sessions/components/ArtifactPreview";
-import { useIsWorkspaceCloudRun } from "../../workspace/useWorkspace";
+import { useIsCloudTask } from "../../workspace/useWorkspace";
 import { ActionPanel } from "./ActionPanel";
-import { CanvasInstructionsTab } from "./CanvasInstructionsTab";
 import { ChangesPanel } from "./ChangesPanel";
-import { ChannelContextTab } from "./ChannelContextTab";
 import { FileTreePanel } from "./FileTreePanel";
+import { InjectedBlockTab } from "./InjectedBlockTab";
 import { TaskLogsPanel } from "./TaskLogsPanel";
 import { TaskShellPanel } from "./TaskShellPanel";
 
@@ -27,12 +28,16 @@ export function TabContentRenderer({
   taskId,
   task,
 }: TabContentRendererProps) {
-  const isCloud = useIsWorkspaceCloudRun(taskId);
+  const isCloud = useIsCloudTask(task);
   const { data } = tab;
 
   switch (data.type) {
     case "logs":
-      return <TaskLogsPanel taskId={taskId} task={task} />;
+      return task.runtime === "pi" ? (
+        <PiSessionView key={taskId} task={task} isCloud={isCloud} />
+      ) : (
+        <TaskLogsPanel taskId={taskId} task={task} />
+      );
 
     case "terminal":
       return (
@@ -66,13 +71,8 @@ export function TabContentRenderer({
         />
       );
 
-    case "context":
-      return (
-        <ChannelContextTab channelName={data.channelName} body={data.body} />
-      );
-
-    case "canvas-instructions":
-      return <CanvasInstructionsTab body={data.body} />;
+    case "injected-block":
+      return <InjectedBlockTab block={data.block} />;
 
     case "autoresearch":
       return <AutoresearchPanel taskId={taskId} />;
@@ -84,6 +84,18 @@ export function TabContentRenderer({
           runId={data.runId}
           artifactId={data.artifactId}
           name={tab.label}
+        />
+      );
+
+    case "posthog-object":
+      return (
+        <PostHogObjectPage
+          metadata={{
+            object_kind: data.objectKind,
+            object_id: data.objectId,
+          }}
+          fallbackName={tab.label}
+          taskId={taskId}
         />
       );
 

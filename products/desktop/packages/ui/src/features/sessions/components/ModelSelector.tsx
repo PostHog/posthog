@@ -1,8 +1,6 @@
-import type {
-  SessionConfigOption,
-  SessionConfigSelectGroup,
-} from "@agentclientprotocol/sdk";
+import type { SessionConfigSelectGroup } from "@agentclientprotocol/sdk";
 import { CaretDown } from "@phosphor-icons/react";
+import { toModelPickerOption } from "@posthog/core/billing/modelPricing";
 import type { SessionService } from "@posthog/core/sessions/sessionService";
 import { SESSION_SERVICE } from "@posthog/core/sessions/sessionService";
 import { useService } from "@posthog/di/react";
@@ -15,20 +13,18 @@ import {
   DropdownMenuTrigger,
   MenuLabel,
 } from "@posthog/quill";
-import { type Adapter, GLM_MODEL_FLAG, KIMI_MODEL_FLAG } from "@posthog/shared";
+import type { Adapter } from "@posthog/shared";
 import { gateRestrictedModelPick } from "@posthog/ui/features/billing/modelGate";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { ModelCostFooter } from "@posthog/ui/features/sessions/components/ModelCostChip";
 import { ModelRadioItem } from "@posthog/ui/features/sessions/components/ModelRadioItem";
-import {
-  stripGlmModelOption,
-  stripKimiModelOption,
-} from "@posthog/ui/features/sessions/modelOptionFilters";
+import { stripDisabledModelOption } from "@posthog/ui/features/sessions/modelOptionFilters";
 import {
   flattenSelectOptions,
   useModelConfigOptionForTask,
   useSessionIsCloud,
   useSessionSelector,
 } from "@posthog/ui/features/sessions/sessionStore";
+import { useModelRolloutFlags } from "@posthog/ui/features/sessions/useModelRolloutFlags";
 import { Fragment, useMemo } from "react";
 
 interface ModelSelectorProps {
@@ -49,10 +45,9 @@ export function ModelSelector({
   const sessionStatus = useSessionSelector(taskId, (s) => s?.status);
   const sessionIsCloud = useSessionIsCloud(taskId);
   const rawModelOption = useModelConfigOptionForTask(taskId);
-  const glmEnabled = useFeatureFlag(GLM_MODEL_FLAG);
-  const kimiEnabled = useFeatureFlag(KIMI_MODEL_FLAG);
+  const modelFlags = useModelRolloutFlags();
   const modelOption = rawModelOption
-    ? stripDisabledPreviewModels(rawModelOption, glmEnabled, kimiEnabled)
+    ? stripDisabledModelOption(rawModelOption, modelFlags)
     : rawModelOption;
 
   const selectOption = modelOption?.type === "select" ? modelOption : undefined;
@@ -120,7 +115,10 @@ export function ModelSelector({
                 {index > 0 && <DropdownMenuSeparator />}
                 <MenuLabel>{group.name}</MenuLabel>
                 {group.options.map((model) => (
-                  <ModelRadioItem key={model.value} model={model} />
+                  <ModelRadioItem
+                    key={model.value}
+                    model={toModelPickerOption(model)}
+                  />
                 ))}
               </Fragment>
             ))}
@@ -131,20 +129,15 @@ export function ModelSelector({
             onValueChange={handleChange}
           >
             {options.map((model) => (
-              <ModelRadioItem key={model.value} model={model} />
+              <ModelRadioItem
+                key={model.value}
+                model={toModelPickerOption(model)}
+              />
             ))}
           </DropdownMenuRadioGroup>
         )}
+        <ModelCostFooter />
       </DropdownMenuContent>
     </DropdownMenu>
   );
-}
-
-function stripDisabledPreviewModels(
-  option: SessionConfigOption,
-  glmEnabled: boolean,
-  kimiEnabled: boolean,
-): SessionConfigOption {
-  const withoutGlm = glmEnabled ? option : stripGlmModelOption(option);
-  return kimiEnabled ? withoutGlm : stripKimiModelOption(withoutGlm);
 }

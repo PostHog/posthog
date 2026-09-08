@@ -1,6 +1,7 @@
+import { applyCspToHtml } from "@posthog/core/mcp-apps/csp";
 import { getImageMimeType, isAllowedImageMimeType } from "@posthog/shared";
-import { applyCspToHtml } from "../../mcp-apps/utils/mcp-app-csp";
 import { injectArtifactHtmlCommentBridge } from "./artifactHtmlCommentBridge";
+import type { CommentSurfaceTheme } from "./selectionCommentAction";
 
 function removeAutomaticRedirects(html: string): string {
   if (!/<meta\b/i.test(html) || !/http-equiv\s*=/i.test(html)) return html;
@@ -18,6 +19,7 @@ function removeAutomaticRedirects(html: string): string {
 export function artifactHtmlDocument(
   html: string,
   commentBridgeChannel?: string,
+  commentSurfaceTheme: CommentSurfaceTheme = "light",
 ): string {
   // HTML artifacts are document previews, not apps. Canvases are the supported
   // surface for authored JavaScript; only this trusted annotation bridge runs here.
@@ -27,7 +29,11 @@ export function artifactHtmlDocument(
   }
   const nonce = crypto.randomUUID();
   return applyCspToHtml(
-    injectArtifactHtmlCommentBridge(safeHtml, commentBridgeChannel, nonce),
+    injectArtifactHtmlCommentBridge(safeHtml, {
+      channel: commentBridgeChannel,
+      theme: commentSurfaceTheme,
+      nonce,
+    }),
     undefined,
     nonce,
   );
@@ -36,11 +42,15 @@ export function artifactHtmlDocument(
 export function scriptedArtifactHtmlDocument(
   html: string,
   commentBridgeChannel?: string,
+  commentSurfaceTheme: CommentSurfaceTheme = "light",
 ): string {
   const safeHtml = removeAutomaticRedirects(html);
   if (!commentBridgeChannel) return applyCspToHtml(safeHtml);
   return applyCspToHtml(
-    injectArtifactHtmlCommentBridge(safeHtml, commentBridgeChannel),
+    injectArtifactHtmlCommentBridge(safeHtml, {
+      channel: commentBridgeChannel,
+      theme: commentSurfaceTheme,
+    }),
   );
 }
 export async function artifactPreviewBlob(

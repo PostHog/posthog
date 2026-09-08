@@ -1,7 +1,7 @@
 import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 
-import { NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG } from '../Notebook/markdownNotebookV2'
+import { NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG, getSqlV2PropsFromQueryProp } from '../Notebook/markdownNotebookV2'
 import { NotebookNodeType } from '../types'
 
 export type PythonNodeSummary = {
@@ -328,6 +328,24 @@ export const getUniqueSqlV2ReturnVariable = (
 // tiptap-shaped nodes so the collectors and the dependency graph see the same cells in both
 // notebook formats. Scoped to the revamped-notebook cell types (SQLV2 + kernel Python):
 // expanding the other node types would change their (markdown-blind) summaries and naming.
+// Each collector that expands a markdown notebook parses the same markdown string, so one edit
+// parses the whole document once per collector. Cache the parse on the node object. Every
+// collector in a recompute reads the same content node, so they share one parse. The next edit
+// builds a new content node, so the old entry drops with it — the parse never goes stale.
+const parsedMarkdownNotebookByNode = new WeakMap<object, ReturnType<typeof parseMarkdownNotebook>>()
+
+const parseMarkdownNotebookNodeCached = (node: {
+    attrs: { markdown: string }
+}): ReturnType<typeof parseMarkdownNotebook> => {
+    const cached = parsedMarkdownNotebookByNode.get(node)
+    if (cached) {
+        return cached
+    }
+    const parsed = parseMarkdownNotebook(node.attrs.markdown)
+    parsedMarkdownNotebookByNode.set(node, parsed)
+    return parsed
+}
+
 const expandMarkdownNotebookNodesOfTypes = (node: any, nodeTypes: NotebookNodeType[]): JSONContent[] => {
     if (typeof node?.attrs?.markdown !== 'string') {
         return []
@@ -342,7 +360,7 @@ const expandMarkdownNotebookNodesOfTypes = (node: any, nodeTypes: NotebookNodeTy
             nodeTypeByTag.set(tag, nodeType)
         }
     }
-    return parseMarkdownNotebook(node.attrs.markdown).nodes.flatMap((block): JSONContent[] => {
+    return parseMarkdownNotebookNodeCached(node).nodes.flatMap((block): JSONContent[] => {
         if (block.type !== 'component') {
             return []
         }
@@ -355,6 +373,7 @@ const expandMarkdownNotebookNodesOfTypes = (node: any, nodeTypes: NotebookNodeTy
                 type: nodeType,
                 attrs: {
                     ...block.props,
+                    ...(nodeType === NotebookNodeType.SQLV2 ? getSqlV2PropsFromQueryProp(block.props) : null),
                     // Prefer the persisted nodeId prop: the parsed block id is a content
                     // fingerprint, which drifts from the live cell id as soon as any prop
                     // changes (running a cell writes runId/result into its props).
@@ -851,9 +870,8 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
 
         if (node.type === NotebookNodeType.MarkdownNotebook) {
             // Markdown notebooks (the only V2 surface) store cells as component tags, so both
-            // V2 cell types must be expanded or the graph misses every markdown-held cell.
-            expandMarkdownNotebookSqlV2Nodes(node).forEach(walk)
-            expandMarkdownNotebookNodesOfType(node, NotebookNodeType.PythonV2).forEach(walk)
+            // V2 cell types must be expanded in one pass to preserve dependency order.
+            expandMarkdownNotebookNodesOfTypes(node, [NotebookNodeType.SQLV2, NotebookNodeType.PythonV2]).forEach(walk)
         }
 
         if (Array.isArray(node.content)) {

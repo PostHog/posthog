@@ -3,8 +3,15 @@
 Estimates the Depot dollar cost of CI from GitHub Actions job data. GitHub's jobs
 API exposes wall-clock (``started_at`` -> ``completed_at``) and the requested runner
 ``labels`` -- not Depot's billed minutes -- so every figure here is an estimate:
-``elapsed_minutes x tier_multiplier x reference_rate``. This mirrors the model the
+``billed_minutes x tier_multiplier x reference_rate``. This mirrors the model the
 DevEx Depot cost tooling already uses (list price, per-vCPU multiplier ladder).
+
+Billed, not wall-clock: GitHub stamps ``started_at`` when Depot accepts the job, and the
+machine then boots before the first step runs. Depot bills only the time after the job
+started running, so the elapsed every function here takes is ``billed_elapsed_seconds``
+-- wall-clock minus that provisioning. It is tens of seconds per job, a few percent of
+billed minutes at scale, which is why the correction sits in the model rather than being
+waved off as noise.
 
 GitHub/Depot specifics (the ``depot-*`` label shapes, the rate ladder) live here in
 the read layer per SPEC section 3; provider-neutral contract types stay in
@@ -152,12 +159,34 @@ def runner_tier_descriptor(provider: str | None, os: str | None, vcpu: int | Non
     return "self_hosted", (os or "")
 
 
-def estimate_job_cost_usd(labels: list[str], elapsed_seconds: float | None) -> float | None:
+def billed_elapsed_seconds(elapsed_seconds: float | None, provisioning_seconds: float | None) -> float | None:
+    """The seconds Depot bills for one job: its wall-clock elapsed minus the provisioning it opens with.
+
+    ``elapsed_seconds`` is the job's ``started_at`` -> ``completed_at`` (the curated jobs builder's
+    ``duration_seconds``); ``provisioning_seconds`` is its ``started_at`` -> its first step's
+    ``started_at`` (that builder's ``provisioning_seconds``), or ``None`` when the ``steps`` payload
+    isn't there. No steps means nothing is subtracted — an under-correction, never an over-correction.
+    An unknown elapsed (queued / not-yet-finished job) stays ``None`` so it never becomes a measured
+    zero; a negative result is clamped to 0 for clock skew.
+    """
+    if elapsed_seconds is None:
+        return None
+    return max(elapsed_seconds - (provisioning_seconds or 0), 0)
+
+
+def estimate_job_cost_usd(
+    labels: list[str], elapsed_seconds: float | None, *, is_rerun_copy: bool = False
+) -> float | None:
     """Estimated Depot dollar cost for one job, or ``None`` when no honest figure exists.
+
+    ``elapsed_seconds`` is the BILLED elapsed (``billed_elapsed_seconds``), not the raw wall-clock,
+    so provisioning time Depot doesn't charge for never reaches the rate.
 
     ``None`` means "no Depot cost to report": the job is github-hosted, its runner can't be
     classified, it ran on a non-Linux Depot tier (macOS / Windows — separate price tiers not
-    modeled yet, so excluded rather than mis-costed at the Linux rate), OR its elapsed time is
+    modeled yet, so excluded rather than mis-costed at the Linux rate), the row is a GitHub
+    re-run copy (a job GitHub re-listed under a later attempt without re-running it, so nothing
+    executed and nothing was billed — see the ``workflow_jobs`` builder), OR its elapsed time is
     unknown (a queued / not-yet-started job). That last case is deliberately distinct from a
     job that ran for no measurable time (``started_at == completed_at`` or clock skew), which
     is a real, measured ``0.0``: a consumer summing per-PR cost skips ``None`` jobs, so a queued
@@ -165,6 +194,8 @@ def estimate_job_cost_usd(labels: list[str], elapsed_seconds: float | None) -> f
     """
     tier = classify_runner(labels)
     if tier is None or tier.provider is not RunnerProvider.DEPOT or tier.os is not RunnerOS.LINUX:
+        return None
+    if is_rerun_copy:
         return None
     if elapsed_seconds is None:
         return None
@@ -180,7 +211,8 @@ class PRCostAggregate:
     ``billable_seconds`` and ``estimated_cost_usd`` cover only the costed jobs (billable Linux,
     finished). ``unsettled_jobs`` are billable Linux jobs with no elapsed time (still queued/running)
     — excluded from cost so a not-yet-finished job is never shown as ``$0.00``. ``excluded_jobs`` ran
-    on provider-hosted (GitHub-hosted, free) or non-Linux runners, which carry no billable figure here.
+    on provider-hosted (GitHub-hosted, free) or non-Linux runners, or never ran at all (a GitHub
+    re-run copy), and so carry no billable figure here.
     ``estimated_cost_usd`` is ``None`` when no job was costable, distinguishing "nothing to cost" from
     a real ``$0.00``.
     """
@@ -302,24 +334,42 @@ def render_is_billable_tier(provider_sql: str, os_sql: str) -> str:
     """SQL predicate: True when a job's classified tier is billable — self-hosted Linux (Depot Linux,
     the only modeled billed tier). Generated from the enums so ``'depot'`` / ``'linux'`` never appear
     as string literals in the query layer. NULL-safe: an unclassified tier (``provider`` NULL) reads as
-    not billable. This is the one place the billable-partition rule is spelled out; the endpoint cost
-    aggregates and the two renderers below all read it, so the three-bucket split can't drift."""
+    not billable. Tier only — whether a given ROW costs money is ``render_is_billable_job``, which every
+    cost consumer reads, so the three-bucket split can't drift."""
     return f"ifNull({provider_sql} = '{RunnerProvider.DEPOT.value}' AND {os_sql} = '{RunnerOS.LINUX.value}', 0)"
 
 
-def render_billable_seconds(provider_sql: str, os_sql: str, elapsed_sql: str) -> str:
+def render_is_billable_job(provider_sql: str, os_sql: str, is_rerun_copy_sql: str) -> str:
+    """SQL predicate: True when a job ROW is billable — a billable tier AND a row that actually
+    executed. GitHub re-lists an already-passed job under a later ``run_attempt`` with the earlier
+    attempt's timestamps (``is_rerun_copy`` in the ``workflow_jobs`` builder); nothing ran, so Depot
+    billed nothing and the row must not be costed. Every cost consumer partitions on this, not on
+    ``render_is_billable_tier``, so the "does this row cost money" rule stays in one place."""
+    return f"({render_is_billable_tier(provider_sql, os_sql)} AND NOT {is_rerun_copy_sql})"
+
+
+def render_billed_elapsed_seconds(elapsed_sql: str, provisioning_sql: str) -> str:
+    """The seconds Depot bills for one job — the SQL form of ``billed_elapsed_seconds``: wall-clock
+    elapsed minus provisioning, clamped at 0, and NULL exactly when the elapsed is NULL so "unsettled"
+    stays the single condition every consumer already tests on ``duration_seconds``."""
+    return f"if({elapsed_sql} IS NULL, NULL, greatest({elapsed_sql} - ifNull({provisioning_sql}, 0), 0))"
+
+
+def render_billable_seconds(provider_sql: str, os_sql: str, is_rerun_copy_sql: str, elapsed_sql: str) -> str:
     """Raw billable wall-clock seconds (NOT multiplier-weighted): ``greatest(elapsed, 0)`` only for
-    a billable self-hosted Linux job with a known elapsed, else NULL — mirrors the ``max(0, elapsed)``
+    a billable job row with a known elapsed, else NULL — mirrors the ``max(0, elapsed)``
     a costed job contributes to a PR's ``billable_seconds``."""
-    billable = render_is_billable_tier(provider_sql, os_sql)
+    billable = render_is_billable_job(provider_sql, os_sql, is_rerun_copy_sql)
     return f"if({billable} AND {elapsed_sql} IS NOT NULL, greatest({elapsed_sql}, 0), NULL)"
 
 
-def render_estimated_cost_usd(provider_sql: str, os_sql: str, vcpu_sql: str, elapsed_sql: str) -> str:
+def render_estimated_cost_usd(
+    provider_sql: str, os_sql: str, vcpu_sql: str, is_rerun_copy_sql: str, elapsed_sql: str
+) -> str:
     """Estimated Depot dollar cost for one job — the SQL form of ``estimate_job_cost_usd``:
-    NULL when not billable (non-Depot / non-Linux / unclassified) and NULL for an unsettled job
-    (elapsed unknown, never $0.00), a real 0.0 for non-positive elapsed, else
-    ``(elapsed / 60) * REFERENCE_RATE_USD_PER_MIN * multiplier``."""
-    is_depot_linux = render_is_billable_tier(provider_sql, os_sql)
+    NULL when the row isn't billable (non-Depot / non-Linux / unclassified, or a re-run copy that
+    never executed) and NULL for an unsettled job (elapsed unknown, never $0.00), a real 0.0 for
+    non-positive elapsed, else ``(elapsed / 60) * REFERENCE_RATE_USD_PER_MIN * multiplier``."""
+    is_billable = render_is_billable_job(provider_sql, os_sql, is_rerun_copy_sql)
     cost = f"({elapsed_sql} / 60) * {REFERENCE_RATE_USD_PER_MIN} * {render_multiplier(vcpu_sql)}"
-    return f"multiIf(NOT {is_depot_linux}, NULL, {elapsed_sql} IS NULL, NULL, {elapsed_sql} <= 0, 0.0, {cost})"
+    return f"multiIf(NOT {is_billable}, NULL, {elapsed_sql} IS NULL, NULL, {elapsed_sql} <= 0, 0.0, {cost})"

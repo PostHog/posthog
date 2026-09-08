@@ -11,8 +11,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import User
 from posthog.permissions import AccessControlPermission
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.activity_logging import log_evaluations_moved_to_top_level
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
 from products.ai_observability.backend.models.evaluations import Evaluation

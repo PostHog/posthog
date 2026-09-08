@@ -42,6 +42,7 @@ export function InlineFileLink({
   const { filePath: rawPath, lineSuffix } = parseFilePath(text);
   const filePath = resolvedPath ?? rawPath;
   const filename = rawPath.split("/").pop() ?? rawPath;
+  const directory = rawPath.slice(0, rawPath.length - filename.length);
   const taskId = useSessionTaskId();
   const repoPath = useCwd(taskId ?? "");
   const openFileInSplit = usePanelLayoutStore((s) => s.openFileInSplit);
@@ -71,8 +72,9 @@ export function InlineFileLink({
         type="button"
         onClick={taskId ? handleClick : undefined}
         disabled={!taskId}
-        className={`m-0 inline border-0 bg-transparent p-0 font-[inherit] text-(--accent-11) text-[length:inherit] ${taskId ? "cursor-pointer underline decoration-(--accent-a8) underline-offset-2 hover:decoration-(--accent-11)" : ""}`}
+        className={`m-0 inline border-0 bg-transparent p-0 font-[inherit] text-[length:inherit] text-foreground ${taskId ? "cursor-pointer underline underline-offset-2" : ""}`}
       >
+        {directory && <span className="sr-only">{directory}</span>}
         {filename}
         {lineSuffix ? `:${lineSuffix}` : ""}
       </button>

@@ -30,11 +30,15 @@ import type {
   SessionNotificationAttachment,
   TerminalStatus,
 } from "../types";
+import { detectInlineArtifact } from "../utils/inlineArtifacts";
 import { CloudMessageAttachment } from "./CloudMessageAttachment";
+import {
+  InlineCreatedPrCard,
+  InlineUploadedArtifactCard,
+} from "./InlineArtifactCard";
 import { PlanApprovalCard } from "./PlanApprovalCard";
 import { PlanStatusBar } from "./PlanStatusBar";
 import { QuestionCard } from "./QuestionCard";
-import { TaskArtifacts } from "./TaskArtifacts";
 import { TerminalStatusBanner } from "./TerminalStatusBanner";
 
 interface PermissionResponseArgs {
@@ -57,7 +61,6 @@ interface OptimisticUserMessage {
 interface TaskSessionViewProps {
   events: SessionEvent[];
   taskId?: string;
-  // Latest run id, used to list the run's generated output artifacts.
   runId?: string;
   pendingPermissions?: Record<string, CloudPendingPermissionRequest>;
   isConnecting?: boolean;
@@ -84,6 +87,7 @@ interface ToolData {
   result?: unknown;
   isAgent?: boolean;
   parentToolCallId?: string;
+  meta?: unknown;
 }
 
 interface ParsedMessage {
@@ -187,6 +191,7 @@ function parseSessionNotification(
           args: update.rawInput,
           isAgent,
           parentToolCallId: meta?.parentToolCallId,
+          meta: update._meta,
         },
       };
     }
@@ -202,6 +207,7 @@ function parseSessionNotification(
           args: update.rawInput,
           result: update.rawOutput,
           parentToolCallId: meta?.parentToolCallId,
+          meta: update._meta,
         },
       };
     }
@@ -965,6 +971,8 @@ export function TaskSessionView({
               content={item.content}
               onOpenTask={onOpenTask}
               timestamp={item.ts}
+              turnId={item.id}
+              taskId={taskId}
             />
           );
         case "thought":
@@ -996,19 +1004,37 @@ export function TaskSessionView({
           if (item.toolData.isAgent) {
             return <AgentToolCard item={item} onOpenTask={onOpenTask} />;
           }
-          return (
-            <ToolMessage
-              toolName={item.toolData.toolName}
-              rawToolName={item.toolData.rawToolName}
-              kind={deriveToolKind(
-                item.toolData.rawToolName ?? item.toolData.toolName,
-              )}
-              status={item.toolData.status}
-              args={item.toolData.args}
-              result={item.toolData.result}
-              onOpenTask={onOpenTask}
-            />
-          );
+          {
+            const inline = detectInlineArtifact(item.toolData);
+            if (inline?.kind === "upload") {
+              return (
+                <InlineUploadedArtifactCard
+                  toolData={item.toolData}
+                  taskId={taskId}
+                  runId={runId}
+                  enabled={!!terminalStatus}
+                />
+              );
+            }
+            return (
+              <>
+                <ToolMessage
+                  toolName={item.toolData.toolName}
+                  rawToolName={item.toolData.rawToolName}
+                  kind={deriveToolKind(
+                    item.toolData.rawToolName ?? item.toolData.toolName,
+                  )}
+                  status={item.toolData.status}
+                  args={item.toolData.args}
+                  result={item.toolData.result}
+                  onOpenTask={onOpenTask}
+                />
+                {inline?.kind === "pr" && (
+                  <InlineCreatedPrCard url={inline.url} />
+                )}
+              </>
+            );
+          }
         default:
           return null;
       }
@@ -1018,29 +1044,24 @@ export function TaskSessionView({
       onSendPermissionResponse,
       pendingPermissions,
       renderAttachment,
+      taskId,
+      runId,
+      terminalStatus,
     ],
   );
 
   // Memoized so a live session's frequent re-renders (streaming, timers) don't
-  // reconcile the banner + artifacts subtree on every tick.
+  // reconcile the banner subtree on every tick.
   const listHeader = useMemo(
-    () => (
-      <>
-        {terminalStatus ? (
-          <TerminalStatusBanner
-            terminalStatus={terminalStatus}
-            lastError={lastError}
-            onRetry={onRetry}
-          />
-        ) : null}
-        <TaskArtifacts
-          taskId={taskId}
-          runId={runId}
-          enabled={!!terminalStatus}
+    () =>
+      terminalStatus ? (
+        <TerminalStatusBanner
+          terminalStatus={terminalStatus}
+          lastError={lastError}
+          onRetry={onRetry}
         />
-      </>
-    ),
-    [terminalStatus, lastError, onRetry, taskId, runId],
+      ) : null,
+    [terminalStatus, lastError, onRetry],
   );
 
   return (

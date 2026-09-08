@@ -18,13 +18,13 @@ export function ExceptionListRenderer({
             {exceptionList.map((exception, index) => (
                 <div key={exception.id}>
                     {index > 0 && (
-                        <div className="flex items-center gap-2 my-2 ml-2 text-xs font-semibold text-muted uppercase tracking-wide">
+                        <div className="ml-2 my-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                             <span>↳</span>
                             <span>Caused by</span>
                             <div className="flex-1 border-t border-dashed border-border" />
                         </div>
                     )}
-                    <div className={cn(index > 0 && 'ml-4 pl-4 border-l-2 border-warning')}>
+                    <div className={cn(index > 0 && 'ml-4 border-l-2 border-[var(--warning-foreground)] pl-4')}>
                         {renderException(exception, index)}
                     </div>
                 </div>

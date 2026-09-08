@@ -21,13 +21,16 @@ from datetime import UTC, datetime, timedelta
 
 from django.db import transaction
 from django.db.models import Q
-from django.utils import timezone
 
 import structlog
 
 from posthog.schema import AlertState
 
-from posthog.tasks.alerts.utils import dispatch_alert_notification, record_alert_delivery
+from posthog.tasks.alerts.utils import (
+    dispatch_alert_notification,
+    prepare_alert_insight_chart_url,
+    record_alert_delivery,
+)
 
 from products.alerts.backend.models.alert import AlertCheck, InvestigationStatus
 
@@ -92,25 +95,33 @@ def run_investigation_notification_safety_net() -> int:
         if alert is None or not alert.enabled:
             continue
 
+        # Rendered before the transaction opens: the render blocks for up to
+        # exports.RENDER_TIMEOUT, and the block below holds a row lock the workflow's own
+        # dispatcher waits on. A failed render returns None and the notification still goes
+        # out, just without the chart.
+        insight_chart_url = prepare_alert_insight_chart_url(alert=alert, alert_check=check)
+        extra_properties = {"insight_chart_url": insight_chart_url} if insight_chart_url else None
+
         try:
             with transaction.atomic():
                 locked = AlertCheck.objects.select_for_update().get(id=check.id)
                 if locked.notification_sent_at is not None or locked.notification_suppressed_by_agent:
                     continue
                 breaches = _fallback_breach_descriptions(locked)
-                targets = dispatch_alert_notification(alert, locked, breaches)
-                if targets is not None:
-                    record_alert_delivery(alert, locked, targets)
-                # Set notification_sent_at in lock-step with record_alert_delivery so
-                # gating/idempotency reads that still use this marker stay consistent.
-                locked.notification_sent_at = timezone.now()
-                locked.save(update_fields=["notification_sent_at"])
+                deliveries = dispatch_alert_notification(
+                    alert, locked, breaches, extra_properties=extra_properties, render_chart=False
+                )
+                record_alert_delivery(alert, locked, deliveries, stamp_on_empty=True)
         except Exception:
             logger.exception(
                 "alert.investigation_safety_net_failed",
                 alert_id=str(alert.id),
                 alert_check_id=str(check.id),
             )
+            continue
+
+        if not deliveries:
+            # Stamped but undeliverable — nobody was notified, so it doesn't count.
             continue
 
         logger.warning(

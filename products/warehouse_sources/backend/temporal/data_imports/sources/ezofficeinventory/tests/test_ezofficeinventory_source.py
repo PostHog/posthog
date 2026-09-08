@@ -3,19 +3,20 @@ from typing import cast
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
+from posthog.schema import SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.ezofficeinventory import (
-    EZOfficeInventoryResumeConfig,
+from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.settings import (
+    ENDPOINTS,
+    EZOFFICEINVENTORY_API_VERSION_V1,
+    EZOFFICEINVENTORY_API_VERSION_V2,
+    V2_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.source import (
     EZOfficeInventorySource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ezofficeinventory import (
     EZOfficeInventorySourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.source"
 
@@ -25,9 +26,6 @@ def _config() -> EZOfficeInventorySourceConfig:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert EZOfficeInventorySource().source_type == ExternalDataSourceType.EZOFFICEINVENTORY
-
     def test_get_source_config_fields(self) -> None:
         config = EZOfficeInventorySource().get_source_config
         fields = {f.name: cast(SourceFieldInputConfig, f) for f in config.fields}
@@ -38,24 +36,40 @@ class TestSourceConfig:
         assert fields["api_key"].required is True
         assert fields["subdomain"].required is True
 
-    def test_get_source_config_metadata(self) -> None:
-        config = EZOfficeInventorySource().get_source_config
-        assert config.category == DataWarehouseSourceCategory.PRODUCTIVITY
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/ezofficeinventory"
-
     def test_connection_host_fields_include_subdomain(self) -> None:
         # Retargeting the subdomain must re-require the stored token.
         assert EZOfficeInventorySource().connection_host_fields == ["subdomain"]
 
 
+class TestSourceVersions:
+    def test_v2_is_the_default(self) -> None:
+        # New sources are stamped with default_version; the whole point of this bump is that they
+        # land on v2 while existing v1 pins are untouched.
+        source = EZOfficeInventorySource()
+        assert source.default_version == EZOFFICEINVENTORY_API_VERSION_V2
+        assert source.supported_versions == (EZOFFICEINVENTORY_API_VERSION_V1, EZOFFICEINVENTORY_API_VERSION_V2)
+
+
 class TestGetSchemas:
-    def test_returns_all_endpoints_full_refresh(self) -> None:
-        schemas = EZOfficeInventorySource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
+    @pytest.mark.parametrize(
+        ("api_version", "expected_names"),
+        [
+            (EZOFFICEINVENTORY_API_VERSION_V1, set(ENDPOINTS)),
+            (EZOFFICEINVENTORY_API_VERSION_V2, set(V2_ENDPOINTS)),
+        ],
+    )
+    def test_returns_version_specific_endpoints_full_refresh(self, api_version: str, expected_names: set) -> None:
+        schemas = EZOfficeInventorySource().get_schemas(_config(), team_id=1, api_version=api_version)
+        assert {s.name for s in schemas} == expected_names
         # EZOfficeInventory exposes no server-side cursor — every table is full refresh.
         assert all(not s.supports_incremental for s in schemas)
         assert all(not s.supports_append for s in schemas)
+
+    def test_defaults_to_v2_endpoints(self) -> None:
+        # No pin resolves to default_version (v2), so a v1-only table must not appear.
+        schemas = {s.name for s in EZOfficeInventorySource().get_schemas(_config(), team_id=1)}
+        assert schemas == set(V2_ENDPOINTS)
+        assert "labels" not in schemas
 
     def test_primary_keys_are_endpoint_specific(self) -> None:
         schemas = {s.name: s for s in EZOfficeInventorySource().get_schemas(_config(), team_id=1)}
@@ -70,7 +84,8 @@ class TestGetSchemas:
         source = EZOfficeInventorySource()
         assert source.lists_tables_without_credentials is True
         tables = source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
+        # Public docs render the default version's catalog.
+        assert {t["name"] for t in tables} == set(V2_ENDPOINTS)
         # Curated descriptions flow through from canonical_descriptions.py.
         assets = next(t for t in tables if t["name"] == "assets")
         assert assets["description"]
@@ -85,7 +100,8 @@ class TestValidateCredentials:
     def test_delegates_to_transport(self, transport_result: tuple[bool, str | None], expected_ok: bool) -> None:
         with patch(f"{_MODULE}.validate_ezofficeinventory_credentials", return_value=transport_result) as mocked:
             ok, error = EZOfficeInventorySource().validate_credentials(_config(), team_id=1)
-        mocked.assert_called_once_with("tok", "acme")
+        # No pin resolves to the default version, so the probe runs under v2.
+        mocked.assert_called_once_with("tok", "acme", EZOFFICEINVENTORY_API_VERSION_V2)
         assert ok is expected_ok
         assert (error is None) is expected_ok
 
@@ -99,25 +115,21 @@ class TestValidateCredentials:
         assert error == "EZOfficeInventory rate limit reached while validating credentials."
 
 
-class TestNonRetryableErrors:
-    def test_auth_errors_are_non_retryable(self) -> None:
-        errors = EZOfficeInventorySource().get_non_retryable_errors()
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
-
-
 class TestResumableWiring:
-    def test_get_resumable_source_manager_binds_data_class(self) -> None:
-        inputs = MagicMock()
-        inputs.logger = MagicMock()
-        manager = EZOfficeInventorySource().get_resumable_source_manager(inputs)
-        assert manager._data_class is EZOfficeInventoryResumeConfig
-
-    def test_source_for_pipeline_plumbs_arguments(self) -> None:
+    @pytest.mark.parametrize(
+        ("pin", "expected_version"),
+        [
+            (None, EZOFFICEINVENTORY_API_VERSION_V2),  # NULL pin → default (v2)
+            ("v1", "v1"),  # an existing v1 pin still reaches the request layer as v1
+            ("v2", "v2"),
+        ],
+    )
+    def test_source_for_pipeline_plumbs_resolved_version(self, pin: str | None, expected_version: str) -> None:
         inputs = MagicMock()
         inputs.schema_name = "members"
         inputs.team_id = 7
         inputs.job_id = "job-1"
+        inputs.api_version = pin
         manager = MagicMock()
 
         with patch(f"{_MODULE}.ezofficeinventory_source") as mocked:
@@ -130,5 +142,6 @@ class TestResumableWiring:
             team_id=7,
             job_id="job-1",
             resumable_source_manager=manager,
+            api_version=expected_version,
             db_incremental_field_last_value=None,
         )

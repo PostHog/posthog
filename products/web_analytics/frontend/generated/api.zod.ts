@@ -16,7 +16,9 @@ export const savedCreateBodyNameMax = 400
 
 export const savedCreateBodyUrlMax = 2000
 
-export const savedCreateBodyDataUrlMax = 2000
+export const savedCreateBodyDataUrlOneMax = 2000
+
+export const savedCreateBodyDataUrlTwoMax = 0
 
 export const savedCreateBodyWidthsItemMin = 100
 export const savedCreateBodyWidthsItemMax = 3000
@@ -32,9 +34,8 @@ export const SavedCreateBody = /* @__PURE__ */ zod.object({
         .max(savedCreateBodyUrlMax)
         .describe('Exact page URL to render and overlay heatmap data on. Wildcards are not allowed.'),
     data_url: zod
-        .url()
-        .max(savedCreateBodyDataUrlMax)
-        .nullish()
+        .union([zod.url().max(savedCreateBodyDataUrlOneMax).nullable(), zod.string().max(savedCreateBodyDataUrlTwoMax)])
+        .optional()
         .describe("URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted."),
     widths: zod
         .array(zod.number().min(savedCreateBodyWidthsItemMin).max(savedCreateBodyWidthsItemMax))
@@ -66,7 +67,9 @@ export const savedPartialUpdateBodyNameMax = 400
 
 export const savedPartialUpdateBodyUrlMax = 2000
 
-export const savedPartialUpdateBodyDataUrlMax = 2000
+export const savedPartialUpdateBodyDataUrlOneMax = 2000
+
+export const savedPartialUpdateBodyDataUrlTwoMax = 0
 
 export const savedPartialUpdateBodyWidthsItemMin = 100
 export const savedPartialUpdateBodyWidthsItemMax = 3000
@@ -87,9 +90,11 @@ export const SavedPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Exact page URL to render and overlay heatmap data on. Wildcards are not allowed.'),
     data_url: zod
-        .url()
-        .max(savedPartialUpdateBodyDataUrlMax)
-        .nullish()
+        .union([
+            zod.url().max(savedPartialUpdateBodyDataUrlOneMax).nullable(),
+            zod.string().max(savedPartialUpdateBodyDataUrlTwoMax),
+        ])
+        .optional()
         .describe("URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted."),
     widths: zod
         .array(zod.number().min(savedPartialUpdateBodyWidthsItemMin).max(savedPartialUpdateBodyWidthsItemMax))
@@ -112,6 +117,61 @@ export const SavedPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "When true, ask the headless browser to dismiss cookie\/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps."
         ),
+})
+
+/**
+ * Persist screenshots captured client-side by the on-page toolbar as a completed screenshot heatmap. No headless render is enqueued: the toolbar runs in the user's authenticated browser, so this is the path for pages behind a login that Browserless cannot reach. Send one 'image'+'width', or 'images'+'widths' parallel arrays to store several viewport widths on one heatmap (the toolbar re-lays out the page at each width and captures it, matching the widths the server renders). The image bytes are stored and served only through the authenticated content endpoint. The heatmap's data URL is set to the captured URL.
+ */
+export const savedCaptureCreateBodyWidthMin = 100
+export const savedCaptureCreateBodyWidthMax = 3000
+
+export const savedCaptureCreateBodyImagesMax = 16
+
+export const savedCaptureCreateBodyWidthsItemMin = 100
+export const savedCaptureCreateBodyWidthsItemMax = 3000
+
+export const savedCaptureCreateBodyWidthsMax = 16
+
+export const savedCaptureCreateBodyUrlMax = 2000
+
+export const savedCaptureCreateBodyNameMax = 400
+
+export const SavedCaptureCreateBody = /* @__PURE__ */ zod.object({
+    image: zod
+        .url()
+        .nullish()
+        .describe(
+            "Single screenshot of the page, captured client-side by the toolbar (JPEG or PNG). Max 20MB. Pair with 'width'. Use 'images'\/'widths' instead to save several viewport widths on one heatmap."
+        ),
+    width: zod
+        .number()
+        .min(savedCaptureCreateBodyWidthMin)
+        .max(savedCaptureCreateBodyWidthMax)
+        .optional()
+        .describe("Viewport width (CSS pixels) the single 'image' was captured at."),
+    images: zod
+        .array(zod.url())
+        .max(savedCaptureCreateBodyImagesMax)
+        .optional()
+        .describe(
+            "One screenshot per viewport width, parallel to 'widths' (same length, same order). Lets a single toolbar capture cover the same viewport widths the server renders. At most 16 widths."
+        ),
+    widths: zod
+        .array(zod.number().min(savedCaptureCreateBodyWidthsItemMin).max(savedCaptureCreateBodyWidthsItemMax))
+        .max(savedCaptureCreateBodyWidthsMax)
+        .optional()
+        .describe("Viewport widths (CSS pixels) the 'images' were captured at, parallel to 'images'."),
+    url: zod
+        .string()
+        .max(savedCaptureCreateBodyUrlMax)
+        .describe(
+            'Exact page URL the screenshot was captured on. Wildcards are not allowed; this is stored as both the heatmap URL and its data URL, so the overlay reads aggregate data for this exact URL.'
+        ),
+    name: zod
+        .string()
+        .max(savedCaptureCreateBodyNameMax)
+        .optional()
+        .describe('Human-readable label for the saved heatmap. Defaults to the URL when omitted.'),
 })
 
 /**
@@ -141,6 +201,19 @@ export const SavedPrewarmCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, ask the headless browser to dismiss cookie\/consent banners before capturing. Must match the value used at creation time for the prewarmed render to be reused.'
         ),
+})
+
+/**
+ * Loads an llms.txt file from a public URL for coverage analysis without saving it.
+ * @summary Load an llms.txt file
+ */
+export const webAnalyticsFetchLlmsTxtBodyUrlMax = 2048
+
+export const WebAnalyticsFetchLlmsTxtBody = /* @__PURE__ */ zod.object({
+    url: zod
+        .url()
+        .max(webAnalyticsFetchLlmsTxtBodyUrlMax)
+        .describe('Public HTTP or HTTPS URL of the llms.txt file to load.'),
 })
 
 /**
@@ -181,6 +254,107 @@ export const WebAnalyticsAchievementsRecordInteractionBody = /* @__PURE__ */ zod
         .describe(
             "Which interaction counter to increment: 'data' (slicing\/filtering the dashboard) or 'recording' (opening a session recording).\n\n\* `data` - data\n\* `recording` - recording"
         ),
+})
+
+export const webAnalyticsContentAutopilotProfilesCreateBodyNameMax = 255
+
+export const webAnalyticsContentAutopilotProfilesCreateBodyDomainMax = 2048
+
+export const WebAnalyticsContentAutopilotProfilesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(webAnalyticsContentAutopilotProfilesCreateBodyNameMax)
+        .optional()
+        .describe('Name used to identify this site in the workspace.'),
+    domain: zod
+        .url()
+        .max(webAnalyticsContentAutopilotProfilesCreateBodyDomainMax)
+        .describe('Authorized site origin for this profile.'),
+    source_urls: zod
+        .array(zod.url())
+        .describe('Public sitemap and factual source URLs used to build the site profile.'),
+    content_boundaries: zod.array(zod.string()).describe('Same-origin URL path prefixes allowed for research.'),
+    brand_rules: zod.array(zod.string()).describe('Brand, terminology, and editorial rules applied to every proposal.'),
+    search_console_enabled: zod.boolean().optional().describe('Whether to use connected Google Search Console data.'),
+})
+
+export const webAnalyticsContentAutopilotProfilesPartialUpdateBodyNameMax = 255
+
+export const webAnalyticsContentAutopilotProfilesPartialUpdateBodyDomainMax = 2048
+
+export const WebAnalyticsContentAutopilotProfilesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(webAnalyticsContentAutopilotProfilesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Name used to identify this site in the workspace.'),
+    domain: zod
+        .url()
+        .max(webAnalyticsContentAutopilotProfilesPartialUpdateBodyDomainMax)
+        .optional()
+        .describe('Authorized site origin for this profile.'),
+    source_urls: zod
+        .array(zod.url())
+        .optional()
+        .describe('Public sitemap and factual source URLs used to build the site profile.'),
+    content_boundaries: zod
+        .array(zod.string())
+        .optional()
+        .describe('Same-origin URL path prefixes allowed for research.'),
+    brand_rules: zod
+        .array(zod.string())
+        .optional()
+        .describe('Brand, terminology, and editorial rules applied to every proposal.'),
+    search_console_enabled: zod.boolean().optional().describe('Whether to use connected Google Search Console data.'),
+})
+
+/**
+ * Inspects a public site for its canonical origin, name, and sitemap URLs.
+ * @summary Discover content autopilot site settings
+ */
+export const WebAnalyticsContentAutopilotProfilesDiscoverBody = /* @__PURE__ */ zod.object({
+    domain: zod.url().describe('Public site URL to inspect for onboarding defaults.'),
+})
+
+/**
+ * Saves reviewed Markdown and its structured package without publishing it.
+ * @summary Edit a content proposal
+ */
+export const webAnalyticsContentAutopilotProposalsEditBodyProposedMarkdownMax = 500000
+
+export const WebAnalyticsContentAutopilotProposalsEditBody = /* @__PURE__ */ zod.object({
+    proposed_markdown: zod
+        .string()
+        .max(webAnalyticsContentAutopilotProposalsEditBodyProposedMarkdownMax)
+        .describe('Edited Markdown to save for review.'),
+    content_package: zod
+        .object({
+            file_path: zod.string().describe('Repository-relative Markdown or MDX file path.'),
+            title: zod.string().describe('Content title.'),
+            description: zod.string().describe('Search description or summary.'),
+            slug: zod.string().describe('URL slug.'),
+            frontmatter: zod
+                .array(
+                    zod.object({
+                        key: zod.string().describe('Frontmatter field name.'),
+                        value: zod.string().describe('Serialized frontmatter value.'),
+                    })
+                )
+                .describe('Ordered frontmatter entries.'),
+            internal_links: zod
+                .array(zod.url())
+                .describe('Validated same-origin internal links included in the content.'),
+            source_notes: zod.array(zod.string()).describe('Portable source notes included with the export.'),
+        })
+        .describe('Updated structured package to save with the proposal.'),
+})
+
+/**
+ * Captures the current profile and creates one pending on-demand content research run.
+ * @summary Start a content autopilot run
+ */
+export const WebAnalyticsContentAutopilotRunsStartBody = /* @__PURE__ */ zod.object({
+    profile_id: zod.uuid().describe('Site profile to research.'),
 })
 
 export const webAnalyticsFilterPresetsCreateBodyNameMax = 400

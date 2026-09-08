@@ -1,6 +1,7 @@
 import json
+import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from django.conf import settings
@@ -9,13 +10,19 @@ from django.db import transaction
 import structlog
 import temporalio
 from structlog.contextvars import bind_contextvars
+from temporalio.exceptions import ApplicationError
 
-from posthog.api.capture import CaptureInternalError, capture_internal
+from posthog.api.capture import CaptureInternalError
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
+from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
+from posthog.temporal.ai_observability.evaluation_hog import run_hog_eval_for_event
 from posthog.temporal.ai_observability.evaluation_llm_judge import DEFAULT_JUDGE_MODEL
+from posthog.temporal.ai_observability.evaluation_sentiment import run_sentiment_eval
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome
+from posthog.temporal.ai_observability.team_capture import capture_internal_for_team
 
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
@@ -23,6 +30,8 @@ from products.ai_observability.backend.models.provider_keys import LLMProviderKe
 logger = structlog.get_logger(__name__)
 
 SOURCE_AI_PROPERTIES_TO_COPY = ("$ai_prompt_name", "$ai_prompt_version")
+
+EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE = "EmitEvaluationEventFailed"
 
 
 @dataclass
@@ -38,44 +47,45 @@ class RunEvaluationInputs:
         }
 
 
+def fetch_evaluation(evaluation_id: str, team_id: int) -> dict[str, Any]:
+    """Fetch evaluation config from Postgres."""
+    try:
+        evaluation = Evaluation.objects.select_related(
+            "model_configuration",
+            "model_configuration__provider_key",
+        ).get(id=evaluation_id, team_id=team_id)
+
+        model_configuration = None
+        if evaluation.model_configuration:
+            mc = evaluation.model_configuration
+            model_configuration = {
+                "provider": mc.provider,
+                "model": mc.model,
+                "provider_key_id": str(mc.provider_key_id) if mc.provider_key_id else None,
+            }
+
+        return {
+            "id": str(evaluation.id),
+            "name": evaluation.name,
+            "evaluation_type": evaluation.evaluation_type,
+            "evaluation_config": evaluation.evaluation_config,
+            "output_type": evaluation.output_type,
+            "output_config": evaluation.output_config,
+            "team_id": evaluation.team_id,
+            "model_configuration": model_configuration,
+            "enabled": evaluation.enabled,
+            "deleted": evaluation.deleted,
+        }
+    except Evaluation.DoesNotExist:
+        logger.exception("Evaluation not found", evaluation_id=evaluation_id)
+        raise ValueError(f"Evaluation {evaluation_id} not found")
+
+
 @temporalio.activity.defn
 async def fetch_evaluation_activity(inputs: RunEvaluationInputs) -> dict[str, Any]:
     """Fetch evaluation config from Postgres."""
     bind_contextvars(team_id=inputs.event_data.get("team_id"), evaluation_id=inputs.evaluation_id)
-
-    def _fetch() -> dict[str, Any]:
-        try:
-            evaluation = Evaluation.objects.select_related(
-                "model_configuration",
-                "model_configuration__provider_key",
-            ).get(id=inputs.evaluation_id, team_id=inputs.event_data["team_id"])
-
-            model_configuration = None
-            if evaluation.model_configuration:
-                mc = evaluation.model_configuration
-                model_configuration = {
-                    "provider": mc.provider,
-                    "model": mc.model,
-                    "provider_key_id": str(mc.provider_key_id) if mc.provider_key_id else None,
-                }
-
-            return {
-                "id": str(evaluation.id),
-                "name": evaluation.name,
-                "evaluation_type": evaluation.evaluation_type,
-                "evaluation_config": evaluation.evaluation_config,
-                "output_type": evaluation.output_type,
-                "output_config": evaluation.output_config,
-                "team_id": evaluation.team_id,
-                "model_configuration": model_configuration,
-                "enabled": evaluation.enabled,
-                "deleted": evaluation.deleted,
-            }
-        except Evaluation.DoesNotExist:
-            logger.exception("Evaluation not found", evaluation_id=inputs.evaluation_id)
-            raise ValueError(f"Evaluation {inputs.evaluation_id} not found")
-
-    return await database_sync_to_async(_fetch)()
+    return await database_sync_to_async(fetch_evaluation)(inputs.evaluation_id, inputs.event_data["team_id"])
 
 
 @temporalio.activity.defn
@@ -272,21 +282,28 @@ def build_evaluation_event_properties(
     return properties
 
 
-@temporalio.activity.defn
-async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> None:
-    """Emit $ai_evaluation event via capture_internal so it routes through the ingestion pipeline for cost calculation."""
+def _evaluation_event_uuid() -> str | None:
+    """One workflow emits one $ai_evaluation, so its uuid derives from the workflow id, which
+    survives activity retries and workflow-level retries alike. A manual re-run mints a new
+    workflow id (it embeds a ms timestamp), so re-runs still get distinct events."""
+    if not temporalio.activity.in_activity():
+        return None
+    workflow_id = temporalio.activity.info().workflow_id
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"posthog://ai-evaluation/{workflow_id}"))
+
+
+async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) -> None:
+    """Emit the $ai_evaluation event via capture_internal so it routes through the ingestion
+    pipeline for cost calculation. A billing-limited capture drops the event without failing
+    the caller. The event timestamp is the workflow start time, not emit time: ingestion dedup
+    keys on (timestamp, event, distinct_id, token), so only a stable timestamp lets a retried
+    emit collapse into the original."""
     evaluation = inputs.evaluation
     event_data = inputs.event_data
     result = inputs.result
     start_time = inputs.start_time
 
     def _emit() -> None:
-        try:
-            team = Team.objects.get(id=event_data["team_id"])
-        except Team.DoesNotExist:
-            logger.exception("Team not found", team_id=event_data["team_id"])
-            raise ValueError(f"Team {event_data['team_id']} not found")
-
         source_props = (
             json.loads(event_data["properties"])
             if isinstance(event_data["properties"], str)
@@ -309,18 +326,15 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             if source_props.get(property_name) is not None:
                 properties[property_name] = source_props[property_name]
 
-        event_timestamp = datetime.now(UTC)
-
-        capture_result = capture_internal(
-            token=team.api_token,
+        capture_internal_for_team(
+            team_id=event_data["team_id"],
             event_name="$ai_evaluation",
             event_source="llm_analytics_evaluation",
             distinct_id=event_data["distinct_id"],
-            timestamp=event_timestamp,
+            timestamp=start_time,
             properties=properties,
-            process_person_profile=True,
+            event_uuid=_evaluation_event_uuid(),
         )
-        capture_result.raise_for_status()
 
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()
@@ -335,6 +349,12 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
     except Exception:
         increment_emit_event_outcome("failed")
         raise
+
+
+@temporalio.activity.defn
+async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> None:
+    """Emit $ai_evaluation event via capture_internal so it routes through the ingestion pipeline for cost calculation."""
+    await emit_generation_evaluation_event(inputs)
 
 
 @dataclass
@@ -361,8 +381,7 @@ async def emit_internal_telemetry_activity(inputs: EmitInternalTelemetryInputs) 
     result = inputs.result
 
     def _emit_telemetry() -> None:
-        team = Team.objects.get(id=team_id)
-        organization_id = str(team.organization_id)
+        organization_id = str(Team.objects.filter(id=team_id).values_list("organization_id", flat=True).get())
 
         ph_client = get_ph_client(sync_mode=True)
         ph_client.capture(
@@ -383,3 +402,69 @@ async def emit_internal_telemetry_activity(inputs: EmitInternalTelemetryInputs) 
         ph_client.flush()
 
     await database_sync_to_async(_emit_telemetry, thread_sensitive=False)()
+
+
+@frozen
+class RunLocalEvaluationInputs:
+    evaluation_id: str
+    event_data: dict[str, Any]
+    start_time: datetime
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "evaluation_id": self.evaluation_id,
+            "team_id": self.event_data.get("team_id"),
+        }
+
+
+@frozen
+class LocalEvaluationOutcome:
+    """What `run_local_evaluation_activity` handled.
+
+    `result` is None when the evaluation runs on an LLM judge: the activity only fetched the
+    config, and the workflow must run the judge with its own timeout and retry policy. `emitted`
+    says whether the $ai_evaluation event was sent here, so the workflow never emits a second one.
+    """
+
+    evaluation: dict[str, Any]
+    result: EvaluationActivityResult | None
+    emitted: bool
+
+
+@temporalio.activity.defn
+async def run_local_evaluation_activity(inputs: RunLocalEvaluationInputs) -> LocalEvaluationOutcome:
+    """Fetch the evaluation and, for hog and sentiment, execute it and emit its event in one
+    activity. These runtimes make no external call, so one activity replaces three Temporal
+    Cloud actions. llm_judge returns after the fetch: the judge needs its own activity and
+    retry policy. Terminal user errors skip the emit; the workflow owns disable and notify.
+    """
+    bind_contextvars(team_id=inputs.event_data.get("team_id"), evaluation_id=inputs.evaluation_id)
+    evaluation = await database_sync_to_async_pool(fetch_evaluation)(inputs.evaluation_id, inputs.event_data["team_id"])
+
+    evaluation_type = evaluation.get("evaluation_type", "llm_judge")
+    if evaluation_type == "hog":
+        result = await run_hog_eval_for_event(evaluation, inputs.event_data)
+    elif evaluation_type == "sentiment":
+        result = await run_sentiment_eval(evaluation, inputs.event_data)
+    else:
+        return LocalEvaluationOutcome(evaluation=evaluation, result=None, emitted=False)
+
+    emitted = False
+    if not is_terminal_user_error_result(result):
+        try:
+            await emit_generation_evaluation_event(
+                EmitEvaluationEventInputs(
+                    evaluation=evaluation,
+                    event_data=inputs.event_data,
+                    result=result,
+                    start_time=inputs.start_time,
+                )
+            )
+        except Exception as error:
+            # Typed so the workflow counts one emit failure per run, after retries end.
+            raise ApplicationError(
+                "Failed to emit $ai_evaluation", type=EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE
+            ) from error
+        emitted = True
+    return LocalEvaluationOutcome(evaluation=evaluation, result=result, emitted=emitted)

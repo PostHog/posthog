@@ -68,6 +68,10 @@ function ConnectView({
     SettingsSection: SettingsSectionComponent
 }): JSX.Element {
     const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
+    // This page serves both the self-driving wizard, which parks a run here for the GitHub round
+    // trip, and everyone arriving under their own steam. Both leave the same click behind, so
+    // recording which it was is the only way to attribute a connect to a wizard run.
+    const { inFlight: selfDrivingRunInFlight } = useSelfDrivingRunState()
     // Connecting an integration requires project membership (enforced again in the backend);
     // editing or removing one still requires admin. Users with no project access fall back to
     // the request-access flow below.
@@ -77,7 +81,12 @@ function ConnectView({
     })
 
     const onConnectClick = (): void => {
-        reportIntegrationConnectClicked(definition.slug, definition.kind)
+        reportIntegrationConnectClicked(
+            definition.slug,
+            definition.kind,
+            'integration_landing_page',
+            selfDrivingRunInFlight
+        )
     }
 
     return (

@@ -1,3 +1,5 @@
+import { MOCK_USER_UUID } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
 
 import { App } from 'scenes/App'
@@ -14,9 +16,11 @@ import type {
     UserBasicApi,
 } from 'products/skills/frontend/generated/api.schemas'
 
+// Matches the mocked organization member, so the owner picker resolves it to a name rather than
+// falling back to the raw UUID.
 const MOCK_AUTHOR: UserBasicApi = {
     id: 178,
-    uuid: '01853eba-3d18-0000-9d9b-000000000001',
+    uuid: MOCK_USER_UUID,
     distinct_id: 'mock-user-178-distinct-id',
     first_name: 'John',
     email: 'john.doe@posthog.com',
@@ -44,6 +48,7 @@ function makeVersion(version: number, isLatest: boolean): LLMSkillVersionSummary
     return {
         id: `skill-version-${version}`,
         version,
+        version_description: version === 4 ? 'Added OCR guidance for scanned PDFs' : null,
         is_latest: isLatest,
         created_at: `2025-01-${String(10 + version).padStart(2, '0')}T10:00:00Z`,
         created_by: MOCK_AUTHOR,
@@ -80,6 +85,7 @@ const SKILL: LLMSkillApi = {
         { level: 2, text: 'Notes' },
     ],
     version: 4,
+    version_description: 'Added OCR guidance for scanned PDFs',
     created_by: MOCK_AUTHOR,
     owners: [MOCK_AUTHOR],
     created_at: '2025-01-14T10:00:00Z',
@@ -108,6 +114,7 @@ const SKILL_LIST_ENTRY: LLMSkillListApi = {
     category: SKILL.category,
     outline: SKILL.outline,
     version: SKILL.version,
+    version_description: SKILL.version_description,
     created_by: SKILL.created_by,
     owners: SKILL.owners,
     created_at: SKILL.created_at,
@@ -117,6 +124,17 @@ const SKILL_LIST_ENTRY: LLMSkillListApi = {
     latest_version: SKILL.latest_version,
     version_count: SKILL.version_count,
     first_version_created_at: SKILL.first_version_created_at,
+}
+
+const UNOWNED_SKILL_LIST_ENTRY: LLMSkillListApi = {
+    ...SKILL_LIST_ENTRY,
+    id: 'skill-version-9',
+    name: 'invoice-parser',
+    description: 'Parse invoices into structured line items. Use when reconciling billing exports.',
+    owners: [],
+    version_count: 1,
+    version: 1,
+    latest_version: 1,
 }
 
 const meta: Meta = {
@@ -134,7 +152,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/llm_skills/': toPaginatedResponse([SKILL_LIST_ENTRY]),
+                '/api/projects/:team_id/llm_skills/': toPaginatedResponse([SKILL_LIST_ENTRY, UNOWNED_SKILL_LIST_ENTRY]),
                 '/api/projects/:team_id/llm_skills/resolve/name/:name/': RESOLVE_RESPONSE,
             },
         }),
@@ -158,5 +176,11 @@ export const SkillDetailSideBySideAbove2xlBreakpoint: Story = {
             waitForLoadersToDisappear: true,
             viewportWidths: ['superwide'],
         },
+    },
+}
+
+export const SkillsList: Story = {
+    parameters: {
+        pageUrl: urls.skills(),
     },
 }

@@ -58,10 +58,12 @@ interface ChannelsTagProps {
     detail?: TicketChannelDetail | null
     /** When set, the tag links to the originating thread/message and opens in a new tab. */
     to?: string | null
+    /** The connected address an email ticket came in on. Shown as the tag's detail for email. */
+    emailTo?: string | null
 }
 
-export function ChannelsTag({ channel, detail, to }: ChannelsTagProps): JSX.Element {
-    const detailText = detail ? channelDetailLabel[detail] : undefined
+export function ChannelsTag({ channel, detail, to, emailTo }: ChannelsTagProps): JSX.Element {
+    const detailText = detail ? channelDetailLabel[detail] : (emailTo ?? undefined)
     const tag = (
         <div className="flex items-center gap-1 text-muted-alt text-xs">
             <LemonTag type="muted">

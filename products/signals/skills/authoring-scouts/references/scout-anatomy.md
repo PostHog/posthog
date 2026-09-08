@@ -57,6 +57,7 @@ A sentence or two that names the surface and the shapes is the whole job.
 ## Body structure
 
 The canonical body is a workflow, not a script — it reads like how an experienced analyst would approach the surface, and trusts the agent to adapt.
+(One variant departs from it: a **recurring measurement / LLM-judge scout** on the structured-output channel replaces the discriminator + Decide sections with a rubric and a sample → judge → record loop — see that pattern in [`scout-patterns.md`](scout-patterns.md); orient and memory stay the same, and so does close-out — except its quick early-exit fires only on an empty eligible population, never at a steady baseline, since the scout samples and records every verdict (the unremarkable ones are the denominator) on any run with items to judge.)
 The fleet's specialists all share this shape:
 
 1. **Identity + discriminator (the most important lines).** One sentence on what the scout is, then **name the signal-vs-noise discriminator explicitly** and tell the agent to internalize it.

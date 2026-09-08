@@ -3,7 +3,7 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry } from '~/types'
 
 import { accessControlsLogic } from './accessControlsLogic'
-import { getEntryId, getInheritedReasonTooltip, getLevelOptionsForResource } from './helpers'
+import { getEntryId, getInheritedReasonTooltip, getLevelOptionsForResource, inheritedReasonOf } from './helpers'
 import { FormAccessLevel, GroupedAccessControlRuleModalLogicProps } from './types'
 import type { AccessControlSettingsEntry, ScopeType } from './types'
 
@@ -29,9 +29,11 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'alert'
             | 'annotation'
             | 'approvals'
+            | 'autoresearch'
             | 'batch_export'
             | 'batch_import'
             | 'batch_import_support'
+            | 'billing'
             | 'business_knowledge'
             | 'canvas'
             | 'clickhouse_test_cluster_perf'
@@ -41,6 +43,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'customer_analytics'
             | 'customer_journey'
             | 'customer_profile_config'
+            | 'customer_task'
             | 'dashboard'
             | 'dashboard_template'
             | 'data_catalog'
@@ -110,6 +113,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'signal_scout'
             | 'signal_scout_internal'
             | 'signal_scout_report'
+            | 'signal_scratchpad_internal'
             | 'stamphog'
             | 'streamlit_app'
             | 'subscription'
@@ -124,6 +128,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'user'
             | 'user_interview'
             | 'vision_action'
+            | 'vision_alert'
             | 'visual_review'
             | 'warehouse_objects'
             | 'warehouse_table'
@@ -150,9 +155,11 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'alert'
             | 'annotation'
             | 'approvals'
+            | 'autoresearch'
             | 'batch_export'
             | 'batch_import'
             | 'batch_import_support'
+            | 'billing'
             | 'business_knowledge'
             | 'canvas'
             | 'clickhouse_test_cluster_perf'
@@ -162,6 +169,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'customer_analytics'
             | 'customer_journey'
             | 'customer_profile_config'
+            | 'customer_task'
             | 'dashboard'
             | 'dashboard_template'
             | 'data_catalog'
@@ -231,6 +239,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'signal_scout'
             | 'signal_scout_internal'
             | 'signal_scout_report'
+            | 'signal_scratchpad_internal'
             | 'stamphog'
             | 'streamlit_app'
             | 'subscription'
@@ -245,6 +254,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'user'
             | 'user_interview'
             | 'vision_action'
+            | 'vision_alert'
             | 'visual_review'
             | 'warehouse_objects'
             | 'warehouse_table'
@@ -263,9 +273,11 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'alert'
             | 'annotation'
             | 'approvals'
+            | 'autoresearch'
             | 'batch_export'
             | 'batch_import'
             | 'batch_import_support'
+            | 'billing'
             | 'business_knowledge'
             | 'canvas'
             | 'clickhouse_test_cluster_perf'
@@ -275,6 +287,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'customer_analytics'
             | 'customer_journey'
             | 'customer_profile_config'
+            | 'customer_task'
             | 'dashboard'
             | 'dashboard_template'
             | 'data_catalog'
@@ -344,6 +357,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'signal_scout'
             | 'signal_scout_internal'
             | 'signal_scout_report'
+            | 'signal_scratchpad_internal'
             | 'stamphog'
             | 'streamlit_app'
             | 'subscription'
@@ -358,6 +372,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'user'
             | 'user_interview'
             | 'vision_action'
+            | 'vision_alert'
             | 'visual_review'
             | 'warehouse_objects'
             | 'warehouse_table'
@@ -389,9 +404,11 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'alert'
             | 'annotation'
             | 'approvals'
+            | 'autoresearch'
             | 'batch_export'
             | 'batch_import'
             | 'batch_import_support'
+            | 'billing'
             | 'business_knowledge'
             | 'canvas'
             | 'clickhouse_test_cluster_perf'
@@ -401,6 +418,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'customer_analytics'
             | 'customer_journey'
             | 'customer_profile_config'
+            | 'customer_task'
             | 'dashboard'
             | 'dashboard_template'
             | 'data_catalog'
@@ -470,6 +488,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'signal_scout'
             | 'signal_scout_internal'
             | 'signal_scout_report'
+            | 'signal_scratchpad_internal'
             | 'stamphog'
             | 'streamlit_app'
             | 'subscription'
@@ -484,6 +503,7 @@ export interface groupedAccessControlRuleModalLogicValues {
             | 'user'
             | 'user_interview'
             | 'vision_action'
+            | 'vision_alert'
             | 'visual_review'
             | 'warehouse_objects'
             | 'warehouse_table'
@@ -520,9 +540,11 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'alert'
             | 'annotation'
             | 'approvals'
+            | 'autoresearch'
             | 'batch_export'
             | 'batch_import'
             | 'batch_import_support'
+            | 'billing'
             | 'business_knowledge'
             | 'canvas'
             | 'clickhouse_test_cluster_perf'
@@ -532,6 +554,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'customer_analytics'
             | 'customer_journey'
             | 'customer_profile_config'
+            | 'customer_task'
             | 'dashboard'
             | 'dashboard_template'
             | 'data_catalog'
@@ -601,6 +624,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'signal_scout'
             | 'signal_scout_internal'
             | 'signal_scout_report'
+            | 'signal_scratchpad_internal'
             | 'stamphog'
             | 'streamlit_app'
             | 'subscription'
@@ -615,6 +639,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'user'
             | 'user_interview'
             | 'vision_action'
+            | 'vision_alert'
             | 'visual_review'
             | 'warehouse_objects'
             | 'warehouse_table'
@@ -653,9 +678,11 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'alert'
             | 'annotation'
             | 'approvals'
+            | 'autoresearch'
             | 'batch_export'
             | 'batch_import'
             | 'batch_import_support'
+            | 'billing'
             | 'business_knowledge'
             | 'canvas'
             | 'clickhouse_test_cluster_perf'
@@ -665,6 +692,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'customer_analytics'
             | 'customer_journey'
             | 'customer_profile_config'
+            | 'customer_task'
             | 'dashboard'
             | 'dashboard_template'
             | 'data_catalog'
@@ -734,6 +762,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'signal_scout'
             | 'signal_scout_internal'
             | 'signal_scout_report'
+            | 'signal_scratchpad_internal'
             | 'stamphog'
             | 'streamlit_app'
             | 'subscription'
@@ -748,6 +777,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'user'
             | 'user_interview'
             | 'vision_action'
+            | 'vision_alert'
             | 'visual_review'
             | 'warehouse_objects'
             | 'warehouse_table'
@@ -766,9 +796,11 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'alert'
             | 'annotation'
             | 'approvals'
+            | 'autoresearch'
             | 'batch_export'
             | 'batch_import'
             | 'batch_import_support'
+            | 'billing'
             | 'business_knowledge'
             | 'canvas'
             | 'clickhouse_test_cluster_perf'
@@ -778,6 +810,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'customer_analytics'
             | 'customer_journey'
             | 'customer_profile_config'
+            | 'customer_task'
             | 'dashboard'
             | 'dashboard_template'
             | 'data_catalog'
@@ -847,6 +880,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'signal_scout'
             | 'signal_scout_internal'
             | 'signal_scout_report'
+            | 'signal_scratchpad_internal'
             | 'stamphog'
             | 'streamlit_app'
             | 'subscription'
@@ -861,6 +895,7 @@ export interface groupedAccessControlRuleModalLogicActions {
             | 'user'
             | 'user_interview'
             | 'vision_action'
+            | 'vision_alert'
             | 'visual_review'
             | 'warehouse_objects'
             | 'warehouse_table'
@@ -918,9 +953,11 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
+                | 'autoresearch'
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
+                | 'billing'
                 | 'business_knowledge'
                 | 'canvas'
                 | 'clickhouse_test_cluster_perf'
@@ -930,6 +967,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
+                | 'customer_task'
                 | 'dashboard'
                 | 'dashboard_template'
                 | 'data_catalog'
@@ -999,6 +1037,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -1013,6 +1052,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'user'
                 | 'user_interview'
                 | 'vision_action'
+                | 'vision_alert'
                 | 'visual_review'
                 | 'warehouse_objects'
                 | 'warehouse_table'
@@ -1033,9 +1073,11 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
+                | 'autoresearch'
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
+                | 'billing'
                 | 'business_knowledge'
                 | 'canvas'
                 | 'clickhouse_test_cluster_perf'
@@ -1045,6 +1087,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
+                | 'customer_task'
                 | 'dashboard'
                 | 'dashboard_template'
                 | 'data_catalog'
@@ -1114,6 +1157,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -1128,6 +1172,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'user'
                 | 'user_interview'
                 | 'vision_action'
+                | 'vision_alert'
                 | 'visual_review'
                 | 'warehouse_objects'
                 | 'warehouse_table'
@@ -1147,9 +1192,11 @@ export interface groupedAccessControlRuleModalLogicMeta {
                     | 'alert'
                     | 'annotation'
                     | 'approvals'
+                    | 'autoresearch'
                     | 'batch_export'
                     | 'batch_import'
                     | 'batch_import_support'
+                    | 'billing'
                     | 'business_knowledge'
                     | 'canvas'
                     | 'clickhouse_test_cluster_perf'
@@ -1159,6 +1206,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                     | 'customer_analytics'
                     | 'customer_journey'
                     | 'customer_profile_config'
+                    | 'customer_task'
                     | 'dashboard'
                     | 'dashboard_template'
                     | 'data_catalog'
@@ -1228,6 +1276,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                     | 'signal_scout'
                     | 'signal_scout_internal'
                     | 'signal_scout_report'
+                    | 'signal_scratchpad_internal'
                     | 'stamphog'
                     | 'streamlit_app'
                     | 'subscription'
@@ -1242,6 +1291,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                     | 'user'
                     | 'user_interview'
                     | 'vision_action'
+                    | 'vision_alert'
                     | 'visual_review'
                     | 'warehouse_objects'
                     | 'warehouse_table'
@@ -1261,9 +1311,11 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
+                | 'autoresearch'
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
+                | 'billing'
                 | 'business_knowledge'
                 | 'canvas'
                 | 'clickhouse_test_cluster_perf'
@@ -1273,6 +1325,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
+                | 'customer_task'
                 | 'dashboard'
                 | 'dashboard_template'
                 | 'data_catalog'
@@ -1342,6 +1395,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -1356,6 +1410,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'user'
                 | 'user_interview'
                 | 'vision_action'
+                | 'vision_alert'
                 | 'visual_review'
                 | 'warehouse_objects'
                 | 'warehouse_table'
@@ -1376,9 +1431,11 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
+                | 'autoresearch'
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
+                | 'billing'
                 | 'business_knowledge'
                 | 'canvas'
                 | 'clickhouse_test_cluster_perf'
@@ -1388,6 +1445,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
+                | 'customer_task'
                 | 'dashboard'
                 | 'dashboard_template'
                 | 'data_catalog'
@@ -1457,6 +1515,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -1471,6 +1530,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'user'
                 | 'user_interview'
                 | 'vision_action'
+                | 'vision_alert'
                 | 'visual_review'
                 | 'warehouse_objects'
                 | 'warehouse_table'
@@ -1490,9 +1550,11 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
+                | 'autoresearch'
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
+                | 'billing'
                 | 'business_knowledge'
                 | 'canvas'
                 | 'clickhouse_test_cluster_perf'
@@ -1502,6 +1564,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
+                | 'customer_task'
                 | 'dashboard'
                 | 'dashboard_template'
                 | 'data_catalog'
@@ -1571,6 +1634,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -1585,6 +1649,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'user'
                 | 'user_interview'
                 | 'vision_action'
+                | 'vision_alert'
                 | 'visual_review'
                 | 'warehouse_objects'
                 | 'warehouse_table'
@@ -1615,9 +1680,11 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
+                | 'autoresearch'
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
+                | 'billing'
                 | 'business_knowledge'
                 | 'canvas'
                 | 'clickhouse_test_cluster_perf'
@@ -1627,6 +1694,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
+                | 'customer_task'
                 | 'dashboard'
                 | 'dashboard_template'
                 | 'data_catalog'
@@ -1696,6 +1764,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -1710,6 +1779,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'user'
                 | 'user_interview'
                 | 'vision_action'
+                | 'vision_alert'
                 | 'visual_review'
                 | 'warehouse_objects'
                 | 'warehouse_table'
@@ -1729,9 +1799,11 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
+                | 'autoresearch'
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
+                | 'billing'
                 | 'business_knowledge'
                 | 'canvas'
                 | 'clickhouse_test_cluster_perf'
@@ -1741,6 +1813,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
+                | 'customer_task'
                 | 'dashboard'
                 | 'dashboard_template'
                 | 'data_catalog'
@@ -1810,6 +1883,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -1824,6 +1898,7 @@ export interface groupedAccessControlRuleModalLogicMeta {
                 | 'user'
                 | 'user_interview'
                 | 'vision_action'
+                | 'vision_alert'
                 | 'visual_review'
                 | 'warehouse_objects'
                 | 'warehouse_table'
@@ -1906,7 +1981,7 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
         isOrgAdmin: [
             (s) => [s.entry],
             (entry: import('./types').AccessControlSettingsEntry) =>
-                entry.project.inherited_access_level_reason === 'organization_admin',
+                inheritedReasonOf(entry.project.inherited_access) === 'organization_admin',
         ],
         toolsDisabledReason: [
             (s) => [s.loading, s.canEdit, s.isOrgAdmin],
@@ -1928,25 +2003,25 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
         isProjectLevelShowingInherited: [
             (s) => [s.formProjectLevel, s.entry],
             (formProjectLevel: FormAccessLevel, entry: import('./types').AccessControlSettingsEntry) =>
-                formProjectLevel === entry.project.inherited_access_level &&
-                entry.project.inherited_access_level !== null,
+                entry.project.inherited_access !== null &&
+                formProjectLevel === entry.project.inherited_access.access_level,
         ],
         projectInheritedReasonTooltip: [
             (s) => [s.isProjectLevelShowingInherited, s.entry],
             (isProjectLevelShowingInherited: boolean, entry: import('./types').AccessControlSettingsEntry) =>
                 isProjectLevelShowingInherited
-                    ? getInheritedReasonTooltip(entry.project.inherited_access_level_reason)
+                    ? getInheritedReasonTooltip(inheritedReasonOf(entry.project.inherited_access))
                     : undefined,
         ],
         projectLevelOptions: [
             (s) => [s.availableProjectLevels, s.entry],
             (availableProjectLevels: AccessControlLevel[], entry: import('./types').AccessControlSettingsEntry) => {
-                const { inherited_access_level, inherited_access_level_reason, minimum, maximum } = entry.project
+                const { inherited_access, minimum, maximum } = entry.project
                 return getLevelOptionsForResource(availableProjectLevels, {
                     minimum,
                     maximum,
-                    inheritedLevel: inherited_access_level,
-                    inheritedReason: inherited_access_level_reason,
+                    inheritedLevel: inherited_access?.access_level ?? null,
+                    inheritedReason: inheritedReasonOf(inherited_access),
                     resourceLabel: 'project',
                 })
             },
@@ -1977,8 +2052,8 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
                 (resource: APIScopeObject) => {
                     const resourceEntry = entry.resources[resource] as EffectiveAccessControlEntry
                     return (
-                        formResourceLevels[resource] === resourceEntry.inherited_access_level &&
-                        resourceEntry.inherited_access_level !== null
+                        resourceEntry.inherited_access !== null &&
+                        formResourceLevels[resource] === resourceEntry.inherited_access.access_level
                     )
                 },
         ],
@@ -1991,7 +2066,9 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
                 (resource: APIScopeObject) =>
                     isResourceLevelShowingInherited(resource)
                         ? getInheritedReasonTooltip(
-                              (entry.resources[resource] as EffectiveAccessControlEntry).inherited_access_level_reason
+                              inheritedReasonOf(
+                                  (entry.resources[resource] as EffectiveAccessControlEntry).inherited_access
+                              )
                           )
                         : undefined,
         ],
@@ -2003,19 +2080,21 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
                 formResourceLevels: Record<APIScopeObject, FormAccessLevel>
             ) =>
                 (resource: APIScopeObject, resourceLabel: string) => {
-                    const { access_level, inherited_access_level, inherited_access_level_reason, minimum, maximum } =
-                        entry.resources[resource] as EffectiveAccessControlEntry
+                    const { access_level, inherited_access, minimum, maximum } = entry.resources[
+                        resource
+                    ] as EffectiveAccessControlEntry
+                    const inheritedLevel = inherited_access?.access_level ?? null
                     const levelOptions = getLevelOptionsForResource(availableResourceLevels, {
                         minimum,
                         maximum,
-                        inheritedLevel: inherited_access_level,
-                        inheritedReason: inherited_access_level_reason,
+                        inheritedLevel,
+                        inheritedReason: inheritedReasonOf(inherited_access),
                         resourceLabel,
                     })
                     // Show "No override" option when there's no inherited level and the user has set an override
                     const hasFormOverride = formResourceLevels[resource] !== null
                     const hasSavedOverride = access_level !== null && formResourceLevels[resource] !== null
-                    if (inherited_access_level === null && (hasSavedOverride || hasFormOverride)) {
+                    if (inheritedLevel === null && (hasSavedOverride || hasFormOverride)) {
                         return [
                             {
                                 value: null as AccessControlLevel | null,
@@ -2040,7 +2119,7 @@ export const groupedAccessControlRuleModalLogic = kea<groupedAccessControlRuleMo
             const clearedLevels = Object.fromEntries(
                 Object.entries(values.entry.resources).map(([key, data]) => [
                     key,
-                    (data as EffectiveAccessControlEntry).inherited_access_level,
+                    (data as EffectiveAccessControlEntry).inherited_access?.access_level ?? null,
                 ])
             ) as Record<APIScopeObject, FormAccessLevel>
             actions.setResourceLevels(clearedLevels)

@@ -8,6 +8,7 @@ import { IconArrowLeft, IconChevronLeft, IconChevronRight } from '@posthog/icons
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { GuidedWizardStep, GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardStepper'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
@@ -21,6 +22,7 @@ import { SurveyMatchType, SurveyQuestionBranchingType, SurveyType } from '~/type
 
 import { HostedSurveyRespondentHint } from '../components/HostedSurveyRespondentHint'
 import { SdkVersionWarnings } from '../components/SdkVersionWarnings'
+import { SurveyPublicContentNotice } from '../components/SurveyPublicContentNotice'
 import { NewSurvey } from '../constants'
 import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
 import { getEventPropertyFilterCount } from '../SurveyEventTrigger'
@@ -35,8 +37,14 @@ import { SuccessStep } from './steps/SuccessStep'
 import { TemplateStep } from './steps/TemplateStep'
 import { WhenStep } from './steps/WhenStep'
 import { WhereStep } from './steps/WhereStep'
-import { SurveyWizardLogicProps, surveyWizardLogic } from './surveyWizardLogic'
-import { WizardStepper } from './WizardStepper'
+import { SurveyWizardLogicProps, WizardStep, surveyWizardLogic } from './surveyWizardLogic'
+
+const SURVEY_WIZARD_STEPS: GuidedWizardStep<WizardStep>[] = [
+    { step: 'questions', label: 'Questions' },
+    { step: 'where', label: 'Targeting' },
+    { step: 'when', label: 'Triggers' },
+    { step: 'appearance', label: 'Customize', optional: true },
+]
 
 export const scene: SceneExport<SurveyWizardLogicProps> = {
     component: SurveyWizardComponent,
@@ -386,8 +394,17 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                     />
                 </div>
             </div>
+            <SurveyPublicContentNotice />
             <div className="flex justify-center">
-                <WizardStepper currentStep={currentStep} onStepClick={setStep} stepErrors={stepValidationErrors} />
+                <GuidedWizardStepper
+                    steps={SURVEY_WIZARD_STEPS}
+                    currentStep={currentStep}
+                    // 'template' sorts before the first step, 'success' marks every step completed
+                    unlistedStepPosition={currentStep === 'success' ? 'end' : 'start'}
+                    onStepClick={setStep}
+                    stepErrors={stepValidationErrors}
+                    aria-label="Survey wizard progress"
+                />
             </div>
         </div>
     )

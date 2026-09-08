@@ -1,0 +1,12 @@
+{
+    "id": "LB22",
+    "file": "products/stamphog/AGENTS.md",
+    "lines": "82-90",
+    "priority": "should_fix",
+    "title": "Hosted bot predicate omits posthog-bot",
+    "problem": "These lines say `posthog-bot` is refused at every layer. The hosted `_is_bot_authored()` predicate only checks `type == \"Bot\"` or a `\"[bot]\"` suffix. `github.py` records `posthog-bot` as a `User` machine account. `_review_skip_reason()` therefore lets these PRs reach workflow creation. The engine refuses them later, but Stamphog first spends GitHub calls and sandbox startup.",
+    "suggestion": "Make `_is_bot_authored()` match `github.py::is_bot_author` and the Action job gate. Add a hosted test for `posthog-bot`. If these runtimes cannot share code, add an explicit machine-user list and a parity test.",
+    "cluster": null,
+    "cluster_issue": null,
+    "cluster_verified": null
+}

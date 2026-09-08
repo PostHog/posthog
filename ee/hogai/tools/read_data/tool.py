@@ -29,6 +29,7 @@ from posthog.hogql.database.schema.table_descriptions import TableDescriptions
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
+from products.ai_observability.backend.summarization.budget import text_repr_budget
 from products.ai_observability.backend.summarization.llm.call import summarize
 from products.ai_observability.backend.summarization.llm.schema import SummarizationResponse
 from products.ai_observability.backend.summarization.utils import get_summary_cache_key
@@ -939,7 +940,11 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         text_repr, _was_sampled = format_trace_text_repr(
             trace_dict,
             hierarchy,
-            options={"include_markers": False, "include_line_numbers": True},
+            options={
+                "include_markers": False,
+                "include_line_numbers": True,
+                "max_length": text_repr_budget(),
+            },
         )
 
         if len(text_repr) <= self.TRACE_SUMMARIZATION_THRESHOLD:

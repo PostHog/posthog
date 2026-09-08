@@ -35,6 +35,7 @@ class CDCErrorCategory(enum.StrEnum):
     WAL_DECODE_ERROR = "wal_decode_error"
     TRANSACTION_TOO_LARGE = "transaction_too_large"
     SCHEMA_MERGE_INCOMPATIBLE = "schema_merge_incompatible"
+    RESERVED_COLUMN_CONFLICT = "reserved_column_conflict"
     UNKNOWN = "unknown"
 
 
@@ -62,6 +63,18 @@ class CDCSlotNotConfiguredError(Exception):
     end. The extraction activity raises this before streaming (streaming an empty slot name would
     surface as a misleading "replication slot does not exist"). Defined here so the shared
     classifier owns the mapping to ``SLOT_NOT_CONFIGURED``.
+    """
+
+
+class CDCReservedColumnError(Exception):
+    """A source table carries a column whose name PostHog reserves for change ordering.
+
+    Non-retryable: the collision is a property of the customer's table, so replaying re-fails.
+    Raised only on the buffered-ingress path — buffer files derive their name, ordering, and
+    retry cleanup from the engine position column, and a same-named source column means the
+    batcher could not append it. Writing anyway would order and clean up by customer data,
+    which can silently delete unconsumed buffer files. The legacy path is unaffected: it
+    passes the customer's column through untouched.
     """
 
 
@@ -94,10 +107,11 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         True,
     ),
     CDCErrorCategory.HOST_UNREACHABLE: (
-        "PostHog has no network route to the source database host, so it can't be reached. Check "
-        "that the host and port are correct and reachable from the public internet (PostHog's IP "
-        "addresses allowed through, and the host not resolving to a private or unreachable "
-        "address), then re-enable change data capture.",
+        "PostHog couldn't open a network connection to the source database. Check that the host "
+        "and port are correct, and that the database accepts connections from the public internet "
+        "with PostHog's IP addresses allowed through. If all of that looks right, contact support: "
+        "some hosts resolve to an address PostHog can't reach, which is ours to fix. Re-enable "
+        "change data capture once it's reachable.",
         False,
     ),
     CDCErrorCategory.SSH_TUNNEL_FAILED: (
@@ -142,6 +156,12 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         "re-enable change data capture to re-sync from a fresh snapshot.",
         False,
     ),
+    CDCErrorCategory.RESERVED_COLUMN_CONFLICT: (
+        "A source table has a column named _ph_cdc_seq, which PostHog reserves for ordering change "
+        "data. Rename that column on the source table, or contact support to keep this table on the "
+        "previous sync mode.",
+        False,
+    ),
     CDCErrorCategory.UNKNOWN: (
         "Change data capture hit an unexpected error. PostHog will retry automatically — if it "
         "persists, check the source's sync logs or contact support.",
@@ -180,6 +200,8 @@ def classify_cdc_error(exc: BaseException, adapter: CDCSourceAdapter | None) -> 
             return cdc_error_info(CDCErrorCategory.TRANSACTION_TOO_LARGE)
         if isinstance(err, CDCSchemaMergeError):
             return cdc_error_info(CDCErrorCategory.SCHEMA_MERGE_INCOMPATIBLE)
+        if isinstance(err, CDCReservedColumnError):
+            return cdc_error_info(CDCErrorCategory.RESERVED_COLUMN_CONFLICT)
         if adapter is not None:
             info = adapter.classify_error(err)
             if info is not None:

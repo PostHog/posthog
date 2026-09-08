@@ -37,8 +37,10 @@ describe('findClosestSeriesKey', () => {
         expect(findClosestSeriesKey([], 100)).toBeNull()
     })
 
-    it('prefers the first entry when distances are equal', () => {
-        expect(findClosestSeriesKey([row('a', 80), row('b', 120)], 100)).toBe('a')
+    it('prefers the last entry on a distance tie, matching the hover dot on coinciding lines', () => {
+        // Coinciding lines (equal values) paint last-on-top, so the highlighted tooltip row must
+        // pick the same series the hover dot rings: the last tied one.
+        expect(findClosestSeriesKey([row('under', 80), row('over', 80)], 100)).toBe('over')
     })
 
     describe('range containment (stacked bar segments)', () => {

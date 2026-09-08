@@ -110,6 +110,25 @@ def _preview_safe_cell(value: Any) -> Any:
     return str(value)
 
 
+def _column_type_name(dtype: Any) -> str:
+    """Name a pandas dtype in the envelope's ClickHouse-style vocabulary.
+
+    The other producers of `types` (`data_plane`, and HogQL itself) report ClickHouse
+    names, and the frontend reads those names to decide which columns a chart can put on
+    a numeric axis. A raw pandas dtype ('float64') is not one of them, so such a column
+    reads as non-numeric there and drops out of every axis picker.
+    """
+    if pd.api.types.is_bool_dtype(dtype):
+        return "Bool"
+    if pd.api.types.is_integer_dtype(dtype):
+        return "Int64"
+    if pd.api.types.is_float_dtype(dtype):
+        return "Float64"
+    if pd.api.types.is_datetime64_any_dtype(dtype):
+        return "DateTime"
+    return "String"
+
+
 def _load_headless_pyplot() -> Any:
     # matplotlib is heavy and sandbox-only; keep it off the module import path (ruff TID253),
     # and force the Agg backend before pyplot loads so figures render without a display.
@@ -143,6 +162,9 @@ class KernelSession:
         # and can tell an output from a run input. DuckDB holds its own reference to each
         # registered object, so tracking them here adds no lifetime.
         self._registered: dict[str, _Registration] = {}
+        # Notebook variables this session bound, so a name the notebook no longer declares
+        # can be removed instead of lingering as a stale global.
+        self._bound_variables: set[str] = set()
         # Agg backend set now, before any user `import matplotlib.pyplot`, so plots stay headless.
         self._plt = _load_headless_pyplot()
 
@@ -290,6 +312,12 @@ class KernelSession:
         node = payload.get("node") or {}
         node_type = str(node.get("type") or "python")
         preview_rows = int(payload.get("page_limit") or _DEFAULT_PREVIEW_ROWS)
+        # Python only: a duckdb node's `variables` are `$name` query parameters the driver
+        # binds, not globals. Bound before the inputs, so a dataframe still wins a name
+        # collision: the notebook forbids one, but a shadowed variable degrades better than a
+        # join that can't find its frame.
+        if node_type == "python":
+            self._bind_variables(node.get("variables") or {})
         try:
             self._register_inputs(payload.get("inputs") or [], node_type=node_type)
         except Exception as exc:  # noqa: BLE001 — a bad input must still produce an envelope
@@ -364,6 +392,24 @@ class KernelSession:
             result_id=result_id,
         )
 
+    def _bind_variables(self, variables: dict[str, Any]) -> None:
+        """Bind the notebook's variables as globals, fresh on every run.
+
+        Rebinding each run is the point: the notebook is the authority on what a name holds,
+        so a value a previous cell happened to assign must not survive into this one — and a
+        name the notebook stopped declaring must not either. A deleted or renamed variable
+        would otherwise keep answering from the kernel namespace, so a cell reading it looks
+        like it still works while the notebook says the variable is gone.
+        """
+        bound: set[str] = set()
+        for name, value in variables.items():
+            if isinstance(name, str) and name.isidentifier():
+                self.shell.user_ns[name] = value
+                bound.add(name)
+        for stale in self._bound_variables - bound:
+            self.shell.user_ns.pop(stale, None)
+        self._bound_variables = bound
+
     def _register_inputs(self, inputs: list[dict[str, Any]], node_type: str) -> None:
         bind_pandas = node_type == "python"
         for spec in inputs:
@@ -414,8 +460,12 @@ class KernelSession:
 
     def _run_duckdb_node(self, node: dict[str, Any], preview_rows: int) -> dict[str, Any]:
         output_name = node.get("output_name") or ""
+        # Notebook variables arrive as `$name` parameters the driver binds, never as SQL text,
+        # so a value can't close a literal and run as a statement of its own.
+        params = node.get("variables") or {}
         try:
-            relation = self.duck.sql(node.get("code") or "")
+            code = node.get("code") or ""
+            relation = self.duck.sql(code, params=params) if params else self.duck.sql(code)
             # Non-SELECT statements (DDL etc.) yield no relation — a valid, frameless run.
             result_df = relation.df() if relation is not None else None
         except Exception as exc:  # noqa: BLE001 — any DuckDB failure must still produce an envelope
@@ -478,7 +528,7 @@ class KernelSession:
         if df is None:
             return [], [], [], 0, False
         columns = [str(column) for column in df.columns]
-        types = [[str(column), str(dtype)] for column, dtype in zip(df.columns, df.dtypes)]
+        types = [[str(column), _column_type_name(dtype)] for column, dtype in zip(df.columns, df.dtypes)]
         # to_json coerces numpy scalars, NaN and datetimes to JSON-native values in one pass.
         try:
             rows = json.loads(df.head(limit).to_json(orient="values", date_format="iso"))

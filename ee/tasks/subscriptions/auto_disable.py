@@ -1,12 +1,22 @@
 import uuid
 from typing import NamedTuple
+from urllib.parse import urlparse
 
 import structlog
 
 from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
+from posthog.models import User
 
 from products.exports.backend.models.subscription import Subscription
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    Priority,
+    TargetType,
+    create_notification,
+)
+from products.notifications.backend.facade.enums import NotificationOnlyResourceType
 
 from ee.tasks.subscriptions import SUPPORTED_TARGET_TYPES
 
@@ -16,7 +26,8 @@ class DisableReason(NamedTuple):
     key: str
     # Shown in the disabled-subscription email body and the activity's recipient_results.
     description: str
-    # Re-enable rejection message surfaced by the API serializer; `{target_type}` is interpolated.
+    # Re-enable rejection message surfaced by the API serializer; `{target_type}` is interpolated
+    # with the channel's display label, so it reads "Microsoft Teams" rather than "teams".
     user_message: str
 
 
@@ -34,6 +45,19 @@ SLACK_PERMISSION_REVOKED_DISABLE_REASON = DisableReason(
     key="slack_permission_revoked",
     description="PostHog can no longer post to this Slack channel",
     user_message="Cannot re-enable {target_type} subscription: PostHog can't post to this Slack channel. Reconnect Slack or re-add the bot to the channel, then try again.",
+)
+WEBHOOK_REJECTED_DISABLE_REASON = DisableReason(
+    key="webhook_rejected",
+    description="Microsoft Teams stopped accepting messages",
+    user_message="Cannot re-enable {target_type} subscription: Microsoft Teams stopped accepting messages. Create a new webhook URL in your Teams channel with the Workflows app, update this subscription with it, then try again.",
+)
+SLACK_FILE_UPLOAD_PERMISSION_REVOKED_DISABLE_REASON = DisableReason(
+    key="slack_file_upload_permission_revoked",
+    description="PostHog can no longer upload files to Slack",
+    user_message=(
+        "Cannot re-enable {target_type} subscription: the Slack app needs the files:write permission. "
+        "Add files:write to a custom Slack app, or reconnect PostHog's Slack app, then try again."
+    ),
 )
 AI_PROMPT_INVALID_DISABLE_REASON = DisableReason(
     key="ai_prompt_invalid",
@@ -60,12 +84,31 @@ def get_subscription_disable_reason(target_type: str | None, integration_id: int
     return None
 
 
+def target_type_label(target_type: str | None) -> str:
+    if not target_type:
+        return ""
+    try:
+        return str(Subscription.SubscriptionTarget(target_type).label)
+    except ValueError:
+        return target_type
+
+
 def validate_re_enable(target_type: str | None, integration_id: int | None) -> str | None:
     """API-serializer wrapper — returns the user-facing rejection message, or None if re-enable is OK."""
     reason = get_subscription_disable_reason(target_type, integration_id)
     if reason is None:
         return None
-    return reason.user_message.format(target_type=target_type)
+    return reason.user_message.format(target_type=target_type_label(target_type))
+
+
+def _get_notification_creator(subscription: Subscription) -> User | None:
+    creator = subscription.created_by
+    creator_id = subscription.created_by_id
+    if creator is None or creator_id is None:
+        return None
+    if not subscription.team.all_users_with_access().filter(id=creator_id).exists():
+        return None
+    return creator
 
 
 def disable_invalid_subscription(subscription: Subscription, reason: DisableReason) -> None:
@@ -96,9 +139,21 @@ def disable_invalid_subscription(subscription: Subscription, reason: DisableReas
     # relation (loaded via select_related at the activity site).
     subscription.enabled = False
 
-    if subscription.created_by and subscription.created_by.email:
+    try:
+        create_subscription_auto_disabled_notification(subscription, reason)
+    except Exception as e:
+        capture_exception(e)
+        logger.warning(
+            "subscription.create_auto_disabled_notification_failed",
+            subscription_id=subscription.id,
+            error=str(e),
+            exc_info=True,
+        )
+
+    creator = _get_notification_creator(subscription)
+    if creator and creator.email:
         try:
-            send_notifications_for_disabled_subscription(subscription, reason, [subscription.created_by.email])
+            send_notifications_for_disabled_subscription(subscription, reason, [creator.email])
         except Exception as e:
             # Disabling is the durable side effect; email is best-effort. If the email
             # fails (SMTP outage, ImproperlyConfigured on self-hosted, Customer.io 5xx)
@@ -111,6 +166,36 @@ def disable_invalid_subscription(subscription: Subscription, reason: DisableReas
                 error=str(e),
                 exc_info=True,
             )
+
+
+def create_subscription_auto_disabled_notification(subscription: Subscription, reason: DisableReason) -> None:
+    creator = _get_notification_creator(subscription)
+    if creator is None:
+        return
+
+    title = subscription.title or "Subscription"
+    source_url = urlparse(subscription.url).path if subscription.url else ""
+    create_notification(
+        NotificationData(
+            team_id=subscription.team_id,
+            notification_type=NotificationType.PIPELINE_FAILURE,
+            priority=Priority.NORMAL,
+            title=f"{title[:75]} was automatically disabled",
+            # Every description is a sentence-case fragment, and most open on a brand name
+            # ("Microsoft Teams stopped accepting messages"), so it stands as its own sentence.
+            # Folding it into a "because ..." clause needs it lowercased, which mangles the brand.
+            body=(
+                f"PostHog automatically disabled this subscription. {reason.description}. "
+                f"{reason.user_message.format(target_type=target_type_label(subscription.target_type))}"
+            ),
+            target_type=TargetType.USER,
+            target_id=str(creator.id),
+            resource_type=NotificationOnlyResourceType.PIPELINE,
+            resource_id=str(subscription.id),
+            source_url=source_url,
+            source_id=str(uuid.uuid4()),
+        )
+    )
 
 
 def send_notifications_for_disabled_subscription(
@@ -138,7 +223,7 @@ def send_notifications_for_disabled_subscription(
             "subscription_url": subscription.url,
             "subscription_title": display_name,
             "reason": reason.description,
-            "action_message": reason.user_message.format(target_type=subscription.target_type),
+            "action_message": reason.user_message.format(target_type=target_type_label(subscription.target_type)),
         },
     )
     for target in targets:

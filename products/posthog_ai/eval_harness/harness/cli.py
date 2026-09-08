@@ -7,10 +7,12 @@ from typing import cast, get_args
 
 from .providers import DockerProviderStrategy, ModalProviderStrategy, SandboxProvider
 
-# Bare model ids, no "anthropic/"/"openai/" prefix: the LLM gateway checks the model
-# against a bare-id allowlist with startswith, so the prefixed form is rejected with a
-# 403 and the agent finishes without doing anything — while still scoring exit_code_zero=1.
-DEFAULT_AGENT_MODEL = "claude-opus-4-8"
+# Bare model ids, no "anthropic/"/"openai/" prefix: the LLM gateway checks the model against a
+# bare-id allowlist with startswith, so the prefixed form is rejected with a 403 and the agent
+# finishes without doing anything. `start_llm_gateway` declares this exact id free-tier on the
+# harness's own gateway, and a run that dies at the gate anyway now fails as an error rather than
+# scoring zero on every outcome scorer.
+DEFAULT_AGENT_MODEL = "claude-opus-5"
 DEFAULT_CODEX_AGENT_MODEL = "gpt-5.5"
 
 # Literal mirror of products.tasks' RuntimeAdapter values: this module must stay
@@ -61,6 +63,13 @@ def _default_case_timeout() -> int:
     if os.getenv("EVAL_MODE") == "offline":
         return OFFLINE_CASE_TIMEOUT_SECONDS
     return DEFAULT_CASE_TIMEOUT_SECONDS
+
+
+# Multi-turn cases poll once per turn, each poll with its own budget, so a
+# single turn's budget cannot cover a whole conversation. Lifecycle scales the
+# per-case timeout by this factor when a selected module declares multi-turn
+# cases (see discovery.MULTI_TURN_MODULE_MARKER).
+MULTI_TURN_CASE_TIMEOUT_MULTIPLIER = 3
 
 
 def _default_team_setup_concurrency() -> int:

@@ -28,10 +28,10 @@ The `SessionRecordingIngester` consumes session recording events from Kafka and:
    hogli dev:setup
    ```
 
-   Or manually:
+   Or manually, with the profile that carries the DynamoDB the keystore tests need:
 
    ```bash
-   docker compose -f docker-compose.dev.yml up
+   docker compose -f docker-compose.dev.yml --profile dynamodb up
    ```
 
 2. Set up the test database (creates test_posthog DB and runs migrations):

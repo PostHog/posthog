@@ -15,11 +15,11 @@ Work the workflow through these stages. Don't jump straight to enabling it.
 
 1. **Compose the graph.** Build `actions` + `edges` per [references/graph-schema.md](references/graph-schema.md). For any `function` node, don't guess the template: list the live catalog with `cdp-function-templates-list` and read its required inputs with `cdp-function-templates-retrieve`.
 2. **Create as a draft.** `workflows-create`. Every workflow is created `draft`; it does not execute yet.
-3. **Test-run it.** `workflows-test-run` runs **one step at a time**. Start at the first step (omit `current_action_id`, or point it at the trigger) with sample `globals` (`{event, person, groups}`); the result includes the next step's id (`nextActionId`). Feed that back as `current_action_id` and run again, walking step by step to the end. Skip `delay` nodes by jumping to the action after them (delays aren't simulated). Async side effects (HTTP/email/SMS/push) are mocked unless you set `mock_async_functions=false`. Read each step's trace to confirm the path taken.
+3. **Test-run it.** `workflows-test-run` runs **one step at a time**. Start at the first step (omit `current_action_id`, or point it at the trigger) with sample `globals` (`{event, person, groups}`), shaped like the trigger's real payload: an `event` trigger needs an event matching its filters, and an `internal-event` trigger needs an event named in its `filters.events` (for the Slack trigger, a `$slack_message_received` event with the Slack property bag) and no person (see [references/graph-schema.md](references/graph-schema.md)). A `status=skipped` result means this payload would not fire the trigger: if you fabricated the payload, fix it to match the trigger; if it came from a real past run (`workflows-get-invocation`), the trigger's filter is wrong, not the payload. The result includes the next step's id (`nextActionId`). Feed that back as `current_action_id` and run again, walking step by step to the end. Skip `delay` nodes by jumping to the action after them (delays aren't simulated). Async side effects (HTTP/email/SMS/push) are mocked unless you set `mock_async_functions=false`. Read each step's trace to confirm the path taken.
 4. **Read logs while iterating.** `workflows-logs` shows the per-step execution trace (levels DEBUG to ERROR). This is how you see _why_ a step skipped, branched, or errored.
 5. **Edit, then re-test.** Patch the graph with `workflows-patch-graph` (see [Editing a draft](#editing-a-draft)). **Every edit invalidates your earlier test** — re-run the affected path before moving on. On a draft workflow, edits apply directly; on an active one they stage a draft (see [Changing a live workflow](#changing-a-live-workflow)).
 6. **Enable (needs the user's explicit sign-off).** `workflows-enable` flips it to `active` and an **event/webhook/manual** trigger starts firing on matching activity. From then on it runs on real people, and every change goes through the draft → test → publish cycle before taking effect — so finish testing, then get the user's explicit go before enabling. Don't enable on your own initiative.
-7. **Dispatch (batch/schedule only).** A `batch` workflow does **not** fire on enable alone. Send a one-off broadcast with `workflows-run-batch`, or attach a recurring schedule with `workflows-schedule-create`. Confirm with `workflows-get` that `status=='active'` _and_ its read-only `schedules` field has an active entry.
+7. **Dispatch (batch/schedule only).** A `batch` or `schedule` workflow does **not** fire on enable alone. Send a one-off broadcast with `workflows-run-batch`, or attach a recurring schedule with `workflows-schedule-create`. A `batch` trigger fans out to a person audience, so scheduling it needs the `workflows-blast-radius` preview and its confirm token; a `schedule` trigger runs once per occurrence with no audience, so schedule it directly. Confirm with `workflows-get` that `status=='active'` _and_ its read-only `schedules` field has an active entry.
 8. **Monitor.** Drill down: `workflows-global-stats` (which workflows are failing) to `workflows-stats` (one workflow's trend) to `workflows-list-invocations` (who it failed for) to `workflows-get-invocation` (the triggering payload) to `workflows-logs` (the failing step).
 
 Full tool catalog, grouped by job: [references/lifecycle-and-debugging.md](references/lifecycle-and-debugging.md).
@@ -96,14 +96,13 @@ Event trigger, wait 1 day, send email, exit. Note: exactly one `trigger`, every 
       "type": "function_email",
       "config": {
         "template_id": "template-email",
+        "template_uuid": "<uuid returned by workflows-create-email-template>",
         "message_category_type": "marketing",
         "inputs": {
           "email": {
             "value": {
               "to": { "email": "{person.properties.email}", "name": "" },
-              "from": { "email": "hi@example.com", "name": "Example" },
-              "subject": "Don't forget to finish setting up",
-              "html": "<p>Hi {person.properties.first_name}, …</p>"
+              "from": { "email": "hi@example.com", "name": "Example" }
             }
           }
         }
@@ -124,7 +123,16 @@ Event trigger, wait 1 day, send email, exit. Note: exactly one `trigger`, every 
 }
 ```
 
-For anything beyond a placeholder email body, author the design with the **`designing-email-templates`** skill and reference the template. Don't hand-write production email HTML here.
+Email bodies come from the template library, not hand-written html:
+
+1. **Reuse first.** List the library with `workflows-list-email-templates` and pick a template that fits. A drip campaign typically references one base template (say, a branded announcement) from every email step.
+2. **Create only if nothing fits.** Author a new template design-first with the **`designing-email-templates`** skill: compose the `design`, omit `html` (the server renders html from the design).
+3. **Reference it** by putting the template's UUID in each step's `config.template_uuid`, as above. The save snapshots the template's subject, text, html, and design into the step.
+4. **Differentiate per step** with `workflows-patch-action-email` design operations - each step's snapshot is edited independently, so five steps from one base template can each carry their own content.
+
+The snapshot is one-way: editing the library template later does not change steps that already referenced it, and patching a step never touches the library template. If a user expects a template edit to flow into their workflows, correct that - the steps keep their copies, and each one is updated with `workflows-patch-action-email`.
+
+Always give templates a real plain-text `text` alongside the design: clients that block rich content show only `text`, so filler like "placeholder" reaches real inboxes.
 
 ## Hard rules to surface to the user, not work around
 

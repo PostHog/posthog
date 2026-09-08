@@ -16,6 +16,7 @@ use axum::routing::get;
 use axum::Router;
 use metrics::{counter, histogram};
 use personhog_common::grpc::{code_as_str, NON_STATUS};
+use personhog_common::metrics::WRITE_PATH_LATENCY_BUCKETS_MS;
 
 use crate::report::ConsistencyViolation;
 
@@ -106,7 +107,32 @@ pub fn record_read_failed(lane: &'static str, reason: &'static str) {
 /// Serve liveness + Prometheus metrics; runs for the process lifetime.
 pub fn spawn_server(port: u16) -> Result<()> {
     let router = Router::new().route("/_liveness", get(|| async { "ok" }));
-    let router = common_metrics::setup_metrics_routes(router);
+    // Client-observed request latencies live in single-digit
+    // milliseconds; the default ladder's 10 → 50 ms step blurs them and
+    // pins interpolated quantiles to bucket edges.
+    let router = common_metrics::setup_metrics_routes_with_overrides(
+        router,
+        &[
+            (
+                common_metrics::Matcher::Full("personhog_traffic_write_duration_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                common_metrics::Matcher::Full("personhog_traffic_read_duration_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            // Batched identity/lifecycle RPCs: one sample per batch call,
+            // same ladder — their cost is a handful of round trips.
+            (
+                common_metrics::Matcher::Full("personhog_traffic_pool_seed_duration_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                common_metrics::Matcher::Full("personhog_traffic_pool_delete_duration_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+        ],
+    );
     let bind = format!("0.0.0.0:{port}");
     tokio::spawn(async move {
         if let Err(e) = common_metrics::serve(router, &bind).await {

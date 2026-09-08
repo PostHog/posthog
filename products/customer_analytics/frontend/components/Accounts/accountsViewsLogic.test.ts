@@ -4,7 +4,9 @@ import { expectLogic } from 'kea-test-utils'
 
 import { userLogic } from 'scenes/userLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
+import type { AccountsTableQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
@@ -61,7 +63,7 @@ describe('accountsViewsLogic', () => {
     })
 
     it('lists views on mount', async () => {
-        useMocks({ get: { '/api/environments/:team_id/column_configurations/': { count: 1, results: [buildView()] } } })
+        useMocks({ get: { '/api/projects/:team_id/column_configurations/': { count: 1, results: [buildView()] } } })
         mountAll()
         await expectLogic(logic)
             .toDispatchActions(['loadViewsSuccess'])
@@ -70,16 +72,60 @@ describe('accountsViewsLogic', () => {
             })
     })
 
+    it('holds the first accounts fetch until the persisted view is applied', async () => {
+        useMocks({ get: { '/api/projects/:team_id/column_configurations/': { count: 1, results: [buildView()] } } })
+        localStorage.setItem(
+            `customerAnalytics.accounts.accountsViewsLogic.${MOCK_DEFAULT_TEAM.id}.currentViewId`,
+            JSON.stringify('view-1')
+        )
+        mountAll()
+
+        expect(accountsLogic.values.awaitingSavedView).toBe(true)
+        expect(accountsLogic.values.accountsQuerySource).toBeNull()
+        expect(accountsLogic.values.metricsQuery).toBeNull()
+
+        await expectLogic(logic).toDispatchActions(['loadViewsSuccess', 'applyView']).toFinishAllListeners()
+
+        expect(accountsLogic.values.awaitingSavedView).toBe(false)
+        expect(accountsColumnConfigLogic.values.selectColumns).toEqual(['name', 'csm'])
+        expect(accountsLogic.values.searchQuery).toEqual('acme')
+    })
+
+    it('opens the gate when loading views fails, so the list still fetches', async () => {
+        useMocks({ get: { '/api/projects/:team_id/column_configurations/': () => [500, {}] } })
+        localStorage.setItem(
+            `customerAnalytics.accounts.accountsViewsLogic.${MOCK_DEFAULT_TEAM.id}.currentViewId`,
+            JSON.stringify('view-1')
+        )
+        silenceKeaLoadersErrors()
+        try {
+            mountAll()
+            expect(accountsLogic.values.awaitingSavedView).toBe(true)
+            await expectLogic(logic).toDispatchActions(['loadViewsFailure'])
+            expect(accountsLogic.values.awaitingSavedView).toBe(false)
+        } finally {
+            resumeKeaLoadersErrors()
+        }
+    })
+
     it('applyView hydrates columns, filters, sort, and tiles', async () => {
-        useMocks({ get: { '/api/environments/:team_id/column_configurations/': { count: 0, results: [] } } })
+        useMocks({ get: { '/api/projects/:team_id/column_configurations/': { count: 0, results: [] } } })
         mountAll()
         const view = buildView({
             filters: {
                 search: 'acme',
                 tags: ['enterprise'],
-                unassigned: false,
+                assignmentStatus: 'assigned',
                 assignedTo: [1, 2, 3],
-                tileFilter: { tileId: 't1', expression: 'mrr > 100' },
+                tileFilter: {
+                    tileId: 't1',
+                    filter: {
+                        kind: 'custom_property',
+                        definitionId: '11111111-2222-3333-4444-555555555555',
+                        operator: 'gt',
+                        values: [100],
+                    },
+                },
             },
         })
         await expectLogic(logic, () => logic.actions.applyView(view)).toFinishAllListeners()
@@ -87,20 +133,74 @@ describe('accountsViewsLogic', () => {
         expect(accountsColumnConfigLogic.values.selectColumns).toEqual(['name', 'csm'])
         expect(accountsLogic.values.searchQuery).toEqual('acme')
         expect(accountsLogic.values.tagsFilter).toEqual(['enterprise'])
-        expect(accountsLogic.values.allRolesUnassigned).toBe(false)
+        expect(accountsLogic.values.assignmentStatus).toBe('assigned')
         expect(accountsLogic.values.assignedToFilter).toEqual([1, 2, 3])
         expect(accountsLogic.values.sortOrder).toEqual({ column: 'csm', direction: 'desc' })
         expect(accountsOverviewTilesLogic.values.tiles).toEqual([
             { id: 't1', label: 'Accounts', metric: { type: 'count' } },
         ])
-        expect(accountsOverviewTilesLogic.values.tileFilter).toEqual({ tileId: 't1', expression: 'mrr > 100' })
+        expect(accountsOverviewTilesLogic.values.tileFilter).toEqual({
+            tileId: 't1',
+            filter: {
+                kind: 'custom_property',
+                definitionId: '11111111-2222-3333-4444-555555555555',
+                operator: 'gt',
+                values: [100],
+            },
+        })
         expect(logic.values.currentViewId).toEqual('view-1')
+    })
+
+    it('translates an applied saved view into the Postgres query', async () => {
+        useMocks({ get: { '/api/projects/:team_id/column_configurations/': { count: 0, results: [] } } })
+        mountAll()
+        await expectLogic(logic, () =>
+            logic.actions.applyView(
+                buildView({
+                    columns: ['name'],
+                    filters: { search: 'acme', tags: ['enterprise'], assignedTo: [1, 2] },
+                    order_by: ['name DESC'],
+                })
+            )
+        ).toFinishAllListeners()
+
+        const source = accountsLogic.values.accountsQuerySource as AccountsTableQuery
+        expect(source.kind).toBe('AccountsTableQuery')
+        expect(source.columns).toEqual([{ kind: 'account_field', field: 'name' }])
+        expect(source.filters).toEqual([
+            { kind: 'search', query: 'acme' },
+            { kind: 'tags', tagNames: ['enterprise'] },
+            { kind: 'assigned_to', userIds: [1, 2] },
+        ])
+    })
+
+    it('applies a legacy saved view (no assignment field) as assigned-only', async () => {
+        useMocks({ get: { '/api/projects/:team_id/column_configurations/': { count: 0, results: [] } } })
+        mountAll()
+        // A view saved before the status field existed must not silently broaden to all.
+        await expectLogic(logic, () =>
+            logic.actions.applyView(buildView({ columns: ['name'], filters: { search: 'acme' } }))
+        ).toFinishAllListeners()
+
+        expect(accountsLogic.values.assignmentStatus).toBe('assigned')
+        const source = accountsLogic.values.accountsQuerySource as AccountsTableQuery
+        expect(source.filters).toContainEqual({ kind: 'assigned' })
+    })
+
+    it('keeps column widths when the selected view changes', async () => {
+        useMocks({ get: { '/api/projects/:team_id/column_configurations/': { count: 0, results: [] } } })
+        mountAll()
+
+        logic.actions.setColumnWidth('name', 320)
+        logic.actions.setCurrentViewId('view-1')
+
+        await expectLogic(logic).toMatchValues({ columnWidths: { name: 320 } })
     })
 
     it('isDirty flips when live state diverges from the applied view and clears on re-apply', async () => {
         useMocks({
             get: {
-                '/api/environments/:team_id/column_configurations/': { count: 1, results: [buildView()] },
+                '/api/projects/:team_id/column_configurations/': { count: 1, results: [buildView()] },
             },
         })
         mountAll()
@@ -118,8 +218,8 @@ describe('accountsViewsLogic', () => {
 
     it('deleteView clears currentViewId when the active view is removed', async () => {
         useMocks({
-            get: { '/api/environments/:team_id/column_configurations/': { count: 1, results: [buildView()] } },
-            delete: { '/api/environments/:team_id/column_configurations/:id/': [204] },
+            get: { '/api/projects/:team_id/column_configurations/': { count: 1, results: [buildView()] } },
+            delete: { '/api/projects/:team_id/column_configurations/:id/': [204] },
         })
         mountAll()
         await expectLogic(logic).toDispatchActions(['loadViewsSuccess'])
@@ -129,29 +229,64 @@ describe('accountsViewsLogic', () => {
             .toMatchValues({ currentViewId: null })
     })
 
-    it('rename seeds the form with the current name and patches the trimmed name on submit', async () => {
-        let patchedBody: any = null
+    it('creates a view from the current state', async () => {
+        let createdBody: Record<string, unknown> | null = null
         useMocks({
-            get: { '/api/environments/:team_id/column_configurations/': { count: 1, results: [buildView()] } },
-            patch: {
-                '/api/environments/:team_id/column_configurations/:id/': async ({ request }) => {
-                    patchedBody = await request.json()
-                    return [200, buildView({ name: patchedBody.name })]
+            get: { '/api/projects/:team_id/column_configurations/': { count: 0, results: [] } },
+            post: {
+                '/api/projects/:team_id/column_configurations/': async ({ request }) => {
+                    createdBody = (await request.json()) as Record<string, unknown>
+                    return [201, buildView({ name: 'New view', visibility: 'private' })]
                 },
             },
         })
         mountAll()
         await expectLogic(logic).toDispatchActions(['loadViewsSuccess'])
 
-        await expectLogic(logic, () => logic.actions.setViewToRename('view-1'))
-            .toDispatchActions(['setRenameViewFormValue'])
-            .toMatchValues({ viewToRename: 'view-1', renameViewForm: { name: 'Enterprise' } })
+        logic.actions.setViewFormValues({ name: '  New view  ', visibility: 'private' })
+        await expectLogic(logic, () => logic.actions.submitViewForm()).toDispatchActions([
+            'applyView',
+            'submitViewFormSuccess',
+        ])
 
-        logic.actions.setRenameViewFormValue('name', '  Renamed  ')
-        await expectLogic(logic, () => logic.actions.submitRenameViewForm())
+        expect(createdBody).toEqual(
+            expect.objectContaining({
+                context_key: 'customer_analytics_accounts_columns',
+                name: 'New view',
+                visibility: 'private',
+            })
+        )
+    })
+
+    it('edit seeds the form and patches the trimmed name and visibility', async () => {
+        let patchedBody: Record<string, unknown> | null = null
+        const sharedView = buildView({ created_by: 999 })
+        useMocks({
+            get: { '/api/projects/:team_id/column_configurations/': { count: 1, results: [sharedView] } },
+            patch: {
+                '/api/projects/:team_id/column_configurations/:id/': async ({ request }) => {
+                    patchedBody = (await request.json()) as Record<string, unknown>
+                    return [200, buildView({ created_by: CURRENT_USER_ID, name: 'Renamed', visibility: 'private' })]
+                },
+            },
+        })
+        mountAll()
+        await expectLogic(logic).toDispatchActions(['loadViewsSuccess'])
+        logic.actions.applyView(sharedView)
+        expect(logic.values.canEditCurrentView).toBe(true)
+
+        await expectLogic(logic, () => logic.actions.setViewToEdit('view-1'))
+            .toDispatchActions(['setViewFormValues'])
+            .toMatchValues({
+                viewToEdit: 'view-1',
+                viewForm: { name: 'Enterprise', visibility: 'shared' },
+            })
+
+        logic.actions.setViewFormValues({ name: '  Renamed  ', visibility: 'private' })
+        await expectLogic(logic, () => logic.actions.submitViewForm())
             .toDispatchActions(['updateView', 'updateViewSuccess'])
-            .toMatchValues({ viewToRename: null })
-        expect(patchedBody.name).toBe('Renamed')
+            .toMatchValues({ viewToEdit: null })
+        expect(patchedBody).toEqual({ name: 'Renamed', visibility: 'private' })
     })
 
     it('migrates localStorage tiles into the creator-owned default row exactly once', async () => {
@@ -159,13 +294,13 @@ describe('accountsViewsLogic', () => {
         let patchedBody: any = null
         useMocks({
             get: {
-                '/api/environments/:team_id/column_configurations/': {
+                '/api/projects/:team_id/column_configurations/': {
                     count: 1,
                     results: [buildView({ properties: {} })],
                 },
             },
             patch: {
-                '/api/environments/:team_id/column_configurations/:id/': async ({ request }) => {
+                '/api/projects/:team_id/column_configurations/:id/': async ({ request }) => {
                     patchedBody = await request.json()
                     return [200, buildView({ properties: patchedBody.properties })]
                 },
@@ -189,7 +324,7 @@ describe('accountsViewsLogic', () => {
     it('does not migrate when localStorage tiles are the defaults', async () => {
         useMocks({
             get: {
-                '/api/environments/:team_id/column_configurations/': {
+                '/api/projects/:team_id/column_configurations/': {
                     count: 1,
                     results: [buildView({ properties: {} })],
                 },
@@ -209,7 +344,7 @@ describe('accountsViewsLogic', () => {
     it('does not migrate into a row the user did not create', async () => {
         useMocks({
             get: {
-                '/api/environments/:team_id/column_configurations/': {
+                '/api/projects/:team_id/column_configurations/': {
                     count: 1,
                     results: [buildView({ properties: {}, created_by: 999 })],
                 },
@@ -234,13 +369,13 @@ describe('accountsViewsLogic', () => {
         )
         useMocks({
             get: {
-                '/api/environments/:team_id/column_configurations/': {
+                '/api/projects/:team_id/column_configurations/': {
                     count: 1,
                     results: [buildView({ properties: {} })],
                 },
             },
             patch: {
-                '/api/environments/:team_id/column_configurations/:id/': async ({ request }) => {
+                '/api/projects/:team_id/column_configurations/:id/': async ({ request }) => {
                     const body = (await request.json()) as any
                     return [200, buildView({ properties: body.properties })]
                 },

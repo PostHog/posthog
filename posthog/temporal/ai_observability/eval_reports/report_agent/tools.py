@@ -11,7 +11,7 @@ import re
 import json
 import time
 import random
-from collections.abc import Callable
+from collections.abc import Callable, Container, Iterable, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Annotated, Literal, TypeVar
 
@@ -24,8 +24,8 @@ from langgraph.prebuilt import InjectedState
 
 from posthog.hogql import ast
 
+from posthog.dataclasses import frozen
 from posthog.errors import CH_TRANSIENT_ERRORS
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.temporal.ai_observability.eval_reports.output_types import (
     EvaluationReportOutcomeDefinition,
     get_outcome_definition,
@@ -64,6 +64,20 @@ logger = structlog.get_logger(__name__)
 # Strict UUID match for generation IDs relayed by the LLM. Trace IDs are opaque,
 # so they use bounded validation and always flow through AST constants instead.
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+# Capture the token inside any inline-code span, so the guard can tell an ID
+# apart from prose regardless of how many backticks or spaces wrap it. The class
+# excludes only the backtick, so the run to the next one is unambiguous and the
+# scan stays linear. A class that also matched the surrounding whitespace makes
+# every split of a whitespace run a candidate, and the agent writes the input.
+_BACKTICKED_TOKEN_RE = re.compile(r"`+([^`]*)`+")
+
+# Match a canonical UUID anywhere it is used as a whole token. Opaque IDs are not
+# UUID-shaped, so the guard also checks the session's handled-ID allowlists.
+_UUID_SHAPE_RE = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+    re.IGNORECASE,
+)
 
 _TARGET_ID_EXPRESSION = "coalesce(nullIf(properties.$ai_target_id, ''), properties.$ai_target_event_id)"
 _MAX_OPAQUE_ID_LENGTH = 255
@@ -113,6 +127,20 @@ def _is_allowlisted(state: dict, allowlist_key: str, value: str) -> bool:
     return isinstance(allowlist, list) and value in allowlist
 
 
+def _handled_ids(state: dict) -> set[str]:
+    """Return every target ID this run's queries returned, across both allowlists.
+
+    The agent state and the finished agent result are the same mapping, so the
+    in-loop guard and the final validation key on one definition of a handled ID.
+    """
+    handled: set[str] = set()
+    for allowlist_key in (TRACE_ID_ALLOWLIST_KEY, SESSION_ID_ALLOWLIST_KEY):
+        allowlist = state.get(allowlist_key)
+        if isinstance(allowlist, list):
+            handled.update(value for value in allowlist if isinstance(value, str))
+    return handled
+
+
 def _report_run_target_filter(evaluation_target: str) -> Q:
     target = resolve_evaluation_target(evaluation_target)
     if target == GENERATION_TARGET:
@@ -146,9 +174,10 @@ _TARGET_LOOKUP_TS_START_SENTINEL = "2020-01-01T00:00:00+00:00"
 _TARGET_LOOKUP_TS_END_SENTINEL = "2099-01-01T00:00:00+00:00"
 
 
-def _resolve_output_type(output_type: str | None) -> tuple[str, EvaluationReportOutcomeDefinition]:
-    normalized_output_type = output_type or "boolean"
-    return normalized_output_type, get_outcome_definition(normalized_output_type)
+def _definition_from_state(state: dict) -> tuple[str, EvaluationReportOutcomeDefinition]:
+    """Resolve the report's output type and outcome definition. The only reader of the state's polarity."""
+    output_type = state.get("output_type") or "boolean"
+    return output_type, get_outcome_definition(output_type, true_is_failure=bool(state.get("true_is_failure")))
 
 
 def _summary_select_sql(definition: EvaluationReportOutcomeDefinition) -> str:
@@ -176,20 +205,14 @@ def _summary_value_as_int(value: int | float | str | None) -> int:
     return int(value) if value is not None else 0
 
 
-def _outcome_for_result(output_type: str, result: object, applicable: object = None) -> str | None:
-    if output_type == "sentiment":
-        return result if isinstance(result, str) and result in ("positive", "neutral", "negative") else None
-    if applicable is False:
-        return "na"
-    outcomes_by_result: dict[object, str] = {True: "pass", False: "fail"}
-    try:
-        return outcomes_by_result.get(result)
-    except TypeError:
-        return None
+@frozen
+class TimestampWindow:
+    ts_start: datetime
+    ts_end: datetime
 
 
-def _widened_ts_window(state: dict) -> tuple[datetime, datetime]:
-    """Return (ts_start, ts_end) datetimes widened for target lookups.
+def _widened_ts_window(state: dict) -> TimestampWindow:
+    """Return the (ts_start, ts_end) window widened for target lookups.
 
     Target events can predate their evaluations, so widen the start by 7 days.
     End is period_end + 1 day for evaluation lag. Falls back to wide sentinel
@@ -203,7 +226,7 @@ def _widened_ts_window(state: dict) -> tuple[datetime, datetime]:
         ts_end = _ch_ts((datetime.fromisoformat(state["period_end"]) + timedelta(days=1)).isoformat())
     except (ValueError, TypeError, KeyError):
         ts_end = _ch_ts(_TARGET_LOOKUP_TS_END_SENTINEL)
-    return ts_start, ts_end
+    return TimestampWindow(ts_start=ts_start, ts_end=ts_end)
 
 
 # Query timeouts and per-query memory limits need a narrower query, so retrying
@@ -216,9 +239,7 @@ T = TypeVar("T")
 
 
 def _is_retriable_ch_error(error: Exception) -> bool:
-    return isinstance(error, RETRIABLE_CH_ERRORS) or (
-        isinstance(error, ClickHouseQueryMemoryLimitExceeded) and not error.is_per_query_limit
-    )
+    return isinstance(error, RETRIABLE_CH_ERRORS)
 
 
 def _execute_ch_query_with_retry(
@@ -389,7 +410,7 @@ def get_summary_metrics(
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
     ts_prev_start = _ch_ts(state["previous_period_start"])
-    output_type, definition = _resolve_output_type(state.get("output_type"))
+    output_type, definition = _definition_from_state(state)
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
 
     result_counts, total = _fetch_period_summary(
@@ -425,7 +446,7 @@ def get_result_distribution_over_time(
     evaluation_id = state["evaluation_id"]
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
-    output_type, definition = _resolve_output_type(state.get("output_type"))
+    output_type, definition = _definition_from_state(state)
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
 
     # Whitelisted truncation function — `bucket` is an LLM-controlled arg, so pick
@@ -486,7 +507,7 @@ def list_all_eval_results(
     evaluation_id = state["evaluation_id"]
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
-    output_type, definition = _resolve_output_type(state.get("output_type"))
+    output_type, definition = _definition_from_state(state)
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
 
     shared_placeholders = {
@@ -544,7 +565,7 @@ def list_all_eval_results(
     lines = []
     for row in rows:
         target_id = str(row[0]) if row[0] else "?"
-        outcome = _outcome_for_result(output_type, row[1], row[2]) or "?"
+        outcome = definition.label_for(row[1], row[2]) or "?"
         score = f" ({row[3]:.2f})" if isinstance(row[3], int | float) else ""
         fields = [f"{outcome}{score}", target_id]
         if output_type != "sentiment":
@@ -583,7 +604,7 @@ def sample_eval_results(
     evaluation_id = state["evaluation_id"]
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
-    output_type, definition = _resolve_output_type(state.get("output_type"))
+    output_type, definition = _definition_from_state(state)
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
     if order_by == "score" and output_type != "sentiment":
         return json.dumps({"error": "Score ordering is only available for sentiment results"})
@@ -632,7 +653,7 @@ def sample_eval_results(
     for row in rows:
         entry = {
             target_id_key: str(row[0]) if row[0] else "",
-            "outcome": _outcome_for_result(output_type, row[1], row[3]),
+            "outcome": definition.label_for(row[1], row[3]),
         }
         if output_type == "sentiment":
             entry["score"] = row[4]
@@ -681,12 +702,12 @@ def sample_generation_details(
     from posthog.models import Team
 
     team = Team.objects.get(id=state["team_id"])
-    ts_start, ts_end = _widened_ts_window(state)
+    window = _widened_ts_window(state)
     trace_id_by_uuid = resolve_trace_ids_for_generation_uuids(
         team=team,
         generation_uuids=ids_to_fetch,
-        ts_start=ts_start,
-        ts_end=ts_end,
+        ts_start=window.ts_start,
+        ts_end=window.ts_end,
         query_type="EvalReportAgentTraceIdResolve",
     )
     trace_ids = sorted({tid for tid in trace_id_by_uuid.values() if tid})
@@ -755,6 +776,31 @@ def sample_generation_details(
     return json.dumps(result, indent=2)
 
 
+def _label_generation_evals(
+    eval_rows: Sequence[Sequence[object]], detector_evaluation_ids: Container[str]
+) -> list[dict]:
+    """Label every evaluation on one generation, each by its own polarity."""
+    labeled = []
+    for row in eval_rows:
+        output_type = str(row[1]) if row[1] else "boolean"
+        evaluation_id = str(row[0]) if row[0] else ""
+        try:
+            definition = get_outcome_definition(output_type, true_is_failure=evaluation_id in detector_evaluation_ids)
+        except ValueError:
+            continue
+        raw_result = row[3] if output_type == "sentiment" else row[2]
+        entry = {
+            "evaluation_id": evaluation_id,
+            "output_type": output_type,
+            "outcome": definition.label_for(raw_result, row[6]),
+            "reasoning": row[5] or "",
+        }
+        if output_type == "sentiment":
+            entry["score"] = row[4]
+        labeled.append(entry)
+    return labeled
+
+
 @tool
 def get_generation_detail(
     state: Annotated[dict, InjectedState],
@@ -778,18 +824,18 @@ def get_generation_detail(
     from posthog.models import Team
 
     team = Team.objects.get(id=team_id)
-    ts_start, ts_end = _widened_ts_window(state)
+    window = _widened_ts_window(state)
     shared_placeholders = {
         "generation_id": ast.Constant(value=generation_id),
-        "ts_start": ast.Constant(value=ts_start),
-        "ts_end": ast.Constant(value=ts_end),
+        "ts_start": ast.Constant(value=window.ts_start),
+        "ts_end": ast.Constant(value=window.ts_end),
     }
 
     trace_id_by_uuid = resolve_trace_ids_for_generation_uuids(
         team=team,
         generation_uuids=[generation_id],
-        ts_start=ts_start,
-        ts_end=ts_end,
+        ts_start=window.ts_start,
+        ts_end=window.ts_end,
         query_type="EvalReportAgentTraceIdResolve",
     )
     trace_id = trace_id_by_uuid.get(generation_id)
@@ -866,23 +912,7 @@ def get_generation_detail(
         placeholders=shared_placeholders,
     )
 
-    evals = []
-    for er in eval_rows:
-        output_type = str(er[1]) if er[1] else "boolean"
-        try:
-            get_outcome_definition(output_type)
-        except ValueError:
-            continue
-        raw_result = er[3] if output_type == "sentiment" else er[2]
-        entry = {
-            "evaluation_id": str(er[0]) if er[0] else "",
-            "output_type": output_type,
-            "outcome": _outcome_for_result(output_type, raw_result, er[6]),
-            "reasoning": er[5] or "",
-        }
-        if output_type == "sentiment":
-            entry["score"] = er[4]
-        evals.append(entry)
+    evals = _label_generation_evals(eval_rows, set(state.get("detector_evaluation_ids") or []))
 
     result: dict = {
         "generation_id": str(row[0]) if row[0] else "",
@@ -940,13 +970,13 @@ def get_generation_text_repr(
         return json.dumps({"error": "Invalid generation ID format"})
 
     team = Team.objects.get(id=state["team_id"])
-    ts_start, ts_end = _widened_ts_window(state)
+    window = _widened_ts_window(state)
 
     trace_id_by_uuid = resolve_trace_ids_for_generation_uuids(
         team=team,
         generation_uuids=[generation_id],
-        ts_start=ts_start,
-        ts_end=ts_end,
+        ts_start=window.ts_start,
+        ts_end=window.ts_end,
         query_type="EvalReportAgentTraceIdResolve",
     )
     trace_id = trace_id_by_uuid.get(generation_id)
@@ -1150,8 +1180,8 @@ def _fetch_session_detail(state: dict, session_id: object, max_traces: int) -> d
             "error": "Session ID is not available for this evaluation report",
         }
 
-    widened_start, widened_end = _widened_ts_window(state)
-    ts_start = widened_start - timedelta(days=_SESSION_EXTRA_LOOKBACK_DAYS)
+    window = _widened_ts_window(state)
+    ts_start = window.ts_start - timedelta(days=_SESSION_EXTRA_LOOKBACK_DAYS)
 
     try:
         team = Team.objects.get(id=state["team_id"])
@@ -1161,7 +1191,7 @@ def _fetch_session_detail(state: dict, session_id: object, max_traces: int) -> d
             placeholders={
                 "target_session_id": ast.Constant(value=normalized_session_id),
                 "ts_start": ast.Constant(value=ts_start),
-                "ts_end": ast.Constant(value=widened_end),
+                "ts_end": ast.Constant(value=window.ts_end),
                 "limit": ast.Constant(value=max_traces + 1),
             },
         )
@@ -1384,7 +1414,7 @@ def get_top_outcome_reasons(
     evaluation_id = state["evaluation_id"]
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
-    output_type, definition = _resolve_output_type(state.get("output_type"))
+    output_type, definition = _definition_from_state(state)
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
     selected_outcome = outcome or ("negative" if output_type == "sentiment" else "fail")
     outcome_predicate = definition.outcome_predicates.get(selected_outcome)
@@ -1452,11 +1482,64 @@ def set_title(
     clean = (title or "").strip()
     if not clean:
         return "Error: title cannot be empty"
+    dead = _dead_backticked_ids(clean, [], _handled_ids(state))
+    if dead:
+        return _plain_text_id_error("report title", dead)
     # Clip to a sensible max so it doesn't blow up email subject lines.
     if len(clean) > 200:
         clean = clean[:197] + "..."
     state["report"].title = clean
     return f"Title set: {clean!r}"
+
+
+def _dead_backticked_ids(text: str, citations: list[Citation], handled_ids: set[str]) -> list[str]:
+    """Return backticked IDs in `text` that no report renderer turns into a link.
+
+    A renderer links only an exactly-cited ID wrapped in one pair of backticks. An
+    ID is any backticked token the session handled (its query allowlists) or a
+    canonical UUID; other backticked spans are prose and stay untouched.
+    """
+    cited_ids = {citation.cited_id() for citation in citations}
+    dead: list[str] = []
+    for match in _BACKTICKED_TOKEN_RE.finditer(text):
+        token = match.group(1).strip()
+        if token not in handled_ids and _UUID_SHAPE_RE.fullmatch(token) is None:
+            continue
+        links = token in cited_ids and match.group(0) == f"`{token}`"
+        if not links and token not in dead:
+            dead.append(token)
+    return dead
+
+
+def _dead_backticked_ids_in_report(
+    titles: Iterable[str], bodies: Iterable[str], citations: list[Citation], handled_ids: set[str]
+) -> list[str]:
+    """Return the dead backticked IDs across a report's titles and bodies, in first-seen order.
+
+    Only a section body is run through citation linking. Every title reaches the reader
+    as plain text — an email subject, a Slack header, a heading — so a backticked ID in a
+    title is dead even when that ID is cited.
+    """
+    no_citations: list[Citation] = []
+    checks: list[tuple[str, list[Citation]]] = [
+        *((title, no_citations) for title in titles),
+        *((body, citations) for body in bodies),
+    ]
+    dead: list[str] = []
+    for text, text_citations in checks:
+        for token in _dead_backticked_ids(text, text_citations, handled_ids):
+            if token not in dead:
+                dead.append(token)
+    return dead
+
+
+def _plain_text_id_error(surface: str, dead: list[str]) -> str:
+    """Explain to the agent that an ID in a plain-text surface can never become a link."""
+    preview = ", ".join(f"`{token}`" for token in dead[:3])
+    return (
+        f"Error: the {surface} renders as plain text, so these backticked IDs stay dead: {preview}. "
+        f"Take the backticks off the {surface} and discuss the ID in a section body instead."
+    )
 
 
 @tool
@@ -1494,6 +1577,18 @@ def add_section(
         return (
             f"Error: maximum of {MAX_REPORT_SECTIONS} sections reached. "
             "Merge your content into existing sections rather than fragmenting further."
+        )
+    handled_ids = _handled_ids(state)
+    dead_in_title = _dead_backticked_ids(clean_title, [], handled_ids)
+    if dead_in_title:
+        return _plain_text_id_error("section title", dead_in_title)
+    dead = _dead_backticked_ids(clean_content, state["report"].citations, handled_ids)
+    if dead:
+        preview = ", ".join(f"`{token}`" for token in dead[:3])
+        return (
+            f"Error: the following backticked IDs will not render as citation links: {preview}. "
+            "Cite each generation, trace, or session with add_citation, then use one pair of backticks around the exact cited ID. "
+            "Run IDs from list_recent_report_runs cannot be cited. Name a prior run by its period and remove the backticks."
         )
     state["report"].sections.append(ReportSection(title=clean_title, content=clean_content))
     return f"Section {len(state['report'].sections)}/{MAX_REPORT_SECTIONS} added: {clean_title!r} ({len(clean_content)} chars)"

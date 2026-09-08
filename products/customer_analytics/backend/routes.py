@@ -1,6 +1,8 @@
 from posthog.api.routing import RouterRegistry
 
+from products.customer_analytics.backend.presentation.views.accounts_table_query import AccountsTableQueryViewSet
 from products.customer_analytics.backend.presentation.views.announcements import AnnouncementViewSet
+from products.customer_analytics.backend.presentation.views.customer_tasks import CustomerTaskViewSet
 from products.customer_analytics.backend.presentation.views.organization_members import (
     OrganizationMembersForAccountViewSet,
 )
@@ -9,17 +11,33 @@ from products.customer_analytics.backend.presentation.views.views import (
     AccountNotesViewSet,
     AccountRelationshipDefinitionViewSet,
     AccountRelationshipViewSet,
+    AccountTrackRuleViewSet,
     AccountViewSet,
+    CalendarSyncViewSet,
     CustomerJourneyViewSet,
     CustomerProfileConfigViewSet,
     CustomPropertyDefinitionViewSet,
     CustomPropertySourceViewSet,
     CustomPropertyValueViewSet,
     EventStreamViewSet,
+    FeatureRequestProductAreaViewSet,
+    FeatureRequestViewSet,
 )
 
 
 def register_routes(routers: RouterRegistry) -> None:
+    routers.projects.register(
+        r"accounts_table_query",
+        AccountsTableQueryViewSet,
+        "project_accounts_table_query",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"account_track_rules",
+        AccountTrackRuleViewSet,
+        "project_account_track_rules",
+        ["team_id"],
+    )
     routers.projects.register(
         r"announcements",
         AnnouncementViewSet,
@@ -39,6 +57,18 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id"],
     )
     routers.projects.register(r"customer_journeys", CustomerJourneyViewSet, "project_customer_journeys", ["team_id"])
+    routers.projects.register(
+        r"feature_request_product_areas",
+        FeatureRequestProductAreaViewSet,
+        "project_feature_request_product_areas",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"feature_requests",
+        FeatureRequestViewSet,
+        "project_feature_requests",
+        ["team_id"],
+    )
     routers.projects.register(
         r"custom_property_definitions",
         CustomPropertyDefinitionViewSet,
@@ -69,6 +99,12 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_event_streams",
         ["team_id"],
     )
+    routers.projects.register(
+        r"calendar_sync",
+        CalendarSyncViewSet,
+        "project_calendar_sync",
+        ["team_id"],
+    )
     project_accounts_router = routers.projects.register(r"accounts", AccountViewSet, "project_accounts", ["team_id"])
     project_accounts_router.register(
         r"notebooks", AccountNotebookViewSet, "project_account_notebooks", ["team_id", "account_id"]
@@ -85,3 +121,4 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_account_relationships",
         ["team_id", "account_id"],
     )
+    routers.projects.register(r"customer_tasks", CustomerTaskViewSet, "project_customer_tasks", ["team_id"])

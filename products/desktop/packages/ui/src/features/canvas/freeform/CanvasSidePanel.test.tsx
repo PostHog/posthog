@@ -27,10 +27,7 @@ vi.mock("@posthog/ui/features/sessions/components/EmbeddedSessionView", () => ({
   EmbeddedSessionView: () => <div data-testid="task-chat" />,
 }));
 vi.mock("@posthog/ui/features/canvas/freeform/FreeformGenerateBar", () => ({
-  FreeformGenerateBar: () => null,
-}));
-vi.mock("@posthog/ui/features/canvas/freeform/ContextEditor", () => ({
-  CanvasContextEditor: () => null,
+  FreeformGenerateBar: () => <div data-testid="canvas-composer" />,
 }));
 
 describe("CanvasSidePanel", () => {
@@ -41,7 +38,7 @@ describe("CanvasSidePanel", () => {
   it("switches from canvas chat to comments for this canvas", () => {
     render(
       <CanvasSidePanel
-        effectiveTaskId="task-1"
+        chatTaskId="task-1"
         commentTaskId="task-1"
         onMinimize={vi.fn()}
         dashboardId="canvas-1"
@@ -59,5 +56,35 @@ describe("CanvasSidePanel", () => {
     expect(screen.getByTestId("task-comments")).toHaveTextContent(
       "task-1:canvas-1",
     );
+  });
+
+  it.each([true, false])("ends a run with interactive=%s", (interactive) => {
+    useCanvasChatPanelStore.setState({ tab: "comments", collapsed: false });
+    const props = {
+      commentTaskId: "task-1",
+      interactive,
+      onMinimize: vi.fn(),
+      dashboardId: "canvas-1",
+      channelId: "channel-1",
+      channelName: "General",
+      name: "Launch canvas",
+      displayedVersionId: "version-2",
+      commentVersionLabel: (versionId: string) => versionId,
+      onCommentOpen: vi.fn(),
+    };
+    const { rerender } = render(
+      <CanvasSidePanel {...props} chatTaskId="task-1" />,
+    );
+
+    fireEvent.click(screen.getByText("Chat"));
+    expect(screen.getByTestId("task-chat")).toBeInTheDocument();
+
+    rerender(<CanvasSidePanel {...props} chatTaskId={null} />);
+    expect(screen.queryByTestId("task-chat")).not.toBeInTheDocument();
+    if (interactive) {
+      expect(screen.getByTestId("canvas-composer")).toBeInTheDocument();
+    } else {
+      expect(screen.getByText("No run yet")).toBeInTheDocument();
+    }
   });
 });

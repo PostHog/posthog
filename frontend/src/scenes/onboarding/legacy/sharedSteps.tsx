@@ -8,6 +8,32 @@ import { OnboardingAIReports } from './notifications/OnboardingAIReports'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { OnboardingFlowContext, OnboardingStepDescriptor } from './types'
 
+// The only step keys that join a flow after it first renders. Each is gated on data that arrives
+// asynchronously (billing, organization, feature flags), so a URL targeting one has to be held
+// open until that data settles. `link_data` is deliberately absent: it is gated on the primary and
+// secondary product keys alone, both of which are set from the URL before the step is, so it is
+// either in the flow immediately or never. Keep in sync with the pushes below.
+const ASYNC_TRAILING_STEP_KEYS = new Set<string>([
+    OnboardingStepKey.PLANS,
+    OnboardingStepKey.INVITE_TEAMMATES,
+    OnboardingStepKey.AI_REPORTS,
+])
+
+/**
+ * Whether a stepId could still be appended to the flow, so an unresolved URL targeting it is
+ * worth holding open rather than self-correcting. Any other key either resolves against the
+ * flow it was built for or never will.
+ */
+export function mayBeAppendedLater(stepId: string): boolean {
+    // A `?` or `&` means query params fused into the step value, which is a mangled URL rather
+    // than a step anything is waiting on.
+    if (/[?&]/.test(stepId)) {
+        return false
+    }
+    const [stepKey] = stepId.split(':')
+    return ASYNC_TRAILING_STEP_KEYS.has(stepKey)
+}
+
 export function appendSharedTrailingSteps(
     steps: OnboardingStepDescriptor[],
     ctx: OnboardingFlowContext,

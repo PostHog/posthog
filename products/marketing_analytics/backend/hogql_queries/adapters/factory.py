@@ -57,10 +57,14 @@ def _extract_schema_name(table_suffix: str, source_type: str) -> str:
     Table names follow the format: {user_prefix}{source_type}_{schema_name}
     Exclusions should only match against the schema part, not user prefixes.
     For example: 'analytics_pinterestads_campaigns' -> 'campaigns'
+
+    The user prefix is free text, so it can contain the marker itself
+    ('googleads_googleads_campaign'). Take the last occurrence: no schema name
+    contains the marker, so the last one is always the real boundary.
     """
     source_type_lower = source_type.lower()
     marker = f"{source_type_lower}_"
-    idx = table_suffix.find(marker)
+    idx = table_suffix.rfind(marker)
     if idx != -1:
         return table_suffix[idx + len(marker) :]
     return table_suffix
@@ -255,14 +259,13 @@ class MarketingSourceFactory:
             table_suffix = table.name.split(".")[-1].lower()
             schema_name = _extract_schema_name(table_suffix, source.source_type)
 
-            if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
-                ex in schema_name for ex in patterns["campaign_table_exclusions"]
-            ):
+            # Exact schema-name match: a keyword match also claims unrelated schemas that
+            # merely contain it, such as Google Ads `campaign_budget`, which has none of
+            # the campaign columns the adapter goes on to reference.
+            if schema_name == patterns["campaign_table_name"]:
                 campaign_table = table
             elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
                 campaign_stats_table = table
-            # Exact schema-name match (not keyword) so ad-group / ad tables don't
-            # collide with the campaign keyword.
             elif schema_name == hierarchy_names.get("adset_table"):
                 adset_table = table
                 if adset_unified:

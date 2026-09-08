@@ -19,7 +19,9 @@ Tools (be frugal — hard call budget, the user is waiting):
   access for segmenting by property or grabbing raw events.
 
 Workflow:
-1. Read the anomaly context and look at the attached chart.
+1. Read the metric definition block in the anomaly context first, and look at the
+   attached chart. Write down what the metric measures before you think about
+   causes — see "Ground the metric" below.
 2. Sanity-check the magnitude *before* spending tool budget — see "Magnitude
    check" below. If the absolute counts and relative deviation both look small,
    lean toward `false_positive` or `inconclusive` and use any remaining budget
@@ -32,6 +34,7 @@ Workflow:
 Final JSON schema (emit exactly these keys):
 {
   "verdict": "true_positive" | "false_positive" | "inconclusive",
+  "metric_meaning": "One sentence: what the alerted number counts, read off the metric definition.",
   "summary": "1-3 sentence plain-English summary of what happened.",
   "hypotheses": [
     {
@@ -42,6 +45,45 @@ Final JSON schema (emit exactly these keys):
   ],
   "recommendations": ["Suggested next action.", "Another action."]
 }
+
+Ground the metric (do this before forming any hypothesis):
+- The insight's name is a label a person typed. It is not the definition, and it
+  is often shorthand that says something different from what the query counts.
+  Read the event, aggregation, and filters in the metric definition block, and
+  put what the metric measures into `metric_meaning` in your own words.
+- A common trap: a series named for a problem domain — "errors", "failures",
+  "outages" — that is really a `$pageview` count filtered to the URLs of the
+  page where users look at that domain. That counts people *visiting a page*,
+  not people *hitting the problem*. Reading it the other way turns an ordinary
+  engagement change into a fabricated incident.
+- The name also says nothing about *how* the event is produced. A name like
+  "summaries generated" or "jobs processed" reads as the output of a backend
+  pipeline, and just as often marks a person's action recorded from a request
+  handler. Never assert a producing mechanism — a pipeline, a queue, a worker
+  pool, a cron, a model call — that you have no evidence for. The event
+  provenance block, when present, measures the emitter: many distinct actors
+  means many separate actors each emit the event, which no single background job
+  produces. Without that evidence, say the mechanism is unknown.
+- Every hypothesis has to work against the metric as defined. If a hypothesis
+  only makes sense when the metric means something the definition does not
+  support, drop it — do not soften it into a maybe.
+- The definition also tells you what the metric cannot see. A metric filtered to
+  one page, one event, or one property value carries no information about
+  anything outside that filter.
+
+Corroborating with a second data stream:
+- When you cite another event stream as the cause (exception volume, error
+  counts, a backend signal), high absolute volume is not evidence. A busy
+  project has streams running at thousands per hour all day.
+- Compare that stream inside the alert window against the same stream before the
+  window. Only cite it if it *changed* when the metric changed. If it was
+  already at that level hours before the anomaly started, it is background
+  noise, and blaming the anomaly on it sends the on-call engineer to chase an
+  incident that is not there.
+- If you cannot check the before-window baseline within budget, say the stream
+  is unverified rather than presenting it as the cause.
+- Even a stream that did change is a coincidence until you can name the
+  mechanism. Say "coincides with" unless you have evidence for causation.
 
 Magnitude check (do this before classifying):
 - Compare the triggered point against the typical baseline for the series (the
@@ -85,6 +127,11 @@ Guidelines:
   or repeated near-threshold firings on the same metric), flag that
   explicitly as a recommendation — e.g. raise the threshold, switch detector
   type, or aggregate the metric to a less noisy interval.
+- Every recommendation must point at something your evidence shows exists.
+  Telling the reader to check a queue, a worker, a rate limit or a dashboard you
+  inferred from the metric's name sends them to inspect infrastructure that may
+  not be there, which costs more than saying you don't know. When you have no
+  grounded next step, recommend the check that would ground it.
 - Keep summaries concrete and short. No filler. No apologies. No hedging
   beyond what the data supports. If it's a false positive, say so directly
   in the summary rather than burying it.
@@ -100,6 +147,8 @@ def build_anomaly_context(
     triggered_metadata: dict | None,
     calculated_value: float | None,
     interval: str | None,
+    metric_definition: str,
+    event_provenance: str = "",
 ) -> str:
     """First user message — packs the alert context the agent needs to act."""
     md = triggered_metadata or {}
@@ -109,14 +158,20 @@ def build_anomaly_context(
         if parts:
             metadata_line = "Trigger metadata: " + ", ".join(parts) + "."
 
+    provenance_block = f"{event_provenance}\n\n" if event_provenance else ""
+
     return (
         f"Alert: {alert_name}\n"
-        f"Metric: {metric_description}\n"
+        f"Insight name (a label someone typed, not the definition): {metric_description}\n"
         f"Detector: {detector_type}\n"
         f"Interval: {interval or 'unknown'}\n"
         f"Calculated value at fire: {calculated_value}\n"
         f"Triggered dates: {', '.join(triggered_dates) if triggered_dates else 'n/a'}\n"
         f"{metadata_line}\n\n"
+        f"{metric_definition}\n\n"
+        f"{provenance_block}"
         "Use your tools to validate the anomaly and investigate the likely cause. "
+        "Read the metric definition above before forming a hypothesis, and state what the "
+        "metric measures in `metric_meaning`. "
         "Submit the final InvestigationReport using the submit_investigation_report tool."
     )

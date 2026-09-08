@@ -211,4 +211,41 @@ describe('disposablesPlugin', () => {
         logic.unmount()
         expect(cleanupCalls).toBe(2)
     })
+
+    it('add() and dispose() are inert after unmount rather than throwing', () => {
+        setHidden(false)
+        ;(logic as any).cache.disposables.add(makeSetup(), 'k1')
+        // A loader or listener closes over `cache`, then reaches `cache.disposables` when it
+        // resumes. Read the manager the same way here, so nulling it on unmount fails this test.
+        const cache = (logic as any).cache
+
+        logic.unmount()
+        expect(cleanupCalls).toBe(1)
+        expect(cache.disposables.isDisposed).toBe(true)
+
+        expect(cache.disposables.dispose('k1')).toBe(false)
+
+        cache.disposables.add(makeSetup(), 'k2')
+        expect(setupCalls).toBe(1)
+        expect(cache.disposables.registry.has('k2')).toBe(false)
+    })
+
+    it('mounting a built logic again replaces its disposed manager', () => {
+        // Remounting a retained built logic keeps its cache, the lifecycle
+        // scratchpadLogic.test.ts exercises. A manager left disposed there makes every add() in
+        // the next afterMount a no-op, so the logic loses its timers and listeners for good.
+        setHidden(false)
+        const remounted = kea<logicType>([path(['test', 'disposablesRemountTest'])]).build()
+        remounted.mount()
+        ;(remounted as any).cache.disposables.add(makeSetup(), 'k1')
+        remounted.unmount()
+        expect(cleanupCalls).toBe(1)
+        expect((remounted as any).cache.disposables.isDisposed).toBe(true)
+
+        remounted.mount()
+        ;(remounted as any).cache.disposables.add(makeSetup(), 'k1')
+        expect(setupCalls).toBe(2)
+        expect((remounted as any).cache.disposables.registry.has('k1')).toBe(true)
+        remounted.unmount()
+    })
 })

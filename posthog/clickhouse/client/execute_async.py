@@ -19,6 +19,7 @@ from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
+from posthog.direct_query_cancellation import build_direct_query_cancellation_token, request_direct_query_cancellation
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
@@ -119,9 +120,6 @@ class QueryStatusManager:
             clickhouse_query_progress_dict[clickhouse_query_progress["query_id"]] = clickhouse_query_progress
         self._store_clickhouse_query_progress_dict(clickhouse_query_progress_dict)
         self.redis_client.set(self.heartbeat_key, "1", ex=self.HEARTBEAT_TTL_SECONDS)
-
-    def has_results(self) -> bool:
-        return self.redis_client.exists(self.results_key) == 1
 
     def get_clickhouse_progresses(self) -> Optional[ClickhouseQueryProgress]:
         try:
@@ -243,6 +241,12 @@ def execute_process_query(
     if query_status.complete:
         return
 
+    if query_status.task_id:
+        try:
+            tag_queries(celery_task_id=uuid.UUID(query_status.task_id))
+        except ValueError:
+            logger.warning("Async query has a non-UUID task id", query_id=query_id)
+
     query_status.pickup_time = datetime.datetime.now(datetime.UTC)
     manager.store_query_status(query_status)
 
@@ -289,7 +293,7 @@ def execute_process_query(
         query_status.error = False
         raise
     except Exception as err:
-        from posthog.rbac.user_access_control import UserAccessControlError
+        from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
         query_status.results = None  # Clear results in case they are faulty
         is_user_safe_error = isinstance(
@@ -332,6 +336,7 @@ def enqueue_process_query_task(
     dashboard_id: Optional[int] = None,
     query_id: Optional[str] = None,
     cache_key: Optional[str] = None,
+    labels: list[str] | None = None,
     # Attention: This is to pierce through the _manager_ cache, query runner will always refresh
     refresh_requested: bool = False,
     force: bool = False,
@@ -349,9 +354,17 @@ def enqueue_process_query_task(
     if force:
         cancel_query(team.id, query_id)
 
-    if manager.has_results() and not refresh_requested:
-        # If we've seen this query before return and don't resubmit it.
-        return manager.get_query_status()
+    if not refresh_requested:
+        try:
+            # Only join a query that is still running. We are here because the cache already
+            # decided this query needs to run, so handing back a finished record would replay the
+            # old result and start nothing, blocking the refresh until that record expires.
+            # Throttling a query that keeps failing is the query runner's job, not this one's.
+            in_flight = manager.get_query_status()
+            if not in_flight.complete:
+                return in_flight
+        except QueryNotFoundError:
+            pass
 
     try:
         if cache_key:
@@ -386,6 +399,7 @@ def enqueue_process_query_task(
         start_time=datetime.datetime.now(datetime.UTC),
         insight_id=insight_id,
         dashboard_id=dashboard_id,
+        labels=labels,
     )
     query_tags = get_query_tags().model_dump()
     manager.store_query_status(query_status)
@@ -450,6 +464,15 @@ def cancel_query(team_id: int, query_id: str, dequeue_only: bool = False) -> str
 
         if query_status.complete:
             return "Query already complete"
+
+        if not dequeue_only and query_status.task_id:
+            try:
+                request_direct_query_cancellation(
+                    team_id,
+                    build_direct_query_cancellation_token(query_id, query_status.task_id),
+                )
+            except Exception:
+                logger.exception("Failed to request direct query cancellation", team_id=team_id, query_id=query_id)
 
         if query_status.task_id:
             logger.info("Got task id %s, attempting to revoke", query_status.task_id)

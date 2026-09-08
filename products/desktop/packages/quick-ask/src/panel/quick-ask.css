@@ -1,0 +1,1173 @@
+/* Quick-ask cursor pill + answer card. Color values mirror the quill dark
+ * theme tokens (packages/quill/packages/tokens) so it matches the app. */
+
+/* The app's global styles paint opaque page backgrounds; the panel window is
+ * transparent outside its content, so neutralize them. This file loads after
+ * globals.css, so equal-specificity rules here win. */
+.radix-themes {
+  min-height: 0;
+  background: transparent;
+}
+
+:root {
+  /* Opaque like Figma's cursor chat: no translucency, no blur, no shadow.
+   * (backdrop-filter also renders as a grey slab in a transparent window.) */
+  --qa-surface: #1e1f25;
+  --qa-surface-raised: rgba(255, 255, 255, 0.04);
+  --qa-border: rgba(255, 255, 255, 0.14);
+  --qa-fg: #f2f2f5;
+  --qa-fg-muted: #a1a1aa;
+  --qa-fg-subtle: #77777e;
+  --qa-accent: #f1a82c; /* quill primary (dark) */
+  /* Chart series 2-6 (series 1 is the accent). 2 and 3 are CVD-validated
+   * against --qa-surface with the dataviz palette checker; 4-6 extend the
+   * ramp with hue + lightness separation from their neighbors. */
+  --qa-series-2: #5b86de;
+  --qa-series-3: #3aa658;
+  --qa-series-4: #a875e8;
+  --qa-series-5: #de5b9c;
+  --qa-series-6: #3fb8c9;
+  --qa-up: #6bcf7e;
+  --qa-down: #ff7b6b;
+  /* Hover-card sparklines pick up the panel's accent. */
+  --evidence-spark-color: var(--qa-accent);
+  --qa-hover: rgba(255, 255, 255, 0.08);
+  --qa-glass: rgba(30, 31, 37, 0.92);
+  --qa-glass-card: rgba(30, 31, 37, 0.94);
+  --qa-sheen: rgba(255, 255, 255, 0.07);
+  --qa-hairline: rgba(255, 255, 255, 0.06);
+  --qa-raised-solid: #2a2b33;
+  --qa-elevated: #26272e;
+  --qa-backdrop: rgba(30, 31, 37, 0.75);
+  --qa-fg-soft: #d6d6dc;
+  --qa-scroll: rgba(255, 255, 255, 0.14);
+  --qa-scroll-hover: rgba(255, 255, 255, 0.24);
+  --qa-crosshair: rgba(255, 255, 255, 0.22);
+  --qa-dot-idle: rgba(255, 255, 255, 0.4);
+  --qa-shimmer-lo: rgba(255, 255, 255, 0.05);
+  --qa-shimmer-hi: rgba(255, 255, 255, 0.11);
+  --qa-font:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Helvetica,
+    Arial, sans-serif;
+  --qa-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+}
+
+/* Light palette; the theme store toggles .dark on <html>. */
+html:not(.dark) {
+  --qa-surface: #ffffff;
+  --qa-surface-raised: rgba(0, 0, 0, 0.045);
+  --qa-border: rgba(0, 0, 0, 0.16);
+  --qa-fg: #1c1d22;
+  --qa-fg-muted: #5c5c66;
+  --qa-fg-subtle: #8a8a93;
+  --qa-accent: #d97706;
+  --qa-series-2: #3560c4;
+  --qa-series-3: #2a8a47;
+  --qa-series-4: #7c4fd0;
+  --qa-series-5: #b8437e;
+  --qa-series-6: #22869a;
+  --qa-up: #2f9e54;
+  --qa-down: #d64545;
+  --qa-hover: rgba(0, 0, 0, 0.06);
+  --qa-glass: rgba(255, 255, 255, 0.93);
+  --qa-glass-card: rgba(255, 255, 255, 0.95);
+  --qa-sheen: rgba(255, 255, 255, 0.85);
+  --qa-hairline: rgba(0, 0, 0, 0.08);
+  --qa-raised-solid: #e9e9ee;
+  --qa-elevated: #ffffff;
+  --qa-backdrop: rgba(255, 255, 255, 0.78);
+  --qa-fg-soft: #33343c;
+  --qa-scroll: rgba(0, 0, 0, 0.18);
+  --qa-scroll-hover: rgba(0, 0, 0, 0.3);
+  --qa-crosshair: rgba(0, 0, 0, 0.25);
+  --qa-dot-idle: rgba(0, 0, 0, 0.35);
+  --qa-shimmer-lo: rgba(0, 0, 0, 0.045);
+  --qa-shimmer-hi: rgba(0, 0, 0, 0.09);
+}
+
+/* box-sizing everywhere. Un-layered, but border-box is the default every
+ * element wants, so winning over utilities is harmless. */
+* {
+  box-sizing: border-box;
+}
+
+/* Reset panel-tree margins/padding in `base` — below Tailwind's `utilities`
+ * layer — so shared components (MarkdownRenderer, reference chips) keep their
+ * spacing utilities inside #root. An un-layered reset outranks every layer
+ * regardless of specificity, which would zero those utilities. :where(#root …)
+ * keeps the reset off the portalled overlays that render outside #root. */
+@layer base {
+  :where(#root, #root *) {
+    margin: 0;
+    padding: 0;
+  }
+}
+
+/* `html body` outranks the app globals' plain `body` background rules. */
+html,
+html body {
+  background: transparent;
+  overflow: hidden;
+  font-family: var(--qa-font);
+  user-select: none;
+}
+
+.qa-root {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 10px 14px 14px 10px;
+  /* Pushed by the main process: the room between the pill's anchor and the
+   * screen edge. Flexbox shrinks the card into it; the window then matches
+   * the measured result. */
+  max-height: var(--qa-root-max, none);
+}
+
+/* Summoned close to the screen bottom: the card renders above the pill
+ * (class toggles the root's direction; card overrides live below `.qa-card`). */
+.qa-root.qa-flip {
+  flex-direction: column-reverse;
+}
+
+/* ── Cursor pill ─────────────────────────────────────── */
+
+.qa-pill-row {
+  display: flex;
+  flex-shrink: 0;
+  align-items: flex-end;
+  gap: 7px;
+  position: relative;
+}
+
+.qa-hog {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  /* The hedgehog is the drag handle for moving the panel around. */
+  cursor: grab;
+  animation: qa-hog-in 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform-origin: bottom center;
+}
+
+.qa-hog img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.qa-hog:active {
+  cursor: grabbing;
+}
+
+.qa-hog-thinking {
+  animation: qa-hog-bob 0.9s ease-in-out infinite;
+}
+
+@keyframes qa-hog-in {
+  from {
+    transform: scale(0.3) translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes qa-hog-bob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  30% {
+    transform: translateY(-4px) rotate(-3deg);
+  }
+  60% {
+    transform: translateY(0) rotate(2deg);
+  }
+}
+
+.qa-pill {
+  height: 42px;
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  border-radius: 21px;
+  border-bottom-left-radius: 6px;
+  background: var(--qa-glass);
+  border: 1px solid var(--qa-border);
+  box-shadow: inset 0 1px 0 var(--qa-sheen);
+  transition: width 0.12s ease-out;
+  animation: qa-pill-in 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.1);
+  transform-origin: left bottom;
+}
+
+@keyframes qa-pill-in {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.qa-pill input {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font: 500 14.5px var(--qa-font);
+  color: var(--qa-fg);
+  caret-color: var(--qa-accent);
+}
+
+.qa-pill input::placeholder {
+  color: var(--qa-fg-subtle);
+}
+
+/* Hidden mirror of the input text, used to size the pill. */
+/* Mini mode: only the hedgehog and its status dot stay on screen. */
+.qa-mini > :not(.qa-pill-row),
+.qa-mini .qa-pill-row > :not(.qa-hog) {
+  display: none;
+}
+
+/* Hogzilla: a long shake grows the hedgehog and takes the panel hostage;
+   only another long shake shrinks it back. */
+.qa-zilla > :not(.qa-pill-row),
+.qa-zilla .qa-pill-row > :not(.qa-hog) {
+  display: none;
+}
+
+.qa-zilla .qa-hog {
+  width: 156px;
+  height: 156px;
+  animation: qa-zilla-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.qa-mini-label {
+  display: none;
+  align-self: center;
+  max-width: 240px;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--qa-fg-muted);
+  background: var(--qa-glass);
+  border: 1px solid var(--qa-border);
+  border-radius: 999px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: qa-label-in 0.28s cubic-bezier(0.2, 0.8, 0.3, 1);
+  box-shadow: inset 0 1px 0 var(--qa-sheen);
+}
+
+:where(.qa-mini) .qa-mini-label {
+  display: inline-block;
+}
+
+/* Status dot on the hedgehog's shoulder, mini mode only. */
+.qa-status {
+  display: none;
+  position: absolute;
+  right: 0;
+  bottom: 2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--qa-surface);
+}
+
+.qa-mini .qa-status {
+  display: block;
+}
+
+.qa-status-idle {
+  background: var(--qa-dot-idle);
+}
+
+.qa-status-busy {
+  background: var(--qa-accent);
+  animation: qa-status-pulse 1.1s ease-in-out infinite;
+}
+
+.qa-status-ready {
+  background: var(--qa-up);
+}
+
+.qa-status-error {
+  background: var(--qa-down);
+}
+
+@keyframes qa-zilla-in {
+  0% {
+    transform: scale(0.3);
+  }
+  60% {
+    transform: scale(1.12) rotate(-3deg);
+  }
+  80% {
+    transform: scale(0.96) rotate(2deg);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes qa-status-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Pill-height circles so the controls read as part of the input row. */
+.qa-close,
+.qa-shot,
+.qa-new {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--qa-border);
+  border-radius: 50%;
+  background: var(--qa-surface);
+  color: var(--qa-fg-subtle);
+  cursor: pointer;
+  transition:
+    color 0.12s,
+    background 0.12s;
+}
+
+.qa-close:hover,
+.qa-shot:hover,
+.qa-new:hover {
+  color: var(--qa-fg);
+  background: var(--qa-raised-solid);
+}
+
+.qa-measure {
+  position: absolute;
+  visibility: hidden;
+  white-space: pre;
+  font: 500 14.5px var(--qa-font);
+}
+
+/* Pending screenshot chip between the pill and the card. */
+.qa-attach {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: max-content;
+  max-width: 464px;
+  margin: 8px 0 0 53px;
+  padding: 6px 10px 6px 6px;
+  border-radius: 10px;
+  background: var(--qa-glass);
+  border: 1px solid var(--qa-border);
+  box-shadow: inset 0 1px 0 var(--qa-sheen);
+  animation: qa-label-in 0.28s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.qa-attach img {
+  display: block;
+  height: 36px;
+  max-width: 120px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--qa-border);
+}
+
+.qa-attach-label {
+  font-size: 11.5px;
+  color: var(--qa-fg-muted);
+}
+
+.qa-attach-error {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  font-size: 11.5px;
+  color: var(--qa-down);
+  overflow-wrap: anywhere;
+}
+
+/* Controls keep their size; the message is what gives way. */
+.qa-attach .qa-attach-settings,
+.qa-attach button {
+  flex-shrink: 0;
+}
+
+.qa-attach .qa-attach-settings {
+  font: 600 11.5px var(--qa-font);
+  color: var(--qa-accent);
+  background: rgba(247, 165, 1, 0.12);
+  border: 1px solid rgba(247, 165, 1, 0.3);
+  border-radius: 7px;
+  padding: 3px 9px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.qa-attach .qa-attach-settings:hover {
+  background: rgba(247, 165, 1, 0.2);
+}
+
+.qa-attach button {
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--qa-fg-subtle);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.qa-attach button:hover {
+  color: var(--qa-fg);
+  background: var(--qa-hover);
+}
+
+/* ── Answer card ─────────────────────────────────────── */
+
+.qa-card {
+  width: 464px;
+  margin: 10px 0 0 53px;
+  border-radius: 14px;
+  background: var(--qa-glass-card);
+  border: 1px solid var(--qa-border);
+  box-shadow: inset 0 1px 0 var(--qa-sheen);
+  animation: qa-card-in 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.05);
+  transform-origin: top left;
+  overflow: hidden;
+  /* Shrinks into the root's max-height; long answers scroll inside. */
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Flipped: the card grows upward with the pill anchored to its summon point. */
+.qa-flip .qa-card {
+  margin: 0 0 10px 53px;
+  transform-origin: bottom left;
+}
+
+.qa-card-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 16px 12px;
+}
+
+.qa-card-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.qa-card-scroll::-webkit-scrollbar-thumb {
+  background: var(--qa-scroll);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.qa-card-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--qa-scroll-hover);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+@keyframes qa-card-in {
+  from {
+    transform: translateY(-6px) scale(0.98);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+/* Answer prose */
+
+.qa-answer {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--qa-fg-soft);
+  user-select: text;
+  cursor: text;
+}
+
+.qa-answer p + p {
+  margin-top: 7px;
+}
+
+.qa-answer strong {
+  color: var(--qa-fg);
+  font-weight: 650;
+}
+
+.qa-answer .qa-num {
+  color: var(--qa-accent);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Actions */
+
+.qa-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--qa-hairline);
+}
+
+.qa-button {
+  font: 600 12px var(--qa-font);
+  border-radius: 8px;
+  padding: 5px 11px;
+  border: 1px solid var(--qa-border);
+  background: var(--qa-surface-raised);
+  color: var(--qa-fg);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.qa-button:hover {
+  background: var(--qa-hover);
+}
+
+.qa-button.qa-primary {
+  background: var(--qa-accent);
+  border-color: transparent;
+  color: #1d1f27;
+}
+
+.qa-button.qa-primary:hover {
+  filter: brightness(1.06);
+}
+
+.qa-answer code {
+  font-family: var(--qa-mono);
+  font-size: 12px;
+  background: var(--qa-surface-raised);
+  border: 1px solid var(--qa-hairline);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.qa-answer table {
+  margin: 9px 0;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.qa-answer th,
+.qa-answer td {
+  padding: 4px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--qa-hairline);
+}
+
+.qa-answer th {
+  font-size: 10.5px;
+  font-weight: 650;
+  color: var(--qa-fg-subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.qa-answer td:not(:first-child),
+.qa-answer th:not(:first-child) {
+  text-align: right;
+}
+
+.qa-answer tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.qa-answer ul {
+  margin: 7px 0;
+  padding-left: 18px;
+}
+
+.qa-answer li + li {
+  margin-top: 3px;
+}
+
+/* Streaming caret, drawn inline at the end of the last rendered block so it
+ * never opens a stray line of its own. */
+.qa-streaming > :last-child::after {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 13px;
+  margin-left: 3px;
+  vertical-align: -2px;
+  border-radius: 1px;
+  background: var(--qa-accent);
+  animation: qa-caret-blink 1s steps(1) infinite;
+}
+
+@keyframes qa-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.qa-error {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--qa-down);
+}
+
+/* Chart */
+
+.qa-chart {
+  margin: 12px 0;
+  padding: 11px 12px 9px;
+  background: var(--qa-surface-raised);
+  border: 1px solid var(--qa-border);
+  border-radius: 10px;
+}
+
+.qa-chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 9px;
+}
+
+.qa-chart-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--qa-fg-muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.qa-chart-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.qa-chart-stat-value {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--qa-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.qa-chart-delta {
+  font-size: 10px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.qa-delta-up {
+  color: var(--qa-up);
+}
+
+.qa-delta-down {
+  color: var(--qa-down);
+}
+
+.qa-chart-plot {
+  position: relative;
+  /* Room for the tooltip; hover geometry maps onto this box. */
+  touch-action: none;
+}
+
+.qa-chart-svg {
+  display: block;
+  width: 100%;
+  height: 104px;
+}
+
+.qa-chart-line {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: qa-line-draw 0.7s cubic-bezier(0.3, 0.6, 0.3, 1) forwards;
+}
+
+.qa-chart-area {
+  opacity: 0;
+  animation: qa-fade-in 0.5s ease-out 0.35s forwards;
+}
+
+.qa-chart-bar {
+  transform-box: fill-box;
+  transform-origin: bottom;
+  animation: qa-bar-grow 0.4s cubic-bezier(0.2, 0.8, 0.3, 1) backwards;
+}
+
+@keyframes qa-line-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes qa-fade-in {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes qa-bar-grow {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+.qa-chart-ytick {
+  position: absolute;
+  left: 0;
+  transform: translateY(-110%);
+  font-size: 9px;
+  color: var(--qa-fg-subtle);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  background: var(--qa-backdrop);
+  padding: 0 3px;
+  border-radius: 3px;
+}
+
+.qa-chart-crosshair {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--qa-crosshair);
+  pointer-events: none;
+}
+
+.qa-chart-hover-dot {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid var(--qa-surface);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.qa-chart-tip {
+  position: absolute;
+  top: -4px;
+  transform: translateX(10px);
+  min-width: 92px;
+  max-width: 190px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: var(--qa-elevated);
+  border: 1px solid var(--qa-border);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.qa-chart-tip-left {
+  transform: translateX(calc(-100% - 10px));
+}
+
+.qa-chart-tip-label {
+  font-size: 10px;
+  font-weight: 650;
+  color: var(--qa-fg);
+  margin-bottom: 3px;
+}
+
+.qa-chart-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--qa-fg-muted);
+}
+
+.qa-chart-tip-row + .qa-chart-tip-row {
+  margin-top: 2px;
+}
+
+.qa-chart-tip-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.qa-chart-tip-value {
+  margin-left: auto;
+  color: var(--qa-fg);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.qa-chart-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.qa-chart-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 5px;
+  font-size: 9.5px;
+  color: var(--qa-fg-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.qa-chart-labels span {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 2px;
+  text-align: center;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.qa-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 7px;
+}
+
+.qa-chart-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--qa-fg-muted);
+}
+
+.qa-chart-title-link {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  /* Buttons don't inherit typography; .qa-chart-title supplies size/weight. */
+  font-family: var(--qa-font);
+  color: inherit;
+}
+
+.qa-chart-title-link:hover {
+  color: var(--qa-fg);
+  text-decoration: underline;
+}
+
+.qa-chart-number {
+  font-size: 22px;
+  font-weight: 650;
+  color: var(--qa-fg);
+  font-variant-numeric: tabular-nums;
+  padding: 4px 0 6px;
+}
+
+.qa-chart-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.qa-chart-table th,
+.qa-chart-table td {
+  padding: 3px 8px 3px 0;
+  text-align: left;
+  color: var(--qa-fg-muted);
+  border-bottom: 1px solid var(--qa-hairline);
+  font-variant-numeric: tabular-nums;
+}
+
+.qa-chart-table th {
+  font-weight: 600;
+  color: var(--qa-fg-subtle);
+  text-transform: uppercase;
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+}
+
+.qa-chart-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.qa-chart-note {
+  font-size: 12px;
+  color: var(--qa-fg-muted);
+  padding: 2px 0 4px;
+}
+
+/* Wrapper for the shared reference chip; hover previews live inside it. */
+.qa-ref {
+  cursor: default;
+}
+
+/* The shared markdown components render at app sizes; tighten to the
+ * panel's 13px rhythm. */
+.qa-answer .rt-Text {
+  font-size: 13px;
+  line-height: 1.55;
+  margin-bottom: 7px;
+}
+
+.qa-answer .rt-Text:last-child {
+  margin-bottom: 0;
+}
+
+.qa-answer .rt-Code {
+  font-size: 11.5px;
+}
+
+.qa-pre {
+  margin: 8px 0;
+  padding: 9px 11px;
+  background: var(--qa-surface-raised);
+  border: 1px solid var(--qa-border);
+  border-radius: 9px;
+  overflow-x: auto;
+  font: 11.5px var(--qa-mono);
+  color: var(--qa-fg-muted);
+}
+
+.qa-status-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 28px;
+  padding: 10px 16px 0;
+  overflow: hidden;
+}
+
+:where(.qa-status-row) .qa-thinking-label {
+  flex: 1;
+  min-width: 0;
+}
+
+:where(.qa-status-row) .qa-pager {
+  margin-left: auto;
+}
+
+.qa-pager {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  font-size: 10.5px;
+  color: var(--qa-fg-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.qa-pager button {
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--qa-border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--qa-fg-muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.qa-pager button:hover:not(:disabled) {
+  color: var(--qa-fg);
+  background: var(--qa-hover);
+}
+
+.qa-pager button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.qa-seg-in {
+  animation: qa-seg-in 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+@keyframes qa-seg-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Thinking skeleton ───────────────────────────────── */
+
+.qa-card-thinking {
+  padding: 16px;
+}
+
+.qa-thinking-header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 13px;
+  overflow: hidden;
+}
+
+.qa-thinking-dots {
+  display: inline-flex;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.qa-thinking-dots span {
+  width: 4.5px;
+  height: 4.5px;
+  border-radius: 50%;
+  background: var(--qa-accent);
+  animation: qa-dot-bounce 1.1s ease-in-out infinite;
+}
+
+.qa-thinking-dots span:nth-child(2) {
+  animation-delay: 0.14s;
+}
+
+.qa-thinking-dots span:nth-child(3) {
+  animation-delay: 0.28s;
+}
+
+@keyframes qa-dot-bounce {
+  0%,
+  55%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  27% {
+    transform: translateY(-3.5px);
+    opacity: 1;
+  }
+}
+
+.qa-thinking-label {
+  font-size: 12px;
+  color: var(--qa-fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Each new reasoning step (keyed) slides up into place. */
+  animation: qa-label-in 0.28s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+@keyframes qa-label-in {
+  from {
+    transform: translateY(80%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.qa-skeleton {
+  border-radius: 8px;
+  background: linear-gradient(
+    100deg,
+    var(--qa-shimmer-lo) 40%,
+    var(--qa-shimmer-hi) 50%,
+    var(--qa-shimmer-lo) 60%
+  );
+  background-size: 200% 100%;
+  animation: qa-shimmer 1.4s linear infinite;
+}
+
+.qa-skeleton-line-wide {
+  width: 92%;
+  height: 12px;
+  margin-bottom: 8px;
+}
+
+.qa-skeleton-line {
+  width: 68%;
+  height: 12px;
+  margin-bottom: 8px;
+  animation-delay: 0.12s;
+}
+
+.qa-skeleton-line-short {
+  width: 42%;
+  height: 12px;
+  animation-delay: 0.24s;
+}
+
+@keyframes qa-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* ── Motion preferences ──────────────────────────────── */
+
+[data-testid="evidence-hover-card"] {
+  animation: qa-pop-in 0.16s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+[data-testid="evidence-hover-card"] svg rect {
+  transform-box: fill-box;
+  transform-origin: bottom;
+  animation: qa-bar-grow 0.4s cubic-bezier(0.2, 0.8, 0.3, 1) backwards;
+}
+
+@keyframes qa-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qa-hog,
+  .qa-hog-thinking,
+  .qa-pill,
+  .qa-card,
+  .qa-skeleton,
+  .qa-thinking-dots span,
+  .qa-thinking-label,
+  .qa-streaming > :last-child::after,
+  .qa-status-busy,
+  .qa-zilla .qa-hog,
+  .qa-seg-in,
+  .qa-mini-label,
+  .qa-attach,
+  .qa-chart-line,
+  .qa-chart-area,
+  .qa-chart-bar,
+  [data-testid="evidence-hover-card"],
+  [data-testid="evidence-hover-card"] svg rect {
+    animation: none;
+  }
+  .qa-chart-line {
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+  }
+  .qa-chart-area {
+    opacity: 1;
+  }
+}

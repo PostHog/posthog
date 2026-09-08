@@ -261,7 +261,7 @@ class TestAgentOtelTelemetryStateGate(SimpleTestCase):
         assert agent_otel_telemetry_enabled_for_state(None) is True
 
 
-@override_settings(TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS=["signals_scout"])
+@override_settings(TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS=["signals_scout", "user_created"])
 class TestAppendLogMirroring(TestCase):
     organization: Organization
     team: Team
@@ -284,7 +284,8 @@ class TestAppendLogMirroring(TestCase):
     @parameterized.expand(
         [
             (Task.OriginProduct.SIGNALS_SCOUT, True),
-            (Task.OriginProduct.USER_CREATED, False),
+            (Task.OriginProduct.USER_CREATED, True),
+            (Task.OriginProduct.LOOP, False),
         ]
     )
     @patch("products.tasks.backend.logic.services.run_log_mirror.logger")

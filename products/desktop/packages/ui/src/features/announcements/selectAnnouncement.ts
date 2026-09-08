@@ -17,6 +17,7 @@ export interface SelectAnnouncementInput {
   now: number;
   /** null = version unknown (web host, query unresolved) — nothing is shown. */
   appVersion: string | null;
+  isDevBuild: boolean;
   dismissedIds: ReadonlySet<string>;
   /**
    * An announcement was already dismissed or acknowledged this session — the
@@ -63,11 +64,12 @@ export function selectAnnouncement(
     payload,
     now,
     appVersion,
+    isDevBuild,
     dismissedIds,
     handledThisSession = false,
   } = input;
 
-  if (appVersion === null) return none();
+  if (isDevBuild || appVersion === null) return none();
   if (payload === undefined || payload === null) return none();
 
   const envelope = announcementsEnvelopeSchema.safeParse(payload);

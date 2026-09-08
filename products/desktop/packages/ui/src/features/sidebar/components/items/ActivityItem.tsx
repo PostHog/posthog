@@ -2,13 +2,14 @@ import { BellIcon } from "@phosphor-icons/react";
 import { Popover, PopoverTrigger } from "@posthog/quill";
 import { ActivityHoverCard } from "@posthog/ui/features/canvas/components/ActivityHoverCard";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
-import { useRef, useState } from "react";
+import { type MouseEventHandler, useRef, useState } from "react";
 import { SidebarItem } from "../SidebarItem";
 import { SidebarCountBadge } from "./SidebarCountBadge";
 
 interface ActivityItemProps {
   isActive: boolean;
-  onClick: () => void;
+  onClick: MouseEventHandler<Element>;
+  mentionsEnabled: boolean;
   depth?: number;
 }
 
@@ -18,9 +19,13 @@ interface ActivityItemProps {
 export function ActivityItem({
   isActive,
   onClick,
+  mentionsEnabled,
   depth = 0,
 }: ActivityItemProps) {
-  const { unreadCount } = useTaskActivity();
+  const { unreadCount: taskUnreadCount } = useTaskActivity({
+    enabled: mentionsEnabled,
+  });
+  const unreadCount = mentionsEnabled ? taskUnreadCount : 0;
   const [open, setOpen] = useState(false);
   const suppressClickOpenRef = useRef(false);
   const item = (
@@ -37,10 +42,10 @@ export function ActivityItem({
         </>
       }
       isActive={isActive}
-      onClick={() => {
+      onClick={(event) => {
         suppressClickOpenRef.current = true;
         setOpen(false);
-        onClick();
+        onClick(event);
       }}
     />
   );

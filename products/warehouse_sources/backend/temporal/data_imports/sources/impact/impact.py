@@ -11,7 +11,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.impact.settings import (
+    IMPACT_API_VERSION_LEGACY,
     IMPACT_ENDPOINTS,
+    IMPACT_VERSION_HEADER,
     MAX_LOOKBACK_DAYS,
     MAX_WINDOW_DAYS,
     ImpactEndpointConfig,
@@ -32,11 +34,15 @@ class ImpactResumeConfig:
     window_start: Optional[str] = None
 
 
-def _get_session(account_sid: str, auth_token: str) -> requests.Session:
+def _get_session(account_sid: str, auth_token: str, api_version: str = IMPACT_API_VERSION_LEGACY) -> requests.Session:
     session = make_tracked_session(redact_values=(auth_token,))
     session.auth = HTTPBasicAuth(account_sid, auth_token)
     # Impact.com returns XML unless explicitly asked for JSON.
     session.headers["Accept"] = "application/json"
+    # The legacy label sends no version header, so it keeps tracking the account's configured
+    # default; a dated label pins the response shape via the header.
+    if api_version != IMPACT_API_VERSION_LEGACY:
+        session.headers[IMPACT_VERSION_HEADER] = api_version
     return session
 
 
@@ -51,9 +57,9 @@ def _fetch(
     return response.json()
 
 
-def validate_credentials(account_sid: str, auth_token: str) -> bool:
+def validate_credentials(account_sid: str, auth_token: str, api_version: str = IMPACT_API_VERSION_LEGACY) -> bool:
     try:
-        session = _get_session(account_sid, auth_token)
+        session = _get_session(account_sid, auth_token, api_version)
         response = session.get(
             f"{BASE_URL}/Advertisers/{account_sid}/Campaigns",
             params={"PageSize": 1},
@@ -125,12 +131,16 @@ def _paginate_endpoint(
     params: dict[str, Any],
     logger: FilteringBoundLogger,
     start_page: int = 1,
+    path: Optional[str] = None,
 ) -> Iterator[tuple[int, list[dict[str, Any]]]]:
-    """Yield (page_number, rows) from `start_page` to the last page (`@numpages`)."""
+    """Yield (page_number, rows) from `start_page` to the last page (`@numpages`).
+
+    `path` overrides `config.path` for endpoints whose campaign id lives in the URL (Contracts)."""
+    request_path = path if path is not None else config.path
     page = start_page
     while True:
         page_params = {**params, "Page": page, "PageSize": config.page_size}
-        data = _fetch(session, account_sid, config.path, page_params, logger)
+        data = _fetch(session, account_sid, request_path, page_params, logger)
         rows = _rows_from_response(config, data)
         yield page, rows
 
@@ -199,7 +209,7 @@ def _get_rows_simple(
         resumable_source_manager.save_state(ImpactResumeConfig(page=page))
 
 
-def _get_rows_actions(
+def _get_rows_fanout(
     session: requests.Session,
     account_sid: str,
     config: ImpactEndpointConfig,
@@ -208,41 +218,95 @@ def _get_rows_actions(
     db_incremental_field_last_value: Any,
     resumable_source_manager: ResumableSourceManager[ImpactResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
-    # Only the Actions config reaches this path, and it always declares both date params.
-    assert config.incremental_start_param is not None
-    assert config.incremental_end_param is not None
-    start_param = config.incremental_start_param
-    end_param = config.incremental_end_param
+    """Fetch a campaign-scoped endpoint once per campaign (Actions, ActionUpdates, Contracts).
 
+    Date-windowed endpoints (the action endpoints) are additionally walked in 44-day windows;
+    Contracts has no such cap and runs a single pass per campaign."""
     campaign_ids = _discover_campaign_ids(session, account_sid, logger)
     if not campaign_ids:
-        logger.warning("Impact: no campaigns found for account; nothing to sync for Actions")
+        logger.warning(f"Impact: no campaigns found for account; nothing to sync for {config.name}")
         return
 
-    windows = _windows_for_actions(should_use_incremental_field, db_incremental_field_last_value)
+    windows: list[Optional[tuple[datetime, datetime]]]
+    if config.date_windowed:
+        windows = list(_windows_for_actions(should_use_incremental_field, db_incremental_field_last_value))
+    else:
+        windows = [None]
+
     # Windows OUTER, campaigns INNER so rows arrive in globally ascending date order across every
     # campaign — required for the `sort_mode="asc"` watermark to advance monotonically.
-    work_items = [(window, campaign_id) for window in windows for campaign_id in campaign_ids]
+    work_items: list[tuple[Optional[tuple[datetime, datetime]], int]] = [
+        (window, campaign_id) for window in windows for campaign_id in campaign_ids
+    ]
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     start_index = _resume_index(work_items, resume)
     if start_index > 0:
-        logger.debug(f"Impact: resuming Actions from item {start_index}/{len(work_items)}")
+        logger.debug(f"Impact: resuming {config.name} from item {start_index}/{len(work_items)}")
 
     for window, campaign_id in work_items[start_index:]:
-        params: dict[str, Any] = {
-            "CampaignId": campaign_id,
-            start_param: _format_datetime(window[0]),
-            end_param: _format_datetime(window[1]),
-        }
-        for _page, rows in _paginate_endpoint(session, account_sid, config, params, logger):
+        params: dict[str, Any] = {}
+        if config.campaign_id_in_path:
+            path: Optional[str] = config.path.format(campaign_id=campaign_id)
+        else:
+            path = None
+            params["CampaignId"] = campaign_id
+        if window is not None:
+            assert config.incremental_start_param is not None
+            assert config.incremental_end_param is not None
+            params[config.incremental_start_param] = _format_datetime(window[0])
+            params[config.incremental_end_param] = _format_datetime(window[1])
+
+        for _page, rows in _paginate_endpoint(session, account_sid, config, params, logger, path=path):
             if rows:
+                if config.campaign_id_in_path:
+                    # Path-based fan-out doesn't echo the campaign id on each row; inject it so the
+                    # composite primary key stays unique across campaigns.
+                    for row in rows:
+                        row.setdefault("CampaignId", campaign_id)
                 yield rows
         # Save once the whole (window, campaign) item is drained. A crash re-fetches it from page
         # 1 on resume; merge dedupes the re-yielded rows.
-        resumable_source_manager.save_state(
-            ImpactResumeConfig(campaign_id=campaign_id, window_start=window[0].isoformat())
-        )
+        window_start = window[0].isoformat() if window is not None else None
+        resumable_source_manager.save_state(ImpactResumeConfig(campaign_id=campaign_id, window_start=window_start))
+
+
+def _get_rows_nested(
+    session: requests.Session,
+    account_sid: str,
+    config: ImpactEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[ImpactResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Flatten a nested array carried on a parent endpoint's rows into its own table.
+
+    Reuses the parent endpoint's fetch (e.g. Invoices) and splits each nested array (LineItems,
+    DetailedLineItems) into child rows tagged with a foreign key back to the parent."""
+    nested = config.nested
+    assert nested is not None
+    parent_config = IMPACT_ENDPOINTS[nested.parent_endpoint]
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    start_page = resume.page if resume and resume.page else 1
+
+    for page, parent_rows in _paginate_endpoint(session, account_sid, parent_config, {}, logger, start_page=start_page):
+        child_rows: list[dict[str, Any]] = []
+        for parent_row in parent_rows:
+            items = parent_row.get(nested.array_key)
+            if not isinstance(items, list):
+                continue
+            parent_id = parent_row.get(nested.parent_id_field)
+            for line_number, item in enumerate(items, start=1):
+                if not isinstance(item, dict):
+                    continue
+                child = dict(item)
+                child[nested.fk_name] = parent_id
+                child[nested.line_number_field] = line_number
+                child_rows.append(child)
+        if child_rows:
+            yield child_rows
+        # Save after yielding: a crash re-fetches this same page and merge dedupes it.
+        resumable_source_manager.save_state(ImpactResumeConfig(page=page))
 
 
 def get_rows(
@@ -253,12 +317,17 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[ImpactResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    api_version: str = IMPACT_API_VERSION_LEGACY,
 ) -> Iterator[list[dict[str, Any]]]:
     config = IMPACT_ENDPOINTS[endpoint]
-    session = _get_session(account_sid, auth_token)
+    session = _get_session(account_sid, auth_token, api_version)
+
+    if config.nested is not None:
+        yield from _get_rows_nested(session, account_sid, config, logger, resumable_source_manager)
+        return
 
     if config.requires_campaign_fanout:
-        yield from _get_rows_actions(
+        yield from _get_rows_fanout(
             session,
             account_sid,
             config,
@@ -288,6 +357,7 @@ def impact_source(
     resumable_source_manager: ResumableSourceManager[ImpactResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    api_version: str = IMPACT_API_VERSION_LEGACY,
 ) -> SourceResponse:
     config = IMPACT_ENDPOINTS[endpoint]
 
@@ -301,6 +371,7 @@ def impact_source(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
+            api_version=api_version,
         ),
         primary_keys=config.primary_keys,
         partition_mode="datetime" if config.partition_key else None,

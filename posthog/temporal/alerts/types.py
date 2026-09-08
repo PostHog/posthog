@@ -58,6 +58,19 @@ class EvaluateAlertActivityInputs:
 
 
 @dataclasses.dataclass(frozen=True)
+class RecordFailedEvaluationActivityInputs:
+    alert_id: str
+    error_message: str
+
+
+@dataclasses.dataclass(frozen=True)
+class RecordFailedEvaluationResult:
+    # None when there is no alert left to record against, e.g. it was deleted mid-workflow.
+    alert_check_id: str | None = None
+    should_notify: bool = False
+
+
+@dataclasses.dataclass(frozen=True)
 class EvaluateAlertResult:
     # AlertCheck PK is a UUIDT; stringified here so Temporal's JSON codec can pass it through.
     alert_check_id: str

@@ -5,6 +5,7 @@ export interface WarmTaskLease {
 
 export interface WarmTaskLeaseKeyParts {
   repository?: string | null;
+  repositories?: string[];
   branch?: string | null;
   runtimeAdapter?: string | null;
   model?: string | null;
@@ -15,11 +16,12 @@ export interface WarmTaskLeaseKeyParts {
 
 export function buildWarmTaskLeaseKey(parts: WarmTaskLeaseKeyParts): string {
   return [
-    parts.repository ?? "",
+    (parts.repositories ?? (parts.repository ? [parts.repository] : [])).join(
+      ",",
+    ),
     parts.branch ?? "",
     parts.runtimeAdapter ?? "",
     parts.model ?? "",
-    parts.reasoningEffort ?? "",
     parts.sandboxEnvironmentId ?? "",
     parts.customImageId ?? "",
   ].join(":");
@@ -29,6 +31,14 @@ let currentLease: { key: string; lease: WarmTaskLease } | null = null;
 
 export function rememberWarmTaskLease(key: string, lease: WarmTaskLease): void {
   currentLease = { key, lease };
+}
+
+export function forgetWarmTaskLease(lease: WarmTaskLease): void {
+  if (
+    currentLease?.lease.taskId === lease.taskId &&
+    currentLease.lease.runId === lease.runId
+  )
+    currentLease = null;
 }
 
 export function takeWarmTaskLease(

@@ -1,29 +1,55 @@
-import urllib.parse
-from datetime import datetime
-from typing import Any, cast
+import gzip
+import json
+from datetime import datetime, timedelta
+from typing import Any, cast, get_args
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from unittest import TestCase
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
+from django.core.cache import cache
 from django.utils.timezone import now
 
 import jwt
+from asgiref.sync import async_to_sync
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 from requests import Response, get
 from rest_framework import status
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache, get_cached_instance_license
+from posthog.constants import AvailableFeature
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
+from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from ee.api.billing import BillingUsageRequestSerializer
+from products.access_control.backend.models.access_control import AccessControl
+
+from ee.api.billing import (
+    _EXPORT_STREAMS,
+    BILLING_LIMIT_TODAYS_USAGE_FLAG,
+    MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG,
+    OWNER_ONLY_BILLING_FLAG,
+    BillingDateRangeTooLong,
+    BillingExportThrottle,
+    BillingQueryRejected,
+    BillingQueryTooLarge,
+    BillingUsageRequestSerializer,
+    BillingViewset,
+    HasBillingUsageSpendReadAccess,
+    _gzip_stream,
+    _resolve_team_labels,
+    _rewrite_csv_labels,
+    _stream_chunks,
+)
 from ee.api.test.base import APILicensedTest
-from ee.billing.billing_types import BillingPeriod, CustomerInfo, CustomerProduct
+from ee.billing.billing_types import USAGE_TYPE_OPTIONS, BillingPeriod, CustomerInfo, CustomerProduct, UsageType
 from ee.billing.quota_limiting import QuotaResource
 from ee.billing.test.test_billing_manager import create_default_products_response
 from ee.models.license import License
@@ -242,7 +268,7 @@ def create_billing_products_response(**kwargs) -> dict[str, list[CustomerProduct
 
 
 class TestUnlicensedBillingAPI(APIBaseTest):
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     @freeze_time("2022-01-01")
     def test_billing_calls_the_service_without_token(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
@@ -292,7 +318,7 @@ class TestBillingAPI(APILicensedTest):
         assert res.status_code == 404
         assert res.json()["detail"] == "Billing is not supported for this license type"
 
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     @freeze_time("2022-01-01")
     def test_billing_calls_the_service_with_appropriate_token(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
@@ -336,7 +362,7 @@ class TestBillingAPI(APILicensedTest):
             "organization_role": "member",
         }
 
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_billing_returns_if_billing_exists(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
@@ -451,7 +477,7 @@ class TestBillingAPI(APILicensedTest):
             "free_trial_until": None,
         }
 
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_billing_returns_if_doesnt_exist(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
@@ -578,7 +604,7 @@ class TestBillingAPI(APILicensedTest):
             "stripe_portal_url": "http://localhost:8010/api/billing/portal",
         }
 
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_billing_stores_valid_license(self, mock_request):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -604,7 +630,7 @@ class TestBillingAPI(APILicensedTest):
         assert license.key == "test::test"
         assert license.plan == "scale"
 
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_billing_ignores_invalid_license(self, mock_request):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -628,7 +654,7 @@ class TestBillingAPI(APILicensedTest):
         }
 
     @freeze_time("2022-01-01T12:00:00Z")
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_license_is_updated_on_billing_load(self, mock_request):
         mock_request.return_value.status_code = 200
         mock_request.return_value.json.return_value = {
@@ -665,7 +691,7 @@ class TestBillingAPI(APILicensedTest):
         # Should be extended by 30 days
         assert license.valid_until == datetime(2022, 1, 31, 12, 0, 0, tzinfo=ZoneInfo("UTC"))
 
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_organization_available_product_features_updated_if_different(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
@@ -703,7 +729,7 @@ class TestBillingAPI(APILicensedTest):
             {"key": "feature2", "name": "feature2"},
         ]
 
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_organization_update_usage(self, mock_request):
         self.organization.customer_id = None
         self.organization.usage = None
@@ -757,7 +783,7 @@ class TestBillingAPI(APILicensedTest):
         assert res_json["products"][0]["addons"][0]["tiers"][0]["current_amount_usd"] == "0.00"
         assert res_json["products"][0]["addons"][0]["tiers"][1]["current_amount_usd"] == "0.00"
 
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_organization_usage_count_with_demo_project(self, mock_request, *args):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock | Response:
             mock = MagicMock()
@@ -809,7 +835,7 @@ class TestBillingAPI(APILicensedTest):
         self.organization.refresh_from_db()
         assert self.organization.usage == create_usage_summary()
 
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_org_trust_score_updated(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
@@ -856,7 +882,7 @@ class TestBillingAPI(APILicensedTest):
             "surveys": 0,
         }
 
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_billing_with_supported_params(self, mock_get):
         """Test that the include_forecasting param is passed through to the billing service."""
 
@@ -887,6 +913,63 @@ class TestBillingAPI(APILicensedTest):
         assert len(billing_calls) == 1
         assert billing_calls[0].kwargs["params"] == {"include_forecasting": "true"}
 
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    @patch("ee.billing.billing_manager.BillingManager.update_billing")
+    @patch("ee.api.billing.posthog_feature_flag_enabled")
+    def test_patch_sends_todays_usage_when_enabled(self, mock_feature_enabled, mock_update_billing, mock_get_billing):
+        mock_feature_enabled.side_effect = lambda key, *_args, **_kwargs: key == BILLING_LIMIT_TODAYS_USAGE_FLAG
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        self.organization.usage = create_usage_summary(
+            events={"usage": 100, "todays_usage": 20, "limit": None},
+            posthog_code_credits={"usage": 1200, "todays_usage": 3400, "limit": 5000},
+            posthog_code_token_credits={"usage": 999, "todays_usage": 1, "limit": None},
+        )
+        self.organization.save()
+        mock_get_billing.return_value = create_billing_response(customer=create_billing_customer())
+
+        response = self.client.patch(
+            "/api/billing//",
+            data={"custom_limits_usd": {"posthog_code_usage": 50}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_update_billing.assert_called_once()
+        assert mock_update_billing.call_args.args[1] == {
+            "custom_limits_usd": {"posthog_code_usage": 50},
+            "todays_usage_by_usage_key": {"posthog_code_credits": 3400},
+        }
+        mock_feature_enabled.assert_any_call(
+            BILLING_LIMIT_TODAYS_USAGE_FLAG,
+            str(self.user.distinct_id),
+            organization_id=self.organization.id,
+        )
+
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    @patch("ee.billing.billing_manager.BillingManager.update_billing")
+    @patch("ee.api.billing.posthog_feature_flag_enabled", return_value=False)
+    def test_patch_does_not_send_todays_usage_when_disabled(
+        self, _mock_feature_enabled, mock_update_billing, mock_get_billing
+    ):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        self.organization.usage = create_usage_summary(
+            posthog_code_credits={"usage": 1200, "todays_usage": 3400, "limit": 5000}
+        )
+        self.organization.save()
+        mock_get_billing.return_value = create_billing_response(customer=create_billing_customer())
+
+        response = self.client.patch(
+            "/api/billing//",
+            data={"custom_limits_usd": {"posthog_code_usage": 50}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_update_billing.assert_called_once()
+        assert mock_update_billing.call_args.args[1] == {"custom_limits_usd": {"posthog_code_usage": 50}}
+
 
 class TestPortalBillingAPI(APILicensedTest):
     def setUp(self):
@@ -894,7 +977,7 @@ class TestPortalBillingAPI(APILicensedTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_portal_success(self, mock_request):
         mock_request.return_value.status_code = 200
         mock_request.return_value.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
@@ -1116,22 +1199,52 @@ class TestBillingUsageRequestSerializer(TestCase):
         self.assertEqual(serializer.validated_data["start_date"], "2025-02-08")
         self.assertEqual(serializer.validated_data["end_date"], "2025-02-14")
 
-    def test_start_date_all(self):
+    @freeze_time("2025-02-15")
+    def test_start_date_all_defaults_end_date_to_today(self):
         serializer = BillingUsageRequestSerializer(data={"start_date": "all"})
         self.assertTrue(serializer.is_valid(), serializer.errors)
         self.assertEqual(serializer.validated_data["start_date"], "2020-01-01")
+        self.assertEqual(serializer.validated_data["end_date"], "2025-02-15")
+
+    @freeze_time("2025-02-15")
+    def test_start_date_without_end_date_defaults_end_date_to_today(self):
+        serializer = BillingUsageRequestSerializer(data={"start_date": "2025-01-01"})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["start_date"], "2025-01-01")
+        self.assertEqual(serializer.validated_data["end_date"], "2025-02-15")
 
     def test_passthrough_fields(self):
         data = {
-            "usage_types": urllib.parse.quote('["event_count_in_period","recording_count_in_period"]'),
-            "team_ids": urllib.parse.quote("[1,2,3]"),
-            "breakdowns": urllib.parse.quote("[type,team]"),
+            "usage_types": '["event_count_in_period","recording_count_in_period"]',
+            "team_ids": "[1,2,3]",
+            "breakdowns": '["type","team"]',
             "interval": "week",
         }
         serializer = BillingUsageRequestSerializer(data=data)
         self.assertTrue(serializer.is_valid(), serializer.errors)
         for key, value in data.items():
             self.assertEqual(serializer.validated_data[key], value)
+
+    def test_usage_type_options_match_usage_type_literal(self):
+        self.assertEqual(
+            {option["value"] for option in USAGE_TYPE_OPTIONS},
+            set(get_args(UsageType)),
+        )
+
+    @parameterized.expand(
+        [
+            ("usage_types_comma_separated", "usage_types", "event_count_in_period, recording_count_in_period"),
+            ("usage_types_json_non_array", "usage_types", '"event_count_in_period"'),
+            ("team_ids_comma_separated", "team_ids", "1,2,3"),
+            ("team_ids_json_string_values", "team_ids", '["1","2"]'),
+            ("breakdowns_comma_separated", "breakdowns", "type,team"),
+            ("breakdowns_unknown_values", "breakdowns", '["type","project"]'),
+        ]
+    )
+    def test_rejects_invalid_json_array_fields(self, _case_name: str, field_name: str, value: str):
+        serializer = BillingUsageRequestSerializer(data={field_name: value})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn(field_name, serializer.errors)
 
     def test_empty_and_null_dates_are_valid(self):
         serializer = BillingUsageRequestSerializer(data={"start_date": "", "end_date": None})
@@ -1150,6 +1263,109 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
+    def _personal_api_key_headers(self, scopes: list[str], scoped_teams: list[int] | None = None) -> dict[str, str]:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(token),
+            scopes=scopes,
+            scoped_teams=scoped_teams,
+        )
+        self.client.logout()
+        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    def _oauth_token_headers(self, scopes: list[str], scoped_teams: list[int] | None = None) -> dict[str, str]:
+        oauth_application = OAuthApplication.objects.create(
+            name="Billing MCP Test OAuth App",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = f"pha_billing_mcp_test_{uuid4().hex}"
+        OAuthAccessToken.objects.create(
+            user=self.user,
+            application=oauth_application,
+            token=token,
+            expires=now() + timedelta(hours=1),
+            scope=" ".join(scopes),
+            scoped_teams=scoped_teams,
+        )
+        self.client.logout()
+        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    def _token_headers(
+        self, token_type: str, scopes: list[str], scoped_teams: list[int] | None = None
+    ) -> dict[str, str]:
+        if token_type == "personal":
+            return self._personal_api_key_headers(scopes, scoped_teams=scoped_teams)
+        if token_type == "oauth":
+            return self._oauth_token_headers(scopes, scoped_teams=scoped_teams)
+        raise AssertionError(f"Unknown token type: {token_type}")
+
+    def test_scope_actions_are_read_only(self):
+        self.assertEqual(BillingViewset.scope_object, "billing")
+        self.assertEqual(
+            BillingViewset.scope_object_read_actions,
+            ["list", "usage", "spend", "usage_export", "spend_export", "usage_team_options"],
+        )
+        self.assertEqual(BillingViewset.scope_object_write_actions, [])
+
+    @patch("ee.billing.billing_manager.BillingManager.update_billing")
+    def test_billing_write_scope_does_not_allow_patch_personal_api_key(self, mock_update_billing):
+        headers = self._personal_api_key_headers(["billing:write"], scoped_teams=[self.team.pk])
+
+        response = self.client.patch(
+            "/api/billing//",
+            data={"custom_limits_usd": {"events": 10}},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_update_billing.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("list", "get", "/api/billing/", None, "ee.billing.billing_manager.BillingManager.get_billing"),
+            (
+                "usage",
+                "get",
+                "/api/billing/usage/",
+                {"start_date": "2025-01-01"},
+                "ee.billing.billing_manager.BillingManager.get_usage_data",
+            ),
+            (
+                "spend",
+                "get",
+                "/api/billing/spend/",
+                {"start_date": "2025-01-01"},
+                "ee.billing.billing_manager.BillingManager.get_spend_data",
+            ),
+        ]
+    )
+    @patch("ee.api.billing.posthog_feature_flag_enabled", return_value=False)
+    def test_billing_read_scope_actions_still_require_billing_access(
+        self, action_name, method_name, url, data, manager_method_path, _mock_feature_enabled
+    ):
+        self.assertIn(action_name, BillingViewset.scope_object_read_actions)
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        headers = self._personal_api_key_headers(["billing:read"], scoped_teams=[self.team.pk])
+
+        with patch(manager_method_path) as mock_manager_method:
+            response = getattr(self.client, method_name)(
+                url,
+                data=data,
+                HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_manager_method.assert_not_called()
+
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
     def test_get_usage_success(self, mock_get_usage_data):
         mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
@@ -1163,14 +1379,73 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         passed_params = call_args[1]  # Second arg is params dict
         self.assertEqual(passed_params["start_date"], "2025-01-01")
         self.assertEqual(passed_params["team_ids"], f"[{str(self.team.pk)}]")
-        self.assertEqual(passed_params["teams_map"], {self.team.pk: self.team.name})
+        # No teams_map: names are put into the response on the way out.
+        self.assertNotIn("teams_map", passed_params)
+
+    @staticmethod
+    def _billing_refusal(upstream_status: int, body: object) -> Exception:
+        # The shape handle_billing_service_error raises: the status in the message, the parsed body third.
+        return Exception(f"Billing service returned bad status code: {upstream_status}", "body:", body)
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    def test_a_guidance_code_from_billing_becomes_the_pages_own_sentence(self, mock_get_usage_data):
+        mock_get_usage_data.side_effect = self._billing_refusal(
+            400, {"type": "server_error", "code": "usage_breakdown_too_large", "detail": "Ask for it a page at a time."}
+        )
+
+        response = self.client.get("/api/billing/usage/?start_date=2025-01-01")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "usage_breakdown_too_large")
+        self.assertEqual(response.json()["detail"], BillingQueryTooLarge.default_detail)
+        self.assertNotIn("page at a time", response.content.decode())
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    def test_an_unknown_refusal_from_billing_is_a_400_without_its_body(self, mock_get_usage_data):
+        mock_get_usage_data.side_effect = self._billing_refusal(
+            400, {"detail": "KeyError: 'org_usage_summary' at managers.py:512", "code": "internal"}
+        )
+
+        response = self.client.get("/api/billing/usage/?start_date=2025-01-01")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "billing_query_rejected")
+        self.assertEqual(response.json()["detail"], BillingQueryRejected.default_detail)
+        self.assertNotIn("managers.py", response.content.decode())
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    def test_a_failure_inside_billing_is_a_502_without_its_body(self, mock_get_usage_data):
+        mock_get_usage_data.side_effect = self._billing_refusal(500, "<html>Internal Server Error: stack trace</html>")
+
+        response = self.client.get("/api/billing/usage/?start_date=2025-01-01")
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(response.json()["code"], "billing_service_error")
+        self.assertNotIn("stack trace", response.content.decode())
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_csv")
+    def test_an_export_refused_by_billing_is_guidance_not_a_500(self, mock_get_usage_csv):
+        mock_get_usage_csv.side_effect = self._billing_refusal(
+            400, {"code": "usage_date_range_too_long", "detail": "The date range covers 400 days."}
+        )
+
+        response = self.client.get("/api/billing/usage/export/?start_date=2025-01-01&end_date=2026-02-04")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "usage_date_range_too_long")
+        self.assertEqual(response.json()["detail"], BillingDateRangeTooLong.default_detail)
 
     @patch("ee.billing.billing_manager.BillingManager.get_spend_data")
     def test_get_spend_success(self, mock_get_spend_data):
         mock_get_spend_data.return_value = self.MOCK_SPEND_DATA
 
         response = self.client.get(
-            f"/api/billing/spend/?start_date=2025-01-01&usage_types=events&team_ids=[{self.team.pk}]"
+            "/api/billing/spend/",
+            {
+                "start_date": "2025-01-01",
+                "usage_types": '["event_count_in_period"]',
+                "team_ids": f"[{self.team.pk}]",
+            },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), self.MOCK_SPEND_DATA)
@@ -1179,9 +1454,353 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(call_args[0], self.organization)
         passed_params = call_args[1]
         self.assertEqual(passed_params["start_date"], "2025-01-01")
-        self.assertEqual(passed_params["usage_types"], "events")
+        self.assertEqual(json.loads(passed_params["usage_types"]), ["event_count_in_period"])
         self.assertEqual(passed_params["team_ids"], f"[{str(self.team.pk)}]")
-        self.assertEqual(passed_params["teams_map"], {self.team.pk: self.team.name})
+        # No teams_map: names are put into the response on the way out.
+        self.assertNotIn("teams_map", passed_params)
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    def test_get_usage_allows_wildcard_personal_api_key_for_admin(self, mock_get_usage_data):
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+        headers = self._personal_api_key_headers(["*"])
+
+        response = self.client.get(
+            "/api/billing/usage/",
+            {"start_date": "2025-01-01", "team_ids": f"[{self.team.pk}]"},
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), self.MOCK_USAGE_DATA)
+        mock_get_usage_data.assert_called_once()
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    def test_get_usage_allows_project_scoped_billing_read_personal_api_key_for_org_billing(self, mock_get_usage_data):
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        headers = self._personal_api_key_headers(["billing:read"], scoped_teams=[self.team.pk])
+
+        response = self.client.get(
+            "/api/billing/usage/",
+            {"start_date": "2025-01-01", "team_ids": f"[{other_team.pk}]"},
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        passed_params = mock_get_usage_data.call_args[0][1]
+        self.assertEqual(passed_params["team_ids"], f"[{other_team.pk}]")
+        self.assertNotIn("teams_map", passed_params)
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    def test_get_usage_allows_project_scoped_billing_read_oauth_token_for_org_billing(self, mock_get_usage_data):
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        headers = self._oauth_token_headers(["billing:read"], scoped_teams=[self.team.pk])
+
+        response = self.client.get(
+            "/api/billing/usage/",
+            {"start_date": "2025-01-01", "team_ids": f"[{other_team.pk}]"},
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_get_usage_data.call_args[0][1]["team_ids"], f"[{other_team.pk}]")
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    def test_get_usage_rejects_other_org_team_ids_for_project_scoped_billing_read(self, mock_get_usage_data):
+        other_org = self.create_organization_with_features([])
+        other_team = self.create_team_with_organization(other_org)
+        headers = self._personal_api_key_headers(["billing:read"], scoped_teams=[self.team.pk])
+
+        response = self.client.get(
+            "/api/billing/usage/",
+            {"start_date": "2025-01-01", "team_ids": f"[{other_team.pk}]"},
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get_usage_data.assert_not_called()
+
+    @patch("ee.billing.billing_manager.BillingManager.get_spend_data")
+    def test_get_spend_rejects_other_org_team_ids_for_project_scoped_billing_read(self, mock_get_spend_data):
+        other_org = self.create_organization_with_features([])
+        other_team = self.create_team_with_organization(other_org)
+        headers = self._personal_api_key_headers(["billing:read"], scoped_teams=[self.team.pk])
+
+        response = self.client.get(
+            "/api/billing/spend/",
+            {"start_date": "2025-01-01", "team_ids": f"[{other_team.pk}]"},
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get_spend_data.assert_not_called()
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    def test_get_usage_reads_a_project_the_organization_has_since_deleted(self, mock_get_usage_data):
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+        deleted_team = Team.objects.create(organization=self.organization, name="Retired project")
+        deleted_team_id = deleted_team.pk
+        deleted_team.delete()
+        headers = self._personal_api_key_headers(["billing:read"])
+
+        response = self.client.get(
+            "/api/billing/usage/",
+            {"start_date": "2025-01-01", "team_ids": f"[{deleted_team_id}]"},
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_get_usage_data.call_args[0][1]["team_ids"], f"[{deleted_team_id}]")
+
+    def test_get_usage_rejects_personal_api_key_without_billing_read_scope(self):
+        headers = self._personal_api_key_headers(["project:read"])
+        response = self.client.get(
+            "/api/billing/usage/",
+            {"start_date": "2025-01-01"},
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_get_usage_rejects_billing_read_personal_api_key_for_member(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        headers = self._personal_api_key_headers(["billing:read"], scoped_teams=[self.team.pk])
+
+        response = self.client.get(
+            "/api/billing/usage/",
+            {"start_date": "2025-01-01"},
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand([("usage", "get_usage_data"), ("spend", "get_spend_data")])
+    @patch("ee.api.billing.posthog_feature_flag_enabled")
+    def test_member_billing_read_personal_api_key_can_read_usage_and_spend_when_flag_allows(
+        self, endpoint: str, manager_method: str, mock_feature_enabled: MagicMock
+    ):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        mock_feature_enabled.side_effect = self._member_access_flags
+        headers = self._personal_api_key_headers(["billing:read"], scoped_teams=[self.team.pk])
+
+        with patch(f"ee.billing.billing_manager.BillingManager.{manager_method}") as mock_fetch:
+            mock_fetch.return_value = self.MOCK_USAGE_DATA if endpoint == "usage" else self.MOCK_SPEND_DATA
+            response = self.client.get(
+                f"/api/billing/{endpoint}/",
+                {"start_date": "2025-01-01"},
+                HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_fetch.assert_called_once()
+        passed_params = mock_fetch.call_args[0][1]
+        self.assertEqual(json.loads(passed_params["team_ids"]), [self.team.pk])
+        # No teams_map: names are put into the response on the way out.
+        self.assertNotIn("teams_map", passed_params)
+
+    @parameterized.expand([("personal",), ("oauth",)])
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled")
+    def test_member_token_scope_limits_injected_team_ids(
+        self, token_type: str, mock_feature_enabled: MagicMock, mock_get_usage_data: MagicMock
+    ):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        other_team = Team.objects.create(organization=self.organization, name="Other visible project")
+        mock_feature_enabled.side_effect = self._member_access_flags
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+        headers = self._token_headers(token_type, ["billing:read"], scoped_teams=[self.team.pk])
+
+        response = self.client.get(
+            "/api/billing/usage/",
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_get_usage_data.assert_called_once()
+        passed_params = mock_get_usage_data.call_args[0][1]
+        # The token is scoped to one project, so the other one must not reach billing at all -
+        # not in the filter, and not in a name map either, which is why none is sent.
+        self.assertEqual(json.loads(passed_params["team_ids"]), [self.team.pk])
+        self.assertNotIn(str(other_team.pk), json.dumps(passed_params))
+
+    @parameterized.expand([("personal",), ("oauth",)])
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled")
+    def test_member_token_scope_rejects_requested_team_outside_token_scope(
+        self, token_type: str, mock_feature_enabled: MagicMock, mock_get_usage_data: MagicMock
+    ):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        other_team = Team.objects.create(organization=self.organization, name="Other visible project")
+        mock_feature_enabled.side_effect = self._member_access_flags
+        headers = self._token_headers(token_type, ["billing:read"], scoped_teams=[self.team.pk])
+
+        response = self.client.get(
+            "/api/billing/usage/",
+            {"team_ids": f"[{other_team.pk}]"},
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get_usage_data.assert_not_called()
+
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    def test_list_personal_api_key_uses_resolved_team_org_when_current_org_is_stale(self, mock_get_billing):
+        other_org = self.create_organization_with_features([])
+        self.create_team_with_organization(other_org)
+        OrganizationMembership.objects.create(
+            user=self.user,
+            organization=other_org,
+            level=OrganizationMembership.Level.ADMIN,
+        )
+        self.user.current_organization = other_org
+        self.user.current_team = self.team
+        self.user.save(update_fields=["current_organization", "current_team"])
+        headers = self._personal_api_key_headers(["billing:read"], scoped_teams=[self.team.pk])
+        mock_get_billing.return_value = create_billing_response(customer=create_billing_customer())
+
+        response = self.client.get(
+            "/api/billing/",
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_get_billing.assert_called_once()
+        self.assertEqual(mock_get_billing.call_args.args[0], self.organization)
+
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    @patch("ee.api.billing.posthog_feature_flag_enabled")
+    def test_list_rejects_billing_read_personal_api_key_for_member(self, mock_feature_enabled, mock_get_billing):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        mock_feature_enabled.side_effect = self._member_access_flags
+        headers = self._personal_api_key_headers(["billing:read"], scoped_teams=[self.team.pk])
+
+        response = self.client.get(
+            "/api/billing/",
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get_billing.assert_not_called()
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled", return_value=True)
+    def test_owner_only_billing_rejects_admin_personal_api_key_usage_access(
+        self, _mock_feature_enabled, mock_get_usage_data
+    ):
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+        headers = self._personal_api_key_headers(["billing:read"], scoped_teams=[self.team.pk])
+
+        response = self.client.get(
+            "/api/billing/usage/",
+            {"start_date": "2025-01-01"},
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get_usage_data.assert_not_called()
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled", return_value=True)
+    def test_owner_only_billing_rejects_admin_usage_access(self, _mock_feature_enabled, mock_get_usage_data):
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+
+        response = self.client.get("/api/billing/usage/", {"start_date": "2025-01-01"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get_usage_data.assert_not_called()
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled", return_value=False)
+    def test_admin_usage_access_allowed_when_owner_only_billing_is_off(self, mock_feature_enabled, mock_get_usage_data):
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+
+        response = self.client.get("/api/billing/usage/", {"start_date": "2025-01-01"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_get_usage_data.assert_called_once()
+        mock_feature_enabled.assert_any_call(
+            OWNER_ONLY_BILLING_FLAG,
+            str(self.user.distinct_id),
+            organization_id=self.organization.id,
+        )
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled", return_value=None)
+    def test_owner_only_billing_rejects_admin_usage_access_when_flag_is_unknown(
+        self, _mock_feature_enabled, mock_get_usage_data
+    ):
+        response = self.client.get("/api/billing/usage/", {"start_date": "2025-01-01"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get_usage_data.assert_not_called()
+
+    @patch("ee.api.billing.capture_exception")
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled", side_effect=Exception("flag lookup failed"))
+    def test_owner_only_billing_rejects_admin_usage_access_when_flag_check_raises(
+        self, _mock_feature_enabled, mock_get_usage_data, mock_capture_exception
+    ):
+        response = self.client.get("/api/billing/usage/", {"start_date": "2025-01-01"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get_usage_data.assert_not_called()
+        mock_capture_exception.assert_called_once()
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled")
+    def test_owner_only_billing_rejects_admin_usage_access_without_distinct_id(
+        self, mock_feature_enabled, mock_get_usage_data
+    ):
+        self.user.distinct_id = ""
+        self.user.save()
+
+        response = self.client.get("/api/billing/usage/", {"start_date": "2025-01-01"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get_usage_data.assert_not_called()
+        mock_feature_enabled.assert_not_called()
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled", return_value=True)
+    def test_owner_only_billing_allows_owner_usage_access(self, _mock_feature_enabled, mock_get_usage_data):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+
+        response = self.client.get("/api/billing/usage/", {"start_date": "2025-01-01"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_get_usage_data.assert_called_once()
+
+    @patch("ee.billing.billing_manager.BillingManager.update_billing")
+    @patch("ee.api.billing.posthog_feature_flag_enabled", return_value=True)
+    def test_owner_only_billing_rejects_admin_limit_update(self, _mock_feature_enabled, mock_update_billing):
+        response = self.client.patch(
+            "/api/billing//",
+            data={"custom_limits_usd": {"events": 10}},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_update_billing.assert_not_called()
+
+    def test_mutating_action_rejects_wildcard_personal_api_key(self):
+        headers = self._personal_api_key_headers(["*"])
+        response = self.client.patch(
+            "/api/billing//",
+            data={"custom_limits_usd": {"events": 10}},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("personal API key", response.json()["detail"])
 
     def test_get_usage_permission_denied_for_member(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -1195,6 +1814,119 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         response = self.client.get("/api/billing/spend/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    @parameterized.expand(
+        [
+            ("usage", True, False, status.HTTP_200_OK),
+            ("spend", True, False, status.HTTP_200_OK),
+            ("usage", True, True, status.HTTP_403_FORBIDDEN),
+            ("spend", True, True, status.HTTP_403_FORBIDDEN),
+            ("usage", False, False, status.HTTP_403_FORBIDDEN),
+            ("spend", False, False, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    @patch("ee.billing.billing_manager.BillingManager.get_spend_data")
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled")
+    def test_member_access_gated_by_flags(
+        self,
+        endpoint: str,
+        member_access_flag: bool,
+        owner_only_flag: bool,
+        expected_status: int,
+        mock_flag_eval: MagicMock,
+        mock_get_usage_data: MagicMock,
+        mock_get_spend_data: MagicMock,
+    ):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        mock_flag_eval.side_effect = lambda key, *args, **kwargs: {
+            MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG: member_access_flag,
+            OWNER_ONLY_BILLING_FLAG: owner_only_flag,
+        }[key]
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+        mock_get_spend_data.return_value = self.MOCK_SPEND_DATA
+
+        response = self.client.get(f"/api/billing/{endpoint}/")
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            mock_get_usage_data.assert_not_called()
+            mock_get_spend_data.assert_not_called()
+        else:
+            expected_data = self.MOCK_USAGE_DATA if endpoint == "usage" else self.MOCK_SPEND_DATA
+            self.assertEqual(response.json(), expected_data)
+
+    @patch("ee.api.billing.capture_exception")
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled")
+    def test_member_access_denies_when_member_flag_check_raises(
+        self,
+        mock_feature_enabled: MagicMock,
+        mock_get_usage_data: MagicMock,
+        mock_capture_exception: MagicMock,
+    ):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        def flag_response(key: str, *args: Any, **kwargs: Any) -> bool:
+            if key == OWNER_ONLY_BILLING_FLAG:
+                return False
+            if key == MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG:
+                raise Exception("flag lookup failed")
+            raise AssertionError(f"Unexpected flag: {key}")
+
+        mock_feature_enabled.side_effect = flag_response
+
+        response = self.client.get("/api/billing/usage/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get_usage_data.assert_not_called()
+        mock_capture_exception.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("usage", OrganizationMembership.Level.ADMIN, False, status.HTTP_200_OK),
+            ("spend", OrganizationMembership.Level.ADMIN, False, status.HTTP_200_OK),
+            ("usage", OrganizationMembership.Level.ADMIN, True, status.HTTP_403_FORBIDDEN),
+            ("spend", OrganizationMembership.Level.ADMIN, True, status.HTTP_403_FORBIDDEN),
+            ("usage", OrganizationMembership.Level.OWNER, True, status.HTTP_200_OK),
+            ("spend", OrganizationMembership.Level.OWNER, True, status.HTTP_200_OK),
+        ]
+    )
+    @patch("ee.billing.billing_manager.BillingManager.get_spend_data")
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled")
+    def test_admin_and_owner_access_gated_only_by_owner_only_billing(
+        self,
+        endpoint: str,
+        level: OrganizationMembership.Level,
+        owner_only_flag: bool,
+        expected_status: int,
+        mock_flag_eval: MagicMock,
+        mock_get_usage_data: MagicMock,
+        mock_get_spend_data: MagicMock,
+    ):
+        self.organization_membership.level = level
+        self.organization_membership.save()
+        mock_flag_eval.side_effect = lambda key, *args, **kwargs: {
+            MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG: False,
+            OWNER_ONLY_BILLING_FLAG: owner_only_flag,
+        }[key]
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+        mock_get_spend_data.return_value = self.MOCK_SPEND_DATA
+
+        response = self.client.get(f"/api/billing/{endpoint}/")
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            mock_get_usage_data.assert_not_called()
+            mock_get_spend_data.assert_not_called()
+        # The member read-access flag must never be consulted for admins and owners
+        self.assertNotIn(
+            MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG,
+            [call.args[0] for call in mock_flag_eval.call_args_list],
+        )
+
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
     @patch("ee.api.billing.BillingViewset._get_teams_map")
     def test_get_usage_empty_teams_map_graceful_handling(self, mock_get_teams_map, mock_get_usage_data):
@@ -1207,7 +1939,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         mock_get_usage_data.assert_called_once()
         call_args = mock_get_usage_data.call_args[0]
         passed_params = call_args[1]
-        self.assertEqual(passed_params["teams_map"], {})
+        self.assertNotIn("teams_map", passed_params)
         mock_get_teams_map.assert_called_once()
 
     @patch("ee.billing.billing_manager.BillingManager.get_spend_data")
@@ -1222,8 +1954,342 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         mock_get_spend_data.assert_called_once()
         call_args = mock_get_spend_data.call_args[0]
         passed_params = call_args[1]
-        self.assertEqual(passed_params["teams_map"], {})
+        self.assertNotIn("teams_map", passed_params)
         mock_get_teams_map.assert_called_once()
+
+    @staticmethod
+    def _member_access_flags(key: str, *args: Any, **kwargs: Any) -> bool:
+        return key == MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG
+
+    def _make_team_private(self, team: Team) -> None:
+        AccessControl.objects.create(
+            team=team,
+            resource="project",
+            resource_id=str(team.id),
+            access_level="none",
+            organization_member=None,
+            role=None,
+        )
+
+    def _setup_member_with_private_team(self) -> Team:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        private_team = Team.objects.create(organization=self.organization, name="Private Team")
+        self._make_team_private(private_team)
+        return private_team
+
+    @parameterized.expand([("usage",), ("spend",)])
+    @patch("ee.billing.billing_manager.BillingManager.get_spend_data")
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled")
+    def test_member_team_ids_intersected_with_accessible_teams(
+        self,
+        endpoint: str,
+        mock_flag_eval: MagicMock,
+        mock_get_usage_data: MagicMock,
+        mock_get_spend_data: MagicMock,
+    ):
+        private_team = self._setup_member_with_private_team()
+        mock_flag_eval.side_effect = self._member_access_flags
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+        mock_get_spend_data.return_value = self.MOCK_SPEND_DATA
+
+        response = self.client.get(f"/api/billing/{endpoint}/?team_ids=[{self.team.pk},{private_team.pk}]")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_fetch = mock_get_usage_data if endpoint == "usage" else mock_get_spend_data
+        mock_fetch.assert_called_once()
+        passed_params = mock_fetch.call_args[0][1]
+        self.assertEqual(json.loads(passed_params["team_ids"]), [self.team.pk])
+        # No teams_map: names are put into the response on the way out.
+        self.assertNotIn("teams_map", passed_params)
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled")
+    def test_member_without_team_ids_gets_accessible_teams_injected(
+        self, mock_flag_eval: MagicMock, mock_get_usage_data: MagicMock
+    ):
+        self._setup_member_with_private_team()
+        mock_flag_eval.side_effect = self._member_access_flags
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+
+        response = self.client.get("/api/billing/usage/?start_date=2025-01-01")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_get_usage_data.assert_called_once()
+        passed_params = mock_get_usage_data.call_args[0][1]
+        self.assertEqual(json.loads(passed_params["team_ids"]), [self.team.pk])
+        # No teams_map: names are put into the response on the way out.
+        self.assertNotIn("teams_map", passed_params)
+
+    @parameterized.expand([("usage",), ("spend",)])
+    @patch("ee.billing.billing_manager.BillingManager.get_spend_data")
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled")
+    def test_member_requesting_only_inaccessible_teams_gets_403(
+        self,
+        endpoint: str,
+        mock_flag_eval: MagicMock,
+        mock_get_usage_data: MagicMock,
+        mock_get_spend_data: MagicMock,
+    ):
+        private_team = self._setup_member_with_private_team()
+        mock_flag_eval.side_effect = self._member_access_flags
+
+        response = self.client.get(f"/api/billing/{endpoint}/?team_ids=[{private_team.pk}]")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        # An empty team_ids list means "all teams" to the billing service, so it must never be called here
+        mock_get_usage_data.assert_not_called()
+        mock_get_spend_data.assert_not_called()
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled")
+    def test_member_with_zero_accessible_teams_never_calls_billing(
+        self, mock_flag_eval: MagicMock, mock_get_usage_data: MagicMock
+    ):
+        self._setup_member_with_private_team()
+        self._make_team_private(self.team)
+        mock_flag_eval.side_effect = self._member_access_flags
+
+        response = self.client.get("/api/billing/usage/")
+
+        # TeamMemberAccessPermission rejects a member whose current team is private; the in-view
+        # zero-accessible-teams guard backstops it. Either way billing must never be called, since
+        # an absent or empty team_ids means "all teams" to the billing service.
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get_usage_data.assert_not_called()
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled")
+    def test_member_chart_response_options_are_scoped(self, mock_flag_eval: MagicMock, mock_get_usage_data: MagicMock):
+        """Billing still lists every project's id on the chart response for older callers; a
+        member gets only theirs there too."""
+        private_team = self._setup_member_with_private_team()
+        mock_flag_eval.side_effect = self._member_access_flags
+        mock_get_usage_data.return_value = {"results": [], "team_id_options": [self.team.pk, private_team.pk, 999999]}
+        response = self.client.get("/api/billing/usage/", {"start_date": "2026-08-01", "end_date": "2026-08-02"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["team_id_options"], [self.team.pk])
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_team_options")
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_csv")
+    def test_a_billing_read_token_reaches_the_export_and_the_options(self, mock_get_usage_csv, mock_get_team_options):
+        """The read actions are on the viewset's scope allowlist, so a personal API key with
+        billing:read is not turned away before the view runs."""
+        upstream = MagicMock()
+        upstream.iter_content.return_value = iter([b"Product,Project,Project ID,Total\n"])
+        upstream.headers = {"Content-Type": "text/csv"}
+        mock_get_usage_csv.return_value = upstream
+        mock_get_team_options.return_value = {"team_id_options": [self.team.pk]}
+        headers = self._personal_api_key_headers(["billing:read"])
+
+        export = self.client.get(
+            "/api/billing/usage/export/?start_date=2026-08-01&end_date=2026-08-02",
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+        )
+        options = self.client.get("/api/billing/usage/team_options/", HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"])
+
+        self.assertEqual(export.status_code, status.HTTP_200_OK)
+        self.assertEqual(options.status_code, status.HTTP_200_OK)
+        self.assertEqual(options.json(), {"team_id_options": [self.team.pk]})
+
+    @parameterized.expand([("usage",), ("spend",)])
+    def test_a_paged_response_keeps_next_and_total_count(self, endpoint: str):
+        with patch(f"ee.billing.billing_manager.BillingManager.get_{endpoint}_data") as mock_fetch:
+            mock_fetch.return_value = {"results": [], "next": "abc", "total_count": 48000}
+            response = self.client.get(f"/api/billing/{endpoint}/?start_date=2026-08-01&page_size=100")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["next"], "abc")
+        self.assertEqual(response.json()["total_count"], 48000)
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_csv")
+    @patch("ee.api.billing.posthog_feature_flag_enabled")
+    def test_an_export_carries_only_the_projects_the_member_may_export(
+        self, mock_flag_eval: MagicMock, mock_get_usage_csv: MagicMock
+    ):
+        """Export access is set per project. A member who may export one visible project but not
+        another gets a file of the first alone, whatever project they are working in."""
+        self._setup_member_with_private_team()
+        mock_flag_eval.side_effect = self._member_access_flags
+        restricted = Team.objects.create(organization=self.organization, name="Export denied")
+        AccessControl.objects.create(
+            team=restricted,
+            resource="export",
+            resource_id=None,
+            access_level="none",
+            organization_member=None,
+            role=None,
+        )
+        upstream = MagicMock()
+        upstream.iter_content.return_value = iter([b"Product,Project,Project ID,Total\n"])
+        upstream.headers = {"Content-Type": "text/csv"}
+        mock_get_usage_csv.return_value = upstream
+
+        response = self.client.get("/api/billing/usage/export/?start_date=2026-08-01&end_date=2026-08-02")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        passed = json.loads(mock_get_usage_csv.call_args.args[1]["team_ids"])
+        self.assertEqual(passed, [self.team.pk])
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_csv")
+    @patch("ee.api.billing.posthog_feature_flag_enabled")
+    def test_an_export_is_refused_when_the_member_may_export_none_of_the_projects(
+        self, mock_flag_eval: MagicMock, mock_get_usage_csv: MagicMock
+    ):
+        self._setup_member_with_private_team()
+        mock_flag_eval.side_effect = self._member_access_flags
+        AccessControl.objects.create(
+            team=self.team,
+            resource="export",
+            resource_id=None,
+            access_level="none",
+            organization_member=None,
+            role=None,
+        )
+
+        for path in ("/api/billing/usage/export/", "/api/billing/spend/export/"):
+            response = self.client.get(f"{path}?start_date=2026-08-01&end_date=2026-08-02")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, path)
+        mock_get_usage_csv.assert_not_called()
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_team_options")
+    @patch("ee.api.billing.posthog_feature_flag_enabled")
+    def test_member_team_options_are_scoped(self, mock_flag_eval: MagicMock, mock_get_team_options: MagicMock):
+        """The project filter's options load on their own, scoped like the charts: a member sees
+        only their projects, not a private one and not a deleted one."""
+        private_team = self._setup_member_with_private_team()
+        mock_flag_eval.side_effect = self._member_access_flags
+        deleted_team_id = 999999
+        mock_get_team_options.return_value = {"team_id_options": [self.team.pk, private_team.pk, deleted_team_id]}
+        response = self.client.get("/api/billing/usage/team_options/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"team_id_options": [self.team.pk]})
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled")
+    def test_member_scoping_does_not_depend_on_user_teams_first_org(
+        self, mock_flag_eval: MagicMock, mock_get_usage_data: MagicMock
+    ):
+        self._setup_member_with_private_team()
+        mock_flag_eval.side_effect = self._member_access_flags
+        mock_get_usage_data.return_value = {"results": []}
+
+        # User.teams gates private-project filtering on the features of the user's *first* org.
+        # Simulate the multi-org case where that first org lacks ACCESS_CONTROL, making User.teams
+        # leak this org's private team: the endpoint must not use it as the security boundary.
+        leaky_teams = Team.objects.filter(organization=self.organization)
+        with patch.object(User, "teams", new_callable=PropertyMock, return_value=leaky_teams):
+            response = self.client.get("/api/billing/usage/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_get_usage_data.assert_called_once()
+        passed_params = mock_get_usage_data.call_args[0][1]
+        self.assertEqual(json.loads(passed_params["team_ids"]), [self.team.pk])
+        # No teams_map: names are put into the response on the way out.
+        self.assertNotIn("teams_map", passed_params)
+
+    @parameterized.expand([("not-json",), ('["a"]',)])
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled")
+    def test_member_malformed_team_ids_returns_400(
+        self, raw_team_ids: str, mock_flag_eval: MagicMock, mock_get_usage_data: MagicMock
+    ):
+        self._setup_member_with_private_team()
+        mock_flag_eval.side_effect = self._member_access_flags
+
+        response = self.client.get(f"/api/billing/usage/?team_ids={raw_team_ids}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_get_usage_data.assert_not_called()
+
+    @parameterized.expand([("usage",), ("spend",)])
+    def test_billing_service_permission_denied_returns_403(self, endpoint: str):
+        # The billing service gates these endpoints on the same flags we do, from its own cache, so a
+        # flag rollout can leave it denying a request we allowed. That must read as a permission
+        # denial, not as a generic failure.
+        with patch(f"ee.billing.billing_manager.BillingManager.get_{endpoint}_data") as mock_fetch:
+            mock_fetch.side_effect = Exception(
+                "Billing service returned bad status code: 403",
+                "body:",
+                {
+                    "type": "authentication_error",
+                    "code": "permission_denied",
+                    "detail": "You do not have permission to perform this action.",
+                    "attr": None,
+                },
+            )
+
+            response = self.client.get(f"/api/billing/{endpoint}/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], HasBillingUsageSpendReadAccess.message)
+
+    @parameterized.expand([("usage",), ("spend",)])
+    def test_a_refusal_billing_gives_no_guidance_for_is_a_400_in_the_pages_words(self, endpoint: str):
+        with patch(f"ee.billing.billing_manager.BillingManager.get_{endpoint}_data") as mock_fetch:
+            mock_fetch.side_effect = Exception(
+                "Billing service returned bad status code: 400",
+                "body:",
+                {"code": "invalid_input", "error_message": "start_date is invalid"},
+            )
+
+            response = self.client.get(f"/api/billing/{endpoint}/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        data = response.json()
+        self.assertEqual(data["code"], "billing_query_rejected")
+        self.assertEqual(data["detail"], BillingQueryRejected.default_detail)
+        self.assertNotIn("start_date is invalid", response.content.decode())
+
+
+class TestBillingPeriodAPI(APILicensedTest):
+    def test_member_can_read_synced_organization_period(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.organization.usage = {
+            "period": ["2026-07-09T00:00:00Z", "2026-08-09T00:00:00Z"],
+        }
+        self.organization.save()
+
+        response = self.client.get("/api/billing/period/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json(),
+            {
+                "current_period_start": "2026-07-09T00:00:00Z",
+                "current_period_end": "2026-08-09T00:00:00Z",
+            },
+        )
+
+    def test_gateway_scoped_personal_api_key_can_read_team_period(self):
+        self.organization.usage = {
+            "period": ["2026-07-09T00:00:00Z", "2026-08-09T00:00:00Z"],
+        }
+        self.organization.save()
+        self.client.logout()
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="billing-period-test",
+            user=self.user,
+            secure_value=hash_key_value(raw_key),
+            scopes=["llm_gateway:read"],
+            scoped_teams=[self.team.pk],
+        )
+
+        response = self.client.get(
+            f"/api/billing/period/?team_id={self.team.pk}",
+            headers={"authorization": f"Bearer {raw_key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["current_period_end"], "2026-08-09T00:00:00Z")
 
 
 class TestBillingPermissionDeniedForMembers(APILicensedTest):
@@ -1261,8 +2327,10 @@ class TestBillingPermissionDeniedForMembers(APILicensedTest):
             response = client_method(url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch("ee.api.billing.requests.get")
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_list_still_accessible(self, mock_request):
+        # Session-authenticated members can still read the historical billing overview payload.
+        # MCP/token reads are separately gated by billing access.
         mock_request.return_value.status_code = 200
         mock_request.return_value.json.return_value = create_billing_response(
             customer=create_billing_customer(),
@@ -1288,3 +2356,286 @@ class TestBillingPermissionDeniedForMembers(APILicensedTest):
         self.assertIn(
             response.status_code, [status.HTTP_200_OK, status.HTTP_301_MOVED_PERMANENTLY, status.HTTP_302_FOUND]
         )
+
+
+class TestResolveTeamLabels(APIBaseTest):
+    """Project names are put into labels on the way out, not sent in with the request.
+
+    Billing keys usage by project id. An id-to-name map on every request would be about 16KB
+    of query string for an organization with several hundred projects, built from data PostHog
+    already holds. Resolving from the response sends none of it and leaves the response shape
+    identical, which the MCP tools rely on too.
+    """
+
+    def test_names_replace_ids_in_a_product_and_project_breakdown(self):
+        results = [
+            {"label": "134::Events", "breakdown_type": "multiple", "breakdown_value": ["event_count_in_period", "134"]}
+        ]
+
+        _resolve_team_labels(results, {134: "Payments API"})
+
+        self.assertEqual(results[0]["label"], "Payments API::Events")
+
+    def test_names_replace_ids_in_a_project_only_breakdown(self):
+        results = [{"label": "134", "breakdown_type": "team", "breakdown_value": "134"}]
+
+        _resolve_team_labels(results, {134: "Payments API"})
+
+        self.assertEqual(results[0]["label"], "Payments API")
+
+    def test_the_folded_series_keeps_the_label_billing_gave_it(self):
+        results = [
+            {
+                "label": "All other projects (380)::Events",
+                "breakdown_type": "multiple",
+                "breakdown_value": ["event_count_in_period", "__other__"],
+            }
+        ]
+
+        _resolve_team_labels(results, {134: "Payments API"})
+
+        self.assertEqual(results[0]["label"], "All other projects (380)::Events")
+
+    def test_a_project_with_no_name_keeps_its_id(self):
+        """A deleted project's id has no name, so the label is left as billing produced it."""
+        results = [
+            {"label": "999::Events", "breakdown_type": "multiple", "breakdown_value": ["event_count_in_period", "999"]}
+        ]
+
+        _resolve_team_labels(results, {134: "Payments API"})
+
+        self.assertEqual(results[0]["label"], "999::Events")
+
+    def test_a_product_only_breakdown_is_untouched(self):
+        results = [{"label": "Events", "breakdown_type": "type", "breakdown_value": "event_count_in_period"}]
+
+        _resolve_team_labels(results, {134: "Payments API"})
+
+        self.assertEqual(results[0]["label"], "Events")
+
+    def test_the_product_half_of_a_label_is_left_to_billing(self):
+        """Only the project part is replaced; separators inside the product name survive."""
+        results = [
+            {
+                "label": "134::Logs 30-day retention (MB)",
+                "breakdown_type": "multiple",
+                "breakdown_value": ["logs_retention_30d_mb_in_period", "134"],
+            }
+        ]
+
+        _resolve_team_labels(results, {134: "Payments API"})
+
+        self.assertEqual(results[0]["label"], "Payments API::Logs 30-day retention (MB)")
+
+    def test_a_malformed_response_does_not_raise(self):
+        results = [
+            {"label": None},
+            "not a dict",
+            {"breakdown_type": "multiple", "breakdown_value": ["x"], "label": "a::b"},
+        ]
+
+        _resolve_team_labels(results, {134: "Payments API"})
+        _resolve_team_labels(None, {134: "Payments API"})
+
+
+class TestExportGzip(APILicensedTest):
+    """Django's gzip middleware compresses an asynchronous body one chunk at a time, each as its
+    own gzip member, and browsers stop reading at the end of the first member. The proxy
+    compresses the file itself as one stream."""
+
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def test_one_gzip_stream_that_every_chunk_advances(self):
+        chunks = [b"Product,Project\n", b"Events,1\n" * 300, b"Events,2\n" * 300]
+        out = list(_gzip_stream(iter(chunks)))
+
+        assert gzip.decompress(b"".join(out)) == b"".join(chunks)
+        # A sync flush per chunk: the first chunk is on its way before the second is read.
+        assert len(out) == len(chunks) + 1 and all(out[:-1])
+        # One member, not one per chunk: a second gzip header nowhere after the first.
+        assert b"".join(out).count(b"\x1f\x8b\x08") == 1
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_csv")
+    def test_the_export_leaves_the_proxy_as_one_gzip_stream_with_names_in_place(self, mock_get_usage_csv):
+        upstream = MagicMock()
+        upstream.headers = {"Content-Type": "text/csv", "Content-Disposition": 'attachment; filename="usage.csv"'}
+        upstream.iter_content.return_value = iter(
+            [b"Product,Project,Project ID,Total\n", f"Events,{self.team.pk},{self.team.pk},10\n".encode()]
+        )
+        mock_get_usage_csv.return_value = upstream
+
+        response = self.client.get(
+            "/api/billing/usage/export/?start_date=2025-01-01&breakdowns=%5B%22type%22%2C%22team%22%5D",
+            HTTP_ACCEPT_ENCODING="gzip, deflate",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Encoding"], "gzip")
+        self.assertEqual(response["Content-Disposition"], 'attachment; filename="usage.csv"')
+        body = b"".join(response)
+        self.assertEqual(body.count(b"\x1f\x8b\x08"), 1, "one gzip member for the whole file")
+        self.assertEqual(
+            gzip.decompress(body).decode(),
+            f"Product,Project,Project ID,Total\nEvents,{self.team.name},{self.team.pk},10\n",
+        )
+        upstream.close.assert_called_once()
+
+
+class TestExportStreaming(APIBaseTest):
+    """Django 5 under ASGI consumes a synchronous streaming body in full before it sends a byte,
+    so a large export would arrive all at once at the end. The proxy hands Django an
+    asynchronous iterator, so the first chunk goes out before the last is read from billing."""
+
+    def test_the_first_chunk_is_sent_before_the_last_is_read(self):
+        pulled: list[int] = []
+
+        def chunks():
+            for i in range(3):
+                pulled.append(i)
+                yield f"row {i}\n".encode()
+
+        upstream = MagicMock()
+        stream = _stream_chunks(upstream, chunks())
+
+        async def first():
+            async for chunk in stream:
+                return chunk
+            return None
+
+        assert async_to_sync(first)() == b"row 0\n"
+        assert pulled == [0], "the rest of the file must not have been read yet"
+
+        async_to_sync(stream.aclose)()
+        upstream.close.assert_called_once()
+
+    def test_the_whole_file_arrives_in_order(self):
+        upstream = MagicMock()
+
+        async def everything():
+            return [chunk async for chunk in _stream_chunks(upstream, iter([b"a", b"b", b"c"]))]
+
+        assert async_to_sync(everything)() == [b"a", b"b", b"c"]
+        upstream.close.assert_called_once()
+
+
+class TestRewriteCsvLabels(APIBaseTest):
+    """Project names go into an exported CSV as it streams past, in place of ids.
+
+    Billing has no names, so its Project column carries the id, and the proxy substitutes the
+    name.
+    """
+
+    HEADER = b"Product,Project,Project ID,Total\n"
+
+    @staticmethod
+    def _run(body: bytes, teams_map: dict, chunk_size: int = 8192) -> str:
+        chunks = (body[i : i + chunk_size] for i in range(0, len(body), chunk_size))
+        return b"".join(_rewrite_csv_labels(chunks, teams_map)).decode()
+
+    def test_a_name_a_spreadsheet_would_run_as_a_formula_gets_a_leading_quote(self):
+        body = self.HEADER + b"Events,134,134,10\n"
+        out = self._run(body, {134: '=HYPERLINK("http://x")'})
+        self.assertEqual(out.splitlines()[1], 'Events,"\'=HYPERLINK(""http://x"")",134,10')
+
+    def test_puts_names_in_place_of_ids_and_keeps_the_id_column(self):
+        """Project names are not unique inside an organization, so the Project ID column is what
+        tells two same-named projects apart. Substituting the name must not shift or change it."""
+        body = self.HEADER + b"Events,134,134,10\n"
+
+        self.assertEqual(
+            self._run(body, {134: "Payments API"}),
+            "Product,Project,Project ID,Total\nEvents,Payments API,134,10\n",
+        )
+
+    def test_handles_a_project_only_row(self):
+        body = self.HEADER + b",134,134,10\n"
+
+        self.assertEqual(
+            self._run(body, {134: "Payments API"}), "Product,Project,Project ID,Total\n,Payments API,134,10\n"
+        )
+
+    def test_leaves_the_header_and_unknown_ids_alone(self):
+        body = self.HEADER + b"Events,999,999,10\n"
+
+        self.assertEqual(self._run(body, {134: "Payments API"}), body.decode())
+
+    def test_leaves_the_folded_row_alone(self):
+        body = self.HEADER + b"Events,All other projects (380),,10\n"
+
+        self.assertEqual(self._run(body, {134: "Payments API"}), body.decode())
+
+    def test_leaves_a_row_with_no_project_alone(self):
+        body = self.HEADER + b"Events,,,10\n"
+
+        self.assertEqual(self._run(body, {134: "Payments API"}), body.decode())
+
+    def test_quotes_a_name_containing_a_comma(self):
+        """Otherwise the substituted name would silently split the row into two columns."""
+        body = self.HEADER + b"Events,134,134,10\n"
+
+        self.assertEqual(
+            self._run(body, {134: "Payments, EU"}), 'Product,Project,Project ID,Total\nEvents,"Payments, EU",134,10\n'
+        )
+
+    def test_survives_a_row_split_across_chunks(self):
+        """The transfer chunks by bytes, so a row rarely arrives whole."""
+        body = self.HEADER + b"Events,134,134,10\nEvents,135,135,20\n"
+
+        self.assertEqual(
+            self._run(body, {134: "Payments API", 135: "Ingest"}, chunk_size=7),
+            "Product,Project,Project ID,Total\nEvents,Payments API,134,10\nEvents,Ingest,135,20\n",
+        )
+
+    def test_handles_a_file_with_no_trailing_newline(self):
+        body = self.HEADER + b"Events,134,134,10"
+
+        self.assertEqual(
+            self._run(body, {134: "Payments API"}), "Product,Project,Project ID,Total\nEvents,Payments API,134,10"
+        )
+
+    def test_preserves_a_quoted_field_that_already_contains_a_comma(self):
+        body = self.HEADER + b'"Logs, ingested",134,134,10\n'
+
+        self.assertEqual(
+            self._run(body, {134: "Payments API"}),
+            'Product,Project,Project ID,Total\n"Logs, ingested",Payments API,134,10\n',
+        )
+
+
+class TestExportLimits(APILicensedTest):
+    """An export holds a response from billing open for as long as the browser reads it, so the
+    proxy bounds how many one person has open at once, and how often they start one."""
+
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        cache.clear()
+
+    def _export(self, rows: list[bytes]) -> Any:
+        upstream = MagicMock()
+        upstream.headers = {"Content-Type": "text/csv"}
+        upstream.iter_content.return_value = iter(rows)
+        with patch("ee.billing.billing_manager.BillingManager.get_usage_csv", return_value=upstream):
+            return self.client.get("/api/billing/usage/export/?start_date=2025-01-01&breakdowns=%5B%22type%22%5D")
+
+    @patch.object(_EXPORT_STREAMS, "max_concurrency", 1)
+    def test_exports_open_at_once_are_capped_per_person_and_a_finished_one_frees_its_slot(self):
+        first = self._export([b"Product\n", b"Events\n"])
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+
+        refused = self._export([b"Product\n"])
+        self.assertEqual(refused.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertIn("exports downloading", refused.json()["detail"])
+
+        self.assertEqual(b"".join(first), b"Product\nEvents\n")
+        self.assertEqual(self._export([b"Product\n"]).status_code, status.HTTP_200_OK)
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch.object(BillingExportThrottle, "rate", "1/minute")
+    def test_export_starts_are_rate_limited_per_person(self, _rate_limit_enabled):
+        self.assertEqual(self._export([b"Product\n"]).status_code, status.HTTP_200_OK)
+        self.assertEqual(self._export([b"Product\n"]).status_code, status.HTTP_429_TOO_MANY_REQUESTS)

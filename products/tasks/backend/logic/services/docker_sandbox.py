@@ -7,13 +7,18 @@ import uuid
 import shlex
 import base64
 import shutil
+import signal
 import socket
 import hashlib
 import logging
 import tempfile
+import threading
 import subprocess
-from collections.abc import Iterable
-from typing import TYPE_CHECKING, Optional
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.conf import settings
 
@@ -98,6 +103,11 @@ _DOCKER_URL_ENV_KEYS = frozenset(
 # Temporal then discards the real error in favor of an opaque "Failure exceeds size
 # limit." Keep the tail — Docker prints the failing step and error there.
 _MAX_CAPTURED_OUTPUT_CHARS = 8000
+_SUBPROCESS_CANCEL_POLL_SECONDS = 0.1
+_SUBPROCESS_TERMINATE_TIMEOUT_SECONDS = 5
+_subprocess_cancel_event: ContextVar[threading.Event | None] = ContextVar(
+    "docker_sandbox_subprocess_cancel_event", default=None
+)
 
 
 def _truncate_output(output: str | None) -> str:
@@ -106,6 +116,59 @@ def _truncate_output(output: str | None) -> str:
     if len(output) <= _MAX_CAPTURED_OUTPUT_CHARS:
         return output
     return f"...[truncated {len(output) - _MAX_CAPTURED_OUTPUT_CHARS} chars]...\n{output[-_MAX_CAPTURED_OUTPUT_CHARS:]}"
+
+
+def _terminate_subprocess(process: subprocess.Popen[str]) -> tuple[str, str]:
+    if process.poll() is None:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+    try:
+        return process.communicate(timeout=_SUBPROCESS_TERMINATE_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        return process.communicate()
+
+
+def _run_cancellable_subprocess(
+    args: list[str], cancel_event: threading.Event, timeout: int | None
+) -> subprocess.CompletedProcess[str]:
+    if cancel_event.is_set():
+        raise subprocess.SubprocessError("Docker subprocess cancelled before launch")
+
+    process = subprocess.Popen(
+        args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    started_at = time.monotonic()
+
+    while True:
+        if cancel_event.is_set():
+            _terminate_subprocess(process)
+            raise subprocess.SubprocessError("Docker subprocess cancelled")
+
+        remaining = None if timeout is None else timeout - (time.monotonic() - started_at)
+        if remaining is not None and remaining <= 0:
+            stdout, stderr = _terminate_subprocess(process)
+            assert timeout is not None
+            raise subprocess.TimeoutExpired(args, timeout, output=stdout, stderr=stderr)
+
+        poll_timeout = (
+            _SUBPROCESS_CANCEL_POLL_SECONDS if remaining is None else min(_SUBPROCESS_CANCEL_POLL_SECONDS, remaining)
+        )
+        try:
+            stdout, stderr = process.communicate(timeout=poll_timeout)
+            return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+        except subprocess.TimeoutExpired:
+            continue
 
 
 class DockerSandbox(SandboxBase):
@@ -122,6 +185,18 @@ class DockerSandbox(SandboxBase):
     needs that socket to create() containers — runs unsandboxed by default (see
     _SANDBOX_DEFAULT_EXCLUDES in the devenv generator). No extra config needed.
     """
+
+    supports_creation_cancellation = True
+    creation_timeout_seconds = 30 * 60
+
+    @staticmethod
+    @contextmanager
+    def creation_cancellation_scope(cancel_event: threading.Event) -> Iterator[None]:
+        token = _subprocess_cancel_event.set(cancel_event)
+        try:
+            yield
+        finally:
+            _subprocess_cancel_event.reset(token)
 
     id: str
     config: SandboxConfig
@@ -154,7 +229,13 @@ class DockerSandbox(SandboxBase):
     def _run(args: list[str], check: bool = False, timeout: int | None = None) -> subprocess.CompletedProcess:
         """Run a subprocess command with logging."""
         logger.debug(f"Running: {redact_sandbox_command(' '.join(args))}")
-        result = subprocess.run(args, capture_output=True, text=True, check=check, timeout=timeout)
+        cancel_event = _subprocess_cancel_event.get()
+        if cancel_event is None:
+            result = subprocess.run(args, capture_output=True, text=True, check=check, timeout=timeout)
+        else:
+            result = _run_cancellable_subprocess(args, cancel_event, timeout)
+            if check:
+                result.check_returncode()
         if result.stdout:
             logger.debug(f"stdout: {result.stdout[:500]}")
         if result.stderr:
@@ -178,6 +259,7 @@ class DockerSandbox(SandboxBase):
             os.path.join(monorepo_root, "pnpm-workspace.yaml"),
             os.path.join(monorepo_root, "pnpm-lock.yaml"),
             os.path.join(monorepo_root, "patches"),
+            os.path.join(monorepo_root, "scripts", "rimraf.mjs"),
             *[
                 os.path.join(monorepo_root, "packages", package_name, "package.json")
                 for package_name in ("agent", "harness", "shared", "git", "enricher")
@@ -254,11 +336,14 @@ class DockerSandbox(SandboxBase):
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace_path = os.path.join(tmpdir, "local-workspace")
             packages_path = os.path.join(workspace_path, "packages")
+            scripts_path = os.path.join(workspace_path, "scripts")
             os.makedirs(packages_path)
+            os.makedirs(scripts_path)
 
             for file_name in (".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"):
                 shutil.copy2(os.path.join(monorepo_root, file_name), workspace_path)
             shutil.copytree(os.path.join(monorepo_root, "patches"), os.path.join(workspace_path, "patches"))
+            shutil.copy2(os.path.join(monorepo_root, "scripts", "rimraf.mjs"), scripts_path)
 
             for package_name in ("agent", "harness", "shared", "git", "enricher"):
                 shutil.copytree(
@@ -668,7 +753,7 @@ class DockerSandbox(SandboxBase):
 
         return _DockerExecutionStream(process, timeout_seconds, self.id)
 
-    def write_file(self, path: str, payload: bytes) -> ExecutionResult:
+    def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult:
         if not self.is_running():
             raise SandboxExecutionError(
                 "Sandbox not in running state.",
@@ -676,12 +761,15 @@ class DockerSandbox(SandboxBase):
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
             )
 
+        step_timeout = timeout_seconds or self.config.default_execution_timeout_seconds
         chunk_size = 50000
         encoded_payload = base64.b64encode(payload).decode("utf-8")
         temp_path = f"{path}.tmp-{uuid.uuid4().hex}"
         result = ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
-        for index in range(0, len(encoded_payload), chunk_size):
-            chunk = encoded_payload[index : index + chunk_size]
+        # An empty payload still has to produce an empty file: with no chunks the temp path is
+        # never created and the mv below fails. Blanking a credential file is exactly this case.
+        chunks = [encoded_payload[start : start + chunk_size] for start in range(0, len(encoded_payload), chunk_size)]
+        for index, chunk in enumerate(chunks or [""]):
             write_mode = "wb" if index == 0 else "ab"
             command = (
                 "python3 - <<'EOF_SANDBOX_WRITE'\n"
@@ -694,7 +782,7 @@ class DockerSandbox(SandboxBase):
                 "    response_file.write(payload)\n"
                 "EOF_SANDBOX_WRITE"
             )
-            result = self.execute(command, timeout_seconds=self.config.default_execution_timeout_seconds)
+            result = self.execute(command, timeout_seconds=step_timeout)
             if result.exit_code != 0:
                 logger.warning(
                     "sandbox_write_failed",
@@ -704,7 +792,7 @@ class DockerSandbox(SandboxBase):
 
         if result.exit_code == 0:
             move_command = f"mv {shlex.quote(temp_path)} {shlex.quote(path)}"
-            result = self.execute(move_command, timeout_seconds=self.config.default_execution_timeout_seconds)
+            result = self.execute(move_command, timeout_seconds=step_timeout)
             if result.exit_code != 0:
                 logger.warning(
                     "sandbox_write_failed",
@@ -719,12 +807,13 @@ class DockerSandbox(SandboxBase):
         github_token: str | None = "",
         shallow: bool = True,
         branch: str | None = None,
+        blobless: bool = False,
     ) -> ExecutionResult:
         mount_map = parse_sandbox_repo_mount_map()
         if repository.lower() in mount_map:
             logger.info(f"Repository {repository} is bind-mounted from host, skipping clone")
             return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
-        return super().clone_repository(repository, github_token, shallow, branch)
+        return super().clone_repository(repository, github_token, shallow, branch, blobless)
 
     def setup_repository(self, repository: str) -> ExecutionResult:
         """No-op: Repository setup is now handled by agent-server."""
@@ -764,6 +853,9 @@ class DockerSandbox(SandboxBase):
         logger.info(f"Got connect credentials for sandbox {self.id}: {url}")
         return AgentServerResult(url=url, token=None)
 
+    def create_preview_connect_credentials(self, port: int, user_metadata: dict[str, Any]) -> AgentServerResult:
+        raise NotImplementedError("Docker sandboxes do not support preview connect tokens")
+
     def _build_agent_server_command(
         self,
         repo_path: str | None,
@@ -791,7 +883,10 @@ class DockerSandbox(SandboxBase):
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         rtk_enabled: bool = True,
+        benjamin_enabled: bool = False,
+        peer_messaging: bool = False,
         posthog_exec_permission_regex: str | None = None,
+        claude_model_access: str | None = None,
     ) -> str:
         # The host proxy URL (e.g. localhost:8003) is unreachable from inside the container;
         # rewrite it the same way POSTHOG_API_URL is for Docker sandboxes.
@@ -813,7 +908,10 @@ class DockerSandbox(SandboxBase):
             event_ingest_url=event_ingest_url,
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             rtk_enabled=rtk_enabled,
+            benjamin_enabled=benjamin_enabled,
+            peer_messaging=peer_messaging,
         )
+        subscription_flag = " --claudeSubscription" if claude_model_access == "own-subscription" else ""
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         # Only append when opted in: agent-server builds without the option reject unknown
         # flags, so default runs (and resumes of old snapshots) must not see it.
@@ -837,7 +935,7 @@ class DockerSandbox(SandboxBase):
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
-            f"{domains_flag}{repo_ready_flag}{exec_permission_flag}"
+            f"{domains_flag}{repo_ready_flag}{exec_permission_flag}{subscription_flag}"
         )
 
         # agentsh injects HTTP_PROXY pointing at a per-session egress proxy port; undici
@@ -853,12 +951,12 @@ class DockerSandbox(SandboxBase):
         if allowed_domains is not None:
             return (
                 f"cd /scripts && {initialize_env_file} && "
-                f"({build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &)"
+                f"({build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} & echo $! > /tmp/agent-server.pid)"
             )
         else:
-            return f"cd /scripts && {initialize_env_file} && (nohup {server_cmd} > /tmp/agent-server.log 2>&1 &)"
+            return f"cd /scripts && {initialize_env_file} && (nohup {server_cmd} > /tmp/agent-server.log 2>&1 & echo $! > /tmp/agent-server.pid)"
 
-    def _launch_and_check(self, command: str) -> bool:
+    def _launch_and_check(self, command: str, *, max_attempts: int = 20) -> bool:
         """Execute the agent-server command and wait for the health check.
 
         Returns True if the server started successfully, False otherwise.
@@ -867,7 +965,7 @@ class DockerSandbox(SandboxBase):
         if result.exit_code != 0:
             logger.warning(f"Agent-server process failed to launch in sandbox {self.id}: {result.stderr}")
             return False
-        return self._wait_for_health_check(max_attempts=20)
+        return self._wait_for_health_check(max_attempts=max_attempts)
 
     def _install_gh_guard(self) -> None:
         """Install the gh PATH shim at runtime so it's present regardless of image age.
@@ -906,6 +1004,9 @@ class DockerSandbox(SandboxBase):
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
+        benjamin_enabled: bool = False,
+        peer_messaging: bool = False,
+        claude_model_access: str | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -953,7 +1054,7 @@ class DockerSandbox(SandboxBase):
         if not self.agent_server_supports_exec_permission_regex():
             logger.warning(
                 f"Installed agent-server in sandbox {self.id} predates --posthogExecPermissionRegex; "
-                "exec sub-tools will not prompt"
+                "connected-project operations will not prompt"
             )
             exec_permission_regex = None
 
@@ -983,7 +1084,10 @@ class DockerSandbox(SandboxBase):
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
             rtk_enabled=rtk_enabled,
+            benjamin_enabled=benjamin_enabled,
+            peer_messaging=peer_messaging,
             posthog_exec_permission_regex=exec_permission_regex,
+            claude_model_access=claude_model_access,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
@@ -998,7 +1102,8 @@ class DockerSandbox(SandboxBase):
                 )
             return
 
-        if self._launch_and_check(command):
+        max_attempts = 300 if claude_model_access == "own-subscription" else 20
+        if self._launch_and_check(command, max_attempts=max_attempts):
             logger.info(f"Agent-server started on port {self._host_port}")
             return
 
@@ -1038,9 +1143,12 @@ class DockerSandbox(SandboxBase):
                 event_ingest_keep_stream_open=event_ingest_keep_stream_open,
                 repo_ready_file=repo_ready_file,
                 rtk_enabled=rtk_enabled,
+                benjamin_enabled=benjamin_enabled,
+                peer_messaging=peer_messaging,
                 posthog_exec_permission_regex=exec_permission_regex,
+                claude_model_access=claude_model_access,
             )
-            if self._launch_and_check(command):
+            if self._launch_and_check(command, max_attempts=max_attempts):
                 logger.info(f"Agent-server started on port {self._host_port} (without --baseBranch)")
                 return
 
@@ -1055,8 +1163,10 @@ class DockerSandbox(SandboxBase):
             capture=False,
         )
 
-    def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None:
-        if self._wait_for_health_check(max_attempts=240):
+    def wait_for_agent_server_ready(
+        self, allowed_domains: list[str] | None = None, *, claude_model_access: str | None = None
+    ) -> None:
+        if self._wait_for_health_check(max_attempts=300 if claude_model_access == "own-subscription" else 240):
             logger.info(f"Agent-server ready on port {self._host_port}")
             return
         log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
@@ -1123,10 +1233,21 @@ class DockerSandbox(SandboxBase):
     def _wait_for_health_check(self, max_attempts: int = 60, poll_interval: float = 0.5) -> bool:
         """Poll health endpoint until server is ready (single remote call)."""
 
-        return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval)
+        return wait_for_health_check(
+            self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval, pid_file="/tmp/agent-server.pid"
+        )
 
     def read_agent_server_session_init_ms(self) -> int | None:
         return self._read_health_session_init_ms(AGENT_SERVER_PORT)
+
+    def read_agent_server_boot_phases_ms(self) -> dict[str, int]:
+        return self._read_health_boot_phases_ms(AGENT_SERVER_PORT)
+
+    def read_agent_server_boot_metrics(self) -> tuple[int | None, dict[str, int]]:
+        return self._read_health_boot_metrics(AGENT_SERVER_PORT)
+
+    def agent_server_health_url(self) -> str:
+        return f"http://127.0.0.1:{AGENT_SERVER_PORT}/health"
 
     def create_snapshot(self, *, timeout_seconds: int | None = None) -> str:
         # timeout_seconds bounds Modal's snapshot RPC; docker commits have no equivalent knob.
@@ -1165,6 +1286,11 @@ class DockerSandbox(SandboxBase):
     def create_directory_snapshot(self, path: str) -> str:
         return self.create_snapshot()
 
+    def prune_snapshot_heavy_dirs(self, path: str) -> None:
+        # Docker snapshots the whole container image, not a directory subtree, so there is no
+        # targeted prune to do here (and local dev never approaches Modal's file-count cap).
+        return None
+
     @staticmethod
     def delete_snapshot(external_id: str) -> None:
         logger.info(f"Deleting snapshot {external_id}")
@@ -1198,6 +1324,17 @@ class DockerSandbox(SandboxBase):
 
 def _base_dockerfile_path() -> str:
     return os.path.join(settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base")
+
+
+def _base_image_source_sha(dockerfile_path: str) -> str:
+    digest = hashlib.sha256()
+    for path in [
+        Path(dockerfile_path),
+        *sorted(Path(settings.BASE_DIR, "products/desktop/packages/agent-shadow").rglob("*")),
+    ]:
+        if path.is_file():
+            digest.update(path.read_bytes())
+    return digest.hexdigest()
 
 
 def _none_if_blank(value: str) -> str | None:
@@ -1236,8 +1373,7 @@ def ensure_fresh_base_image(*, force: bool = False) -> None:
     This is the only place that reaches out to npm.
     """
     dockerfile_path = _base_dockerfile_path()
-    with open(dockerfile_path, "rb") as dockerfile:
-        current_dockerfile_sha = hashlib.sha256(dockerfile.read()).hexdigest()
+    current_dockerfile_sha = _base_image_source_sha(dockerfile_path)
 
     latest = _resolve_latest_agent_version()
 
@@ -1298,6 +1434,19 @@ def ensure_fresh_base_image(*, force: bool = False) -> None:
         DEFAULT_IMAGE_NAME,
         dockerfile_path,
         build_args={"COMMIT_HASH": cache_bust},
-        labels={_AGENT_VERSION_LABEL: latest or "unknown"},
+        labels={
+            _AGENT_VERSION_LABEL: latest or "unknown",
+            _DOCKERFILE_SHA_LABEL: current_dockerfile_sha,
+        },
         force=True,
     )
+
+
+def ensure_template_image(template: SandboxTemplate) -> str:
+    """Build ``template``'s image if it is missing, and return its name.
+
+    Sandbox creation does this itself, but a cold build can take minutes — longer than
+    the budget of whatever is provisioning the sandbox. Callers that know a template is
+    coming can pay that cost up front instead. A present image returns immediately.
+    """
+    return DockerSandbox._ensure_image_exists(template)

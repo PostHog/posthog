@@ -18,6 +18,9 @@ database "posthog" {
     column "issue_status" {
       type = "String"
     }
+    column "issue_severity" {
+      type = "Nullable(String)"
+    }
     column "assigned_user_id" {
       type = "Nullable(Int64)"
     }
@@ -34,10 +37,10 @@ database "posthog" {
       type = "Int64"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_error_tracking_fingerprint_issue_state'"
-      group_name  = "kafka_group_name = 'clickhouse-error-tracking-fingerprint-issue-state'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_error_tracking_fingerprint_issue_state"
+      group_name = "clickhouse-error-tracking-fingerprint-issue-state"
+      format     = "JSONEachRow"
     }
   }
   materialized_view "error_tracking_fingerprint_issue_state_mv" {
@@ -61,6 +64,9 @@ database "posthog" {
     }
     column "issue_status" {
       type = "String"
+    }
+    column "issue_severity" {
+      type = "Nullable(String)"
     }
     column "assigned_user_id" {
       type = "Nullable(Int64)"
