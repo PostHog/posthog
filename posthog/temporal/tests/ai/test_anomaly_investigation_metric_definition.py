@@ -1,7 +1,7 @@
 from parameterized import parameterized
 
 from posthog.temporal.ai.anomaly_investigation.metric_definition import UNAVAILABLE, describe_metric_definition
-from posthog.temporal.ai.anomaly_investigation.prompts import build_anomaly_context
+from posthog.temporal.ai.anomaly_investigation.prompts import build_anomaly_context, describe_detector
 
 # A $pageview DAU series filtered to the app's error tracking pages — an insight whose
 # name ("Error tracking active users") reads as an error count but which measures page visits.
@@ -106,7 +106,7 @@ def test_anomaly_context_carries_the_metric_definition() -> None:
     context = build_anomaly_context(
         alert_name="Error tracking users spike",
         metric_description="Headline: Error tracking active users",
-        detector_type="zscore",
+        detector_config={"type": "zscore", "preprocessing": {"diffs_n": 1}},
         triggered_dates=["2026-08-10"],
         triggered_metadata=None,
         calculated_value=474.0,
@@ -116,3 +116,113 @@ def test_anomaly_context_carries_the_metric_definition() -> None:
 
     assert '"$pageview"' in context
     assert "unique users (DAU)" in context
+    assert "change from the previous bucket" in context
+
+
+# A SQL insight whose alerted column is not built from the first table the statement names.
+# The padded comment puts the second source and the final SELECT past the old 800-character
+# SQL cut, which is what hid them from the agent.
+SQL_OVER_TWO_SOURCES = {
+    "kind": "DataVisualizationNode",
+    "source": {
+        "kind": "HogQLQuery",
+        "query": (
+            "WITH hourly AS (\n"
+            "    SELECT toStartOfHour(bucket) AS slot, sum(spend) AS spend_total\n"
+            "    FROM warehouse_hourly_spend\n"
+            "    GROUP BY slot\n"
+            "),\n"
+            "-- " + "padding to push the rest of the statement past a tail-only clip. " * 20 + "\n"
+            "per_job AS (\n"
+            "    SELECT properties.job_id AS job, sum(properties.cost) AS job_cost\n"
+            "    FROM events\n"
+            "    WHERE event = '$widget_built'\n"
+            "    GROUP BY job\n"
+            ")\n"
+            "SELECT slot AS hour,\n"
+            "       spend_total AS mean_spend,\n"
+            "       median(job_cost) AS median_job_cost\n"
+            "FROM hourly LEFT JOIN per_job ON 1 = 1\n"
+            "GROUP BY hour, mean_spend"
+        ),
+    },
+    "chartSettings": {
+        "yAxis": [
+            {"column": "mean_spend", "settings": {"formatting": {"prefix": "$"}}},
+            {
+                "column": "median_job_cost",
+                "settings": {"display": {"label": "median job cost"}},
+            },
+        ]
+    },
+}
+
+
+@parameterized.expand(
+    [
+        # The alerted column, and a warning that its neighbours are other metrics.
+        ("names_the_alerted_column", '"median_job_cost"'),
+        ("warns_other_columns_differ", "different metric"),
+        # Both sources have to survive the render; the second one is what the old clip dropped.
+        ("keeps_the_first_source", "warehouse_hourly_spend"),
+        ("keeps_the_second_source", "$widget_built"),
+        ("keeps_the_final_select", "median(job_cost)"),
+        # The scored column declares no units, so the agent is told not to invent one.
+        ("refuses_invented_units", "currency symbol"),
+        ("names_the_author_label", "median job cost"),
+    ]
+)
+def test_sql_metric_names_the_scored_column_and_its_sources(_name: str, expected: str) -> None:
+    described = describe_metric_definition(
+        SQL_OVER_TWO_SOURCES,
+        alert_config={"column": "median_job_cost", "evaluation": "last_row", "label_column": "hour"},
+    )
+
+    assert expected in described
+
+
+def test_sql_metric_reports_units_the_author_declared() -> None:
+    described = describe_metric_definition(SQL_OVER_TWO_SOURCES, alert_config={"column": "mean_spend"})
+
+    assert 'prefix "$"' in described
+    assert "currency symbol" not in described
+
+
+def test_sql_metric_without_a_configured_column_says_so() -> None:
+    described = describe_metric_definition(SQL_OVER_TWO_SOURCES, alert_config={})
+
+    assert "not recorded on the alert" in described
+
+
+def test_insight_description_reaches_the_definition_block() -> None:
+    described = describe_metric_definition(
+        SQL_OVER_TWO_SOURCES,
+        alert_config={"column": "median_job_cost"},
+        insight_description="p50 comes from the widget events, not from the spend view.",
+    )
+
+    assert "not from the spend view" in described
+
+
+@parameterized.expand(
+    [
+        # Differencing is the setting that made the agent call a working alert mis-tuned.
+        ("names_the_setting", {"type": "mad", "preprocessing": {"diffs_n": 1}}, "change from the previous bucket"),
+        ("forbids_the_bug_claim", {"type": "mad", "preprocessing": {"diffs_n": 1}}, "candidate bug"),
+        ("renders_the_window", {"type": "mad", "window": 168}, "168 buckets"),
+        ("renders_the_threshold", {"type": "mad", "threshold": 0.95}, "0.95"),
+        # Without preprocessing the agent must not assume the level was transformed.
+        ("says_when_untransformed", {"type": "zscore"}, "scores the metric's own level"),
+        ("names_smoothing", {"type": "mad", "preprocessing": {"smooth_n": 3}}, "averaged over 3 buckets"),
+        ("survives_no_config", None, "Detector: threshold"),
+    ]
+)
+def test_detector_block_names_what_is_scored(_name: str, config: dict | None, expected: str) -> None:
+    assert expected in describe_detector(config)
+
+
+def test_null_preprocessing_values_read_as_switched_off() -> None:
+    described = describe_detector({"type": "mad", "preprocessing": {"diffs_n": 1, "lags_n": None, "smooth_n": None}})
+
+    assert "scores the change" in described
+    assert "lagged copies" not in described

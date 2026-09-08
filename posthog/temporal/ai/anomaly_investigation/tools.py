@@ -4,8 +4,9 @@ Each tool is a narrow, read-only wrapper around existing PostHog query machinery
 All tools are bound to a team and enforce team isolation via the Team instance
 they hold — they do NOT accept arbitrary team IDs from the LLM.
 
-Tools return compact strings suitable for inclusion in the LLM's context. They
-raise on error so the agent loop can catch and feed the error message back.
+Tools return compact strings suitable for inclusion in the LLM's context. A
+rejected query comes back as an instruction to fix and retry, because the agent
+otherwise reads it as proof that the data itself cannot be read.
 """
 
 from __future__ import annotations
@@ -43,6 +44,46 @@ _DATE_UNIT_TO_DELTA = {
     "w": lambda n: timedelta(weeks=n),
 }
 _DATE_ONLY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+# Said on every rejected query. The agent reads a raw engine error as "this data is not
+# available to me" and writes that into the report, which sends the reader to inspect the
+# pipeline behind a table that is serving rows.
+_QUERY_REJECTED_HELP = (
+    "The query was rejected before it ran. This says nothing about whether the table, view or "
+    "event stream exists — it is a defect in the query text. Rewrite the query and run it again. "
+    "Do not report a data source as unreadable, missing or unreachable because a query failed."
+)
+
+# Errors that a different alias name fixes. Both engines word it differently, and ClickHouse's
+# cyclic-alias error names no identifier at all, so the offending alias is found in the SQL.
+_ALIAS_CONFLICT_MARKERS = (
+    "cyclic alias",
+    "redefine an alias",
+    "duplicate column alias",
+    "inside another aggregate function",
+)
+
+# Only aggregates are renamed. `toStartOfHour(h) AS h` is accepted, so rewriting it would
+# change a working expression while chasing an unrelated error.
+_AGGREGATE_FUNCTIONS = frozenset(
+    {
+        "any",
+        "anylast",
+        "avg",
+        "count",
+        "max",
+        "median",
+        "min",
+        "sum",
+        "uniq",
+        "uniqexact",
+    }
+)
+
+_AGGREGATE_ALIAS = re.compile(
+    r"\b(?P<fn>\w+)\s*\(\s*(?:\w+\.)?(?P<column>\w+)\s*\)\s+AS\s+(?P<alias>\w+)\b",
+    re.IGNORECASE,
+)
 
 
 class RunHogQLQueryArgs(BaseModel):
@@ -82,6 +123,34 @@ class SimulateDetectorArgs(BaseModel):
             "number of samples — the helper extends this window automatically if needed."
         ),
     )
+
+
+def _is_alias_conflict(message: str) -> bool:
+    lowered = message.lower()
+    return any(marker in lowered for marker in _ALIAS_CONFLICT_MARKERS)
+
+
+def rename_shadowing_aliases(sql: str) -> tuple[str, dict[str, str]]:
+    """Rename every aggregate that is aliased to the column it aggregates.
+
+    ``sum(runs) AS runs`` makes the alias and its own operand the same name, which the engine
+    rejects. The agent writes this shape repeatedly, then reads the rejection as the table being
+    unreadable and abandons the probe. Renaming the alias keeps the query's meaning and lets the
+    probe run. Returns the rewritten SQL and the old-to-new alias names.
+    """
+    renames: dict[str, str] = {}
+
+    def rename(match: re.Match[str]) -> str:
+        original = match.group(0)
+        function, column, alias = match.group("fn"), match.group("column"), match.group("alias")
+        if function.lower() not in _AGGREGATE_FUNCTIONS or alias.lower() != column.lower():
+            return original
+        renamed = f"{alias}_{function.lower()}"
+        renames[alias] = renamed
+        # Only the alias token moves. The aggregate expression is left exactly as written.
+        return original[: match.start("alias") - match.start()] + renamed
+
+    return _AGGREGATE_ALIAS.sub(rename, sql), renames
 
 
 def _compact(seq: list[Any]) -> list[Any]:
@@ -140,19 +209,44 @@ class InvestigationToolkit:
         sql = args.query.strip()
         if not re.match(r"^\(?\s*(select|with)\b", sql, re.IGNORECASE):
             raise ValueError("Only SELECT statements are allowed.")
+        try:
+            return json.dumps(await self._execute(sql), default=str)
+        except Exception as err:
+            message = str(err)
+
+        retried, renames = rename_shadowing_aliases(sql)
+        if not renames or not _is_alias_conflict(message):
+            return f"Query rejected: {message}\n{_QUERY_REJECTED_HELP}"
+
+        try:
+            payload = await self._execute(retried)
+        except Exception as retry_err:
+            return (
+                f"Query rejected: {message}\n{_QUERY_REJECTED_HELP}\n"
+                "An aggregate is aliased to the column it aggregates. Renaming it "
+                f"({_format_renames(renames)}) still failed: {retry_err}"
+            )
+
+        payload["renamed_aliases"] = renames
+        payload["note"] = (
+            "Your query aliased an aggregate to the column it aggregates, which the engine "
+            f"rejects. It was re-run with {_format_renames(renames)}, so read the results under "
+            "the new column names. The data was always readable."
+        )
+        return json.dumps(payload, default=str)
+
+    async def _execute(self, sql: str) -> dict[str, Any]:
         response = await sync_to_async(execute_hogql_query, thread_sensitive=False)(
             query=sql,
             team=self.team,
         )
         rows = response.results or []
-        truncated = rows[:MAX_HOGQL_ROWS]
-        payload: dict[str, Any] = {
+        return {
             "columns": response.columns or [],
-            "rows": [list(row) for row in truncated],
+            "rows": [list(row) for row in rows[:MAX_HOGQL_ROWS]],
             "row_count": len(rows),
             "truncated": len(rows) > MAX_HOGQL_ROWS,
         }
-        return json.dumps(payload, default=str)
 
     async def top_breakdowns(self, args: TopBreakdownArgs) -> str:
         # Use bracket-notation property access so keys like '$browser' and
@@ -234,6 +328,10 @@ class InvestigationToolkit:
             "total_points": sim.get("total_points") or len(values),
         }
         return json.dumps(payload, default=str)
+
+
+def _format_renames(renames: dict[str, str]) -> str:
+    return ", ".join(f"{old} renamed to {new}" for old, new in renames.items())
 
 
 def _escape_literal(value: str) -> str:

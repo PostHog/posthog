@@ -70,6 +70,14 @@ Ground the metric (do this before forming any hypothesis):
 - The definition also tells you what the metric cannot see. A metric filtered to
   one page, one event, or one property value carries no information about
   anything outside that filter.
+- A SQL-backed metric can read several sources in one statement and return
+  several columns. The definition block names the one column the detector
+  scores. Trace that column back through the statement, and name only the
+  sources feeding it. A table used by a neighbouring column is not the source of
+  your metric, and sending the reader there sends them to the wrong data.
+- Never attach a unit or a currency symbol to a number the definition does not
+  label. A ratio, a rate, and an amount of money all print as `2.70`. Where the
+  definition declares no unit, report the bare number.
 
 Corroborating with a second data stream:
 - When you cite another event stream as the cause (exception volume, error
@@ -84,6 +92,19 @@ Corroborating with a second data stream:
   is unverified rather than presenting it as the cause.
 - Even a stream that did change is a coincidence until you can name the
   mechanism. Say "coincides with" unless you have evidence for causation.
+
+When a query fails:
+- A rejected query is a defect in your SQL. It is never evidence that a table, a
+  view, or an event stream is missing, unreadable, or unreachable. Read the
+  error, fix the query, and run it again.
+- The tool retries a query that aliases an aggregate to the column it
+  aggregates, such as `sum(runs) AS runs`. When it does, it names the new column
+  in `renamed_aliases`. Read the results under those names.
+- Never write in the report that a data source cannot be read. Say your query
+  failed, and name the error. A reader told their table is unreachable goes and
+  inspects the pipeline behind a table that is serving rows.
+- Failing to query something is a gap in your evidence, not a finding. Do not
+  build a verdict on it.
 
 Magnitude check (do this before classifying):
 - Compare the triggered point against the typical baseline for the series (the
@@ -126,7 +147,9 @@ Guidelines:
   (a low-volume count series scored by a detector tuned for higher volumes,
   or repeated near-threshold firings on the same metric), flag that
   explicitly as a recommendation — e.g. raise the threshold, switch detector
-  type, or aggregate the metric to a less noisy interval.
+  type, or aggregate the metric to a less noisy interval. Read the detector
+  block first: every setting listed there is deliberate, so a detector doing
+  what that block says it does is configured, not mis-tuned.
 - Every recommendation must point at something your evidence shows exists.
   Telling the reader to check a queue, a worker, a rate limit or a dashboard you
   inferred from the metric's name sends them to inspect infrastructure that may
@@ -138,11 +161,47 @@ Guidelines:
 """
 
 
+def describe_detector(detector_config: dict | None) -> str:
+    """Name what the detector scores, not just its type.
+
+    A detector with differencing switched on scores the change between buckets by design.
+    Given only the type, the agent notices step-size scoring, cannot tell a setting from a
+    defect, and offers mis-tuning as a candidate bug on a correctly configured alert.
+    """
+    config = detector_config or {}
+    lines = [f"Detector: {config.get('type') or 'threshold'}"]
+
+    window = config.get("window")
+    if window is not None:
+        lines.append(f"- Baseline window: {window} buckets")
+    threshold = config.get("threshold")
+    if threshold is not None:
+        lines.append(f"- Anomaly threshold: {threshold}")
+
+    preprocessing = {key: value for key, value in (config.get("preprocessing") or {}).items() if value}
+    if not preprocessing:
+        lines.append("- Preprocessing: none. The detector scores the metric's own level.")
+        return "\n".join(lines)
+
+    lines.append(f"- Preprocessing: {', '.join(f'{key}={value}' for key, value in sorted(preprocessing.items()))}")
+    if preprocessing.get("smooth_n"):
+        lines.append(f"- Values are averaged over {preprocessing['smooth_n']} buckets before scoring.")
+    if preprocessing.get("diffs_n"):
+        lines.append(
+            "- Differencing is on, so the detector scores the change from the previous bucket, "
+            "not the level. Scoring the step size is the configured design of this alert. Do not "
+            "report it as a mis-tuned detector, and do not offer it as a candidate bug."
+        )
+    if preprocessing.get("lags_n"):
+        lines.append(f"- The detector also sees {preprocessing['lags_n']} lagged copies of the series.")
+    return "\n".join(lines)
+
+
 def build_anomaly_context(
     *,
     alert_name: str,
     metric_description: str,
-    detector_type: str,
+    detector_config: dict | None,
     triggered_dates: list[str],
     triggered_metadata: dict | None,
     calculated_value: float | None,
@@ -163,7 +222,7 @@ def build_anomaly_context(
     return (
         f"Alert: {alert_name}\n"
         f"Insight name (a label someone typed, not the definition): {metric_description}\n"
-        f"Detector: {detector_type}\n"
+        f"{describe_detector(detector_config)}\n"
         f"Interval: {interval or 'unknown'}\n"
         f"Calculated value at fire: {calculated_value}\n"
         f"Triggered dates: {', '.join(triggered_dates) if triggered_dates else 'n/a'}\n"

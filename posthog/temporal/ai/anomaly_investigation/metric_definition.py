@@ -7,6 +7,12 @@ of app URLs — and the agent then reaches for an outage to explain an engagemen
 change. Naming the event, aggregation, and filters the alerted series is built
 from keeps every hypothesis tied to what the number actually measures.
 
+A SQL-backed insight needs the same treatment one level down. One statement can read
+several sources and return several columns, and the detector scores exactly one of them.
+Naming that column, the sources it comes from, and the units its author declared stops
+the agent attributing the metric to whichever table it saw first, and stops it printing a
+bare ratio as an amount of money.
+
 Deliberately dependency-light (stdlib only): it renders the stored query dict
 rather than routing through HogQL machinery, which must stay off the Temporal
 workflow module's import path.
@@ -23,11 +29,15 @@ logger = structlog.get_logger(__name__)
 
 # The block is prompt context, so it is capped rather than trusting query size —
 # a query can carry hundreds of filter values.
-MAX_DEFINITION_CHARS = 2500
+MAX_DEFINITION_CHARS = 6000
 MAX_DESCRIBED_SERIES = 6
 MAX_DESCRIBED_FILTERS = 8
 MAX_VALUE_CHARS = 120
-MAX_SQL_CHARS = 800
+MAX_DESCRIPTION_CHARS = 400
+# A real alerting query runs to a few thousand characters. The old 800 cut the statement
+# mid-way, which hid the later FROM clauses and the final SELECT — the two places that say
+# which sources feed the alerted column.
+MAX_SQL_CHARS = 4000
 # Property groups nest (AND of ORs); anything deeper is malformed rather than real.
 MAX_FILTER_DEPTH = 4
 
@@ -88,22 +98,37 @@ _OPERATOR_LABELS = {
 _VALUELESS_OPERATORS = frozenset({"is_set", "is_not_set"})
 
 
-def describe_metric_definition(query: Any, *, series_index: int = 0) -> str:
+def describe_metric_definition(
+    query: Any,
+    *,
+    series_index: int = 0,
+    alert_config: dict[str, Any] | None = None,
+    insight_description: str | None = None,
+) -> str:
     """A plain-text block naming what the alerted series measures.
+
+    ``alert_config`` is the alert's own config. For a SQL-backed insight it names the column
+    the detector scores, without which the agent has to guess which of several returned
+    columns is the metric.
 
     Never raises: this only enriches the agent's context, so an unrecognized or
     malformed query degrades to a "couldn't read it" line rather than failing an
     investigation that would otherwise have run.
     """
     try:
-        described = _describe(query, series_index)
+        described = _describe(query, series_index, alert_config or {}, insight_description)
     except Exception:
         logger.warning("anomaly_investigation.metric_definition_failed", exc_info=True)
         return UNAVAILABLE
     return described[:MAX_DEFINITION_CHARS]
 
 
-def _describe(query: Any, series_index: int) -> str:
+def _describe(
+    query: Any,
+    series_index: int,
+    alert_config: dict[str, Any],
+    insight_description: str | None,
+) -> str:
     source = unwrap_query_source(query)
     if not source:
         return UNAVAILABLE
@@ -118,12 +143,80 @@ def _describe(query: Any, series_index: int) -> str:
     elif isinstance(clauses, list) and clauses:
         lines.extend(_describe_clauses(clauses))
     elif source.get("query"):
-        lines.append(f"- SQL: {_clip(str(source['query']), MAX_SQL_CHARS)}")
+        lines.extend(_describe_sql(str(source["query"]), alert_config, _chart_settings(query)))
     else:
         lines.append("- Series: could not be read from the stored query.")
 
     lines.extend(_describe_query_scope(source))
+    if insight_description:
+        lines.append(
+            "- What the insight's author wrote about it (prose, so weigh it against the query "
+            f"above): {_clip(insight_description.strip(), MAX_DESCRIPTION_CHARS)}"
+        )
     return "\n".join(lines)
+
+
+def _describe_sql(sql: str, alert_config: dict[str, Any], chart_settings: dict[str, Any]) -> list[str]:
+    column = alert_config.get("column")
+    lines = [
+        "- This metric is a SQL statement. Read every FROM clause: it can draw on several "
+        "sources, and the alerted column may not come from the first one named.",
+        f"- SQL:\n{_clip_sql(sql)}",
+    ]
+    if not column:
+        lines.append("- Alerted column: not recorded on the alert. Do not assume it is the first column.")
+        return lines
+
+    lines.append(f'- Alerted column: "{column}". Every other column this statement returns is a different metric.')
+    lines.extend(_describe_column_presentation(column, chart_settings))
+    evaluation = alert_config.get("evaluation")
+    if evaluation:
+        lines.append(f"- Row scored per check: {evaluation}")
+    label_column = alert_config.get("label_column")
+    if label_column:
+        lines.append(f'- Bucket labels come from column "{label_column}".')
+    return lines
+
+
+def _describe_column_presentation(column: str, chart_settings: dict[str, Any]) -> list[str]:
+    """The units and label the insight's author set for the alerted column.
+
+    A number carries no unit on its own, so an agent told only "2.70" is free to call it
+    money. The y-axis settings are the one place a person declares that.
+    """
+    axes = chart_settings.get("yAxis")
+    settings: dict[str, Any] = {}
+    if isinstance(axes, list):
+        for axis in axes:
+            if isinstance(axis, dict) and axis.get("column") == column:
+                settings = _nested_dict(axis, "settings")
+                break
+
+    lines: list[str] = []
+    label = _nested_dict(settings, "display").get("label")
+    if label:
+        lines.append(f'- Label its author gave the column: "{_clip(str(label), MAX_VALUE_CHARS)}"')
+
+    formatting = _nested_dict(settings, "formatting")
+    units = [f'{key} "{formatting[key]}"' for key in ("prefix", "suffix") if formatting.get(key)]
+    if units:
+        lines.append(f"- Units declared for the column: displayed with {', '.join(units)}.")
+    else:
+        lines.append(
+            "- Units declared for the column: none. Report the bare number. Do not attach a "
+            "currency symbol or a unit that the SQL or the column label does not state."
+        )
+    return lines
+
+
+def _chart_settings(query: Any) -> dict[str, Any]:
+    """Read chartSettings off the visualization wrapper, which unwrapping to the source drops."""
+    return _nested_dict(query, "chartSettings")
+
+
+def _nested_dict(container: Any, key: str) -> dict[str, Any]:
+    value = container.get(key) if isinstance(container, dict) else None
+    return value if isinstance(value, dict) else {}
 
 
 def unwrap_query_source(query: Any) -> dict[str, Any] | None:
@@ -308,3 +401,16 @@ def _format_value(value: Any) -> str:
 
 def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _clip_sql(sql: str) -> str:
+    """Clip a long statement from the middle, keeping the head and the tail.
+
+    A tail cut drops the final SELECT, and that is where the alerted column is defined. The
+    cut is announced, because a silent one reads as the whole statement.
+    """
+    if len(sql) <= MAX_SQL_CHARS:
+        return sql
+    tail = int(MAX_SQL_CHARS * 0.4)
+    head = MAX_SQL_CHARS - tail
+    return f"{sql[:head]}\n[…{len(sql) - MAX_SQL_CHARS} characters of the middle omitted…]\n{sql[-tail:]}"

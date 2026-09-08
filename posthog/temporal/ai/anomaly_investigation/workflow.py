@@ -167,13 +167,19 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     anomaly_context_text = build_anomaly_context(
         alert_name=alert.name or "Unnamed alert",
         metric_description=metric_description,
-        detector_type=detector_type,
+        detector_config=alert.detector_config,
         triggered_dates=list(alert_check.triggered_dates or []),
         triggered_metadata=alert_check.triggered_metadata,
         calculated_value=alert_check.calculated_value,
         interval=alert_check.interval,
         # The alerted series, not series 0 — matching how the check and the chart pick it.
-        metric_definition=describe_metric_definition(insight.query, series_index=series_index),
+        metric_definition=describe_metric_definition(
+            insight.query,
+            series_index=series_index,
+            # Names the scored column of a multi-column SQL insight, and the units its author set.
+            alert_config=alert.config,
+            insight_description=insight.description,
+        ),
         event_provenance=event_provenance,
     )
 
