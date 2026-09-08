@@ -97,18 +97,6 @@ Tokens are valid only for the exact team, user, and operation. List the current 
 afterward during rotation. Do not expose the service directly to browsers; Django should mint tokens and proxy
 requests after resolving the user's membership and permissions for that team.
 
-## Django integration
-
-Django proxies eligible `HogQLAutocomplete` and `HogQLMetadata` query nodes to the service. Debug builds enable the
-proxy by default. Production requires the `hogql-language-service` feature flag and both settings below:
-
-- `HOGQL_LANGUAGE_SERVICE_URL` points to the service's internal URL.
-- `HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS` lists the current signing key first, followed by keys being rotated out.
-
-On a catalog miss, Django builds the schema visible to that exact team and user, adds their visible event, person,
-session, and group properties, publishes it, and retries once. Unsupported query options and service failures use
-the existing in-process implementation. Prometheus records Django-to-service latency and response size by operation.
-
 ## Rate limiting
 
 Protected requests pass through two bounded in-memory token buckets before the handler reads JSON:
