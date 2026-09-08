@@ -72,7 +72,10 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             raise ValidationError("feature_flag key is required")
         self.exposure_criteria = self.query.exposure_criteria
 
-        self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
+        try:
+            self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
+        except Experiment.DoesNotExist:
+            raise ValidationError(f"Experiment with id {self.query.experiment_id} not found")
         self.feature_flag_key: str = self.experiment.feature_flag.key_without_tombstone()
         # From the DB flag, not the query dict — callers vary in the feature_flag shape they
         # pass (full flag object vs bare filters), and a missed group index would bypass the

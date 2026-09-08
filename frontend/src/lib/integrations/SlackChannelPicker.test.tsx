@@ -46,14 +46,25 @@ const CHANNELS = [
 
 // A channel whose ID is not returned by the bulk /channels endpoint — simulating a workspace
 // where the saved channel falls beyond the first page that the backend returns.
-const OFF_PAGE_CHANNEL = {
-    id: 'COFFPAGE9XX',
-    name: 'off-page-channel',
-    is_private: false,
-    is_member: true,
-    is_ext_shared: false,
-    is_private_without_access: false,
-}
+const OFF_PAGE_CHANNELS = [
+    {
+        id: 'COFFPAGE9XX',
+        name: 'off-page-channel',
+        is_private: false,
+        is_member: true,
+        is_ext_shared: false,
+        is_private_without_access: false,
+    },
+    {
+        id: 'COFFPAGE8XX',
+        name: 'another-off-page-channel',
+        is_private: false,
+        is_member: true,
+        is_ext_shared: false,
+        is_private_without_access: false,
+    },
+]
+const OFF_PAGE_CHANNEL = OFF_PAGE_CHANNELS[0]
 
 // Typing a channel name and then clicking away is the interaction that drops a search. Two cases
 // below start from it and differ only in what they assert next.
@@ -87,7 +98,7 @@ describe('SlackChannelPicker', () => {
                         }
                         const match =
                             CHANNELS.find((c) => c.id === channelId) ??
-                            (OFF_PAGE_CHANNEL.id === channelId ? OFF_PAGE_CHANNEL : null)
+                            OFF_PAGE_CHANNELS.find((c) => c.id === channelId)
                         return [200, { channels: match ? [match] : [] }]
                     }
                     channelsRequestSearchQueries.push(search)
@@ -168,7 +179,6 @@ describe('SlackChannelPicker', () => {
             </Provider>
         )
 
-        // loadSlackChannelById has a 500ms breakpoint before fetching, so wait generously.
         await waitFor(
             () => {
                 expect(channelIdLookups).toContain('COFFPAGE9XX')
@@ -203,6 +213,27 @@ describe('SlackChannelPicker', () => {
         )
     })
 
+    it('resolves every saved channel outside the loaded page in multiple mode', async () => {
+        const { container } = render(
+            <Provider>
+                <SlackChannelPicker
+                    integration={INTEGRATION}
+                    mode="multiple"
+                    value={OFF_PAGE_CHANNELS.map((channel) => channel.id)}
+                    onChange={jest.fn()}
+                    disabled
+                />
+            </Provider>
+        )
+
+        await waitFor(() => {
+            expect(channelIdLookups).toEqual(expect.arrayContaining(OFF_PAGE_CHANNELS.map((channel) => channel.id)))
+            for (const channel of OFF_PAGE_CHANNELS) {
+                expect(container).toHaveTextContent(`#${channel.name}`)
+            }
+        })
+    })
+
     it('does not fire a direct lookup when there is no saved value', async () => {
         render(
             <Provider>
@@ -214,8 +245,6 @@ describe('SlackChannelPicker', () => {
         await waitFor(() => {
             expect(channelsRequestSearchQueries).toEqual([''])
         })
-        // Wait past the by-id breakpoint window so a stray call would have surfaced by now.
-        await new Promise((resolve) => setTimeout(resolve, 800))
         expect(channelIdLookups).toEqual([])
     })
 
@@ -402,6 +431,30 @@ describe('SlackChannelPicker', () => {
 
         expect(onChange).toHaveBeenCalledWith('C111111111|#general')
         expect(screen.queryByText('No channel selected. Pick one from the list.')).toBeNull()
+    })
+
+    it('keeps selected channels when another channel is added in multiple mode', async () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            <Provider>
+                <SlackChannelPicker
+                    integration={INTEGRATION}
+                    mode="multiple"
+                    value={['C0B6HUH9FUH|#test-slack-notifications']}
+                    onChange={onChange}
+                />
+            </Provider>
+        )
+        await waitFor(() => {
+            expect(channelsRequestSearchQueries).toEqual([''])
+        })
+
+        const input = container.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')!
+        await userEvent.click(input)
+        await userEvent.type(input, 'general')
+        await userEvent.click(await screen.findByText('#general'))
+
+        expect(onChange).toHaveBeenCalledWith(['C0B6HUH9FUH|#test-slack-notifications', 'C111111111|#general'])
     })
 
     it('still searches when the user actually types a different value', async () => {
