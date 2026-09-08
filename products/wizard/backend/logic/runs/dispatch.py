@@ -30,9 +30,12 @@ def dispatch_created_cloud_wizard_run_to_temporal_worker(team_id: int, run_id: U
             )
         )
     except WizardTemporalError as error:
-        exhausted = store.mark_dispatch_failed(team_id, run_id)
+        # marks the failed dispatch, which returns whether the run has exhausted its retry attempts
+        is_exhausted = store.mark_dispatch_failed(team_id, run_id)
+
         wizard_observability.dispatch_finished(run, WizardRunDispatchOutcome.FAILED)
-        raise WizardRunDispatchError(exhausted=exhausted) from error
+
+        raise WizardRunDispatchError(is_exhausted=is_exhausted) from error
 
     store.mark_dispatch_succeeded(team_id, run_id, wizard_run_workflow_id(run_id))
     if store.cancellation_requested(team_id, run_id):

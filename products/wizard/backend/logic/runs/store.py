@@ -126,6 +126,10 @@ def mark_dispatch_succeeded(team_id: int, run_id: UUID, workflow_id: str) -> Non
 
 
 def mark_dispatch_failed(team_id: int, run_id: UUID) -> bool:
+    """
+    Marks a dispatch attempt as failed and returns whether the run has exhausted its retry attempts.
+    """
+
     with database_transaction.atomic():
         run = WizardRun.objects.for_team(team_id).select_for_update().filter(id=run_id).first()
         if run is None:
