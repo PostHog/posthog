@@ -2,6 +2,8 @@ import uuid
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager, suppress
 
+from redis.exceptions import RedisError
+
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.settings import TEST
 
@@ -25,6 +27,15 @@ __TEAM_LIMITERS: dict[str, RateLimit] = {}
 
 class ForecastSimulationCapacityExceeded(Exception):
     pass
+
+
+class ForecastCapacityUnavailable(Exception):
+    """The capacity store could not be reached, so no slot decision was made.
+
+    Different from saturation: nothing says the pool is full, only that the limiter is unreachable.
+    Callers must treat it as a transient infrastructure failure and retry, because running the fit
+    anyway would drop the concurrency ceiling exactly when the store is unhealthy.
+    """
 
 
 def _get_global_limiter(pool: str, max_concurrency: int) -> RateLimit:
@@ -62,7 +73,11 @@ def _get_team_limiter(pool: str, max_concurrency: int) -> RateLimit:
 
 @contextmanager
 def _forecast_slot(*, team_id: int, pool: str, global_concurrency: int, team_concurrency: int) -> Iterator[None]:
-    """Hold one slot in ``pool``, globally and per team, or raise ForecastSimulationCapacityExceeded."""
+    """Hold one slot in ``pool``, globally and per team, or raise ForecastSimulationCapacityExceeded.
+
+    A store that cannot be reached raises ForecastCapacityUnavailable instead, so an outage is never
+    read as a full pool.
+    """
     if TEST:
         yield
         return
@@ -78,11 +93,15 @@ def _forecast_slot(*, team_id: int, pool: str, global_concurrency: int, team_con
             global_slot = global_limiter.use(team_id=team_id, request_id=request_id)
         except ConcurrencyLimitExceeded:
             raise ForecastSimulationCapacityExceeded from None
+        except RedisError as err:
+            raise ForecastCapacityUnavailable(str(err)) from err
 
         try:
             team_slot = team_limiter.use(team_id=team_id, request_id=request_id)
         except ConcurrencyLimitExceeded:
             raise ForecastSimulationCapacityExceeded from None
+        except RedisError as err:
+            raise ForecastCapacityUnavailable(str(err)) from err
 
         yield
     finally:
@@ -114,6 +133,9 @@ def forecast_evaluation_slot(*, team_id: int) -> Iterator[bool]:
     a due alert needs. A preview should tell its caller to retry, while a scheduled check should be
     inconclusive and wait for its next normal cadence. Returning a flag lets the dispatcher skip
     both the query and the fit without turning capacity pressure into a Temporal retry storm.
+
+    An unreachable store is not capacity pressure, so ForecastCapacityUnavailable propagates to the
+    caller's retry policy rather than spending the alert's cadence on a failed slot lookup.
     """
     with ExitStack() as stack:
         try:
