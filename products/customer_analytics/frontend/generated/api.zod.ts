@@ -1631,3 +1631,24 @@ export const GroupsTypesMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
             'Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.'
         ),
 })
+
+/**
+ * Replace the requesting user's ordered account sidebar properties for this project. At most 50 account custom properties and relationships can be pinned.
+ * @summary Update account sidebar configuration
+ */
+export const UserCustomerAnalyticsConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
+    pinned_properties: zod
+        .array(
+            zod.object({
+                kind: zod
+                    .enum(['custom_property', 'relationship'])
+                    .describe('\* `custom_property` - Custom property\n\* `relationship` - Relationship')
+                    .describe(
+                        'Definition type for this pinned account property.\n\n\* `custom_property` - Custom property\n\* `relationship` - Relationship'
+                    ),
+                id: zod.uuid().describe('Team-scoped custom property or relationship definition UUID.'),
+            })
+        )
+        .optional()
+        .describe('Complete ordered list of account properties to pin. Pass an empty list to clear it.'),
+})

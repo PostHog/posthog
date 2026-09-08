@@ -149,12 +149,17 @@ Sort safety: removing the sorted column drops the sort (`clearSortIfColumnRemove
 `CUSTOMER_ANALYTICS_ACCOUNT_SCENE` changes account links from inline row expansion to `CustomerAnalyticsAccountScene` at `/customer_analytics/accounts/:accountId`.
 The keyed scene logic loads the account through `accountsRetrieve` when it mounts, including direct navigation between account routes.
 The scene renders the account logo in `SceneTitleSection`.
-`AccountSidebar` holds editable tags and a Properties section. It sits flush with the scene's left edge and uses only a right border.
+`AccountSidebar` holds editable tags and the account property configuration. It sits flush with the scene's left edge and uses only a right border.
 Tag edits save through `accountsPartialUpdate` and update optimistically. Only the latest save can replace or reload the account.
+Pinned property preferences belong to the current user and project, never to an account. `accountSidebarConfigLogic({ projectId })` owns their load, draft, cancel, reorder, and save lifecycle through generated API functions. Keep that logic keyed by project so switching projects cannot briefly expose another project's preferences.
+The configuration is one ordered list containing both account custom-property and relationship references. Definitions load across every API page, account custom properties are filtered by target, and the shared limit is 50. Missing definitions remain visible as a stale warning; opening the configurator omits them from its draft, so the next save cleans them up.
+The empty Properties state uses the hedgehog and primary **Pin properties** action, with no gear. Once at least one reference is pinned, the gear opens the same configurator.
+Property reference keys at the component boundary are namespaced as `custom:<uuid>` and `relationship:<uuid>`; persistence maps custom keys back to the API's `custom_property` kind. Preserve this mapping when adding property value loading.
+Property configuration and property values have separate responsibilities: the configuration logic selects and orders definitions, while the property display path resolves account-specific values and handles edits.
+On wide layouts, the sidebar and the active account-detail tab are separate vertical scroll containers. Narrow layouts retain the single stacked page scroll.
 It reuses `AccountDetailTabs` and `AccountNotesExpansion` with the expanded row, but mounts only the active tab so inactive detail tabs do not load data.
 Tables use borders in the detail scene and remain embedded in expanded rows.
 Configure tabs and Add view sit in the scene header. They open work-in-progress dialogs.
-The Properties section stays visible when empty, and its gear opens the same work-in-progress dialog.
 
 The active tab is path-backed at `/customer_analytics/accounts/:accountId/:tab`.
 The bare path, unknown tabs, and tabs hidden by feature flags render Notes.

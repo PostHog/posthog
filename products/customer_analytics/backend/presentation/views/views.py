@@ -107,6 +107,8 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     MeetingSerializer,
     SupportTicketMessageSerializer,
     SupportTicketSerializer,
+    UserCustomerAnalyticsConfigSerializer,
+    UserCustomerAnalyticsConfigUpdateSerializer,
 )
 
 from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
@@ -776,6 +778,65 @@ class FeatureRequestViewSet(
         if history is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(FeatureRequestStatusHistorySerializer(instance=history, many=True).data)
+
+
+class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    scope_object = "account"
+    scope_object_read_actions = ["retrieve", "partial_update"]
+    scope_object_write_actions: list[str] = []
+    serializer_class = UserCustomerAnalyticsConfigSerializer
+    queryset = None
+    lookup_value_regex = "@me"
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=UserCustomerAnalyticsConfigSerializer,
+                description="The requesting user's account sidebar configuration.",
+            )
+        },
+        summary="Get account sidebar configuration",
+        description=(
+            "Get the requesting user's account sidebar configuration for this project. "
+            "The first read creates an empty configuration row."
+        ),
+    )
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        config = api.get_user_customer_analytics_config(
+            team_id=self.team_id,
+            user_id=cast(User, request.user).id,
+        )
+        return Response(UserCustomerAnalyticsConfigSerializer(instance=config).data)
+
+    @validated_request(
+        request_serializer=UserCustomerAnalyticsConfigUpdateSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=UserCustomerAnalyticsConfigSerializer,
+                description="The updated account sidebar configuration.",
+            ),
+            400: OpenApiResponse(description="A pinned definition is invalid for this project."),
+        },
+        summary="Update account sidebar configuration",
+        description=(
+            "Replace the requesting user's ordered account sidebar properties for this project. "
+            "At most 50 account custom properties and relationships can be pinned."
+        ),
+    )
+    def partial_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        pinned_properties = [
+            contracts.PinnedAccountProperty(kind=reference["kind"], id=reference["id"])
+            for reference in request.validated_data["pinned_properties"]
+        ]
+        try:
+            config = api.update_user_customer_analytics_config(
+                team_id=self.team_id,
+                user_id=cast(User, request.user).id,
+                pinned_properties=pinned_properties,
+            )
+        except api.InvalidPinnedAccountProperties as error:
+            raise ValidationError({"pinned_properties": error.errors})
+        return Response(UserCustomerAnalyticsConfigSerializer(instance=config).data)
 
 
 class CustomerProfileConfigViewSet(
