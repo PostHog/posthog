@@ -22,7 +22,9 @@ class Flag(BaseModel):
 
 
 def flag_values(consumer: Consumer) -> dict[str, bool]:
-    manifest = TypeAdapter(dict[str, Flag]).validate_json(Path(__file__).with_name("flags.json").read_text())
+    manifest = TypeAdapter(dict[str, Flag]).validate_json(
+        (Path(__file__).resolve().parents[5] / "products/posthog_ai/frontend/e2e/flags.json").read_text()
+    )
     return {key: flag.value for key, flag in manifest.items() if consumer in flag.consumers}
 
 

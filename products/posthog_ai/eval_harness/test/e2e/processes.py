@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import os
 import signal
-import subprocess
 import threading
+import subprocess
 from collections.abc import Callable
 from contextlib import ExitStack
 from pathlib import Path

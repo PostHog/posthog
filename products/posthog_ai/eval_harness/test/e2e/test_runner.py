@@ -50,5 +50,7 @@ class TestRunner(TestCase):
         process.wait.side_effect = [subprocess.TimeoutExpired("synthetic-service", 10), 0]
         with patch("os.killpg") as kill:
             Processes.stop(process)
-        self.assertEqual([call.args for call in kill.call_args_list], [(12345, signal.SIGTERM), (12345, signal.SIGKILL)])
+        self.assertEqual(
+            [call.args for call in kill.call_args_list], [(12345, signal.SIGTERM), (12345, signal.SIGKILL)]
+        )
         self.assertEqual([call.kwargs for call in process.wait.call_args_list], [{"timeout": 10}, {"timeout": 5}])

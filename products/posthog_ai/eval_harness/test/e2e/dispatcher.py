@@ -64,15 +64,13 @@ def main() -> None:
 
     with ExitStack() as stack:
         stack.enter_context(override_settings(**object_value(configuration["settings"])))
-        install_flags(
-            stack,
-            Path(str(configuration["output"])),
-            lambda error: control("dispatcher/error", {"error": error}),
-        )
+
+        def record_error(error: str) -> None:
+            control("dispatcher/error", {"error": error})
+
+        install_flags(stack, Path(str(configuration["output"])), record_error)
         stack.enter_context(patch.object(Client, "start_workflow", trace_registration(Client.start_workflow)))
-        call_command(
-            "run_task_workflow_dispatcher", metrics_port=0, health_directory=str(configuration["output"])
-        )
+        call_command("run_task_workflow_dispatcher", metrics_port=0, health_directory=str(configuration["output"]))
 
 
 if __name__ == "__main__":
