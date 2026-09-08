@@ -28,12 +28,6 @@ type Story = StoryObj<typeof CalendarSyncBackfillModal>
 
 export const Default: Story = {}
 
-export const Submitting: Story = {
-    args: {
-        isSubmitting: true,
-    },
-}
-
 export const InvalidRange: Story = {
     args: {
         startDate: '2026-04-10',
