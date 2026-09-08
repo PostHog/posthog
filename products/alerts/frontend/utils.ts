@@ -121,5 +121,11 @@ export function isTargetDatePassed(alert: AlertType, projectTimezone: string): b
     if (config?.condition !== ForecastConditionType.TARGET_BY_DATE || !config.target_date) {
         return false
     }
-    return !alert.enabled && !dayjs(config.target_date).isAfter(dayjsNowInTimezone(projectTimezone), 'day')
+    const targetDate = dayjs(config.target_date)
+    // A stored date can be in an ISO form dayjs cannot read. With no date to compare, the tag would
+    // announce an expiry that may not have happened.
+    if (!targetDate.isValid()) {
+        return false
+    }
+    return !alert.enabled && !targetDate.isAfter(dayjsNowInTimezone(projectTimezone), 'day')
 }

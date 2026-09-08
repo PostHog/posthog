@@ -38,6 +38,8 @@ describe('alerts utils', () => {
             ['disabled by hand before the date', '2026-12-31', false, false],
             ['past date but still enabled', '2026-01-01', true, false],
             ['finished on the date itself', '2026-06-01', false, true],
+            // The server accepts ISO week dates, which dayjs reads as an invalid date.
+            ['a stored date the client cannot read', '2026-W40-1', false, false],
         ])('%s', (_name, date, enabled, expected) => {
             pinClock('2026-06-01T12:00:00Z')
             expect(isTargetDatePassed(targetAlert(date, enabled), 'UTC')).toBe(expected)

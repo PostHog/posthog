@@ -107,7 +107,12 @@ function forecastSummary(config: AlertFormType['forecast_config']): string {
         // An empty target input is stored as NaN, which would otherwise format as the text "NaN".
         const target = Number.isFinite(config.target) ? humanFriendlyNumber(config.target) : 'a target'
         const direction = config.target_direction === ForecastTargetDirection.AT_MOST ? 'above' : 'below'
-        const on = config.target_date ? ` on ${dayjs(config.target_date).format('MMM D, YYYY')}` : ''
+        // An API client can store any ISO form the server reads, week dates included, and dayjs
+        // reads none of those. Show the stored value rather than the words "Invalid Date".
+        const targetDate = dayjs(config.target_date)
+        const on = config.target_date
+            ? ` on ${targetDate.isValid() ? targetDate.format('MMM D, YYYY') : config.target_date}`
+            : ''
         return `the point forecast is ${direction} ${target}${on}`
     }
     return 'the forecast crosses your threshold'

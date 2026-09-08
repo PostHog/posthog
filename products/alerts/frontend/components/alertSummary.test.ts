@@ -4,7 +4,7 @@ import type { AlertFormType } from '../logic/alertFormLogic'
 import { buildAlertSummary } from './alertSummary'
 
 describe('buildAlertSummary', () => {
-    const targetAlert = (target: number): AlertFormType =>
+    const targetAlert = (target: number, target_date = '2026-06-02'): AlertFormType =>
         ({
             forecast_config: {
                 type: 'ForecastConfig',
@@ -12,7 +12,7 @@ describe('buildAlertSummary', () => {
                 condition: ForecastConditionType.TARGET_BY_DATE,
                 target,
                 target_direction: ForecastTargetDirection.AT_LEAST,
-                target_date: '2026-06-02',
+                target_date,
             },
         }) as AlertFormType
 
@@ -21,5 +21,12 @@ describe('buildAlertSummary', () => {
         ['stays generic while the target is empty', Number.NaN, 'the point forecast is below a target on Jun 2, 2026'],
     ])('%s', (_name, target, expected) => {
         expect(buildAlertSummary(targetAlert(target), 0).fires).toEqual(expected)
+    })
+
+    // The server accepts ISO week dates, which dayjs reads as an invalid date.
+    it('shows a stored date it cannot read instead of the words Invalid Date', () => {
+        expect(buildAlertSummary(targetAlert(1500, '2026-W40-1'), 0).fires).toEqual(
+            'the point forecast is below 1,500 on 2026-W40-1'
+        )
     })
 })
