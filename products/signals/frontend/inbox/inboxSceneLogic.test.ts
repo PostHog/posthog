@@ -17,14 +17,12 @@ import { inboxSceneLogic, mergeSignalRuns } from './inboxSceneLogic'
 import { reportListLogic, sectionListLogicProps } from './logics/reportListLogic'
 import { SignalReport, SignalScoutRunSummary } from './types'
 
-/** The `Inbox report opened` rows a `posthog.capture` spy saw, with their properties. */
 function openedEvents(spy: jest.SpyInstance): Record<string, any>[] {
     return spy.mock.calls
         .filter((call) => call[0] === 'Inbox report opened')
         .map((call) => call[1] as Record<string, any>)
 }
 
-/** One turn of the retry that resolves a held open's rank (poll interval is 250ms). */
 function waitForOpenRankRetry(): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, 400))
 }
@@ -133,7 +131,7 @@ describe('inboxSceneLogic routing', () => {
                 '/api/projects/:team_id/signals/scout/configs/': [],
             },
         })
-        // The list-visited flag behind `open_method` lives in session storage, so it outlives a test.
+        // The list-visited flag lives in session storage, so it outlives a test.
         window.sessionStorage.clear()
         initKeaTests()
         featureFlagLogic.mount()
@@ -272,8 +270,7 @@ describe('inboxSceneLogic routing', () => {
         expect(openMethod).toBe(expectedMethod)
     })
 
-    // A reload, a new tab, or a bundle update all start a fresh logic. Without a flag that outlives
-    // the page, each one reads as a cold deep-link from someone who was clicking the list seconds ago.
+    // A reload, a new tab, and a bundle update each start a fresh logic.
     it('a report URL loaded fresh after the list was visited this session is a click, not a deep-link', async () => {
         mountWithRedesign(true)
         router.actions.push(urls.inbox('reports'))
@@ -296,8 +293,7 @@ describe('inboxSceneLogic routing', () => {
         expect(openMethod).toBe('click')
     })
 
-    // A cold load answers the single-report fetch before the lists, so a rank read at open time is
-    // null and the event joins to no impression row for the ranking dataset.
+    // A rank read at open time is null on a cold load, and joins to no impression row.
     it('holds `Inbox report opened` until the list answers, then reports the rank', async () => {
         const report = { id: 'r1', title: 'Crash on login' } as SignalReport
         useMocks({

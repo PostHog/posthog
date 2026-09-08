@@ -161,12 +161,8 @@ function clearScratchpadSearch(): void {
     }
 }
 
-/**
- * `Inbox report opened` calls an open a deep-link only when this visit never saw an inbox list URL.
- * The flag has to outlive the page, because a reload, a bundle update, or a row opened in a new tab
- * all start a fresh logic. Session storage is that scope: it survives a reload and is copied into a
- * tab opened from a link, so only a genuinely cold arrival reads as a deep-link.
- */
+// `open_method` reads `deeplink` only when this visit never saw an inbox list URL. Session storage
+// is the right scope: it survives a reload and is copied into a tab opened from a link.
 const INBOX_LIST_VISITED_STORAGE_KEY = 'posthog.inbox.listVisited'
 
 function markInboxListVisited(): void {
@@ -259,11 +255,7 @@ function findReportRank(
     return { rank: null, listSize: null, section: null }
 }
 
-/**
- * Whether the lists `findReportRank` reads have answered: one of them holds rows and none is still
- * fetching. Until that holds, a missing rank means "the list has not loaded yet", not "the report is
- * not in the list".
- */
+// One list holds rows and none is still fetching. Until then, a missing rank means "not loaded yet".
 function reportListsSettled(): boolean {
     const mounted = INBOX_REPORT_SECTION_KEYS.map((sectionKey) =>
         reportListLogic.findMounted({ sectionKey, listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey] })
@@ -273,16 +265,11 @@ function reportListsSettled(): boolean {
     )
 }
 
-/** How long an open waits for its lists to answer before it reports a null rank, and how often it retries. */
 const OPEN_RANK_WAIT_MS = 5000
 const OPEN_RANK_POLL_MS = 250
 
-/**
- * Fire `Inbox report opened`, waiting for the report's rank while its lists are still loading. A cold
- * load answers the single-report fetch long before the lists, so a lookup at open time sees no list
- * and sends a null rank. Such a row joins to no impression, and the inbox ranking dataset learns
- * nothing from it. Retry until the lists settle, then send whatever the lookup gives.
- */
+// A cold load answers the report fetch long before the lists, so a rank read at open time is null
+// and the row joins to no impression. Wait for the lists, then send whatever the lookup gives.
 function captureOpenWhenRanked(
     cache: Record<string, any>,
     tracking: InboxOpenTracking,
@@ -322,7 +309,7 @@ function captureOpenWhenRanked(
     }, 'openRank')
 }
 
-/** Send a still-waiting `Inbox report opened` now, so no close can ever precede its open. */
+/** Send a still-waiting open now, so no close can precede it. */
 function flushPendingOpen(cache: Record<string, any>): void {
     const capture = cache.pendingOpenCapture as (() => void) | undefined
     capture?.()
