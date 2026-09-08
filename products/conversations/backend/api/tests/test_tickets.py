@@ -3474,11 +3474,12 @@ class TestTicketArchive(APIBaseTest):
 
         assert second.json()["archived_at"] == archived_at
         self.ticket.refresh_from_db()
+        assert self.ticket.archived_at is not None
         assert self.ticket.archived_at.isoformat().replace("+00:00", "Z") == archived_at
         changes = [
             change
             for log in ActivityLog.objects.filter(team_id=self.team.id, scope="Ticket", item_id=str(self.ticket.id))
-            for change in log.detail["changes"]
+            for change in (log.detail or {}).get("changes") or []
             if change["field"] == "archived_at"
         ]
         assert len(changes) == 1
@@ -3492,7 +3493,7 @@ class TestTicketArchive(APIBaseTest):
             for log in ActivityLog.objects.filter(
                 team_id=self.team.id, scope="Ticket", item_id=str(self.ticket.id)
             ).order_by("created_at")
-            for change in log.detail["changes"]
+            for change in (log.detail or {}).get("changes") or []
             if change["field"] == "archived_at"
         ]
         assert len(changes) == 2

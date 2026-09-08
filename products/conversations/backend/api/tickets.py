@@ -1412,7 +1412,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
         transaction.on_commit(_emit_bulk_side_effects)
 
-        return Response({"updated": len(changed), "ids": [str(ticket.id) for ticket, _ in changed]})
+        response = BulkArchiveResponseSerializer({"updated": len(changed), "ids": [t.id for t, _ in changed]})
+        return Response(response.data)
 
     def _log_archive_activity(self, request, ticket: Ticket, *, before: datetime | None) -> None:
         """Activity entry for one archive or restore.
