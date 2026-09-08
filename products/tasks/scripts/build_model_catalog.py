@@ -112,6 +112,7 @@ def render(catalog: dict[str, Any], style: Style) -> str:
                 f"{i}{i}runtimeAdapter: {style.s(model.runtime_adapter)},",
                 style.array(model.reasoning_efforts, prefix="reasoningEfforts: ", suffix=",", depth=2),
                 f"{i}{i}label: {style.s(display_name(model.id))},",
+                *([f"{i}{i}accessFlag: {style.s(model.access_flag)},"] if model.access_flag else []),
                 f"{i}}},",
             ]
         )
@@ -156,6 +157,10 @@ export interface CatalogModel {{
 {i}/** What a picker shows. Resolved when this file is generated, so every
 {i}    surface names a model the same way without carrying a formatter. */
 {i}label: string{semi}
+{i}/** Feature flag a person needs before a picker offers this model. Absent
+{i}    means generally available. Governs display only — the server decides
+{i}    whether a run may use it. */
+{i}accessFlag?: string{semi}
 }}
 
 /** Which vendor API each runtime adapter speaks. */

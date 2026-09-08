@@ -4,18 +4,16 @@ import type { LoopSchemas } from "@posthog/api-client/loops";
 import {
   flattenSelectOptions,
   formatModelId,
-  isDeepseekModelId,
   isDefaultSelectOption,
-  isGlm53FlashModelId,
-  isGlm53ModelId,
-  isGlmModelId,
   isRestrictedModelOption,
   selectOptionDocsUrl,
 } from "@posthog/shared";
 import {
+  accessFlagForModel,
   DEFAULT_MODEL_BY_RUNTIME_ADAPTER,
   labelForModel,
 } from "@posthog/shared/model-catalog";
+import type { ModelRolloutFlags } from "../sessions/modelOptionFilters";
 
 export interface LoopModelOption {
   value: string;
@@ -47,10 +45,6 @@ export const LOOP_DEFAULT_MODELS: Record<
     label: catalogLabel(DEFAULT_MODEL_BY_RUNTIME_ADAPTER.codex),
   },
 };
-
-function isKimiModelId(modelId: string): boolean {
-  return modelId === "moonshotai/kimi-k3";
-}
 
 // Served-catalog stand-in while the preview config loads or when the request
 // fails, so the picker never collapses to "Default" alone. The served catalog is
@@ -123,21 +117,7 @@ export function formatLoopModel(
 export function loopModelOptions(
   adapter: LoopSchemas.LoopRuntimeAdapterEnum,
   configOptions: SessionConfigOption[],
-  {
-    glmEnabled,
-    glm53Enabled,
-    glm53FlashEnabled,
-    kimiEnabled,
-    deepseekEnabled,
-    pinnedModel,
-  }: {
-    glmEnabled: boolean;
-    glm53Enabled?: boolean;
-    glm53FlashEnabled?: boolean;
-    kimiEnabled?: boolean;
-    deepseekEnabled?: boolean;
-    pinnedModel: string;
-  },
+  { flags, pinnedModel }: { flags: ModelRolloutFlags; pinnedModel: string },
 ): LoopModelOption[] {
   const modelOption = configOptions.find(
     (option) => option.category === "model" || option.id === "model",
@@ -151,29 +131,17 @@ export function loopModelOptions(
             label: option.name ?? option.value,
           }))
       : [];
-  const options = (served.length > 0 ? served : FALLBACK_MODEL_OPTIONS[adapter])
-    .filter(
-      (option) =>
-        (isGlm53FlashModelId(option.value)
-          ? glm53FlashEnabled
-          : isGlm53ModelId(option.value)
-            ? glm53Enabled
-            : glmEnabled) ||
-        option.value === pinnedModel ||
-        !isGlmModelId(option.value),
-    )
-    .filter(
-      (option) =>
-        kimiEnabled ||
-        option.value === pinnedModel ||
-        !isKimiModelId(option.value),
-    )
-    .filter(
-      (option) =>
-        deepseekEnabled ||
-        option.value === pinnedModel ||
-        !isDeepseekModelId(option.value),
-    );
+  // A gated model the person cannot reach is dropped, except the one this loop already
+  // pins — removing that would silently change which model the loop runs.
+  const options = (
+    served.length > 0 ? served : FALLBACK_MODEL_OPTIONS[adapter]
+  ).filter((option) => {
+    if (option.value === pinnedModel) {
+      return true;
+    }
+    const flag = accessFlagForModel(option.value);
+    return flag === undefined || flags[flag];
+  });
   if (pinnedModel && !options.some((option) => option.value === pinnedModel)) {
     options.push({ value: pinnedModel, label: catalogLabel(pinnedModel) });
   }

@@ -71,6 +71,18 @@ export function reasoningEffortsForModel(
  * for everything else. Mirrors `label_for_model` in
  * products/tasks/backend/model_catalog.py, so both surfaces name a model identically.
  */
+/**
+ * The feature flag a person needs before a picker offers this model, or `undefined` when
+ * it is generally available.
+ *
+ * Governs display only. The server decides whether a run may use the model, so a stale
+ * projection can hide a model a person may use, never the other way round.
+ */
+export function accessFlagForModel(modelId: string): string | undefined {
+  const normalized = normalizeModelId(modelId);
+  return MODELS.find((candidate) => candidate.id === normalized)?.accessFlag;
+}
+
 export function labelForModel(modelId: string): string | undefined {
   const normalized = normalizeModelId(modelId);
   return MODELS.find((candidate) => candidate.id === normalized)?.label;

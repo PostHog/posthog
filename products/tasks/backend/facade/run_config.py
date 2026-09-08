@@ -14,7 +14,6 @@ from products.tasks.backend.constants import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
-    MODEL_ACCESS_FLAGS,
     InitialPermissionMode,
     get_required_model_flag,
 )
@@ -67,7 +66,6 @@ __all__ = [
     "INITIAL_PERMISSION_MODE_CHOICES",
     "WARMABLE_ORIGIN_PRODUCTS",
     "InitialPermissionMode",
-    "MODEL_ACCESS_FLAGS",
     "PUBLIC_REASONING_EFFORTS",
     "GitHubCredentialSource",
     "LLMProvider",

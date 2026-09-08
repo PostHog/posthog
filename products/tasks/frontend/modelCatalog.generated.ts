@@ -28,6 +28,10 @@ export interface CatalogModel {
     /** What a picker shows. Resolved when this file is generated, so every
         surface names a model the same way without carrying a formatter. */
     label: string
+    /** Feature flag a person needs before a picker offers this model. Absent
+        means generally available. Governs display only — the server decides
+        whether a run may use it. */
+    accessFlag?: string
 }
 
 /** Which vendor API each runtime adapter speaks. */
@@ -44,30 +48,35 @@ export const MODELS: readonly CatalogModel[] = [
         runtimeAdapter: 'claude',
         reasoningEfforts: ['high', 'max'],
         label: 'GLM-5.2',
+        accessFlag: 'posthog-code-glm-model',
     },
     {
         id: 'zai-org/glm-5.3',
         runtimeAdapter: 'claude',
         reasoningEfforts: ['high', 'max'],
         label: 'GLM-5.3',
+        accessFlag: 'posthog-code-glm-53-model',
     },
     {
         id: 'zai-org/glm-5.3-flash',
         runtimeAdapter: 'claude',
         reasoningEfforts: ['high', 'max'],
         label: 'GLM-5.3 Flash',
+        accessFlag: 'posthog-code-glm-53-flash-model',
     },
     {
         id: 'moonshotai/kimi-k3',
         runtimeAdapter: 'claude',
         reasoningEfforts: [],
         label: 'Kimi K3',
+        accessFlag: 'tasks-kimi-k3',
     },
     {
         id: 'deepseek-ai/deepseek-v4-flash-0731',
         runtimeAdapter: 'claude',
         reasoningEfforts: [],
         label: 'DeepSeek V4 Flash',
+        accessFlag: 'posthog-code-deepseek-model',
     },
     {
         id: 'claude-opus-4-5',
