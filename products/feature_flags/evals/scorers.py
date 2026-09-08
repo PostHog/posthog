@@ -15,6 +15,7 @@ failure the lifecycle tools exist to prevent, and final state cannot see it.
 from __future__ import annotations
 
 import json
+from collections import Counter
 from typing import Any
 
 from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall
@@ -185,29 +186,38 @@ def _groups(filters: Any) -> list[dict]:
     return [group for group in groups if isinstance(group, dict)] if isinstance(groups, list) else []
 
 
-def _variant_percentages(filters: Any) -> dict[str, Any]:
+def _variants(filters: Any) -> list[str]:
+    """Every variant, whole and in order.
+
+    Whole, because a variant compared by its percentage alone survives a rewrite that
+    drops its name. In order, because the list decides which users land in which
+    variant. Only the keys inside one variant are sorted, which an agent is free to
+    reorder.
+    """
     if not isinstance(filters, dict):
-        return {}
+        return []
     multivariate = filters.get("multivariate")
     variants = multivariate.get("variants") if isinstance(multivariate, dict) else None
     if not isinstance(variants, list):
-        return {}
-    return {
-        variant["key"]: variant.get("rollout_percentage")
-        for variant in variants
-        if isinstance(variant, dict) and isinstance(variant.get("key"), str)
-    }
+        return []
+    return [json.dumps(variant, sort_keys=True) for variant in variants]
 
 
-def _property_filters(filters: Any) -> list[str]:
-    """Each release condition's property list, canonicalized and order-insensitive.
+def _canonical_group(group: dict) -> str:
+    """One release condition as a comparable string.
 
-    Sorted keys and a sorted outer list, because an agent that rewrites the definition
-    is free to reorder both without changing who the flag serves.
+    The whole condition, because a percentage read apart from the properties it serves
+    cannot tell a rollout change from two conditions trading percentages, and a
+    condition read as properties plus percentage hides a group-level variant override.
+    The properties inside a condition are sorted because they AND together, and keys
+    are sorted because an agent that rewrites the definition may emit them in any order.
     """
-    return sorted(
-        json.dumps(group["properties"], sort_keys=True) for group in _groups(filters) if group.get("properties")
+    properties = group.get("properties")
+    canonical: dict[str, Any] = {key: value for key, value in group.items() if key != "properties"}
+    canonical["properties"] = (
+        sorted(json.dumps(prop, sort_keys=True) for prop in properties) if isinstance(properties, list) else properties
     )
+    return json.dumps(canonical, sort_keys=True)
 
 
 class PreservedUnrelatedConfig(Scorer):
@@ -215,8 +225,9 @@ class PreservedUnrelatedConfig(Scorer):
 
     Sending `filters` replaces the whole object, so an agent that writes the new
     percentage without merging the current definition silently drops the other release
-    condition, the variants and the payloads. Checks the shape the seed declared rather
-    than a byte-for-byte match, so an equivalent rewrite still passes.
+    condition, the variants and the payloads. Compares whole release conditions against
+    the ones the seed declared, so a write that moves the number onto the wrong
+    condition fails, while a rewrite that only reorders what it read still passes.
     """
 
     def _name(self) -> str:
@@ -239,27 +250,39 @@ class PreservedUnrelatedConfig(Scorer):
 
         before = seed["initial_filters"]
         after = writes[-1].input["filters"]
+        source = seed.get("rollout_from_percentage")
         target = seed.get("rollout_to_percentage")
-        pinned = [
-            group.get("rollout_percentage")
-            for group in _groups(before)
-            if group.get("rollout_percentage") != seed.get("rollout_from_percentage")
-        ]
 
-        after_percentages = [group.get("rollout_percentage") for group in _groups(after)]
+        before_groups = _groups(before)
+        after_groups = _groups(after)
+        moved = [
+            {**group, "rollout_percentage": target}
+            for group in before_groups
+            if group.get("rollout_percentage") == source
+        ]
+        pinned = [group for group in before_groups if group.get("rollout_percentage") != source]
+        # Counted over every condition at once, so two of them that traded percentages
+        # cannot cover for each other.
+        missing = Counter(_canonical_group(group) for group in [*moved, *pinned]) - Counter(
+            _canonical_group(group) for group in after_groups
+        )
+
         checks = {
-            "moved_the_target_group": target in after_percentages,
-            "kept_the_other_conditions": all(percentage in after_percentages for percentage in pinned),
-            "kept_every_condition": len(_groups(after)) == len(_groups(before)),
-            "kept_the_property_filters": _property_filters(after) == _property_filters(before),
-            "kept_the_variants": _variant_percentages(after) == _variant_percentages(before),
+            "moved_the_target_group": not any(_canonical_group(group) in missing for group in moved),
+            "kept_the_other_conditions": not any(_canonical_group(group) in missing for group in pinned),
+            "kept_every_condition": len(after_groups) == len(before_groups),
+            "kept_the_variants": _variants(after) == _variants(before),
             "kept_the_payloads": (after.get("payloads") if isinstance(after, dict) else None) == before.get("payloads"),
         }
         failed = sorted(name for name, ok in checks.items() if not ok)
         return Score(
             name=self._name(),
             score=0.0 if failed else 1.0,
-            metadata={"failed_checks": failed, "written_filters": after},
+            metadata={
+                "failed_checks": failed,
+                "conditions_not_written": sorted(missing.elements()),
+                "written_filters": after,
+            },
         )
 
 

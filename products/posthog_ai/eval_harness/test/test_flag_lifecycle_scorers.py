@@ -102,6 +102,28 @@ def _without(key: str) -> dict[str, Any]:
     return filters
 
 
+def _swapped_filters() -> dict[str, Any]:
+    """The two release conditions trade percentages, so the catch-all goes to 100%."""
+    filters = _merged_filters()
+    filters["groups"][0]["rollout_percentage"] = ROLLOUT_TO_PERCENTAGE
+    filters["groups"][1]["rollout_percentage"] = ROLLOUT_PINNED_PERCENTAGE
+    return filters
+
+
+def _unnamed_variants() -> dict[str, Any]:
+    filters = _merged_filters()
+    for variant in filters["multivariate"]["variants"]:
+        variant.pop("name")
+    return filters
+
+
+def _group_level_variant_override() -> dict[str, Any]:
+    """The merged write, plus an override pinning the moved condition to one variant."""
+    filters = _merged_filters()
+    filters["groups"][1]["variant"] = "retry"
+    return filters
+
+
 # A spec-driven scorer that returned 0.0 instead of None on a case it does not apply to
 # would drag every unrelated case down, so the suite mean would stop meaning anything.
 @parameterized.expand(
@@ -266,6 +288,16 @@ def test_created_flag_with_tags(
             0.0,
         ),
         ("never_moved_the_target_group", SEEDED_FILTERS, 0.0),
+        # The same two percentages come back, on the wrong conditions: everyone now gets
+        # the flag and only paying customers are sampled. Comparing the percentages apart
+        # from the conditions they serve cannot see it.
+        ("swapped_the_targeting_between_the_conditions", _swapped_filters(), 0.0),
+        # Both names are user-facing, and a variant checked by its percentage keeps them
+        # only by accident.
+        ("dropped_the_variant_names", _unnamed_variants(), 0.0),
+        # Everything the seed declared is still there, plus a group-level override that
+        # pins the whole condition to one variant.
+        ("added_a_group_level_variant_override", _group_level_variant_override(), 0.0),
     ]
 )
 def test_preserved_unrelated_config(_name: str, written: dict[str, Any], expected_score: float) -> None:
