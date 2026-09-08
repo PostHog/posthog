@@ -9,7 +9,7 @@ import { IntervalType } from '~/types'
 import type { AlertType } from '../types'
 import type { AlertFormType } from './alertFormLogic'
 import { cadenceFinerThanInsightInterval } from './alertIntervalHelpers'
-import { forecastTargetDateError, forecastTargetValueError } from './forecastReach'
+import { forecastTargetDateError, forecastTargetReachError, forecastTargetValueError } from './forecastReach'
 import { quietHoursFormError } from './scheduleRestrictionValidation'
 
 export const THRESHOLD_BOUNDS_FORM_ERROR = 'Enter at least one threshold (less than or more than)'
@@ -129,12 +129,15 @@ export function getAlertFormValidationErrors(
     const errors: Record<string, ValidationErrorType> = {}
 
     const forecast = alert.forecast_config
-    if (
-        forecast?.condition === ForecastConditionType.TARGET_BY_DATE &&
-        forecast.target_date !== context.savedTargetDate
-    ) {
+    if (forecast?.condition === ForecastConditionType.TARGET_BY_DATE) {
         const today = context.projectTimezone ? dayjsNowInTimezone(context.projectTimezone) : dayjs()
-        const dateError = forecastTargetDateError(forecast.target_date, today, context.insightInterval)
+        // An unchanged date keeps its past-date pass, matching the server, so an expired alert can
+        // still be renamed or turned off. How far it reaches is checked either way, because
+        // regrouping the insight to a finer interval can push a saved date over the point limit.
+        const dateError =
+            forecast.target_date === context.savedTargetDate
+                ? forecastTargetReachError(forecast.target_date, today, context.insightInterval)
+                : forecastTargetDateError(forecast.target_date, today, context.insightInterval)
         if (dateError) {
             errors.forecast_config = dateError
         }

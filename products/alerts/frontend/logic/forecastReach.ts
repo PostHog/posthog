@@ -70,10 +70,24 @@ export function forecastTargetDateError(
     if (!targetDate) {
         return 'Choose a target date'
     }
-    const days = dayjs(targetDate).startOf('day').diff(today.startOf('day'), 'day')
-    if (days <= 0) {
+    if (dayjs(targetDate).startOf('day').diff(today.startOf('day'), 'day') <= 0) {
         return 'The target date must be in the future.'
     }
+    return forecastTargetReachError(targetDate, today, interval)
+}
+
+/** How far a target date reaches. Split out because a saved date keeps its past-date pass, the way
+ * the server does, while these limits still apply to it: both depend on the insight's interval,
+ * which can be regrouped to a finer bucket after the alert was saved. */
+export function forecastTargetReachError(
+    targetDate: string | undefined,
+    today: dayjs.Dayjs,
+    interval?: IntervalType | null
+): string | null {
+    if (!targetDate) {
+        return null
+    }
+    const days = dayjs(targetDate).startOf('day').diff(today.startOf('day'), 'day')
     if (days > MAX_FORECAST_REACH_DAYS) {
         return 'A forecast target must be within 92 days. Move the date closer, or use quarterly milestones.'
     }

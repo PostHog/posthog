@@ -233,6 +233,19 @@ describe('a target alert whose date has passed', () => {
         expect(errors).toEqual({})
     })
 
+    // Regrouping the insight to a finer bucket can push a saved date past the point limit, which the
+    // server still checks, so the form has to name it instead of letting the save fail.
+    it('blocks an unchanged date that no longer fits the insight interval', () => {
+        const targetDate = dayjs().add(60, 'day').format('YYYY-MM-DD')
+        const errors = getAlertFormValidationErrors(
+            { ...finishedAlert, forecast_config: { ...savedForecastConfig, target_date: targetDate } },
+            { savedTargetDate: targetDate, insightInterval: 'hour' }
+        )
+        expect(errors.forecast_config).toBe(
+            'This interval needs more than 250 forecast points. Use a coarser insight interval.'
+        )
+    })
+
     it('blocks when the edit moves the date into the past, which the server also rejects', () => {
         const errors = getAlertFormValidationErrors(
             { ...finishedAlert, forecast_config: { ...savedForecastConfig, target_date: '2021-01-01' } },
