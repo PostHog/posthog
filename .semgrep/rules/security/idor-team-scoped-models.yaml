@@ -80,6 +80,12 @@ rules:
                               |Announcement
                               |AnnouncementDelivery
                               |ApprovalPolicy
+                              |AutoresearchIteration
+                              |AutoresearchModel
+                              |AutoresearchPipeline
+                              |AutoresearchRun
+                              |AutoresearchSuggestion
+                              |AutoresearchTrainingRun
                               |BatchExport
                               |BatchExportBackfill
                               |BatchExportFileDownload
@@ -96,6 +102,7 @@ rules:
                               |ChangeRequest
                               |ChannelContextGeneration
                               |ChannelInstructions
+                              |ChannelMembership
                               |ChannelStar
                               |ClusteringConfig
                               |ClusteringJob
@@ -112,6 +119,8 @@ rules:
                               |CoreMemory
                               |CustomerJourney
                               |CustomerProfileConfig
+                              |CustomerTask
+                              |CustomerTaskActivity
                               |CustomOAuth2Integration
                               |CustomPropertyDefinition
                               |CustomPropertySource
@@ -477,6 +486,12 @@ rules:
                         |Announcement
                         |AnnouncementDelivery
                         |ApprovalPolicy
+                        |AutoresearchIteration
+                        |AutoresearchModel
+                        |AutoresearchPipeline
+                        |AutoresearchRun
+                        |AutoresearchSuggestion
+                        |AutoresearchTrainingRun
                         |BatchExport
                         |BatchExportBackfill
                         |BatchExportFileDownload
@@ -493,6 +508,7 @@ rules:
                         |ChangeRequest
                         |ChannelContextGeneration
                         |ChannelInstructions
+                        |ChannelMembership
                         |ChannelStar
                         |ClusteringConfig
                         |ClusteringJob
@@ -509,6 +525,8 @@ rules:
                         |CoreMemory
                         |CustomerJourney
                         |CustomerProfileConfig
+                        |CustomerTask
+                        |CustomerTaskActivity
                         |CustomOAuth2Integration
                         |CustomPropertyDefinition
                         |CustomPropertySource

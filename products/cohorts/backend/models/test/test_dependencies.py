@@ -1,8 +1,13 @@
+from typing import Any
+
 from posthog.test.base import BaseTest
 from pytest import fixture
 from unittest import mock
 
 from django.core.cache import cache
+from django.db import OperationalError, connection
+from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
@@ -12,6 +17,7 @@ from products.cohorts.backend.models.dependencies import (
     COHORT_DEPENDENCY_CACHE_COUNTER,
     DEPENDENCY_CACHE_TIMEOUT,
     _behavioral_cohort_ids_key,
+    dependency_cache,
     extract_cohort_dependencies,
     get_cohort_dependencies,
     get_cohort_dependents,
@@ -26,9 +32,10 @@ class TestCohortDependencies(BaseTest):
 
     def _assert_depends_on(self, dependent_cohort: Cohort, dependency_cohort: Cohort) -> None:
         self.assertEqual(cache.get(f"cohort:dependencies:{dependent_cohort.id}"), [dependency_cohort.id])
-        self.assertEqual(cache.get(f"cohort:dependents:{dependency_cohort.id}"), [dependent_cohort.id])
         self.assertEqual(list(get_cohort_dependencies(dependent_cohort)), [dependency_cohort.id])
         self.assertEqual(list(get_cohort_dependents(dependency_cohort)), [dependent_cohort.id])
+        # Writes invalidate reverse lists and reads rebuild them, so the raw key is checked after the read.
+        self.assertEqual(cache.get(f"cohort:dependents:{dependency_cohort.id}"), [dependent_cohort.id])
 
     def _assert_cohorts_have_no_relationships(self, *cohorts: Cohort) -> None:
         for cohort in cohorts:
@@ -230,33 +237,170 @@ class TestCohortDependencies(BaseTest):
                 self.assertEqual(cache.get(f"cohort:dependencies:{cohort.id}"), [cohorts[i - 1].id])
                 self.assertEqual(cache.get(f"cohort:dependents:{cohort.id}"), [cohorts[i + 1].id])
 
-    def test_warm_team_cohort_dependency_cache_refreshes_ttl(self) -> None:
+    def test_warm_team_cohort_dependency_cache_sets_ttl_for_both_families(self) -> None:
         cohort_a = self._create_cohort(name="Test Cohort A")
         cohort_b = self._create_cohort(
             name="Test Cohort B", groups=[{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.id}]}]
         )
 
-        # Warm the cache initially
-        warm_team_cohort_dependency_cache(self.team.id)
-
-        # Mock cache.touch and cache.set_many to verify TTL refresh
-        with mock.patch.object(cache, "touch") as mock_touch, mock.patch.object(cache, "set_many") as mock_set_many:
-            # Call warm again - should refresh TTL
+        with mock.patch.object(dependency_cache, "set_many", wraps=dependency_cache.set_many) as mock_set_many:
             warm_team_cohort_dependency_cache(self.team.id)
 
-            # Verify touch was called for dependency keys
-            expected_dependency_keys = [
-                f"cohort:dependencies:{cohort_a.id}",
-                f"cohort:dependencies:{cohort_b.id}",
-            ]
+        written: dict[str, list[int]] = {}
+        for call in mock_set_many.call_args_list:
+            self.assertEqual(call.kwargs.get("timeout"), DEPENDENCY_CACHE_TIMEOUT)
+            written.update(call.args[0])
+        self.assertEqual(written[f"cohort:dependencies:{cohort_b.id}"], [cohort_a.id])
+        self.assertEqual(written[f"cohort:dependents:{cohort_a.id}"], [cohort_b.id])
 
-            for key in expected_dependency_keys:
-                mock_touch.assert_any_call(key, timeout=DEPENDENCY_CACHE_TIMEOUT)
+    def test_warm_uses_batched_writes_only(self) -> None:
+        cohort_a = self._create_cohort(name="Test Cohort A")
+        cohort_b = self._create_cohort(
+            name="Test Cohort B", groups=[{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.id}]}]
+        )
+        cohort_c = self._create_cohort(
+            name="Test Cohort C", groups=[{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.id}]}]
+        )
+        cache.clear()
 
-            # Verify set_many was called with timeout for dependents
-            self.assertTrue(mock_set_many.called)
-            args, kwargs = mock_set_many.call_args
-            self.assertEqual(kwargs.get("timeout"), DEPENDENCY_CACHE_TIMEOUT)
+        with (
+            mock.patch.object(dependency_cache, "has_key") as mock_has_key,
+            mock.patch.object(dependency_cache, "touch") as mock_touch,
+            mock.patch.object(dependency_cache, "get_or_set") as mock_get_or_set,
+            mock.patch.object(dependency_cache, "set_many", wraps=dependency_cache.set_many) as mock_set_many,
+        ):
+            scanned = warm_team_cohort_dependency_cache(self.team.id)
+
+        self.assertEqual(scanned, 3)
+        mock_has_key.assert_not_called()
+        mock_touch.assert_not_called()
+        mock_get_or_set.assert_not_called()
+        self.assertEqual(mock_set_many.call_count, 2)
+        self.assertCountEqual(cache.get(f"cohort:dependents:{cohort_a.id}"), [cohort_b.id, cohort_c.id])
+
+    def test_warm_reverse_map_spans_batches(self) -> None:
+        base = self._create_cohort(name="Base Cohort")
+        dependents = [
+            self._create_cohort(
+                name=f"Dependent Cohort {i}",
+                groups=[{"properties": [{"key": "id", "type": "cohort", "value": base.id}]}],
+            )
+            for i in range(4)
+        ]
+        cache.clear()
+
+        warm_team_cohort_dependency_cache(self.team.id, batch_size=2)
+
+        self.assertCountEqual(cache.get(f"cohort:dependents:{base.id}"), [cohort.id for cohort in dependents])
+
+    def test_warm_rescans_when_an_edge_changes_during_the_scan(self) -> None:
+        cohort_a = self._create_cohort(name="Test Cohort A")
+        cohort_b = self._create_cohort(name="Test Cohort B")
+        cache.clear()
+        real_set_many = dependency_cache.set_many
+        edited = False
+
+        def add_edge_during_first_publish(data: dict[str, list[int]], **kwargs: Any) -> list[str]:
+            nonlocal edited
+            if not edited:
+                edited = True
+                cohort_b.groups = [{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.id}]}]
+                cohort_b.save()
+            return real_set_many(data, **kwargs)
+
+        with mock.patch.object(dependency_cache, "set_many", side_effect=add_edge_during_first_publish):
+            warm_team_cohort_dependency_cache(self.team.id)
+
+        self.assertEqual(cache.get(f"cohort:dependents:{cohort_a.id}"), [cohort_b.id])
+        self.assertEqual(cache.get(f"cohort:dependencies:{cohort_b.id}"), [cohort_a.id])
+
+    def test_create_does_not_scan_team_cohorts(self) -> None:
+        for i in range(25):
+            self._create_cohort(name=f"Existing Cohort {i}")
+
+        with (
+            mock.patch("products.cohorts.backend.models.dependencies.warm_team_cohort_dependency_cache") as mock_warm,
+            CaptureQueriesContext(connection) as queries,
+        ):
+            self._create_cohort(name="New Cohort")
+
+        mock_warm.assert_not_called()
+        cohort_reads = [query["sql"] for query in queries.captured_queries if 'FROM "posthog_cohort"' in query["sql"]]
+        self.assertEqual(cohort_reads, [])
+
+    def test_create_with_no_dependencies_writes_only_own_keys(self) -> None:
+        cohort_a = self._create_cohort(name="Test Cohort A")
+        cache.set(f"cohort:dependents:{cohort_a.id}", [999])
+
+        with mock.patch.object(dependency_cache, "delete_many", wraps=dependency_cache.delete_many) as mock_delete:
+            cohort_b = self._create_cohort(name="Test Cohort B")
+
+        mock_delete.assert_not_called()
+        self.assertEqual(cache.get(f"cohort:dependencies:{cohort_b.id}"), [])
+        self.assertEqual(cache.get(f"cohort:dependents:{cohort_b.id}"), [])
+        self.assertEqual(cache.get(f"cohort:dependents:{cohort_a.id}"), [999])
+
+    def test_create_with_dependency_invalidates_target_dependents(self) -> None:
+        cohort_a = self._create_cohort(name="Test Cohort A")
+        cache.set(f"cohort:dependents:{cohort_a.id}", [999])
+
+        cohort_c = self._create_cohort(
+            name="Test Cohort C", groups=[{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.id}]}]
+        )
+
+        self.assertIsNone(cache.get(f"cohort:dependents:{cohort_a.id}"))
+        self.assertEqual(cache.get(f"cohort:dependencies:{cohort_c.id}"), [cohort_a.id])
+        self.assertEqual(get_cohort_dependents(cohort_a), [cohort_c.id])
+
+    def test_hard_delete_with_dependencies_key_absent(self) -> None:
+        cohort_a = self._create_cohort(name="Test Cohort A")
+        cohort_b = self._create_cohort(
+            name="Test Cohort B", groups=[{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.id}]}]
+        )
+        self._assert_depends_on(cohort_b, cohort_a)
+        cache.delete(f"cohort:dependencies:{cohort_b.id}")
+
+        cohort_b.delete()
+
+        self.assertIsNone(cache.get(f"cohort:dependents:{cohort_a.id}"))
+        self.assertEqual(get_cohort_dependents(cohort_a), [])
+
+    def test_soft_delete_then_restore_readds_reverse_edge(self) -> None:
+        cohort_a = self._create_cohort(name="Test Cohort A")
+        cohort_c = self._create_cohort(
+            name="Test Cohort C", groups=[{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.id}]}]
+        )
+        self._assert_depends_on(cohort_c, cohort_a)
+
+        cohort_c.deleted = True
+        cohort_c.save()
+        self.assertEqual(get_cohort_dependents(cohort_a), [])
+
+        cohort_c.deleted = False
+        cohort_c.save()
+        self.assertEqual(get_cohort_dependents(cohort_a), [cohort_c.id])
+
+    def test_save_without_definition_fields_skips_maintenance(self) -> None:
+        cohort_a = self._create_cohort(name="Test Cohort A")
+        cohort_b = self._create_cohort(
+            name="Test Cohort B", groups=[{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.id}]}]
+        )
+        self._assert_depends_on(cohort_b, cohort_a)
+
+        with mock.patch("products.cohorts.backend.models.dependencies.warm_team_cohort_dependency_cache") as mock_warm:
+            cohort_b.name = "Renamed Cohort B"
+            cohort_b.save(update_fields=["name"])
+
+        mock_warm.assert_not_called()
+        self.assertEqual(cache.get(f"cohort:dependents:{cohort_a.id}"), [cohort_b.id])
+        self.assertEqual(cache.get(f"cohort:dependencies:{cohort_b.id}"), [cohort_a.id])
+
+    @override_settings(COHORT_DEPENDENCY_INCREMENTAL_MAINTENANCE=False)
+    def test_kill_switch_restores_full_warm(self) -> None:
+        with mock.patch("products.cohorts.backend.models.dependencies.warm_team_cohort_dependency_cache") as mock_warm:
+            cohort = self._create_cohort(name="Test Cohort A")
+
+        mock_warm.assert_called_once_with(cohort.team_id)
 
     def test_cache_miss_get_cohort_dependencies(self) -> None:
         cohort_a = self._create_cohort(name="Test Cohort A")
@@ -298,6 +442,15 @@ class TestCohortDependencies(BaseTest):
 
         self.assertEqual(get_cohort_dependents(cohort_a.id), [cohort_b.id])
         self._assert_depends_on(cohort_b, cohort_a)
+
+    def test_dependents_lookup_failure_is_not_cached(self) -> None:
+        cohort_a = self._create_cohort(name="Test Cohort A")
+        cache.clear()
+
+        with mock.patch.object(Cohort.objects, "filter", side_effect=OperationalError("connection reset")):
+            self.assertEqual(get_cohort_dependents(cohort_a.id), [])
+
+        self.assertIsNone(cache.get(f"cohort:dependents:{cohort_a.id}"))
 
     @parameterized.expand(
         [

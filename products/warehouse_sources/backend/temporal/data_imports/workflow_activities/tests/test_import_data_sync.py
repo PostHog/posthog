@@ -762,24 +762,27 @@ def _parent(
     should_sync: bool,
     initial_sync_complete: bool,
     sync_type: str = ExternalDataSchema.SyncType.INCREMENTAL,
+    row_count: int | None = 50_000,
 ) -> mock.MagicMock:
     parent = mock.MagicMock()
     parent.should_sync = should_sync
     parent.initial_sync_complete = initial_sync_complete
     parent.sync_type = sync_type
     parent.is_incremental = sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+    parent.table = mock.MagicMock(row_count=row_count) if row_count is not None else None
     return parent
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "parent",
-    [None, "disabled", "never_synced", "append_mode", "cdc_mode"],
+    [None, "disabled", "never_synced", "append_mode", "cdc_mode", "too_small", "unknown_size"],
 )
 async def test_unusable_parent_falls_back_to_the_api_path(parent):
     # A child enabled without its parent is a config that syncs today, so turning the flag on
     # must leave it working: fall back to the parent API instead of failing the run. Append and
-    # CDC parents hold more than one row per key, so the reader must not stream them either.
+    # CDC parents hold more than one row per key, so the reader must not stream them either. A
+    # parent under the size floor costs more to open than the listing it would replace.
     parent_obj = None
     if parent == "disabled":
         parent_obj = _parent(should_sync=False, initial_sync_complete=True)
@@ -789,6 +792,10 @@ async def test_unusable_parent_falls_back_to_the_api_path(parent):
         parent_obj = _parent(should_sync=True, initial_sync_complete=True, sync_type=ExternalDataSchema.SyncType.APPEND)
     elif parent == "cdc_mode":
         parent_obj = _parent(should_sync=True, initial_sync_complete=True, sync_type=ExternalDataSchema.SyncType.CDC)
+    elif parent == "too_small":
+        parent_obj = _parent(should_sync=True, initial_sync_complete=True, row_count=999)
+    elif parent == "unknown_size":
+        parent_obj = _parent(should_sync=True, initial_sync_complete=True, row_count=None)
 
     with (
         mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
