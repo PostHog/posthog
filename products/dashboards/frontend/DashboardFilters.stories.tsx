@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { screen } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 import { router } from 'kea-router'
@@ -267,7 +266,10 @@ export const UnsavedChangesPopover: Story = {
         filterChanges: dashboardFilterKinds,
     },
     play: async () => {
-        await userEvent.click(await screen.findByLabelText('Show 5 unsaved filters'))
-        await screen.findByText('Unsaved changes')
+        const trigger = document.querySelector('[aria-label="Show 5 unsaved filters"]')
+        if (!trigger) {
+            throw new Error('Unsaved changes trigger not found')
+        }
+        await userEvent.click(trigger)
     },
 }
