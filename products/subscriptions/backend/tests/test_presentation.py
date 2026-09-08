@@ -6,6 +6,9 @@ from typing import cast
 from uuid import uuid4
 
 import pytest
+from posthog.test.base import APIBaseTest
+
+from django.test import override_settings
 
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import JSONParser
@@ -62,3 +65,21 @@ def test_runtime_kill_switch_blocks_an_existing_research_token(disabled_setting:
     search = cast(Callable[..., Response], PulseResearchViewSet().search)
     with pytest.raises(PermissionDenied):
         search(request, team_id=1)
+
+
+class TestProactiveConfigurationOptionsView(APIBaseTest):
+    @override_settings(
+        PULSE_PROACTIVE_ENABLED=True,
+        PULSE_PUBLIC_RESEARCH_ENABLED=False,
+        PULSE_ARTIFACT_PREPARATION_ENABLED=False,
+    )
+    def test_returns_instance_availability_for_the_current_project(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.pk}/subscriptions/proactive_options/")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "proactive_available": True,
+            "public_web_research_available": False,
+            "draft_pr_available": False,
+            "repositories": [],
+        }

@@ -24,23 +24,28 @@ export function AiPromptSubscriptionIntroduction(): JSX.Element {
 const AI_PROMPT_EXAMPLES: { icon: ReactElement; label: string; prompt: string }[] = [
     {
         icon: <IconLineGraph />,
-        label: 'Top events',
-        prompt: 'Top 5 events by volume, with counts and unique users for each.',
+        label: 'Improve activation',
+        prompt: 'Investigate where new users drop off before activation and identify the highest-impact next step.',
     },
     {
         icon: <IconTrending />,
-        label: 'Period-over-period growth',
-        prompt: 'For the top 10 events by volume, compare the current period vs the previous one and rank by growth rate. Flag any event that more than doubled or halved.',
+        label: 'Grow feature adoption',
+        prompt: 'Investigate which important features are gaining or losing adoption and recommend where to focus.',
     },
     {
         icon: <IconPulse />,
-        label: 'Health check',
-        prompt: 'Health check: total event volume and unique active users, and how each compares to the previous period.',
+        label: 'Increase conversion',
+        prompt: 'Investigate the conversion funnel, identify the largest drop-off, and recommend a next step.',
     },
     {
         icon: <IconWarning />,
-        label: 'Tracking gaps',
-        prompt: 'Which events we normally track received no data? List them so I can catch broken instrumentation.',
+        label: 'Improve retention',
+        prompt: 'Investigate which users are least likely to return and identify an opportunity to improve retention.',
+    },
+    {
+        icon: <IconWarning />,
+        label: 'Catch regressions',
+        prompt: 'Investigate meaningful recent regressions in product usage and identify what needs attention first.',
     },
 ]
 
@@ -112,18 +117,18 @@ export function AiPromptFields({
             ) : null}
             <LemonField
                 name="prompt"
-                label="What do you want to know?"
-                help="We'll use this question to surface the right information in each report."
+                label="What should this report investigate?"
+                help="Describe the question or goal for each report."
             >
                 <LemonTextArea
-                    placeholder="e.g. Which events grew the most week-over-week? Highlight any unusual spikes."
+                    placeholder="e.g. Which events grew the most week-over-week? Highlight unusual spikes."
                     minRows={4}
                     maxLength={SubscriptionAIPromptMaxLength.CHARACTERS}
                 />
             </LemonField>
             {showExamples ? (
                 <div className="flex flex-col gap-1">
-                    <span className="text-xs text-secondary">Try one of these questions:</span>
+                    <span className="text-xs text-secondary">Try a suggested goal:</span>
                     <div className="flex flex-wrap gap-1">
                         {AI_PROMPT_EXAMPLES.map((example) => (
                             <LemonButton

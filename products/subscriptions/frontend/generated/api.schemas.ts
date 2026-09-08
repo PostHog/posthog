@@ -803,6 +803,27 @@ export interface PaginatedSubscriptionDeliveryListApi {
     results: SubscriptionDeliveryApi[]
 }
 
+export interface ProactiveRepositoryOptionApi {
+    /** Repository currently authorized for the requesting user, in owner/repository format. */
+    readonly repository: string
+    /**
+     * GitHub integration that currently authorizes this repository.
+     * @minimum 1
+     */
+    readonly repository_integration_id: number
+}
+
+export interface ProactiveConfigurationOptionsApi {
+    /** Whether this PostHog instance is configured to generate proactive recommendations. */
+    readonly proactive_available: boolean
+    /** Whether this PostHog instance is configured to use public web research for proactive recommendations. */
+    readonly public_web_research_available: boolean
+    /** Whether this PostHog instance is configured to prepare draft pull requests for proactive recommendations. */
+    readonly draft_pr_available: boolean
+    /** Repositories currently authorized for the requesting user to use for draft pull request preparation. */
+    readonly repositories: readonly ProactiveRepositoryOptionApi[]
+}
+
 export interface PulseResearchRequestApi {
     /**
      * A public-web research query. It is searched once and only public results are considered.

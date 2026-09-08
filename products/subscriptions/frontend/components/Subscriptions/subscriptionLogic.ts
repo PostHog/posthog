@@ -22,20 +22,20 @@ import { ExportedAssetType, ExporterFormat, SubscriptionResourceTypes, Subscript
 
 import {
     subscriptionsDeliveriesList,
+    subscriptionsProactiveOptionsList,
     subscriptionsTestDeliveryCreate,
 } from 'products/subscriptions/frontend/generated/api'
 import {
     SubscriptionTargetEnumApi,
     type AIWindowConfigApi,
+    type ProactiveConfigurationOptionsApi,
     type SubscriptionApi,
     type SubscriptionDeliveryApi,
 } from 'products/subscriptions/frontend/generated/api.schemas'
 
-import type { SubscriptionResourceType, UserBasicType, WeekdayType } from '../../../../../frontend/src/types'
+import type { WeekdayType } from '../../../../../frontend/src/types'
 import type { OrganizationType, UserType } from '../../../../../frontend/src/types'
-import type { AIPromptConfigApi } from '../../generated/api.schemas'
 import type { SubscriptionAIWindowModeEnumApi } from '../../generated/api.schemas'
-import type { DeliveryConfigApi } from '../../generated/api.schemas'
 import { newSubscriptionTargetLogic } from '../../scenes/newSubscriptionTargetLogic'
 import { runSubscriptionTestDelivery } from './runSubscriptionTestDelivery'
 import { SUBSCRIPTION_PREFILL_PARAMS } from './subscriptionNudge'
@@ -74,7 +74,17 @@ function validatePrompt(
 
 const AI_WINDOW_MAX_DAYS = 365
 
-function validateAiWindow(subscription: Partial<SubscriptionType>): {
+export type SubscriptionForm = SubscriptionType & Pick<SubscriptionApi, 'proactive_config'>
+
+export enum SubscriptionWizardStep {
+    Content = 'content',
+    Actions = 'actions',
+    Delivery = 'delivery',
+    Schedule = 'schedule',
+    Review = 'review',
+}
+
+function validateAiWindow(subscription: Partial<SubscriptionForm>): {
     ai_prompt_config?: { window: { start_days_ago?: any; end_days_ago?: any } }
 } {
     if (subscription.resource_type !== SubscriptionResourceTypes.AiPrompt) {
@@ -158,7 +168,7 @@ function validateTargetValue(
 }
 
 function validateDashboardExportInsights(
-    subscription: Partial<SubscriptionType>,
+    subscription: Partial<SubscriptionForm>,
     dashboardId: number | undefined
 ): any {
     if (subscription.resource_type === SubscriptionResourceTypes.AiPrompt || !dashboardId) {
@@ -167,7 +177,7 @@ function validateDashboardExportInsights(
     return subscription.dashboard_export_insights?.length ? undefined : 'Select at least one insight'
 }
 
-function validateWeekdaySchedule(subscription: Partial<SubscriptionType>): string | null {
+function validateWeekdaySchedule(subscription: Partial<SubscriptionForm>): string | null {
     if (
         (subscription.frequency === 'daily' || subscription.frequency === 'weekly') &&
         !subscription.byweekday?.length
@@ -189,11 +199,26 @@ function validateWeekdaySchedule(subscription: Partial<SubscriptionType>): strin
         : 'Select the delivery day matching the start date for this interval'
 }
 
-function validateFrequency(subscription: Partial<SubscriptionType>): string | null {
+function validateFrequency(subscription: Partial<SubscriptionForm>): string | null {
     if (!subscription.frequency) {
         return 'You need to set a schedule frequency'
     }
     return validateWeekdaySchedule(subscription)
+}
+
+function validateProactiveConfig(
+    subscription: Partial<SubscriptionForm>,
+    proactiveSettingsEnabled: boolean
+): { proactive_config?: { repository: string } } {
+    const proactiveConfig = subscription.proactive_config
+    if (
+        !proactiveSettingsEnabled ||
+        !proactiveConfig?.create_draft_pr ||
+        (proactiveConfig.repository && proactiveConfig.repository_integration_id)
+    ) {
+        return {}
+    }
+    return { proactive_config: { repository: 'Select a repository' } }
 }
 
 function subscriptionSaveErrorMessage(error: unknown): string {
@@ -210,7 +235,7 @@ function subscriptionSaveErrorMessage(error: unknown): string {
 // Frequencies a deep link may prefill. Anything else is ignored rather than trusted into the form.
 const FREQUENCY_PREFILL_VALUES: SubscriptionType['frequency'][] = ['daily', 'weekly', 'monthly']
 
-const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
+const NEW_SUBSCRIPTION: Partial<SubscriptionForm> = {
     resource_type: SubscriptionResourceTypes.Insight,
     frequency: 'weekly',
     interval: 1,
@@ -224,8 +249,19 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     summary_enabled: false,
     summary_prompt_guide: '',
     ai_prompt_config: { window: { mode: 'since_last_sent' } },
+    proactive_config: {
+        enabled: false,
+        allow_public_web_research: true,
+        create_draft_pr: false,
+        repository: null,
+        repository_integration_id: null,
+    },
     delivery_config: { post_all_insights_in_main_message: false },
     send_test_now: true,
+}
+
+function newSubscriptionForm(overrides: Partial<SubscriptionForm> = {}): SubscriptionForm {
+    return { ...NEW_SUBSCRIPTION, ...overrides } as SubscriptionForm
 }
 
 export interface SubscriptionLogicProps extends SubscriptionBaseProps {
@@ -234,11 +270,13 @@ export interface SubscriptionLogicProps extends SubscriptionBaseProps {
     dashboardName?: string | null
     insightName?: string
     creationSource?: 'editor' | 'wizard'
+    proactiveSettingsEnabled?: boolean
 }
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface subscriptionLogicValues {
     currentOrganization: OrganizationType | null // organizationLogic
     user: UserType | null // userLogic
+    currentWizardStep: SubscriptionWizardStep
     isSubscriptionSubmitting: boolean
     isSubscriptionValid: boolean
     lastDelivery: SubscriptionDeliveryApi | null
@@ -248,19 +286,22 @@ export interface subscriptionLogicValues {
     previewError: string | null
     previewImageUrl: string | null
     previewLoading: boolean
+    proactiveConfigurationOptions: ProactiveConfigurationOptionsApi | null
+    proactiveConfigurationOptionsLoadFailed: boolean
+    proactiveConfigurationOptionsLoading: boolean
     showSubscriptionErrors: boolean
     storedTeamsWebhookHost: string | null
-    subscription: SubscriptionType
+    subscription: SubscriptionForm
     subscriptionAllErrors: Record<string, any>
     subscriptionChanged: boolean
-    subscriptionErrors: DeepPartialMap<SubscriptionType, ValidationErrorType>
+    subscriptionErrors: DeepPartialMap<SubscriptionForm, ValidationErrorType>
     subscriptionHasErrors: boolean
     subscriptionInitialized: boolean
     subscriptionLoading: boolean
     subscriptionManualErrors: Record<string, any>
     subscriptionTouched: boolean
     subscriptionTouches: Record<string, boolean>
-    subscriptionValidationErrors: DeepPartialMap<SubscriptionType, ValidationErrorType>
+    subscriptionValidationErrors: DeepPartialMap<SubscriptionForm, ValidationErrorType>
     summaryQuota: {
         active_count: number
         at_limit: boolean
@@ -293,6 +334,21 @@ export interface subscriptionLogicActions {
         lastDelivery: SubscriptionDeliveryApi | null
         payload?: any
     }
+    loadProactiveConfigurationOptions: () => any
+    loadProactiveConfigurationOptionsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadProactiveConfigurationOptionsSuccess: (
+        proactiveConfigurationOptions: ProactiveConfigurationOptionsApi,
+        payload?: any
+    ) => {
+        proactiveConfigurationOptions: ProactiveConfigurationOptionsApi
+        payload?: any
+    }
     loadSubscription: () => any
     loadSubscriptionFailure: (
         error: string,
@@ -302,70 +358,10 @@ export interface subscriptionLogicActions {
         errorObject?: any
     }
     loadSubscriptionSuccess: (
-        subscription: {
-            ai_prompt_config?: AIPromptConfigApi | null | undefined
-            bysetpos?: number | null | undefined
-            byweekday?: WeekdayType[] | null | undefined
-            created_at?: string | undefined
-            created_by?: UserBasicType | null | undefined
-            dashboard?: number | undefined
-            dashboard_export_insights?: number[] | undefined
-            deleted?: boolean | undefined
-            delivery_config?: DeliveryConfigApi | undefined
-            enabled?: boolean | undefined
-            frequency?: 'daily' | 'monthly' | 'weekly' | 'yearly' | undefined
-            id?: number | undefined
-            insight?: number | undefined
-            insight_short_id?: string | null | undefined
-            integration_id?: number | null | undefined
-            interval?: number | undefined
-            next_delivery_date?: string | null | undefined
-            prompt?: string | null | undefined
-            resource_name?: string | null | undefined
-            resource_type?: SubscriptionResourceType | undefined
-            send_test_now?: boolean | undefined
-            start_date?: string | undefined
-            summary?: string | undefined
-            summary_enabled?: boolean | undefined
-            summary_prompt_guide?: string | undefined
-            target_type?: string | undefined
-            target_value?: string | undefined
-            title?: string | undefined
-            until_date?: string | undefined
-        },
+        subscription: SubscriptionForm,
         payload?: any
     ) => {
-        subscription: {
-            ai_prompt_config?: AIPromptConfigApi | null | undefined
-            bysetpos?: number | null | undefined
-            byweekday?: WeekdayType[] | null | undefined
-            created_at?: string | undefined
-            created_by?: UserBasicType | null | undefined
-            dashboard?: number | undefined
-            dashboard_export_insights?: number[] | undefined
-            deleted?: boolean | undefined
-            delivery_config?: DeliveryConfigApi | undefined
-            enabled?: boolean | undefined
-            frequency?: 'daily' | 'monthly' | 'weekly' | 'yearly' | undefined
-            id?: number | undefined
-            insight?: number | undefined
-            insight_short_id?: string | null | undefined
-            integration_id?: number | null | undefined
-            interval?: number | undefined
-            next_delivery_date?: string | null | undefined
-            prompt?: string | null | undefined
-            resource_name?: string | null | undefined
-            resource_type?: SubscriptionResourceType | undefined
-            send_test_now?: boolean | undefined
-            start_date?: string | undefined
-            summary?: string | undefined
-            summary_enabled?: boolean | undefined
-            summary_prompt_guide?: string | undefined
-            target_type?: string | undefined
-            target_value?: string | undefined
-            title?: string | undefined
-            until_date?: string | undefined
-        }
+        subscription: SubscriptionForm
         payload?: any
     }
     loadSummaryQuota: () => any
@@ -394,8 +390,8 @@ export interface subscriptionLogicActions {
     replaceTeamsWebhook: () => {
         value: true
     }
-    resetSubscription: (values?: SubscriptionType) => {
-        values?: SubscriptionType
+    resetSubscription: (values?: SubscriptionForm) => {
+        values?: SubscriptionForm
     }
     selectAiAnalysisWindow: (mode: AIWindowConfigApi['mode']) => {
         mode: SubscriptionAIWindowModeEnumApi | undefined
@@ -406,6 +402,16 @@ export interface subscriptionLogicActions {
     ) => {
         label: string
         prompt: string
+    }
+    selectProactiveRepository: (
+        repository: string,
+        repositoryIntegrationId: number
+    ) => {
+        repository: string
+        repositoryIntegrationId: number
+    }
+    selectWizardStep: (step: SubscriptionWizardStep) => {
+        step: SubscriptionWizardStep
     }
     sendTestDelivery: () => {
         value: true
@@ -438,8 +444,8 @@ export interface subscriptionLogicActions {
         name: FieldName
         value: any
     }
-    setSubscriptionValues: (values: DeepPartial<SubscriptionType>) => {
-        values: DeepPartial<SubscriptionType>
+    setSubscriptionValues: (values: DeepPartial<SubscriptionForm>) => {
+        values: DeepPartial<SubscriptionForm>
     }
     submitSubscription: () => {
         value: boolean
@@ -451,11 +457,11 @@ export interface subscriptionLogicActions {
         error: Error
         errors: Record<string, any>
     }
-    submitSubscriptionRequest: (subscription: SubscriptionType) => {
-        subscription: SubscriptionType
+    submitSubscriptionRequest: (subscription: SubscriptionForm) => {
+        subscription: SubscriptionForm
     }
-    submitSubscriptionSuccess: (subscription: SubscriptionType) => {
-        subscription: SubscriptionType
+    submitSubscriptionSuccess: (subscription: SubscriptionForm) => {
+        subscription: SubscriptionForm
     }
     touchSubscriptionField: (key: string) => {
         key: string
@@ -499,9 +505,20 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             label,
         }),
         selectAiAnalysisWindow: (mode: AIWindowConfigApi['mode']) => ({ mode }),
+        selectProactiveRepository: (repository: string, repositoryIntegrationId: number) => ({
+            repository,
+            repositoryIntegrationId,
+        }),
+        selectWizardStep: (step: SubscriptionWizardStep) => ({ step }),
     }),
 
     reducers({
+        currentWizardStep: [
+            SubscriptionWizardStep.Content as SubscriptionWizardStep,
+            {
+                selectWizardStep: (_, { step }) => step,
+            },
+        ],
         // The host the API returned for a saved Teams subscription. Null once the user chooses to
         // replace the URL, which is what puts the input back on screen and the validation back on.
         storedTeamsWebhookHost: [
@@ -520,6 +537,14 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 loadLastDelivery: () => false,
                 loadLastDeliveryFailure: () => true,
                 loadLastDeliverySuccess: () => false,
+            },
+        ],
+        proactiveConfigurationOptionsLoadFailed: [
+            false,
+            {
+                loadProactiveConfigurationOptions: () => false,
+                loadProactiveConfigurationOptionsFailure: () => true,
+                loadProactiveConfigurationOptionsSuccess: () => false,
             },
         ],
         testDeliveryLoading: [
@@ -563,6 +588,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     }),
 
     loaders(({ props }) => ({
+        proactiveConfigurationOptions: {
+            __default: null as ProactiveConfigurationOptionsApi | null,
+            loadProactiveConfigurationOptions: async () => {
+                return await subscriptionsProactiveOptionsList(String(getCurrentTeamId()))
+            },
+        },
         lastDelivery: {
             __default: null as SubscriptionDeliveryApi | null,
             loadLastDelivery: async () => {
@@ -574,7 +605,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             },
         },
         subscription: {
-            __default: undefined as unknown as SubscriptionType,
+            __default: undefined as unknown as SubscriptionForm,
             loadSubscription: async () => {
                 if (props.id && props.id !== 'new') {
                     const subscription = await api.subscriptions.get(props.id)
@@ -604,7 +635,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         },
                     }
                 }
-                return { ...NEW_SUBSCRIPTION }
+                return newSubscriptionForm()
             },
         },
         summaryQuota: {
@@ -617,7 +648,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
 
     forms(({ props, actions, cache, values }) => ({
         subscription: {
-            defaults: { enabled: NEW_SUBSCRIPTION.enabled } as unknown as SubscriptionType,
+            defaults: { enabled: NEW_SUBSCRIPTION.enabled } as unknown as SubscriptionForm,
             errors: (subscription) => ({
                 frequency: validateFrequency(subscription),
                 title: !subscription.title ? 'You need to give your subscription a name' : undefined,
@@ -634,6 +665,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     isTeamsWebhookKept(subscription.target_type, values.storedTeamsWebhookHost)
                 ),
                 dashboard_export_insights: validateDashboardExportInsights(subscription, props.dashboardId),
+                ...validateProactiveConfig(subscription, Boolean(props.proactiveSettingsEnabled)),
             }),
             submit: async (subscription, breakpoint) => {
                 const isAi = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
@@ -659,11 +691,13 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     // toggling resource_type back) would be rejected by the backend, so drop it.
                     prompt: isAi ? subscription.prompt?.trim() : undefined,
                     ai_prompt_config: isAi ? subscription.ai_prompt_config : undefined,
+                    proactive_config:
+                        isAi && props.proactiveSettingsEnabled ? subscription.proactive_config : undefined,
                 }
 
                 breakpoint()
 
-                const updatedSub: SubscriptionType =
+                const updatedSub: SubscriptionForm =
                     props.id === 'new'
                         ? await api.subscriptions.create(payload)
                         : await api.subscriptions.update(props.id, payload)
@@ -728,6 +762,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             }
             if (props.id !== 'new') {
                 actions.loadLastDelivery()
+            }
+            if (
+                props.proactiveSettingsEnabled &&
+                initialSubscription.resource_type === SubscriptionResourceTypes.AiPrompt
+            ) {
+                actions.loadProactiveConfigurationOptions()
             }
         },
         sendTestDelivery: async () => {
@@ -816,6 +856,16 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             }
             actions.setSubscriptionValues({ ai_prompt_config: { ...config, window } })
         },
+        selectProactiveRepository: ({ repository, repositoryIntegrationId }) => {
+            actions.setSubscriptionValues({
+                proactive_config: {
+                    ...values.subscription.proactive_config,
+                    create_draft_pr: true,
+                    repository,
+                    repository_integration_id: repositoryIntegrationId,
+                },
+            })
+        },
         submitSubscriptionFailure: ({ error }) => {
             // Kea-forms emits this when client validation fails; fields already show errors.
             if (error instanceof Error && error.message === 'Validation Failed') {
@@ -830,6 +880,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
 
         setSubscriptionValue: ({ name, value }, _breakpoint, _action, previousState) => {
             const key = Array.isArray(name) ? name[0] : name
+            const path = Array.isArray(name) ? name.join('.') : name
             if (key === 'frequency') {
                 if (value === 'daily') {
                     actions.setSubscriptionValues({
@@ -865,7 +916,28 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 })
             }
 
-            const path = Array.isArray(name) ? name.join('.') : name
+            if (
+                path === 'proactive_config.create_draft_pr' &&
+                !value &&
+                (values.subscription.proactive_config?.repository ||
+                    values.subscription.proactive_config?.repository_integration_id)
+            ) {
+                actions.setSubscriptionValues({
+                    proactive_config: {
+                        ...values.subscription.proactive_config,
+                        create_draft_pr: false,
+                        repository: null,
+                        repository_integration_id: null,
+                    },
+                })
+            }
+            if (
+                key === 'resource_type' &&
+                value === SubscriptionResourceTypes.AiPrompt &&
+                props.proactiveSettingsEnabled
+            ) {
+                actions.loadProactiveConfigurationOptions()
+            }
             if (path === 'ai_prompt_config.window.mode') {
                 // Reducers run before listeners, so previousState tells a real mode switch (reset the
                 // day bounds) apart from a same-mode re-select (keep them).
@@ -945,7 +1017,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     events(({ actions, values, props }) => ({
         afterMount: () => {
             if (props.id === 'new' && !values.subscriptionInitialized) {
-                actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION })
+                actions.loadSubscriptionSuccess(newSubscriptionForm())
             }
             // Load the org-wide AI summary quota once per logic mount so
             // the paywall conditional in EditSubscription has data to react
@@ -977,7 +1049,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
 
     urlToAction(({ actions, props, cache, values }) => ({
         '/*/*/subscriptions/new': (_, searchParams) => {
-            actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION })
+            actions.loadSubscriptionSuccess(newSubscriptionForm())
             if (searchParams.resource_type === SubscriptionResourceTypes.AiPrompt) {
                 actions.setSubscriptionValue('resource_type', SubscriptionResourceTypes.AiPrompt)
             }
@@ -1042,10 +1114,9 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             // arrives as props. Without one there is nothing to snapshot, so the only thing
             // this route can create is a report from a prompt.
             const isParentless = !props.insightShortId && !props.dashboardId
-            actions.loadSubscriptionSuccess({
-                ...NEW_SUBSCRIPTION,
-                ...(isParentless ? { resource_type: SubscriptionResourceTypes.AiPrompt } : {}),
-            })
+            actions.loadSubscriptionSuccess(
+                newSubscriptionForm(isParentless ? { resource_type: SubscriptionResourceTypes.AiPrompt } : {})
+            )
             if (searchParams.target_type) {
                 actions.setSubscriptionValue('target_type', searchParams.target_type)
             }

@@ -12,6 +12,7 @@ import type {
     PaginatedSubscriptionDeliveryListApi,
     PaginatedSubscriptionListApi,
     PatchedSubscriptionWriteApi,
+    ProactiveConfigurationOptionsApi,
     PulseResearchRequestApi,
     PulseResearchResponseApi,
     SubscriptionApi,
@@ -217,6 +218,20 @@ export const subscriptionsDeliveriesRetrieve = async (
     options?: RequestInit
 ): Promise<SubscriptionDeliveryApi> => {
     return apiMutator<SubscriptionDeliveryApi>(getSubscriptionsDeliveriesRetrieveUrl(projectId, subscriptionId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSubscriptionsProactiveOptionsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/subscriptions/proactive_options/`
+}
+
+export const subscriptionsProactiveOptionsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ProactiveConfigurationOptionsApi> => {
+    return apiMutator<ProactiveConfigurationOptionsApi>(getSubscriptionsProactiveOptionsListUrl(projectId), {
         ...options,
         method: 'GET',
     })

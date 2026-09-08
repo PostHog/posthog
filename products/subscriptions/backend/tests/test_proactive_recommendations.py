@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 
 from django.apps import apps
+from django.test import override_settings
 from django.utils import timezone
 
 from posthog.models import Team
@@ -23,6 +24,7 @@ from products.subscriptions.backend.facade.proactive import (
     claim_recommendation_run,
     finalize_recommendation_run,
     get_proactive_config,
+    get_proactive_configuration_options,
     read_recommendation_appendix,
     recent_recommendation_memory,
 )
@@ -107,6 +109,37 @@ def test_proactive_subscription_config_is_a_team_scoped_record(team) -> None:
 
     other_team = Team.objects.create(organization=team.organization, name="Other project")
     assert get_proactive_config(team_id=other_team.id, subscription_id=123).enabled is False
+
+
+@override_settings(
+    PULSE_PROACTIVE_ENABLED=True,
+    PULSE_PUBLIC_RESEARCH_ENABLED=False,
+    PULSE_ARTIFACT_PREPARATION_ENABLED=True,
+)
+@pytest.mark.django_db
+def test_proactive_configuration_options_only_expose_currently_authorizable_repositories(team, monkeypatch) -> None:
+    user_integration_id = uuid4()
+    monkeypatch.setattr(
+        proactive,
+        "list_authorizable_repositories",
+        lambda **_kwargs: (
+            AuthorizableRepository(
+                repository="posthog/posthog",
+                github_integration_id=123,
+                github_user_integration_id=user_integration_id,
+                github_installation_id="456",
+            ),
+        ),
+    )
+
+    options = get_proactive_configuration_options(team_id=team.id, actor_id=456)
+
+    assert options.proactive_available is True
+    assert options.public_web_research_available is False
+    assert options.draft_pr_available is True
+    assert options.repositories == (
+        proactive.ProactiveRepositoryOptionDTO(repository="posthog/posthog", repository_integration_id=123),
+    )
 
 
 @pytest.mark.django_db

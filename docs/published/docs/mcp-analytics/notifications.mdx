@@ -34,6 +34,9 @@ An early-alpha AI report can also prepare up to three cited recommendations afte
 off by default. API and MCP clients enable it with `proactive_config.enabled`; public web research is then allowed by
 default and can be disabled with `proactive_config.allow_public_web_research: false`.
 
+When the Pulse preview is enabled, the AI subscription wizard includes an **Actions** step for these optional settings.
+The same controls are available when you edit an existing AI subscription.
+
 To allow a recommendation to prepare a draft pull request, set `proactive_config.create_draft_pr: true` and select a
 repository with `proactive_config.repository`. You can select a specific GitHub installation with
 `proactive_config.repository_integration_id`. The report checks the creator's current repository access before it
