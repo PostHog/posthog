@@ -38,7 +38,7 @@ from posthog.models.quick_filter import QuickFilter
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
 from posthog.test.db_context_capturing import capture_db_queries
-from posthog.test.insight_queries import default_pageview_query, insight_query
+from posthog.test.insight_queries import browser_filtered_pageview_query, default_pageview_query, insight_query
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.user_permissions import UserPermissions
 
@@ -913,13 +913,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_return_cached_results_bleh(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
 
-        query = insight_query(
-            {
-                "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                "properties": [{"key": "$browser", "value": "Mac OS X", "type": "event"}],
-            }
-        )
+        query = browser_filtered_pageview_query()
 
         item = Insight.objects.create(query=query, team=self.team, short_id="item11")
         DashboardTile.objects.create(dashboard=dashboard, insight=item)
@@ -1126,13 +1120,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             # Pretend we cached something a while ago, but we won't have anything in the redis cache
             item_default: Insight = Insight.objects.create(
-                query=insight_query(
-                    {
-                        "kind": "TrendsQuery",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                        "properties": [{"key": "$browser", "value": "Mac OS X", "type": "event"}],
-                    }
-                ),
+                query=browser_filtered_pageview_query(),
                 team=self.team,
                 order=0,
             )
