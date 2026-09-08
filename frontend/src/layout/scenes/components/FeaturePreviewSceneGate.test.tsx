@@ -252,6 +252,17 @@ describe('FeaturePreviewSceneGate', () => {
             expect(screen.getByTestId('scene-title-section')).toHaveTextContent('Customer analytics')
         })
 
+        test('shows the buttons instead of a toggle for a concept-stage feature, which cannot enable the flag', () => {
+            setupMocks({
+                earlyAccessFeatures: [{ flagKey: BASE_CONFIG.flag, enabled: false, stage: 'concept' }],
+            })
+
+            render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
+
+            expect(screen.getByText('Open feature previews')).toBeInTheDocument()
+            expect(screen.queryByRole('switch')).not.toBeInTheDocument()
+        })
+
         test('does not show toggle for a different feature flag key', () => {
             setupMocks({
                 earlyAccessFeatures: [{ flagKey: 'some-other-flag', enabled: true }],
@@ -334,6 +345,30 @@ describe('FeaturePreviewSceneGate', () => {
             await userEvent.click(screen.getByText('Request access'))
 
             expect(mockOpenSupportForm).toHaveBeenCalledWith(expect.objectContaining({ kind: 'support' }))
+        })
+    })
+
+    describe('stored data query', () => {
+        const CONFIG_WITH_QUERY: FeaturePreviewGateConfig = {
+            ...BASE_CONFIG,
+            storedDataQuery: 'SELECT 1',
+        }
+
+        test('does not show "Query in SQL" when config has no stored data query', () => {
+            setupMocks({ earlyAccessFeatures: [] })
+
+            render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
+
+            expect(screen.queryByText('Query in SQL')).not.toBeInTheDocument()
+        })
+
+        test('links to the SQL editor with the configured query', () => {
+            setupMocks({ earlyAccessFeatures: [] })
+
+            render(<FeaturePreviewSceneGate config={CONFIG_WITH_QUERY}>{CHILDREN}</FeaturePreviewSceneGate>)
+
+            const link = screen.getByText('Query in SQL').closest('a')
+            expect(link).toHaveAttribute('href', '/sql?open_query=SELECT+1')
         })
     })
 
