@@ -24,6 +24,7 @@ from products.tasks.backend.logic.services.connection_token import (
 from products.tasks.backend.logic.stream.agent_events import (
     is_agent_command_dispatched,
     is_agent_generation_event,
+    is_agent_prompt_event,
     is_agent_turn_activity_event,
 )
 from products.tasks.backend.logic.stream.redis_stream import (
@@ -229,7 +230,7 @@ async def _ingest_event_lines(
             result.last_accepted_seq = sequence
             if is_agent_turn_activity_event(event):
                 try:
-                    await activity_stream.record_relay_activity()
+                    await activity_stream.record_relay_activity(force=is_agent_prompt_event(event))
                 except Exception as error:
                     logger.warning("event_ingest_record_activity_failed", run_id=claims.run_id, error=str(error))
             await _heartbeat_workflow_if_needed(redis_stream, claims.run_id, event)

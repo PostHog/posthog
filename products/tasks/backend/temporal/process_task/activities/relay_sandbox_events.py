@@ -29,6 +29,7 @@ from products.tasks.backend.logic.services.permission_broker import (
 from products.tasks.backend.logic.stream.agent_events import (
     is_agent_command_dispatched,
     is_agent_generation_event,
+    is_agent_prompt_event,
     is_agent_turn_activity_event,
 )
 from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
@@ -462,7 +463,9 @@ async def _relay_loop(
 
                             await redis_stream.write_event(event_data)
                             if is_agent_turn_activity_event(event_data):
-                                await _record_relay_activity_best_effort(redis_stream, run_id)
+                                await _record_relay_activity_best_effort(
+                                    redis_stream, run_id, force=is_agent_prompt_event(event_data)
+                                )
                             if workflow_handle is not None:
                                 if (
                                     is_agent_command_dispatched(event_data)
@@ -661,9 +664,11 @@ async def _mark_sandbox_error_best_effort(redis_stream: TaskRunRedisStream, run_
         )
 
 
-async def _record_relay_activity_best_effort(redis_stream: TaskRunRedisStream, run_id: str) -> None:
+async def _record_relay_activity_best_effort(
+    redis_stream: TaskRunRedisStream, run_id: str, *, force: bool = False
+) -> None:
     try:
-        await redis_stream.record_relay_activity()
+        await redis_stream.record_relay_activity(force=force)
     except Exception as error:
         logger.warning("relay_sandbox_events_record_activity_failed", run_id=run_id, error=str(error))
 

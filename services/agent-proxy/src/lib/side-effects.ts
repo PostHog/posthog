@@ -109,6 +109,31 @@ export function isAgentGenerationEvent(event: Record<string, unknown>): boolean 
     )
 }
 
+export function isAgentPromptEvent(event: Record<string, unknown>): boolean {
+    if (event['type'] === 'pi_event') {
+        const piEvent = event['event']
+        return (
+            typeof piEvent === 'object' &&
+            piEvent !== null &&
+            (piEvent as Record<string, unknown>)['type'] === 'user_message'
+        )
+    }
+    if (!isSessionUpdate(event)) {
+        return false
+    }
+    const notification = event['notification'] as Record<string, unknown>
+    const params = notification['params']
+    if (typeof params !== 'object' || params === null) {
+        return false
+    }
+    const update = (params as Record<string, unknown>)['update']
+    if (typeof update !== 'object' || update === null) {
+        return false
+    }
+    const subtype = String((update as Record<string, unknown>)['sessionUpdate'])
+    return subtype === 'user_message' || subtype === 'user_message_chunk'
+}
+
 export function isAgentTurnActivityEvent(event: Record<string, unknown>): boolean {
     if (event['type'] === 'pi_event') {
         const piEvent = event['event']

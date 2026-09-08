@@ -512,6 +512,21 @@ describe('redis-stream', () => {
 
             vi.useRealTimers()
         })
+
+        it('forces a prompt update through the shared throttle', async () => {
+            const { stream, redis, streamKey } = newStream()
+            const secondStream = new TaskRunRedisStream(streamKey, redis as unknown as Redis)
+            vi.useFakeTimers()
+            vi.setSystemTime(100_000)
+
+            await stream.recordRelayActivity()
+            await redis.del(getRelayActivityKey(streamKey))
+            vi.setSystemTime(105_000)
+            await secondStream.recordRelayActivity(true)
+
+            expect(await redis.get(getRelayActivityKey(streamKey))).toBe('105')
+            vi.useRealTimers()
+        })
     })
 
     // -----------------------------------------------------------------------

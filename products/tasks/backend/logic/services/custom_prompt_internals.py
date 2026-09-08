@@ -86,6 +86,7 @@ TRANSIENT_SIDE_CHANNEL_METHODS = frozenset(
         "_posthog/run_started",
         "_posthog/sandbox_output",
         "_posthog/sdk_session",
+        "_posthog/usage_update",
     }
 )
 

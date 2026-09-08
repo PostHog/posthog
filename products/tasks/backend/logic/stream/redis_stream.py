@@ -428,11 +428,12 @@ class TaskRunRedisStream:
         active_raw = await self._redis_client.get(get_task_run_stream_agent_active_key(self._stream_key))
         return active_raw in (b"1", "1")
 
-    async def record_relay_activity(self) -> None:
+    async def record_relay_activity(self, *, force: bool = False) -> None:
         now = time.monotonic()
         last_activity_at = _relay_activity_refreshed_at.get(self._stream_key)
         if (
-            last_activity_at is not None
+            not force
+            and last_activity_at is not None
             and now - last_activity_at < TASK_RUN_STREAM_RELAY_ACTIVITY_REFRESH_INTERVAL_SECONDS
         ):
             return

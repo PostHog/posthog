@@ -50,6 +50,23 @@ def is_agent_generation_event(event: dict[str, Any]) -> bool:
     return isinstance(update, dict) and update.get("sessionUpdate") in _ACP_GENERATION_UPDATES
 
 
+def is_agent_prompt_event(event: dict[str, Any]) -> bool:
+    if event.get("type") == "pi_event":
+        pi_event = event.get("event")
+        return isinstance(pi_event, dict) and pi_event.get("type") == "user_message"
+
+    notification = event.get("notification")
+    if event.get("type") != "notification" or not isinstance(notification, dict):
+        return False
+    if notification.get("method") != "session/update":
+        return False
+    params = notification.get("params")
+    if not isinstance(params, dict):
+        return False
+    update = params.get("update")
+    return isinstance(update, dict) and update.get("sessionUpdate") in {"user_message", "user_message_chunk"}
+
+
 def is_agent_turn_activity_event(event: dict[str, Any]) -> bool:
     if event.get("type") == "pi_event":
         pi_event = event.get("event")

@@ -415,10 +415,10 @@ export class TaskRunRedisStream {
         return raw === '1'
     }
 
-    async recordRelayActivity(): Promise<void> {
+    async recordRelayActivity(force = false): Promise<void> {
         const now = Date.now()
         const lastActivityAt = relayActivityRefreshedAt.get(this.streamKey)
-        if (lastActivityAt !== undefined && now - lastActivityAt < RELAY_ACTIVITY_REFRESH_INTERVAL_MS) {
+        if (!force && lastActivityAt !== undefined && now - lastActivityAt < RELAY_ACTIVITY_REFRESH_INTERVAL_MS) {
             return
         }
         relayActivityRefreshedAt.set(this.streamKey, now)
