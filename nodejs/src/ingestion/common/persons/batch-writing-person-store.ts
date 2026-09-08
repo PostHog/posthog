@@ -140,7 +140,7 @@ const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
     mergeEventsTeamAllowlist: '',
     mergeNoopMappingEmissionEnabled: false,
     mergeNoopMappingEmissionCacheSize: 500_000,
-    mergeNoopMappingEmissionTtlMs: 15 * 60 * 1000,
+    mergeNoopMappingEmissionTtlMs: 60 * 60 * 1000,
 }
 
 interface CacheMetrics {

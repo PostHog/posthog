@@ -373,7 +373,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: '',
         PERSON_MERGE_NOOP_MAPPING_EMISSION_ENABLED: false,
         PERSON_MERGE_NOOP_MAPPING_EMISSION_CACHE_SIZE: 500_000,
-        PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS: 15 * 60 * 1000,
+        PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS: 60 * 60 * 1000,
         PERSON_CREATE_CLAIM_TEAM_ALLOWLIST: '',
 
         // Group batch writing config
