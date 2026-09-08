@@ -186,6 +186,9 @@ function TargetByDateFields({
                 />
                 <LemonInput
                     type="number"
+                    // A target can be a rate or an average. The native step defaults to 1, so a
+                    // decimal fails the browser's own validation and blocks the save.
+                    step="any"
                     className="w-24"
                     data-attr="alertForm-forecast-target"
                     aria-label="Target value"
