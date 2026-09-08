@@ -69,6 +69,19 @@ function coveredRolloutStep(daysFromNow: number, rollout: number): ScheduleOccur
     )
 }
 
+/** An uneven plan whose first and last marks carry the longest label the chart can draw. */
+export function EdgeStepLabels(): JSX.Element {
+    return (
+        <div className="max-w-3xl">
+            <ScheduleTimeline
+                occurrences={[rolloutStep(1, 25, true), rolloutStep(28, 50, true), rolloutStep(30, 100, true)]}
+                currentRolloutPercentage={10}
+                timezone="UTC"
+            />
+        </div>
+    )
+}
+
 export function RolloutRamp(): JSX.Element {
     return (
         <div className="max-w-3xl">

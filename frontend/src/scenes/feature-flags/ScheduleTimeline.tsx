@@ -17,8 +17,11 @@ const TIME_LABEL_MIN_GAP = 40
 const TOP_LABEL_MIN_GAP = 40
 /** How far the second lane sits above the first. Tuned against the 9px label size. */
 const TOP_LABEL_LANE_OFFSET = 10
-/** Within this many viewBox units of the right edge, a step label ends at its mark instead of centering. */
-const STEP_LABEL_EDGE_PAD = 30
+/**
+ * Half the widest step label at the 9px size, which measures about 120 viewBox units, plus headroom
+ * for a wider fallback font. Inside this distance from an edge, a centered label leaves the plot.
+ */
+const STEP_LABEL_EDGE_PAD = 65
 
 function describeOccurrence(occurrence: ScheduleOccurrence): string {
     const { operation, projected, addedRolloutPercentage } = occurrence
@@ -94,9 +97,15 @@ function stepLabel(occurrence: ScheduleOccurrence, rollout: number): string {
     return occurrence.needsApproval ? `${level} (needs approval)` : level
 }
 
-/** A centered label runs past the plot at the last mark, and the SVG clips what leaves the viewBox. */
-function stepLabelAnchor(x: number): 'end' | 'middle' {
-    return x > MARGIN.left + PLOT_WIDTH - STEP_LABEL_EDGE_PAD ? 'end' : 'middle'
+/** Near an edge a label ends or starts at its mark, because the SVG clips what leaves the viewBox. */
+function stepLabelAnchor(x: number): 'start' | 'middle' | 'end' {
+    if (x > MARGIN.left + PLOT_WIDTH - STEP_LABEL_EDGE_PAD) {
+        return 'end'
+    }
+    if (x < MARGIN.left + STEP_LABEL_EDGE_PAD) {
+        return 'start'
+    }
+    return 'middle'
 }
 
 /** Where each occurrence's marks and labels land, resolved before render so the JSX map stays pure. */

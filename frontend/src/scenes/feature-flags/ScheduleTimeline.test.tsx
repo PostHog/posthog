@@ -124,6 +124,35 @@ describe('ScheduleTimeline', () => {
         )
     })
 
+    it('anchors a step label at its mark near either edge, so the text stays in the plot', () => {
+        // An uneven plan puts the first mark at the axis origin and the last at the right edge. The
+        // longest label centered on either one leaves the 600-unit viewBox, and the SVG clips that.
+        const step = (timestamp: string, rollout: number): ScheduleOccurrence =>
+            occurrence({
+                timestamp,
+                operation: ScheduledChangeOperationType.AddReleaseCondition,
+                addedRolloutPercentage: rollout,
+                projected: { active: true, rolloutPercentage: rollout, variantCount: null },
+                needsApproval: true,
+            })
+        const { container } = render(
+            <ScheduleTimeline
+                occurrences={[
+                    step('2099-08-25T11:22:00Z', 25),
+                    step('2099-08-27T12:22:00Z', 50),
+                    step('2099-08-29T14:22:00Z', 100),
+                ]}
+                currentRolloutPercentage={10}
+                timezone="UTC"
+            />
+        )
+
+        const anchors = Array.from(container.querySelectorAll('text'))
+            .filter((node) => node.textContent?.includes('needs approval'))
+            .map((node) => node.getAttribute('text-anchor'))
+        expect(anchors).toEqual(['start', 'middle', 'end'])
+    })
+
     it('renders the step chart for two or more occurrences', () => {
         const { container } = render(
             <ScheduleTimeline
