@@ -377,6 +377,7 @@ class TaskLatestRunSummaryDTO:
     id: UUID
     status: str | None
     environment: str | None
+    task_summary: str | None
 
 
 @dataclass(frozen=True)
@@ -577,6 +578,7 @@ class TaskRunDetailDTO:
     log_url: str | None
     error_message: str | None
     output: dict | None
+    task_summary: str | None
     state: dict
     artifacts: list = Field(default_factory=list)
     created_at: datetime | None = None

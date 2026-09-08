@@ -909,6 +909,27 @@ class TestTaskRun(TestCase):
 
     @parameterized.expand(
         [
+            ("current_summary", {"task_summary": "Halfway through the migration"}, "Halfway through the migration"),
+            ("inherited_summary", {"prior_run_summary": "Reading the API"}, "Reading the API"),
+            (
+                "current_over_inherited",
+                {"task_summary": "Writing tests", "prior_run_summary": "Reading"},
+                "Writing tests",
+            ),
+            ("blank_summary", {"task_summary": "   "}, None),
+        ]
+    )
+    def test_create_run_carries_the_resume_source_summary(self, _name, source_state, expected):
+        previous_run = TaskRun.objects.create(
+            task=self.task, team=self.team, status=TaskRun.Status.COMPLETED, state=source_state
+        )
+
+        run = self.task.create_run(extra_state={"resume_from_run_id": str(previous_run.id)})
+
+        self.assertEqual(run.state.get("prior_run_summary"), expected)
+
+    @parameterized.expand(
+        [
             ("message_only", {"pending_user_message": "Look at this"}, True),
             ("artifacts_only", {"pending_user_artifact_ids": ["artifact-1"]}, True),
             ("nothing_pending", {"mode": "interactive"}, False),

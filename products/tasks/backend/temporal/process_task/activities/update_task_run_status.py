@@ -252,6 +252,7 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                 {
                     "duration_seconds": task_run._duration_seconds(),
                     "termination_reason": termination_reason,
+                    "has_summary": bool((task_run.state or {}).get("task_summary")),
                     **relay_state,
                 },
             )

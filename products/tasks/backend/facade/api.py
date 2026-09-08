@@ -89,7 +89,9 @@ from products.tasks.backend.logic.services.network_policy import (
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     MCP_CREDENTIAL_OWNER_STATE_KEY,
+    PRIOR_RUN_SUMMARY_STATE_KEY,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
+    TASK_RUN_SUMMARY_STATE_KEY,
     Channel,
     ChannelContextGeneration,
     ChannelFeedMessage,
@@ -262,6 +264,7 @@ __all__ = [
     "send_cancel",
     "select_repository_for_message",
     "set_task_run_output",
+    "set_task_run_summary",
     "set_task_title",
     "slack_actor_state_updates",
     "signal_report_queryset",
@@ -499,6 +502,7 @@ def _task_run_detail_to_dto(run: TaskRun, *, include_agent_state: bool = False) 
         log_url=_task_run_log_url(run),
         error_message=run.error_message,
         output=run.output,
+        task_summary=run.task_summary,
         state=_public_task_run_state(run.state, include_agent_keys=include_agent_state),
         artifacts=run.artifacts or [],
         created_at=run.created_at,
@@ -2160,6 +2164,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "pr_authorship_mode",
         "repositories",
         "verified_pr_urls",
+        TASK_RUN_SUMMARY_STATE_KEY,
+        PRIOR_RUN_SUMMARY_STATE_KEY,
         "sandbox_id",
         # Sandbox connection state is written only by the provisioning activity. A PATCHable
         # sandbox_backend/sandbox_url would let a task controller point the account-wide hogland
@@ -2808,6 +2814,9 @@ def update_task_run(
     return _task_run_detail_to_dto(run)
 
 
+TASK_RUN_SUMMARY_MAX_CHARS = 1500
+
+
 def validate_set_output(run_id: str | UUID, task_id: str | UUID, team_id: int, *, output: dict) -> str | None:
     """Validate output against the task's json_schema. Returns an error message or ``None``."""
     import jsonschema  # noqa: PLC0415 — only needed when a json_schema is set
@@ -2846,6 +2855,18 @@ def set_task_run_output(
     _send_wizard_pr_ready_email_for_pr(run)
     if merged.get("pr_url"):
         post_pr_created_thread_update(run, merged["pr_url"])
+    return _task_run_detail_to_dto(run)
+
+
+def set_task_run_summary(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, summary: str
+) -> contracts.TaskRunDetailDTO | None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    run.state = TaskRun.update_state_atomic(run.id, updates={TASK_RUN_SUMMARY_STATE_KEY: summary})
+    run.refresh_from_db()
+    run.publish_stream_state_event()
     return _task_run_detail_to_dto(run)
 
 
@@ -5556,7 +5577,15 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
     latest_run = (
         TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id)
         .order_by("-created_at", "-id")
-        .annotate(_data=JSONObject(id="id", status="status", environment="environment"))
+        .annotate(
+            _data=JSONObject(
+                id="id",
+                status="status",
+                environment="environment",
+                task_summary="state__task_summary",
+                prior_run_summary="state__prior_run_summary",
+            )
+        )
     )
     tasks = (
         Task.objects.filter(team_id=team_id, deleted=False, id__in=ids)
@@ -5569,7 +5598,10 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
         raw = getattr(task, "_latest_run", None)
         latest = (
             contracts.TaskLatestRunSummaryDTO(
-                id=raw["id"], status=raw.get("status"), environment=raw.get("environment")
+                id=raw["id"],
+                status=raw.get("status"),
+                environment=raw.get("environment"),
+                task_summary=raw.get("task_summary") or raw.get("prior_run_summary"),
             )
             if isinstance(raw, dict)
             else None

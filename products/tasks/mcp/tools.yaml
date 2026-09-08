@@ -688,6 +688,9 @@ tools:
     tasks-runs-set-output-partial-update:
         operation: tasks_runs_set_output_partial_update
         enabled: false
+    tasks-runs-set-summary-partial-update:
+        operation: tasks_runs_set_summary_partial_update
+        enabled: false
     tasks-runs-start-create:
         operation: tasks_runs_start_create
         enabled: false
