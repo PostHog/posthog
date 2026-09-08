@@ -363,7 +363,7 @@ class ClickHousePrinter(BasePrinter):
                     response += " " + printed
             else:
                 self.context.top_level_settings = {
-                    key: value for key, value in merged.items() if value is not None and key != "readonly"
+                    key: value for key, value in self._normalize_settings(merged).items() if key != "readonly"
                 }
 
         return response

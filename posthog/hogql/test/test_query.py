@@ -518,11 +518,13 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             query="SELECT uuid FROM csv_table",
             team=self.team,
             context=HogQLContext(team_id=self.team.pk, database=database),
+            modifiers=HogQLQueryModifiers(forceClickhouseDataSkippingIndexes=["idx"]),
         )
 
         selected = executor.generate_clickhouse_subquery_sql()
 
         self.assertTrue(selected.settings["format_csv_allow_double_quotes"])
+        self.assertEqual(selected.settings["force_data_skipping_indices"], "idx")
         self.assertNotIn("readonly", selected.settings)
         self.assertNotIn(" SETTINGS ", selected.sql)
 
