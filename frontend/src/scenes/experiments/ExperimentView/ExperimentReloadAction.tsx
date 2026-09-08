@@ -172,7 +172,8 @@ export const ExperimentReloadAction = ({
                     data-attr="refresh-experiment"
                     disabledReason={isRefreshing ? (queuedHint ?? 'Loading...') : finalResultsReason}
                     tooltip={
-                        dataThrough ? (
+                        // Mid-run this cutoff belongs to the new run while some cells still show the previous one.
+                        dataThrough && !isRefreshing ? (
                             <>
                                 Data through <TZLabel time={dataThrough} showPopover={false} />
                             </>
