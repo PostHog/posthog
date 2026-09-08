@@ -190,12 +190,15 @@ class EventViewSet(
         return request.build_absolute_uri(f"{request.path}?{urllib.parse.urlencode(params)}")
 
     @extend_schema(
-        description="""
+        description=f"""
         This endpoint allows you to list and filter events.
         It is effectively deprecated and is kept only for backwards compatibility.
         If you ever ask about it you will be advised to not use it...
         If you want to ad-hoc list or aggregate events, use the Query endpoint instead.
         If you want to export all events or many pages of events you should use our CDP/Batch Exports products instead.
+        A single page holds at most {EVENT_LIST_MAX_LIMIT} events. A larger `limit` is reduced to
+        {EVENT_LIST_MAX_LIMIT}, and the response carries an `X-PostHog-Warn` header when that
+        happens. Follow the `next` link to read the rest.
         """,
         parameters=[
             OpenApiParameter(
@@ -234,7 +237,11 @@ class EventViewSet(
             OpenApiParameter(
                 "limit",
                 OpenApiTypes.INT,
-                description="The maximum number of results to return",
+                description=(
+                    f"The maximum number of results to return. Capped at {EVENT_LIST_MAX_LIMIT}: a "
+                    "larger value is reduced to the cap and the response carries an "
+                    "`X-PostHog-Warn` header."
+                ),
             ),
             OpenApiParameter(
                 "offset",
@@ -259,13 +266,13 @@ class EventViewSet(
             is_csv_request = self.request.accepted_renderer.format == "csv"
 
             if self.request.GET.get("limit", None):
-                limit = int(self.request.GET.get("limit"))  # type: ignore
+                requested_limit = int(self.request.GET.get("limit"))  # type: ignore
             elif is_csv_request:
-                limit = QUERY_DEFAULT_EXPORT_LIMIT
+                requested_limit = QUERY_DEFAULT_EXPORT_LIMIT
             else:
-                limit = DEFAULT_RETURNED_ROWS
+                requested_limit = DEFAULT_RETURNED_ROWS
 
-            limit = min(limit, EVENT_LIST_MAX_LIMIT)
+            limit = min(requested_limit, EVENT_LIST_MAX_LIMIT)
 
             try:
                 offset = int(request.GET["offset"]) if request.GET.get("offset") else 0
@@ -319,16 +326,26 @@ class EventViewSet(
             next_url: Optional[str] = None
             if not is_csv_request and has_more and query_result:
                 next_url = self._build_next_url(request, query_result[-1]["timestamp"], order_by)
-            headers = None
+            warn_messages: list[str] = []
+            if requested_limit > EVENT_LIST_MAX_LIMIT:
+                rest_of_the_rows = "Follow the `next` link for the rest, or export" if next_url else "Export"
+                warn_messages.append(
+                    f"limit was reduced to the maximum of {EVENT_LIST_MAX_LIMIT}. "
+                    f"{rest_of_the_rows} in bulk with batch exports: https://posthog.com/docs/cdp/batch-exports"
+                )
+            if is_csv_request and has_more:
+                warn_messages.append(
+                    f"this export stops at {len(result)} events and more may match the filters. "
+                    "Export in bulk with batch exports: https://posthog.com/docs/cdp/batch-exports"
+                )
             if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0:
-                headers = {"X-PostHog-Warn": "https://posthog.com/docs/api/events"}
+                warn_messages.append("https://posthog.com/docs/api/events")
             elif deprecate_offset and offset:
-                headers = {
-                    "X-PostHog-Warn": (
-                        "offset is deprecated. "
-                        "Use: https://posthog.com/docs/api/queries#5-use-timestamp-based-pagination-instead-of-offset"
-                    )
-                }
+                warn_messages.append(
+                    "offset is deprecated. "
+                    "Use: https://posthog.com/docs/api/queries#5-use-timestamp-based-pagination-instead-of-offset"
+                )
+            headers = {"X-PostHog-Warn": "; ".join(warn_messages)} if warn_messages else None
             return response.Response({"next": next_url, "results": result}, headers=headers)
 
         except Exception as ex:

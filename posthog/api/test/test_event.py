@@ -1014,8 +1014,47 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         for _i in range(3):
             _create_event(event="$pageview", team=self.team, distinct_id="1", properties={"$ip": "8.8.8.8"})
 
-        response = self.client.get(f"/api/projects/{self.team.id}/events/?limit=50000").json()
-        assert len(response["results"]) == 2
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?limit=50000")
+        assert len(response.json()["results"]) == 2
+        assert response.json()["next"] is not None
+        assert "limit was reduced to the maximum of 2" in response.headers["X-PostHog-Warn"]
+        assert "Follow the `next` link" in response.headers["X-PostHog-Warn"]
+
+    @patch("posthog.api.event.EVENT_LIST_MAX_LIMIT", 2)
+    def test_capped_limit_warning_omits_the_next_link_when_there_is_none(self):
+        _create_person(team=self.team, distinct_ids=["1"], is_identified=True)
+        timestamp = timezone.now() - relativedelta(minutes=5)
+        _create_event(event="$pageview", team=self.team, distinct_id="1", timestamp=timestamp)
+
+        params = urlencode(
+            {
+                "limit": 50000,
+                "after": (timestamp - relativedelta(seconds=10)).isoformat(),
+                "before": (timestamp + relativedelta(seconds=10)).isoformat(),
+            }
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?{params}")
+
+        assert response.json()["next"] is None
+        assert "limit was reduced to the maximum of 2" in response.headers["X-PostHog-Warn"]
+        assert "`next`" not in response.headers["X-PostHog-Warn"]
+
+    @patch("posthog.api.event.EVENT_LIST_MAX_LIMIT", 2)
+    def test_limit_within_the_cap_is_not_warned_about(self):
+        _create_person(team=self.team, distinct_ids=["1"], is_identified=True)
+        _create_event(event="$pageview", team=self.team, distinct_id="1", properties={"$ip": "8.8.8.8"})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?limit=2")
+        assert "X-PostHog-Warn" not in response.headers
+
+    @patch("posthog.api.event.EVENT_LIST_MAX_LIMIT", 4)
+    def test_csv_export_warning_reports_the_delivered_row_count(self):
+        _create_person(team=self.team, distinct_ids=["1"], is_identified=True)
+        for _i in range(2):
+            _create_event(event="$pageview", team=self.team, distinct_id="1", properties={"$ip": "8.8.8.8"})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?format=csv")
+        assert "this export stops at 2 events" in response.headers["X-PostHog-Warn"]
 
     @patch("posthog.api.event.get_persons_mapped_by_distinct_id")
     def test_list_without_include_person_skips_person_lookup(self, mock_get_persons):
@@ -1199,9 +1238,12 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(
             f"/api/projects/{self.team.id}/events/?after=2023-01-01T01:01:00Z&before=2024-01-01T02:02:01Z"
         ).json()
-        # With progressive window optimization, the 3600s window returns 98 results (>= half_limit)
-        # so it's considered successful. Some events at exactly 01:02:00 are cut off by window boundary.
-        assert len(response["results"]) >= 50  # At least half_limit results
+        assert len(response["results"]) >= 50  # A probe window can cut the page short
+        seen = len(response["results"])
+        while response["next"]:
+            response = self.client.get(response["next"]).json()
+            seen += len(response["results"])
+        assert seen == 101
 
         # Test that after parameter is respected even with many results
         response = self.client.get(
