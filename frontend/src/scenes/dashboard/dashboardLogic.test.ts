@@ -815,6 +815,21 @@ describe('dashboardLogic', () => {
             }
         })
 
+        it('keeps layout editing after a filter change', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: true },
+                    DashboardEventSource.SceneCommonButtons
+                )
+                logic.actions.setDates('-7d', null)
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardEditing).toEqual({ filters: true, layout: true })
+            expect(logic.values.layoutEditMode).toBe(true)
+        })
+
         it('cancelling layout editing keeps auto-previewed filter changes', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
