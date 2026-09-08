@@ -50,10 +50,12 @@ function resolveAiSubscriptionDisplayConfig(
 export type AiSubscriptionDisplayOption = 'images' | 'feedback' | 'posthog_actions'
 
 function summarizeAiSubscriptionDisplayConfig(resolved: AiSubscriptionDisplayConfig): string {
-    if (Object.values(resolved).every(Boolean)) {
+    const includePostHogActions = resolved.include_manage_link || resolved.include_posthog_hint
+
+    if (resolved.include_images && resolved.include_feedback && includePostHogActions) {
         return 'Full report'
     }
-    if (!Object.values(resolved).some(Boolean)) {
+    if (!resolved.include_images && !resolved.include_feedback && !includePostHogActions) {
         return 'Report only'
     }
 

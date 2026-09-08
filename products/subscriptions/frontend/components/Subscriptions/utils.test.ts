@@ -224,8 +224,8 @@ describe('AI subscription display options', () => {
 
     it.each([
         ['Slack', SubscriptionTargetEnumApi.Slack, 'Full report'],
-        ['email', SubscriptionTargetEnumApi.Email, 'Report + charts + feedback + manage link'],
-        ['Microsoft Teams', SubscriptionTargetEnumApi.Teams, 'Report + charts + feedback + manage link'],
+        ['email', SubscriptionTargetEnumApi.Email, 'Full report'],
+        ['Microsoft Teams', SubscriptionTargetEnumApi.Teams, 'Full report'],
     ] as const)('lists the content that %s recipients receive', (_label, targetType, expected) => {
         expect(getAiSubscriptionDisplaySummary(undefined, targetType)).toBe(expected)
     })
