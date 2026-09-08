@@ -9077,9 +9077,9 @@ snapshots:
     scenes-app-surveys--new-survey-with-text-question-description-that-does-not-render-html--light:
         hash: v1.k794b7964.bdd6755a72ec571efaa9b38ef0bff6e87b78d504b254006a409f2114354d7afc.tu-CzwdxzR8jjFs-Eam3yR-MQDTaJGOSQFTevQSXczE
     scenes-app-surveys--survey-results--dark:
-        hash: v1.k794b7964.593d9cfd1f47b2ff7296eb4d5e2e31be1636bd2a39a9b350b4c1b5e157684cbb.al8-igeJ8c_xg1N5V4_LD874kwxo1rnKFtrfQGu3daY
+        hash: v1.k794b7964.22429f3caf472f93e8f3a559cc2738beaa7112af411cc1c542480685f61e5dec.CQ4JZFOylj8lzITVjGi1Y2SeDwVj5Mig5H_66rgrmQg
     scenes-app-surveys--survey-results--light:
-        hash: v1.k794b7964.159d3336c210da231f8f6481bead2cc41f0df60afe12c6246e15908c08c5c8d5.117vRRDfT1RdtLO665SJ_jl7mgyw_lsV_nGHhOtXuEk
+        hash: v1.k794b7964.1e0e0ee6efe5940b1a201836f1e8760d2e2d35ce4410cadc852a513c55fa0d4f.-m_nJ8aoNAoq4vnD9GtN2eA2GF8oGdqh24wqUdZI-lI
     scenes-app-surveys--surveys-global-settings--dark:
         hash: v1.k794b7964.476a85556bb374416ca1ae0cccfb23f8cc6f6a2e0e71d3f7d0e37a2ad3d463aa.lCKgctegJe2jQZ7Bf7sXK6YhuGh17KhGftYqoY3s5PM
     scenes-app-surveys--surveys-global-settings--light:
@@ -9984,6 +9984,22 @@ snapshots:
         hash: v1.k794b7964.4c1cd99854b96691ddb9e08ec324cccac42c1f98ee451adc2cafc240845100df.AolTmj-cZB22E17CR-MrJLtErCR7ZFqQIKpdK_hCngs
     scenes-web-analytics-calendarheatmap--with-hidden-row-aggregation--light:
         hash: v1.k794b7964.afd498e7ebdeb0ae332637bc81c11e42462d4e849279096bc98b32e0cd80a516.a801UVBIEm5FXhf9KT5H6yJS0fMpnWS9Fv3lBzmSbqs
+    surveys-surveyresponsebreakdown--dismissal-only--dark:
+        hash: v1.k794b7964.dc398f0718022d46e2f37f1a5887a9f68de06d1a171a85f2e9cb573e7e177e93.fQmkJPE1SgLkSfm4JFSTgQBK3CMCjPsI0oP9cg-mV0Q
+    surveys-surveyresponsebreakdown--dismissal-only--light:
+        hash: v1.k794b7964.7eb1c30d6b939e96283c0a1f5f57bea2ed25802df999bf2db229dfb4b69c46d6.aRZN4z1D8O2NV9ZUKIzLoCp2dDmC3-2oq1XN5NyNCMk
+    surveys-surveyresponsebreakdown--empty--dark:
+        hash: v1.k794b7964.9bf18bdba89b891cbab00721d05a7a100c5ae0db8a6d8eba3d8d0223ba1b10fe.EjgNzCzs0UH8tBsX-IUoG69COapNDUm79qOfbVbi4tU
+    surveys-surveyresponsebreakdown--empty--light:
+        hash: v1.k794b7964.0fd417b0019402591594144c062e93130ba2c5e290ef531bc5270df2602d6803.Bm_cTBOKKWMZ9ABq-g-4TUdsBikRrXEvPWgxJqqdXlU
+    surveys-surveyresponsebreakdown--mixed--dark:
+        hash: v1.k794b7964.57dcdd3cc4fc49910ddd81c9119d6f2771bd3b2a5c16bdd818719c94a43435cb.M-q5xfK5xZFN5WyOsZPIP3XKJrMV3bxdjn4PUkqK21o
+    surveys-surveyresponsebreakdown--mixed--light:
+        hash: v1.k794b7964.d539d4694b8c0bf0400042382753fee4862837a552814a3ea73398fa1be9681c.jLHwTqtKqBkf5Ca-_NkoFb5HYph57R2X2HpK7aljPvY
+    surveys-surveyresponsebreakdown--narrow--dark:
+        hash: v1.k794b7964.c0cf6c831ccad908f97f99e47f81a6e3b95c56897f7f72e81ca841d512b70186.9safzbuqrXolVYOfDuVnKiUZlvlKXV2ra0evCXgAfjc
+    surveys-surveyresponsebreakdown--narrow--light:
+        hash: v1.k794b7964.f3acbfd20c86d9238a86d3c4895eb723bfbf579147df285a398702b247307041.iUWLCgfZaqLie9OoCaHO-Q0TK0W25NjG_UF1mE57VSA
     ui-buttonprimitive--default--dark:
         hash: v1.k794b7964.491cb9dec34de5e64508adc9f3885a05ae8badea99d214a14ae96bb2cf4911a9.JVM8RfbvLA_ZeObFGGMZk_GmhYoddhG-HxFT7yY2Ts8
     ui-buttonprimitive--default--light:
