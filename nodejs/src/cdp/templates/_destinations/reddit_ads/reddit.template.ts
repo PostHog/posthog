@@ -137,7 +137,7 @@ if (res.status >= 400) {
             key: 'userProperties',
             type: 'dictionary',
             description:
-                'Map of Reddit user parameters and their values. Reddit expects email, ip_address and external_id as lowercase SHA-256 hex digests, and it ignores parameters sent under any other name. Check out this page for more details: https://business.reddithelp.com/s/article/manual-conversion-events-with-the-reddit-pixel',
+                'Map of Reddit user parameters and their values. Reddit expects email and ip_address as lowercase SHA-256 hex digests, and this template hashes them for you. Other parameters, such as user_agent and screen_dimensions, are sent unchanged. Check out this page for more details: https://business.reddithelp.com/s/article/manual-conversion-events-with-the-reddit-pixel',
             label: 'User parameters',
             default: {
                 email: '{not empty(person.properties.email) ? sha256Hex(lower(person.properties.email)) : null}',
