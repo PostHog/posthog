@@ -6509,6 +6509,7 @@ export interface TargetByDateForecastConfig {
 
 /**
  * Configuration for forecast alerts. Requires a time-series trends insight without breakdowns.
+ * The `target_by_date` condition also needs a daily, weekly, or monthly interval.
  * @discriminator condition
  */
 export type ForecastConfig = FutureBreachForecastConfig | TargetByDateForecastConfig
