@@ -8,6 +8,7 @@ import {
 import type {
   CanvasActionDefinition,
   CanvasActionResult,
+  CanvasCreator,
   CanvasDraft,
   CanvasSource,
   CanvasSourceProject,
@@ -47,12 +48,7 @@ interface ApiCanvas {
   pinned_at: string | null;
   current_version_id: string | null;
   published_build_id: string | null;
-  created_by?: {
-    uuid: string;
-    first_name?: string | null;
-    last_name?: string | null;
-    email?: string | null;
-  } | null;
+  created_by?: CanvasCreator | null;
   created_at: string;
   updated_at: string;
 }
@@ -106,6 +102,7 @@ function toRecord(api: ApiCanvas): DashboardRecord {
     generationTaskId: api.generation_task_id,
     createdBy: creatorLabel(api.created_by),
     createdByUuid: api.created_by?.uuid,
+    createdByUser: api.created_by ?? undefined,
     createdAt: toEpoch(api.created_at) ?? 0,
     updatedAt: toEpoch(api.updated_at) ?? 0,
     pinnedAt: toEpoch(api.pinned_at),

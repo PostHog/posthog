@@ -42,6 +42,17 @@ role "logs" {
   env "prod-eu" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-eu"] }
 }
 
+# APM satellite: the ingestion-apm nodes. Every env runs the shared custom_metrics
+# suite and writes into the query log archive, but not the query_log_archive reader
+# itself. dev additionally runs the APM ingest chain -- the Kafka consumers for logs,
+# traces and metrics and the writable proxies they feed -- which the prod envs still
+# run on their logs nodes.
+role "apm" {
+  env "dev"     { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/apm/dev"] }
+  env "prod-us" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/custom_metrics"] }
+  env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/custom_metrics"] }
+}
+
 # AI_EVENTS satellite (LLM analytics). local/hobby run the MSK variant
 # (kafka_ai_events_json + ai_events_json_mv) with a sharded_ai_events data table
 # + distributed ai_events reader; US/EU run the WarpStream variant

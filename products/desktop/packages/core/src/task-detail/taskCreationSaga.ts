@@ -123,7 +123,16 @@ export class TaskCreationSaga extends Saga<
       : await this.createTask(input, warmPayload);
 
     if (!isPiRuntime) {
-      this.deps.sessionService.markTaskCreationInFlight(task.id);
+      await this.step({
+        name: "mark_task_starting",
+        execute: async () => {
+          this.deps.sessionService.markTaskCreationInFlight(task.id);
+          return task.id;
+        },
+        rollback: async (markedTaskId) => {
+          this.deps.sessionService.clearVisibleTaskStarting(markedTaskId);
+        },
+      });
     }
 
     if (importedClaude && input.repoPath) {
@@ -221,11 +230,12 @@ export class TaskCreationSaga extends Saga<
           error,
         });
         this.deps.host.clearProvisioning(task.id);
+        this.deps.sessionService.clearVisibleTaskStarting(task.id);
         if (shouldDeferLocalPiTaskReady) {
           this.notifyTaskReady({ task, workspace: null });
         }
-        // The in-flight mark is left to TTL-expire on purpose: this state has
-        // its own retry-prompt UX, and auto-recovery would race the retry.
+        // Keep the recovery guard until its TTL expires so automatic recovery
+        // cannot race the worktree retry.
         return { task, workspace: null, provisioningError };
       }
     } else if (workspaceMode === "cloud") {
