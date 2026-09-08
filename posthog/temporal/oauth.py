@@ -205,7 +205,11 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          An update can also move an organization annotation to the scout's team.
 #   alert:write            Every insight alert in the scout's project. Delete is PERMANENT: the
 #                          viewset has no soft-delete, so it removes the alert and its check
-#                          history for good.
+#                          history for good. It also attaches and removes the alert's Slack
+#                          destinations, which is why the destination endpoints take Slack
+#                          workspaces the project already connected and no other transport: a
+#                          scout must not reach a URL of its own choosing, which is what keeps
+#                          `hog_function:write` out of this set.
 #   llm_skill:write        Every shared skill on the scout's project: body, description, and
 #                          bundled files. Custom scouts are skills in that same store, so this
 #                          reaches a sibling scout's prompt and the scout's own. Archive marks
