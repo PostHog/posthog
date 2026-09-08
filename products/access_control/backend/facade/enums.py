@@ -12,11 +12,25 @@ Internal-only constants (DB magic values, feature flags, etc.)
 should stay in the implementation (logic.py, models.py).
 """
 
+from typing import Literal
+
 from django.db import models
+
+ResolvedAccessSourceValue = Literal[
+    "object",
+    "parent_object",
+    "resource",
+    "parent_resource",
+    "system_default",
+    "org_admin",
+    "creator",
+    "org_membership",
+]
+ResolvedAccessSourceSubjectValue = Literal["member", "role", "default"]
 
 
 class ResolvedAccessSource(models.TextChoices):
-    """How a resolved access level was derived. Mirrors `ResolvedAccess.source`."""
+    """The `ResolvedAccessSourceValue` literals as choices, so the schema names the enum after this class."""
 
     OBJECT = "object", "object"
     PARENT_OBJECT = "parent_object", "parent_object"
@@ -29,7 +43,7 @@ class ResolvedAccessSource(models.TextChoices):
 
 
 class ResolvedAccessSourceSubject(models.TextChoices):
-    """Whose rule decided a resolved access level. Mirrors `ResolvedAccess.source_subject`."""
+    """The `ResolvedAccessSourceSubjectValue` literals as choices, so the schema names the enum after this class."""
 
     MEMBER = "member", "member"
     ROLE = "role", "role"
