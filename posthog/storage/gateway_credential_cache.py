@@ -30,6 +30,7 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.api.email_verification import email_verification_pending
 from posthog.caching.ai_gateway_redis_cache import AI_GATEWAY_DEDICATED_CACHE_ALIAS
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.organization import OrganizationMembership
@@ -227,8 +228,7 @@ def _oauth_authorization_ok(credential: OAuthAccessToken, team: Any, team_id: in
     user = credential.user
     if user is None or not user.is_active:
         return False
-    # None is a legacy account predating verification; False is a pending verification.
-    if user.is_email_verified is False:
+    if email_verification_pending(user):
         return False
     if credential.application_id is None:
         return False

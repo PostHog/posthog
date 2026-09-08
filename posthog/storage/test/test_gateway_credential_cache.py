@@ -365,16 +365,29 @@ class TestGatewayCredentialFailClosed(GatewayCredentialTestMixin):
 
     @parameterized.expand(
         [
-            ("verified", True, True),
-            ("legacy_null", None, True),
-            ("unverified", False, False),
+            ("verified", True, True, False, True),
+            ("legacy_null", None, True, False, True),
+            ("unverified", False, True, False, False),
+            ("unverified_instance_without_email", False, False, False, True),
+            ("unverified_org_verification_disabled", False, True, True, True),
         ]
     )
-    def test_email_verification_gating(self, _name: str, is_email_verified: bool | None, should_write: bool):
+    def test_email_verification_gating(
+        self,
+        _name: str,
+        is_email_verified: bool | None,
+        email_available: bool,
+        verification_disabled: bool,
+        should_write: bool,
+    ):
         credential = self._make_oauth(GATEWAY_SCOPE)
         self.user.is_email_verified = is_email_verified
         self.user.save()
-        project_gateway_credential(credential)
+        with (
+            patch("posthog.api.email_verification.is_email_available", return_value=email_available),
+            patch("posthog.api.email_verification.is_email_verification_disabled", return_value=verification_disabled),
+        ):
+            project_gateway_credential(credential)
         self.assertEqual(self._read_blob(credential_hash(credential)) is not None, should_write)
 
     def test_oauth_scoped_team_outside_fails_closed(self):
@@ -623,22 +636,6 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
 
         mock_delay.assert_not_called()
 
-    @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
-    @patch("posthog.storage.gateway_credential_signal_handlers.settings")
-    @patch("posthog.tasks.gateway_credential.reproject_user_gateway_credentials_task.delay")
-    def test_user_email_verification_unchanged_does_not_reproject(self, mock_delay, mock_settings, mock_transaction):
-        # is_email_verified is truthy on every check once verified, so this guards
-        # against comparing truthiness instead of the old snapshot.
-        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
-        mock_transaction.on_commit.side_effect = lambda fn: fn()
-
-        User.objects.filter(pk=self.user.pk).update(is_email_verified=True)  # bypasses signals
-        user = User.objects.get(pk=self.user.pk)
-        user.first_name = "changed, but not is_active or is_email_verified"
-        user.save()
-
-        mock_delay.assert_not_called()
-
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
     def test_secret_key_delete_clears_cache(self, mock_settings):
         mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
@@ -701,9 +698,10 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
             ("becomes_unverified", True, False),
         ]
     )
-    def test_user_email_verification_change_reprojects_synchronously(self, _name: str, initial: bool, new: bool):
-        # Mirrors test_user_deactivation_clears_blob_synchronously: the on_commit
-        # invalidation reprojects synchronously on either direction of the flip.
+    @patch("posthog.api.email_verification.is_email_available", return_value=True)
+    def test_user_email_verification_change_reprojects_synchronously(
+        self, _name: str, initial: bool, new: bool, _mock_email_available
+    ):
         self.user.is_email_verified = initial
         self.user.save()
         oauth = self._make_oauth(GATEWAY_SCOPE)

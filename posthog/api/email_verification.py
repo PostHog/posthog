@@ -3,6 +3,7 @@ import time
 import structlog
 from rest_framework import exceptions
 
+from posthog.email import is_email_available
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.two_factor_session import (
     CODE_MAX_ATTEMPTS,
@@ -30,6 +31,16 @@ def is_email_verification_disabled(user: User) -> bool:
         groups={"organization": str(user.organization.id)},
         group_properties={"organization": {"id": str(user.organization.id)}},
     )
+
+
+def email_verification_pending(user: User) -> bool:
+    """Whether this instance still requires the user to verify their email.
+
+    Mirrors the login gate: a null state is an account from before verification
+    existed, and an instance without email or an organization with verification
+    switched off cannot ask for one.
+    """
+    return user.is_email_verified is False and is_email_available() and not is_email_verification_disabled(user)
 
 
 class EmailVerificationCodeVerifier:
