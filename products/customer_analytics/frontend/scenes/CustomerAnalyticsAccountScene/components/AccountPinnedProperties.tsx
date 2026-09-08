@@ -53,7 +53,7 @@ export function AccountPinnedProperties({
     return (
         <section className="flex flex-col flex-1 min-h-0 overflow-hidden" data-attr="account-pinned-properties">
             <div className="flex items-center shrink-0 px-5 pt-4">
-                <span className="text-xxs font-semibold uppercase tracking-wider text-secondary">Properties</span>
+                <span className="secondary text-secondary">Properties</span>
                 {properties.length > 0 ? (
                     <LemonButton
                         size="xsmall"
