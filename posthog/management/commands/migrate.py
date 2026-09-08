@@ -221,8 +221,7 @@ def check_database_version(connection: BaseDatabaseWrapper) -> None:
             "  5. Restore the data. Errors about the posthog role and database already existing are expected:\n"
             "     gunzip -c posthog-backup.sql.gz | docker compose exec -T db psql -U posthog\n"
             "  6. Check that the data is back. This must print a count, not an error:\n"
-            "     docker compose exec -T db psql -U posthog -c 'select count(*) from django_migrations'\n\n"
-            "Run './bin/upgrade-postgres --help' for more detail.",
+            "     docker compose exec -T db psql -U posthog -c 'select count(*) from django_migrations'",
             returncode=UNSUPPORTED_DATABASE_EXIT_CODE,
         ) from exc
 
