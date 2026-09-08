@@ -57,10 +57,10 @@ WIZARD_EFFORT_LEVELS: tuple[str, ...] = ("none", "minimal", "low", "medium", "hi
 # so the pin refuses it and the escalation stays out of reach.
 WIZARD_DECLARABLE_EFFORTS: tuple[str, ...] = ("none", "minimal", "low", "medium", "high", "xhigh")
 
-# Every (model, effort) pair the wizard CLI dispatches, measured over stamped
-# wizard traffic; "none" is a request with no effort parameter. Wizard-wide
-# rather than per program: the CLI picks models per switchboard flag. Pinned at
-# mint so a lifted token buys nothing else. Widen here when the CLI adds a model.
+# Every (model, effort) pair the wizard CLI dispatches; "none" is a request with
+# no effort parameter. Wizard-wide rather than per program: the CLI picks models
+# per switchboard flag. The keys mirror the CLI's own model constants (wizard
+# src/lib/constants.ts, the *_MODEL exports), so widen here when one is added.
 WIZARD_MODEL_ALLOWLIST: dict[str, tuple[str, ...]] = {
     "claude-sonnet-4-6": ("none", "high"),
     "claude-sonnet-5": ("none", "high"),
