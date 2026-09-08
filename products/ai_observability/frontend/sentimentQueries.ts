@@ -63,16 +63,23 @@ const SENTIMENT_GENERATION_COLUMNS = [
 interface SentimentQuerySource {
     from: string
     traceIdExpression: string
+    /** Whether the scan needs a time bound on this source to stay cheap */
+    boundByTimestamp: boolean
 }
 
 const AI_EVENTS_SOURCE: SentimentQuerySource = {
     from: 'posthog.ai_events AS ai_events',
     traceIdExpression: 'trace_id',
+    // Sorted by (team_id, trace_id, timestamp), so the trace filter alone keeps the scan narrow.
+    // An evaluation event carries the time its run started, which a manual re-run can put days
+    // after the generation, so bounding this source would drop results it can read cheaply.
+    boundByTimestamp: false,
 }
 
 const EVENTS_SOURCE: SentimentQuerySource = {
     from: 'events',
     traceIdExpression: 'properties.$ai_trace_id',
+    boundByTimestamp: true,
 }
 
 interface SentimentEvaluationCandidate {
@@ -212,6 +219,11 @@ async function queryStoredGenerationSentiments(
         return new Map()
     }
 
+    const scanWindowClause = source.boundByTimestamp
+        ? `AND timestamp >= toDateTime(${escapeHogQLString(scanWindow.dateFrom)})
+           AND timestamp <= toDateTime(${escapeHogQLString(scanWindow.dateTo)})`
+        : ''
+
     const response = await api.queryHogQL<unknown[][]>(
         hogql`
             SELECT
@@ -237,8 +249,7 @@ async function queryStoredGenerationSentiments(
                 WHERE event = '$ai_evaluation'
                   AND properties.$ai_evaluation_runtime = 'sentiment'
                   AND ${hogql.raw(source.traceIdExpression)} IN ${traceIds}
-                  AND timestamp >= toDateTime(${scanWindow.dateFrom})
-                  AND timestamp <= toDateTime(${scanWindow.dateTo})
+                  ${hogql.raw(scanWindowClause)}
             )
             WHERE length(generation_id) > 0
               AND generation_id IN ${generationIds}

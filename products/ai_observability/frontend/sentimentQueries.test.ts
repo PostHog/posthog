@@ -125,9 +125,9 @@ describe('sentimentQueries', () => {
         expect(mockApi.queryHogQL).toHaveBeenCalledTimes(1)
         const sentimentQuery = mockApi.queryHogQL.mock.calls[0][0]
         expect(sentimentQuery).toContain('FROM posthog.ai_events AS ai_events')
-        // Bounded on the generation timestamp, so the scan can't walk the team's whole history
-        expect(sentimentQuery).toContain("timestamp >= toDateTime('2026-06-23T09:50:00.000Z')")
-        expect(sentimentQuery).toContain("timestamp <= toDateTime('2026-06-24T10:00:00.000Z')")
+        // Sorted by trace, so the trace filter is the bound here. An evaluation event is stamped
+        // with the time its run started, which a manual re-run can put days after the generation.
+        expect(sentimentQuery).not.toContain('toDateTime(')
         expect(sentimentQuery).toContain("properties.$ai_evaluation_runtime = 'sentiment'")
         expect(sentimentQuery).toContain('properties.$ai_target_event_id')
         expect(sentimentQuery).not.toContain('properties.$ai_target_id')
@@ -175,7 +175,12 @@ describe('sentimentQueries', () => {
         })
         expect(mockApi.queryHogQL).toHaveBeenCalledTimes(2)
         expect(mockApi.queryHogQL.mock.calls[0][0]).toContain('FROM posthog.ai_events AS ai_events')
-        expect(mockApi.queryHogQL.mock.calls[1][0]).toContain('FROM events')
+        const fallbackQuery = mockApi.queryHogQL.mock.calls[1][0]
+        expect(fallbackQuery).toContain('FROM events')
+        // `events` is sorted by date, so this scan keeps the window that stops it walking the
+        // team's whole history
+        expect(fallbackQuery).toContain("timestamp >= toDateTime('2026-06-23T09:50:00.000Z')")
+        expect(fallbackQuery).toContain("timestamp <= toDateTime('2026-06-24T10:00:00.000Z')")
     })
 
     it.each<[string, string]>([
