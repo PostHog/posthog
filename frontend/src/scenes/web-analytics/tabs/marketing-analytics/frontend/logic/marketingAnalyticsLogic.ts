@@ -737,7 +737,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         }
                         return {
                             integrationSourceIds: params.integrationSourceIds ?? state.integrationSourceIds,
-                            includeNonIntegrated: params.includeNonIntegrated,
+                            includeNonIntegrated: params.includeNonIntegrated ?? state.includeNonIntegrated,
                         }
                     },
                 },
