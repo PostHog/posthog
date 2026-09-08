@@ -2016,6 +2016,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboardFailure: () => false,
                 previewDashboardChanges: () => true,
                 previewDashboardChangesFailure: () => false,
+                setPreviewedDashboardSettings: (_, { settings }) => settings !== null,
             },
         ],
         cancellingPreview: [
@@ -4249,6 +4250,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const isInitialLoad =
                 action === DashboardLoadAction.InitialLoad || action === DashboardLoadAction.InitialLoadWithVariables
             const isInitialLoadOrUpdate = isInitialLoad || action === DashboardLoadAction.Update
+            const initialUrlOverridesArePreviewed =
+                isInitialLoad && !values.canAutoPreview && values.dashboardSettingsState === 'unsavedChanges'
 
             const dashboardId: number = props.id
             const allInsightTiles = values.insightTiles || []
@@ -4407,9 +4410,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 )
 
-                if (previewUnsavedFilters && (tilesErroredCount > 0 || tilesAbortedCount > 0)) {
+                if (
+                    (previewUnsavedFilters || initialUrlOverridesArePreviewed) &&
+                    (tilesErroredCount > 0 || tilesAbortedCount > 0)
+                ) {
                     actions.previewDashboardChangesFailure()
-                } else if (previewUnsavedFilters) {
+                } else if (previewUnsavedFilters || initialUrlOverridesArePreviewed) {
                     actions.setPreviewedDashboardSettings(settingsToRefresh)
                 }
             }

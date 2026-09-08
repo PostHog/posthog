@@ -1079,6 +1079,16 @@ describe('dashboardLogic', () => {
                     filterTestAccounts: true,
                 })
             )
+            expect(logic.values.previewedDashboardSettings?.filters).toEqual(
+                expect.objectContaining({
+                    date_from: '-7d',
+                    properties: [expect.objectContaining({ key: 'browser', value: 'Chrome' })],
+                    breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
+                    interval: 'week',
+                    filterTestAccounts: true,
+                })
+            )
+            expect(logic.values.loadingPreview).toBe(true)
 
             await expectLogic(logic, () => {
                 logic.actions.previewDashboardChanges()
