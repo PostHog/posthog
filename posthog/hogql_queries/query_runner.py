@@ -526,7 +526,7 @@ def get_query_runner(
                         user=user,
                     )
 
-            from .insights.trends.calendar_heatmap_trends_query_runner import CalendarHeatmapTrendsQueryRunner
+            from products.product_analytics.backend.facade.queries import CalendarHeatmapTrendsQueryRunner
 
             return CalendarHeatmapTrendsQueryRunner(
                 query=query_obj,
@@ -538,7 +538,7 @@ def get_query_runner(
             )
 
         if display_type == ChartDisplayType.BOX_PLOT:
-            from .insights.trends.boxplot_trends_query_runner import BoxPlotTrendsQueryRunner
+            from products.product_analytics.backend.facade.queries import BoxPlotTrendsQueryRunner
 
             return BoxPlotTrendsQueryRunner(
                 query=query_obj,
@@ -550,7 +550,7 @@ def get_query_runner(
             )
 
         if display_type == ChartDisplayType.SLOPE_GRAPH:
-            from .insights.trends.slope_graph_trends_query_runner import SlopeGraphTrendsQueryRunner
+            from products.product_analytics.backend.facade.queries import SlopeGraphTrendsQueryRunner
 
             return SlopeGraphTrendsQueryRunner(
                 query=query_obj,
@@ -587,7 +587,7 @@ def get_query_runner(
                     user=user,
                 )
 
-        from .insights.trends.trends_query_runner import TrendsQueryRunner
+        from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 
         return TrendsQueryRunner(
             query=query_obj,
@@ -643,7 +643,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "CalendarHeatmapQuery":
-        from .insights.trends.calendar_heatmap_query_runner import CalendarHeatmapQueryRunner
+        from products.product_analytics.backend.facade.queries import CalendarHeatmapQueryRunner
 
         return CalendarHeatmapQueryRunner(
             query=cast(CalendarHeatmapQuery | dict[str, Any], query),
@@ -1436,20 +1436,6 @@ def get_query_runner(
         )
 
         return MarketingAnalyticsRetentionQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
-    if kind == NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY:
-        from products.marketing_analytics.backend.hogql_queries.non_integrated_conversions_table_query_runner import (
-            NonIntegratedConversionsTableQueryRunner,
-        )
-
-        return NonIntegratedConversionsTableQueryRunner(
             query=query,
             team=team,
             timings=timings,

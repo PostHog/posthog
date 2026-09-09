@@ -176,10 +176,20 @@ tools:
             are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's
             full work log, including signal findings, judgments, and log entries, is readable via
             inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by
-            '-is_suggested_reviewer,status,-updated_at' by default. To find the self-driving reports for one source
-            record — e.g. what the inbox already investigated for a specific support ticket — pass that record's id as
-            `source_id` together with exactly one `source_product` (for a support ticket: `source_product=conversations`
-            and the ticket's UUID as `source_id`); add `include_all_statuses=true` to include dismissed ones.
+            '-is_suggested_reviewer,status,-updated_at' by default. To answer "what should I look at next", pass
+            `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`: that returns ready,
+            actionable reports that have no implementation PR yet, at or above the requesting user's personal
+            PR-generation threshold, falling back to the project threshold. `use_priority_preference` selects which
+            priorities to include, and does not order them, so pass `sort=priority` to put P0 first; the default
+            ordering can put a recently updated P4 above an older P0. Without `limit` a page holds up to 100 reports,
+            each with its summary. The other views are `needs_input` (waiting on a human), `monitoring` (an
+            implementation PR is open), `resolved`, `dismissed`, `not_actionable`, and `all`. Narrow by reviewer with
+            `scope=for_me`, or `scope=teammate` plus `teammate_uuid`; the default `scope=entire_project` searches every
+            report. `priority`, `source_product`, and `scout` each take a comma-separated list. To find the self-driving
+            reports for one source record — e.g. what the inbox already investigated for a specific support ticket —
+            pass that record's id as `source_id` together with exactly one `source_product` (for a support ticket:
+            `source_product=conversations` and the ticket's UUID as `source_id`); add `include_all_statuses=true` to
+            include dismissed ones.
         agent_note: >
             You may inspect reports without claiming them. A claim indicates active work that should not be duplicated.
             Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues
@@ -204,6 +214,7 @@ tools:
                 - signal_count
                 - total_weight
                 - source_products
+                - scout_name
                 - is_suggested_reviewer
                 - implementation_pr_url
                 - implementation_pr_state
@@ -898,46 +909,6 @@ tools:
             `keys_only=true` to scan which memories exist without pulling their (potentially large) bodies, or
             `content_max_chars` to cap each `content` to a preview — both keep a wide orientation/dedupe scan from
             returning every entry's full prose. Results capped at 1000.
-    self-driving-inbox-get:
-        operation: signals_reports_list
-        enabled: true
-        scopes:
-            - task:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        input_schema: ReportInboxInputSchema
-        enrich_url: '{id}'
-        list: true
-        title: Get self-driving inbox
-        description: >
-            Get the top 10 prioritized, actionable self-driving reports for the current project, including their
-            summaries. By default this uses the requesting user's personal PR-generation threshold, falling back to the
-            project threshold. Choose another view for reports needing human input, implementation PRs being monitored,
-            resolved or dismissed reports, or reports judged not actionable. Filter by reviewer scope, priority, source
-            product, scout, or text search, and use offset to page through further results. Use
-            inbox-report-artefacts-list to read a report's evidence and work log before acting on it.
-        response:
-            include:
-                - id
-                - title
-                - summary
-                - status
-                - priority
-                - actionability
-                - already_addressed
-                - dismissal_reason
-                - dismissal_note
-                - signal_count
-                - total_weight
-                - source_products
-                - scout_name
-                - is_suggested_reviewer
-                - implementation_pr_url
-                - implementation_pr_merged
-                - created_at
-                - updated_at
     signals-report-artefacts-diff:
         operation: signals_report_artefacts_diff
         enabled: false
