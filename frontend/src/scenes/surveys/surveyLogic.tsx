@@ -1264,7 +1264,7 @@ export interface surveyLogicActions {
         column: SurveyResponseContextColumn,
         show: boolean
     ) => {
-        column: SurveyResponseContextColumn
+        column: 'current_url' | 'person_id' | 'session_id'
         show: boolean
     }
     setResponseExpanded: (
@@ -1437,7 +1437,7 @@ export interface surveyLogicMeta {
             answerFilters: EventPropertyFilter[],
             timestampFilter: string,
             archivedResponsesFilter: string,
-            responseContextColumns: SurveyResponseContextColumn[]
+            responseContextColumns: ('current_url' | 'person_id' | 'session_id')[]
         ) => DataTableNode | null
         targetingFlagFilters: (survey: NewSurvey | Survey) => FeatureFlagFilters | undefined
         urlMatchTypeValidationError: (survey: NewSurvey | Survey) => string | null
