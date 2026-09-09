@@ -87,6 +87,26 @@ ACTIVE_CAMPAIGN_ENDPOINTS: dict[str, ActiveCampaignEndpointConfig] = {
         path="/fields",
         data_selector="fields",
     ),
+    "email_activities": ActiveCampaignEndpointConfig(
+        name="email_activities",
+        path="/emailActivities",
+        data_selector="emailActivities",
+    ),
+    "ecom_orders": ActiveCampaignEndpointConfig(
+        name="ecom_orders",
+        path="/ecomOrders",
+        data_selector="ecomOrders",
+    ),
+    "ecom_order_products": ActiveCampaignEndpointConfig(
+        name="ecom_order_products",
+        path="/ecomOrderProducts",
+        data_selector="ecomOrderProducts",
+    ),
+    "ecom_customers": ActiveCampaignEndpointConfig(
+        name="ecom_customers",
+        path="/ecomCustomers",
+        data_selector="ecomCustomers",
+    ),
 }
 
 ENDPOINTS = tuple(ACTIVE_CAMPAIGN_ENDPOINTS.keys())
