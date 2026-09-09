@@ -564,11 +564,26 @@ describe("McpAppsService.proxyToolCall", () => {
   });
 
   it.each([
-    ["a model-only tool", "posthog", "secret-tool"],
-    ["a tool with no UI association", "posthog", "exec-helper"],
-    ["the exec tool without a UI association", "posthog", "exec"],
-    ["the exec tool name on a non-built-in server", "acme", "exec"],
-  ])("denies %s", async (_label, serverName, toolName) => {
+    ["a model-only tool", "posthog", "secret-tool", "(model)"],
+    [
+      "a tool with no UI association",
+      "posthog",
+      "exec-helper",
+      "(no UI association)",
+    ],
+    [
+      "the exec tool without a UI association",
+      "posthog",
+      "exec",
+      "(no UI association)",
+    ],
+    [
+      "the exec tool name on a non-built-in server",
+      "acme",
+      "exec",
+      "(no UI association)",
+    ],
+  ])("denies %s", async (_label, serverName, toolName, reason) => {
     service.setServerConfigs([config("posthog"), config("acme")]);
     const client = makeProxyClient([
       {
@@ -586,7 +601,7 @@ describe("McpAppsService.proxyToolCall", () => {
     connectProxyClient(service, client);
 
     await expect(service.proxyToolCall(serverName, toolName)).rejects.toThrow(
-      "is not accessible to apps",
+      `is not accessible to apps ${reason}`,
     );
     expect(client.callTool).not.toHaveBeenCalled();
   });
