@@ -29,8 +29,8 @@ export const clustersSetupLogic = createSetupDetectionLogic({
         }
         const seenAiEvents = await hasRecentAIEvents()
         if (seenAiEvents === null) {
-            // The check could not run, so it must not read as "no AI events" and show setup.
-            return 'unknown'
+            // Preserve any existing setup screen while the check cannot answer.
+            return null
         }
         return seenAiEvents ? 'waiting-for-data' : 'needs-setup'
     },
