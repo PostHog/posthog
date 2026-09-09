@@ -3,7 +3,6 @@ import { launch as launchForCapture } from 'puppeteer-capture'
 
 import { config } from '~/session-replay/recording-rasterizer/config'
 import { resolveEgressProxyUrl } from '~/session-replay/recording-rasterizer/egress-proxy'
-import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
 import { createLogger } from '~/session-replay/recording-rasterizer/logger'
 import { RasterizationMetrics } from '~/session-replay/recording-rasterizer/metrics'
 
@@ -63,36 +62,11 @@ export class BrowserPool {
         ]
     }
 
-    // puppeteer-capture only rejects a non-chrome-headless-shell binary once a capture attaches to a
-    // page, so a PUPPETEER_EXECUTABLE_PATH pointing at another Chrome passes the readiness probe and
-    // then fails every render. Check the launched process here: `pool.launch()` runs before the
-    // worker reports ready, so a bad path kills the pod instead of quietly eating scans.
-    private async assertCaptureCapable(browser: Browser): Promise<void> {
-        const executablePath = browser.process()?.spawnfile
-        if (executablePath?.includes('chrome-headless-shell')) {
-            return
-        }
-        // The path belongs in the operator's log, not in the error: the message reaches a user as an
-        // observation failure reason.
-        log.error({ executable_path: executablePath ?? 'unknown' }, 'browser cannot capture frames')
-        try {
-            await browser.close()
-        } catch (err) {
-            log.debug({ err }, 'browser close failed, may already be dead')
-        }
-        throw new RasterizationError(
-            'rasterizer browser is not chrome-headless-shell; check PUPPETEER_EXECUTABLE_PATH',
-            false,
-            'BROWSER_MISCONFIGURED'
-        )
-    }
-
     private async launchBrowser(): Promise<BrowserSlot> {
         const browser = await launchForCapture({
             executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
             args: this.launchArgs(),
         })
-        await this.assertCaptureCapable(browser)
         RasterizationMetrics.browserLaunched()
         const slot: BrowserSlot = { browser, usageCount: 0 }
         browser.on('disconnected', () => this.handleDisconnect(slot))
@@ -129,10 +103,21 @@ export class BrowserPool {
         }
     }
 
+    // puppeteer-capture runs the same check when a capture attaches. Running it once at startup fails
+    // the pod on a bad PUPPETEER_EXECUTABLE_PATH instead of failing every render.
     async launch(): Promise<void> {
-        if (this.idle.length === 0) {
-            this.idle.push(await this.launchBrowser())
+        if (this.idle.length > 0) {
+            return
         }
+        const slot = await this.launchBrowser()
+        const spawnfile = slot.browser.process()?.spawnfile
+        if (!spawnfile?.includes('chrome-headless-shell')) {
+            await this.closeBrowser(slot)
+            throw new Error(
+                `browser ${spawnfile ?? '(unknown)'} is not chrome-headless-shell, check PUPPETEER_EXECUTABLE_PATH`
+            )
+        }
+        this.idle.push(slot)
     }
 
     async getPage(): Promise<Page> {

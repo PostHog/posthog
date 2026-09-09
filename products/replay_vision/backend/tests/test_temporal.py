@@ -2567,49 +2567,6 @@ async def test_apply_scanner_workflow_classifies_rasterizer_dependency_failure_b
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "patched,expected_reason",
-    [
-        (True, "internal_error:the video renderer is misconfigured"),
-        # A history that reached this point before the patch keeps the old kind, so switching mid-run
-        # cannot make the replay non-deterministic.
-        (False, "rasterization_failed:Not chrome-headless-shell: /usr/bin/chromium"),
-    ],
-)
-async def test_apply_scanner_workflow_hides_browser_path_behind_internal_error(
-    patched: bool, expected_reason: str
-) -> None:
-    new_observation_id = uuid.uuid4()
-    leaf = ApplicationError(
-        "Not chrome-headless-shell: /usr/bin/chromium",
-        type="BROWSER_MISCONFIGURED",
-        non_retryable=True,
-    )
-    mocks = _WorkflowMocks(
-        activity_results={
-            create_observation_activity: CreateObservationOutput(
-                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
-            ),
-            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
-        },
-        child_error=_wrap_in_child_workflow_error(_wrap_in_activity_error(leaf)),
-    )
-
-    with pytest.raises(ScannerFailureError) as exc_info:
-        await _run_workflow(_build_inputs(session_id="sess-browser"), mocks, patched=patched)
-
-    assert mocks.activity_calls[-1][1].error_reason == expected_reason
-    if not patched:
-        return
-    assert exc_info.value.kind is FailureKind.INTERNAL_ERROR
-    # Prove through the real capture serializer that the browser path cannot reach the user or error
-    # tracking through the suppressed cause chain.
-    serialized = exceptions_from_error_tuple((type(exc_info.value), exc_info.value, exc_info.value.__traceback__))
-    captured = " ".join(str(item.get("value")) for item in serialized)
-    assert "/usr/bin/chromium" not in captured
-
-
-@pytest.mark.asyncio
 async def test_apply_scanner_workflow_cleans_up_gemini_file_when_call_provider_fails() -> None:
     new_observation_id = uuid.uuid4()
     mocks = _WorkflowMocks(

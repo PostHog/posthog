@@ -1,7 +1,6 @@
 import { Browser, Page } from 'puppeteer'
 
 import { BrowserPool } from '~/session-replay/recording-rasterizer/capture/browser-pool'
-import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
 
 jest.mock('~/session-replay/recording-rasterizer/logger', () => {
     const info = jest.fn()
@@ -98,15 +97,12 @@ describe('BrowserPool', () => {
         expect(pool.stats.activePages).toBe(0)
     })
 
-    it('refuses a browser that is not chrome-headless-shell, without naming the path', async () => {
+    it('fails launch() on a browser that is not chrome-headless-shell', async () => {
         const browser = mockBrowser('/usr/bin/chromium')
         puppeteerCapture.launch.mockResolvedValue(browser)
 
         pool = new BrowserPool(100)
-        const err = await pool.launch().catch((e: RasterizationError) => e)
-
-        expect(err).toMatchObject({ code: 'BROWSER_MISCONFIGURED', retryable: false })
-        expect((err as RasterizationError).message).not.toContain('/usr/bin/chromium')
+        await expect(pool.launch()).rejects.toThrow('/usr/bin/chromium')
         expect(browser.close).toHaveBeenCalled()
     })
 

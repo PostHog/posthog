@@ -111,7 +111,6 @@ RASTERIZATION_CODE_TO_FAILURE_TYPE: dict[str, str] = {
     "INIT_FAILED": FAILURE_TYPE_SYSTEM,
     "BLOCK_LISTING_FAILED": FAILURE_TYPE_SYSTEM,
     "TARGET_CLOSED": FAILURE_TYPE_SYSTEM,
-    "BROWSER_MISCONFIGURED": FAILURE_TYPE_SYSTEM,
     # The render activity died without producing a code at all: heartbeat or start-to-close timeout
     # from a lost or wedged worker. Not the renderer's own TIMEOUT, but still a render that ran out
     # of time. Resolved in the workflow's _record_failure, not a rasterizer code.
@@ -137,8 +136,6 @@ _RASTERIZATION_MESSAGES: dict[str, str] = {
     "INIT_FAILED": "The video renderer could not start. Try the export again.",
     "BLOCK_LISTING_FAILED": "We could not read this recording. Try the export again in a few minutes.",
     "TARGET_CLOSED": "The video renderer stopped before it finished. Try the export again.",
-    # A retry hits the same misconfigured render fleet, so point at support rather than at the button.
-    "BROWSER_MISCONFIGURED": "The video renderer could not start. Contact support if this keeps happening.",
     "ACTIVITY_TIMEOUT": "This recording took too long to render. Try exporting a shorter part of it.",
 }
 

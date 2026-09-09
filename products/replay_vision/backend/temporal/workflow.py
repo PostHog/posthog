@@ -176,10 +176,6 @@ _RASTERIZER_INFRA_TRANSIENT_TYPES = frozenset(
     {"BLOCK_LISTING_FAILED", "DATA_LOAD_FAILED", "S3_UPLOAD_FAILED", "S3_UPLOAD_UNDECODABLE_RESPONSE"}
 )
 
-# The rasterizer refuses to use a browser that cannot capture frames. That is a deployment mistake in the render
-# fleet, so no recording renders until an operator fixes the config. It is our bug, not a property of the recording.
-_RASTERIZER_BROWSER_MISCONFIGURED_TYPE = "BROWSER_MISCONFIGURED"
-
 
 def _activity_timeout_kind(e: BaseException) -> str | None:
     """Map an activity start-to-close/heartbeat timeout onto whichever side ran out of time."""
@@ -462,19 +458,6 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 # Gate as ineligible, not failed, so the user reads "too large" instead of a "known issue" retry prompt.
                 raise IneligibleSessionError(_root_cause_message(e), kind=IneligibleSessionKind.TOO_LARGE) from e
             rasterizer_type = _failure_type(e)
-            if rasterizer_type == _RASTERIZER_BROWSER_MISCONFIGURED_TYPE and wf.patched(
-                "replay-vision-browser-misconfigured-internal-2026-09"
-            ):
-                # An in-flight history from before this branch existed already scheduled the failed-mark with the
-                # old kind, so `patched` keeps those histories on the old path and cannot raise non-determinism.
-                #
-                # `from None` drops the cause so the user-facing reason carries no internal detail and no
-                # "this recording is broken" story: the render fleet is misconfigured, and every recording
-                # fails the same way until an operator fixes it. The rasterizer log holds the browser path.
-                wf.logger.error("replay_vision.rasterizer_browser_misconfigured detail=%s", _root_cause_message(e))
-                raise ScannerFailureError(
-                    "the video renderer is misconfigured", kind=FailureKind.INTERNAL_ERROR
-                ) from None
             # The rasterizer flags a genuine transport blip (5xx, timeout, dropped connection) as retryable
             # but a permanent 4xx or a malformed listing as non-retryable. Only the retryable ones are the
             # "dependency was slow" story; a non-retryable leaf keeps the RASTERIZATION_FAILED path below, so
