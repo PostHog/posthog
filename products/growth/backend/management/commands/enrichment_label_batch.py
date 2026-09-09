@@ -256,8 +256,6 @@ class Command(BaseCommand):
                         },
                     )
             except TransientToolError:
-                # A transient tool problem must not become a permanent verdict or trip the
-                # circuit breaker; with no result row written, the next run retries this org.
                 with counts_lock:
                     counts["tools_deferred"] += 1
                 return

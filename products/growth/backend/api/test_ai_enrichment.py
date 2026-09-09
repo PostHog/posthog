@@ -48,8 +48,6 @@ def _mock_llm_client(
     response.choices[0].message.content = json.dumps(
         {verdict_key: verdict, "confidence": confidence, "reasoning": reasoning}
     )
-    # A plain MagicMock auto-vivifies unset attributes as a truthy child mock, so the tool loop's
-    # `if message.tool_calls` would treat every reply as a tool call without this.
     response.choices[0].message.tool_calls = None
     client.chat.completions.create.return_value = response
     return client
@@ -386,8 +384,6 @@ class TestAIEnrichmentAPI(APIBaseTest):
         self.assertEqual(EnrichmentPromptConfig.objects.filter(name="too_many_fields_label").count(), 0)
 
     def test_save_ignores_a_stray_sources_field_and_does_not_require_it(self):
-        # A config with no evidence_url output field, sent with a leftover "sources" key from an
-        # older client, must save fine: the API no longer declares or needs a sources field.
         payload = {
             "label": "no_sources_label",
             "prompt_text": "x",

@@ -364,7 +364,6 @@ def _parse_custom_output(config: EnrichmentPromptConfig, data: dict[str, Any]) -
 
 
 def _accumulate_meta(combined: dict[str, Any], turn: dict[str, Any]) -> None:
-    # Usage tokens sum across turns (spend); everything else reflects only the latest turn.
     for key in ("prompt_tokens", "completion_tokens"):
         if key in turn:
             combined[key] = combined.get(key, 0) + turn[key]
@@ -404,7 +403,6 @@ def _run_tool_call(call: Any) -> ToolOutcome:
 def _call_and_parse(
     config: EnrichmentPromptConfig, messages: list[dict[str, Any]], client: OpenAI
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    # Copied: a tenacity retry reruns this with the same `messages` object, so it must restart clean.
     messages = list(messages)
     meta: dict[str, Any] = {}
     tool_log: list[dict[str, Any]] = []
@@ -571,6 +569,15 @@ def _reject_unsupported_evidence_url(
     output["evidence_url"] = None
 
 
+def _stored_tool_result(result: dict[str, Any]) -> dict[str, Any]:
+    """The verdict keeps a fetched page's url and size, never its text: the evidence_url is the
+    audit pointer, and the page can be fetched again."""
+    stored = {key: value for key, value in result.items() if key not in ("note", "markdown")}
+    if "markdown" in result:
+        stored["chars"] = len(result["markdown"])
+    return _bounded(stored)
+
+
 def classify_payload(
     config: EnrichmentPromptConfig,
     payload: dict[str, Any] | None,
@@ -597,10 +604,9 @@ def classify_payload(
     output["inputs"] = inputs_record
     if tool_calls:
         inputs_record["tool_calls"] = [
-            {"name": call["name"], "arguments": call["arguments"], "result": _bounded(call["result"])}
+            {"name": call["name"], "arguments": call["arguments"], "result": _stored_tool_result(call["result"])}
             for call in tool_calls
         ]
-        # No "result" here: it already lives, bounded, in inputs.tool_calls above.
         meta["tool_calls"] = [
             {"name": call["name"], "arguments": call["arguments"], "error": call["error"]} for call in tool_calls
         ]

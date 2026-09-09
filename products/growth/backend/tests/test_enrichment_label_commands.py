@@ -31,8 +31,6 @@ _OUTPUT_FIELDS = [
 def _response(content: str, prompt_tokens: int | None = None, completion_tokens: int | None = None) -> MagicMock:
     response = MagicMock()
     response.choices[0].message.content = content
-    # A plain MagicMock auto-vivifies unset attributes as a truthy child mock, so the tool loop's
-    # `if message.tool_calls` would treat every reply as a tool call without this.
     response.choices[0].message.tool_calls = None
     if prompt_tokens is not None and completion_tokens is not None:
         response.usage.prompt_tokens = prompt_tokens
@@ -556,8 +554,6 @@ class TestToolDeferral(_BatchCommandTestCase):
             patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
             patch(f"{_BATCH_COMMAND_MODULE}.classify_payload", side_effect=TransientToolError("boom")),
         ):
-            # max_failures=1 would abort after a single genuine failure; a deferral must not
-            # count as one, so all 3 orgs must be reached without a CommandError.
             call_command("enrichment_label_batch", label="test_label", workers=1, max_failures=1, stdout=out)
 
         assert EnrichmentLabelResult.objects.count() == 0
@@ -581,8 +577,6 @@ class TestToolDeferral(_BatchCommandTestCase):
             patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
             patch(f"{_BATCH_COMMAND_MODULE}.classify_payload", side_effect=_classify),
         ):
-            # A 1-of-4 raw success rate would fail --min-success-rate 0.9; the 3 deferred orgs
-            # must drop out of the denominator so this run succeeds on the 1 org actually tried.
             call_command("enrichment_label_batch", label="test_label", workers=1, min_success_rate=0.9, stdout=out)
 
         assert EnrichmentLabelResult.objects.count() == 1

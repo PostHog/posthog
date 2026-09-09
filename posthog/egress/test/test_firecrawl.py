@@ -121,7 +121,6 @@ class TestFirecrawlEgress(SimpleTestCase):
 
     @override_settings(FIRECRAWL_API_KEY="")
     def test_scrape_without_a_configured_key_never_calls_out(self) -> None:
-        # Instances run without a key; sending `Bearer ` would spend a request to be told 401.
         with patch("requests.request") as request:
             with self.assertRaises(FirecrawlNotConfigured):
                 scrape("https://example.com", source="test")
@@ -175,8 +174,6 @@ class TestFirecrawlEgress(SimpleTestCase):
 @override_settings(FIRECRAWL_API_KEY=_FAKE_API_KEY)
 class TestFirecrawlSearchEgress(SimpleTestCase):
     def test_search_sends_the_request_shape_firecrawl_documents(self) -> None:
-        # Firecrawl reads camelCase body keys and ignores unknown ones, so a wrong body shape would
-        # silently return an empty or wrongly-scoped result set instead of raising.
         with _firecrawl_answers(_response(200, json.dumps(_SUCCESSFUL_SEARCH))) as (request, _consume):
             search("widget makers", source="test", limit=3)
 
@@ -186,8 +183,6 @@ class TestFirecrawlSearchEgress(SimpleTestCase):
         assert kwargs["json"] == {"query": "widget makers", "limit": 3, "sources": [{"type": "web"}]}
 
     def test_search_maps_the_documented_response_onto_the_result(self) -> None:
-        # An entry with no string url can't be attributed to anything, so it must be skipped rather
-        # than handed to a caller that will treat a missing url as a valid, empty-string result.
         body = {
             "success": True,
             "data": {
@@ -209,8 +204,6 @@ class TestFirecrawlSearchEgress(SimpleTestCase):
         assert result.credits_used == 2
 
     def test_search_with_no_web_results_is_an_empty_result_not_a_failure(self) -> None:
-        # Firecrawl can answer with no matches for a narrow query; that is a normal empty result, not
-        # something the caller should have to catch as a failure.
         body = {"success": True, "data": {}}
         with _firecrawl_answers(_response(200, json.dumps(body))):
             result = search("a query with no matches", source="test")
@@ -226,30 +219,23 @@ class TestFirecrawlSearchEgress(SimpleTestCase):
         ]
     )
     def test_search_raises_rather_than_returning_an_empty_result(self, _name: str, status: int, body: str) -> None:
-        # Firecrawl answers 200 with `success: false` for a search it could not run, so a caller that
-        # only checked the HTTP status would treat a failed search as a query with no matches.
         with _firecrawl_answers(_response(status, body)), self.assertRaises(FirecrawlSearchFailed):
             search("widget makers", source="test")
 
     @override_settings(FIRECRAWL_API_KEY="")
     def test_search_without_a_configured_key_never_calls_out(self) -> None:
-        # Instances run without a key; sending `Bearer ` would spend a request to be told 401.
         with patch("requests.request") as request:
             with self.assertRaises(FirecrawlNotConfigured):
                 search("widget makers", source="test")
         request.assert_not_called()
 
     def test_search_above_the_limit_ceiling_never_calls_out(self) -> None:
-        # Firecrawl bills search at 2 credits per 10 results, so an unchecked limit is an unbounded
-        # bill; the check must reject before spending a request on it.
         with patch("requests.request") as request:
             with self.assertRaises(ValueError):
                 search("widget makers", source="test", limit=MAX_SEARCH_LIMIT + 1)
         request.assert_not_called()
 
     def test_search_priority_passes_through_to_the_limiter_gate(self) -> None:
-        # The limiter decides sheddability from this argument alone, so a dropped kwarg would make
-        # every search NORMAL regardless of what the caller asked for.
         with _firecrawl_answers(_response(200, json.dumps(_SUCCESSFUL_SEARCH))) as (_request, consume):
             search("widget makers", source="test", priority=Priority.BATCH)
 

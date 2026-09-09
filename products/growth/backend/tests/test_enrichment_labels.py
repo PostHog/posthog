@@ -16,7 +16,7 @@ from openai import OpenAI
 from parameterized import parameterized
 
 from posthog.egress.firecrawl import FirecrawlEgressBudgetExhausted
-from posthog.egress.firecrawl.client import FirecrawlSearch, FirecrawlSearchResult
+from posthog.egress.firecrawl.client import FirecrawlScrape, FirecrawlSearch, FirecrawlSearchResult
 from posthog.models.organization import Organization, OrganizationMembership
 
 from products.growth.backend.enrichment.labels import (
@@ -51,8 +51,6 @@ def _mock_llm_client(
     response.choices[0].message.content = json.dumps(
         {verdict_key: verdict, "confidence": confidence, "reasoning": reasoning}
     )
-    # A bare MagicMock().tool_calls is truthy, which the tool loop reads as "the model wants to
-    # call a tool" - this fixture always answers in one turn.
     response.choices[0].message.tool_calls = None
     client.chat.completions.create.return_value = response
     return client
@@ -209,6 +207,10 @@ def _search_tool_call(call_id: str = "call_1", query: str = "Acme AI") -> _FakeT
     return _FakeToolCall(call_id, "web_search", {"query": query})
 
 
+def _fetch_tool_call(call_id: str = "call_1", url: str = "https://example.com/pricing") -> _FakeToolCall:
+    return _FakeToolCall(call_id, "fetch_page", {"url": url})
+
+
 class TestClassifyPayloadToolLoop(SimpleTestCase):
     def _config(self) -> EnrichmentPromptConfig:
         return EnrichmentPromptConfig(
@@ -267,6 +269,23 @@ class TestClassifyPayloadToolLoop(SimpleTestCase):
         assert stored_title.endswith("…")
         assert len(stored_title) == MAX_INPUT_VALUE_CHARS + 1
 
+    def test_a_fetched_page_is_stored_as_url_and_size_without_its_text(self):
+        config = self._config()
+        client = _ScriptedClient(
+            _FakeResponse(tool_calls=[_fetch_tool_call(url="https://example.com/pricing")]),
+            _FakeResponse(content=json.dumps({"is_ai": True, "evidence_url": "https://example.com/pricing"})),
+        )
+        page = FirecrawlScrape(
+            url="https://example.com/pricing", markdown="# Pricing\n" + "word " * 500, status_code=200
+        )
+
+        with patch(f"{_TOOLS_MODULE}.scrape", return_value=page):
+            result = classify_payload(config, {"name": "Acme"}, "example.com", cast(OpenAI, client))
+
+        [stored] = result["inputs"]["tool_calls"]
+        assert stored["name"] == "fetch_page"
+        assert stored["result"] == {"url": "https://example.com/pricing", "chars": len(page.markdown)}
+
     def test_usage_tokens_are_summed_across_tool_turns(self):
         config = self._config()
         client = _ScriptedClient(
@@ -295,7 +314,6 @@ class TestClassifyPayloadToolLoop(SimpleTestCase):
         with patch(f"{_TOOLS_MODULE}.search", return_value=found):
             result = classify_payload(config, {"name": "Acme"}, "example.com", cast(OpenAI, client))
 
-        # Only 4 of the 5 requested calls were actually executed.
         assert len(result["meta"]["tool_calls"]) == 4
         assert "tools" not in client.calls[1]
         assert "tool_choice" not in client.calls[1]
@@ -331,7 +349,6 @@ class TestClassifyPayloadToolLoop(SimpleTestCase):
             with self.assertRaises(OutputParseError):
                 classify_payload(config, {"name": "Acme"}, "example.com", cast(OpenAI, client))
 
-        # The third turn reveals the model still wants tools and is rejected before executing it.
         assert len(client.calls) == 3
 
 
