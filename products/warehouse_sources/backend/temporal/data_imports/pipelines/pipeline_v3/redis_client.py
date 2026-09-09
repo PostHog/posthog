@@ -1,4 +1,5 @@
 import time
+import threading
 from collections.abc import Generator
 from contextlib import contextmanager
 
@@ -15,10 +16,24 @@ logger = structlog.get_logger(__name__)
 
 # One v3 batch opens the client several times, and each failed connect costs three attempts
 # of REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS. A window several times that burst holds the cost
-# to one dead connect and one report per window, and delays recovery by at most one window.
+# to one report per window per worker, and delays recovery by at most one window. The loader
+# runs batches on parallel threads, so threads already connecting when a window opens still
+# pay their own dead connect; only the first of them reports it.
 CONNECT_FAILURE_COOLDOWN_SECONDS = 30.0
 
 _cooldown_until = 0.0
+_cooldown_lock = threading.Lock()
+
+
+def _open_cooldown() -> bool:
+    """Start a cooldown window and say whether this thread is the first to fail in it."""
+    global _cooldown_until
+
+    now = time.monotonic()
+    with _cooldown_lock:
+        first_failure = now >= _cooldown_until
+        _cooldown_until = now + CONNECT_FAILURE_COOLDOWN_SECONDS
+    return first_failure
 
 
 @retry(
@@ -44,8 +59,6 @@ def get_redis_client(*, bypass_cooldown: bool = False) -> Generator[redis.Redis 
     The cooldown is process-wide, so a per-batch call that fails its connect would
     otherwise suppress the single attempt such a caller makes.
     """
-    global _cooldown_until
-
     if not bypass_cooldown and time.monotonic() < _cooldown_until:
         yield None
         return
@@ -60,9 +73,9 @@ def get_redis_client(*, bypass_cooldown: bool = False) -> Generator[redis.Redis 
         redis_client = get_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
         _connect_and_ping(redis_client)
     except Exception as e:
-        _cooldown_until = time.monotonic() + CONNECT_FAILURE_COOLDOWN_SECONDS
         logger.exception("warehouse_pipeline_redis_unavailable", error=str(e))
-        capture_exception(e)
+        if _open_cooldown():
+            capture_exception(e)
         redis_client = None
 
     yield redis_client

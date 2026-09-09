@@ -1,3 +1,5 @@
+import threading
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -54,3 +56,36 @@ class TestGetRedisClient:
             assert client is None
         with get_redis_client() as client:
             assert client is mock_redis
+
+    @patch(f"{_MODULE}.capture_exception")
+    @patch(f"{_MODULE}._connect_and_ping")
+    @patch(f"{_MODULE}.get_client")
+    def test_reports_once_when_threads_fail_in_the_same_window(
+        self, mock_get_client: MagicMock, mock_connect: MagicMock, mock_capture: MagicMock
+    ) -> None:
+        thread_count = 4
+        # The loader connects on parallel threads, so hold every thread past the cooldown
+        # check until all of them are connecting — that is the race the lock has to cover.
+        barrier = threading.Barrier(thread_count, timeout=10)
+
+        def _fail(_client: MagicMock) -> None:
+            barrier.wait()
+            raise redis.exceptions.TimeoutError("Timeout connecting to server")
+
+        mock_connect.side_effect = _fail
+        mock_get_client.return_value = MagicMock()
+        clients: list[redis.Redis | None] = []
+
+        def _open() -> None:
+            with get_redis_client() as client:
+                clients.append(client)
+
+        threads = [threading.Thread(target=_open) for _ in range(thread_count)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+
+        assert clients == [None] * thread_count
+        assert mock_connect.call_count == thread_count
+        assert mock_capture.call_count == 1
