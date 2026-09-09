@@ -478,6 +478,11 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                 // that fails or has not answered leaves the filter as it was. Billing reads them
                 // from every report the organization has filed, cached for a day on its side.
                 loadTeamIdOptions: async (): Promise<number[]> => {
+                    // The same gate as the chart below: the endpoint is scoped to billing usage
+                    // and spend readers, and this logic also mounts for people who are not one.
+                    if (!values.canViewUsageAndSpend || values.isHobby) {
+                        return []
+                    }
                     try {
                         const response = await api.get('api/billing/usage/team_options/')
                         return response?.team_id_options ?? []
@@ -967,11 +972,13 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     subscriptions(({ actions, values }) => ({
         canViewUsageAndSpend: (canViewUsageAndSpend: boolean, previousCanViewUsageAndSpend: boolean | undefined) => {
             if (canViewUsageAndSpend && previousCanViewUsageAndSpend === false && !values.isHobby) {
+                actions.loadTeamIdOptions()
                 actions.loadBillingUsage()
             }
         },
         isHobby: (isHobby: boolean, previousIsHobby: boolean | undefined) => {
             if (!isHobby && previousIsHobby === true && values.canViewUsageAndSpend) {
+                actions.loadTeamIdOptions()
                 actions.loadBillingUsage()
             }
         },
