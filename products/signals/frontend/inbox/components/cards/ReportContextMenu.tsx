@@ -1,6 +1,6 @@
 import { useActions } from 'kea'
 import { router } from 'kea-router'
-import { Fragment, ReactNode, useRef } from 'react'
+import { ReactNode, useRef } from 'react'
 
 import {
     IconArrowUpRight,
@@ -45,16 +45,16 @@ import { displayConventionalCommitTitle } from '../../utils/reportPresentation'
 import { ReviewerSearchList } from '../detail/ReviewerSearchList'
 import { openDismissReportDialog } from '../shell/DismissReportDialog'
 import { openResolveReportDialog } from '../shell/ResolveReportDialog'
+import { ReasonSubmenuItems } from './ReasonSubmenuItems'
 
 /**
  * Right-click menu on a report row in the flat inbox list: the report's major actions without
  * opening its detail. Create PR, Resolve, Dismiss, and Reviewers follow the same eligibility rules
  * as the detail pane (`utils/reportActions.ts`); a dismissed row offers Restore instead. Resolve
  * and Dismiss nest their canonical reasons, and picking one applies immediately through the owning
- * section's list logic, except "Something else…", which opens the existing dialog to collect the
- * note that reason needs, and "wrong repository", whose dialog asks which repository it should have
- * been. Rows with no action (resolved, refunded) render without a menu, so the
- * browser's own menu still works there. On rows with a menu the trigger suppresses that native
+ * section's list logic. The dialog stays available for a note, a corrected repository, or an open
+ * implementation PR warning. Rows with no action (resolved, refunded) render without a menu, so
+ * the browser's own menu still works there. On rows with a menu the trigger suppresses that native
  * menu over the row's link, so the standard link actions return as an explicit section at the
  * bottom (open, open in new tab, copy link).
  */
@@ -89,8 +89,8 @@ export function ReportContextMenu({
             <ContextMenuContent
                 loop
                 className="min-w-48"
-                // The "Something else…" dialogs autofocus their note field, and the menu closes on
-                // the same click. Its closing focus restore runs after the dialog opens and would
+                // The verdict dialogs autofocus their first field, and the menu closes on the same
+                // click. Its closing focus restore runs after the dialog opens and would
                 // pull focus back to the row, so skip the restore for exactly that close.
                 onCloseAutoFocus={(event) => {
                     if (openedDialogRef.current) {
@@ -129,20 +129,8 @@ function ReportContextMenuItems({
     // Kept mounted by `ReportsTab` beyond this menu's lifetime, so the create-PR listener survives
     // the menu closing on click.
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
-
     const reportTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
-
-    const resolveWithReason = (reason: ResolveReasonValue, note: string): void => {
-        // pinned: `dismissal_reason` is the persisted field the reason lands in, for both verdicts.
-        // Only the structured reason — the free-form note can carry proprietary text.
-        captureInboxReportAction({
-            report,
-            actionType: 'resolve',
-            surface: 'context_menu',
-            extra: { dismissal_reason: reason },
-        })
-        resolveReport(report.id, reason, note)
-    }
+    const hasOpenPr = hasOpenImplementationPr(report)
 
     const dismissWith = (dismissal: DismissalFeedback): void => {
         const { reason, note, correctedRepository } = dismissal
@@ -159,36 +147,47 @@ function ReportContextMenuItems({
         dismissReport(report.id, dismissal)
     }
 
-    // "Something else…" needs the note the other reasons don't, so it goes through the dialog. So does
-    // any reason while the report still has an open implementation PR: resolving or dismissing closes
-    // that PR, so the dialog's warning and its confirm step stand in for the instant apply. A wrong-repo
-    // dismissal goes through it too, so the person can name the repository it should have been.
-    const pickResolveReason = (reason: ResolveReasonValue): void => {
-        if (reason === 'other' || hasOpenImplementationPr(report)) {
-            onOpenDialog()
-            openResolveReportDialog({
-                reportTitle,
-                hasOpenPr: hasOpenImplementationPr(report),
-                initialReason: reason,
-                onConfirm: ({ reason, note }) => resolveWithReason(reason, note),
-            })
-            return
-        }
-        resolveWithReason(reason, '')
+    const resolveWith = (reason: ResolveReasonValue, note: string): void => {
+        // pinned: `dismissal_reason` is the persisted field the reason lands in, for both verdicts.
+        // Only the structured reason is safe for analytics because the note can contain private text.
+        captureInboxReportAction({
+            report,
+            actionType: 'resolve',
+            surface: 'context_menu',
+            extra: { dismissal_reason: reason },
+        })
+        resolveReport(report.id, reason, note)
+    }
+
+    const openDismissDialog = (initialReason?: DismissalReasonValue): void => {
+        onOpenDialog()
+        openDismissReportDialog({ reportTitle, hasOpenPr, initialReason, onConfirm: dismissWith })
+    }
+
+    const openResolveDialog = (initialReason?: ResolveReasonValue): void => {
+        onOpenDialog()
+        openResolveReportDialog({
+            reportTitle,
+            hasOpenPr,
+            initialReason,
+            onConfirm: ({ reason, note }) => resolveWith(reason, note),
+        })
     }
 
     const pickDismissReason = (reason: DismissalReasonValue): void => {
-        if (reason === 'other' || reason === 'wrong_repo' || hasOpenImplementationPr(report)) {
-            onOpenDialog()
-            openDismissReportDialog({
-                reportTitle,
-                hasOpenPr: hasOpenImplementationPr(report),
-                initialReason: reason,
-                onConfirm: dismissWith,
-            })
+        if (reason === 'wrong_repo' || hasOpenPr) {
+            openDismissDialog(reason)
             return
         }
         dismissWith({ reason, note: '', correctedRepository: null })
+    }
+
+    const pickResolveReason = (reason: ResolveReasonValue): void => {
+        if (hasOpenPr) {
+            openResolveDialog(reason)
+            return
+        }
+        resolveWith(reason, '')
     }
 
     // The menu only mounts in the redesign flat list, whose rows link to the reports tab with no
@@ -299,24 +298,13 @@ function ReportContextMenuItems({
                         {/* The base menu caps at 200px, which wraps the longer reason labels into the
                         buttons' fixed height. */}
                         <ContextMenuSubContent className="max-w-80">
-                            <ContextMenuGroup>
-                                {RESOLVE_REASON_OPTIONS.map((option) => (
-                                    <Fragment key={option.value}>
-                                        {/* The canned reasons apply instantly; "Something else…" opens
-                                        the note dialog, so it sits apart. */}
-                                        {option.value === 'other' && <ContextMenuSeparator />}
-                                        <ContextMenuItem asChild>
-                                            <ButtonPrimitive
-                                                menuItem
-                                                onClick={() => pickResolveReason(option.value)}
-                                                data-attr="inbox-report-context-menu-resolve-reason"
-                                            >
-                                                {option.label}
-                                            </ButtonPrimitive>
-                                        </ContextMenuItem>
-                                    </Fragment>
-                                ))}
-                            </ContextMenuGroup>
+                            <ReasonSubmenuItems
+                                options={RESOLVE_REASON_OPTIONS}
+                                noteTooltip="Resolve and write a note"
+                                dataAttrPrefix="inbox-report-context-menu-resolve"
+                                onPick={pickResolveReason}
+                                onPickWithNote={openResolveDialog}
+                            />
                         </ContextMenuSubContent>
                     </ContextMenuSub>
                 )}
@@ -329,22 +317,13 @@ function ReportContextMenuItems({
                         </ButtonPrimitive>
                     </ContextMenuSubTrigger>
                     <ContextMenuSubContent className="max-w-80">
-                        <ContextMenuGroup>
-                            {DISMISSAL_REASON_OPTIONS.map((option) => (
-                                <Fragment key={option.value}>
-                                    {option.value === 'other' && <ContextMenuSeparator />}
-                                    <ContextMenuItem asChild>
-                                        <ButtonPrimitive
-                                            menuItem
-                                            onClick={() => pickDismissReason(option.value)}
-                                            data-attr="inbox-report-context-menu-dismiss-reason"
-                                        >
-                                            {option.label}
-                                        </ButtonPrimitive>
-                                    </ContextMenuItem>
-                                </Fragment>
-                            ))}
-                        </ContextMenuGroup>
+                        <ReasonSubmenuItems
+                            options={DISMISSAL_REASON_OPTIONS}
+                            noteTooltip="Dismiss and write a note"
+                            dataAttrPrefix="inbox-report-context-menu-dismiss"
+                            onPick={pickDismissReason}
+                            onPickWithNote={openDismissDialog}
+                        />
                     </ContextMenuSubContent>
                 </ContextMenuSub>
                 <ContextMenuSub>
