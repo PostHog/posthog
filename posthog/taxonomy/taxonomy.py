@@ -684,6 +684,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The V2 recording trigger groups evaluated for this session, including each group's name and whether it matched and was sampled.",
             "used_for_debug": True,
         },
+        "$sdk_debug_replay_stale_config": {
+            "label": "Recording started under a stale config",
+            "description": "Whether the SDK could not refresh its recording settings and started recording under the last settings it had.",
+            "type": "Boolean",
+            "used_for_debug": True,
+        },
         "$sdk_debug_rrweb_start_attempted": {
             "label": "rrweb start attempted",
             "description": "Whether the SDK attempted to start the rrweb recorder for this session.",
