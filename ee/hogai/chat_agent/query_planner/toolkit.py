@@ -33,7 +33,7 @@ from products.event_definitions.backend.models.property_definition import (
 
 from ee.hogai.chat_agent.taxonomy.entities import resolve_entity_name
 from ee.hogai.chat_agent.taxonomy.format import enrich_props_with_descriptions
-from ee.hogai.chat_agent.taxonomy.session_properties import session_property_types, typed_session_properties
+from ee.hogai.chat_agent.taxonomy.session_properties import session_property_types
 from ee.hogai.chat_agent.taxonomy.tools import (
     ask_user_for_help,
     retrieve_action_properties,
@@ -239,7 +239,7 @@ class TaxonomyAgentToolkit:
             props = self._enrich_props_with_descriptions("person", stored_props, stored_descriptions)
         elif entity == "session":
             # Session properties are not in the DB.
-            props = self._enrich_props_with_descriptions("session", typed_session_properties())
+            props = self._enrich_props_with_descriptions("session", list(session_property_types().items()))
 
         else:
             group_type_index = next((g["group_type_index"] for g in self._groups if g["group_type"] == entity), None)

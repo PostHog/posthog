@@ -5,7 +5,7 @@ from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 def session_property_types() -> dict[str, str]:
     """
-    Map each session property to its type.
+    Map each session property to the type to report for it, in the taxonomy's own order.
 
     A session entry property is copied from the event property it comes from, and most of those
     carry no type, so the copy has none either. The `sessions` table declares a column for each
@@ -16,14 +16,13 @@ def session_property_types() -> dict[str, str]:
     A type in the taxonomy definition wins, because it is the type the rest of the product
     already shows for that property.
     """
-    types = {str(prop["name"]): str(prop["property_type"]) for prop in get_lazy_session_table_properties_v2(None)}
+    column_types = {
+        str(prop["name"]): str(prop["property_type"]) for prop in get_lazy_session_table_properties_v2(None)
+    }
+    types: dict[str, str] = {}
     for name, definition in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"].items():
-        if definition.get("type") is not None:
-            types[name] = str(definition["type"])
+        declared = definition.get("type")
+        resolved = str(declared) if declared is not None else column_types.get(name)
+        if resolved is not None:
+            types[name] = resolved
     return types
-
-
-def typed_session_properties() -> list[tuple[str, str]]:
-    """Every session property the taxonomy defines, with the type to report for it."""
-    types = session_property_types()
-    return [(name, types[name]) for name in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"] if name in types]

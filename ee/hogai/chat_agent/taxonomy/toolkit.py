@@ -43,7 +43,7 @@ from ee.hogai.chat_agent.taxonomy.format import (
     format_properties_yaml,
     format_property_values,
 )
-from ee.hogai.chat_agent.taxonomy.session_properties import session_property_types, typed_session_properties
+from ee.hogai.chat_agent.taxonomy.session_properties import session_property_types
 from ee.hogai.chat_agent.taxonomy.virtual_properties import (
     PropertyDefinitionOrVirtual,
     VirtualPropertyGroup,
@@ -679,7 +679,7 @@ class TaxonomyAgentToolkit:
                 status=status,
             )
         elif entity == "session":
-            props = typed_session_properties()
+            props = list(session_property_types().items())
 
             if props:
                 result = self._format_properties(self._enrich_props_with_descriptions("session", props))
