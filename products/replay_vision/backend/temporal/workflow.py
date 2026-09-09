@@ -168,12 +168,13 @@ _RASTERIZER_NO_SNAPSHOTS_TYPE = "NO_SNAPSHOTS"
 # walking the pod into its memory limit. That size is a fixed property of the recording, so no retry helps.
 _RASTERIZER_TOO_LARGE_TYPE = "RECORDING_TOO_LARGE"
 
-# Rasterizer codes that mean a PostHog-side dependency the renderer talks to was unreachable or slow — the
-# recording-api it fetches the block listing and data from, or the object storage it uploads the video to — not
-# that the recording itself can't render. They belong in the same transient bucket as an activity timeout against
-# those dependencies (see `_activity_timeout_kind`), so the user gets a retry prompt, not a "known issue" label.
+# Rasterizer codes that mean the render environment failed the attempt, not that the recording itself can't
+# render: a PostHog-side dependency the renderer talks to was unreachable or slow (the recording-api it fetches
+# the block listing and data from, or the object storage it uploads the video to), or the Chrome target died
+# mid-render. They belong in the same transient bucket as an activity timeout against those dependencies (see
+# `_activity_timeout_kind`), so the user gets a retry prompt, not a "known issue" label.
 _RASTERIZER_INFRA_TRANSIENT_TYPES = frozenset(
-    {"BLOCK_LISTING_FAILED", "DATA_LOAD_FAILED", "S3_UPLOAD_FAILED", "S3_UPLOAD_UNDECODABLE_RESPONSE"}
+    {"BLOCK_LISTING_FAILED", "DATA_LOAD_FAILED", "S3_UPLOAD_FAILED", "S3_UPLOAD_UNDECODABLE_RESPONSE", "TARGET_CLOSED"}
 )
 
 
@@ -217,12 +218,15 @@ def _root_cause_message(e: BaseException) -> str:
 
 
 def _normalized_rasterizer_infra_message(code: str) -> str:
-    """A stable message for a transient rasterizer dependency failure, keyed on the code alone.
+    """A stable message for a transient rasterizer failure, keyed on the code alone.
 
-    The raw text carries the errno, the pod address and the pooler wording, all of which vary per
-    occurrence, so copying it verbatim mints a fresh error-tracking issue for one root cause. Keying
-    the message on the code collapses those variants back into a single issue.
+    The raw text carries the errno, the pod address, the pooler wording or the CDP method, all of which
+    vary per occurrence, so copying it verbatim mints a fresh error-tracking issue for one root cause.
+    Keying the message on the code collapses those variants back into a single issue.
     """
+    if code == "TARGET_CLOSED":
+        # The renderer's own Chrome target died; the other transient codes are unreachable dependencies.
+        return f"the video renderer stopped before it finished ({code})"
     return f"rasterizer could not reach a PostHog dependency ({code})"
 
 
