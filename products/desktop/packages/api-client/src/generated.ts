@@ -18121,6 +18121,7 @@ export namespace Schemas {
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
      * * `slack` - Slack
+     * * `sketchpad` - Sketchpad
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
@@ -18144,6 +18145,7 @@ export namespace Schemas {
         | "eval_clusters"
         | "user_created"
         | "slack"
+        | "sketchpad"
         | "support_queue"
         | "session_summaries"
         | "posthog_ai"
@@ -20859,6 +20861,7 @@ export namespace Endpoints {
                     | "eval_clusters"
                     | "user_created"
                     | "slack"
+                    | "sketchpad"
                     | "support_queue"
                     | "session_summaries"
                     | "posthog_ai"

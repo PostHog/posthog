@@ -24,6 +24,7 @@ function canvas(
     kind: "freeform",
     description: "",
     componentMeta: null,
+    canvasType: "canvas",
     templateId: "freeform",
     generationTaskId: null,
     createdAt: 1,

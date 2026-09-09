@@ -1,6 +1,7 @@
 import {
   formatShortDayLabel,
   getLocalDayKey,
+  SKETCHPAD_TASK_ORIGIN,
   type WorkspaceMode,
 } from "@posthog/shared";
 import type { TaskListGroupingChangedProperties } from "@posthog/shared/analytics-events";
@@ -27,6 +28,7 @@ export interface ChannelItemModel {
   /** When it was first made, for the created-first sort. */
   createdAt: number;
   pinned: boolean;
+  canvasType: "canvas" | "sketchpad";
   rawStatus: TaskRunStatus | null;
   /**
    * The three session facts the filters ask about. A canvas has no run, so it
@@ -50,6 +52,7 @@ export interface ChannelItemModel {
   /** The branch its work is on, from the local checkout or the run. */
   branch: string | null;
   authorUser: UserBasic | CanvasCreator | null;
+  authorEmail: string | null;
   authorName: string | null;
   authorUuid: string | null;
   templateId: string | null;
@@ -169,14 +172,16 @@ export function buildChannelItems({
     ts: d.updatedAt,
     createdAt: d.createdAt,
     pinned: d.pinnedAt != null,
+    canvasType: d.canvasType,
     rawStatus: null,
     environment: null,
     source: null,
     needsInput: false,
     unread: false,
     authorUser: d.createdByUser ?? null,
-    authorName: d.createdBy ?? null,
-    authorUuid: d.createdByUuid ?? null,
+    authorName: d.lastActor?.name ?? d.createdBy ?? null,
+    authorUuid: d.lastActor?.uuid ?? d.createdByUuid ?? null,
+    authorEmail: d.lastActor?.email ?? d.createdByEmail ?? null,
     templateId: d.templateId,
     repository: null,
     branch: null,
@@ -199,6 +204,7 @@ export function buildChannelItems({
         ts: taskActivityTimestamp(task, "updated") || 0,
         createdAt: Date.parse(task.created_at) || 0,
         pinned: pinnedTaskIds.has(task.id),
+        canvasType: "canvas",
         rawStatus: task.latest_run?.status ?? null,
         environment: environmentOf(task, workspace?.mode),
         source: sourceOf(task),
@@ -208,6 +214,7 @@ export function buildChannelItems({
           sessionFacts.viewedTimestamps[task.id],
         ),
         authorUser: task.created_by ?? null,
+        authorEmail: task.created_by?.email ?? null,
         authorName: null,
         authorUuid: task.created_by?.uuid ?? null,
         templateId: null,
@@ -346,7 +353,10 @@ export function filterChannelItems(
     ) {
       return false;
     }
-    if (filters.source !== ANY_SOURCE && item.source !== filters.source) {
+    if (filters.source === ANY_SOURCE) {
+      return item.source !== SKETCHPAD_TASK_ORIGIN;
+    }
+    if (item.source !== filters.source) {
       return false;
     }
     return true;
