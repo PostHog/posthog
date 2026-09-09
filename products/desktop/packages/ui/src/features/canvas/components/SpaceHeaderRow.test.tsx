@@ -35,6 +35,7 @@ vi.mock("@tanstack/react-router", () => ({
   // The route's own pane, which is where the header's writer lives.
   Outlet: () => <ActivityDetailPane />,
   useNavigate: () => vi.fn(),
+  useSearch: () => ({}),
   useParams: () => ({ channelId: "chan-1", taskId: "task-1" }),
   useRouterState: ({
     select,
