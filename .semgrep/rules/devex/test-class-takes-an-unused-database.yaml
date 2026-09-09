@@ -1,0 +1,60 @@
+rules:
+    - id: test-class-takes-an-unused-database
+      message: |
+          This test class inherits a database base class but never names anything that
+          reaches the database.
+
+          `BaseTest` and its relatives inherit Django `TestCase`, so one such class puts
+          its whole module in the lane that waits for database setup. A class of pure
+          assertions pays that cost for nothing.
+
+          Use `django.test.SimpleTestCase` instead:
+
+              from django.test import SimpleTestCase
+
+              class TestScopeRules(SimpleTestCase):
+                  def test_write_downgrades_to_read(self) -> None:
+                      assert downgrade_scopes_to_read_only("x:write") == "x:read"
+
+          `SimpleTestCase` refuses database access, so a passing run is proof the class
+          never needed the database.
+
+          This rule reads the class body only, so it cannot see a database call several
+          helper levels down. If the class does need its database, say so with
+          `# nosemgrep: test-class-takes-an-unused-database -- <reason>` on the class line.
+          `posthog/test/repo_invariants/test_database_free_test_classes.py` holds the
+          frozen list of existing cases.
+      severity: WARNING
+      languages: [python]
+      paths:
+          include:
+              - 'common/**/test_*.py'
+              - 'common/**/tests/**/*.py'
+              - 'ee/**/test_*.py'
+              - 'ee/**/tests/**/*.py'
+              - 'posthog/**/test_*.py'
+              - 'posthog/**/tests/**/*.py'
+              - 'products/**/test_*.py'
+              - 'products/**/tests/**/*.py'
+          exclude:
+              - '**/.semgrep/**'
+      patterns:
+          - pattern-either:
+                - pattern: |
+                      class $C(BaseTest):
+                          ...
+                - pattern: |
+                      class $C(APIBaseTest):
+                          ...
+                - pattern: |
+                      class $C(NonAtomicBaseTest):
+                          ...
+          # Any of these reads as "this class may reach the database". Keep the list
+          # broad and aligned with DATABASE_TOKENS in the repo-invariant ratchet: an
+          # extra token only hides a case, while a missing one reports a class that
+          # does need its database.
+          - pattern-not-regex: (\.objects|_create|assertNumQueries|bulk_create|capture_db_queries|connection|create_|cursor|django_db|flush_|get_or_create|refresh_from_db|self\.client|self\.demo_team|self\.organization|self\.other_team|self\.project|self\.team|self\.user|snapshot|transaction|\.delete\(|\.exists\(\)|\.filter\(|\.save\()
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit
