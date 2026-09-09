@@ -1,1 +1,1 @@
-0315_add_snapshot_mode_to_session_replay_events
+0316_metrics2_drop_uuid_and_minute_projection
