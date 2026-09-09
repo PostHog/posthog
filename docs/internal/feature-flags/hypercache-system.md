@@ -424,13 +424,26 @@ The feature-flags Rust service can use a separate Redis instance for caching, is
 ### Enabling dedicated Redis
 
 ```bash
-FLAGS_REDIS_URL=redis://flags-redis:6379  # Separate instance for flags
+FLAGS_REDIS_URL=redis://flags-redis:6379            # Separate instance for flags
+FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED=false      # Cluster the /flags/definitions reader uses
 ```
 
 When `FLAGS_REDIS_URL` is set, Django registers it as the `flags_dedicated` cache alias (`FLAGS_DEDICATED_CACHE_ALIAS` in `posthog/caching/flags_redis_cache.py`, wired up in `posthog/settings/data_stores.py`).
 Four HyperCache instances bind that alias. For flags (`products/feature_flags/backend/flags_cache.py`), remote config, and team metadata, Django writes to the dedicated instance and the Rust service reads them from it.
 
-The SDK-facing flag-definitions cache (`local_evaluation.py`) is part-way through the same move, so its write side and read side currently point at different clusters. Django writes it to the dedicated instance and mirrors each write to the shared default cache, covering the payload, the ETag, and the cache-miss sentinel. Deletes mirror as well. The Rust `/flags/definitions` reader still reads the shared cache, so the shared copy is the one serving SDK traffic. A later change moves that reader to the dedicated instance, and the mirror is removed after it.
+The SDK-facing flag-definitions cache (`local_evaluation.py`) is part-way through the same move, and its read side is switchable. Django writes it to the dedicated instance and mirrors each write to the shared default cache, covering the payload, the ETag, and the cache-miss sentinel. Deletes mirror as well.
+
+`FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED` decides which cluster the Rust `/flags/definitions` reader uses. It defaults to false, which keeps the reader on the shared cache. Set it per fleet to move the reader to the dedicated instance.
+
+Remove the mirror only after that move has baked. The mirror is what makes the switch reversible. With the mirror gone, a reader sent back to the shared cache reads a cluster nothing writes to. This endpoint has no database fallback on a miss.
+
+The payload and the ETag always share one client. They therefore cannot disagree about which cluster holds the current definitions. `HyperCacheReader::get_etag` reads the same `redis_client` as the payload and derives its key from the same config. Both are set once in the constructor, from the client `server.rs` resolves.
+
+Do not give the ETag a gate of its own. A stale ETag on one cluster can match a client `If-None-Match` while the other cluster holds a newer payload. The endpoint then answers 304 and pins the SDK to stale definitions. No metric records an error.
+
+`flags_flag_definitions_reads_dedicated_redis` reports which cluster each pod resolved. Its `reason` label separates two cases. `disabled` is a pod nobody has switched. `no_dedicated_client` is a pod that was switched but could not build a dedicated client, so it reads the shared cache for the life of the process.
+
+Reads on the dedicated instance go to its `-ro` reader endpoint. `NotFound` is unrecoverable, so `ReadWriteClient` does not consult the primary. A key the writer just wrote reads as absent until it replicates. That window serves a 200 with the full payload instead of a 304.
 
 The flag-definitions self-heal queue follows the write side, not the read side. The Rust endpoint enqueues a rebuild request on the dedicated instance (`State::flags_namespace_redis_client`), and the Celery drain reads the queue from `flag_definitions_hypercache.redis_url` (`products/feature_flags/backend/rebuild_queue.py`). Both resolve from `FLAGS_REDIS_URL`, so the producer and the consumer move together on configuration. They can still split on connection state: a Rust process that cannot reach the dedicated cluster at startup falls back to the shared one and enqueues there for its whole life, while Celery keeps draining the dedicated one. Those teams wait for the hourly verifier. `server.rs` logs that startup failure at error level, and the same failure already sends the flags.json, team-metadata, and remote-config readers to the shared cluster, where Django writes nothing. Django and the Rust fleet deploy independently, so a deploy of one before the other leaves requests on the cluster the other side is not reading. Clean up on the **shared** cluster only, and never on the dedicated one, which holds the live queue once both sides are up. A Rust-first rollout puts the window's requests on the dedicated cluster, where the drain collects them as soon as Django deploys, so they need no cleanup. A Django-first rollout puts them on the shared cluster, where nothing reads them again. Either order also leaves the pre-move queue members and the open circuits on the shared cluster. Run `DEL flag_definitions:rebuild_requests flag_definitions:rebuild_circuit` there after both sides are deployed. The circuit-breaker set is included because only the drain prunes it and the key carries no TTL. The cooldown and failure-streak keys expire on their own.
 
