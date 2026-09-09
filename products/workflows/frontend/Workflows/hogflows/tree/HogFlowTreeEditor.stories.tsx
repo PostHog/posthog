@@ -1,7 +1,9 @@
 import type { Meta, StoryFn } from '@storybook/react'
-import { BindLogic } from 'kea'
+import { BindLogic, useActions } from 'kea'
+import { useEffect, type ReactNode } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 
@@ -12,6 +14,18 @@ import { EXAMPLE_WORKFLOWS } from './exampleWorkflows'
 import { HogFlowTreeEditor } from './HogFlowTreeEditor'
 
 const COMPLEX_WORKFLOW_ID = 'storybook-complex-workflow'
+const FEATURE_PREVIEW_DISMISS_KEY = 'workflow-tree-feature-preview'
+
+function ResetFeaturePreviewDismissal({ children, storyId }: { children: ReactNode; storyId: string }): JSX.Element {
+    const { resetDismissKey } = useActions(lemonBannerLogic({ dismissKey: FEATURE_PREVIEW_DISMISS_KEY }))
+
+    useEffect(() => {
+        resetDismissKey()
+    }, [resetDismissKey, storyId])
+
+    return <>{children}</>
+}
+
 const COMPLEX_WORKFLOW: HogFlow = {
     id: COMPLEX_WORKFLOW_ID,
     team_id: 1,
@@ -293,6 +307,11 @@ const meta: Meta<typeof HogFlowTreeEditor> = {
         },
     },
     decorators: [
+        (Story, context) => (
+            <ResetFeaturePreviewDismissal storyId={context.id}>
+                <Story />
+            </ResetFeaturePreviewDismissal>
+        ),
         mswDecorator({
             get: {
                 '/api/environments/:team_id/hog_flows/:id/': ({ params }) => [

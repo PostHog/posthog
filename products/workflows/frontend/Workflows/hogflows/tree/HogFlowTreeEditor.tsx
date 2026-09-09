@@ -6,6 +6,7 @@ import { ScrollArea, ScrollBar } from 'lib/ui/quill'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { NODE_HEIGHT, NODE_WIDTH } from '../react_flow_utils/constants'
+import { HogFlowTreeFeaturePreview } from './HogFlowTreeFeaturePreview'
 import { HogFlowTreeNode } from './HogFlowTreeNode'
 import { buildWorkflowTree } from './workflowTree'
 
@@ -143,30 +144,33 @@ export function HogFlowTreeEditor(): JSX.Element {
     }
 
     return (
-        <ScrollArea
-            className="min-h-0 min-w-0 flex-1 bg-background @max-[48rem]/workflow-editor:min-h-80 @max-[48rem]/workflow-editor:shrink-0"
-            data-quill
-            data-attr="workflow-tree-editor"
-        >
-            <div
-                ref={treeRef}
-                className="group/tree mx-auto flex w-full max-w-3xl flex-col p-4"
-                onDragOver={onTreeDragOver}
-                onDropCapture={onTreeDropCapture}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <HogFlowTreeFeaturePreview />
+            <ScrollArea
+                className="min-h-0 min-w-0 flex-1 bg-background @max-[48rem]/workflow-editor:min-h-80 @max-[48rem]/workflow-editor:shrink-0"
+                data-quill
+                data-attr="workflow-tree-editor"
             >
-                {tree.nodes.map((node) => (
-                    <HogFlowTreeNode
-                        key={node.action.id}
-                        node={node}
-                        activeDropzones={activeDropzones}
-                        draggedActionId={draggedActionId}
-                        draggedActionIdRef={draggedActionIdRef}
-                        onDragStart={onDragStart}
-                        onDragEnd={onDragEnd}
-                    />
-                ))}
-            </div>
-            <ScrollBar orientation="vertical" />
-        </ScrollArea>
+                <div
+                    ref={treeRef}
+                    className="group/tree mx-auto flex w-full max-w-3xl flex-col p-4"
+                    onDragOver={onTreeDragOver}
+                    onDropCapture={onTreeDropCapture}
+                >
+                    {tree.nodes.map((node) => (
+                        <HogFlowTreeNode
+                            key={node.action.id}
+                            node={node}
+                            activeDropzones={activeDropzones}
+                            draggedActionId={draggedActionId}
+                            draggedActionIdRef={draggedActionIdRef}
+                            onDragStart={onDragStart}
+                            onDragEnd={onDragEnd}
+                        />
+                    ))}
+                </div>
+                <ScrollBar orientation="vertical" />
+            </ScrollArea>
+        </div>
     )
 }
