@@ -121,16 +121,12 @@ export function hrefFrom(inputEvent: SnapshotEvent): string | undefined {
     const event = inputEvent as
         | { type?: number; data?: { tag?: string; href?: string; payload?: { href?: string } } }
         | undefined
-    if (event?.type === RRWebEventType.Meta) {
-        return event.data?.href?.trim?.() || undefined
+    if (event?.type === RRWebEventType.Custom && event.data?.tag === '$json_ld') {
+        return undefined
     }
-    if (
-        event?.type === RRWebEventType.Custom &&
-        (event.data?.tag === '$pageview' || event.data?.tag === '$url_changed')
-    ) {
-        return event.data?.payload?.href?.trim?.() || undefined
-    }
-    return undefined
+    const metaHref = event?.data?.href?.trim?.()
+    const customHref = event?.data?.payload?.href?.trim?.()
+    return metaHref || customHref || undefined
 }
 
 // Constants for log levels

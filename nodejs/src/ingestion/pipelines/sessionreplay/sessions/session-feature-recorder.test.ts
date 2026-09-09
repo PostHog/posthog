@@ -830,35 +830,32 @@ describe('SessionFeatureRecorder', () => {
                 name: 'other custom URL',
                 type: RRWebEventType.Custom,
                 data: { tag: 'other', payload: { href: 'https://example.com/page2' } },
-                navigation: false,
+                navigation: true,
             },
             {
                 name: 'non-custom event URL',
                 type: RRWebEventType.IncrementalSnapshot,
                 data: { href: 'https://example.com/page2' },
-                navigation: false,
+                navigation: true,
             },
-        ])(
-            'tracks navigation and clears dead clicks only for navigation events: $name',
-            ({ type, data, navigation }) => {
-                const events = [
-                    makeNavigationEvent(500, 'https://example.com/'),
-                    makeClickEvent(1000),
-                    { type, timestamp: 2000, data } as unknown as SnapshotEvent,
-                    makeClickEvent(5000),
-                ]
-                recorder.recordMessage(createMessage(events))
-                const result = recorder.end()!
+        ])('tracks navigation URLs while excluding JSON-LD: $name', ({ type, data, navigation }) => {
+            const events = [
+                makeNavigationEvent(500, 'https://example.com/'),
+                makeClickEvent(1000),
+                { type, timestamp: 2000, data } as unknown as SnapshotEvent,
+                makeClickEvent(5000),
+            ]
+            recorder.recordMessage(createMessage(events))
+            const result = recorder.end()!
 
-                expect(result.pageVisitCount).toBe(navigation ? 2 : 1)
-                expect(result.deadClickCount).toBe(navigation ? 0 : 1)
-                expect(result.visitedUrls).toEqual(
-                    navigation
-                        ? [md5Hex('https://example.com/'), md5Hex('https://example.com/page2')]
-                        : [md5Hex('https://example.com/')]
-                )
-            }
-        )
+            expect(result.pageVisitCount).toBe(navigation ? 2 : 1)
+            expect(result.deadClickCount).toBe(navigation ? 0 : 1)
+            expect(result.visitedUrls).toEqual(
+                navigation
+                    ? [md5Hex('https://example.com/'), md5Hex('https://example.com/page2')]
+                    : [md5Hex('https://example.com/')]
+            )
+        })
     })
 
     describe('Console error tracking', () => {
