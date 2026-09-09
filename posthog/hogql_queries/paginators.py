@@ -3,6 +3,8 @@ import base64
 from datetime import datetime
 from typing import Any, Union, cast
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import HogQLQueryResponse
 
 from posthog.hogql import ast
@@ -139,7 +141,12 @@ class HogQLCursorPaginator:
                         pass
                 self.cursor_data = cursor_data
             except (ValueError, json.JSONDecodeError):
-                raise ValueError("Invalid cursor format")
+                # A mangled cursor is bad input, not a server fault. A DRF error makes the API
+                # answer 400 instead of collapsing it into a 500.
+                raise ValidationError(
+                    "Invalid pagination cursor. Remove the 'after' parameter to start from the first page.",
+                    code="invalid_cursor",
+                )
 
     @classmethod
     def from_limit_context(

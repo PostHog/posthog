@@ -1373,6 +1373,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         assert response.json() == self.snapshot
 
+    def test_400_when_pagination_cursor_is_malformed(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?after=2%2F8%3D")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Invalid pagination cursor" in response.json()["detail"]
+
     @parameterized.expand(
         [
             (
