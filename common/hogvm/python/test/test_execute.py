@@ -1,4 +1,5 @@
 import json
+import time
 from collections.abc import Callable
 from typing import Any, Optional, cast
 
@@ -86,7 +87,6 @@ class TestBytecodeExecute:
         assert self._run("match('test', 'x.*')") is False
         assert self._run("match('test', '')") is True
         assert self._run("match('', '')") is True
-        assert self._run("match('ab', '(?<=a)b')") is True
         assert self._run("'test' =~ 'e.*'") is True
         assert self._run("'test' !~ 'e.*'") is False
         assert self._run("'test' =~ '^e.*'") is False
@@ -118,6 +118,7 @@ class TestBytecodeExecute:
         [
             ("function_list_input", "match(['tool_call'], 'tool')", {}, "Function match requires input"),
             ("function_invalid_pattern", "match('tool_call', '[')", {}, "Invalid regex pattern"),
+            ("function_lookbehind_unsupported", "match('ab', '(?<=a)b')", {}, "Invalid regex pattern"),
             ("operator_list_input", "['tool_call'] =~ 'tool'", {}, "Function match requires input"),
             (
                 "operator_invalid_pattern",
@@ -1207,6 +1208,21 @@ class TestBytecodeExecute:
         # Complex pattern like ClickHouse sortableSemver uses
         assert self._run("extractRegex('v1.2.3-alpha', '(\\\\d+(\\\\.\\\\d+)+)')") == "1.2.3"
         assert self._run("extractRegex('version 10.20.30', '(\\\\d+(\\\\.\\\\d+)+)')") == "10.20.30"
+
+    @parameterized.expand(
+        [
+            ("match", False),
+            ("extractRegex", ""),
+        ]
+    )
+    def test_regex_functions_run_in_linear_time(self, fn_name, expected):
+        # Python's re engine needs exponential time on this pattern, so this pins the engine choice.
+        subject = "a" * 26 + "!"
+        start = time.time()
+        result = STL[fn_name].fn([subject, "(a+)+$"], None, None, 5.0)
+        elapsed = time.time() - start
+        assert result == expected
+        assert elapsed < 1.0
 
     def test_sortable_semver(self):
         # Basic semver parsing

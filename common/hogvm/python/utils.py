@@ -86,6 +86,24 @@ def regex_match(string: Any, pattern: Any, case_insensitive: bool = False) -> bo
     return _compile_regex(pattern, case_insensitive).search(string) is not None
 
 
+def regex_extract(string: Any, pattern: Any) -> str:
+    # Matches ClickHouse extract(): first capture group if the pattern has groups, else the whole
+    # match, else empty. re2 matches in linear time, unlike Python's backtracking re engine.
+    if string is None or pattern is None:
+        return ""
+    haystack = str(string)
+    try:
+        compiled = _compile_regex(str(pattern))
+    except HogVMException:
+        return ""
+    found = compiled.search(haystack)
+    if not found:
+        return ""
+    if found.lastindex and found.lastindex >= 1:
+        return found.group(1) or ""
+    return found.group(0) or ""
+
+
 def like(string: Any, pattern: Any, case_insensitive: bool = False) -> bool:
     pattern = re2.escape(pattern).replace("%", ".*").replace("_", ".")
     re_pattern = re2.compile(pattern, options=_CASE_INSENSITIVE_OPTS) if case_insensitive else re2.compile(pattern)
