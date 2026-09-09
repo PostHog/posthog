@@ -30,6 +30,21 @@ To retire a model/table:
 
 Full guide: `safe-django-migrations.md` (`## Dropping Tables`, `### Removing a whole product or app`). Deleting a migration your branch added but never merged to master is allowed (regenerating).
 
+## Retire a column in two phases
+
+Deleting the field and running `makemigrations` is not the first phase.
+Django generates a plain `RemoveField`, which drops the column in the same deploy that removes the code.
+Old pods still write to that column, and a rollback finds it gone.
+
+1. Remove all usage and the field from the model. `makemigrations`, then wrap the generated `RemoveField` in `migrations.SeparateDatabaseAndState(state_operations=[...], database_operations=[])`. The column stays in Postgres. Example: `posthog/migrations/1328_remove_userproductlist_reason_state.py`.
+2. Deploy, wait at least one full deploy cycle, and confirm no deployed code reads the column.
+3. Drop the column in a NEW `RunSQL` migration with `ALTER TABLE ... DROP COLUMN IF EXISTS`. Example: `posthog/migrations/1340_drop_userproductlist_reason_columns.py`.
+
+`RemoveFieldAnalyzer` scores a bare `RemoveField` at 5, the highest risk the "Migration Risk Analysis" CI job reports.
+The phase 2 drop scores low only when `check_drop_properly_staged` finds the phase 1 state removal in an ancestor migration, so the two phases must land in that order and never in one migration.
+
+Full guide: `safe-django-migrations.md` (`## Dropping Columns`).
+
 ## Retire dedicated migration tests
 
 A data migration test protects the rollout, not the permanent behavior of the product. Remove the dedicated test after all supported environments have applied the migration, the rollback window has closed, and no supported upgrade still relies on the old data state.
@@ -103,6 +118,10 @@ A `ForeignKey` _targeting_ a hot table is the same hazard from the other side, a
 
 - **`db_constraint=False` on the `ForeignKey`** — emits no FK constraint and takes **no** lock on the parent at all (app-level enforcement only). This is the only truly lock-free path.
 - **A real DB constraint, two-phase** — declare the FK `db_constraint=False`, then add it back as a DB constraint with `AddForeignKeyNotValid`, and `ValidateForeignKey` in a later migration. Be honest: `ADD CONSTRAINT ... NOT VALID` still takes a _brief_ `SHARE ROW EXCLUSIVE` lock on the parent for the metadata add — it skips the row scan, so it shrinks the lock window but does not eliminate it. `VALIDATE` then runs lock-free on the parent.
+
+## Product database boundaries
+
+Apps listed in `products/db_routing.yaml` migrate on their own database and nowhere else. A migration may only depend on migrations that apply to a database it applies to itself, so never add a dependency from another app onto one of those apps, and never the reverse. No foreign key or index can cross databases, so the edge buys nothing, and the CI schema restore relies on its absence: it forgets the routed apps' `django_migrations` rows so each job applies them under its own routing, and a dependant of a forgotten row makes Django refuse to migrate. `posthog/test/repo_invariants/test_migration_dependencies_share_a_database.py` blocks the edge.
 
 ## Cross-language `NOT NULL` hazard
 
