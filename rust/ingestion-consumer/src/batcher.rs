@@ -15,6 +15,7 @@
 //! the failure decision stays in the consumer loop.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -28,6 +29,7 @@ use tracing::{error, info};
 use crate::dispatcher::{Dispatcher, KeyOffset, SubBatch};
 use crate::grpc_transport::{GrpcTransport, PendingWorkerStreamSend};
 use crate::order_sentinel::KeyOrderSentinel;
+use crate::scheduler::SchedulerKind;
 use crate::transport::SendError;
 use crate::types::Accumulator;
 use crate::types::SerializedKafkaMessage;
@@ -54,6 +56,9 @@ struct PendingSubBatch {
     /// The accumulator groups this sub-batch carries, kept aside so the
     /// resolved send can be broken back into per-group completions.
     groups: Vec<CompletionGroup>,
+    /// The runs' epoch when the scheduler stamped one; completions then use
+    /// it instead of the awaiting batch's epoch.
+    assignment_epoch: Option<u64>,
     pending: PendingWorkerStreamSend,
 }
 
@@ -77,6 +82,7 @@ struct BatcherInner {
     /// Stamped on each submitted batch's completions; bumped on partition
     /// assignment by the consumer's rebalance context.
     assignment_epoch: AssignmentEpoch,
+    accepted_messages: AtomicU64,
     completions: mpsc::UnboundedSender<GroupCompletion>,
     errors: mpsc::UnboundedSender<String>,
 }
@@ -132,6 +138,7 @@ impl Batcher {
         transport: Arc<GrpcTransport>,
         handle: Handle,
         deferred_flush_timeout: Duration,
+        parked_retry_interval: Duration,
     ) -> (Self, BatcherOutputs) {
         let (completions_tx, completions_rx) = mpsc::unbounded_channel();
         let (errors_tx, errors_rx) = mpsc::unbounded_channel();
@@ -140,10 +147,18 @@ impl Batcher {
             dispatcher,
             transport,
             assignment_epoch,
+            accepted_messages: AtomicU64::new(0),
             completions: completions_tx,
             errors: errors_tx,
         });
         let (flush_queue, flush_rx) = mpsc::unbounded_channel();
+        if inner.dispatcher.scheduler_kind() == SchedulerKind::KeyTable {
+            tokio::spawn(run_parked_retry_pump(
+                Arc::clone(&inner),
+                parked_retry_interval,
+                deferred_flush_timeout,
+            ));
+        }
         tokio::spawn(run_flush_driver(
             Arc::clone(&inner),
             flush_rx,
@@ -165,6 +180,11 @@ impl Batcher {
         self.inner.dispatcher.key_order_sentinel()
     }
 
+    /// The dispatcher, for the consumer's revocation hook.
+    pub fn dispatcher(&self) -> Arc<Dispatcher> {
+        Arc::clone(&self.inner.dispatcher)
+    }
+
     /// Submit one poll's demuxed groups. Call on the consumer loop, in poll
     /// order. Returns the assignment epoch stamped on the poll's completions,
     /// so the consumer can correlate them without a second epoch read.
@@ -184,12 +204,12 @@ impl Batcher {
         self.inner.dispatcher.register_batch(&batch_id);
         let assign_start = Instant::now();
         let groups = accumulator.into_groups();
-        let pending = self
-            .inner
-            .dispatcher
-            .assign_and_send(&batch_id, groups, |sub_batch| {
-                begin_send(&self.inner.transport, &batch_id, sub_batch, false)
-            });
+        let pending = self.inner.dispatcher.assign_and_send(
+            &batch_id,
+            assignment_epoch,
+            groups,
+            |sub_batch| begin_send(&self.inner.transport, &batch_id, sub_batch, false),
+        );
         // Assignment serializes on the consumer loop (it does not overlap
         // batch collection) — watch this stays a small fraction of the batch
         // collection interval.
@@ -220,8 +240,9 @@ async fn run_scatter(
     pending: Vec<PendingSubBatch>,
     assignment_epoch: u64,
 ) {
-    // Nothing to send and no deferred groups means no usable workers.
-    if pending.is_empty() && !inner.dispatcher.batch_has_flush_activity(&batch_id) {
+    // Nothing to send and nothing retained by the scheduler means no usable
+    // workers.
+    if pending.is_empty() && !inner.dispatcher.retains_work(&batch_id) {
         counter!("ingestion_consumer_no_healthy_workers_total").increment(1);
         inner.report_error("No healthy workers available to route batch".to_string());
         return;
@@ -256,61 +277,13 @@ async fn scatter(
 ) -> anyhow::Result<u32> {
     let mut handles = Vec::with_capacity(pending.len());
     for sub_batch in pending {
-        let inner = Arc::clone(inner);
-        let PendingSubBatch {
-            worker,
-            routing_keys,
-            key_offsets,
-            message_count,
-            groups,
-            pending,
-        } = sub_batch;
-        let bid = batch_id.to_string();
-
-        handles.push(tokio::spawn(async move {
-            match pending.wait().await {
-                Ok(accepted) => {
-                    // Advance ACK high-water marks before the settle, which
-                    // may evict the keys' sentinel state.
-                    inner.dispatcher.on_sub_batch_acked(&key_offsets);
-                    inner.dispatcher.settle(
-                        &worker,
-                        message_count,
-                        &routing_keys,
-                        from_flush,
-                        None,
-                    );
-                    inner.dispatcher.record_send_outcome(&worker, false);
-                    send_group_completions(&inner.completions, groups, assignment_epoch, accepted);
-                    accepted
-                }
-                Err(send_err) => {
-                    // One settlement call requeues the failed messages and
-                    // releases the keys together, so a newer send cannot
-                    // overtake them.
-                    // Backpressure (a busy worker) is transient, not a fault:
-                    // re-route the work but do not count it against the
-                    // worker's health, so passive health tracks real faults.
-                    let SendError {
-                        error,
-                        messages,
-                        fence_guard,
-                    } = send_err;
-                    let is_fault = !error.is_backpressure();
-                    inner.dispatcher.settle(
-                        &worker,
-                        message_count,
-                        &routing_keys,
-                        from_flush,
-                        Some((bid, messages)),
-                    );
-                    // Stashed: let the worker stream stop fencing new arrivals.
-                    drop(fence_guard);
-                    inner.dispatcher.record_send_outcome(&worker, is_fault);
-                    0
-                }
-            }
-        }));
+        handles.push(tokio::spawn(await_settled(
+            Arc::clone(inner),
+            batch_id.to_string(),
+            sub_batch,
+            from_flush,
+            assignment_epoch,
+        )));
     }
 
     let mut accepted = 0u32;
@@ -318,6 +291,181 @@ async fn scatter(
         accepted += handle.await?;
     }
     Ok(accepted)
+}
+
+/// Await one in-flight send, settle it in one seam call, and spawn an
+/// awaiter for every follow-up send the settlement dispatched (the key
+/// table releases a key's next run at settlement). Every begin_send gets
+/// exactly one awaiter, so every dispatch settles exactly once.
+async fn await_settled(
+    inner: Arc<BatcherInner>,
+    batch_id: String,
+    sub_batch: PendingSubBatch,
+    from_flush: bool,
+    batch_epoch: u64,
+) -> u32 {
+    let PendingSubBatch {
+        worker,
+        routing_keys,
+        key_offsets,
+        message_count,
+        groups,
+        assignment_epoch: run_epoch,
+        pending,
+    } = sub_batch;
+
+    match pending.wait().await {
+        Ok(accepted) => {
+            if accepted > 0 {
+                inner
+                    .accepted_messages
+                    .fetch_add(accepted as u64, Ordering::Relaxed);
+            }
+            // Advance ACK high-water marks before the settle, which
+            // may evict the keys' sentinel state.
+            inner.dispatcher.on_sub_batch_acked(&key_offsets);
+            let followups = settle_and_send(
+                &inner,
+                &worker,
+                message_count,
+                &routing_keys,
+                from_flush,
+                None,
+            );
+            inner.dispatcher.record_send_outcome(&worker, false);
+            send_group_completions(
+                &inner.completions,
+                groups,
+                run_epoch.unwrap_or(batch_epoch),
+                accepted,
+            );
+            spawn_followups(&inner, followups, batch_epoch);
+            accepted
+        }
+        Err(send_err) => {
+            // One settlement call requeues the failed messages and
+            // releases the keys together, so a newer send cannot
+            // overtake them.
+            // Backpressure (a busy worker) is transient, not a fault:
+            // re-route the work but do not count it against the
+            // worker's health, so passive health tracks real faults.
+            let SendError {
+                error,
+                messages,
+                fence_guard,
+            } = send_err;
+            let is_fault = !error.is_backpressure();
+            let followups = settle_and_send(
+                &inner,
+                &worker,
+                message_count,
+                &routing_keys,
+                from_flush,
+                Some((batch_id, messages)),
+            );
+            // Stashed: let the worker stream stop fencing new arrivals.
+            drop(fence_guard);
+            inner.dispatcher.record_send_outcome(&worker, is_fault);
+            spawn_followups(&inner, followups, batch_epoch);
+            0
+        }
+    }
+}
+
+/// Settle one send and begin the settlement's follow-up sends under the
+/// dispatcher lock. Follow-up sends belong to no poll, so they go on the
+/// wire under a fresh batch id, minted for correlation and logs.
+fn settle_and_send(
+    inner: &Arc<BatcherInner>,
+    worker: &WorkerId,
+    message_count: usize,
+    routing_keys: &[String],
+    from_flush: bool,
+    failed: Option<(String, Vec<SerializedKafkaMessage>)>,
+) -> (String, Vec<PendingSubBatch>) {
+    let settle_id = make_batch_id();
+    let followups = inner.dispatcher.settle_and_send(
+        worker,
+        message_count,
+        routing_keys,
+        from_flush,
+        failed,
+        |sub_batch| begin_send(&inner.transport, &settle_id, sub_batch, false),
+    );
+    (settle_id, followups)
+}
+
+/// Spawn one detached awaiter per follow-up send. Follow-ups are never
+/// flush sends, and their completions are stamped from their run's epoch.
+fn spawn_followups(
+    inner: &Arc<BatcherInner>,
+    (settle_id, followups): (String, Vec<PendingSubBatch>),
+    batch_epoch: u64,
+) {
+    for sub_batch in followups {
+        drop(tokio::spawn(await_settled(
+            Arc::clone(inner),
+            settle_id.clone(),
+            sub_batch,
+            false,
+            batch_epoch,
+        )));
+    }
+}
+
+/// The key table's retry driver: fire the parked-retry deadline on an
+/// interval. Parked keys are the ones no settlement can release, so the
+/// pump is their only retry path. Its stall watchdog matches the flush
+/// driver's: acceptance resets the deadline, and pending work with zero
+/// acceptance for a full window fails the process, so a wedged key table
+/// restarts loudly instead of growing lag silently.
+async fn run_parked_retry_pump(
+    inner: Arc<BatcherInner>,
+    interval: Duration,
+    stall_timeout: Duration,
+) {
+    let mut ticker = tokio::time::interval(interval);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut seen_accepted = 0u64;
+    let mut stall_deadline = Instant::now() + stall_timeout;
+    loop {
+        ticker.tick().await;
+
+        // Check the stall before this tick's retries. Acceptance or full
+        // idleness resets the clock; work sitting queued with nothing in
+        // flight past the deadline is a stall. An in-flight send neither
+        // resets nor trips: the clock runs, and the verdict waits for the
+        // send's outcome, like the flush driver observing its deadline only
+        // between rounds.
+        let accepted = inner.accepted_messages.load(Ordering::Relaxed);
+        let (queued, outstanding) = inner.dispatcher.key_work().unwrap_or((0, 0));
+        if accepted != seen_accepted || (queued == 0 && outstanding == 0) {
+            seen_accepted = accepted;
+            stall_deadline = Instant::now() + stall_timeout;
+        } else if queued > 0 && outstanding == 0 && Instant::now() >= stall_deadline {
+            inner.report_error(
+                "key-table work made no progress within the stall timeout".to_string(),
+            );
+            return;
+        }
+
+        // A retried send may replay a failed run, so it goes on the wire
+        // with the replay flag, like a deferred flush.
+        let settle_id = make_batch_id();
+        let pending = inner.dispatcher.parked_retry_and_send(|sub_batch| {
+            begin_send(&inner.transport, &settle_id, sub_batch, true)
+        });
+        let epoch = inner.assignment_epoch.current();
+        for sub_batch in pending {
+            drop(tokio::spawn(await_settled(
+                Arc::clone(&inner),
+                settle_id.clone(),
+                sub_batch,
+                false,
+                epoch,
+            )));
+        }
+    }
 }
 
 /// Flush each batch's deferred groups (keys whose worker was draining/dead)
@@ -416,6 +564,7 @@ fn begin_send(
         messages,
         routing_keys,
         key_offsets,
+        assignment_epoch,
     } = sub_batch;
     let groups = completion_groups(&messages);
     let message_count = messages.len();
@@ -426,6 +575,7 @@ fn begin_send(
         key_offsets,
         message_count,
         groups,
+        assignment_epoch,
         pending,
     }
 }

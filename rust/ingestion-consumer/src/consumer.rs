@@ -1,5 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{
@@ -23,6 +23,7 @@ use crate::dispatcher::Dispatcher;
 use crate::grpc_transport::GrpcTransport;
 use crate::ledger_rejection::{warn_rejection, RejectedSlice};
 use crate::order_sentinel::{CommitSentinel, OffsetSpan, SentinelContext};
+use crate::scheduler::SchedulerKind;
 use crate::types::{Accumulator, SerializedKafkaMessage};
 
 /// Batch-wide statistics gathered while collecting, used to emit parity
@@ -70,6 +71,11 @@ struct PartitionDeliveries {
     latest_kafka_ts: i64,
     /// Max ingestion lag (ms) — for `ingestion_lag_ms`.
     max_lag_ms: Option<i64>,
+    /// Messages the poll delivered, covered, and accepted from this
+    /// partition, so a revoked partition can leave the poll exactly.
+    delivered: u32,
+    covered: u32,
+    accepted: u32,
 }
 
 impl PartitionDeliveries {
@@ -81,6 +87,9 @@ impl PartitionDeliveries {
             charges: vec![(Offset(delivery.offset), delivery.charge)],
             latest_kafka_ts: delivery.kafka_ts,
             max_lag_ms: delivery.lag_ms,
+            delivered: 1,
+            covered: 0,
+            accepted: 0,
         }
     }
 
@@ -97,6 +106,7 @@ impl PartitionDeliveries {
         delivery: &Delivery,
     ) {
         self.span.extend(delivery.offset);
+        self.delivered += 1;
         self.latest_kafka_ts = self.latest_kafka_ts.max(delivery.kafka_ts);
         if let Some(lag_ms) = delivery.lag_ms {
             self.max_lag_ms = Some(self.max_lag_ms.map_or(lag_ms, |max| max.max(lag_ms)));
@@ -145,41 +155,90 @@ impl InFlightPoll {
     fn is_complete(&self) -> bool {
         self.covered >= self.message_count
     }
-
-    fn contains(&self, partition: Partition, offset: i64) -> bool {
-        self.partitions.iter().any(|(topic_partition, deliveries)| {
-            topic_partition.partition == partition.0
-                && deliveries.span.first <= offset
-                && offset <= deliveries.span.last
-        })
-    }
 }
 
-/// Credit a completion to the poll it belongs to: the one collected under the
-/// same assignment epoch whose offset span holds the completion's offsets.
+/// Remove revoked partitions from the in-flight polls, and remove polls left
+/// empty. Only the revoked partitions' slices go: a poll's kept partitions
+/// keep their counts and settle their ledger charges at commit, so the
+/// frontier never crosses a hole. Dropping whole polls here froze kept
+/// partitions' commits under cooperative rebalancing.
+fn strip_revoked_partitions(
+    in_flight_polls: &mut VecDeque<InFlightPoll>,
+    revoked: &[TopicPartition],
+) -> u64 {
+    let mut stripped: u64 = 0;
+    for poll in in_flight_polls.iter_mut() {
+        let mut removed_delivered = 0u32;
+        let mut removed_covered = 0u32;
+        let mut removed_accepted = 0u32;
+        poll.partitions.retain(|topic_partition, deliveries| {
+            if revoked.contains(topic_partition) {
+                removed_delivered += deliveries.delivered;
+                removed_covered += deliveries.covered;
+                removed_accepted += deliveries.accepted;
+                false
+            } else {
+                true
+            }
+        });
+        if removed_delivered > 0 {
+            stripped += u64::from(removed_delivered);
+            poll.message_count = poll.message_count.saturating_sub(removed_delivered);
+            poll.covered = poll.covered.saturating_sub(removed_covered);
+            poll.accepted = poll.accepted.saturating_sub(removed_accepted);
+        }
+    }
+    in_flight_polls.retain(|poll| poll.message_count > 0);
+    stripped
+}
+
+/// Credit each of a completion's offsets to the poll that contains it: the
+/// one collected under the same assignment epoch whose span holds the offset.
 /// Within one epoch, poll spans are disjoint per partition, so at most one
-/// poll matches. A completion that matches no in-flight poll (its partition
-/// was revoked and reassigned while the group was out, or its poll is gone)
-/// is discarded and counted.
+/// poll matches per offset. A key-table run merges messages from several
+/// polls into one send, so one completion can span polls; crediting per
+/// offset keeps every poll's count exact. Acceptance credits the leading
+/// offsets, so a worker that under-reports shorts the tail poll's accepted
+/// check, matching [`send_group_completions`]'s split across groups. An
+/// offset that matches no poll (its partition was revoked and reassigned
+/// while the group was out, or its poll is gone) is discarded; a completion
+/// with any discarded offset counts as stale once.
+///
+/// [`send_group_completions`]: crate::batcher
 fn apply_completion(in_flight: &mut VecDeque<InFlightPoll>, completion: GroupCompletion) {
-    let Some(first) = completion.offsets.first().map(|offset| offset.0) else {
-        return;
-    };
-    let Some(poll) = in_flight.iter_mut().find(|poll| {
-        poll.assignment_epoch == completion.assignment_epoch
-            && poll.contains(completion.partition, first)
-    }) else {
+    let mut accepted = completion.accepted;
+    let mut unmatched: u64 = 0;
+    'offsets: for offset in &completion.offsets {
+        let is_accepted = accepted > 0;
+        accepted = accepted.saturating_sub(1);
+        for poll in in_flight
+            .iter_mut()
+            .filter(|poll| poll.assignment_epoch == completion.assignment_epoch)
+        {
+            for (topic_partition, deliveries) in poll.partitions.iter_mut() {
+                if topic_partition.partition == completion.partition.0
+                    && deliveries.span.first <= offset.0
+                    && offset.0 <= deliveries.span.last
+                {
+                    poll.covered += 1;
+                    poll.accepted += u32::from(is_accepted);
+                    deliveries.covered += 1;
+                    deliveries.accepted += u32::from(is_accepted);
+                    continue 'offsets;
+                }
+            }
+        }
+        unmatched += 1;
+    }
+    if unmatched > 0 {
         counter!("ingestion_consumer_stale_group_completions_total").increment(1);
         warn!(
             partition = %completion.partition,
-            offset = first,
+            unmatched,
             epoch = completion.assignment_epoch,
-            "Discarding group completion that matches no in-flight poll"
+            "Discarding completion offsets that match no in-flight poll"
         );
-        return;
-    };
-    poll.covered += completion.offsets.len() as u32;
-    poll.accepted += completion.accepted;
+    }
 }
 
 /// Options for constructing an [`IngestionConsumer`] from pre-built parts.
@@ -198,6 +257,9 @@ pub struct IngestionConsumerOptions {
     /// with zero progress. Production takes it from
     /// `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS` (default 60s).
     pub deferred_flush_timeout: Duration,
+    /// The key-table scheduler's parked-retry cadence. Production takes it
+    /// from `INGESTION_PARKED_RETRY_INTERVAL_MS` (default 200ms).
+    pub parked_retry_interval: Duration,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     pub debug_recorder: Option<Arc<DebugRecorder>>,
 }
@@ -227,6 +289,9 @@ pub struct IngestionConsumer {
     /// from. Shared with the consumer's [`SentinelContext`], which forgets
     /// partitions on rebalance.
     topic_offset_ledger: Arc<TopicOffsetLedger>,
+    /// Partitions revoked since the loop last looked, fed by the rebalance
+    /// callback. Only populated under the key-table scheduler.
+    revoked_partitions: Arc<Mutex<Vec<TopicPartition>>>,
 }
 
 impl IngestionConsumer {
@@ -246,16 +311,34 @@ impl IngestionConsumer {
         // callbacks reset the same baselines the commit path checks against.
         let commit_sentinel = consumer.context().commit_sentinel();
         let topic_offset_ledger = consumer.context().topic_offset_ledger();
+        let revoked_partitions: Arc<Mutex<Vec<TopicPartition>>> = Arc::new(Mutex::new(Vec::new()));
+        let purge_dispatcher = Arc::clone(&dispatcher);
+        let hook_revoked = (dispatcher.scheduler_kind() == SchedulerKind::KeyTable)
+            .then(|| Arc::clone(&revoked_partitions));
+        consumer
+            .context()
+            .set_revoke_hook(Box::new(move |partitions| {
+                purge_dispatcher.purge_revoked(partitions);
+                if let Some(list) = &hook_revoked {
+                    list.lock().unwrap().extend(
+                        partitions
+                            .iter()
+                            .map(|(topic, partition)| TopicPartition::new(topic, *partition)),
+                    );
+                }
+            }));
         let (batcher, outputs) = Batcher::new(
             dispatcher,
             Arc::clone(&transport),
             handle.clone(),
             options.deferred_flush_timeout,
+            options.parked_retry_interval,
         );
         Self {
             commit_sentinel,
             debug_recorder: options.debug_recorder,
             topic_offset_ledger,
+            revoked_partitions,
             consumer: Arc::new(consumer),
             batcher,
             outputs: Some(outputs),
@@ -308,6 +391,20 @@ impl IngestionConsumer {
             Arc::clone(&topic_offset_ledger),
         );
         context.set_assignment_epoch(transport.assignment_epoch());
+        let revoked_partitions: Arc<Mutex<Vec<TopicPartition>>> = Arc::new(Mutex::new(Vec::new()));
+        let purge_dispatcher = batcher.dispatcher();
+        let hook_revoked = (purge_dispatcher.scheduler_kind() == SchedulerKind::KeyTable)
+            .then(|| Arc::clone(&revoked_partitions));
+        context.set_revoke_hook(Box::new(move |partitions| {
+            purge_dispatcher.purge_revoked(partitions);
+            if let Some(list) = &hook_revoked {
+                list.lock().unwrap().extend(
+                    partitions
+                        .iter()
+                        .map(|(topic, partition)| TopicPartition::new(topic, *partition)),
+                );
+            }
+        }));
         let consumer: StreamConsumer<SentinelContext> =
             client_config.create_with_context(context)?;
         consumer.subscribe(&[&config.ingestion_consumer_consume_topic])?;
@@ -326,6 +423,7 @@ impl IngestionConsumer {
             commit_sentinel,
             debug_recorder,
             topic_offset_ledger,
+            revoked_partitions,
             batcher,
             outputs: Some(outputs),
             transport,
@@ -380,6 +478,7 @@ impl IngestionConsumer {
         let mut accepting_new_batches = true;
 
         while accepting_new_batches || !in_flight_polls.is_empty() {
+            self.drop_revoked_polls(&mut in_flight_polls);
             // Consumer-level concurrency: how many Kafka batches are being
             // processed in parallel, bounded by `max_in_flight_batches`.
             gauge!("ingestion_consumer_in_flight_batches").set(in_flight_polls.len() as f64);
@@ -484,16 +583,18 @@ impl IngestionConsumer {
         completions: &mut mpsc::UnboundedReceiver<GroupCompletion>,
         errors: &mut mpsc::UnboundedReceiver<String>,
     ) -> anyhow::Result<()> {
-        if in_flight_polls.front().is_none() {
-            return Ok(());
-        }
-
         let mut heartbeat = tokio::time::interval(Duration::from_secs(1));
-        while !in_flight_polls
-            .front()
-            .expect("front is present")
-            .is_complete()
-        {
+        loop {
+            // A rebalance can drop the front poll (its partitions were
+            // revoked and its purged messages will never complete), so
+            // re-resolve it every pass instead of waiting on it forever.
+            self.drop_revoked_polls(in_flight_polls);
+            let Some(front) = in_flight_polls.front() else {
+                return Ok(());
+            };
+            if front.is_complete() {
+                break;
+            }
             tokio::select! {
                 completion = completions.recv() => match completion {
                     Some(completion) => apply_completion(in_flight_polls, completion),
@@ -530,6 +631,26 @@ impl IngestionConsumer {
         self.handle.report_healthy();
 
         Ok(())
+    }
+
+    /// Drop in-flight polls holding a revoked partition. The key table
+    /// purges those partitions' queued messages, so such a poll can never be
+    /// covered; its offsets stay uncommitted and replay under the new
+    /// assignment, and its late completions are discarded as stale.
+    fn drop_revoked_polls(&self, in_flight_polls: &mut VecDeque<InFlightPoll>) {
+        let revoked: Vec<TopicPartition> =
+            std::mem::take(&mut *self.revoked_partitions.lock().unwrap());
+        if revoked.is_empty() {
+            return;
+        }
+        let stripped = strip_revoked_partitions(in_flight_polls, &revoked);
+        if stripped > 0 {
+            counter!("ingestion_consumer_polls_dropped_on_revoke_total").increment(stripped);
+            info!(
+                stripped,
+                "Removed revoked partitions' messages from in-flight polls"
+            );
+        }
     }
 
     fn fail_batch_processing(&self, err: anyhow::Error) {
@@ -1038,6 +1159,9 @@ mod tests {
                 charges: Vec::new(),
                 latest_kafka_ts: 0,
                 max_lag_ms: None,
+                delivered: count,
+                covered: 0,
+                accepted: 0,
             },
         );
         InFlightPoll {
@@ -1073,6 +1197,92 @@ mod tests {
 
         apply_completion(&mut in_flight, completion(1, 0, &[5, 7], 2));
         assert!(in_flight[1].is_complete());
+    }
+
+    #[test]
+    fn apply_completion_spanning_two_polls_credits_each() {
+        // A key-table run merges messages from consecutive polls into one
+        // send, so its completion spans both spans.
+        let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 0, 4, 7, 4)]);
+
+        apply_completion(&mut in_flight, completion(1, 0, &[2, 3, 4, 5], 4));
+
+        assert_eq!(in_flight[0].covered, 2);
+        assert_eq!(in_flight[0].accepted, 2);
+        assert_eq!(in_flight[1].covered, 2);
+        assert_eq!(in_flight[1].accepted, 2);
+    }
+
+    #[test]
+    fn apply_completion_under_report_shorts_the_tail_poll() {
+        let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 0, 4, 7, 4)]);
+
+        apply_completion(&mut in_flight, completion(1, 0, &[2, 3, 4, 5], 3));
+
+        assert_eq!(in_flight[0].accepted, 2, "leading offsets are accepted");
+        assert_eq!(
+            in_flight[1].accepted, 1,
+            "the tail poll fails its accepted check"
+        );
+        assert_eq!(in_flight[1].covered, 2);
+    }
+
+    #[test]
+    fn strip_revoked_partitions_keeps_the_other_partitions_slices() {
+        // A cooperative rebalance revokes one partition of a two-partition
+        // poll. The kept partition's slice must stay accounted, or its
+        // ledger charges never settle and its commits freeze at the hole.
+        let mut two = poll(1, 0, 0, 1, 4);
+        two.partitions.insert(
+            TopicPartition::new("test", 1),
+            PartitionDeliveries {
+                span: OffsetSpan {
+                    first: 10,
+                    last: 11,
+                },
+                generation: 0,
+                generations_version_seen: 0,
+                charges: Vec::new(),
+                latest_kafka_ts: 0,
+                max_lag_ms: None,
+                delivered: 2,
+                covered: 0,
+                accepted: 0,
+            },
+        );
+        two.partitions
+            .get_mut(&TopicPartition::new("test", 0))
+            .unwrap()
+            .delivered = 2;
+        let mut in_flight = VecDeque::from([two]);
+        // Partition 1 already had one message covered before the revoke.
+        apply_completion(&mut in_flight, completion(1, 1, &[10], 1));
+
+        let stripped = strip_revoked_partitions(&mut in_flight, &[TopicPartition::new("test", 1)]);
+
+        assert_eq!(stripped, 2);
+        assert_eq!(in_flight[0].message_count, 2);
+        assert_eq!(in_flight[0].covered, 0, "the revoked slice's credit goes");
+        assert!(!in_flight[0].is_complete());
+
+        // The kept partition completes the poll; a late completion for the
+        // revoked partition is discarded, not credited.
+        apply_completion(&mut in_flight, completion(1, 1, &[11], 1));
+        assert_eq!(in_flight[0].covered, 0);
+        apply_completion(&mut in_flight, completion(1, 0, &[0, 1], 2));
+        assert!(in_flight[0].is_complete());
+        assert_eq!(in_flight[0].accepted, 2);
+    }
+
+    #[test]
+    fn strip_revoked_partitions_removes_an_emptied_poll() {
+        let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 2, 0, 3, 4)]);
+
+        let stripped = strip_revoked_partitions(&mut in_flight, &[TopicPartition::new("test", 0)]);
+
+        assert_eq!(stripped, 4);
+        assert_eq!(in_flight.len(), 1);
+        assert_eq!(in_flight[0].message_count, 4);
     }
 
     #[test]
