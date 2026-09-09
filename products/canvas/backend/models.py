@@ -5,6 +5,8 @@ from django.utils import timezone
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
+from products.canvas.backend.facade.enums import SketchpadActorKind, SketchpadRecordKind
+
 
 class Canvas(TeamScopedRootMixin, UUIDModel):
     """A canvas document: an agent-built, sandboxed browser app filed in a channel.
@@ -280,7 +282,7 @@ class Sketchpad(TeamScopedRootMixin, UUIDModel):
     head_seq = models.IntegerField(default=0)
     pinned_at = models.DateTimeField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -289,20 +291,14 @@ class Sketchpad(TeamScopedRootMixin, UUIDModel):
 
 
 class SketchpadRecord(TeamScopedRootMixin, UUIDModel):
-    class Kind(models.TextChoices):
-        FRAGMENT = "fragment"
-        SOURCE = "source"
-        COMPILED = "compiled"
-        COMPILE = "compile"
-        STATE = "state"
-
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     sketchpad = models.ForeignKey(Sketchpad, on_delete=models.CASCADE, related_name="records")
-    kind = models.CharField(max_length=8, choices=Kind.choices)
+    kind = models.CharField(max_length=32, choices=SketchpadRecordKind.choices)
     key = models.CharField(max_length=128)
     value = models.JSONField()
     position = models.IntegerField(default=0)
-    seq = models.IntegerField()
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "posthog_sketchpad_record"
@@ -310,22 +306,34 @@ class SketchpadRecord(TeamScopedRootMixin, UUIDModel):
         indexes = [models.Index(fields=["sketchpad", "kind", "position"], name="sketchpad_record_order")]
 
 
-class SketchpadOp(TeamScopedRootMixin, UUIDModel):
-    ACTOR_KIND_USER = "user"
-    ACTOR_KIND_AGENT = "agent"
-    ACTOR_KINDS = [ACTOR_KIND_USER, ACTOR_KIND_AGENT]
+class SketchpadCompileJob(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    sketchpad = models.OneToOneField(Sketchpad, on_delete=models.CASCADE, related_name="compile_job")
+    job = models.CharField(max_length=64)
+    refs = models.JSONField(default=list)
+    requested_seq = models.IntegerField()
+    compiler_version = models.CharField(max_length=64)
+    expires_at = models.DateTimeField()
+    started_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        db_table = "posthog_sketchpad_compile_job"
+
+
+class SketchpadOp(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     sketchpad = models.ForeignKey(Sketchpad, on_delete=models.CASCADE, related_name="ops")
     seq = models.IntegerField()
     op_id = models.CharField(max_length=64)
-    actor_kind = models.CharField(max_length=16)
+    actor_kind = models.CharField(max_length=16, choices=SketchpadActorKind.choices)
     actor_user = models.ForeignKey(
         "posthog.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+", db_constraint=False
     )
-    actor_task_id = models.CharField(max_length=64, null=True, blank=True)
+    actor_task_id = models.UUIDField(null=True, blank=True)
     op = models.JSONField()
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         db_table = "posthog_sketchpad_op"

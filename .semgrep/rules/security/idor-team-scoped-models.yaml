@@ -95,9 +95,6 @@ rules:
                               |BriefConfig
                               |ButtonTile
                               |Canvas
-                              |Sketchpad
-                              |SketchpadOp
-                              |SketchpadRecord
                               |CanvasBuild
                               |CanvasHomePreference
                               |CanvasSourceVersion
@@ -350,6 +347,10 @@ rules:
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
+                              |Sketchpad
+                              |SketchpadCompileJob
+                              |SketchpadOp
+                              |SketchpadRecord
                               |SlackThreadTaskMapping
                               |SourceBatch
                               |SourceGroupLease
@@ -504,9 +505,6 @@ rules:
                         |BriefConfig
                         |ButtonTile
                         |Canvas
-                        |Sketchpad
-                        |SketchpadOp
-                        |SketchpadRecord
                         |CanvasBuild
                         |CanvasHomePreference
                         |CanvasSourceVersion
@@ -749,6 +747,10 @@ rules:
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
+                        |Sketchpad
+                        |SketchpadCompileJob
+                        |SketchpadOp
+                        |SketchpadRecord
                         |SlackThreadTaskMapping
                         |SourceBatch
                         |SourceGroupLease
