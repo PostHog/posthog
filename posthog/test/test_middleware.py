@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core.cache import cache
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http import HttpResponse, HttpResponseRedirect
 from django.test import (
     Client as DjangoClient,
@@ -20,6 +21,7 @@ import structlog
 from loginas import settings as la_settings
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from social_core.backends.base import BaseAuth
 from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParameter
 
@@ -27,6 +29,7 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.middleware import per_request_logging_context_middleware
 from posthog.models.organization import Organization
+from posthog.models.organization_invite import InviteExpiredException
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import SITE_URL
@@ -2066,6 +2069,24 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
                 "/complete/saml/",
                 AuthFailed(_social_auth_backend(), "sso_enforced"),
                 "/login?error_code=sso_enforced",
+            ),
+            (
+                "expired_invite_on_complete",
+                "/complete/saml/",
+                InviteExpiredException(),
+                "/login?error_code=invalid_invite",
+            ),
+            (
+                "unusable_invite_on_complete",
+                "/complete/saml/",
+                DRFValidationError("You already are a member of this organization.", code="user_already_member"),
+                "/login?error_code=social_login_failure",
+            ),
+            (
+                "django_validation_error_on_complete",
+                "/complete/saml/",
+                DjangoValidationError("This field is required and was not provided by the IdP."),
+                "/login?error_code=social_login_failure",
             ),
         ]
     )

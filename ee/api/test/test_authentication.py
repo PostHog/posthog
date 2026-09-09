@@ -11,7 +11,6 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.core import mail
-from django.core.exceptions import ValidationError
 from django.shortcuts import redirect
 from django.test import override_settings
 from django.utils import timezone
@@ -1035,21 +1034,18 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         user_count = User.objects.count()
 
-        with self.assertRaises(ValidationError) as e:
-            response = self.client.post(
-                "/complete/saml/",
-                {
-                    "SAMLResponse": saml_response,
-                    "RelayState": str(self.organization_domain.id),
-                },
-                format="multipart",
-                follow=True,
-            )
-
-        self.assertEqual(
-            str(e.exception),
-            "{'name': ['This field is required and was not provided by the IdP.']}",
+        response = self.client.post(
+            "/complete/saml/",
+            {
+                "SAMLResponse": saml_response,
+                "RelayState": str(self.organization_domain.id),
+            },
+            format="multipart",
+            follow=True,
         )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        self.assertRedirects(response, "/login?error_code=missing_idp_attribute")
 
         self.assertEqual(User.objects.count(), user_count)
 

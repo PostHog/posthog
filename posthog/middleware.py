@@ -14,7 +14,10 @@ from urllib.parse import urlencode
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, logout
 from django.core.cache import cache
-from django.core.exceptions import MiddlewareNotUsed
+from django.core.exceptions import (
+    MiddlewareNotUsed,
+    ValidationError as DjangoValidationError,
+)
 from django.db import (
     connection,
     connections as db_connections,
@@ -33,6 +36,7 @@ from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
 
@@ -42,11 +46,12 @@ from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, 
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
+from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
-from posthog.models import Team, User
+from posthog.models import InviteExpiredException, Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
@@ -1346,6 +1351,17 @@ class SocialAuthExceptionMiddleware:
             url = sso_failure_redirect_url(request, "social_login_failure")
             separator = "&" if "?" in url else "?"
             return redirect(f"{url}{separator}{urlencode({'error_detail': error_detail})}")
+
+        # A pipeline function can raise a DRF or Django `ValidationError`, for example when the
+        # invite that the signup resolves is no longer usable. Neither type comes from
+        # `social_core`, and the callback is a plain Django view rather than a DRF view, so without
+        # this branch the exception reaches Django's default 500 handler and the person gets the
+        # generic error page with no next step. Report the exception here, because this branch
+        # stops it from reaching the 500 handler that would otherwise report it.
+        if isinstance(exception, DRFValidationError | DjangoValidationError):
+            capture_exception(exception)
+            error_code = "invalid_invite" if isinstance(exception, InviteExpiredException) else "social_login_failure"
+            return redirect(sso_failure_redirect_url(request, error_code))
 
         return None
 

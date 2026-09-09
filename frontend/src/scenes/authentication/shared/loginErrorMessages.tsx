@@ -39,5 +39,7 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
         "You signed in with a different account. Please try again with the account you're logged in as.",
     invalid_invite:
         'This invite link is no longer valid. It may have expired or been revoked. Please ask your administrator for a new invite.',
+    missing_idp_attribute:
+        'Your SSO provider did not send your name or email address, so we could not create your account. Please ask your administrator to check your SSO configuration.',
     social_login_failure: 'Login failed. Please try again or contact your administrator.',
 }
