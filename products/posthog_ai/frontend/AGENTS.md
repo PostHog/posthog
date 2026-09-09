@@ -210,8 +210,10 @@ ingestion).
   the `title` and the `subtitle` (the one salient input — a command, path, repo, branch). **Any other
   presentable information a tool produces — parsed output, commit/repo lists, file contents, diffs, raw
   text — must go in the collapsible `body`, never the always-visible `children`.** The body is the
-  `Activity` accordion: it auto-expands while the tool runs and collapses once it completes, so the
-  thread stays scannable (one or two lines per tool) and a reader expands only the cards they care about.
+  `Activity` accordion: it auto-expands while the tool runs, and a card that mounts already finished
+  starts collapsed, so a settled thread stays scannable (one or two lines per tool) and a reader expands
+  only the cards they care about. A card never auto-collapses: taking the body away when the tool
+  finishes moves the rest of a still-streaming thread under the reader.
   Reserve `children` (always-visible) for genuinely interactive payloads that would be useless collapsed
   (e.g. the `AskUserQuestion` recap the user must act on) — not for output. When in doubt, it goes in the
   accordion.

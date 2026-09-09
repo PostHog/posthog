@@ -28,4 +28,25 @@ describe('Activity', () => {
         expectBefore(header, details)
         expectBefore(details, widget)
     })
+
+    it('keeps the body of a card that finishes while the thread streams', () => {
+        const { rerender, queryByText } = render(
+            <Activity id="tool-call" title="Query trends" status="in_progress" details={<div>Streamed input</div>} />
+        )
+        expect(queryByText('Streamed input')).toBeInTheDocument()
+
+        rerender(
+            <Activity id="tool-call" title="Query trends" status="completed" details={<div>Streamed input</div>} />
+        )
+
+        expect(queryByText('Streamed input')).toBeInTheDocument()
+    })
+
+    it('starts collapsed when the card mounts already finished', () => {
+        const { queryByText } = render(
+            <Activity id="tool-call" title="Query trends" status="completed" details={<div>Replayed input</div>} />
+        )
+
+        expect(queryByText('Replayed input')).not.toBeInTheDocument()
+    })
 })
