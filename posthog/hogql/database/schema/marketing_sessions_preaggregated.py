@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from pydantic import Field
 
 from posthog.hogql.constants import HogQLQuerySettings
@@ -10,6 +12,9 @@ from posthog.hogql.database.models import (
 )
 
 from posthog.clickhouse.preaggregation.marketing_sessions_sql import DISTRIBUTED_MARKETING_SESSIONS_TABLE
+
+if TYPE_CHECKING:
+    from posthog.hogql.context import HogQLContext
 
 _DIMENSIONS = {
     "channel_type": "Channel the session was attributed to, classified at write time.",
@@ -66,8 +71,8 @@ class MarketingSessionsPreaggregatedTable(Table):
 
     fields: dict[str, FieldOrTable] = _build_fields()
 
-    def to_printed_clickhouse(self, context):
+    def to_printed_clickhouse(self, context: "HogQLContext") -> str:
         return DISTRIBUTED_MARKETING_SESSIONS_TABLE()
 
-    def to_printed_hogql(self):
+    def to_printed_hogql(self) -> str:
         return "marketing_sessions_dimensional_preaggregated"

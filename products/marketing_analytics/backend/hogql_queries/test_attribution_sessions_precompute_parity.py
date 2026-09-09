@@ -18,6 +18,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.marketing_analytics.backend.hogql_queries.attribution_table_query_runner import (
     MarketingAnalyticsAttributionQueryRunner,
 )
@@ -47,7 +48,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
     maxDiff = None
     CLASS_DATA_LEVEL_SETUP = False
 
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         config = self.team.marketing_analytics_config
         config.attribution_window_days = WINDOW_DAYS
@@ -74,7 +75,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         campaign: str,
         event_offsets_minutes: list[int],
         source: Optional[str] = None,
-    ):
+    ) -> None:
         """A session opening at `opened_at` with a pageview at each offset after it."""
         session_id = str(uuid7(opened_at.strftime("%Y-%m-%dT%H:%M:%SZ")))
         for offset in event_offsets_minutes:
@@ -93,7 +94,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
                 },
             )
 
-    def _conversion(self, distinct_id: str, at: datetime):
+    def _conversion(self, distinct_id: str, at: datetime) -> None:
         _create_event(
             team=self.team,
             event=CONVERSION_EVENT,
@@ -104,7 +105,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
 
     def _run(
         self, breakdown: MarketingAnalyticsAttributionBreakdown, *, precomputed: bool, exclude_direct: bool = False
-    ):
+    ) -> tuple[dict[str, tuple[int, int]], bool]:
         query = MarketingAnalyticsAttributionQuery(
             dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
             breakdownBy=breakdown,
@@ -118,7 +119,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         rows = {row.breakdownValue: (row.visitors, row.influencedConversions) for row in (response.results or [])}
         return rows, runner._sessions_precompute_used
 
-    def _materialize(self):
+    def _materialize(self) -> LazyComputationResult:
         # Same extended lower edge the reader asks for, so a session that opened before the window
         # has its chunk built.
         result = ensure_marketing_sessions_precomputed(
@@ -137,7 +138,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
     )
     def test_session_open_before_the_window_with_events_inside_it_counts_in_both_paths(
         self, _name: str, breakdown: MarketingAnalyticsAttributionBreakdown
-    ):
+    ) -> None:
         # The live scan keeps a session whose events land in the window and reports its start as the
         # touchpoint. Bounding the precomputed read by session start instead dropped this person from
         # the denominator and moved their first-touch credit.
@@ -162,7 +163,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         assert pre_used, "the precomputed path was not used, so this proves nothing"
         assert pre == live, f"precomputed={pre} live={live}"
 
-    def test_a_session_stored_under_two_jobs_is_one_touchpoint(self):
+    def test_a_session_stored_under_two_jobs_is_one_touchpoint(self) -> None:
         # A session's stored start is the earliest event seen when its chunk ran. A later event that
         # predates it moves the start, filing the session under a different chunk while the first
         # chunk's row survives. Both jobs are read, and without a collapse the person is credited
