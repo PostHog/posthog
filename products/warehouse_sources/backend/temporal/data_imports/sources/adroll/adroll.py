@@ -30,7 +30,7 @@ _ADVERTISABLE_PARENT = "advertisable"
 @dataclasses.dataclass
 class AdRollResumeConfig:
     # Framework fan-out checkpoint ({"completed": [...], "current": ..., "child_state": ...}).
-    # The plain advertisables list is a single request, so only fan-out endpoints checkpoint.
+    # The unscoped endpoints are one request each, so only fan-out endpoints checkpoint.
     fanout_state: Optional[dict[str, Any]] = None
 
 
@@ -70,8 +70,8 @@ def adroll_source(
                     "name": endpoint,
                     "endpoint": {
                         "path": config.path,
-                        "params": {"apikey": client_id},
-                        "data_selector": "results",
+                        "params": {"apikey": client_id, **config.extra_params},
+                        "data_selector": config.data_selector,
                     },
                 }
             ],
@@ -97,24 +97,25 @@ def adroll_source(
                     "endpoint": {
                         "path": ADROLL_ENDPOINTS["advertisables"].path,
                         "params": {"apikey": client_id},
-                        "data_selector": "results",
+                        "data_selector": ADROLL_ENDPOINTS["advertisables"].data_selector,
                     },
                 },
                 {
                     "name": endpoint,
                     "endpoint": {
-                        # AdRoll scopes campaign/ad lists with an `advertisable` query param,
-                        # not a path segment; bind the resolve param inside the query string.
-                        "path": f"{config.path}?advertisable={{advertisable}}",
+                        # AdRoll scopes the per-advertisable lists with a query param, not a path
+                        # segment; bind the resolve param inside the query string.
+                        "path": f"{config.path}?{config.resolve_param}={{{config.resolve_param}}}",
                         "params": {
-                            "advertisable": {
+                            config.resolve_param: {
                                 "type": "resolve",
                                 "resource": _ADVERTISABLE_PARENT,
                                 "field": "eid",
                             },
                             "apikey": client_id,
+                            **config.extra_params,
                         },
-                        "data_selector": "results",
+                        "data_selector": config.data_selector,
                     },
                     "include_from_parent": ["eid"],
                 },

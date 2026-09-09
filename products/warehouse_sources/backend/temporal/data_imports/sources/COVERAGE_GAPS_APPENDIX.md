@@ -57,16 +57,16 @@ Diffed against: <https://developers.activecampaign.com/reference/overview>
 
 Note: deal_groups/deal_stages already cover the pipelines and stages lookups. The reference sidebar also exposes campaign messages, campaign link stats, scores, bounce logs, custom object records, conversations, SMS broadcast metrics and the separate e-commerce GraphQL API — all plausible but lower value than the 12 above.
 
-## AdRoll — **thin**
+## AdRoll — gaps
 
-Today (3): `ads`, `advertisables`, `campaigns`
+Today (10): `accounts`, `ad_reports`, `adgroups`, `ads`, `advertisable_reports`, `advertisables`, `campaign_reports`, `campaigns`, `organization`, `segments`
 
 Diffed against: <https://apidocs.nextroll.com/crud-api/reference.html>
 
-- [ ] `adgroups (GET /api/v1/advertisable/get_adgroups, /api/v1/campaign/get_adgroups)` — the missing middle level of the campaign -> adgroup -> ad hierarchy we already half-sync (high)
-- [ ] `report/campaign, report/adgroup, report/ad, report/advertisable` — delivery and attribution metrics - impressions, clicks, spend, conversions; the whole point of an ads connector (high)
-- [ ] `segments (GET /api/v1/advertisable/get_segments, /api/v1/segment/get)` — audience segments targeted by adgroups, with sizes (high)
-- [ ] `organization (GET /api/v1/organization/get, get_advertisables, get_accounts)` — lookup resolving the org/account EIDs that advertisables hang off (medium)
+- [x] `adgroups (GET /api/v1/advertisable/get_adgroups, /api/v1/campaign/get_adgroups)` — the missing middle level of the campaign -> adgroup -> ad hierarchy we already half-sync (high)
+- [x] `report/campaign, report/ad, report/advertisable` — delivery metrics - impressions, clicks, spend; the whole point of an ads connector (high). `report/adgroup` does not exist on the CRUD API.
+- [x] `segments (GET /api/v1/advertisable/get_segments)` — audience segments targeted by adgroups (high). `segment/get` is a single-segment lookup, covered by the list endpoint's `get` representation.
+- [x] `organization (GET /api/v1/organization/get, get_accounts)` — lookup resolving the org/account EIDs that advertisables hang off (medium). `get_advertisables` already backs the `advertisables` table.
 - [ ] `pixel (GET /api/v1/advertisable/get_pixel, /api/v1/pixel/get)` — conversion tracking pixel per advertisable (medium)
 - [ ] `rules (GET /api/v1/pixel/get_rules, /api/v1/rule/get)` — conversion and retargeting rule definitions that decode segment membership (medium)
 - [ ] `invoice (GET /api/v1/invoice/get)` — billed spend reconciliation against reported campaign spend (medium)
@@ -76,7 +76,7 @@ Diffed against: <https://apidocs.nextroll.com/crud-api/reference.html>
 - [ ] `contextual_categories` — lookup decoding contextual targeting categories on adgroups (low)
 - [ ] `dynamic_template/get_all_for_advertisable` — creative template lookup for dynamic ads (low)
 
-Note: NextRoll splits reporting into a separate GraphQL Reporting API (https://apidocs.nextroll.com/graphql-reporting-api/index.html) that supersedes the legacy CRUD /api/v1/report/\* endpoints - delivery and attribution metrics by advertisable, campaign, adgroup, ad, plus granular conversions. The developers.nextroll.com URL in the payload is an Angular shell with no content; the real reference is apidocs.nextroll.com.
+Note: NextRoll splits reporting into a separate GraphQL Reporting API (https://apidocs.nextroll.com/graphql-reporting-api/index.html) that supersedes the legacy CRUD /api/v1/report/\* endpoints - delivery and attribution metrics by advertisable, campaign, adgroup, ad, plus granular conversions. The synced report tables use the CRUD API's `entity` data format, the only shape that reference documents: one row per entity with its delivery metrics. Per-day breakdowns and attribution remain a GraphQL Reporting API follow-up. The developers.nextroll.com URL in the payload is an Angular shell with no content; the real reference is apidocs.nextroll.com.
 
 ## AgileCRM — gaps
 
