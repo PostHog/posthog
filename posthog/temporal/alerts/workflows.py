@@ -4,7 +4,7 @@ from uuid import UUID
 
 import temporalio.common
 import temporalio.workflow
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.schema import AlertState
 
@@ -63,6 +63,7 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
         # Fan-out child workflows — one per alert. Deterministic IDs prevent
         # duplicate checks from retries or concurrent manual triggers. Wait
         # only for Temporal to accept the start; the children run independently.
+        failed_ids: list[str] = []
         for alert in alerts:
             slo_properties: dict[str, JsonValue] = {
                 "alert_type": "insight",
@@ -97,6 +98,18 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
                     "check_alert.already_running",
                     extra={"alert_id": alert.alert_id},
                 )
+            except Exception as error:
+                failed_ids.append(alert.alert_id)
+                temporalio.workflow.logger.warning(
+                    "check_alert.start_failed",
+                    extra={"alert_id": alert.alert_id, "error": str(error)},
+                )
+
+        if failed_ids:
+            raise ApplicationError(
+                f"Alert checks failed to start for IDs: {failed_ids}",
+                non_retryable=True,
+            )
 
 
 @temporalio.workflow.defn(name="check-alert")
