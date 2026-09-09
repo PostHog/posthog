@@ -72,8 +72,6 @@ A user cannot update another user's local run.
 Cloud creation verifies that the project has a GitHub integration with access to the requested repository.
 The check runs again when execution starts because access can change while a run is queued.
 
-The Wizard Library uses a searchable repository dropdown with pagination and refresh. Archived repositories are excluded; the picker does not filter on GitHub's `can_push` field.
-
 After the database transaction commits, the backend starts a Temporal workflow with only the project ID and run ID.
 The provisioning activity marks the run as `running` before it creates the Wizard Worker.
 The handoff activity marks the run as `completed` after it persists the Run Artifacts.
