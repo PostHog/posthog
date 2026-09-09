@@ -166,6 +166,7 @@ describe('ml-mirror-pipeline', () => {
                             timestamp: now.plus({ milliseconds: 1 }).toMillis(),
                             data: {
                                 tag: '$json_ld',
+                                href: 'https://example.com/private-name?email=private#secret',
                                 payload: {
                                     '@context': 'https://schema.org',
                                     '@type': 'Product',
@@ -274,6 +275,7 @@ describe('ml-mirror-pipeline', () => {
         expect(event.data.text).toBe('Hello **********')
         expect(recordedEvents()[1][1].data).toEqual({
             tag: '$json_ld',
+            href: 'https://example.com/[redacted]?[key]=private',
             payload: {
                 '@context': 'https://schema.org',
                 '@type': 'Product',
