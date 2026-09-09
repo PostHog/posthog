@@ -426,6 +426,16 @@ export const AnnouncementsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Start an admin-only Gmail and Google Calendar backfill for an inclusive UTC date range.
+ * @summary Backfill a connected Google account
+ */
+export const CalendarSyncBackfillCreateBody = /* @__PURE__ */ zod.object({
+    integration_id: zod.number().describe('Id of the Google account integration to backfill.'),
+    start_date: zod.iso.date().describe('First UTC date to include. Must be within the last 365 days.'),
+    end_date: zod.iso.date().describe('Final UTC date to include. Cannot be after today.'),
+})
+
+/**
  * Start a sync run for one connected Google Calendar immediately, outside the hourly schedule.
  * @summary Sync a connected calendar now
  */
