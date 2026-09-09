@@ -7,10 +7,12 @@ import httpx
 from google.genai.errors import APIError
 from pydantic import BaseModel
 
+from posthog.dataclasses import frozen
+
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
-    MissionOutcome,
     _maybe_create_video_cache,
+    _MissionOutcome,
     _run_mission,
     _run_mission_attempts,
     _run_pass,
@@ -18,6 +20,7 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
     _step_config,
 )
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
+from products.replay_vision.backend.temporal.metrics import REPLAY_VISION_VERIFICATION_OUTCOMES
 from products.replay_vision.backend.temporal.scanners.base import MissionStep
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorOutput, MonitorScanner
 from products.replay_vision.backend.temporal.types import ScannerSnapshot, VerificationRecord
@@ -400,10 +403,25 @@ class TestRunPass:
 _MODULE = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
 
 
-class TestVerifyPositives:
-    """A monitor `yes` is re-drawn from a fresh conversation over the live cache and settled by majority. Every
-    other verdict, mode `off`, and any failed draw leave the single-pass result exactly as it was."""
+def _verification_counts() -> dict[tuple[str, str], float]:
+    return {
+        (sample.labels["mode"], sample.labels["outcome"]): sample.value
+        for family in REPLAY_VISION_VERIFICATION_OUTCOMES.collect()
+        for sample in family.samples
+        if sample.name == "replay_vision_verification_outcomes_total"
+    }
 
+
+@frozen
+class _ScanRun:
+    outcome: _MissionOutcome
+    # Runner calls in order, then the cache deletion.
+    calls: list[Any]
+    # Verification counter increments during the scan, keyed by (mode, outcome).
+    counted: dict[tuple[str, str], float]
+
+
+class TestVerifyPositives:
     class _Cache:
         name = "caches/abc"
 
@@ -419,9 +437,8 @@ class TestVerifyPositives:
         allow_inconclusive: bool = False,
         cached: bool = True,
         emits_signals: bool = False,
-    ) -> tuple[MissionOutcome, list[Any], MagicMock]:
-        """Drive `_run_mission` with the step runner faked: `answers[0]` is the first pass, the rest are the verify draws.
-        Returns the outcome, the ordered runner calls plus the cache deletion, and the recorded metric."""
+    ) -> _ScanRun:
+        # `answers[0]` is the first pass; the rest are the verify draws in order.
         scanner = MonitorScanner(
             prompt="did it happen", allow_inconclusive=allow_inconclusive, emits_signals=emits_signals
         )
@@ -451,7 +468,7 @@ class TestVerifyPositives:
         async def fake_delete(*_: Any) -> None:
             calls.append("delete_cache")
 
-        metric = MagicMock()
+        before = _verification_counts()
         with (
             patch(f"{_MODULE}.genai.AsyncClient"),
             patch(f"{_MODULE}.GoogleGenAIClient"),
@@ -461,7 +478,6 @@ class TestVerifyPositives:
             ),
             patch(f"{_MODULE}._delete_video_cache", new=fake_delete),
             patch(f"{_MODULE}._run_steps", new=fake_run_steps),
-            patch(f"{_MODULE}.record_verification_outcome", new=metric),
         ):
             outcome = await _run_mission(
                 scanner=scanner,
@@ -472,7 +488,12 @@ class TestVerifyPositives:
                 llm_inputs=MagicMock(),
                 trace_id="trace-1",
             )
-        return outcome, calls, metric
+        counted = {
+            key: value - before.get(key, 0.0)
+            for key, value in _verification_counts().items()
+            if value != before.get(key, 0.0)
+        }
+        return _ScanRun(outcome=outcome, calls=calls, counted=counted)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -487,11 +508,11 @@ class TestVerifyPositives:
     async def test_only_a_positive_under_a_live_mode_is_verified(
         self, mode: str, answers: list[str | Exception]
     ) -> None:
-        outcome, calls, metric = await self._scan(mode=mode, answers=answers, allow_inconclusive=True)
-        assert len(calls) == 2  # the first pass and the cache deletion
-        assert cast(MonitorOutput, outcome.finalized).verdict == answers[0]
-        assert outcome.verification is None
-        metric.assert_not_called()
+        run = await self._scan(mode=mode, answers=answers, allow_inconclusive=True)
+        assert len(run.calls) == 2  # the first pass and the cache deletion
+        assert cast(MonitorOutput, run.outcome.finalized).verdict == answers[0]
+        assert run.outcome.verification is None
+        assert run.counted == {}
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -514,15 +535,15 @@ class TestVerifyPositives:
         served: str,
         outcome_label: str,
     ) -> None:
-        outcome, calls, metric = await self._scan(mode=mode, answers=list(draws), allow_inconclusive=allow_inconclusive)
-        finalized = cast(MonitorOutput, outcome.finalized)
+        run = await self._scan(mode=mode, answers=list(draws), allow_inconclusive=allow_inconclusive)
+        finalized = cast(MonitorOutput, run.outcome.finalized)
         # `enforce` serves the whole winning draw, reasoning included, not just its verdict.
         assert (finalized.verdict, finalized.reasoning) == (served, f"because {served}")
-        assert outcome.verification == VerificationRecord(
-            mode=mode, draws=draws, resolved_verdict=resolved, served_verdict=served
+        assert run.outcome.verification == VerificationRecord(
+            mode=mode, draws=cast(Any, draws), resolved_verdict=cast(Any, resolved), served_verdict=cast(Any, served)
         )
-        assert len(calls) == len(draws) + 1
-        metric.assert_called_once_with(scanner_type="monitor", mode=mode, outcome=outcome_label)
+        assert len(run.calls) == len(draws) + 1
+        assert run.counted == {(mode, outcome_label): 1.0}
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -538,32 +559,32 @@ class TestVerifyPositives:
     async def test_a_failed_draw_keeps_the_first_verdict_and_never_raises(
         self, answers: list[str | Exception], reason: str
     ) -> None:
-        outcome, calls, metric = await self._scan(mode="enforce", answers=answers)
-        assert cast(MonitorOutput, outcome.finalized).verdict == "yes"
-        assert outcome.verification == VerificationRecord(
+        run = await self._scan(mode="enforce", answers=answers)
+        assert cast(MonitorOutput, run.outcome.finalized).verdict == "yes"
+        assert run.outcome.verification == VerificationRecord(
             mode="enforce",
-            draws=[answer for answer in answers if isinstance(answer, str)],
+            draws=cast(Any, [answer for answer in answers if isinstance(answer, str)]),
             resolved_verdict="yes",
             served_verdict="yes",
             skipped_reason=reason,
         )
-        assert len(calls) == len(answers) + 1
-        metric.assert_called_once_with(scanner_type="monitor", mode="enforce", outcome=reason)
+        assert len(run.calls) == len(answers) + 1
+        assert run.counted == {("enforce", reason): 1.0}
 
     @pytest.mark.asyncio
     async def test_without_a_cache_the_first_pass_stands(self) -> None:
         # A re-draw without the cache would re-send the whole video; that spend is not worth one extra vote.
-        outcome, calls, metric = await self._scan(mode="enforce", answers=["yes"], cached=False)
-        assert len(calls) == 1
-        assert outcome.verification == VerificationRecord(
+        run = await self._scan(mode="enforce", answers=["yes"], cached=False)
+        assert len(run.calls) == 1
+        assert run.outcome.verification == VerificationRecord(
             mode="enforce", draws=["yes"], resolved_verdict="yes", served_verdict="yes", skipped_reason="no_cache"
         )
-        metric.assert_called_once_with(scanner_type="monitor", mode="enforce", outcome="no_cache")
+        assert run.counted == {("enforce", "no_cache"): 1.0}
 
     @pytest.mark.asyncio
     async def test_verify_draws_are_blind_core_only_turns_over_the_live_cache(self) -> None:
-        _, calls, _ = await self._scan(mode="enforce", answers=["yes", "no", "yes"], emits_signals=True)
-        assert calls == [
+        run = await self._scan(mode="enforce", answers=["yes", "no", "yes"], emits_signals=True)
+        assert run.calls == [
             {"steps": ["core", "signals"], "cache_name": "caches/abc"},
             {"steps": ["core_verify_2"], "cache_name": "caches/abc"},
             {"steps": ["core_verify_3"], "cache_name": "caches/abc"},

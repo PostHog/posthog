@@ -9,7 +9,7 @@ from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.temporal.scanners.base import SignalFinding
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
-from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput, MonitorVerdict
 from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput
 from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput
 from products.replay_vision.backend.temporal.snapshots import (
@@ -28,11 +28,11 @@ class VerificationRecord(BaseModel, frozen=True):
 
     mode: str
     # Verdicts in draw order; the first entry is the pass that triggered verification.
-    draws: list[str]
+    draws: list[MonitorVerdict]
     # The verdict the majority of draws supports. `served_verdict` is what `model_output` carries: the same value
     # under `enforce`, the first draw under `shadow`.
-    resolved_verdict: str
-    served_verdict: str
+    resolved_verdict: MonitorVerdict
+    served_verdict: MonitorVerdict
     skipped_reason: str | None = None
 
 

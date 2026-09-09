@@ -122,8 +122,7 @@ class ScannerSnapshotSerializer(serializers.Serializer):
         help_text="Scanner-type-specific configuration at run time (prompt, tags, scale, etc.).",
     )
     verify_positives = serializers.CharField(
-        required=False,
-        help_text="How a monitor `yes` was re-checked at run time: `off` (one pass), `shadow` (extra draws recorded only), or `enforce` (majority served).",
+        help_text="How a monitor `yes` was re-checked at run time: `off` (one pass, the default), `shadow` (extra draws recorded only), or `enforce` (majority served).",
     )
 
 

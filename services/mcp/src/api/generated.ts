@@ -53735,8 +53735,8 @@ export namespace Schemas {
       emits_signals: boolean;
       /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
       scanner_config: unknown;
-      /** How a monitor `yes` was re-checked at run time: `off` (one pass), `shadow` (extra draws recorded only), or `enforce` (majority served). */
-      verify_positives?: string;
+      /** How a monitor `yes` was re-checked at run time: `off` (one pass, the default), `shadow` (extra draws recorded only), or `enforce` (majority served). */
+      verify_positives: string;
     }
 
     /**

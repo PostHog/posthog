@@ -201,6 +201,7 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
             provider: 'google',
             emits_signals: false,
             scanner_config: { prompt: 'Summarize this session.', length: 'medium' },
+            verify_positives: 'off',
         },
         scanner_result: {
             model_output: {
@@ -301,6 +302,7 @@ const monitorObservationDetail = observation({
             prompt: 'Did the user struggle at checkout? Count it as struggling if they retried a coupon code more than once, resubmitted the payment form after an error, or moved back and forth between the cart and the payment step without completing the order. Ignore sessions that never reached the checkout page at all.',
             allow_inconclusive: true,
         },
+        verify_positives: 'off',
     },
     scanner_result: {
         model_output: {

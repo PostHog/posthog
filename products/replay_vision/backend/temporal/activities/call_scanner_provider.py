@@ -60,7 +60,7 @@ from products.replay_vision.backend.temporal.scanners.base import (
     TextSegment,
 )
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierScanner
-from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorScanner
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorScanner, MonitorVerdict
 from products.replay_vision.backend.temporal.state import load_scanner_llm_inputs
 from products.replay_vision.backend.temporal.types import (
     CallScannerProviderInputs,
@@ -93,7 +93,7 @@ class _StepResult:
 
 
 @frozen
-class MissionOutcome:
+class _MissionOutcome:
     """What one scan produced: the finalized output, the side-mission findings, and the verify-positives audit."""
 
     finalized: BaseScannerOutput
@@ -371,7 +371,7 @@ async def _run_mission(
     team_id: int,
     llm_inputs: ScannerLlmInputs,
     trace_id: str,
-) -> MissionOutcome:
+) -> _MissionOutcome:
     """Cache the video, run every mission step as a tool-using turn, then assemble the output + side-mission findings.
 
     Caching is best-effort: a video too short to cache (or any cache hiccup) falls back to sending it inline, and a
@@ -441,7 +441,7 @@ async def _run_mission(
             await _delete_video_cache(cache_client, cache.name)
 
     finalized, signals = scanner.assemble(step_outputs)
-    return MissionOutcome(finalized=finalized, signals=signals, verification=verification)
+    return _MissionOutcome(finalized=finalized, signals=signals, verification=verification)
 
 
 async def _verify_positive_verdict(
@@ -506,11 +506,12 @@ async def _verify_positive_verdict(
     return served, record
 
 
-def _majority_verdict(draws: list[MonitorLlmResponse], scanner: MonitorScanner) -> str:
+def _majority_verdict(draws: list[MonitorLlmResponse], scanner: MonitorScanner) -> MonitorVerdict:
     ((verdict, count),) = Counter(draw.verdict for draw in draws).most_common(1)
     if count > 1 or len(draws) == 1:
         return verdict
-    # Three different verdicts. That needs `inconclusive` to be allowed, and then it is the honest answer.
+    # Three distinct verdicts have no majority, so the answer is `inconclusive`. A draw can only say `inconclusive`
+    # when the scanner allows it (`validate_semantics` rejects it otherwise), so the fallback is a guard, not a path.
     return "inconclusive" if scanner.allow_inconclusive else draws[0].verdict
 
 
