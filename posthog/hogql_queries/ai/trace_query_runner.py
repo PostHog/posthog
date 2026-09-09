@@ -137,19 +137,25 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                     argMin(deduped.distinct_id, deduped.timestamp)
                 ) AS first_distinct_id,
                 round(
-                    CASE
-                        -- If all events with latency are generations, sum them all
-                        WHEN countIf(deduped.latency > 0 AND deduped.event != '$ai_generation') = 0
-                             AND countIf(deduped.latency > 0 AND deduped.event = '$ai_generation') > 0
-                        THEN sumIf(deduped.latency,
-                                   deduped.event = '$ai_generation' AND deduped.latency > 0
-                             )
-                        -- Otherwise sum the direct children of the trace
-                        ELSE sumIf(deduped.latency,
-                                   deduped.parent_id IS NULL
-                                   OR deduped.parent_id = deduped.trace_id
-                             )
-                    END, 2
+                    coalesce(
+                        -- The root $ai_trace event reports the wall-clock latency of the whole
+                        -- trace, so its children are already inside that number. Same rule as
+                        -- products/ai_observability/backend/queries/sessions.sql.
+                        nullIf(maxIf(deduped.latency, deduped.event = '$ai_trace' AND deduped.latency > 0), 0),
+                        CASE
+                            -- If all events with latency are generations, sum them all
+                            WHEN countIf(deduped.latency > 0 AND deduped.event != '$ai_generation') = 0
+                                 AND countIf(deduped.latency > 0 AND deduped.event = '$ai_generation') > 0
+                            THEN sumIf(deduped.latency,
+                                       deduped.event = '$ai_generation' AND deduped.latency > 0
+                                 )
+                            -- Otherwise sum the direct children of the trace
+                            ELSE sumIf(deduped.latency,
+                                       deduped.parent_id IS NULL
+                                       OR deduped.parent_id = deduped.trace_id
+                                 )
+                        END
+                    ), 2
                 ) AS total_latency,
                 -- NULL means no event carried the field, 0 is a reported zero.
                 -- nullIf(sum, 0) would collapse a real zero into NULL.
@@ -240,7 +246,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 10,
+            "schema_version": 11,
         }
 
     @cached_property
