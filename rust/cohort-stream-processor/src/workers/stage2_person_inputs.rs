@@ -35,13 +35,20 @@ use crate::workers::stage2_path::{
     PriorStage2State, RecomputeDiff, RecomputedPair, Stage2Recompute,
 };
 
-/// Keys per batched read. This is not a byte bound, because behavioral values vary in size with
-/// their window; [`SEED_RECOMPUTE_CHUNK_BYTES`] measures what a chunk actually cost.
-const READ_CHUNK_KEYS: usize = 64;
+/// Keys per batched read, the same chunk the sweep prefetch uses. A chunk is decoded and dropped
+/// before the next is read, so this bounds the raw buffers one section holds and with them the
+/// drain time a started section can add. It is not a byte bound, because behavioral values vary
+/// in size with their window; [`SEED_RECOMPUTE_CHUNK_BYTES`] measures what a chunk actually cost.
+pub(super) const READ_CHUNK_KEYS: usize = 1024;
 
 const SECTION_OP: &str = "stage2_person_inputs";
 
 /// Recompute one seed group's composable cohorts, sharing each person's reads across their cohorts.
+///
+/// Seed-only by construction: the reads run through [`StoreHandle::run_section`], which draws the
+/// maintenance permit. The live, sweep, cascade and reconcile paths compose on
+/// [`ReadLane::Event`](crate::store::ReadLane) and cannot move here without putting hot-path reads
+/// behind the backfill lane.
 ///
 /// `team_id` is the key `filters` sit under in the frozen catalog, so every cohort here composes
 /// from that team's keyspace.
@@ -68,8 +75,14 @@ pub(crate) async fn recompute_stage2_by_person(
         }
     }
 
-    // Buffered so the pairs come out in cohort order however they were grouped for reading.
+    // A map rather than pushes. No consumer needs cohort order (changes are keyed by person and
+    // writes by row), but the differential tests compare this path with the cohort-ordered one
+    // verbatim, and the map also collapses a duplicate pair into one `record_pair`.
     let mut pairs: BTreeMap<(CohortId, Uuid), RecomputeDiff> = BTreeMap::new();
+    // Persons run one at a time on purpose. Every partition worker applies its own runs against
+    // this one maintenance lane, whose permits are already contended across partitions and shared
+    // with the sweep, merge and GC sections. Overlapping persons inside one run would add
+    // contenders to that lane without adding permits.
     for (person_id, cohorts) in affected {
         let plan = PersonReadPlan::build(partition_id, team_id, person_id, &cohorts, filters);
         if plan.is_empty() {
@@ -96,6 +109,9 @@ pub(crate) async fn recompute_stage2_by_person(
                 .cohorts
                 .get(&cohort_id)
                 .expect("the plan keeps only cohorts this frozen catalog has a tree for");
+            // The cohort-ordered path stamps changes from the tree; this one from the group. The
+            // catalog keys one `TeamFilters` per team and stamps its trees with that same id, so
+            // the two stamps agree.
             debug_assert_eq!(
                 tree.team_id, team_id,
                 "a team's catalog holds only that team's cohorts",
@@ -130,13 +146,27 @@ pub(crate) async fn recompute_stage2_by_person(
 
 // ---- What one person's cohorts read ----
 
+/// How a referenced cohort's membership resolves for one person. Both recompute orders classify
+/// through [`Self::classify`], so a referent cannot resolve from one store on the seed path and
+/// another on the live path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ReferenceSource {
+pub(super) enum ReferenceSource {
     /// Membership is the leaf's own bit, read through that leaf's comparator.
     Leaf(LeafStateKey),
+    /// Membership is the composed row the store holds.
     Stored,
     /// Excluded, cyclic, or absent from the frozen catalog.
     NonMember,
+}
+
+impl ReferenceSource {
+    pub(super) fn classify(filters: &TeamFilters, ref_id: CohortId) -> Self {
+        match filters.eligibility.get(&ref_id) {
+            Some(CohortEligibility::SingleLeaf(lsk)) => Self::Leaf(*lsk),
+            Some(eligibility) if eligibility.writes_cf_stage2() => Self::Stored,
+            _ => Self::NonMember,
+        }
+    }
 }
 
 /// Everything one person's affected cohorts read from the store. Owned, so the read can run in
@@ -223,11 +253,7 @@ impl PersonReadPlan {
         if self.references.contains_key(&ref_id) {
             return;
         }
-        let source = match filters.eligibility.get(&ref_id) {
-            Some(CohortEligibility::SingleLeaf(lsk)) => ReferenceSource::Leaf(*lsk),
-            Some(eligibility) if eligibility.writes_cf_stage2() => ReferenceSource::Stored,
-            _ => ReferenceSource::NonMember,
-        };
+        let source = ReferenceSource::classify(filters, ref_id);
         match source {
             ReferenceSource::Leaf(lsk) => self.route_leaf(lsk, filters),
             ReferenceSource::Stored => self.stage2_cohorts.push(ref_id),
@@ -303,6 +329,40 @@ impl ResolvedPersonInputs {
     fn prior_stage2(&self, cohort_id: CohortId) -> PriorStage2State {
         self.stage2.get(&cohort_id).copied().unwrap_or_default()
     }
+
+    /// A person leaf's state key *is* its condition hash, so its bit is
+    /// `record.matched.contains(hash)`. An absent or corrupt record reads every person leaf as a
+    /// non-member, and a corrupt one counts once per person rather than once per cohort.
+    fn absorb_person_record(&mut self, person_leaves: &[LeafStateKey], bytes: Option<Vec<u8>>) {
+        let matched = match bytes {
+            None => None,
+            Some(bytes) => match PersonRecord::decode(&bytes) {
+                Ok(record) => Some(record.matched),
+                Err(_) => {
+                    counter!(STAGE2_STATE_DECODE_ERROR).increment(1);
+                    None
+                }
+            },
+        };
+        for &lsk in person_leaves {
+            let member = matched
+                .as_ref()
+                .is_some_and(|matched| matched.contains(&lsk.0));
+            self.membership.insert(lsk, member);
+        }
+    }
+
+    fn absorb_behavioral(
+        &mut self,
+        chunk: &[(LeafStateKey, LeafStateMeta)],
+        raw: Vec<Option<Vec<u8>>>,
+    ) {
+        for (&(lsk, ref meta), bytes) in chunk.iter().zip(raw) {
+            let state = decode_stage1_state(bytes);
+            self.membership
+                .insert(lsk, leaf_membership(state.as_ref(), meta));
+        }
+    }
 }
 
 /// Executes one [`PersonReadPlan`] across as many [`StoreHandle::run_section`] calls as its width
@@ -337,20 +397,22 @@ impl PersonInputReader {
     }
 
     fn read_section(&mut self, store: &CohortStore) -> Result<(), StoreError> {
-        if !self.started {
+        if self.started {
+            self.read_behavioral_chunk(store)?;
+        } else {
             self.started = true;
             // Counted on the blocking thread with the keys. A started section completes even when
             // the caller future is dropped, so counting outside would record keys for a person the
             // cancelled offload never counted.
             counter!(SEED_RECOMPUTE_PERSONS_TOTAL).increment(1);
-            self.read_person_leaves(store)?;
+            self.read_record_with_first_behavioral_chunk(store)?;
         }
-        self.read_behavioral_chunk(store)?;
         self.read_stage2_chunk(store)
     }
 
     fn is_done(&self) -> bool {
-        self.behavioral_read == self.plan.behavioral.len()
+        self.started
+            && self.behavioral_read == self.plan.behavioral.len()
             && self.stage2_read == self.plan.stage2_cohorts.len()
     }
 
@@ -358,31 +420,34 @@ impl PersonInputReader {
         (self.plan, self.inputs)
     }
 
-    /// A person leaf's state key *is* its condition hash, so its bit is
-    /// `record.matched.contains(hash)`. An absent or corrupt record reads every person leaf as a
-    /// non-member, and a corrupt one counts once per person rather than once per cohort.
-    fn read_person_leaves(&mut self, store: &CohortStore) -> Result<(), StoreError> {
-        if self.plan.person_leaves.is_empty() {
-            return Ok(());
+    /// The person record rides along the first behavioral chunk in one mixed-CF `multi_get`, the
+    /// read the event fold already issues, so a person costs one RocksDB lookup fewer.
+    fn read_record_with_first_behavioral_chunk(
+        &mut self,
+        store: &CohortStore,
+    ) -> Result<(), StoreError> {
+        let chunk = self
+            .plan
+            .behavioral
+            .chunks(READ_CHUNK_KEYS)
+            .next()
+            .unwrap_or(&[]);
+        let keys: Vec<BehavioralKey> = chunk
+            .iter()
+            .map(|&(lsk, _)| self.plan.behavioral_key(lsk))
+            .collect();
+        let record_key =
+            (!self.plan.person_leaves.is_empty()).then(|| self.plan.person_record_key());
+        let snapshot = store.read_event_snapshot(&keys, record_key.as_ref())?;
+        if let Some(record) = snapshot.record {
+            ReadSource::PersonRecord.record(1, record.as_ref().map_or(0, Vec::len));
+            self.inputs
+                .absorb_person_record(&self.plan.person_leaves, record);
         }
-        let bytes = store.get_person_record(&self.plan.person_record_key())?;
-        ReadSource::PersonRecord.record(1, bytes.as_ref().map_or(0, Vec::len));
-
-        let matched = match bytes {
-            None => None,
-            Some(bytes) => match PersonRecord::decode(&bytes) {
-                Ok(record) => Some(record.matched),
-                Err(_) => {
-                    counter!(STAGE2_STATE_DECODE_ERROR).increment(1);
-                    None
-                }
-            },
-        };
-        for &lsk in &self.plan.person_leaves {
-            let member = matched
-                .as_ref()
-                .is_some_and(|matched| matched.contains(&lsk.0));
-            self.inputs.membership.insert(lsk, member);
+        if !keys.is_empty() {
+            ReadSource::Behavioral.record(keys.len(), raw_bytes(&snapshot.behavioral));
+            self.inputs.absorb_behavioral(chunk, snapshot.behavioral);
+            self.behavioral_read += chunk.len();
         }
         Ok(())
     }
@@ -398,12 +463,7 @@ impl PersonInputReader {
             .collect();
         let raw = store.multi_get_behavioral(&keys)?;
         ReadSource::Behavioral.record(keys.len(), raw_bytes(&raw));
-        for (&(lsk, ref meta), bytes) in chunk.iter().zip(raw) {
-            let state = decode_stage1_state(bytes);
-            self.inputs
-                .membership
-                .insert(lsk, leaf_membership(state.as_ref(), meta));
-        }
+        self.inputs.absorb_behavioral(chunk, raw);
         self.behavioral_read += chunk.len();
         Ok(())
     }
@@ -516,8 +576,7 @@ mod tests {
         plan.behavioral.iter().map(|&(lsk, _)| lsk).collect()
     }
 
-    /// The whole point of planning first: whatever the fan-out, one person is one record read and
-    /// one key per distinct row. A regression here silently restores the per-cohort read.
+    /// Whatever the fan-out, one person is one record read and one key per distinct row.
     #[test]
     fn a_person_reads_one_record_and_one_key_per_distinct_row() {
         let filters = freeze(vec![

@@ -24,10 +24,10 @@ use crate::stage1::person_record::PersonRecord;
 use crate::stage1::state::{Stage1State, StateVariant, StatefulRecord};
 use crate::stage2::evaluator::{evaluate_tree, leaf_membership};
 use crate::stage2::state::{Stage2Ownership, Stage2State};
-use crate::stage2::CohortEligibility;
 use crate::store::{
     BehavioralKey, PersonRecordKey, ReadLane, Stage2Key, StagedBatch, StoreError, StoreHandle,
 };
+use crate::workers::stage2_person_inputs::ReferenceSource;
 
 /// `affected_leaves` is the touched `(leaf, person)` set; `lane` is the read lane every recompute
 /// read runs on. Every caller passes `Event`: the seed paths, which read on `Maintenance`, go
@@ -748,11 +748,10 @@ async fn resolve_ref_membership(
     let mut single_leaf_refs: Vec<(CohortId, LeafStateKey)> = Vec::new();
     let mut composable_refs: Vec<CohortId> = Vec::new();
     for ref_id in ref_ids {
-        match filters.eligibility.get(&ref_id) {
-            Some(CohortEligibility::SingleLeaf(lsk)) => single_leaf_refs.push((ref_id, *lsk)),
-            Some(elig) if elig.writes_cf_stage2() => composable_refs.push(ref_id),
-            // Excluded, cyclic, or absent from the catalog: non-member.
-            _ => {
+        match ReferenceSource::classify(filters, ref_id) {
+            ReferenceSource::Leaf(lsk) => single_leaf_refs.push((ref_id, lsk)),
+            ReferenceSource::Stored => composable_refs.push(ref_id),
+            ReferenceSource::NonMember => {
                 ref_membership.insert(ref_id, false);
             }
         }
@@ -806,7 +805,7 @@ pub(super) fn decode_stage1_state(bytes: Option<Vec<u8>>) -> Option<Stage1State>
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct PriorStage2State {
     pub in_cohort: bool,
-    pub ownership: Stage2Ownership,
+    ownership: Stage2Ownership,
 }
 
 /// Decode both the logical prior bit and its ownership. Missing or corrupt rows keep the existing
@@ -2055,7 +2054,7 @@ mod tests {
     // Every test below holds `recompute_stage2_by_person` to the cohort-ordered path as an oracle
     // over the same store, then asserts what the shared read had to get right for the two to agree.
 
-    use crate::workers::stage2_person_inputs::recompute_stage2_by_person;
+    use crate::workers::stage2_person_inputs::{recompute_stage2_by_person, READ_CHUNK_KEYS};
 
     /// Run both recompute orders over the same store and return the agreed result. Neither commits,
     /// so running them back to back reads the same durable state twice.
@@ -2299,6 +2298,11 @@ mod tests {
             !recompute.changes.iter().any(|change| change.cohort_id == 1),
             "`ref AND NOT ref` over one bit cannot be satisfied",
         );
+        assert_eq!(
+            recompute.evaluated(),
+            2,
+            "both cohorts composed; cohort 1 just could not satisfy `ref AND NOT ref`",
+        );
     }
 
     /// A transferred fallback is still settled on a pair that does not flip.
@@ -2444,106 +2448,133 @@ mod tests {
         format!("beh{index:013}").as_bytes().try_into().unwrap()
     }
 
+    /// Widths derived from the chunk size, so the tests sit on the boundary wherever it moves:
+    /// exactly one chunk catches a `<` for `<=` slip, and one past it makes the second section run.
+    const CHUNK_BOUNDARY_WIDTHS: [usize; 2] = [READ_CHUNK_KEYS, READ_CHUNK_KEYS + 1];
+
     /// A chunk the read skipped would leave its leaves non-member and break the AND, so the entry
     /// proves every chunk landed.
     #[tokio::test]
     async fn a_cohort_wider_than_one_chunk_reads_every_leaf() {
-        const LEAVES: usize = 70;
+        for leaves in CHUNK_BOUNDARY_WIDTHS {
+            let (_dir, store) = temp_store();
+            let filters = freeze((0..leaves).map(wide_behavioral_leaf).collect());
+            let lsks: Vec<LeafStateKey> = (0..leaves)
+                .map(|index| filters.by_condition_to_lsk[&wide_behavioral_hash(index)][0])
+                .collect();
+            let alice = person(1);
+            for &lsk in &lsks {
+                write_behavioral(&store, lsk, alice, behavioral_match());
+            }
 
-        let (_dir, store) = temp_store();
-        let filters = freeze((0..LEAVES).map(wide_behavioral_leaf).collect());
-        let lsks: Vec<LeafStateKey> = (0..LEAVES)
-            .map(|index| filters.by_condition_to_lsk[&wide_behavioral_hash(index)][0])
-            .collect();
-        let alice = person(1);
-        for &lsk in &lsks {
-            write_behavioral(&store, lsk, alice, behavioral_match());
+            let entered =
+                recompute_both_ways(&store, &filters, TEAM as i32, &[(lsks[0], alice)]).await;
+            assert_eq!(
+                statuses(&entered),
+                vec![(1, MembershipStatus::Entered)],
+                "{leaves} leaves",
+            );
+
+            // The `Entered` above proves every chunk landed. This half pins that the last leaf's
+            // value is read, not just its key.
+            write_behavioral(
+                &store,
+                lsks[leaves - 1],
+                alice,
+                Stage1State::BehavioralSingle {
+                    has_match: false,
+                    last_event_at_ms: EVENT_MS,
+                    earliest_eviction_at_ms: i64::MAX,
+                },
+            );
+            write_stage2(&store, 1, alice, true);
+            let left =
+                recompute_both_ways(&store, &filters, TEAM as i32, &[(lsks[0], alice)]).await;
+            assert_eq!(
+                statuses(&left),
+                vec![(1, MembershipStatus::Left)],
+                "{leaves} leaves",
+            );
         }
-
-        let entered = recompute_both_ways(&store, &filters, TEAM as i32, &[(lsks[0], alice)]).await;
-        assert_eq!(statuses(&entered), vec![(1, MembershipStatus::Entered)]);
-
-        // The `Entered` above proves every chunk landed. This half pins that the far leaf's value
-        // is read, not just its key.
-        write_behavioral(
-            &store,
-            lsks[LEAVES - 1],
-            alice,
-            Stage1State::BehavioralSingle {
-                has_match: false,
-                last_event_at_ms: EVENT_MS,
-                earliest_eviction_at_ms: i64::MAX,
-            },
-        );
-        write_stage2(&store, 1, alice, true);
-        let left = recompute_both_ways(&store, &filters, TEAM as i32, &[(lsks[0], alice)]).await;
-        assert_eq!(statuses(&left), vec![(1, MembershipStatus::Left)]);
     }
 
-    /// The pair whose prior row already agrees sits past the first chunk, so only a read that
-    /// reached it stays silent.
+    /// The pair whose prior row already agrees is the last one, so only a read that reached the end
+    /// of the key set stays silent.
     #[tokio::test]
     async fn a_person_in_more_cohorts_than_one_chunk_reads_every_prior_row() {
-        const COHORTS: i32 = 70;
+        for cohorts in CHUNK_BOUNDARY_WIDTHS {
+            let last = cohorts as i32;
+            let (_dir, store) = temp_store();
+            let filters = freeze_cascade(
+                (1..=last)
+                    .map(|id| (id, vec![behavioral_leaf(7), person_leaf()]))
+                    .collect(),
+                false,
+            );
+            let beh_lsk = filters.by_condition_to_lsk[&HASH][0];
+            let alice = person(1);
+            write_behavioral(&store, beh_lsk, alice, behavioral_match());
+            write_person_record(&store, alice, &[PERSON_HASH]);
+            write_stage2(&store, last as u64, alice, true);
 
-        let (_dir, store) = temp_store();
-        let filters = freeze_cascade(
-            (1..=COHORTS)
-                .map(|id| (id, vec![behavioral_leaf(7), person_leaf()]))
-                .collect(),
-            false,
-        );
-        let beh_lsk = filters.by_condition_to_lsk[&HASH][0];
-        let alice = person(1);
-        write_behavioral(&store, beh_lsk, alice, behavioral_match());
-        write_person_record(&store, alice, &[PERSON_HASH]);
-        write_stage2(&store, COHORTS as u64, alice, true);
+            let recompute =
+                recompute_both_ways(&store, &filters, TEAM as i32, &[(beh_lsk, alice)]).await;
 
-        let recompute =
-            recompute_both_ways(&store, &filters, TEAM as i32, &[(beh_lsk, alice)]).await;
-
-        assert_eq!(
-            recompute.evaluated(),
-            COHORTS as u64,
-            "every cohort on the leaf composed",
-        );
-        assert_eq!(
-            recompute.changes.len(),
-            COHORTS as usize - 1,
-            "the one cohort whose stored bit already said `true` did not flip",
-        );
-        assert!(
-            !recompute
-                .changes
-                .iter()
-                .any(|change| change.cohort_id == COHORTS),
-            "and it is the cohort whose row sits past the first chunk",
-        );
+            assert_eq!(
+                recompute.evaluated(),
+                cohorts as u64,
+                "every cohort on the leaf composed ({cohorts} cohorts)",
+            );
+            assert_eq!(
+                recompute.changes.len(),
+                cohorts - 1,
+                "the one cohort whose stored bit already said `true` did not flip ({cohorts} cohorts)",
+            );
+            assert!(
+                !recompute
+                    .changes
+                    .iter()
+                    .any(|change| change.cohort_id == last),
+                "and it is the last cohort, whose row sits at the end of the key set",
+            );
+        }
     }
 
     /// Wide fanout over mostly shared state, with per-cohort leaves big enough that re-reading them
-    /// is not free.
+    /// is not free. With `referencing`, every cohort also names two referents off the seeded leaf:
+    /// a single-leaf cohort, resolved through the behavioral batch, and a composable one, resolved
+    /// from its stored row. Those are the reads the cohort-ordered path pays extra offloads for.
     fn wide_fixture(
         store: &CohortStore,
         cohorts: usize,
         persons: usize,
+        referencing: bool,
     ) -> (TeamFilters, Vec<(LeafStateKey, Uuid)>) {
         let shared = 0;
-        let filters = freeze_cascade(
-            (0..cohorts)
-                .map(|index| {
-                    (
-                        index as i32 + 1,
-                        vec![
-                            wide_behavioral_leaf(shared),
-                            wide_compressed_leaf(index + 1),
-                            person_leaf(),
-                        ],
-                    )
-                })
-                .collect(),
-            false,
-        );
+        let single_leaf_referent = cohorts as i32 + 1;
+        let composable_referent = cohorts as i32 + 2;
+        let mut definitions: Vec<(i32, Vec<Value>)> = (0..cohorts)
+            .map(|index| {
+                let mut leaves = vec![
+                    wide_behavioral_leaf(shared),
+                    wide_compressed_leaf(index + 1),
+                    person_leaf(),
+                ];
+                if referencing {
+                    leaves.push(cohort_ref(single_leaf_referent));
+                    leaves.push(cohort_ref(composable_referent));
+                }
+                (index as i32 + 1, leaves)
+            })
+            .collect();
+        if referencing {
+            definitions.push((single_leaf_referent, vec![wide_compressed_leaf(0)]));
+            definitions.push((
+                composable_referent,
+                vec![wide_compressed_leaf(0), person_leaf()],
+            ));
+        }
+        let filters = freeze_cascade(definitions, referencing);
         let shared_lsk = filters.by_condition_to_lsk[&wide_behavioral_hash(shared)][0];
 
         let mut affected = Vec::with_capacity(persons);
@@ -2553,6 +2584,11 @@ mod tests {
             for cohort in 0..cohorts {
                 let own = filters.by_condition_to_lsk[&wide_compressed_hash(cohort + 1)][0];
                 write_behavioral(store, own, who, year_long_compressed_state());
+            }
+            if referencing {
+                let referent = filters.by_condition_to_lsk[&wide_compressed_hash(0)][0];
+                write_behavioral(store, referent, who, year_long_compressed_state());
+                write_stage2(store, composable_referent as u64, who, true);
             }
             write_person_record(store, who, &[PERSON_HASH]);
             affected.push((shared_lsk, who));
@@ -2591,8 +2627,8 @@ mod tests {
     ///     recompute_orders_benchmark -- --ignored --nocapture
     /// ```
     ///
-    /// Asserts agreement only. A wall-time threshold here would be a flake waiting for a slower
-    /// box, and reads per source and memory belong to `cohort_seed_recompute_*` under real load.
+    /// It asserts agreement only, because a wall-time threshold would flake on a slower box. Reads
+    /// per source and memory come from `cohort_seed_recompute_*` under real load.
     #[tokio::test]
     #[ignore = "benchmark; run in release with --ignored --nocapture"]
     async fn recompute_orders_benchmark() {
@@ -2601,12 +2637,15 @@ mod tests {
         const PERSONS: usize = 500;
 
         println!(
-            "{:>8}  {:>8}  {:>12}  {:>12}  {:>7}",
-            "cohorts", "pairs", "by-cohort", "by-person", "ratio"
+            "{:>8}  {:>5}  {:>8}  {:>12}  {:>12}  {:>7}",
+            "cohorts", "refs", "pairs", "by-cohort", "by-person", "ratio"
         );
-        for cohorts in [1, 4, 14] {
+        let shapes = [1, 4, 14]
+            .into_iter()
+            .flat_map(|cohorts| [(cohorts, false), (cohorts, true)]);
+        for (cohorts, referencing) in shapes {
             let (_dir, store) = temp_store();
-            let (filters, affected) = wide_fixture(&store, cohorts, PERSONS);
+            let (filters, affected) = wide_fixture(&store, cohorts, PERSONS, referencing);
             let handle = handle(&store);
             let run_by_cohort = || {
                 recompute_stage2(
@@ -2647,8 +2686,9 @@ mod tests {
             let by_person = started.elapsed();
 
             println!(
-                "{:>8}  {:>8}  {:>10.1?}  {:>10.1?}  {:>6.2}x",
+                "{:>8}  {:>5}  {:>8}  {:>10.1?}  {:>10.1?}  {:>6.2}x",
                 cohorts,
+                if referencing { "yes" } else { "no" },
                 cohorts * PERSONS,
                 by_cohort,
                 by_person,
