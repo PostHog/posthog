@@ -191,7 +191,6 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
             self._session(variants=[variant], events=events)
 
     def _server_exposed_variant(self, variant: str, sessions: list[list[str]]) -> None:
-        """One person per session, exposed server-side, behaving in a later browser session."""
         for events in sessions:
             distinct_id = self._unsessioned_exposure(variant)
             self._session(
