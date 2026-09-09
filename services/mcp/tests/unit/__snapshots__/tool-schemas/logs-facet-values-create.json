@@ -41,7 +41,14 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Log attribute key to facet on (e.g. 'log.iostream'). Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Counts honour severity, service and resource-attribute filters, but not body search, other log-attribute filters, or this facet's own filter."
+                    "description": "Log attribute key to facet on (e.g. 'log.iostream'). Counts honour severity, service and resource-attribute filters, but not body search or other log-attribute filters. Use facetAttributes instead to fetch several keys in one query."
+                },
+                "facetAttributes": {
+                    "description": "Log attribute keys to fetch together in one query. Shares the filter set described on facetResourceAttributes.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "facetField": {
                     "anyOf": [
@@ -54,7 +61,7 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own filter is excluded so counts reflect the other active filters.\n\n* `severity_text` - severity_text\n* `service_name` - service_name"
+                    "description": "Top-level column to facet on. One of the three single-target fields, or one of the plural key lists, is required. Its own filter is excluded so counts reflect the other active filters.\n\n* `severity_text` - severity_text\n* `service_name` - service_name"
                 },
                 "facetResourceAttribute": {
                     "anyOf": [
@@ -65,10 +72,17 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters."
+                    "description": "Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Its own log_resource_attribute filter is excluded so counts reflect the other active filters, and facetSearch applies. Use facetResourceAttributes instead to fetch several keys in one query."
+                },
+                "facetResourceAttributes": {
+                    "description": "Resource attribute keys to fetch together in one query, which is far cheaper than a request per key. Unlike the single-target fields these share one filter set: no key's own filter is excluded and facetSearch does not apply, so a key carrying its own filter belongs on facetResourceAttribute.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "facetSearch": {
-                    "description": "Type-ahead filter over the faceted field's own values (case-insensitive substring match). Distinct from searchTerm, which searches log bodies.",
+                    "description": "Type-ahead filter over the faceted field's own values (case-insensitive substring match). Only applies to a single-target request. Distinct from searchTerm, which searches log bodies.",
                     "type": "string"
                 },
                 "filterGroup": {
