@@ -274,6 +274,47 @@ describe('RateLimiterService', () => {
             )
             expect(claim).toEqual({ granted: false, deniedIndex: null, retryAfterMs: null })
         })
+
+        it('hands successive reserved denials distinct, later slots, paced by the slower bucket', async () => {
+            // Both buckets are short. The slower one (0.5/s) sets the pace: its slot spacing is
+            // requested/refill = 60s, and each denial advances the cursor by one slot, so three
+            // denied callers park at three different times instead of all waking at the shared
+            // 40s deficit horizon and re-herding.
+            const buckets: [
+                { key: string; capacity: number; refillPerSecond: number },
+                { key: string; capacity: number; refillPerSecond: number },
+            ] = [
+                { key: `${KEY_A}/resv`, capacity: 10, refillPerSecond: 2 },
+                { key: `${KEY_B}/resv`, capacity: 10, refillPerSecond: 0.5 },
+            ]
+            const first = await limiter.claimAllOrNothingPair(buckets, 30, 600_000)
+            const second = await limiter.claimAllOrNothingPair(buckets, 30, 600_000)
+
+            expect(first.granted).toBe(false)
+            // Cold cursor: the first slot is one spacing (60s) out, past the 40s deficit.
+            expect(first.retryAfterMs).toBe(60_000)
+            expect(second.retryAfterMs!).toBeGreaterThan(first.retryAfterMs!)
+            expect(second.retryAfterMs!).toBeLessThanOrEqual(120_000)
+        })
+
+        it('stops advancing the reservation cursor at the horizon', async () => {
+            const buckets: [
+                { key: string; capacity: number; refillPerSecond: number },
+                { key: string; capacity: number; refillPerSecond: number },
+            ] = [
+                { key: `${KEY_A}/resv-cap`, capacity: 50, refillPerSecond: 0 },
+                { key: `${KEY_B}/resv-cap`, capacity: 10, refillPerSecond: 2 },
+            ]
+            // Slot spacing is 15s with a 20s horizon: the first denial reserves the one slot
+            // inside the horizon, everyone after gets the horizon back unchanged and re-contends.
+            const first = await limiter.claimAllOrNothingPair(buckets, 30, 20_000)
+            const second = await limiter.claimAllOrNothingPair(buckets, 30, 20_000)
+            const third = await limiter.claimAllOrNothingPair(buckets, 30, 20_000)
+
+            expect(first.retryAfterMs).toBe(15_000)
+            expect(second.retryAfterMs).toBe(20_000)
+            expect(third.retryAfterMs).toBe(20_000)
+        })
     })
 
     describe('claimOrReserve', () => {

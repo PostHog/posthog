@@ -138,21 +138,29 @@ return {0, math.ceil(slotAt - now), 1}
 //   ARGV[1]      = requested tokens (integer)
 //   ARGV[2..4]   = capacity, refill/sec, TTL seconds for KEYS[1]
 //   ARGV[5..7]   = capacity, refill/sec, TTL seconds for KEYS[2]
+//   ARGV[8]      = reserve-on-deny horizon in ms; 0 disables reservation.
 // Returns {1, 0, 0} when granted. On denial: {0, i, retryAfterMs}, where i is the
-// first bucket (1-based) that came up short and retryAfterMs is how long until BOTH
-// buckets have their missing tokens back (the slower one decides). That is a lower
-// bound, not a reservation: other callers can take those tokens first, so the wake
-// still has to claim. A bucket that never refills has no horizon, and then the
-// denial reports none.
+// first bucket (1-based) that came up short. With ARGV[8] = 0, retryAfterMs is only
+// how long until BOTH buckets have their missing tokens back (the slower one
+// decides). Every denied caller gets that same answer, so they all wake together.
+// With ARGV[8] > 0 the denial also books the caller a slot on the slowest short
+// bucket, the same ticket-at-a-counter idea as the claim-up-to script above, and
+// retryAfterMs is the caller's own slot. Slots never go out past ARGV[8]. A slot is
+// a place in line, not a promise: the wake still has to claim. A bucket that never
+// refills has no horizon, and then the denial reports none and books nothing.
 const CLAIM_ALL_OR_NOTHING_PAIR_LUA = `
 local time = redis.call('TIME')
 local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
 local requested = tonumber(ARGV[1])
+local reserveOnDenyMaxMs = tonumber(ARGV[8])
 
 local available = {}
 local deniedIndex = 0
 local retryAfterMs = 0
 local horizonKnown = true
+local slowIndex = 0
+local slowRefill = 0
+local slowTtl = 0
 for i = 1, 2 do
     local capacity = tonumber(ARGV[(i - 1) * 3 + 2])
     local refillPerSecond = tonumber(ARGV[(i - 1) * 3 + 3])
@@ -179,6 +187,9 @@ for i = 1, 2 do
             local bucketRetryMs = math.ceil(((requested - avail) / refillPerSecond) * 1000)
             if bucketRetryMs > retryAfterMs then
                 retryAfterMs = bucketRetryMs
+                slowIndex = i
+                slowRefill = refillPerSecond
+                slowTtl = tonumber(ARGV[(i - 1) * 3 + 4])
             end
         else
             horizonKnown = false
@@ -191,7 +202,25 @@ if deniedIndex > 0 then
     if not horizonKnown then
         return {0, deniedIndex, 0}
     end
-    return {0, deniedIndex, retryAfterMs}
+    if reserveOnDenyMaxMs <= 0 then
+        return {0, deniedIndex, retryAfterMs}
+    end
+    local slotMs = (requested / slowRefill) * 1000
+    local rawResv = redis.call('hget', KEYS[slowIndex], 'resv')
+    local base = now
+    if rawResv ~= false and tonumber(rawResv) > now then
+        base = tonumber(rawResv)
+    end
+    local slotAt = base + slotMs
+    if slotAt - now < retryAfterMs then
+        slotAt = now + retryAfterMs
+    end
+    if slotAt - now > reserveOnDenyMaxMs then
+        return {0, deniedIndex, reserveOnDenyMaxMs}
+    end
+    redis.call('hset', KEYS[slowIndex], 'resv', slotAt)
+    redis.call('expire', KEYS[slowIndex], slowTtl)
+    return {0, deniedIndex, math.ceil(slotAt - now)}
 end
 
 for i = 1, 2 do
@@ -328,14 +357,16 @@ export class RateLimiterService {
     }
 
     /**
-     * Atomically claim `requested` tokens from BOTH buckets, or neither. A denial consumes
-     * nothing, so a caller that retries a multi-token claim cannot drain the buckets while never
+     * Atomically claim `requested` tokens from BOTH buckets, or neither. A denial consumes no
+     * tokens, so a caller that retries a multi-token claim cannot drain the buckets while never
      * succeeding. Returns which bucket denied (index into `buckets`), or null when granted.
-     * A denial also carries `retryAfterMs`, the time until every short bucket's refill has
-     * accrued its missing tokens. Both buckets are measured, so a pair that is short on the
-     * hourly and the daily bucket reports the slower one. It is a lower bound (competing callers
-     * may take the tokens first), so callers use it to schedule the retry, never to skip the
-     * re-claim.
+     * A denial also carries `retryAfterMs`. Both buckets are measured, so a pair that is short
+     * on the hourly and the daily bucket paces on the slower one. With `reserveOnDenyMs` = 0
+     * that is only the deficit horizon, a shared lower bound. With `reserveOnDenyMs` > 0 the
+     * denial also reserves the caller's place in line on the slowest short bucket (see
+     * claimOrReserve), so each denied caller parks for a distinct slot, never earlier than the
+     * deficit horizon and never further out than `reserveOnDenyMs`. The slot is a place in
+     * line, not a guarantee — the wake must still claim.
      * Runtime errors deny with `deniedIndex: null` and `retryAfterMs: null` — fail-closed, like
      * claimUpTo.
      *
@@ -346,7 +377,8 @@ export class RateLimiterService {
      */
     public async claimAllOrNothingPair(
         buckets: [Omit<ClaimRequest, 'requested'>, Omit<ClaimRequest, 'requested'>],
-        requested: number
+        requested: number,
+        reserveOnDenyMs: number = 0
     ): Promise<{ granted: boolean; deniedIndex: 0 | 1 | null; retryAfterMs: number | null }> {
         const endTimer = claimLatency.startTimer({ limiter: this.config.name })
         try {
@@ -364,7 +396,8 @@ export class RateLimiterService {
                         String(buckets[0].ttlSeconds ?? 3600),
                         String(buckets[1].capacity),
                         String(buckets[1].refillPerSecond),
-                        String(buckets[1].ttlSeconds ?? 3600)
+                        String(buckets[1].ttlSeconds ?? 3600),
+                        String(reserveOnDenyMs)
                     )
             )
 

@@ -787,6 +787,13 @@ describe('EmailService', () => {
 
                 const result = await cappedService.executeSendEmail(invocation)
 
+                // The reservation horizon must reach the limiter, or denials fall back to
+                // shared-horizon wakes and a denied backlog re-herds.
+                expect(claimAllOrNothingPair).toHaveBeenCalledWith(
+                    expect.anything(),
+                    expect.any(Number),
+                    60 * 60 * 1000
+                )
                 expect(result.finished).toBe(true)
                 expect(cappedSendSpy).toHaveBeenCalled()
             })
