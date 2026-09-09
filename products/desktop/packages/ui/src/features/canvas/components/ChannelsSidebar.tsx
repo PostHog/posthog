@@ -29,6 +29,7 @@ import {
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
+import { HelpMenu } from "@posthog/ui/features/sidebar/components/HelpMenu";
 import { NavResizeTooltip } from "@posthog/ui/features/sidebar/components/NavResizeTooltip";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
 import { SidebarMenu } from "@posthog/ui/features/sidebar/components/SidebarMenu";
@@ -326,8 +327,11 @@ function ChannelsSidebarImpl() {
           {/* The code layout keeps it in the footer: that sidebar's top is the nav
             section and task header, and there's no nav row to sit above. */}
           {!channelsLayout && (
-            <div className="shrink-0 px-2 pb-2">
-              <ProjectSwitcher />
+            <div className="flex shrink-0 items-center gap-1 px-2 pb-2">
+              <div className="min-w-0 flex-1">
+                <ProjectSwitcher />
+              </div>
+              <HelpMenu placement="footer" />
             </div>
           )}
         </div>

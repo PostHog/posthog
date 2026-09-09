@@ -163,15 +163,16 @@ describe("NavRail", () => {
     expect(screen.queryByLabelText("Home")).not.toBeInTheDocument();
   });
 
-  it("keeps Search directly above Settings at the bottom of the rail", () => {
+  it("keeps Search, Help and Settings at the bottom of the rail", () => {
     render(<NavRail />);
 
     const buttonLabels = screen
       .getAllByRole("button")
       .map((button) => button.getAttribute("aria-label"));
 
-    expect(buttonLabels.slice(-3)).toEqual([
+    expect(buttonLabels.slice(-4)).toEqual([
       "Search",
+      "Help",
       "Settings",
       "Project switcher",
     ]);

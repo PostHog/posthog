@@ -39,6 +39,7 @@ import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFla
 import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { useInboxDecisionCount } from "@posthog/ui/features/inbox/hooks/useInboxDecisionCount";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { HelpMenu } from "@posthog/ui/features/sidebar/components/HelpMenu";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
 import { NAV_RAIL_WIDTH } from "@posthog/ui/features/sidebar/constants";
 import { CountBadge } from "@posthog/ui/primitives/CountBadge";
@@ -319,6 +320,7 @@ function NavRailImpl() {
             isActive={false}
             onClick={toggleCommandMenu}
           />
+          <HelpMenu />
           <NavIcon
             icon={<GearSix size={16} />}
             label="Settings"

@@ -2,14 +2,9 @@ import {
   Archive,
   ArrowSquareOut,
   Buildings,
-  DiscordLogo,
   FolderSimple,
   Gear,
-  Gift,
-  Info,
-  Keyboard,
   Plus,
-  ShieldCheck,
   SignOut,
 } from "@phosphor-icons/react";
 import {
@@ -22,7 +17,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuSub,
-  DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
   Item,
@@ -30,7 +24,6 @@ import {
   ItemDescription,
   ItemTitle,
 } from "@posthog/quill";
-import { EXTERNAL_LINKS } from "@posthog/shared";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
@@ -45,7 +38,6 @@ import { useProjects } from "@posthog/ui/features/projects/useProjects";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import type { SettingsCategory } from "@posthog/ui/features/settings/types";
 import { useHoldSidebarPeek } from "@posthog/ui/features/sidebar/useHoldSidebarPeek";
-import { useWhatsNewStore } from "@posthog/ui/features/updates/whatsNewStore";
 import {
   type MenuFlyoutItem,
   MenuSubFlyout,
@@ -68,7 +60,7 @@ interface ProjectSwitcherProps {
   onNavigateToSettings?: (category: SettingsCategory) => void;
 }
 
-/** The account / project / org menu. */
+/** The account / project / org menu. Help lives in {@link HelpMenu}. */
 export function ProjectSwitcher({
   appearance = "row",
   onNavigateToSettings,
@@ -191,23 +183,6 @@ export function ProjectSwitcher({
   };
 
   const handleSettings = () => goToSettings("general");
-
-  const handleKeyboardShortcuts = () => goToSettings("shortcuts");
-
-  const handleOpenExternal = (url: string) => {
-    openExternalUrl(url);
-    setPopoverOpen(false);
-  };
-
-  const handleDiscord = () => {
-    openExternalUrl(EXTERNAL_LINKS.discord);
-    setPopoverOpen(false);
-  };
-
-  const handleViewChangelog = () => {
-    useWhatsNewStore.getState().open();
-    setPopoverOpen(false);
-  };
 
   const handleLogout = () => {
     setPopoverOpen(false);
@@ -339,47 +314,6 @@ export function ProjectSwitcher({
             </DropdownMenuGroup>
 
             <DropdownMenuSeparator />
-
-            <DropdownMenuItem onClick={handleDiscord}>
-              <DiscordLogo size={14} className="text-gray-11" />
-              Join our Discord
-              <ArrowSquareOut size={14} className="ml-auto text-gray-11" />
-            </DropdownMenuItem>
-
-            <DropdownMenuItem onClick={handleViewChangelog}>
-              <Gift size={14} className="text-gray-11" />
-              View changelog
-            </DropdownMenuItem>
-
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <Info size={14} className="text-gray-11" />
-                Learn more
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent side="right" sideOffset={4}>
-                <DropdownMenuItem
-                  onClick={() => handleOpenExternal(EXTERNAL_LINKS.website)}
-                >
-                  <ArrowSquareOut size={14} className="text-gray-11" />
-                  Website
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => handleOpenExternal(EXTERNAL_LINKS.privacy)}
-                >
-                  <ShieldCheck size={14} className="text-gray-11" />
-                  Privacy Policy
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleKeyboardShortcuts}>
-                  <Keyboard size={14} className="text-gray-11" />
-                  Keyboard Shortcuts
-                  <DropdownMenuShortcut>
-                    {isMac ? "⌘/" : "Ctrl+/"}
-                  </DropdownMenuShortcut>
-                </DropdownMenuItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
 
             {showArchived && (
               <DropdownMenuItem onClick={handleArchived}>

@@ -290,6 +290,18 @@ export type SidebarNavItem =
   | "loops"
   | "more";
 
+export type HelpMenuItem =
+  | "documentation"
+  | "keyboard_shortcuts"
+  | "changelog"
+  | "discord"
+  | "website"
+  | "privacy";
+
+export interface HelpMenuItemClickedProperties {
+  item: HelpMenuItem;
+}
+
 /** Which sidebar shell the click came from, so the two can be compared. */
 export type SidebarLayout = "code" | "channels";
 
@@ -1576,6 +1588,7 @@ export const ANALYTICS_EVENTS = {
   BRAINROT_PLAYER_ERROR: "Brainrot player error",
   POSTHOG_WEB_OPENED: "PostHog web opened",
   SIDEBAR_NAV_ITEM_CLICKED: "Sidebar nav item clicked",
+  HELP_MENU_ITEM_CLICKED: "Help menu item clicked",
   TASK_LIST_GROUPING_CHANGED: "Task list grouping changed",
   TASK_LIST_APPEARANCE_CHANGED: "Task list appearance changed",
 
@@ -1789,6 +1802,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.BRAINROT_PLAYER_ERROR]: BrainrotPlayerErrorProperties;
   [ANALYTICS_EVENTS.POSTHOG_WEB_OPENED]: never;
   [ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED]: SidebarNavItemClickedProperties;
+  [ANALYTICS_EVENTS.HELP_MENU_ITEM_CLICKED]: HelpMenuItemClickedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_GROUPING_CHANGED]: TaskListGroupingChangedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_APPEARANCE_CHANGED]: TaskListAppearanceChangedProperties;
 
