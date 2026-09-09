@@ -10,8 +10,11 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 
-# The events read prints as the sharded table on a cluster and as the plain table on a single node.
-_EVENTS_DESCRIPTION_SUFFIXES = ("sharded_events", ".events")
+# The events read prints as the sharded table on a cluster and as the plain table on a single
+# node. The native-JSON schema has its own pair, which HogQL reads instead when
+# use_new_events_schema is on (see events_table_clickhouse_table_ref). Spelled out rather than
+# imported from the schema modules, which would pull the model layer into this parser.
+_EVENTS_DESCRIPTION_SUFFIXES = ("sharded_events", "sharded_events_json", ".events", ".events_json")
 _PERSON_DESCRIPTION_SUFFIX = ".person"
 
 _PRIMARY_KEY_INDEX_TYPE = "PrimaryKey"
