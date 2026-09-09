@@ -13,6 +13,7 @@ from products.alerts.backend.scheduling import (
     parse_blocked_windows_tuples,
     scan_next_unblocked_utc,
     validate_and_normalize_schedule_restriction,
+    validate_and_normalize_schedule_start_time,
 )
 
 # Wednesday 2026-03-18 12:00 UTC
@@ -121,6 +122,109 @@ class TestValidateAndNormalizeScheduleRestriction:
     def test_rejects_unknown_schedule_restriction_keys(self, _name: str, raw: dict[str, Any]) -> None:
         with pytest.raises(ValueError):
             validate_and_normalize_schedule_restriction(raw)
+
+
+class TestScheduleStartTime:
+    def test_accepts_any_valid_minute(self) -> None:
+        assert validate_and_normalize_schedule_start_time("08:02") == "08:02"
+
+    def test_hourly_check_returns_to_the_custom_minute_after_a_quiet_hours_delay(self) -> None:
+        assert next_calendar_check_time(
+            CalendarInterval.HOURLY,
+            now=datetime(2026, 4, 7, 7, 0, tzinfo=UTC),
+            tz_name="UTC",
+            next_check_at=datetime(2026, 4, 7, 7, 0, tzinfo=UTC),
+            schedule_start_time="22:30",
+        ) == datetime(2026, 4, 7, 8, 30, tzinfo=UTC)
+
+    def test_hourly_alert_created_after_its_start_time_uses_the_first_future_check(self) -> None:
+        assert next_calendar_check_time(
+            CalendarInterval.HOURLY,
+            now=datetime(2026, 4, 6, 23, 50, tzinfo=UTC),
+            tz_name="UTC",
+            next_check_at=None,
+            schedule_start_time="09:35",
+        ) == datetime(2026, 4, 7, 0, 35, tzinfo=UTC)
+
+    @parameterized.expand(
+        [
+            (CalendarInterval.REAL_TIME, datetime(2026, 3, 18, 9, 35, tzinfo=UTC)),
+            (CalendarInterval.EVERY_15_MINUTES, datetime(2026, 3, 18, 9, 35, tzinfo=UTC)),
+            (CalendarInterval.HOURLY, datetime(2026, 3, 18, 9, 35, tzinfo=UTC)),
+            (CalendarInterval.DAILY, datetime(2026, 3, 18, 9, 35, tzinfo=UTC)),
+            (CalendarInterval.WEEKLY, datetime(2026, 3, 23, 9, 35, tzinfo=UTC)),
+            (CalendarInterval.MONTHLY, datetime(2026, 4, 1, 9, 35, tzinfo=UTC)),
+        ]
+    )
+    def test_next_check_uses_schedule_start_time_on_create(
+        self, interval: CalendarInterval, expected: datetime
+    ) -> None:
+        assert (
+            next_calendar_check_time(
+                interval,
+                now=datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+                tz_name="UTC",
+                next_check_at=None,
+                schedule_start_time="09:35",
+            )
+            == expected
+        )
+
+    @parameterized.expand(
+        [
+            (
+                CalendarInterval.REAL_TIME,
+                datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+                datetime(2026, 3, 18, 9, 33, tzinfo=UTC),
+            ),
+            (
+                CalendarInterval.HOURLY,
+                datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+                datetime(2026, 3, 18, 10, 35, tzinfo=UTC),
+            ),
+            (
+                CalendarInterval.HOURLY,
+                datetime(2026, 3, 18, 9, 30, 1, tzinfo=UTC),
+                datetime(2026, 3, 18, 10, 35, tzinfo=UTC),
+            ),
+            (
+                CalendarInterval.EVERY_15_MINUTES,
+                datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+                datetime(2026, 3, 18, 9, 50, tzinfo=UTC),
+            ),
+            (
+                CalendarInterval.EVERY_15_MINUTES,
+                datetime(2026, 3, 18, 9, 30, 1, tzinfo=UTC),
+                datetime(2026, 3, 18, 9, 50, tzinfo=UTC),
+            ),
+            (
+                CalendarInterval.DAILY,
+                datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+                datetime(2026, 3, 19, 9, 35, tzinfo=UTC),
+            ),
+            (
+                CalendarInterval.WEEKLY,
+                datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+                datetime(2026, 3, 30, 9, 35, tzinfo=UTC),
+            ),
+            (
+                CalendarInterval.MONTHLY,
+                datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+                datetime(2026, 5, 1, 9, 35, tzinfo=UTC),
+            ),
+        ]
+    )
+    def test_next_check_respects_the_cadence_after_an_anchor_edit(
+        self, interval: CalendarInterval, now: datetime, expected: datetime
+    ) -> None:
+        result = next_calendar_check_time(
+            interval,
+            now=now,
+            tz_name="UTC",
+            next_check_at=datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+            schedule_start_time="09:35",
+        )
+        assert result == expected
 
 
 class TestNextCalendarCheckTime:

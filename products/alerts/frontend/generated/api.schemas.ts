@@ -657,8 +657,11 @@ export interface AlertApi {
     readonly last_notified_at: string | null
     /** @nullable */
     readonly last_checked_at: string | null
-    /** @nullable */
-    readonly next_check_at: string | null
+    /**
+     * Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior.
+     * @nullable
+     */
+    schedule_start_time?: string | null
     /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
     readonly checks: readonly AlertCheckApi[]
     /**
@@ -678,6 +681,8 @@ export interface AlertApi {
      * * `weekly` - weekly
      * * `monthly` - monthly */
     calculation_interval?: CalculationIntervalEnumApi
+    /** @nullable */
+    readonly next_check_at: string | null
     /**
      * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
      * @nullable
@@ -746,8 +751,11 @@ export interface PatchedAlertApi {
     readonly last_notified_at?: string | null
     /** @nullable */
     readonly last_checked_at?: string | null
-    /** @nullable */
-    readonly next_check_at?: string | null
+    /**
+     * Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior.
+     * @nullable
+     */
+    schedule_start_time?: string | null
     /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
     readonly checks?: readonly AlertCheckApi[]
     /**
@@ -767,6 +775,8 @@ export interface PatchedAlertApi {
      * * `weekly` - weekly
      * * `monthly` - monthly */
     calculation_interval?: CalculationIntervalEnumApi
+    /** @nullable */
+    readonly next_check_at?: string | null
     /**
      * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
      * @nullable
