@@ -8,6 +8,7 @@ import {
 } from "@posthog/agent/acp-extensions";
 import { extractPromptDisplayContent } from "@posthog/core/sessions/promptContent";
 import { isSteerPromptParams } from "@posthog/core/sessions/sessionEvents";
+import { isSessionStartupPhase } from "@posthog/core/sessions/sessionStartup";
 import {
   type AcpMessage,
   type AgentConversationEvent,
@@ -909,6 +910,10 @@ function handleRuntimeStatus(
   },
   timestamp: number,
 ): void {
+  // Startup phases surface in the pending-session status line
+  // (SessionStartupStatus), not as transcript rows.
+  if (isSessionStartupPhase(status.status)) return;
+
   ensureImplicitTurn(b, timestamp);
 
   if (status.status === "refusal" || status.status === "refusal_fallback") {

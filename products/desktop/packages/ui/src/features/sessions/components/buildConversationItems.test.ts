@@ -300,6 +300,29 @@ describe("buildConversationItems", () => {
     expect(fullIds.slice(-tailIds.length)).toEqual(tailIds);
   });
 
+  it.each(["sdk_initialization", "setup_hooks"] as const)(
+    "keeps the %s startup phase out of the transcript",
+    (phase) => {
+      // The pending-session view already shows the startup phase; the
+      // transcript must not also render a raw "Status: <phase>" row.
+      const result = buildConversationItems(
+        [
+          userPromptMsg(1, 1, "hi"),
+          statusMsg(2, phase),
+          agentMessageMsg(3, "done"),
+        ],
+        null,
+      );
+
+      const statusItems = result.items.filter(
+        (i): i is Extract<ConversationItem, { type: "session_update" }> =>
+          i.type === "session_update" && i.update.sessionUpdate === "status",
+      );
+      expect(statusItems).toHaveLength(0);
+      expect(result.isCompacting).toBe(false);
+    },
+  );
+
   it("clears the compacting spinner on a successful completion status, without duplicating the row", () => {
     // A successful compaction sends a terminal `status: compacting, isComplete:
     // true`. It must flip the existing status row, not append a second one.

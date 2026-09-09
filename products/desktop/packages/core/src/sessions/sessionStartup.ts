@@ -14,6 +14,12 @@ export type SessionStartupPhase = z.infer<
   typeof startupEventSchema
 >["message"]["params"]["status"];
 
+export function isSessionStartupPhase(
+  status: string,
+): status is SessionStartupPhase {
+  return status === "sdk_initialization" || status === "setup_hooks";
+}
+
 export function readSessionStartupPhase(
   event: unknown,
 ): SessionStartupPhase | undefined {
