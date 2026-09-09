@@ -81,6 +81,12 @@ def ineligible_reason(runner: "AttributionQueryRunnerBase", date_range: QueryDat
         # The rows are userless and shared, so they cannot honor per-user property restrictions.
         return "property_access_controlled"
 
+    if runner._test_account_conditions():
+        # One job set holds internal and external traffic together, and the touchpoint side never
+        # scans `events`, so these predicates have nothing to apply to at read time. Asked through
+        # the same helper the live scans use, so the two cannot drift apart on what the filter drops.
+        return "test_account_filters"
+
     read = window(runner, date_range)
     if (read.end - read.start).total_seconds() > MAX_WINDOW_DAYS * 86400:
         return "window_over_max"

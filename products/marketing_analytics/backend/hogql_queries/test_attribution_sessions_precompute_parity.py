@@ -255,6 +255,38 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         assert pre_used, "the precomputed path was not used, so this proves nothing"
         assert pre == live, f"precomputed={pre} live={live}"
 
+    def test_a_test_account_filter_falls_back_to_the_live_scan(self) -> None:
+        # The stored rows hold internal and external traffic together, and the touchpoint side never
+        # scans `events`, so the filter has nothing to apply to. Reading them anyway counted the
+        # internal visitor in the denominator and credited their conversion.
+        self.team.test_account_filters = [
+            {"key": "email", "value": "@internal.example.com", "operator": "not_icontains", "type": "person"}
+        ]
+        self.team.save()
+        self.team.marketing_analytics_config.filter_test_accounts = True
+        self.team.marketing_analytics_config.save()
+        create_person(team=self.team, distinct_ids=["buyer"], properties={"email": "buyer@example.com"})
+        create_person(team=self.team, distinct_ids=["staff"], properties={"email": "qa@internal.example.com"})
+        for distinct_id in ("buyer", "staff"):
+            self._session(
+                distinct_id,
+                datetime(2023, 1, 11, 9, 0, tzinfo=UTC),
+                campaign="shared",
+                event_offsets_minutes=[0],
+                source="google",
+            )
+            self._conversion(distinct_id, datetime(2023, 1, 12, 12, 0, tzinfo=UTC))
+        flush_persons_and_events()
+
+        live, live_used = self._run(MarketingAnalyticsAttributionBreakdown.SOURCE, precomputed=False)
+        self._materialize()
+        pre, pre_used = self._run(MarketingAnalyticsAttributionBreakdown.SOURCE, precomputed=True)
+
+        # Pinned, so the fixture proves the internal person was dropped rather than never seeded.
+        assert live == {"google": (1, 1)}, live
+        assert not pre_used, "the precompute answered a query whose filter it cannot honor"
+        assert pre == live, f"precomputed={pre} live={live}"
+
     def test_an_exclusion_judges_the_current_version_of_a_session(self) -> None:
         # A session's rows can disagree: the stored start moves when a backdated event arrives, and the
         # re-materialized row can carry different dimensions. Filtering the raw rows drops the current
