@@ -46,13 +46,18 @@ import { ShareNudgePrompt } from 'scenes/web-analytics/ShareNudgePrompt'
 import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAnalyticsErrorTracking'
 import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyticsRecordings'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
+import { WebAnalyticsAddToDashboardModal } from 'scenes/web-analytics/WebAnalyticsAddToDashboardModal'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
 import { webAnalyticsLoadTimeLogic } from 'scenes/web-analytics/webAnalyticsLoadTimeLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
 import { WebAnalyticsShareColleagueBanner } from 'scenes/web-analytics/WebAnalyticsShareColleagueBanner'
 import { WebTileHeader } from 'scenes/web-analytics/WebTileHeader'
-import { useWebTileOpenInsight, useWebTileOverflowMenuItems } from 'scenes/web-analytics/webTileHeaderHooks'
+import {
+    useWebTileAddToDashboard,
+    useWebTileOpenInsight,
+    useWebTileOverflowMenuItems,
+} from 'scenes/web-analytics/webTileHeaderHooks'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
@@ -184,6 +189,7 @@ const QueryTileItemV2 = ({
         extraMenuItems: tile.extraMenuItems,
     })
     const openInsight = useWebTileOpenInsight({ tileId: tile.tileId, canOpenInsight: !!tile.canOpenInsight })
+    const addToDashboard = useWebTileAddToDashboard({ tileId: tile.tileId, canOpenInsight: !!tile.canOpenInsight })
 
     return (
         <div className={containerClassName}>
@@ -202,6 +208,7 @@ const QueryTileItemV2 = ({
                             title={title}
                             docs={docs}
                             openInsight={openInsight}
+                            addToDashboard={addToDashboard}
                             overflowMenuItems={overflowMenuItems}
                         />
                     )
@@ -337,6 +344,11 @@ const TabsTileItemV2 = ({ tile }: { tile: TabsTile }): JSX.Element => {
         tabId: activeTabId,
         canOpenInsight: !!activeTab?.canOpenInsight,
     })
+    const addToDashboard = useWebTileAddToDashboard({
+        tileId,
+        tabId: activeTabId,
+        canOpenInsight: !!activeTab?.canOpenInsight,
+    })
 
     const header = (
         <WebTileHeader
@@ -360,6 +372,7 @@ const TabsTileItemV2 = ({ tile }: { tile: TabsTile }): JSX.Element => {
                     : undefined
             }
             openInsight={openInsight}
+            addToDashboard={addToDashboard}
             overflowMenuItems={overflowMenuItems}
         />
     )
@@ -868,6 +881,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <WebAnalyticsLoadTimeTracker />
                 <WebAnalyticsModal />
+                <WebAnalyticsAddToDashboardModal />
                 <WebAnalyticsAchievementsModal />
                 <WebAnalyticsSurveyModal />
                 <SceneContent className="WebAnalyticsDashboard gap-y-2">

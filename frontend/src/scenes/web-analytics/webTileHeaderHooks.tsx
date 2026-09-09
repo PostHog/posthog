@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import { IconExpand45 } from '@posthog/icons'
 import { LemonButtonProps, LemonMenuItem } from '@posthog/lemon-ui'
 
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -11,10 +12,11 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
-import { ExporterFormat, InsightLogicProps } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ExporterFormat, InsightLogicProps } from '~/types'
 
 import { TileId, WEB_ANALYTICS_DATA_COLLECTION_NODE_ID } from './common'
 import { shareNudgeLogic } from './shareNudgeLogic'
+import { webAnalyticsAddToDashboardLogic, webTileKey } from './webAnalyticsAddToDashboardLogic'
 import { ExportAdapter, downloadTableDataAsCsv, exportTableData, getExportAdapter } from './webAnalyticsExportUtils'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 
@@ -168,4 +170,36 @@ export function useWebTileOpenInsight({
         [canOpenInsight, getNewInsightUrl, tileId, tabId]
     )
     return insightUrl ? { to: insightUrl, onClick: trackOpenAsNewInsightClick } : undefined
+}
+
+export interface WebTileAddToDashboardProps {
+    onClick: () => void
+    loading: boolean
+    disabledReason?: string
+}
+
+interface UseWebTileAddToDashboardArgs {
+    tileId: TileId
+    tabId?: string
+    canOpenInsight: boolean
+}
+
+export function useWebTileAddToDashboard({
+    tileId,
+    tabId,
+    canOpenInsight,
+}: UseWebTileAddToDashboardArgs): WebTileAddToDashboardProps | undefined {
+    const { addTileToDashboard } = useActions(webAnalyticsAddToDashboardLogic)
+    const { savingTileKey } = useValues(webAnalyticsAddToDashboardLogic)
+
+    if (!canOpenInsight) {
+        return undefined
+    }
+
+    return {
+        onClick: () => addTileToDashboard(tileId, tabId),
+        loading: savingTileKey === webTileKey(tileId, tabId),
+        disabledReason:
+            getAccessControlDisabledReason(AccessControlResourceType.Insight, AccessControlLevel.Editor) ?? undefined,
+    }
 }
