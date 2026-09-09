@@ -180,7 +180,10 @@ _DETECTOR_DISPLAY_NAMES = {DetectorType.LLM.value: "AI"}
 def _anomaly_breach(
     label: str, current_value: float, score: float | None, detector_type_str: str, suffix: str = ""
 ) -> str:
-    score_str = f" (anomaly probability: {score:.0%})" if score is not None else ""
+    # The model's number is its own stated confidence, not a calibrated probability, so
+    # the message must not present it as one.
+    score_label = "model confidence" if detector_type_str == DetectorType.LLM.value else "anomaly probability"
+    score_str = f" ({score_label}: {score:.0%})" if score is not None else ""
     name = _DETECTOR_DISPLAY_NAMES.get(detector_type_str, detector_type_str)
     return f"Anomaly detected in {label}: value {current_value:.2f}{score_str} using {name} detector{suffix}"
 

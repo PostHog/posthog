@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { formatDate } from 'lib/utils/datetime'
 
-import { AlertState } from '~/queries/schema/schema-general'
+import { AlertState, DetectorType } from '~/queries/schema/schema-general'
 
 import type { AlertCheck, AlertType } from '../types'
 
@@ -59,7 +59,7 @@ function getCheckPlotValue(check: AlertCheck, isAnomalyDetection: boolean): numb
 export interface alertLogicValues {
     alert: AlertType | null
     alertHistoryChartSeries: AlertHistoryChartPoint[]
-    alertHistoryChartSeriesName: 'Anomaly score' | 'Value'
+    alertHistoryChartSeriesName: 'Anomaly confidence' | 'Anomaly score' | 'Value'
     alertHistoryChecksSortedDesc: AlertCheck[]
     alertHistoryHasHistory: boolean
     alertHistoryIsAnomalyDetection: boolean
@@ -121,7 +121,10 @@ export interface alertLogicMeta {
         alertHistoryChecksSortedDesc: (alert: AlertType | null) => AlertCheck[]
         alertHistoryChartSeries: (alert: AlertType | null) => AlertHistoryChartPoint[]
         alertHistoryUsesAnomalyScores: (alert: AlertType | null) => boolean
-        alertHistoryChartSeriesName: (alertHistoryUsesAnomalyScores: boolean) => 'Anomaly score' | 'Value'
+        alertHistoryChartSeriesName: (
+            alertHistoryUsesAnomalyScores: boolean,
+            alert: AlertType | null
+        ) => 'Anomaly confidence' | 'Anomaly score' | 'Value'
         alertHistoryHasHistory: (alert: AlertType | null) => boolean
         alertHistoryTablePageCount: (alert: AlertType | null) => number
         alertHistoryTableEntryCount: (alert: AlertType | null) => number
@@ -237,8 +240,13 @@ export const alertLogic = kea<alertLogicType>([
             },
         ],
         alertHistoryChartSeriesName: [
-            (s) => [s.alertHistoryUsesAnomalyScores],
-            (usesAnomalyScores: boolean) => (usesAnomalyScores ? 'Anomaly score' : 'Value'),
+            (s) => [s.alertHistoryUsesAnomalyScores, s.alert],
+            (usesAnomalyScores: boolean, alert: AlertType | null): 'Anomaly confidence' | 'Anomaly score' | 'Value' => {
+                if (!usesAnomalyScores) {
+                    return 'Value'
+                }
+                return alert?.detector_config?.type === DetectorType.LLM ? 'Anomaly confidence' : 'Anomaly score'
+            },
         ],
         alertHistoryHasHistory: [
             (s) => [s.alert],

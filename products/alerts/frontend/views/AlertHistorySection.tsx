@@ -176,7 +176,10 @@ export function AlertHistorySection({
         ]
         if (alertHistoryIsAnomalyDetection) {
             columns.push({
-                title: 'Score',
+                title: isLLMDetectorAlert ? 'Anomaly confidence' : 'Score',
+                tooltip: isLLMDetectorAlert
+                    ? "How sure the model was that the latest point is an anomaly. This is the model's own estimate, not a measured probability."
+                    : undefined,
                 align: 'right',
                 render: (_value, check) => {
                     const scores = check.anomaly_scores

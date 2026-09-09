@@ -110,6 +110,9 @@ class TestLLMVerdictReachesTheCheck:
         assert result.breaches is not None
         assert "Signups fell to 12." in result.breaches[0]
         assert "using AI detector" in result.breaches[0]
+        # The model's number is its own stated confidence, so the message must not call it a probability.
+        assert "model confidence:" in result.breaches[0]
+        assert "probability" not in result.breaches[0]
         assert result.triggered_metadata == {"rationale": "Signups fell to 12.", "kind": "drop"}
 
     def test_statistical_detector_metadata_stays_off_the_check(self) -> None:
