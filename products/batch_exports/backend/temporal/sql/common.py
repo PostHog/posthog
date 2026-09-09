@@ -55,6 +55,11 @@ class UserHogQLBatchExportQuerySettings(BatchExportQuerySettings):
     # far above any per-query cap.
     max_bytes_ratio_before_external_sort: float | None = 0.0
     max_bytes_ratio_before_external_group_by: float | None = 0.0
+    # A user query can write `WITH x AS MATERIALIZED (...)`, and ClickHouse plans materialized CTEs
+    # incorrectly over the Distributed tables it reads, which fails the export with code 49
+    # LOGICAL_ERROR. `HogQLGlobalSettings` turns the feature off for every other HogQL query, but
+    # this path builds its settings from `HogQLQuerySettings`, so it needs its own copy.
+    enable_materialized_cte: bool | None = False
 
 
 def get_user_hogql_batch_export_query_settings() -> UserHogQLBatchExportQuerySettings:
