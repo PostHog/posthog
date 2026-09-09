@@ -97,9 +97,9 @@ export {
 export {
   type CustomCloud,
   configureCustomCloud,
-  customCloudGatewayToken,
   customCloudSchema,
   getCustomCloud,
+  isCustomCloudHost,
   normalizeCustomCloud,
 } from "./custom-cloud";
 export {

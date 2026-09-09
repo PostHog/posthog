@@ -13,12 +13,14 @@ const EMPTY_DRAFT: CustomCloudDraft = {
   url: "",
   oauthClientId: "",
   gatewayUrl: "",
-  gatewayToken: "",
 };
 
 const CUSTOM_CLOUD_QUERY_KEY = ["customCloud"] as const;
 
-export function useCustomCloud() {
+const URL_SHAPE_MESSAGE =
+  "with no path, query, or fragment, and not a PostHog Cloud address";
+
+export function useCustomCloud({ enabled }: { enabled: boolean }) {
   const hostClient = useHostTRPCClient();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<CustomCloudDraft>(EMPTY_DRAFT);
@@ -27,6 +29,7 @@ export function useCustomCloud() {
   const stored = useQuery({
     queryKey: CUSTOM_CLOUD_QUERY_KEY,
     queryFn: () => hostClient.customCloud.get.query(),
+    enabled,
   });
 
   useEffect(() => {
@@ -35,12 +38,12 @@ export function useCustomCloud() {
       url: stored.data.url,
       oauthClientId: stored.data.oauthClientId ?? "",
       gatewayUrl: stored.data.gatewayUrl ?? "",
-      gatewayToken: stored.data.gatewayToken ?? "",
     });
   }, [stored.data]);
 
   const save = useMutation({
-    mutationFn: (target: CustomCloud | null) =>
+    mutationKey: CUSTOM_CLOUD_QUERY_KEY,
+    mutationFn: (target: CustomCloud) =>
       hostClient.customCloud.set.mutate(target),
     onSuccess: (saved) => {
       configureCustomCloud(saved);
@@ -55,20 +58,28 @@ export function useCustomCloud() {
 
   const commit = async (): Promise<boolean> => {
     if (!draft.url.trim()) {
-      await save.mutateAsync(null);
-      return true;
-    }
-    const target = normalizeCustomCloud(draft);
-    const rejected = (["url", "gatewayUrl"] as const).find(
-      (field) => draft[field].trim() && !target?.[field],
-    );
-    if (!target || rejected) {
-      setError(
-        `Enter the full URL of the ${rejected === "gatewayUrl" ? "gateway" : "instance"}, with http:// or https://`,
-      );
+      setError("Enter the URL of your PostHog instance");
       return false;
     }
-    await save.mutateAsync(target);
+    if (!draft.oauthClientId.trim()) {
+      setError("Enter the client ID of the OAuth application on that instance");
+      return false;
+    }
+    const target = normalizeCustomCloud(draft);
+    if (!target) {
+      setError(`Enter the full URL of the instance, ${URL_SHAPE_MESSAGE}`);
+      return false;
+    }
+    if (draft.gatewayUrl.trim() && !target.gatewayUrl) {
+      setError(`Enter the full URL of the gateway, ${URL_SHAPE_MESSAGE}`);
+      return false;
+    }
+    try {
+      await save.mutateAsync(target);
+    } catch {
+      setError("Could not save these settings. Try again.");
+      return false;
+    }
     return true;
   };
 

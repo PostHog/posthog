@@ -16,10 +16,12 @@ export default meta;
 /** Mirrors SignInCard's layout without the OAuth hook, so the whole block is visible. */
 function SignInCardPreview({
   includeDevRegion,
+  includeCustomRegion = false,
   initialRegion = "us",
   customCloudDraft,
 }: {
   includeDevRegion: boolean;
+  includeCustomRegion?: boolean;
   initialRegion?: CloudRegion;
   customCloudDraft?: CustomCloudDraft;
 }) {
@@ -29,7 +31,6 @@ function SignInCardPreview({
       url: "",
       oauthClientId: "",
       gatewayUrl: "",
-      gatewayToken: "",
     },
   );
   return (
@@ -55,6 +56,7 @@ function SignInCardPreview({
             region={region}
             onRegionChange={setRegion}
             includeDevRegion={includeDevRegion}
+            includeCustomRegion={includeCustomRegion}
           />
           {region === "custom" && (
             <CustomCloudFields
@@ -82,7 +84,11 @@ export const WithDevelopmentRegions: StoryObj = {
 
 export const CustomCloudEmpty: StoryObj = {
   render: () => (
-    <SignInCardPreview includeDevRegion={true} initialRegion="custom" />
+    <SignInCardPreview
+      includeDevRegion={true}
+      includeCustomRegion={true}
+      initialRegion="custom"
+    />
   ),
 };
 
@@ -90,12 +96,12 @@ export const CustomCloudFilled: StoryObj = {
   render: () => (
     <SignInCardPreview
       includeDevRegion={true}
+      includeCustomRegion={true}
       initialRegion="custom"
       customCloudDraft={{
         url: "https://posthog.example.com",
         oauthClientId: "3Fk9QwErTyUiOpAsDfGhJkLzXcVbNm12",
-        gatewayUrl: "",
-        gatewayToken: "phx_example_key",
+        gatewayUrl: "https://gateway.example.com",
       }}
     />
   ),

@@ -5,7 +5,7 @@ import {
 } from "@posthog/agent/adapters/claude/mcp/tool-metadata";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import {
-  customCloudGatewayToken,
+  isCustomCloudHost,
   type McpServerConnection,
   type McpToolPolicy,
 } from "@posthog/shared";
@@ -151,23 +151,26 @@ export class AgentAuthAdapter {
     await this.getValidToken();
 
     await this.mcpProxy.start();
-    const proxiedPosthogUrl = this.mcpProxy.register("posthog", mcpUrl);
 
-    const posthogServer: McpServerConnection = {
-      name: "posthog",
-      type: "http",
-      url: proxiedPosthogUrl,
-      headers: [
-        {
-          name: POSTHOG_PROJECT_ID_HEADER,
-          value: String(credentials.projectId),
-        },
-        { name: "x-posthog-mcp-version", value: "2" },
-        { name: "x-posthog-mcp-consumer", value: "posthog-code" },
-      ],
-    };
-    servers.push(posthogServer);
-    serverDescriptions.set(posthogServer, POSTHOG_MCP_DESCRIPTION);
+    if (mcpUrl) {
+      const proxiedPosthogUrl = this.mcpProxy.register("posthog", mcpUrl);
+
+      const posthogServer: McpServerConnection = {
+        name: "posthog",
+        type: "http",
+        url: proxiedPosthogUrl,
+        headers: [
+          {
+            name: POSTHOG_PROJECT_ID_HEADER,
+            value: String(credentials.projectId),
+          },
+          { name: "x-posthog-mcp-version", value: "2" },
+          { name: "x-posthog-mcp-consumer", value: "posthog-code" },
+        ],
+      };
+      servers.push(posthogServer);
+      serverDescriptions.set(posthogServer, POSTHOG_MCP_DESCRIPTION);
+    }
 
     const installations = await this.fetchMcpInstallations(credentials);
 
@@ -226,10 +229,7 @@ export class AgentAuthAdapter {
    */
   async gatewayAuthToken(): Promise<string | null> {
     try {
-      const { accessToken, apiHost } =
-        await this.authService.getValidAccessToken();
-      this.syncTokenEnvironment(accessToken);
-      return customCloudGatewayToken(apiHost) ?? accessToken;
+      return await this.getValidToken();
     } catch {
       return null;
     }
@@ -287,13 +287,19 @@ export class AgentAuthAdapter {
     return accessToken;
   }
 
-  private getPostHogMcpUrl(apiHost: string): string {
+  private getPostHogMcpUrl(apiHost: string): string | null {
     const overrideUrl = process.env.POSTHOG_MCP_URL;
     if (overrideUrl) {
       return overrideUrl;
     }
     if (apiHost.includes("localhost") || apiHost.includes("127.0.0.1")) {
       return "http://localhost:8787/mcp";
+    }
+    // The Cloud MCP cannot read a token from another instance, and the proxy
+    // adds that token to every forwarded request. So a custom instance gets no
+    // PostHog MCP server unless POSTHOG_MCP_URL names one it can use.
+    if (isCustomCloudHost(apiHost)) {
+      return null;
     }
     return "https://mcp.posthog.com/mcp";
   }

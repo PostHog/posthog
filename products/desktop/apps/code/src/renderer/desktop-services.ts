@@ -454,8 +454,9 @@ container
 
 container.bind(SETUP_STORE).toConstantValue(setupStore);
 
-container
-  .bind(HOST_CAPABILITIES)
-  .toConstantValue({ localWorkspaces: true } satisfies HostCapabilities);
+container.bind(HOST_CAPABILITIES).toConstantValue({
+  localWorkspaces: true,
+  customCloud: true,
+} satisfies HostCapabilities);
 
 container.bind(DISK_CACHE_IMAGES).toConstantValue(desktopDiskCacheImages);

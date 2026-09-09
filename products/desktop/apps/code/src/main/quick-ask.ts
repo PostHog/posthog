@@ -229,6 +229,7 @@ const QUICK_ASK_TRPC_ROUTES = new Set([
   "auth.getValidAccessToken",
   "auth.refreshAccessToken",
   "os.openExternal",
+  "customCloud.get",
 ]);
 
 function createQuickAskWindow(): BrowserWindow {

@@ -425,4 +425,14 @@ describe("getCloudTaskGatewayUrl with a custom cloud", () => {
       "https://gateway.us.posthog.com/posthog_code",
     );
   });
+
+  it("refuses a built-in host as the target, so its gateway never moves", () => {
+    configureCustomCloud({
+      url: "https://us.posthog.com",
+      gatewayUrl: "https://gateway.example.com",
+    });
+    expect(getCloudTaskGatewayUrl("https://us.posthog.com")).toBe(
+      "https://gateway.us.posthog.com/posthog_code",
+    );
+  });
 });

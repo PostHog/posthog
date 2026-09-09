@@ -22,7 +22,6 @@ interface SettingsSchema {
   customCloudUrl: string;
   customCloudOauthClientId: string;
   customCloudGatewayUrl: string;
-  customCloudGatewayToken: string;
 }
 
 function getWorktreePath(dir: string): string {
@@ -142,10 +141,6 @@ const schema = {
     type: "string" as const,
     default: "",
   },
-  customCloudGatewayToken: {
-    type: "string" as const,
-    default: "",
-  },
 };
 
 export const settingsStore = new Store<SettingsSchema>({
@@ -165,7 +160,6 @@ export const settingsStore = new Store<SettingsSchema>({
     customCloudUrl: "",
     customCloudOauthClientId: "",
     customCloudGatewayUrl: "",
-    customCloudGatewayToken: "",
   },
 });
 

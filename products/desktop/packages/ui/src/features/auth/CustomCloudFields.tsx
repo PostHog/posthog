@@ -5,7 +5,7 @@ import type { CustomCloudDraft } from "./useCustomCloud";
 
 const FIELDS: {
   key: keyof CustomCloudDraft;
-  type: "url" | "text" | "password";
+  type: "url" | "text";
   placeholder: string;
   label: string;
   help: string;
@@ -29,14 +29,7 @@ const FIELDS: {
     type: "url",
     placeholder: "LLM gateway URL (optional)",
     label: "LLM gateway URL",
-    help: "The LLM gateway for agent runs. Give a value only if your instance has its own gateway. Empty keeps the US gateway.",
-  },
-  {
-    key: "gatewayToken",
-    type: "password",
-    placeholder: "Personal API key for the gateway (optional)",
-    label: "Personal API key for the gateway",
-    help: "A personal API key from PostHog Cloud. Give a value if you use the US or EU gateway, because that gateway does not know your instance. The app keeps the key encrypted.",
+    help: "The LLM gateway for agent runs. Your instance needs its own gateway, because a PostHog Cloud gateway cannot read a token from your instance.",
   },
 ];
 

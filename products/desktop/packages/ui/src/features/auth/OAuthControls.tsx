@@ -1,6 +1,8 @@
 import type { CloudRegion } from "@posthog/shared";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { Callout } from "@radix-ui/themes";
+import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
+import { Callout, Spinner } from "@radix-ui/themes";
 import { CustomCloudFields } from "./CustomCloudFields";
 import { RegionSelect } from "./RegionSelect";
 import { useCustomCloud } from "./useCustomCloud";
@@ -17,6 +19,8 @@ export function OAuthControls({
   includeDevRegion = import.meta.env.DEV ||
     import.meta.env.VITE_POSTHOG_BUILD_CHANNEL === "test",
 }: OAuthControlsProps = {}) {
+  const { customCloud: hostHoldsCustomCloud } = useHostCapabilities();
+  const includeCustomRegion = includeDevRegion && hostHoldsCustomCloud;
   const {
     region,
     handleAuth,
@@ -25,8 +29,8 @@ export function OAuthControls({
     isPending,
     errorMessage,
   } = useOAuthFlow();
-  const customCloud = useCustomCloud();
-  const showCustomCloud = includeDevRegion && region === "custom";
+  const customCloud = useCustomCloud({ enabled: includeCustomRegion });
+  const showCustomCloud = includeCustomRegion && region === "custom";
 
   const handleClick = async () => {
     if (isPending) {
@@ -76,6 +80,7 @@ export function OAuthControls({
         onRegionChange={handleRegionChange}
         disabled={isPending}
         includeDevRegion={includeDevRegion}
+        includeCustomRegion={includeCustomRegion}
       />
 
       {showCustomCloud && (

@@ -263,7 +263,6 @@ import { electronUsageThresholdStore } from "../platform-adapters/electron-usage
 import { ElectronWorkspaceSettings } from "../platform-adapters/electron-workspace-settings";
 import { posthogNodeAnalytics } from "../platform-adapters/posthog-analytics";
 import { AppLifecycleService } from "../services/app-lifecycle/service";
-import { createGatewayAwareFetch } from "../services/auth/gateway-fetch";
 import {
   AuthPreferencePortAdapter,
   AuthSessionPortAdapter,
@@ -423,9 +422,10 @@ container.bind(MAIN_AUTH_SERVICE).to(AuthService);
 container.bind(AUTH_SERVICE).toService(MAIN_AUTH_SERVICE);
 container.load(authProxyModule);
 container.bind(AUTH_PROXY_AUTH).toDynamicValue((ctx) => ({
-  authenticatedFetch: createGatewayAwareFetch(() =>
-    ctx.get<AuthService>(MAIN_AUTH_SERVICE),
-  ),
+  authenticatedFetch: (url: string, init?: RequestInit) =>
+    ctx
+      .get<AuthService>(MAIN_AUTH_SERVICE)
+      .authenticatedFetch(fetch, url, init),
 }));
 container.load(mcpProxyModule);
 container.bind(MCP_PROXY_AUTH).toDynamicValue((ctx) => {
@@ -545,7 +545,8 @@ container.bind(LLM_GATEWAY_HOST).toDynamicValue((ctx) => {
   const auth = () => ctx.get<AuthService>(MAIN_AUTH_SERVICE);
   return {
     getValidAccessToken: () => auth().getValidAccessToken(),
-    authenticatedFetch: createGatewayAwareFetch(auth),
+    authenticatedFetch: (url: string, init?: RequestInit) =>
+      auth().authenticatedFetch(fetch, url, init),
     messagesUrl: (apiHost: string) =>
       `${getLlmGatewayUrl(apiHost)}/v1/messages`,
     usageUrl: (apiHost: string) => getGatewayUsageUrl(apiHost),

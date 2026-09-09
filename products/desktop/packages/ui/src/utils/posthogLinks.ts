@@ -148,15 +148,13 @@ export type ShareLinkTarget =
 
 function posthogHosts(): Set<string> {
   return new Set(
-    (Object.keys(REGION_LABELS) as CloudRegion[])
-      .map((region) => {
-        try {
-          return new URL(getCloudUrlFromRegion(region)).host;
-        } catch {
-          return "";
-        }
-      })
-      .filter(Boolean),
+    (Object.keys(REGION_LABELS) as CloudRegion[]).flatMap((region) => {
+      try {
+        return [new URL(getCloudUrlFromRegion(region)).host];
+      } catch {
+        return [];
+      }
+    }),
   );
 }
 

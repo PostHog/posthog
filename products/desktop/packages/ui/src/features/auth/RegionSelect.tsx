@@ -15,15 +15,22 @@ interface RegionSelectProps {
   disabled?: boolean;
   /** Host decides whether development regions are offered. */
   includeDevRegion?: boolean;
+  /** Custom needs a host that can hold the target, so it is a separate flag. */
+  includeCustomRegion?: boolean;
 }
 
 const PRODUCTION_REGIONS: CloudRegion[] = ["us", "eu"];
-const DEVELOPMENT_REGIONS: CloudRegion[] = ["dev-cloud", "dev", "custom"];
+const DEVELOPMENT_REGIONS: CloudRegion[] = ["dev-cloud", "dev"];
 
-export function getSelectableRegions(includeDevRegion: boolean): CloudRegion[] {
-  return includeDevRegion
-    ? [...PRODUCTION_REGIONS, ...DEVELOPMENT_REGIONS]
-    : PRODUCTION_REGIONS;
+export function getSelectableRegions(
+  includeDevRegion: boolean,
+  includeCustomRegion = false,
+): CloudRegion[] {
+  return [
+    ...PRODUCTION_REGIONS,
+    ...(includeDevRegion ? DEVELOPMENT_REGIONS : []),
+    ...(includeCustomRegion ? (["custom"] as CloudRegion[]) : []),
+  ];
 }
 
 function RegionOptionLabel({ region }: { region: CloudRegion }) {
@@ -42,8 +49,9 @@ export function RegionSelect({
   onRegionChange,
   disabled = false,
   includeDevRegion = false,
+  includeCustomRegion = false,
 }: RegionSelectProps) {
-  const offered = getSelectableRegions(includeDevRegion);
+  const offered = getSelectableRegions(includeDevRegion, includeCustomRegion);
 
   return (
     <div className="flex items-center justify-center gap-2">

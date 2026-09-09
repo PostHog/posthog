@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   configureCustomCloud,
-  customCloudGatewayToken,
   getCustomCloud,
+  isCustomCloudHost,
   normalizeCustomCloud,
 } from "./custom-cloud";
 
@@ -13,7 +13,7 @@ describe("custom cloud", () => {
   });
 
   describe("normalizeCustomCloud", () => {
-    it("trims the values and removes the trailing slash", () => {
+    it("trims the values and keeps the origin only", () => {
       expect(
         normalizeCustomCloud({
           url: " https://posthog.example.com/ ",
@@ -28,21 +28,29 @@ describe("custom cloud", () => {
     });
 
     it.each([
-      { name: "no input", input: null },
-      { name: "an empty URL", input: { url: "  " } },
-      {
-        name: "a scheme that is not http",
-        input: { url: "file:///etc/passwd" },
-      },
-      {
-        name: "a value that is not a URL",
-        input: { url: "posthog.example.com" },
-      },
-    ])("returns null for $name", ({ input }) => {
-      expect(normalizeCustomCloud(input)).toBeNull();
+      { name: "no input", url: undefined },
+      { name: "an empty URL", url: "  " },
+      { name: "a scheme that is not http", url: "file:///etc/passwd" },
+      { name: "a value that is not a URL", url: "posthog.example.com" },
+      { name: "a path", url: "https://posthog.example.com/project/1" },
+      { name: "a query", url: "https://posthog.example.com/?a=1" },
+      { name: "a fragment", url: "https://posthog.example.com/#settings" },
+    ])("returns null for $name", ({ url }) => {
+      expect(
+        normalizeCustomCloud(url === undefined ? null : { url }),
+      ).toBeNull();
     });
 
-    it("drops a gateway URL that is not http", () => {
+    it.each([
+      "https://us.posthog.com",
+      "https://eu.posthog.com",
+      "https://app.dev.posthog.dev",
+      "http://localhost:8010",
+    ])("refuses the built-in host %s", (url) => {
+      expect(normalizeCustomCloud({ url })).toBeNull();
+    });
+
+    it("drops a gateway URL that is not a plain origin", () => {
       expect(
         normalizeCustomCloud({
           url: "https://posthog.example.com",
@@ -70,23 +78,16 @@ describe("custom cloud", () => {
     });
   });
 
-  describe("customCloudGatewayToken", () => {
-    it("returns the token for the custom host only", () => {
-      configureCustomCloud({
-        url: "https://posthog.example.com",
-        gatewayToken: "phx_custom",
-      });
-      expect(customCloudGatewayToken("https://posthog.example.com/")).toBe(
-        "phx_custom",
-      );
-      expect(customCloudGatewayToken("https://us.posthog.com")).toBeUndefined();
+  describe("isCustomCloudHost", () => {
+    it("matches the configured host only", () => {
+      configureCustomCloud({ url: "https://posthog.example.com" });
+      expect(isCustomCloudHost("https://posthog.example.com/")).toBe(true);
+      expect(isCustomCloudHost("https://us.posthog.com")).toBe(false);
     });
 
-    it("returns nothing when the custom cloud has no token", () => {
-      configureCustomCloud({ url: "https://posthog.example.com" });
-      expect(
-        customCloudGatewayToken("https://posthog.example.com"),
-      ).toBeUndefined();
+    it("matches nothing when no target is configured", () => {
+      vi.stubEnv("POSTHOG_CUSTOM_CLOUD_URL", "");
+      expect(isCustomCloudHost("https://posthog.example.com")).toBe(false);
     });
   });
 });

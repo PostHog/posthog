@@ -5,7 +5,7 @@ import {
   normalizeCustomCloud,
 } from "@posthog/shared";
 import { settingsStore } from "../services/settingsStore";
-import { decrypt, encrypt } from "../utils/encryption";
+import { isCustomCloudBuild } from "../utils/build-channel";
 
 export class ElectronCustomCloudStore implements CustomCloudStore {
   constructor() {
@@ -13,16 +13,16 @@ export class ElectronCustomCloudStore implements CustomCloudStore {
   }
 
   get(): CustomCloud | null {
-    const encryptedToken = settingsStore.get("customCloudGatewayToken");
+    if (!isCustomCloudBuild()) return null;
     return normalizeCustomCloud({
       url: settingsStore.get("customCloudUrl"),
       oauthClientId: settingsStore.get("customCloudOauthClientId"),
       gatewayUrl: settingsStore.get("customCloudGatewayUrl"),
-      gatewayToken: encryptedToken ? (decrypt(encryptedToken) ?? "") : "",
     });
   }
 
   set(target: CustomCloud | null): CustomCloud | null {
+    if (!isCustomCloudBuild()) return null;
     const normalized = normalizeCustomCloud(target);
     settingsStore.set("customCloudUrl", normalized?.url ?? "");
     settingsStore.set(
@@ -30,10 +30,6 @@ export class ElectronCustomCloudStore implements CustomCloudStore {
       normalized?.oauthClientId ?? "",
     );
     settingsStore.set("customCloudGatewayUrl", normalized?.gatewayUrl ?? "");
-    settingsStore.set(
-      "customCloudGatewayToken",
-      normalized?.gatewayToken ? encrypt(normalized.gatewayToken) : "",
-    );
     configureCustomCloud(normalized);
     return normalized;
   }
