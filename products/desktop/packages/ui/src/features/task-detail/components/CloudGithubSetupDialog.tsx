@@ -142,8 +142,7 @@ export function CloudGithubSetupDialog({
                 ? "You're ready to use Cloud tasks."
                 : waitingForGithub
                   ? "Finish authorizing in your browser, then return here."
-                  : (connectionMessage ??
-                    GITHUB_CODE_CONTEXT_MESSAGE)
+                  : (connectionMessage ?? GITHUB_CODE_CONTEXT_MESSAGE)
             }
             descriptionClassName={
               hasError || isTimedOut ? "text-destructive" : undefined
