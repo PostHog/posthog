@@ -5,8 +5,9 @@ These are the precomputation-framework successors to the v2 pre-aggregation
 Where v2 was hand-written ClickHouse SQL run by a staging-table + partition-swap
 Dagster ETL, these are HogQL templates fed to `ensure_precomputed`, which manages
 job tracking, TTLs and the `ReplacingMergeTree` INSERTs. The scheduled
-`web_dimensional_precompute` Dagster job is the only caller (the write path is
-not wired into any query runner yet).
+`web_dimensional_precompute` Dagster job is the only caller: no query runner
+reads these tables, and serving filtered dashboard reads from them was measured
+and rejected (`docs/internal/web-analytics-dimensional-read-evaluation.md`).
 
 The framework auto-prepends `team_id`/`job_id` and appends `expires_at` to the
 top-level SELECT, and substitutes `{time_window_min}` / `{time_window_max}` per
