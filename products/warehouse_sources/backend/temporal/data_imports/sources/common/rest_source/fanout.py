@@ -99,6 +99,7 @@ def build_dependent_resource(
     parent_endpoint_extra: Endpoint | None = None,
     child_endpoint_extra: Endpoint | None = None,
     child_params_extra: dict[str, Any] | None = None,
+    parent_data_map: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     page_size_param: str | None = "limit",
     resume_hook: Callable[[dict[str, Any] | None], None] | None = None,
     initial_paginator_state: dict[str, Any] | None = None,
@@ -138,6 +139,13 @@ def build_dependent_resource(
         "endpoint": parent_endpoint_config,
         "table_format": "delta",
     }
+
+    if parent_data_map is not None:
+        # Parent transforms run before the child transformer reads the page, so a resolve_field
+        # the parent rows do not carry can be derived here. `process_parent_data_item` binds the
+        # path with `str.format`, which applies no escaping, so a vendor whose ids can contain
+        # `/` must percent-encode them through this hook.
+        parent_resource["data_map"] = parent_data_map
 
     if warehouse_parent:
         if not source_id:

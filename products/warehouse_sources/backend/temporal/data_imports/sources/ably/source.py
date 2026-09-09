@@ -22,8 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ably.setti
     DEFAULT_STATS_UNIT,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
-    PARTITION_KEY,
-    PRIMARY_KEYS,
     STATS_UNITS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -61,8 +59,8 @@ class AblySource(ResumableSource[AblySourceConfig, AblyResumeConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "401 Client Error": "Ably authentication failed. Please check your API key.",
-            "403 Client Error": "Ably authentication failed. Please check your API key.",
+            "401 Client Error": "Ably rejected your API key. Check that the key is valid and has the capability this table needs.",
+            "403 Client Error": "Ably rejected your API key. Check that the key is valid and has the capability this table needs.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -101,8 +99,9 @@ class AblySource(ResumableSource[AblySourceConfig, AblyResumeConfig]):
         resumable_source_manager: ResumableSourceManager[AblyResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
-        resource = ably_source(
+        return ably_source(
             api_key=config.api_key,
+            endpoint=inputs.schema_name,
             unit=config.unit,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
@@ -112,15 +111,7 @@ class AblySource(ResumableSource[AblySourceConfig, AblyResumeConfig]):
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
-        )
-        return SourceResponse(
-            name=resource.name,
-            items=lambda: resource,
-            primary_keys=PRIMARY_KEYS.get(inputs.schema_name, ["id"]),
-            column_hints=resource.column_hints,
-            partition_mode="datetime",
-            partition_keys=[PARTITION_KEY],
-            sort_mode="asc",
+            incremental_field=inputs.incremental_field,
         )
 
     @property
@@ -131,7 +122,10 @@ class AblySource(ResumableSource[AblySourceConfig, AblyResumeConfig]):
             keywords=["realtime", "pubsub", "messaging"],
             label="Ably",
             caption="Enter your Ably app API key, created in the [Ably dashboard](https://ably.com/dashboard). "
-            "The key must include both the key ID and secret (`app-id.key-id:key-secret`).",
+            "The key must include both the key ID and secret (`app-id.key-id:key-secret`).\n\n"
+            "Each table needs a capability on the key: `stats` for Stats, `channel-metadata` for "
+            "Channels and Presence, and `history` for Channel messages. Message history also needs "
+            "persistence turned on for the channel, otherwise Ably keeps messages for two minutes.",
             docsUrl="https://posthog.com/docs/cdp/sources/ably",
             iconPath="/static/services/ably.png",
             releaseStatus=ReleaseStatus.ALPHA,
