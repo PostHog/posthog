@@ -126,6 +126,9 @@ def _schema_ids_with_running_jobs(schema_ids: list[uuid.UUID]) -> set[uuid.UUID]
     )
 
 
+STAGED_CURSOR_PENDING_LIMIT = 10
+
+
 class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
     def update(self, **kwargs: Any) -> int:
         """Chokepoint for bulk writes that stop a schema from syncing.
@@ -821,6 +824,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             staged = existing
         else:
             staged = {"run_uuid": run_uuid}
+            self._park_displaced_staged_cursor(existing)
         if last_value is not None:
             staged["last_value"] = self._serialize_incremental_value(last_value)
         if earliest_value is not None:
@@ -832,15 +836,86 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     def promote_staged_incremental_values(self, run_uuid: str) -> bool:
         staged = self.sync_type_config.get("incremental_staged")
-        if not staged or staged.get("run_uuid") != run_uuid:
+        parked = staged is None or staged.get("run_uuid") != run_uuid
+        if parked:
+            staged = self._find_parked_staged_cursor(run_uuid)
+        if not staged:
             return False
         if "last_value" in staged:
-            self.sync_type_config["incremental_field_last_value"] = staged["last_value"]
+            self._advance_promoted_cursor("incremental_field_last_value", staged["last_value"], "last")
         if "earliest_value" in staged:
-            self.sync_type_config["incremental_field_earliest_value"] = staged["earliest_value"]
-        self.sync_type_config.pop("incremental_staged", None)
+            self._advance_promoted_cursor("incremental_field_earliest_value", staged["earliest_value"], "earliest")
+        if parked:
+            self._drop_parked_staged_cursor(run_uuid)
+        else:
+            self.sync_type_config.pop("incremental_staged", None)
         self.save(skip_activity_log=True)
         return True
+
+    def _park_displaced_staged_cursor(self, staged: dict) -> None:
+        if not staged.get("run_uuid"):
+            return
+        if "last_value" not in staged and "earliest_value" not in staged:
+            return
+        pending = [
+            entry
+            for entry in self.sync_type_config.get("incremental_staged_pending", [])
+            if entry.get("run_uuid") != staged["run_uuid"]
+        ]
+        pending.append(staged)
+        self.sync_type_config["incremental_staged_pending"] = pending[-STAGED_CURSOR_PENDING_LIMIT:]
+
+    def _find_parked_staged_cursor(self, run_uuid: str) -> Optional[dict]:
+        for entry in self.sync_type_config.get("incremental_staged_pending", []):
+            if entry.get("run_uuid") == run_uuid:
+                return entry
+        return None
+
+    def _drop_parked_staged_cursor(self, run_uuid: str) -> None:
+        pending = [
+            entry
+            for entry in self.sync_type_config.get("incremental_staged_pending", [])
+            if entry.get("run_uuid") != run_uuid
+        ]
+        if pending:
+            self.sync_type_config["incremental_staged_pending"] = pending
+        else:
+            self.sync_type_config.pop("incremental_staged_pending", None)
+
+    def _advance_promoted_cursor(self, key: str, value: Any, direction: Literal["last", "earliest"]) -> None:
+        current = self.sync_type_config.get(key)
+        if current is None:
+            self.sync_type_config[key] = value
+            return
+        comparison = self._compare_incremental_values(current, value)
+        if (
+            comparison is None
+            or (direction == "last" and comparison < 0)
+            or (direction == "earliest" and comparison > 0)
+        ):
+            self.sync_type_config[key] = value
+
+    def _compare_incremental_values(self, current: Any, candidate: Any) -> Optional[int]:
+        field_type = self.sync_type_config.get("incremental_field_type")
+        try:
+            left = process_incremental_value(current, field_type)
+            right = process_incremental_value(candidate, field_type)
+        except Exception:
+            return None
+        if left is None or right is None:
+            return None
+        if isinstance(left, bool) or isinstance(right, bool):
+            return None
+        left_is_number = isinstance(left, int | float)
+        right_is_number = isinstance(right, int | float)
+        if left_is_number != right_is_number:
+            return None
+        if not left_is_number and not isinstance(left, datetime | date):
+            return None
+        try:
+            return (left > right) - (left < right)
+        except TypeError:
+            return None
 
     def _serialize_incremental_value(self, value: Any) -> Any:
         incremental_field_type = self.sync_type_config.get("incremental_field_type")
@@ -881,6 +956,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("incremental_field_last_value", None)
         self.sync_type_config.pop("incremental_field_earliest_value", None)
         self.sync_type_config.pop("incremental_staged", None)
+        self.sync_type_config.pop("incremental_staged_pending", None)
         self.sync_type_config.pop("partitioning_enabled", None)
         self.sync_type_config.pop("partition_size", None)
         self.sync_type_config.pop("partition_count", None)

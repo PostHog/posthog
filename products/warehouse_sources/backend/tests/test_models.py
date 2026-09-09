@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.models.credential import DataWarehouseCr
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     REPARTITION_HOLD_MAX_AGE,
+    STAGED_CURSOR_PENDING_LIMIT,
     ExternalDataSchema,
     apply_incremental_lookback,
     complete_schema_run,
@@ -1158,6 +1159,107 @@ class TestStagedIncrementalCursor:
         assert staged["last_value"] == 99
         assert "earliest_value" not in staged
 
+    def test_stage_parks_the_displaced_cursor(self) -> None:
+        schema = self._make_schema(incremental_staged={"run_uuid": "run-1", "last_value": 1, "earliest_value": 5})
+        with patch.object(schema, "save"):
+            schema.stage_incremental_field_value("run-2", 99)
+        assert schema.sync_type_config["incremental_staged_pending"] == [
+            {"run_uuid": "run-1", "last_value": 1, "earliest_value": 5}
+        ]
+
+    def test_stage_does_not_park_a_cursor_that_holds_no_value(self) -> None:
+        schema = self._make_schema(incremental_staged={"run_uuid": "run-1"})
+        with patch.object(schema, "save"):
+            schema.stage_incremental_field_value("run-2", 99)
+        assert "incremental_staged_pending" not in schema.sync_type_config
+
+    def test_stage_replaces_a_parked_cursor_for_the_same_run(self) -> None:
+        schema = self._make_schema(
+            incremental_staged={"run_uuid": "run-1", "last_value": 7},
+            incremental_staged_pending=[{"run_uuid": "run-1", "last_value": 1}],
+        )
+        with patch.object(schema, "save"):
+            schema.stage_incremental_field_value("run-2", 99)
+        assert schema.sync_type_config["incremental_staged_pending"] == [{"run_uuid": "run-1", "last_value": 7}]
+
+    def test_parked_cursors_stay_bounded(self) -> None:
+        schema = self._make_schema()
+        with patch.object(schema, "save"):
+            for index in range(STAGED_CURSOR_PENDING_LIMIT + 5):
+                schema.stage_incremental_field_value(f"run-{index}", index)
+        pending = schema.sync_type_config["incremental_staged_pending"]
+        assert len(pending) == STAGED_CURSOR_PENDING_LIMIT
+        assert pending[0]["run_uuid"] == "run-4"
+        assert pending[-1]["run_uuid"] == "run-13"
+        assert schema.sync_type_config["incremental_staged"]["run_uuid"] == "run-14"
+
+    def test_promote_reads_a_parked_cursor(self) -> None:
+        schema = self._make_schema(
+            incremental_staged={"run_uuid": "run-2", "last_value": 10},
+            incremental_staged_pending=[{"run_uuid": "run-1", "last_value": 42}],
+        )
+        with patch.object(schema, "save"):
+            assert schema.promote_staged_incremental_values("run-1") is True
+        assert schema.sync_type_config["incremental_field_last_value"] == 42
+        assert schema.sync_type_config["incremental_staged"] == {"run_uuid": "run-2", "last_value": 10}
+        assert "incremental_staged_pending" not in schema.sync_type_config
+
+    def test_promote_never_moves_last_value_backwards(self) -> None:
+        schema = self._make_schema(
+            incremental_field_last_value=99,
+            incremental_staged_pending=[{"run_uuid": "run-1", "last_value": 42}],
+        )
+        with patch.object(schema, "save"):
+            assert schema.promote_staged_incremental_values("run-1") is True
+        assert schema.sync_type_config["incremental_field_last_value"] == 99
+
+    def test_promote_never_moves_earliest_value_forwards(self) -> None:
+        schema = self._make_schema(
+            incremental_field_earliest_value=5,
+            incremental_staged_pending=[{"run_uuid": "run-1", "earliest_value": 40}],
+        )
+        with patch.object(schema, "save"):
+            assert schema.promote_staged_incremental_values("run-1") is True
+        assert schema.sync_type_config["incremental_field_earliest_value"] == 5
+
+    def test_promote_advances_earliest_value_backwards(self) -> None:
+        schema = self._make_schema(
+            incremental_field_earliest_value=40,
+            incremental_staged={"run_uuid": "run-1", "earliest_value": 5},
+        )
+        with patch.object(schema, "save"):
+            assert schema.promote_staged_incremental_values("run-1") is True
+        assert schema.sync_type_config["incremental_field_earliest_value"] == 5
+
+    def test_promote_orders_an_epoch_cursor_against_an_iso_cursor(self) -> None:
+        schema = self._make_schema(
+            incremental_field_type=IncrementalFieldType.DateTime,
+            incremental_field_last_value="2026-06-14T15:33:31+00:00",
+            incremental_staged={"run_uuid": "run-1", "last_value": "2026-01-01T00:00:00+00:00"},
+        )
+        with patch.object(schema, "save"):
+            assert schema.promote_staged_incremental_values("run-1") is True
+        assert schema.sync_type_config["incremental_field_last_value"] == "2026-06-14T15:33:31+00:00"
+
+    def test_promote_keeps_newest_when_cursors_cannot_be_ordered(self) -> None:
+        schema = self._make_schema(
+            incremental_field_type=IncrementalFieldType.ObjectID,
+            incremental_field_last_value="aaa",
+            incremental_staged={"run_uuid": "run-1", "last_value": "bbb"},
+        )
+        with patch.object(schema, "save"):
+            assert schema.promote_staged_incremental_values("run-1") is True
+        assert schema.sync_type_config["incremental_field_last_value"] == "bbb"
+
+    def test_promote_rejects_a_run_uuid_with_no_slot_anywhere(self) -> None:
+        schema = self._make_schema(
+            incremental_staged={"run_uuid": "run-2", "last_value": 10},
+            incremental_staged_pending=[{"run_uuid": "run-1", "last_value": 42}],
+        )
+        with patch.object(schema, "save"):
+            assert schema.promote_staged_incremental_values("run-WRONG") is False
+        assert "incremental_field_last_value" not in schema.sync_type_config
+
     def test_stage_merges_when_same_run_uuid(self) -> None:
         schema = self._make_schema()
         with patch.object(schema, "save"):
@@ -1195,10 +1297,14 @@ class TestStagedIncrementalCursor:
         assert result is False
 
     def test_reset_pipeline_clears_staged(self) -> None:
-        schema = self._make_schema(incremental_staged={"run_uuid": "run-1", "last_value": 42})
+        schema = self._make_schema(
+            incremental_staged={"run_uuid": "run-1", "last_value": 42},
+            incremental_staged_pending=[{"run_uuid": "run-0", "last_value": 1}],
+        )
         with patch.object(schema, "save"):
             schema.update_sync_type_config_for_reset_pipeline()
         assert "incremental_staged" not in schema.sync_type_config
+        assert "incremental_staged_pending" not in schema.sync_type_config
 
 
 class TestSSHTunnelPortValidation(SimpleTestCase):
