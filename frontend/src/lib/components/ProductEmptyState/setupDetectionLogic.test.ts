@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -95,6 +96,49 @@ describe('createSetupDetectionLogic', () => {
         jest.advanceTimersByTime(5000)
         await flushMicrotasks()
         expect(detect).toHaveBeenCalledTimes(2)
+    })
+
+    it('stops polling once a request 404s on a deleted or inaccessible project', async () => {
+        jest.useFakeTimers()
+        const detect = jest
+            .fn<Promise<ProductSetupStatus>, []>()
+            .mockResolvedValueOnce('needs-setup')
+            .mockRejectedValue(new ApiError('Project not found.', 404, undefined, { detail: 'Project not found.' }))
+        const logic = buildLogic(detect, 1000)
+        logic.mount()
+        await flushMicrotasks()
+        expect(detect).toHaveBeenCalledTimes(1)
+
+        // The first poll tick 404s, which disposes the poll...
+        jest.advanceTimersByTime(1000)
+        await flushMicrotasks()
+        expect(detect).toHaveBeenCalledTimes(2)
+
+        // ...so no later tick fires another doomed request.
+        jest.advanceTimersByTime(5000)
+        await flushMicrotasks()
+        expect(detect).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps polling on a generic failure that may recover', async () => {
+        jest.useFakeTimers()
+        const detect = jest
+            .fn<Promise<ProductSetupStatus>, []>()
+            .mockResolvedValueOnce('needs-setup')
+            .mockRejectedValue(new Error('transient blip'))
+        const logic = buildLogic(detect, 1000)
+        logic.mount()
+        await flushMicrotasks()
+        expect(detect).toHaveBeenCalledTimes(1)
+
+        jest.advanceTimersByTime(1000)
+        await flushMicrotasks()
+        expect(detect).toHaveBeenCalledTimes(2)
+
+        // A non-404 failure leaves the poll running.
+        jest.advanceTimersByTime(1000)
+        await flushMicrotasks()
+        expect(detect).toHaveBeenCalledTimes(3)
     })
 
     it('re-detects when a recheck action fires', async () => {

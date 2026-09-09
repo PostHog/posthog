@@ -1985,6 +1985,23 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results, [])
             self.assertResponseMatchesSnapshot(response)
 
+    def test_timestamp_subtraction_is_a_numeric_duration(self):
+        # Reading the duration and converting it each failed the whole query with code 43.
+        response = execute_hogql_query(
+            "SELECT gap, toDate(gap) FROM (SELECT toDateTime(200000) - toDateTime(100000) AS gap)",
+            team=self.team,
+            pretty=False,
+        )
+        self.assertEqual(response.results, [(100000, datetime.date(1970, 1, 2))])
+
+        # An events timestamp is DateTime64, so its duration is a Decimal, rejected with code 44.
+        response = execute_hogql_query(
+            "SELECT toDate(gap) FROM (SELECT toDateTime64(200000, 6) - toDateTime64(100000, 6) AS gap)",
+            team=self.team,
+            pretty=False,
+        )
+        self.assertEqual(response.results, [(datetime.date(1970, 1, 2),)])
+
     def test_hogql_query_filters_empty_true(self):
         query = "SELECT event from events where {filters}"
         response = execute_hogql_query(
