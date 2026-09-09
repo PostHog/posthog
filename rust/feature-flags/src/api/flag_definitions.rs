@@ -23,6 +23,7 @@ use axum::{
 };
 use common_hypercache::{HyperCacheError, KeyType};
 use common_metrics::inc;
+use common_redis::CustomRedisError;
 use common_types::TeamId;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
@@ -30,7 +31,7 @@ use serde_json::Value;
 use sqlx::PgPool;
 use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 const ALLOWLIST_TTL_SECS: u64 = 60;
 
@@ -323,18 +324,44 @@ async fn get_etag_from_redis(state: &AppState, team_key: &KeyType) -> Option<Str
             }
         },
         Err(e) => {
-            warn!(
-                etag_key = %etag_key,
-                error = %e,
-                "Failed to read ETag from Redis"
-            );
+            // Absence is routine while a team's entry fills, and at warn level one cold
+            // entry writes a line per request. An unreachable cluster is not routine.
+            if matches!(e, CustomRedisError::NotFound) {
+                debug!(etag_key = %etag_key, "ETag absent from Redis");
+            } else {
+                warn!(
+                    etag_key = %etag_key,
+                    error = %e,
+                    "Failed to read ETag from Redis"
+                );
+            }
             inc(
                 FLAG_DEFINITIONS_ETAG_COUNTER,
-                &[("result".to_string(), "redis_error".to_string())],
+                &[(
+                    "result".to_string(),
+                    etag_read_failure_label(&e).to_string(),
+                )],
                 1,
             );
             None
         }
+    }
+}
+
+/// Metric label for a failed ETag read.
+///
+/// An absent key and an unreachable Redis need opposite responses: the first says the
+/// Redis endpoint that answered holds no ETag key for this team, the second says the
+/// cluster is down. One label for both hides that difference from the on-call, who has to
+/// pick between rebuilding the cache and treating Redis as the fault.
+///
+/// `redis_missing` names what the read saw, not the cause. Reads go to a replica, and
+/// `NotFound` is unrecoverable, so `ReadWriteClient` does not consult the primary. A key
+/// that Django wrote to the primary therefore reads as absent until it replicates.
+fn etag_read_failure_label(err: &CustomRedisError) -> &'static str {
+    match err {
+        CustomRedisError::NotFound => "redis_missing",
+        _ => "redis_error",
     }
 }
 
@@ -630,6 +657,23 @@ mod tests {
     fn test_extract_etag_from_header_empty() {
         let val = axum::http::HeaderValue::from_static("");
         assert_eq!(extract_etag_from_header(Some(&val)), None);
+    }
+
+    #[test]
+    fn test_etag_read_failure_label_separates_absence_from_failure() {
+        // The on-call reads this label to choose between rebuilding the cache tier and
+        // treating Redis as the fault, so an absent key must not report as an error.
+        assert_eq!(
+            etag_read_failure_label(&CustomRedisError::NotFound),
+            "redis_missing"
+        );
+        for err in [
+            CustomRedisError::Timeout,
+            CustomRedisError::ParseError("bad pickle".to_string()),
+            CustomRedisError::InvalidConfiguration("no url".to_string()),
+        ] {
+            assert_eq!(etag_read_failure_label(&err), "redis_error");
+        }
     }
 
     #[test]
