@@ -86,14 +86,14 @@ gcloud iam service-accounts add-iam-policy-binding agent@<gcp-project-id>.iam.gs
 ```yaml
 # helm values
 scrape:
-    annotationDiscovery: false
+  annotationDiscovery: false
 gcp:
-    projectId: <gcp-project-id>
-    metrics:
-        - compute.googleapis.com/instance/cpu/utilization
+  projectId: <gcp-project-id>
+  metrics:
+    - compute.googleapis.com/instance/cpu/utilization
 serviceAccount:
-    annotations:
-        iam.gke.io/gcp-service-account: agent@<gcp-project-id>.iam.gserviceaccount.com
+  annotations:
+    iam.gke.io/gcp-service-account: agent@<gcp-project-id>.iam.gserviceaccount.com
 ```
 
 (Outside Workload Identity, put the JSON key in a Secret and set `gcp.credentialsSecret.name`; the chart mounts it and sets `GOOGLE_APPLICATION_CREDENTIALS` for you.)
