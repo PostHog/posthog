@@ -2272,6 +2272,22 @@
             ],
             "label": "MCP listed tool names"
         },
+        "$mcp_llm_model": {
+            "description": "The model used by the MCP client for this tool call. Taken from recognized client metadata when available, otherwise from the agent's self-reported llm_model argument. MCP does not attest model identity, so use this for analytics rather than billing or access control.",
+            "examples": [
+                "claude-sonnet-5",
+                "gpt-5.6-sol"
+            ],
+            "label": "MCP model"
+        },
+        "$mcp_llm_model_source": {
+            "description": "How the model identifier was obtained. client_metadata means the MCP client supplied recognized metadata. self_reported means the agent filled the injected llm_model argument. Both sources are unverified.",
+            "examples": [
+                "client_metadata",
+                "self_reported"
+            ],
+            "label": "MCP model source"
+        },
         "$mcp_missing_scope": {
             "description": "The API scope the PostHog API said was missing when it refused an MCP request. Only set on $mcp_auth_failed with reason insufficient_scope, and only when the API named a specific scope.",
             "examples": [
@@ -4559,6 +4575,22 @@
                 "feature-flag-get-all"
             ],
             "label": "MCP listed tool names"
+        },
+        "$mcp_llm_model": {
+            "description": "The model used by the MCP client for this tool call. Taken from recognized client metadata when available, otherwise from the agent's self-reported llm_model argument. MCP does not attest model identity, so use this for analytics rather than billing or access control.",
+            "examples": [
+                "claude-sonnet-5",
+                "gpt-5.6-sol"
+            ],
+            "label": "MCP model"
+        },
+        "$mcp_llm_model_source": {
+            "description": "How the model identifier was obtained. client_metadata means the MCP client supplied recognized metadata. self_reported means the agent filled the injected llm_model argument. Both sources are unverified.",
+            "examples": [
+                "client_metadata",
+                "self_reported"
+            ],
+            "label": "MCP model source"
         },
         "$mcp_missing_scope": {
             "description": "The API scope the PostHog API said was missing when it refused an MCP request. Only set on $mcp_auth_failed with reason insufficient_scope, and only when the API named a specific scope.",
@@ -7381,6 +7413,22 @@
                 "feature-flag-get-all"
             ],
             "label": "MCP listed tool names"
+        },
+        "$mcp_llm_model": {
+            "description": "The model used by the MCP client for this tool call. Taken from recognized client metadata when available, otherwise from the agent's self-reported llm_model argument. MCP does not attest model identity, so use this for analytics rather than billing or access control.",
+            "examples": [
+                "claude-sonnet-5",
+                "gpt-5.6-sol"
+            ],
+            "label": "MCP model"
+        },
+        "$mcp_llm_model_source": {
+            "description": "How the model identifier was obtained. client_metadata means the MCP client supplied recognized metadata. self_reported means the agent filled the injected llm_model argument. Both sources are unverified.",
+            "examples": [
+                "client_metadata",
+                "self_reported"
+            ],
+            "label": "MCP model source"
         },
         "$mcp_missing_scope": {
             "description": "The API scope the PostHog API said was missing when it refused an MCP request. Only set on $mcp_auth_failed with reason insufficient_scope, and only when the API named a specific scope.",

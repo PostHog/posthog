@@ -5,6 +5,7 @@ import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { MarkdownMessage } from '../messages/MarkdownMessage'
+import { ActivityDisclosure } from './ActivityDisclosure'
 
 export type ActivityStatus = 'pending' | 'in_progress' | 'completed' | 'failed'
 
@@ -96,7 +97,7 @@ export function ActivityHeader({
             {isInProgress && animate ? (
                 <ShimmeringContent>{title}</ShimmeringContent>
             ) : (
-                <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{title}</span>
+                <span className={clsx('inline-flex min-w-0', isInProgress && 'text-muted')}>{title}</span>
             )}
         </div>
     )
@@ -115,12 +116,12 @@ export function ActivityHeader({
                 // Explicit transition properties, not transition-all: `all` also catches inherited
                 // scrollbar-color flips from the scrolling ancestor, starting hundreds of no-op
                 // transitions (and full-document style recalcs) whenever the thread is hovered.
-                'group/activity-header transition-colors duration-500 flex select-none min-w-0',
+                'group/activity-header transition-colors duration-500 flex items-center gap-2 px-2 min-h-8 select-none min-w-0',
                 isPending && 'text-muted',
                 isFailed && 'text-danger',
                 !isInProgress && !isPending && !isFailed && 'text-default',
                 hasDetails ? 'cursor-pointer' : 'cursor-default',
-                hasDetails && 'rounded px-1 -mx-1 hover:bg-fill-button-tertiary-hover',
+                hasDetails && 'rounded hover:bg-fill-button-tertiary-hover',
                 hasDetails && isDetailsExpanded && 'bg-fill-button-tertiary-active'
             )}
             onClick={hasDetails ? onToggleDetails : undefined}
@@ -153,7 +154,12 @@ export function ActivityHeader({
                     </span>
                     {hasDetails && (
                         <span className="absolute inline-flex translate-x-1 scale-90 text-tertiary opacity-0 transition-[color,transform,opacity] duration-200 ease-out group-hover/activity-header:translate-x-0 group-hover/activity-header:scale-100 group-hover/activity-header:text-primary group-hover/activity-header:opacity-100 group-focus-within/activity-header:translate-x-0 group-focus-within/activity-header:scale-100 group-focus-within/activity-header:text-primary group-focus-within/activity-header:opacity-100">
-                            <IconChevronDown className="size-5" />
+                            <IconChevronDown
+                                className={clsx(
+                                    'size-5 transition-transform duration-150 ease-out motion-reduce:transition-none',
+                                    !isDetailsExpanded && '-rotate-90'
+                                )}
+                            />
                         </span>
                     )}
                 </div>
@@ -276,6 +282,8 @@ export function Activity({
     substeps = [],
     details = null,
     children = null,
+    autoExpand = true,
+    onToggleDetails,
 }: {
     id: string
     title: React.ReactNode
@@ -289,9 +297,11 @@ export function Activity({
     substeps?: string[]
     details?: React.ReactNode
     children?: React.ReactNode
+    autoExpand?: boolean
+    onToggleDetails?: (expanded: boolean) => void
 }): JSX.Element {
     const hasDetails = substeps.length > 0 || !!details
-    const shouldExpandDetails = hasDetails && status !== 'completed' && status !== 'failed'
+    const shouldExpandDetails = autoExpand && hasDetails && status !== 'completed' && status !== 'failed'
     const [isDetailsExpanded, setIsDetailsExpanded] = useState(shouldExpandDetails)
 
     useLayoutEffect(() => {
@@ -299,7 +309,7 @@ export function Activity({
     }, [shouldExpandDetails])
 
     return (
-        <div className="flex flex-col rounded w-full min-w-0 gap-1 text-xs">
+        <div className="flex flex-col rounded w-full min-w-0 text-[13px] leading-5 font-normal">
             <ActivityHeader
                 title={title}
                 status={status}
@@ -307,20 +317,25 @@ export function Activity({
                 animate={animate}
                 hasDetails={hasDetails}
                 isDetailsExpanded={isDetailsExpanded}
-                onToggleDetails={() => setIsDetailsExpanded(!isDetailsExpanded)}
+                onToggleDetails={() => {
+                    onToggleDetails?.(!isDetailsExpanded)
+                    setIsDetailsExpanded(!isDetailsExpanded)
+                }}
                 showCompletionIcon={showCompletionIcon}
                 showProgressIcon={showProgressIcon}
                 failedIcon={failedIcon}
             >
                 {subtitle}
             </ActivityHeader>
-            {isDetailsExpanded && hasDetails && (
-                <ActivityDetails hasIcon={!!icon}>
-                    {substeps.length > 0 && <ActivitySubsteps id={id} substeps={substeps} status={status} />}
-                    {details}
-                </ActivityDetails>
-            )}
-            {children}
+            <ActivityDisclosure open={isDetailsExpanded && hasDetails}>
+                <div className="pt-1">
+                    <ActivityDetails hasIcon={!!icon}>
+                        {substeps.length > 0 && <ActivitySubsteps id={id} substeps={substeps} status={status} />}
+                        {details}
+                    </ActivityDetails>
+                </div>
+            </ActivityDisclosure>
+            {children && <div className="pt-1">{children}</div>}
         </div>
     )
 }
