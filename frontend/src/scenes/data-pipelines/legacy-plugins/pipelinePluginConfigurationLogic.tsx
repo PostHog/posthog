@@ -5,6 +5,7 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -239,10 +240,21 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
             null as PluginConfigWithPluginInfoNew | null,
             {
                 loadPluginConfig: async () => {
-                    if (props.pluginConfigId) {
-                        return await api.pluginConfigs.get(props.pluginConfigId)
+                    if (!props.pluginConfigId) {
+                        return null
                     }
-                    return null
+
+                    try {
+                        return await api.pluginConfigs.get(props.pluginConfigId)
+                    } catch (e) {
+                        // A deleted plugin config, or one from another project reached via a
+                        // cross-project deep link, 404s here. Fall back to null so the scene shows
+                        // its not-found state, and the rejection stays out of error tracking.
+                        if (e instanceof ApiError && e.status === 404) {
+                            return null
+                        }
+                        throw e
+                    }
                 },
                 updatePluginConfig: async (formdata: Record<string, any>) => {
                     if (!values.plugin) {
