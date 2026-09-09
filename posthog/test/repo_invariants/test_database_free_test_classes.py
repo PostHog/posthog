@@ -148,8 +148,8 @@ def collect_candidates() -> list[str]:
                     continue
                 if not _takes_a_database(node, django_names) or not _runs_tests(node):
                     continue
-                # Raw source rather than unparsed nodes, so comments count too and the
-                # semgrep rule of the same name reads exactly the same text.
+                # Raw source rather than unparsed nodes, so a comment naming a table or
+                # a fixture counts as a sign the class reaches the database.
                 body = "\n".join(lines[node.lineno - 1 : node.end_lineno])
                 if any(token in body for token in DATABASE_TOKENS):
                     continue

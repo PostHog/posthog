@@ -4,28 +4,19 @@
 One such class puts its whole module in the lane that waits for database setup, so a module of pure assertions pays that cost on every run, for every developer, in every CI shard that picks it up.
 The base class is the whole cost: a class that asserts on constants and pure functions runs in milliseconds on `django.test.SimpleTestCase` and in seconds on `BaseTest`.
 
-Two checks look for this.
-Both read the class body for any name that reaches the database, so neither can see a call several helper levels down.
-A class they miss stays missed, which is the safe error.
-
-## Check 1 — the semgrep rule
-
-`test-class-takes-an-unused-database` in `.semgrep/rules/devex/`.
-
-It runs at `WARNING`, so the `semgrep-devex` job reports the existing backlog without failing, and a third pass reruns the rule with `--baseline-commit` against the pull request base.
-That pass fails on a finding your branch introduces, so the rule bites when you write the class, not later.
-
-What a failure looks like: the `New warnings (blocking)` step fails, and the finding names the file, the class line, and this rule id.
-
-## Check 2 — the repo-invariant ratchet
+## The check
 
 `posthog/test/repo_invariants/test_database_free_test_classes.py`, with its list in `database_free_test_classes_baseline.txt`.
 
 It scans the repo on every backend pull request in the `repo-checks` job and compares what it finds against the frozen list, so the count can fall but never rise.
 
+It reads each class body for any name that reaches the database, so it cannot see a call several helper levels down.
+A class it misses stays missed, which is the safe error.
+It also leaves out two kinds of class, because the fix below would be wrong for them: a class the repo inherits from somewhere, whose own body names nothing while every subclass reaches the database, and a class with no test method of its own, which is infrastructure rather than a test.
+
 What a failure looks like: `database_free_test_classes_baseline.txt no longer matches the repo`, followed by `+` lines for classes the branch added and `-` lines for classes it removed.
 
-## What to do when one trips
+## What to do when it trips
 
 Work out which of three cases you are in.
 
@@ -43,14 +34,11 @@ class TestScopeRules(SimpleTestCase):
 `SimpleTestCase` refuses database access outright, so a passing run is proof the class never needed one.
 Run the class before you believe it.
 
-**The class needs a database through a helper the scan cannot see.**
-Both checks read the class body only, so a fixture built inside an imported helper is invisible to them.
-Keep the base class and say why:
+**The class needs a database through a helper the check cannot see.**
+It reads the class body only, so a fixture built inside an imported helper is invisible to it.
+Keep the base class and keep the class's baseline line, in the same change.
 
-- semgrep: `# nosemgrep: test-class-takes-an-unused-database -- <reason>` on the class line.
-- the ratchet: keep the class's baseline line, in the same change.
-
-Say what the helper does in the reason.
+Say what the helper does when you explain it in review.
 "It needs the database" repeats the code; "`seed_billing_fixtures()` writes the plan rows" tells the next reader where to look.
 
 **The class only touches the database in part of its cases.**
