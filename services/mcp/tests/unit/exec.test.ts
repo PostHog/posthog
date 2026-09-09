@@ -2021,6 +2021,22 @@ describe('exec tool', () => {
                     expect(rewrapFor(wrapperSchema, input)).toBeUndefined()
                 })
 
+                it('leaves a typo alone rather than running a query the caller did not ask for', () => {
+                    // `query-logs` defaults most of its query fields, so wrapping `dateRagne` parses
+                    // into a full set of defaults and would run an unfiltered query over the default
+                    // window. The caller has to see the typo instead of plausible but wrong rows.
+                    const tool = GENERATED_TOOL_MAP['query-logs']!()
+
+                    expect(rewrapFor(tool.schema, { dateRagne: { date_from: '-7d' } })).toBeUndefined()
+                })
+
+                it('leaves a payload alone when only some of its keys belong inside the wrapper', () => {
+                    const tool = GENERATED_TOOL_MAP['query-logs']!()
+                    const input = { serviceNames: ['api'], dateRagne: { date_from: '-7d' } }
+
+                    expect(rewrapFor(tool.schema, input)).toBeUndefined()
+                })
+
                 it('leaves a rejection that names more than the missing wrapper alone', () => {
                     // Two complaints mean the payload is wrong in a way nesting cannot fix,
                     // so guessing at one of them would hide the other.

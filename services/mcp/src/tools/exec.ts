@@ -519,6 +519,10 @@ function looksLikeUnwrappedPayload(
  * `baselineDateRange` into `query` would have the nested schema strip it, and the caller would get a
  * different query than it asked for without being told.
  *
+ * Every key that moves inside must be one the wrapper declares. A wrapper that defaults its own
+ * fields parses `{"dateRagne": ...}` into a full set of defaults, so accepting that rebuild would run
+ * an unfiltered query and return plausible but wrong rows instead of reporting the typo.
+ *
  * Returns undefined unless the rebuilt payload parses, so a payload malformed for some other reason
  * keeps its own rejection.
  */
@@ -548,6 +552,11 @@ export function rewrapFlattenedArguments(
         } else {
             nested[name] = value
         }
+    }
+    const declared = wrapperFieldNames(schema, key)
+    const nestedNames = Object.keys(nested)
+    if (nestedNames.length === 0 || !nestedNames.every((name) => declared.has(name))) {
+        return undefined
     }
     rebuilt[key] = nested
 
