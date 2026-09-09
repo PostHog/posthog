@@ -17,7 +17,11 @@ from rest_framework.exceptions import AuthenticationFailed, Throttled
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
-from posthog.api.wizard.http import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
+from posthog.api.wizard.http import (
+    SETUP_WIZARD_CACHE_PREFIX,
+    SETUP_WIZARD_CACHE_TIMEOUT,
+    WIZARD_EMAIL_UNVERIFIED_DETAIL,
+)
 from posthog.cloud_utils import get_api_host
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.llm.wizard_gateway_token import _TIER_FLOORS, WizardGatewayMintError
@@ -951,6 +955,27 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert response.json()["detail"] == WIZARD_BLOCKED_DETAIL
+        mock_mint.assert_not_called()
+
+    @patch("posthog.api.email_verification.is_email_verification_disabled", return_value=False)
+    @patch("posthog.api.email_verification.is_email_available", return_value=True)
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_unverified_email_is_403_and_never_mints(
+        self, mock_authentication, mock_flag, mock_mint, mock_authorized, _mock_email_available, _mock_disabled
+    ):
+        self._mock_oauth(mock_authentication)
+        self.user.is_email_verified = False
+        self.user.save()
+
+        response = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert response.json()["detail"] == WIZARD_EMAIL_UNVERIFIED_DETAIL
         mock_mint.assert_not_called()
 
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
