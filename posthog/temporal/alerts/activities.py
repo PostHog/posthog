@@ -46,6 +46,7 @@ from posthog.temporal.alerts.types import (
     PrepareAlertResult,
     RecordFailedEvaluationActivityInputs,
     RecordFailedEvaluationResult,
+    ScheduleDueAlertChecksWorkflowInputs,
     SkipReason,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -68,11 +69,13 @@ from products.notifications.backend.facade.api import (
 logger = structlog.get_logger(__name__)
 
 _NOTIFICATION_DELIVERY_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="insight-alert-delivery")
-MAX_DUE_ALERTS_PER_SCHEDULE_RUN = 50
 
 
 @temporalio.activity.defn
-async def retrieve_due_alerts() -> list[AlertInfo]:
+async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | None = None) -> list[AlertInfo]:
+    if inputs is None:
+        inputs = ScheduleDueAlertChecksWorkflowInputs()
+
     @database_sync_to_async(thread_sensitive=False)
     def get_alerts() -> list[AlertInfo]:
         now = datetime.now(UTC)
@@ -111,7 +114,7 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
                 "team_id",
                 "id",
             )
-            .only("id", "team_id", "calculation_interval", "insight_id")[:MAX_DUE_ALERTS_PER_SCHEDULE_RUN]
+            .only("id", "team_id", "calculation_interval", "insight_id")[: inputs.max_alerts_per_run]
         )
 
         return [
