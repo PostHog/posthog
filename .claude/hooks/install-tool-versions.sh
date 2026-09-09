@@ -118,22 +118,31 @@ with urllib.request.urlopen('https://pypi.org/pypi/uv/json', timeout=20) as resp
 }
 
 # Replace the uv binary in place. 'uv self update' cannot cross a major.minor boundary.
+# The callers run this in an '|| true' list, which turns errexit off for the whole
+# body, so each step that must succeed is checked here. Otherwise a corrupt archive
+# reports the stale version as a fresh install.
 install_uv() {
     local target="$1"
-    local bin_dir tmp
+    local bin_dir tmp url rc=1
     bin_dir=$(dirname "$(command -v uv 2>/dev/null || echo "/root/.local/bin/uv")")
     tmp=$(mktemp -d)
-    if curl -fsSL "https://github.com/astral-sh/uv/releases/download/${target}/uv-${UV_ARCH}.tar.gz" -o "$tmp/uv.tar.gz"; then
-        tar -xzf "$tmp/uv.tar.gz" -C "$tmp"
-        cp "$tmp/uv-${UV_ARCH}/uv" "$bin_dir/uv"
+    url="https://github.com/astral-sh/uv/releases/download/${target}/uv-${UV_ARCH}.tar.gz"
+
+    if ! curl -fsSL "$url" -o "$tmp/uv.tar.gz"; then
+        echo "Warning: failed to download uv $target" >&2
+    elif ! tar -xzf "$tmp/uv.tar.gz" -C "$tmp"; then
+        echo "Warning: failed to unpack uv $target" >&2
+    elif ! cp "$tmp/uv-${UV_ARCH}/uv" "$bin_dir/uv"; then
+        echo "Warning: failed to install uv $target into $bin_dir" >&2
+    else
+        # uvx sits beside uv in the archive, and nothing in this repo needs it.
         cp "$tmp/uv-${UV_ARCH}/uvx" "$bin_dir/uvx" 2>/dev/null || true
-        rm -rf "$tmp"
         echo "uv is now $(uv --version 2>/dev/null)"
-        return 0
+        rc=0
     fi
+
     rm -rf "$tmp"
-    echo "Warning: failed to download uv $target" >&2
-    return 1
+    return "$rc"
 }
 
 # --- 1. Upgrade uv ---
