@@ -25,6 +25,7 @@ from products.alerts.backend.destination_configs import (
     validate_destination_data,
 )
 from products.alerts.backend.destinations import (
+    count_active_alert_destinations,
     create_alert_destination_hog_functions,
     list_alert_destination_groups,
     owned_alert_destinations_qs,
@@ -34,6 +35,13 @@ from products.alerts.backend.destinations import (
     soft_delete_all_alert_destinations,
 )
 from products.alerts.backend.email_notifications import send_alert_email
+from products.alerts.backend.insight_alert_destinations import (
+    INSIGHT_ALERT_DESTINATION_TYPES,
+    INSIGHT_ALERT_EVENT_IDS,
+    MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
+    MAX_DESTINATIONS_PER_ALERT,
+    build_insight_alert_slack_config,
+)
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts.backend.presentation.views.alert_schedule_restriction import AlertScheduleRestriction
@@ -206,6 +214,10 @@ def snooze_alert_from_slack(
 
 __all__ = [
     "DESTINATION_SPECS",
+    "INSIGHT_ALERT_DESTINATION_TYPES",
+    "INSIGHT_ALERT_EVENT_IDS",
+    "MAX_DESTINATIONS_PER_ALERT",
+    "MAX_DESTINATION_IDS_PER_DELETE_REQUEST",
     "AlertDestinationData",
     "AlertDestinationValidationError",
     "AlertScheduleRestriction",
@@ -213,6 +225,8 @@ __all__ = [
     "SLACK_SNOOZE_MAX_DAYS",
     "SlackSnoozeOutcome",
     "build_alert_destination_config",
+    "build_insight_alert_slack_config",
+    "count_active_alert_destinations",
     "create_alert_destination_hog_functions",
     "delete_insight_alerts",
     "get_alert_team_id",

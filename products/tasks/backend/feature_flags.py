@@ -10,6 +10,7 @@ from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG,
     DEV_STACK_IMAGE_BAKE_FEATURE_FLAG,
+    MCP_EXEC_SKILLS_FEATURE_FLAG,
     WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
     WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
     WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG,
@@ -191,3 +192,25 @@ def agent_otel_telemetry_enabled_for_state(state: dict | None) -> bool:
     if settings.DEBUG:
         return True
     return (state or {}).get(AGENT_OTEL_TELEMETRY_STATE_KEY) is True
+
+
+def is_mcp_exec_skills_enabled(organization_id: str, distinct_id: str) -> bool:
+    """Whether this run's user gets product skills through the MCP `learn` command.
+
+    Evaluated server-side so organization rules and person rules (an email domain, a cohort)
+    both resolve, the same way the MCP server evaluates the flag for the same user.
+    """
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                MCP_EXEC_SKILLS_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("mcp_exec_skills_flag_check_failed")
+        return False

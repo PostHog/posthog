@@ -1990,6 +1990,19 @@ class IntegrationAccountsResponseSerializer(serializers.Serializer):
     )
 
 
+class AccountPickerManagementPermission(TeamMemberAdminManagementPermission):
+    """Admin gate for the account picker, with a message the customer can act on.
+
+    The base message names no next step. Free entry stays open on the account field, so a
+    member who cannot list accounts can still finish the source by filling the account in.
+    """
+
+    message = (
+        "You need admin access to this project to list the accounts this connection can reach. "
+        "Ask an admin to finish the setup, or fill in the account yourself."
+    )
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class ResolvedStoredCredential:
     payload: dict = dataclasses.field(repr=False)
@@ -2095,7 +2108,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 APIScopePermission(),
                 AccessControlPermission(),
                 TeamMemberAccessPermission(),
-                TeamMemberAdminManagementPermission(),
+                AccountPickerManagementPermission(),
             ]
         raise NotImplementedError()
 
