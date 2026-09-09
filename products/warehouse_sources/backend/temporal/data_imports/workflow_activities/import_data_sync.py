@@ -67,6 +67,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.byte_bounded_extraction_flag import (
     is_byte_bounded_extraction_enabled,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import (
+    is_transient_egress_proxy_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_reuse_flag import (
     is_fanout_warehouse_reuse_enabled,
 )
@@ -814,6 +817,18 @@ async def _handle_import_error(
     if is_transient_object_store_error(error):
         await logger.awarning(error_msg)
         await logger.adebug("Transient object-store error - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
+
+    # We couldn't reach our own egress proxy, which every source's outbound traffic goes through.
+    # The proxy or its upstream is briefly unreachable, so the next attempt recovers, and there is
+    # nothing on the customer's side to fix. `external_data_job.Transient_Error_Messages` already
+    # tells the customer that, so re-raise the original text and let that mapping rewrite it.
+    # Classified here rather than per source: the message is the same whichever connector was
+    # talking, and only a marker type keeps it out of error tracking (the fingerprint carries the
+    # source host, so every new host would otherwise open its own issue).
+    if is_transient_egress_proxy_error(error_msg):
+        await logger.awarning(error_msg)
+        await logger.adebug("Transient egress-proxy error - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error
 
     # A Django OperationalError/InterfaceError/InternalError here comes from a lookup against
