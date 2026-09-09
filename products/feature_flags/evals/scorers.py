@@ -10,6 +10,13 @@ wrong in a bad run is which tool the agent picked and what it put in the payload
 that is what these grade. A flag left in the right state by the wrong write — a
 generic PATCH that replaced `filters` on its way to flipping `active` — is the exact
 failure the lifecycle tools exist to prevent, and final state cannot see it.
+
+Scoping: a scorer grades only the calls that name the case's seeded flag, through
+``_on_seeded_flag``. The same lifecycle call on one of the demo project's own flags is
+a mis-resolution, not a pass. ``AvoidedTool`` and ``GenericUpdateOmitsFields`` opt out
+and read every call in the log, because both grade a write that must not happen at
+all: a forbidden write is still forbidden when it lands on the wrong flag, and
+widening them can only fail a run that a narrower reading would have passed.
 """
 
 from __future__ import annotations
@@ -33,9 +40,11 @@ __all__ = [
     "CalledExpectedTool",
     "CreatedFlagWithTags",
     "FinalMessageJudge",
+    "FinalMessageNames",
     "GenericUpdateOmitsFields",
     "GenericUpdateSetsFields",
     "PreservedUnrelatedConfig",
+    "UpdatedRolloutTo",
 ]
 
 GENERIC_UPDATE_TOOL = "update-feature-flag"
@@ -165,7 +174,7 @@ class AvoidedTool(Scorer):
 class AttemptedTool(Scorer):
     """Binary: did the agent try one of ``expected.tools`` on the seeded flag?
 
-    The mirror of the check above, for the case whose answer is a refusal. Every other
+    The mirror of ``AvoidedTool``, for the case whose answer is a refusal. Every other
     row on that case passes by inaction: no forbidden call succeeded, and a message can
     report a refusal the agent never met. Attempts that were refused are the point here,
     so an error counts; whether one landed is the other row's question.
@@ -234,8 +243,8 @@ def _same_text(written: Any, asked: Any) -> bool:
 class GenericUpdateSetsFields(Scorer):
     """Binary: did the generic updates carry every ``expected.fields`` value?
 
-    The check above passes by inaction, because an update carrying nothing omits every
-    forbidden field too. This is the positive half: the edit the user asked for has to
+    ``GenericUpdateOmitsFields`` passes by inaction, because an update carrying nothing
+    omits every forbidden field too. This is the positive half: the edit the user asked for has to
     be in a body somewhere. `name` holds the description on this model, so an agent
     that hears "rename" and writes the new key into `name` fails here while looking
     right to every other row on the case.
@@ -401,6 +410,16 @@ class PreservedUnrelatedConfig(Scorer):
         seed = _seed(output)
         if seed is None or not isinstance(seed.get("initial_filters"), dict):
             return Score(name=self._name(), score=0.0, metadata={"reason": "Case seed carries no initial_filters"})
+        # Without the percentages every seeded condition reads as pinned, so a correct
+        # write fails on `kept_the_other_conditions` and the run looks like an agent
+        # regression instead of a seed that is missing a field.
+        absent = [field for field in ("rollout_from_percentage", "rollout_to_percentage") if seed.get(field) is None]
+        if absent:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={"reason": "Case seed carries no rollout percentages", "missing": absent},
+            )
         parser = _parser(output)
         if not parser:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
@@ -436,6 +455,78 @@ class PreservedUnrelatedConfig(Scorer):
         )
 
 
+class FinalMessageNames(Scorer):
+    """Binary: does the final message name every string in ``expected.text``?
+
+    A judge grades whether an answer reads well, and a question that accepts any one of
+    several caveats cannot tell which one the agent found. This grades whether the
+    specific evidence reached the user. The comparison is case-insensitive because a
+    flag key can be quoted, capitalized or wrapped in prose, and it reads the message
+    rather than the tool calls because what the user learns is the thing being graded.
+    """
+
+    def _name(self) -> str:
+        return "final_message_names"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = _spec(expected, self._name())
+        raw = spec.get("text") if spec else None
+        required = [text for text in raw if isinstance(text, str) and text] if isinstance(raw, list) else []
+        if not required:
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()}.text on case"})
+
+        message = output.get("last_message") if output else None
+        if not message:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No final message"})
+
+        lowered = message.lower()
+        missing = sorted(text for text in required if text.lower() not in lowered)
+        if missing:
+            return Score(name=self._name(), score=0.0, metadata={"missing": missing, "required": sorted(required)})
+        return Score(name=self._name(), score=1.0, metadata={"required": sorted(required)})
+
+
+class UpdatedRolloutTo(Scorer):
+    """Binary: did an update land on the seeded flag setting ``expected.percentage``?
+
+    The judge that grades this case reads the final message, so a message claiming the
+    existing flag was reused scores the same whether or not the write happened. This is
+    the deterministic half of that pair: it reads the tool calls, so the claim has to be
+    true. A release condition carries the percentage, so the check looks inside the
+    written `filters` rather than at a top-level field.
+    """
+
+    def _name(self) -> str:
+        return "updated_rollout_to"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = _spec(expected, self._name())
+        target = spec.get("percentage") if spec else None
+        if not isinstance(target, int):
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()}.percentage on case"})
+        parser = _parser(output)
+        if not parser:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        seed = _seed(output)
+        writes = [
+            call for call in _on_seeded_flag(_successful(parser, GENERIC_UPDATE_TOOL), seed) if "filters" in call.input
+        ]
+        written = [group.get("rollout_percentage") for call in writes for group in _groups(call.input["filters"])]
+        if target in written:
+            return Score(name=self._name(), score=1.0, metadata={"percentage": target, "writes": len(writes)})
+        return Score(
+            name=self._name(),
+            score=0.0,
+            metadata={
+                "reason": "No successful update of the case's flag set the requested rollout",
+                "percentage": target,
+                "rollouts_written": [value for value in written if value is not None],
+                "writes": len(writes),
+            },
+        )
+
+
 class FinalMessageJudge(JudgedScorer):
     """Judge one yes/no question about the agent's final message.
 
@@ -465,18 +556,19 @@ class FinalMessageJudge(JudgedScorer):
 EXPLAINED_KEY_REUSE_QUESTION = (
     "A user asked an assistant to create a feature flag, and the key they named already belonged to "
     "an existing flag. Does the message below tell the user that a flag with that key already "
-    "existed, and say what the assistant did about it (used the existing flag, or asked which they "
-    "wanted)? A message that reports creating a new flag, or that stops at an error without naming "
-    "the existing flag, is a no."
+    "existed, and say that the assistant changed that existing flag rather than making a new one? A "
+    "message that reports creating a new flag, or that stops at an error without naming the "
+    "existing flag, is a no."
 )
 
 STALE_IS_NOT_SAFE_TO_REMOVE_QUESTION = (
     "A user asked an assistant whether a feature flag is stale and what evidence there is. The flag "
     "has not been evaluated for months, and another active flag depends on it. Does the message "
-    "below report the staleness as one signal rather than proof, and name at least one thing that "
-    "removal would still have to account for (the dependent flag, a linked experiment or survey, "
-    "code references, or the limits of evaluation data)? A message that concludes the flag is safe "
-    "to remove, or that it can be deleted, is a no."
+    "below report the staleness as one signal rather than proof, and say that another active flag "
+    "depends on this one, so removing it would break that flag? Other caveats, such as a linked "
+    "experiment or survey, code references, or the limits of evaluation data, are welcome but do "
+    "not replace the dependent flag. A message that concludes the flag is safe to remove, or that "
+    "it can be deleted, is a no, and so is one that offers only the other caveats."
 )
 
 REFUSED_WITHOUT_BLAMING_QUESTION = (

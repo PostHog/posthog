@@ -36,9 +36,12 @@ from products.feature_flags.backend.models.team_feature_flag_policy_config impor
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 __all__ = [
+    "DEPENDENT_FLAG_KEY",
     "DISABLE_FLAG_KEY",
     "ENABLE_FLAG_KEY",
+    "EXISTING_FLAG_FROM_PERCENTAGE",
     "EXISTING_FLAG_KEY",
+    "EXISTING_FLAG_TO_PERCENTAGE",
     "METADATA_FLAG_KEY",
     "READ_ONLY_FLAG_KEY",
     "REQUIRED_TAGS_FLAG_KEY",
@@ -65,9 +68,18 @@ DISABLE_FLAG_KEY = "share-link-expiry"
 ENABLE_FLAG_KEY = "folder-color-tags"
 ROLLOUT_FLAG_KEY = "smart-upload-retry"
 STALE_FLAG_KEY = "legacy-drag-drop-upload"
+# The flag whose release condition points at the stale one. A scorer reads this key,
+# so the answer has to name the blocker rather than any caveat it can think of.
+DEPENDENT_FLAG_KEY = "upload-progress-toast"
 READ_ONLY_FLAG_KEY = "team-audit-log"
 # Nothing seeds this one: the case asks the agent to create it.
 REQUIRED_TAGS_FLAG_KEY = "billing-sync-killswitch"
+
+# The rollout the flag already holds, and the one the prompt asks for. The prompt and
+# the scorer read the same constants, so a reworded prompt cannot leave the check
+# grading the old request.
+EXISTING_FLAG_FROM_PERCENTAGE = 20
+EXISTING_FLAG_TO_PERCENTAGE = 30
 
 ROLLOUT_FROM_PERCENTAGE = 10
 ROLLOUT_TO_PERCENTAGE = 25
@@ -159,9 +171,15 @@ def seed_existing_key_flag(context: CustomPromptSandboxContext) -> dict[str, Any
         context,
         key=EXISTING_FLAG_KEY,
         name="Download several files as one zip",
-        filters={"groups": [{"properties": [], "rollout_percentage": 20}]},
+        filters={"groups": [{"properties": [], "rollout_percentage": EXISTING_FLAG_FROM_PERCENTAGE}]},
     )
-    return _flag_payload(flag)
+    payload = _flag_payload(flag)
+    # `PreservedUnrelatedConfig` reads these to tell the condition the prompt moves from
+    # the ones it must leave alone. Without them every condition reads as pinned and a
+    # correct write scores 0.
+    payload["rollout_from_percentage"] = EXISTING_FLAG_FROM_PERCENTAGE
+    payload["rollout_to_percentage"] = EXISTING_FLAG_TO_PERCENTAGE
+    return payload
 
 
 def seed_active_flag(context: CustomPromptSandboxContext) -> dict[str, Any]:
@@ -229,7 +247,7 @@ def seed_stale_flag(context: CustomPromptSandboxContext) -> dict[str, Any]:
 
     dependent = _create_flag(
         context,
-        key="upload-progress-toast",
+        key=DEPENDENT_FLAG_KEY,
         name="Progress toast while a file uploads",
         filters={
             "groups": [

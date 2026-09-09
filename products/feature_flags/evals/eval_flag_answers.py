@@ -20,6 +20,9 @@ To run:
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from products.feature_flags.evals.scorers import (
     EXPLAINED_TAG_REQUIREMENT_QUESTION,
     REFUSED_WITHOUT_BLAMING_QUESTION,
@@ -29,8 +32,10 @@ from products.feature_flags.evals.scorers import (
     CalledExpectedTool,
     CreatedFlagWithTags,
     FinalMessageJudge,
+    FinalMessageNames,
 )
 from products.feature_flags.evals.seeders import (
+    DEPENDENT_FLAG_KEY,
     READ_ONLY_FLAG_KEY,
     REQUIRED_TAGS_FLAG_KEY,
     STALE_FLAG_KEY,
@@ -42,29 +47,28 @@ from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 
-# Every flag write the MCP server exposes, which is every tool in the Feature flags
-# category of `services/mcp/schema/generated-tool-definitions.json` that carries
-# `readOnlyHint: false`. The read-only case must land none of them. The scheduled-changes
-# writes belong here because scheduling a disable is the agent's plausible second move
-# once the immediate write is refused.
-_FLAG_WRITE_TOOLS = [
-    "create-feature-flag",
-    "update-feature-flag",
-    "feature-flag-enable",
-    "feature-flag-disable",
-    "feature-flag-archive",
-    "feature-flag-unarchive",
-    "delete-feature-flag",
-    "feature-flags-bulk-delete-create",
-    "feature-flags-bulk-update-tags-create",
-    "feature-flags-copy-flags-create",
-    "scheduled-changes-create",
-    "scheduled-changes-update",
-    "scheduled-changes-delete",
-]
+_TOOL_DEFINITIONS = Path(__file__).parents[3] / "services/mcp/schema/generated-tool-definitions.json"
+FLAG_TOOL_CATEGORY = "Feature flags"
+
+
+def flag_write_tools() -> list[str]:
+    """Every flag write the MCP server exposes, read from the generated catalog.
+
+    Derived rather than copied. The read-only case passes as soon as none of these
+    landed, so a write tool added to the category later and missed here would be a
+    write the case never looked for. Scheduling a change counts as a write, which is
+    why `scheduled-changes-*` arrive with the rest.
+    """
+    definitions = json.loads(_TOOL_DEFINITIONS.read_text())
+    return sorted(
+        name
+        for name, entry in definitions.items()
+        if entry.get("category") == FLAG_TOOL_CATEGORY and entry.get("annotations", {}).get("readOnlyHint") is False
+    )
 
 
 async def eval_flag_answers(ctx: EvalContext) -> None:
+    write_tools = flag_write_tools()
     cases: list[SandboxedEvalCase] = [
         SandboxedEvalCase(
             name="stale_flag_is_not_safe_to_remove",
@@ -73,6 +77,10 @@ async def eval_flag_answers(ctx: EvalContext) -> None:
             expected={
                 "called_expected_tool": {"tools": ["feature-flags-status-retrieve"]},
                 "stale_is_not_safe_to_remove": {"required": True},
+                # The judge grades how the answer reads. This grades whether the agent
+                # found the blocker at all, which it can only do by looking past the
+                # status endpoint to the flag's dependents.
+                "final_message_names": {"text": [DEPENDENT_FLAG_KEY]},
             },
         ),
         SandboxedEvalCase(
@@ -83,8 +91,8 @@ async def eval_flag_answers(ctx: EvalContext) -> None:
                 # The cap is enforced at the API, so the write tools are still offered and
                 # the refusal arrives as a 403. An agent that never sent one is reporting a
                 # restriction it assumed, which reads the same in the final message.
-                "attempted_tool": {"tools": _FLAG_WRITE_TOOLS},
-                "avoided_tool": {"tools": _FLAG_WRITE_TOOLS},
+                "attempted_tool": {"tools": write_tools},
+                "avoided_tool": {"tools": write_tools},
                 "refused_without_blaming": {"required": True},
             },
         ),
@@ -110,6 +118,7 @@ async def eval_flag_answers(ctx: EvalContext) -> None:
             AttemptedTool(),
             AvoidedTool(),
             CreatedFlagWithTags(),
+            FinalMessageNames(),
             FinalMessageJudge(name="stale_is_not_safe_to_remove", question=STALE_IS_NOT_SAFE_TO_REMOVE_QUESTION),
             FinalMessageJudge(name="refused_without_blaming", question=REFUSED_WITHOUT_BLAMING_QUESTION),
             FinalMessageJudge(name="explained_tag_requirement", question=EXPLAINED_TAG_REQUIREMENT_QUESTION),

@@ -5,17 +5,21 @@ from typing import Any
 
 from parameterized import parameterized
 
+from products.feature_flags.evals.eval_flag_answers import flag_write_tools
 from products.feature_flags.evals.scorers import (
     AttemptedTool,
     AvoidedTool,
     CalledExpectedTool,
     CreatedFlagWithTags,
     FinalMessageJudge,
+    FinalMessageNames,
     GenericUpdateOmitsFields,
     GenericUpdateSetsFields,
     PreservedUnrelatedConfig,
+    UpdatedRolloutTo,
 )
 from products.feature_flags.evals.seeders import (
+    DEPENDENT_FLAG_KEY,
     ROLLOUT_FROM_PERCENTAGE,
     ROLLOUT_INITIAL_FILTERS,
     ROLLOUT_PINNED_PERCENTAGE,
@@ -541,3 +545,97 @@ def test_preserved_unrelated_config_fails_when_no_update_sent_filters() -> None:
     )
 
     assert score.score == 0.0
+
+
+# The stale case's judge accepts several caveats, so it cannot say which one the agent
+# found. This row is the one that requires the blocking dependent flag by name.
+@parameterized.expand(
+    [
+        ("named_it", f"It is stale, but {DEPENDENT_FLAG_KEY} depends on it.", 1.0),
+        ("named_it_in_other_case", f"Blocked by {DEPENDENT_FLAG_KEY.upper()}.", 1.0),
+        ("offered_a_different_caveat", "It is stale. Check for code references first.", 0.0),
+        ("said_nothing", "", 0.0),
+    ]
+)
+def test_final_message_names(_name: str, last_message: str, expected_score: float) -> None:
+    score = FinalMessageNames()._run_eval_sync(
+        {"last_message": last_message},
+        {"final_message_names": {"text": [DEPENDENT_FLAG_KEY]}},
+    )
+
+    assert score.score == expected_score
+
+
+# The key-reuse judge reads the final message, so "I reused the existing flag" scores the
+# same whether or not the update happened. This is the row that reads the tool calls.
+@parameterized.expand(
+    [
+        ("set_the_asked_for_rollout", [(SEEDED_FLAG_ID, 30)], 1.0),
+        ("wrote_a_different_rollout", [(SEEDED_FLAG_ID, 50)], 0.0),
+        ("claimed_it_without_writing", [], 0.0),
+        ("wrote_it_on_another_flag", [(4242, 30)], 0.0),
+        ("reached_it_on_a_later_write", [(SEEDED_FLAG_ID, 50), (SEEDED_FLAG_ID, 30)], 1.0),
+    ]
+)
+def test_updated_rollout_to(_name: str, written: list[tuple[int, int]], expected_score: float) -> None:
+    score = UpdatedRolloutTo()._run_eval_sync(
+        {
+            "raw_log": _tool_log(
+                [
+                    (UPDATE_TOOL, {"id": flag_id, "filters": {"groups": [{"rollout_percentage": pct}]}}, "completed")
+                    for flag_id, pct in written
+                ]
+                or [("feature-flag-get-definition-by-key", {"key": SEEDED_FLAG_KEY}, "completed")]
+            ),
+            "seed": FLAG_SEED,
+        },
+        {"updated_rollout_to": {"percentage": 30}},
+    )
+
+    assert score.score == expected_score
+
+
+# A seed missing either percentage makes every condition read as pinned, so a correct
+# write fails and the metadata blames the agent. The guard names the seed instead.
+@parameterized.expand(
+    [
+        ("no_from_percentage", "rollout_from_percentage"),
+        ("no_to_percentage", "rollout_to_percentage"),
+    ]
+)
+def test_preserved_unrelated_config_names_a_seed_missing_its_percentages(_name: str, dropped: str) -> None:
+    seed = {key: value for key, value in ROLLOUT_SEED_WITH_IDENTITY.items() if key != dropped}
+    score = PreservedUnrelatedConfig()._run_eval_sync(
+        {
+            "raw_log": _tool_log([(UPDATE_TOOL, {"id": SEEDED_FLAG_ID, "filters": _merged_filters()}, "completed")]),
+            "seed": seed,
+        },
+        {"preserved_unrelated_config": {"required": True}},
+    )
+
+    assert score.score == 0.0
+    assert score.metadata["missing"] == [dropped]
+
+
+# `JudgedScorer._run_eval_async` reads `prepared["output"]` inside its own try block, so a
+# shape that stops matching the prompt template is caught and scored 0.0 as a judge error
+# on all four judges rather than raising.
+def test_final_message_judge_hands_the_message_to_the_judge() -> None:
+    prepared = FinalMessageJudge(name="refused_without_blaming", question="q")._prepare(
+        {"last_message": "I could not change it."}, {"refused_without_blaming": {"required": True}}
+    )
+
+    assert not isinstance(prepared, Score)
+    assert prepared["output"]["last_message"] == "I could not change it."
+
+
+# The read-only case passes as soon as none of these landed, so a derivation that returned
+# nothing would pass every run. Reading the catalog is what keeps the list current; this
+# checks the reading still finds it.
+def test_flag_write_tools_reads_the_generated_catalog() -> None:
+    tools = flag_write_tools()
+
+    assert "update-feature-flag" in tools
+    assert "scheduled-changes-create" in tools
+    assert "feature-flag-get-all" not in tools
+    assert len(tools) >= 13

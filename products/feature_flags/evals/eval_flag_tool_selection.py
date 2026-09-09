@@ -36,11 +36,13 @@ from products.feature_flags.evals.scorers import (
     GenericUpdateOmitsFields,
     GenericUpdateSetsFields,
     PreservedUnrelatedConfig,
+    UpdatedRolloutTo,
 )
 from products.feature_flags.evals.seeders import (
     DISABLE_FLAG_KEY,
     ENABLE_FLAG_KEY,
     EXISTING_FLAG_KEY,
+    EXISTING_FLAG_TO_PERCENTAGE,
     METADATA_FLAG_KEY,
     ROLLOUT_FLAG_KEY,
     ROLLOUT_FROM_PERCENTAGE,
@@ -88,13 +90,19 @@ async def eval_flag_tool_selection(ctx: EvalContext) -> None:
             name="existing_key_create_recovers",
             prompt=(
                 f"Create a feature flag called {EXISTING_FLAG_KEY} so we can gate the new multi-file "
-                "download behind it, at a 30% rollout."
+                f"download behind it, at a {EXISTING_FLAG_TO_PERCENTAGE}% rollout."
             ),
             setup=seed_existing_key_flag,
             expected={
                 # The prompt gives an exact key, which is what the by-key lookup is for.
                 "called_expected_tool": {"tools": ["feature-flag-get-definition-by-key"]},
                 "avoided_tool": {"tools": ["create-feature-flag"]},
+                # The judge reads the final message, so "I reused the existing flag"
+                # scores the same whether or not the write happened. This makes the
+                # claim answerable from the tool calls.
+                "updated_rollout_to": {"percentage": EXISTING_FLAG_TO_PERCENTAGE},
+                # The seeded flag carries a 20% condition the update must not drop.
+                "preserved_unrelated_config": {"required": True},
                 "explained_key_reuse": {"required": True},
             },
         ),
@@ -147,6 +155,7 @@ async def eval_flag_tool_selection(ctx: EvalContext) -> None:
             GenericUpdateOmitsFields(),
             GenericUpdateSetsFields(),
             PreservedUnrelatedConfig(),
+            UpdatedRolloutTo(),
             FinalMessageJudge(name="explained_key_reuse", question=EXPLAINED_KEY_REUSE_QUESTION),
         ],
         ctx=ctx,
