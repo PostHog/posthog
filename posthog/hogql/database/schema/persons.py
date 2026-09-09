@@ -6,7 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import And, CompareOperation, CompareOperationOp, Field, JoinExpr, SelectQuery
 from posthog.hogql.base import Expr
 from posthog.hogql.constants import HogQLQuerySettings
-from posthog.hogql.context import HogQLContext
+from posthog.hogql.context import HogQLContext, PersonsSubquery
 from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.lazy_join_tags import PERSONS_PDI, PERSONS_REVENUE_ANALYTICS
 from posthog.hogql.database.models import (
@@ -103,6 +103,12 @@ def select_from_persons_table(
     *,
     filter: Optional[Expr] = None,
 ):
+    # The subquery below is the same whether the query joins the persons table or reads straight
+    # from it, so record which one it is. The `person` lazy join on events asks for it through a
+    # LazyJoinToAdd; an explicit join puts another table next to the persons read.
+    from_join = isinstance(join_or_table, LazyJoinToAdd) or (
+        node.select_from is not None and node.select_from.next_join is not None
+    )
     version = context.modifiers.personsArgMaxVersion
     if version == PersonsArgMaxVersion.AUTO:
         version = PersonsArgMaxVersion.V1
@@ -150,7 +156,7 @@ def select_from_persons_table(
             select.where = ast.CompareOperation(
                 left=ast.Field(chain=["id"]), right=inner_select, op=ast.CompareOperationOp.In
             )
-            context.persons_selects.append(select)
+            context.persons_selects.append(PersonsSubquery(select=select, from_join=from_join))
             return select
 
     if version == PersonsArgMaxVersion.V2:
@@ -262,7 +268,7 @@ def select_from_persons_table(
         elif where:
             select.where = where
 
-    context.persons_selects.append(select)
+    context.persons_selects.append(PersonsSubquery(select=select, from_join=from_join))
     return select
 
 

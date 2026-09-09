@@ -381,6 +381,15 @@ class TestPersonsJoinCheck(QueryScanCheckTest):
         self.assertFalse(outcome.unfiltered)
 
     @freeze_time(NOW)
+    def test_reading_the_persons_table_directly_is_not_a_join(self) -> None:
+        _tree, context = self.prepare("SELECT count() FROM persons")
+
+        outcome = check_persons_join(context)
+
+        self.assertTrue(outcome.reads_persons)
+        self.assertFalse(outcome.unfiltered)
+
+    @freeze_time(NOW)
     def test_a_person_filter_the_planner_could_not_push_in_still_reads_every_person(self) -> None:
         _tree, context = self.prepare(
             "SELECT count() FROM events AS e JOIN persons AS p ON e.person_id = p.id "

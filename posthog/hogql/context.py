@@ -9,6 +9,7 @@ from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.clickhouse.workload import Workload
+from posthog.dataclasses import frozen
 from posthog.week_start_day import WeekStartDay
 
 if TYPE_CHECKING:
@@ -42,6 +43,18 @@ class HogQLFieldAccess:
     type: Optional[Literal["event", "event.properties", "person", "person.properties"]]
     field: Optional[str]
     sql: str
+
+
+@frozen
+class PersonsSubquery:
+    """One deduplicating persons subquery, and whether it stands in for a join.
+
+    A read straight from the persons table produces the same subquery as a join to it, so the
+    subquery alone cannot say which one the person wrote.
+    """
+
+    select: "ast.SelectQuery"
+    from_join: bool
 
 
 # Mutable by design, because the resolver and the printers accumulate into it as they walk a query:
@@ -121,7 +134,7 @@ class HogQLContext:
     # Persons subqueries produced by select_from_persons_table while resolving this query. Recorded
     # here because the query scan checks must find them in the prepared tree, and the tree gives no
     # other way to tell that subquery apart from any other read of the raw persons table.
-    persons_selects: list["ast.SelectQuery"] = field(default_factory=list, compare=False, repr=False)
+    persons_selects: list[PersonsSubquery] = field(default_factory=list, compare=False, repr=False)
 
     # Resources with object-level access restrictions referenced by the query, collected while printing
     # system tables. A set dedupes when several system tables share an access scope (e.g. system.dashboards

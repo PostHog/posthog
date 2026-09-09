@@ -7,6 +7,10 @@ a query over a few million events can be dominated by the join.
 The subqueries come from ``HogQLContext.persons_selects``, which the schema records while it
 builds them. Reading them back from the prepared tree would mean pattern-matching a shape
 that changes with the argMax version and the pushdown modifier.
+
+A read straight from the persons table builds the same subquery, and the advice here does not
+fit it: there is no join to drop, and counting events instead would answer a different
+question. So only a subquery the schema built for a join counts.
 """
 
 from posthog.hogql import ast
@@ -28,7 +32,7 @@ def check_persons_join(context: HogQLContext) -> PersonsJoinOutcome:
         return PersonsJoinOutcome(reads_persons=False, unfiltered=False)
     return PersonsJoinOutcome(
         reads_persons=True,
-        unfiltered=any(_is_unfiltered(select) for select in selects),
+        unfiltered=any(subquery.from_join and _is_unfiltered(subquery.select) for subquery in selects),
     )
 
 
