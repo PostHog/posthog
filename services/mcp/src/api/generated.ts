@@ -79521,6 +79521,8 @@ export namespace Schemas {
        * * `P3` - P3
        * * `P4` - P4 */
       slack_notification_min_priority?: AutonomyPriorityEnum | null;
+      /** Add this user as a GitHub assignee on implementation pull requests for reports that suggest them as reviewer. Off by default. Turning it off stops future assignment and never removes an existing assignee. */
+      github_assign_on_pull_request?: boolean;
     }
 
     export interface SlackChannel {

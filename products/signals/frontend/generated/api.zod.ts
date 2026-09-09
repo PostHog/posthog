@@ -1905,6 +1905,6 @@ export const UsersSignalAutonomyCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            'Whether to add this user as a GitHub assignee on implementation pull requests for reports that suggest them as reviewer. Off by default. Assignment is additive, so turning it off never removes an assignee from a pull request that already has one.'
+            'Add this user as a GitHub assignee on implementation pull requests for reports that suggest them as reviewer. Off by default. Turning it off stops future assignment and never removes an existing assignee.'
         ),
 })
