@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { addCellHandler } from '@/tools/notebooks/addCell'
 import { createMarkdownHandler } from '@/tools/notebooks/createMarkdown'
 import { deleteCellHandler } from '@/tools/notebooks/deleteCell'
+import { runAllCellsHandler } from '@/tools/notebooks/runAllCells'
 import { setVariablesHandler } from '@/tools/notebooks/setVariables'
 import { updateCellHandler } from '@/tools/notebooks/updateCell'
 import { formatNotebookWidgetCatalogForAgents } from '@/tools/notebooks/widgetCatalog'
@@ -24,6 +25,12 @@ interface MockState {
     runStatusResponses: any[]
     createBodies: any[]
     patchBodies: any[]
+    // The sql_v2/state view: dependency edges and per-cell run state.
+    cells: any[]
+    // Merged into every dispatch response, for the sandbox-cost signal.
+    dispatchExtra?: Record<string, unknown>
+    // Thrown by the next dispatch instead of answering it.
+    dispatchError?: unknown
 }
 
 function markdownContent(markdown: string): Record<string, unknown> {
@@ -42,6 +49,17 @@ function createMockContext(state: MockState): Context {
                 throw new Error('No queued run status response')
             }
             return next
+        }
+        if (opts.method === 'GET' && path.endsWith('/sql_v2/state/')) {
+            return {
+                notebook_id: 'aBcD1234',
+                title: 'Doc',
+                version: state.version,
+                markdown: state.markdown,
+                kernel: { status: 'stopped' },
+                variables: state.variables,
+                cells: state.cells,
+            }
         }
         if (opts.method === 'GET') {
             return {
@@ -62,8 +80,13 @@ function createMockContext(state: MockState): Context {
             }
         }
         if (opts.method === 'POST' && path.endsWith('/sql_v2/run/')) {
+            if (state.dispatchError) {
+                const error = state.dispatchError
+                state.dispatchError = undefined
+                throw error
+            }
             state.runBodies.push(opts.body)
-            return { run_id: 'run-1' }
+            return { run_id: `run-${state.runBodies.length}`, starts_sandbox: false, ...state.dispatchExtra }
         }
         if (opts.method === 'POST' && path.endsWith('/collab/markdown_save/')) {
             state.saveBodies.push(opts.body)
@@ -101,7 +124,7 @@ function createMockContext(state: MockState): Context {
     } as unknown as Context
 }
 
-function makeState(markdown: string, variables: any[] = []): MockState {
+function makeState(markdown: string, variables: any[] = [], cells: any[] = []): MockState {
     return {
         markdown,
         version: 3,
@@ -111,6 +134,7 @@ function makeState(markdown: string, variables: any[] = []): MockState {
         runStatusResponses: [],
         createBodies: [],
         patchBodies: [],
+        cells,
     }
 }
 
@@ -586,6 +610,221 @@ describe('notebook cell tools', () => {
                     attrs: { nodeId: 'markdown-notebook-v2', markdown: '# Signup analysis\n\nIntro.' },
                 },
             ],
+        })
+    })
+
+    describe('run all cells', () => {
+        const THREE_CELL_DOC = [
+            '# Weekly research',
+            '',
+            '<SQLV2 nodeId="one" code="select {client} as c" returnVariable="base" />',
+            '',
+            '<PythonV2 nodeId="two" code="mid = base.head()" returnVariable="mid" />',
+            '',
+            '<SQLV2 nodeId="three" code="select * from mid" returnVariable="final" />',
+            '',
+        ].join('\n')
+
+        const THREE_CELL_STATE = [
+            {
+                node_id: 'one',
+                cell_type: 'sql',
+                dataframe_name: 'base',
+                code: '',
+                status: 'done',
+                depends_on: [],
+                dependents: ['two'],
+            },
+            {
+                node_id: 'two',
+                cell_type: 'python',
+                dataframe_name: 'mid',
+                code: '',
+                status: 'done',
+                depends_on: ['one'],
+                dependents: ['three'],
+            },
+            {
+                node_id: 'three',
+                cell_type: 'sql',
+                dataframe_name: 'final',
+                code: '',
+                status: 'done',
+                depends_on: ['two'],
+                dependents: [],
+            },
+        ]
+
+        const threeCellState = (variables: any[] = []): MockState =>
+            makeState(THREE_CELL_DOC, variables, structuredClone(THREE_CELL_STATE))
+
+        it('runs every cell in dependency order and writes each result back', async () => {
+            const state = threeCellState()
+            state.runStatusResponses.push(DONE_STATUS, DONE_STATUS, DONE_STATUS)
+            const context = createMockContext(state)
+
+            const result = await runAllCellsHandler(context, { notebook_id: 'aBcD1234' })
+
+            expect(state.runBodies.map((body) => body.node_id)).toEqual(['one', 'two', 'three'])
+            expect(result.status).toBe('done')
+            expect(result.cells).toEqual([
+                { node_id: 'one', dataframe_name: 'base', status: 'done', run_id: 'run-1', row_count: 1 },
+                { node_id: 'two', dataframe_name: 'mid', status: 'done', run_id: 'run-2', row_count: 1 },
+                { node_id: 'three', dataframe_name: 'final', status: 'done', run_id: 'run-3', row_count: 1 },
+            ])
+            // Full detail for the answer cell only; the rest are reachable by run_id.
+            expect(result.last_run).toMatchObject({ run_id: 'run-3', status: 'done' })
+            expect(result.resume).toBeUndefined()
+
+            const finalMarkdown = state.saveBodies.at(-1)!.content.content[0].attrs.markdown
+            for (const runId of ['run-1', 'run-2', 'run-3']) {
+                expect(finalMarkdown).toContain(`runId="${runId}"`)
+            }
+
+            // Rows and stdout are attacker-influenceable, so the whole response is wrapped.
+            expect((result as any)[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('<notebook-cell-run')
+        })
+
+        it('patches only the named variables and binds the merged set to every run', async () => {
+            const state = threeCellState([
+                { name: 'client', type: 'string', value: 'acme' },
+                { name: 'start_date', type: 'date', value: '2025-01-01' },
+            ])
+            state.runStatusResponses.push(DONE_STATUS, DONE_STATUS, DONE_STATUS)
+            const context = createMockContext(state)
+
+            const result = await runAllCellsHandler(context, {
+                notebook_id: 'aBcD1234',
+                variables: [{ name: 'client', value: 'globex' }],
+            })
+
+            // One PATCH, carrying the merged list — start_date must survive untouched.
+            expect(state.patchBodies).toEqual([
+                {
+                    variables: [
+                        { name: 'client', type: 'string', value: 'globex' },
+                        { name: 'start_date', type: 'date', value: '2025-01-01' },
+                    ],
+                },
+            ])
+            for (const body of state.runBodies) {
+                expect(body.variables).toEqual([
+                    { name: 'client', type: 'string', value: 'globex' },
+                    { name: 'start_date', type: 'date', value: '2025-01-01' },
+                ])
+            }
+            expect(result.variables).toHaveLength(2)
+        })
+
+        it('returns a resumable cursor when the pass outlives its budget', async () => {
+            vi.useFakeTimers()
+            const state = threeCellState()
+            state.runStatusResponses.push(DONE_STATUS)
+            // Cell two never finishes, so the pass spends the rest of its budget on it.
+            for (let i = 0; i < 60; i++) {
+                state.runStatusResponses.push({ status: 'running', result: null, error: null })
+            }
+            const context = createMockContext(state)
+
+            const pending = runAllCellsHandler(context, { notebook_id: 'aBcD1234' })
+            await vi.advanceTimersByTimeAsync(120_000)
+            const result = await pending
+
+            expect(result.status).toBe('running')
+            // The cursor names the last cell that finished, so cell two is retried or adopted.
+            expect(result.resume).toEqual({ resume_after_node_id: 'one', remaining_cells: 2 })
+            expect(state.runBodies.map((body) => body.node_id)).toEqual(['one', 'two'])
+            expect(result.cells.map((cell) => cell.status)).toEqual(['done', 'running', 'not_run'])
+        })
+
+        it('adopts a run already in flight on resume instead of dispatching a duplicate', async () => {
+            const state = threeCellState()
+            // Cell two is what the previous call left running.
+            state.cells[1].status = 'running'
+            state.cells[1].last_run = { run_id: 'run-inflight', status: 'running', finished_at: 'now' }
+            state.runStatusResponses.push(DONE_STATUS, DONE_STATUS)
+            const context = createMockContext(state)
+
+            const result = await runAllCellsHandler(context, {
+                notebook_id: 'aBcD1234',
+                resume_after_node_id: 'one',
+            })
+
+            // Dispatching cell two would 409 against the slot its own run holds.
+            expect(state.runBodies.map((body) => body.node_id)).toEqual(['three'])
+            expect(result.status).toBe('done')
+            expect(result.cells.map((cell) => cell.run_id)).toEqual([undefined, 'run-inflight', 'run-1'])
+        })
+
+        it('stops at a failed cell and names what downstream never ran', async () => {
+            const state = threeCellState()
+            state.runStatusResponses.push(DONE_STATUS, {
+                status: 'failed',
+                result: null,
+                error: "NameError: name 'base' is not defined",
+            })
+            const context = createMockContext(state)
+
+            const result = await runAllCellsHandler(context, { notebook_id: 'aBcD1234' })
+
+            // Cell three reads the failed cell's dataframe; running it would look fresh but
+            // bind the previous pass's frame.
+            expect(state.runBodies.map((body) => body.node_id)).toEqual(['one', 'two'])
+            expect(result.status).toBe('failed')
+            expect(result.failure).toMatchObject({
+                node_id: 'two',
+                dependent_node_ids: ['three'],
+                run: { status: 'failed', error: "NameError: name 'base' is not defined" },
+            })
+            expect(result.resume).toEqual({ resume_after_node_id: 'one', remaining_cells: 2 })
+            expect(result.cells.map((cell) => cell.status)).toEqual(['done', 'failed', 'not_run'])
+        })
+
+        it.each([
+            {
+                case: 'a busy notebook is resumable, not a failure',
+                error: Object.assign(new Error('conflict'), { status: 409 }),
+            },
+            {
+                case: 'a team at run capacity is resumable, not a failure',
+                error: Object.assign(new Error('too many'), { status: 429 }),
+            },
+        ])('reports that $case', async ({ error }) => {
+            const state = threeCellState()
+            state.dispatchError = error
+            const context = createMockContext(state)
+
+            const result = await runAllCellsHandler(context, { notebook_id: 'aBcD1234' })
+
+            expect(result.status).toBe('running')
+            expect(result.resume).toEqual({ resume_after_node_id: null, remaining_cells: 3 })
+        })
+
+        it('surfaces the sandbox price the dispatch reports so the agent can quote it', async () => {
+            const state = threeCellState()
+            state.dispatchExtra = { starts_sandbox: true, sandbox_hourly_price: 0.42 }
+            state.runStatusResponses.push(DONE_STATUS, DONE_STATUS, DONE_STATUS)
+            const context = createMockContext(state)
+
+            const result = await runAllCellsHandler(context, { notebook_id: 'aBcD1234' })
+
+            expect(result.sandbox).toEqual({ started: true, hourly_price: 0.42 })
+            expect(result.hint).toContain('0.42')
+        })
+
+        it('refuses new variable values mid-pass, which would mix two sets in one notebook', async () => {
+            const state = threeCellState([{ name: 'client', type: 'string', value: 'acme' }])
+            const context = createMockContext(state)
+
+            await expect(
+                runAllCellsHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    resume_after_node_id: 'one',
+                    variables: [{ name: 'client', value: 'globex' }],
+                })
+            ).rejects.toThrow(/only when starting a pass/)
+            expect(state.patchBodies).toHaveLength(0)
+            expect(state.runBodies).toHaveLength(0)
         })
     })
 })

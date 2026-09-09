@@ -4,10 +4,10 @@ import type { Context, ToolBase } from '@/tools/types'
 
 import {
     awaitRun,
-    buildResultProp,
     dispatchRun,
     shapeRunForModel,
     wrapRunResultAsInformational,
+    writeRunBack,
     type ShapedRunResult,
 } from './cellRuns'
 import { collectRunRefs, directDependents, findCellTag, parseCellTags, replaceCellTag, upsertProp } from './cellTags'
@@ -76,7 +76,7 @@ export const updateCellHandler: ToolBase<typeof NotebooksUpdateCellSchema, Updat
     const projectId = await context.stateManager.getProjectId()
     const notebookPath = notebookPathFor(projectId, params.notebook_id)
     const cells = parseCellTags(markdown)
-    const runId = await dispatchRun(context, notebookPath, {
+    const { run_id: runId } = await dispatchRun(context, notebookPath, {
         node_id: params.node_id,
         node_type: existing.tagName === 'SQLV2' ? 'hogql' : 'python',
         code,
@@ -85,17 +85,7 @@ export const updateCellHandler: ToolBase<typeof NotebooksUpdateCellSchema, Updat
         variables: notebook.variables,
     })
     const outcome = await awaitRun(context, notebookPath, runId)
-    await applyMarkdownEdit(context, params.notebook_id, (current) => {
-        const block = findCellTag(current, params.node_id)
-        if (!block) {
-            return current
-        }
-        let source = upsertProp(block.source, 'runId', runId)
-        if (outcome.envelope && (outcome.status === 'done' || outcome.status === 'interrupted')) {
-            source = upsertProp(source, 'result', buildResultProp(outcome.envelope))
-        }
-        return replaceCellTag(current, block, source)
-    })
+    await writeRunBack(context, params.notebook_id, params.node_id, runId, outcome)
 
     return wrapRunResultAsInformational({
         node_id: params.node_id,
