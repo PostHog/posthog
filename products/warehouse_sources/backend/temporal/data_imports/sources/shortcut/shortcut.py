@@ -1,5 +1,9 @@
+import logging
+from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
+
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -8,16 +12,28 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.settings import (
     SHORTCUT_ENDPOINTS,
     ShortcutEndpointConfig,
 )
 
+logger = logging.getLogger(__name__)
+
 SHORTCUT_BASE_URL = "https://api.app.shortcut.com/api/v3"
+
+# `POST /stories/search` returns nothing for an empty body, so full refresh and the first
+# incremental run send this created_at floor to match every story. It doubles as the lower
+# bound the paginator advances to page past the result cap.
+STORY_SEARCH_EPOCH_START = "1970-01-01T00:00:00Z"
+
+# `POST /stories/search` returns a bare array with no pagination and caps each response. A full
+# response means more may exist, so the paginator refetches with a higher created_at floor.
+STORY_SEARCH_RESULT_CAP = 1000
 
 
 def _base_headers() -> dict[str, str]:
@@ -44,16 +60,86 @@ def _build_search_body(
 ) -> dict[str, Any]:
     """Build the JSON body for `POST /stories/search`.
 
-    Maps the user-selected incremental field to the matching server-side filter param.
-    An empty body returns the full collection (initial sync / full refresh).
+    Maps the user-selected incremental field to the matching server-side filter param, and
+    always sets a created_at floor so the body is never empty — an empty body makes the
+    endpoint return zero stories on full refresh and the first incremental run.
     """
     body: dict[str, Any] = {}
+    # GET list endpoints carry no request body.
+    if config.method != "POST":
+        return body
     if should_use_incremental_field and db_incremental_field_last_value is not None:
         field_name = incremental_field or "updated_at"
         param = config.incremental_params.get(field_name)
         if param:
             body[param] = _format_incremental_value(db_incremental_field_last_value)
+    # An epoch floor matches every story; a real created_at cursor above overrides it.
+    body.setdefault("created_at_start", STORY_SEARCH_EPOCH_START)
+    # StorySlim omits the description unless asked; the canonical schema advertises the column.
+    body["includes_description"] = True
     return body
+
+
+class StoriesSearchPaginator(BasePaginator):
+    """Page `POST /stories/search` past its result cap by advancing the created_at floor.
+
+    The endpoint returns a bare array with no pagination and caps each response at
+    `STORY_SEARCH_RESULT_CAP`. When a response is full, more stories may exist, so advance
+    `created_at_start` to the newest created_at seen and refetch; merge dedup on `id` drops
+    the boundary stories re-read at the floor. Stop when a response is under the cap, or when
+    the floor cannot advance because every story in a full page shares one created_at. This
+    relies on the endpoint returning stories in created_at order, its established behavior.
+    """
+
+    def __init__(self, cap: int = STORY_SEARCH_RESULT_CAP) -> None:
+        super().__init__()
+        self._cap = cap
+        self._next_created_at_start: Optional[str] = None
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        rows = data or []
+        if len(rows) < self._cap:
+            self._has_next_page = False
+            return
+        newest = max((row.get("created_at") for row in rows if row.get("created_at")), default=None)
+        if newest is None or newest == self._next_created_at_start:
+            logger.warning(
+                "Shortcut stories/search hit its %s-row cap without a way to page further; some stories may be missing",
+                self._cap,
+            )
+            self._has_next_page = False
+            return
+        self._next_created_at_start = newest
+        self._has_next_page = True
+
+    def update_request(self, request: Request) -> None:
+        if self._next_created_at_start is not None:
+            if request.json is None:
+                request.json = {}
+            request.json["created_at_start"] = self._next_created_at_start
+
+
+def _dedupe_pages_by_id(pages: Iterable[Any], primary_key: str) -> Iterator[list[dict[str, Any]]]:
+    """Drop stories re-read across page boundaries so no id lands in the table twice.
+
+    The paginator advances `created_at_start` to the newest `created_at` seen, and that filter is
+    inclusive, so every story at the boundary timestamp comes back on the next page. Full refresh
+    appends without the merge's primary-key dedup (that runs only for incremental writes), so drop
+    the re-read rows here. Keyed on the unique story id, so it never drops a distinct story whatever
+    order the endpoint returns rows in. Holds the seen ids for one sync, bounded by the story count.
+    """
+    seen: set[Any] = set()
+    for page in pages:
+        fresh: list[dict[str, Any]] = []
+        for row in page:
+            key = row.get(primary_key)
+            if key is not None and key in seen:
+                continue
+            if key is not None:
+                seen.add(key)
+            fresh.append(row)
+        if fresh:
+            yield fresh
 
 
 def shortcut_source(
@@ -75,9 +161,8 @@ def shortcut_source(
         "data_selector_required": True,
     }
     if config.method == "POST":
-        # Shortcut's stories/search carries its server-side timestamp filter in the POST body (not the
-        # query string), so the incremental value is baked into the static request body here. The value
-        # is known up front (single un-paginated request), so no per-page cursor injection is needed.
+        # Shortcut's stories/search carries its server-side timestamp filters in the POST body (not the
+        # query string). This seeds the first page; the paginator advances created_at_start for later pages.
         endpoint_config["json"] = _build_search_body(
             config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
         )
@@ -92,8 +177,9 @@ def shortcut_source(
                 "name": "Shortcut-Token",
                 "location": "header",
             },
-            # Each endpoint returns its whole collection in one un-paginated response.
-            "paginator": SinglePagePaginator(),
+            # Flat list endpoints return the whole collection in one response; stories/search
+            # caps each response, so it pages by advancing the created_at floor.
+            "paginator": StoriesSearchPaginator() if config.method == "POST" else SinglePagePaginator(),
         },
         "resource_defaults": {},
         "resources": [
@@ -109,9 +195,23 @@ def shortcut_source(
 
     resource = rest_api_resource(rest_config, team_id, job_id, None)
 
+    # stories/search re-reads its inclusive created_at boundary on every page, so dedupe on id
+    # before the rows reach the writer — the full-refresh append path never runs the merge's
+    # primary-key dedup. Flat GET endpoints return the whole collection in one page, no re-reads.
+    def items() -> Iterable[Any]:
+        if config.method == "POST":
+            return _dedupe_pages_by_id(resource, config.primary_key)
+        return resource
+
+    # The paginator returns stories in created_at order, so the updated_at cursor (the default)
+    # arrives unordered. Mark the sort ascending only for the created_at cursor; otherwise use desc,
+    # which advances the watermark once the run finishes rather than after each batch. A per-batch
+    # max on an unordered stream would skip unwritten lower rows on the next run's server-side filter.
+    sort_mode: SortMode = "asc" if incremental_field == "created_at" else "desc"
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        items=items,
         primary_keys=[config.primary_key],
         partition_count=1,
         partition_size=1,
@@ -119,6 +219,7 @@ def shortcut_source(
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
         column_hints=resource.column_hints,
+        sort_mode=sort_mode,
     )
 
 
