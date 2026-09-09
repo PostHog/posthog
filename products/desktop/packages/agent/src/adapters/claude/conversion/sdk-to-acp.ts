@@ -81,11 +81,7 @@ type ChunkHandlerContext = {
   registerHooks?: boolean;
   supportsTerminalOutput?: boolean;
   cwd?: string;
-  /**
-   * Raw tool result from SDKUserMessage.tool_use_result. An MCP tool returns an
-   * object (content, structuredContent, _meta), but other runtimes return a
-   * plain string, so this stays unknown until it is narrowed.
-   */
+  /** Raw SDKUserMessage.tool_use_result: an MCP object, or a plain string from another runtime. */
   toolUseResult?: unknown;
   /** Per-session task list (populated by createTaskHook + tool_result handler) */
   taskState?: TaskState;
@@ -332,7 +328,6 @@ function asPlainObject(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-/** The reason a failed tool result carries, so the reader shows more than "Failed". */
 function toolResultErrorMessage(
   content: unknown,
   toolUseResult: unknown,
@@ -1400,8 +1395,7 @@ export async function handleUserAssistantMessage(
       ? (message.parent_tool_use_id ?? undefined)
       : undefined;
 
-  // Pass the raw tool result so an MCP result (content, structuredContent, _meta)
-  // reaches the renderer as-is for MCP Apps.
+  // An MCP result reaches the renderer as-is, for MCP Apps.
   const toolUseResult =
     message.type === "user"
       ? (message.tool_use_result ?? undefined)
