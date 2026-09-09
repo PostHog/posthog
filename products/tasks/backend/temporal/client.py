@@ -641,6 +641,7 @@ def execute_posthog_code_agent_relay_workflow(
     delete_progress: bool = True,
     reaction_emoji: str | None = None,
     message_id: str | None = None,
+    trace_id: str | None = None,
 ) -> str:
     relay_id = relay_id or str(uuid.uuid4())
     workflow_id = f"posthog-code-agent-relay-{run_id}-{relay_id}"
@@ -657,6 +658,7 @@ def execute_posthog_code_agent_relay_workflow(
                 delete_progress=delete_progress,
                 reaction_emoji=reaction_emoji,
                 message_id=message_id,
+                trace_id=trace_id,
             ),
             id=workflow_id,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
