@@ -1190,8 +1190,8 @@ class TestStagedIncrementalCursor:
         pending = schema.sync_type_config["incremental_staged_pending"]
         assert len(pending) == STAGED_CURSOR_PENDING_LIMIT
         assert pending[0]["run_uuid"] == "run-4"
-        assert pending[-1]["run_uuid"] == "run-13"
-        assert schema.sync_type_config["incremental_staged"]["run_uuid"] == "run-14"
+        assert pending[-1]["run_uuid"] == f"run-{STAGED_CURSOR_PENDING_LIMIT + 3}"
+        assert schema.sync_type_config["incremental_staged"]["run_uuid"] == f"run-{STAGED_CURSOR_PENDING_LIMIT + 4}"
 
     def test_promote_reads_a_parked_cursor(self) -> None:
         schema = self._make_schema(
@@ -1231,15 +1231,35 @@ class TestStagedIncrementalCursor:
             assert schema.promote_staged_incremental_values("run-1") is True
         assert schema.sync_type_config["incremental_field_earliest_value"] == 5
 
-    def test_promote_orders_an_epoch_cursor_against_an_iso_cursor(self) -> None:
+    @parameterized.expand(
+        [
+            ("older_epoch_keeps_iso", IncrementalFieldType.DateTime, "2026-06-14T00:00:00+00:00", 1767225600),
+            ("older_iso_keeps_epoch", IncrementalFieldType.DateTime, 1781395200, "2026-01-01T00:00:00+00:00"),
+            ("older_epoch_keeps_naive_iso", IncrementalFieldType.DateTime, "2026-06-14T00:00:00", 1767225600),
+            ("older_epoch_keeps_date", IncrementalFieldType.Date, "2026-06-14", 1767225600),
+        ]
+    )
+    def test_promote_never_moves_last_value_backwards_across_an_epoch_and_a_string_cursor(
+        self, _name: str, field_type: IncrementalFieldType, current: Any, older: Any
+    ) -> None:
         schema = self._make_schema(
-            incremental_field_type=IncrementalFieldType.DateTime,
-            incremental_field_last_value="2026-06-14T15:33:31+00:00",
-            incremental_staged={"run_uuid": "run-1", "last_value": "2026-01-01T00:00:00+00:00"},
+            incremental_field_type=field_type,
+            incremental_field_last_value=current,
+            incremental_staged={"run_uuid": "run-1", "last_value": older},
         )
         with patch.object(schema, "save"):
             assert schema.promote_staged_incremental_values("run-1") is True
-        assert schema.sync_type_config["incremental_field_last_value"] == "2026-06-14T15:33:31+00:00"
+        assert schema.sync_type_config["incremental_field_last_value"] == current
+
+    def test_promote_advances_an_epoch_cursor_to_a_newer_iso_cursor(self) -> None:
+        schema = self._make_schema(
+            incremental_field_type=IncrementalFieldType.DateTime,
+            incremental_field_last_value=1767225600,
+            incremental_staged={"run_uuid": "run-1", "last_value": "2026-06-14T00:00:00+00:00"},
+        )
+        with patch.object(schema, "save"):
+            assert schema.promote_staged_incremental_values("run-1") is True
+        assert schema.sync_type_config["incremental_field_last_value"] == "2026-06-14T00:00:00+00:00"
 
     def test_promote_keeps_newest_when_cursors_cannot_be_ordered(self) -> None:
         schema = self._make_schema(
