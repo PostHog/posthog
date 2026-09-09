@@ -361,25 +361,28 @@ logs at info, carries `team_id`, and names a team the alert is counting. An abse
 writes no log record at all, so the `redis_missing` counter is the only signal that it
 happened.
 
-Query the shared replica first.
-That endpoint answered the read the metric counted, and the shared primary can hold a key the replica does not.
-`REDIS_READER_URL` can be unset, in which case reads go to `REDIS_URL` and the first two commands return the same answer.
+Query the replica of the cluster the gauge named.
+That endpoint answered the read the metric counted, and that cluster's primary can hold a key the replica does not.
+Either reader URL can be unset, in which case reads go to the matching writer URL and that cluster's two commands return the same answer.
 
 ```bash
-# Shared replica, the endpoint the reader served from
+# Shared replica, served to pods reporting reason="disabled" or reason="no_dedicated_client"
 redis-cli -u "$REDIS_READER_URL" exists "posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag"
 
 # Shared primary, which the mirror writes
 redis-cli -u "$REDIS_URL" exists "posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag"
 
-# Dedicated cluster, which Django writes first
+# Dedicated replica, served to pods reporting reason="dedicated"
+redis-cli -u "$FLAGS_REDIS_READER_URL" exists "posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag"
+
+# Dedicated primary, which Django writes first
 redis-cli -u "$FLAGS_REDIS_URL" exists "posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag"
 ```
 
 Absent on the replica of the cluster the reader served, and present on that cluster's primary,
 is replication lag rather than a lost entry.
 Rebuilding fixes nothing.
-Check replication lag on the shared cluster instead, and expect the alert to clear on its own.
+Check replication lag on that cluster instead, and expect the alert to clear on its own.
 
 Present on the dedicated cluster and absent on both shared endpoints isolates the fault to the
 mirror rather than to the writer. Absent everywhere means the entry was never built or has
