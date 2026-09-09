@@ -5,6 +5,7 @@ import { PersonUpdate } from '~/common/persons/person-update-batch'
 import {
     InternalPersonWithDistinctId,
     LifecycleMarkPerson,
+    PersonDistinctIdMapping,
     PersonRepository,
 } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
@@ -164,6 +165,10 @@ export class PersonHogPersonRepository implements PersonRepository {
                 this.postgres.fetchDistinctIdsForPersons(teamId, personIntIds, options)
             )
         }
+    }
+
+    fetchPersonDistinctIdMappings(_teamId: TeamId, _distinctIds: string[]): Promise<PersonDistinctIdMapping[]> {
+        return Promise.reject(new Error('fetchPersonDistinctIdMappings is not implemented for personhog'))
     }
 
     // All write operations delegate directly to Postgres
