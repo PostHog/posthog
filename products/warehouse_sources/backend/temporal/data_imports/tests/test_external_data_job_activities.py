@@ -30,6 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     trigger_schedule_buffer_one_activity,
     update_external_data_job_model,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
+    _CONNECTION_LIMIT_EXHAUSTED_MESSAGE,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -280,6 +283,15 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
             'connection failed: connection to server at "198.51.100.7", port 5432 failed: '
             "SSL SYSCALL error: EOF detected",
             TRANSIENT_SOURCE_CONNECTION_MESSAGE,
+        ),
+        # A connect-time capacity refusal. The generic map has no entry for it, so the Postgres
+        # source's own exhaustion message fills the gap.
+        (
+            "postgres_connection_limit",
+            ExternalDataSourceType.POSTGRES,
+            'connection failed: connection to server at "198.51.100.7", port 5432 failed: '
+            "FATAL: sorry, too many clients already",
+            _CONNECTION_LIMIT_EXHAUSTED_MESSAGE,
         ),
         # pymysql renders a mid-query drop as a bare code/message tuple.
         (
