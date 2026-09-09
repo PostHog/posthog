@@ -52,7 +52,10 @@ export async function saveOnboardingRepository({
   );
   if (integrationId === null) return 0;
 
-  const targetIds = planSpaceRepoAssignments(provisioned.channels);
+  const targetIds = planSpaceRepoAssignments(provisioned.channels, {
+    personalCreated: provisioned.personal_created,
+    generalCreated: provisioned.general_created,
+  });
   const updatedChannels = await Promise.all(
     targetIds.map((channelId) =>
       client.updateTaskChannelRepositories(channelId, integrationId, [
