@@ -91,8 +91,8 @@ export function useHandleOpenTask(): (
         markAsViewed(taskId);
         const channelTarget =
           bluebirdEnabled && task.channel
-            ? { channelId: task.channel }
-            : undefined;
+            ? { channelId: task.channel, newTab: true }
+            : { newTab: true };
         void openTaskHelper(task, channelTarget);
         if (comment) {
           useCommentNavigationStore
