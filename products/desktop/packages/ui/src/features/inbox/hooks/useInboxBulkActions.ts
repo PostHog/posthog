@@ -138,7 +138,7 @@ function formatBulkActionSummary(
     action === "suppress"
       ? `${pluralized} dismissed`
       : action === "snooze"
-        ? `${pluralized} snoozed`
+        ? `${pluralized} paused until new signals arrive`
         : action === "delete"
           ? `${pluralized} deleted`
           : action === "reingest"
@@ -424,6 +424,8 @@ export function useInboxBulkActions(
 
         if (result.failureCount > 0) {
           toast.error(formatBulkActionSummary("suppress", result));
+        } else {
+          toast.success(formatBulkActionSummary("suppress", result));
         }
       },
       onError: (error, _variables, context) => {
@@ -501,6 +503,8 @@ export function useInboxBulkActions(
 
         if (result.failureCount > 0) {
           toast.error(formatBulkActionSummary("snooze", result));
+        } else {
+          toast.success(formatBulkActionSummary("snooze", result));
         }
       },
       onError: (error, _variables, context) => {
