@@ -221,15 +221,18 @@ Examples of using breakdowns:
 
 # Examples
 
-## How many users signed up?
+## How many users signed up in the last 30 days?
+
+A single number over a period gets the `Metric` display: the headline plus how it moved against the previous period.
 
 ```json
 {
   "kind": "TrendsQuery",
   "series": [{ "kind": "EventsNode", "event": "user signed up", "math": "total" }],
   "dateRange": { "date_from": "-30d" },
-  "interval": "month",
-  "trendsFilter": { "display": "BoldNumber" }
+  "interval": "day",
+  "compareFilter": { "compare": true },
+  "trendsFilter": { "display": "Metric" }
 }
 ```
 
@@ -339,4 +342,4 @@ Examples of using breakdowns:
 - Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.
 - Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution.
 - When using group aggregations (unique groups), always set `math_group_type_index` to the appropriate group type index from the group mapping.
-- Visualization settings (display type, axis format, etc.) should only be specified when explicitly requested or when they significantly improve the answer.
+- Always set `trendsFilter.display` to match the shape of the answer: `Metric` for a single number over a period, `ActionsBarValue` or `ActionsPie` for a ranking or share across breakdown values, `WorldMap` for a country breakdown, and `ActionsLineGraph` for change over time. Leave the other visualization settings (axis format, labels, colors) at their defaults unless the user asks.
