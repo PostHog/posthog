@@ -25,6 +25,8 @@ export interface BehindScheduleModel {
     intervalSeconds: number
     /** Seconds since the last successful run, or since creation when it has never finished one. */
     ageSeconds: number
+    /** How far past the target the model has drifted. This is the number the table shows. */
+    overdueSeconds: number
 }
 
 /**
@@ -49,9 +51,9 @@ export function modelsBehindSchedule(nodes: DataModelingNode[], now: number): Be
         if (ageSeconds <= intervalSeconds * BEHIND_MULTIPLIER) {
             continue
         }
-        behind.push({ node, intervalSeconds, ageSeconds })
+        behind.push({ node, intervalSeconds, ageSeconds, overdueSeconds: ageSeconds - intervalSeconds })
     }
 
     // Cadence sets the expectation, so lateness is only comparable once divided by it.
-    return behind.sort((a, b) => b.ageSeconds / b.intervalSeconds - a.ageSeconds / a.intervalSeconds)
+    return behind.sort((a, b) => b.overdueSeconds - a.overdueSeconds)
 }

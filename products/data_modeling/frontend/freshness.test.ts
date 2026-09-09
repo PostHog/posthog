@@ -50,10 +50,13 @@ describe('modelsBehindSchedule', () => {
         expect(behind[0].ageSeconds).toEqual(10 * 3600)
     })
 
-    it('puts the model that missed the most runs first, not the oldest one', () => {
-        const daily = node('daily', { sync_interval: '24hour', last_run_at: hoursAgo(96) })
+    it('orders by how far past the target each model is, matching the column a reader sees', () => {
         const hourly = node('hourly', { sync_interval: '1hour', last_run_at: hoursAgo(20) })
+        const daily = node('daily', { sync_interval: '24hour', last_run_at: hoursAgo(96) })
 
-        expect(modelsBehindSchedule([daily, hourly], NOW).map((row) => row.node.name)).toEqual(['hourly', 'daily'])
+        const behind = modelsBehindSchedule([hourly, daily], NOW)
+
+        expect(behind.map((row) => row.node.name)).toEqual(['daily', 'hourly'])
+        expect(behind.map((row) => row.overdueSeconds)).toEqual([72 * 3600, 19 * 3600])
     })
 })

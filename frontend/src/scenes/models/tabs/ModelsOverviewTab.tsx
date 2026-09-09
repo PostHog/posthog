@@ -7,6 +7,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
+import { CADENCE_LABELS } from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
 import { urls } from 'scenes/urls'
 
 import { BehindScheduleModel } from 'products/data_modeling/frontend/freshness'
@@ -14,7 +15,6 @@ import { checkDisplayName } from 'products/data_quality/frontend/checksConstants
 import { CheckStatusCell } from 'products/data_quality/frontend/CheckStatusCell'
 import { DataQualityOverviewCheckApi } from 'products/data_quality/frontend/generated/api.schemas'
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
-import { SyncFrequencyLabelMap } from 'products/data_warehouse/frontend/utils'
 
 import { AttentionModel, modelsSceneLogic } from '../modelsSceneLogic'
 
@@ -107,15 +107,29 @@ const BEHIND_COLUMNS: LemonTableColumns<BehindScheduleModel> = [
         render: (_, row) => <LemonTableLink to={urls.nodeDetail(row.node.id)} title={row.node.name} />,
     },
     {
-        title: 'Refreshes',
+        title: 'Behind by',
+        key: 'behind',
+        width: 0,
+        sorter: (a, b) => a.overdueSeconds - b.overdueSeconds,
+        render: (_, row) => (
+            <Tooltip title={`This model should be no more than ${CADENCE_LABELS[row.node.sync_interval!]} old.`}>
+                <span className="whitespace-nowrap font-medium text-warning">
+                    {humanFriendlyDuration(row.overdueSeconds, { maxUnits: 2 })}
+                </span>
+            </Tooltip>
+        ),
+    },
+    {
+        title: 'Refreshes every',
         key: 'target',
         width: 0,
-        render: (_, row) => (row.node.sync_interval ? SyncFrequencyLabelMap[row.node.sync_interval] : '-'),
+        render: (_, row) => (row.node.sync_interval ? CADENCE_LABELS[row.node.sync_interval] : '-'),
     },
     {
         title: 'Last successful run',
         key: 'last_run_at',
         width: 0,
+        sorter: (a, b) => b.ageSeconds - a.ageSeconds,
         render: (_, row) =>
             row.node.last_run_at ? (
                 <TZLabel time={row.node.last_run_at} />
@@ -124,16 +138,6 @@ const BEHIND_COLUMNS: LemonTableColumns<BehindScheduleModel> = [
                     <span className="text-secondary">Never</span>
                 </Tooltip>
             ),
-    },
-    {
-        title: 'Behind by',
-        key: 'behind',
-        width: 0,
-        render: (_, row) => (
-            <span className="whitespace-nowrap">
-                {humanFriendlyDuration(row.ageSeconds - row.intervalSeconds, { maxUnits: 2 })}
-            </span>
-        ),
     },
 ]
 
@@ -168,13 +172,17 @@ function OverviewBody({
     failingChecks: DataQualityOverviewCheckApi[]
     checksLoading: boolean
 }): JSX.Element {
-    const { attentionModels, behindSchedule, nodesLoading } = useValues(modelsSceneLogic)
+    const { attentionModels, behindSchedule, nodesLoading, dataQualityTabEnabled } = useValues(modelsSceneLogic)
 
     if (!nodesLoading && attentionModels.length === 0 && behindSchedule.length === 0 && failingChecks.length === 0) {
         return (
             <div className="flex items-center gap-2" data-attr="models-overview-healthy">
                 <IconCheckCircle className="text-success text-xl" />
-                <span>Every model ran as scheduled and every check passed.</span>
+                <span>
+                    {dataQualityTabEnabled
+                        ? 'Every model is up to date and every check passed.'
+                        : 'Every model is up to date.'}
+                </span>
             </div>
         )
     }
