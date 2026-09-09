@@ -12,7 +12,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { workflowLogic } from '../../../workflowLogic'
 import { HogFlowAction } from '../../types'
 import {
-    AI_TASKS_PER_WORKFLOW_PER_DAY,
+    DEFAULT_AI_TASKS_PER_WORKFLOW_PER_DAY,
     TRIGGER_VOLUME_DAYS,
     countAiRunSteps,
     eventTriggerVolumeFilters,
@@ -39,7 +39,7 @@ export function TriggerVolumeEstimate({ action }: { action: HogFlowAction }): JS
     // Every AI step a run reaches creates its own task, so the tasks a day is the runs a day times
     // the steps, not the runs alone.
     const aiTasksPerDay = volume != null ? volume.perDay * aiSteps : 0
-    const overAiLimit = aiSteps > 0 && aiTasksPerDay > AI_TASKS_PER_WORKFLOW_PER_DAY
+    const overAiLimit = aiSteps > 0 && aiTasksPerDay > DEFAULT_AI_TASKS_PER_WORKFLOW_PER_DAY
     const perRunCopy = aiSteps > 1 ? `Each run can start up to ${aiSteps} AI tasks` : 'Each run starts an AI task'
 
     return (
@@ -70,7 +70,7 @@ export function TriggerVolumeEstimate({ action }: { action: HogFlowAction }): JS
                     />
                     {workflow.trigger_masking ? (
                         <p className="mb-0 text-secondary">
-                            Your frequency limit is not in this count, so the workflow starts fewer runs than this.
+                            Your frequency limit is not in this count, so the workflow may start fewer runs than this.
                         </p>
                     ) : null}
                     {overAiLimit ? (
@@ -89,9 +89,9 @@ export function TriggerVolumeEstimate({ action }: { action: HogFlowAction }): JS
                                     : undefined
                             }
                         >
-                            {perRunCopy}, and a workflow creates at most {AI_TASKS_PER_WORKFLOW_PER_DAY} tasks a day. At
-                            this volume most runs would be skipped, and the tasks that do run count toward your AI
-                            usage.{' '}
+                            {perRunCopy}, and a workflow stops at {DEFAULT_AI_TASKS_PER_WORKFLOW_PER_DAY} AI tasks a day
+                            by default. At this volume most runs would be skipped, and the tasks that do run count
+                            toward your AI usage.{' '}
                             {preflight?.cloud
                                 ? 'Narrow the trigger with filters, set a frequency limit, or ask PostHog to raise the limit.'
                                 : 'Narrow the trigger with filters, or set a frequency limit.'}

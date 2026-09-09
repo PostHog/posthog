@@ -14,11 +14,14 @@ export type EventTriggerFilters = Extract<TriggerAction['config'], { type: 'even
 export const TRIGGER_VOLUME_DAYS = 7
 
 /**
- * Tasks one workflow can create per day, mirroring WORKFLOW_TASK_RATE_CAP_PER_DAY in
- * products/tasks/backend/logic/services/workflow_tasks.py. Staff can raise it for a project, so
- * treat it as the default rather than an absolute.
+ * Tasks one workflow can create per day by default, mirroring WORKFLOW_TASK_RATE_CAP_PER_DAY in
+ * products/tasks/backend/logic/services/workflow_tasks.py.
+ *
+ * The default, not the effective cap: staff can set another value per project on
+ * `TeamWorkflowsConfig.workflow_task_rate_limit_per_day`, and no read API carries it, so the panel
+ * cannot know a project's real number. Copy that names it says so.
  */
-export const AI_TASKS_PER_WORKFLOW_PER_DAY = 100
+export const DEFAULT_AI_TASKS_PER_WORKFLOW_PER_DAY = 100
 
 // Function steps that start an agent run. Volume matters far more for these than for a send, so
 // they are what turns the estimate from a note into a warning.
