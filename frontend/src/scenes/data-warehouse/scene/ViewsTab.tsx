@@ -32,12 +32,14 @@ import { PAGE_SIZE, ViewTypeFilter, viewsTabLogic } from './viewsTabLogic'
 
 type ViewColumn = LemonTableColumn<DataWarehouseSavedQuery, keyof DataWarehouseSavedQuery | undefined>
 
-const VIEW_TYPE_TOOLTIP =
-    'A materialized view is refreshed on a schedule and stored as a table. A view runs its query each time it is read.'
+const VIEW_TYPE_TOOLTIPS = {
+    materialized: 'Refreshed on a schedule and stored as a table, so a read hits stored rows.',
+    view: 'Runs its query every time it is read.',
+}
 
 const TYPE_FILTER_OPTIONS: { value: ViewTypeFilter; label: string }[] = [
     { value: 'all', label: 'All types' },
-    { value: 'materialized', label: 'Materialized' },
+    { value: 'materialized', label: 'Materialized views' },
     { value: 'view', label: 'Views' },
 ]
 
@@ -181,7 +183,11 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
                         title={
                             <>
                                 {view.name}
-                                <Tooltip title={VIEW_TYPE_TOOLTIP}>
+                                <Tooltip
+                                    title={
+                                        view.is_materialized ? VIEW_TYPE_TOOLTIPS.materialized : VIEW_TYPE_TOOLTIPS.view
+                                    }
+                                >
                                     <LemonTag
                                         type={view.is_materialized ? 'highlight' : 'option'}
                                         size="small"

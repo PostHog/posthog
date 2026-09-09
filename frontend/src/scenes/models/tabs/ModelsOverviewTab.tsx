@@ -54,6 +54,12 @@ function ImpactCell({ row }: { row: AttentionModel }): JSX.Element {
     )
 }
 
+/** Not run statuses: these say whether anything will retry on its own, which is why suspension sorts first. */
+const PROBLEM_TOOLTIPS: Record<string, string> = {
+    Suspended: 'Scheduled runs have stopped after repeated failures. This model stays behind until you resume it.',
+    Failed: 'The last scheduled run failed. The next run will try again.',
+}
+
 const ATTENTION_COLUMNS: LemonTableColumns<AttentionModel> = [
     {
         title: 'Model',
@@ -65,7 +71,9 @@ const ATTENTION_COLUMNS: LemonTableColumns<AttentionModel> = [
         key: 'problem',
         width: 0,
         render: (_, row) => (
-            <LemonTag type={row.problem === 'Suspended' ? 'warning' : 'danger'}>{row.problem}</LemonTag>
+            <Tooltip title={PROBLEM_TOOLTIPS[row.problem]}>
+                <LemonTag type={row.problem === 'Suspended' ? 'warning' : 'danger'}>{row.problem}</LemonTag>
+            </Tooltip>
         ),
     },
     {
