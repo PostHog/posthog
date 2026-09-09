@@ -10,6 +10,7 @@ import {
 } from 'products/signals/frontend/generated/api'
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
 import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
+import { prettifyScoutSkillName } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 import { llmSkillsNameRetrieve } from 'products/skills/frontend/generated/api'
 
 import {
@@ -210,6 +211,37 @@ describe('scannerScoutLogic', () => {
         const [firstName, secondName] = mockScoutsCreate.mock.calls.map((call) => (call[2] as any).name)
         expect(firstName).toBe('signals-scout-rage-clicks-on-checkout-daily-digest')
         expect(secondName).toBe('signals-scout-rage-clicks-on-checkout-daily-digest-2')
+    })
+
+    it('changes only the schedule when a suffixed scout keeps its name', async () => {
+        // The settings form seeds its name field from the stored skill name, so a save that only
+        // touches the schedule must derive that same name back and skip the rename entirely.
+        // A scout whose name carries the `-2` a collision gave it is the case that used to break:
+        // the derived name lost the suffix, so every save asked for the first scout's name.
+        await mountWithReports([])
+        const fleet = scoutFleetLogic.findMounted()!
+        const suffixedName = 'signals-scout-checkout-funnel-friction-detector-daily-digest-2'
+        const config = makeConfig({ skill_name: suffixedName, output_destinations: {} })
+        fleet.actions.loadScoutConfigsSuccess([config])
+        mockSkillRetrieve.mockResolvedValue({ body: 'Watch this scanner.' } as any)
+        mockScoutConfigUpdate.mockResolvedValue({ ...config, run_cron_schedule: '0 10 * * *' })
+
+        logic.actions.openScoutSettings(suffixedName)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.saveScoutSettings({
+            name: prettifyScoutSkillName(suffixedName),
+            body: 'Watch this scanner.',
+            cron: '0 10 * * *',
+            outputDestinations: {},
+            webhookUrl: '',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockScoutConfigRename).not.toHaveBeenCalled()
+        expect(mockScoutConfigUpdate).toHaveBeenCalledWith(expect.any(String), config.id, {
+            run_cron_schedule: '0 10 * * *',
+        })
+        expect(logic.values.settingsSaveFailed).toBe(false)
     })
 
     it.each(['none', 'schedule', 'webhook'])(
