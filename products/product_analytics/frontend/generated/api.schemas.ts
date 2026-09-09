@@ -3125,6 +3125,8 @@ export const LifecycleToggleApi = {
 export interface LifecycleFilterApi {
     /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
     legendPosition?: LegendPositionApi | null
+    /** Decide the status of each period from the date range alone. The first activity in the range counts as new, and activity before the range is ignored. Off by default, when the person profile creation date decides what counts as new. */
+    onlyUseInsightDates?: boolean | null
     showLegend?: boolean | null
     /** Append per-band percentage to each value label (e.g. `580 (42%)`). Requires `showValuesOnSeries` — on its own it has no visible effect. */
     showPercentagesOnSeries?: boolean | null

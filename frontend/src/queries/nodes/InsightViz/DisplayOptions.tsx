@@ -13,6 +13,7 @@ import { DEFAULT_DECIMAL_PLACES } from 'lib/utils/numbers'
 import { AxisLabelsFilter } from 'scenes/insights/EditorFilters/AxisLabelsFilter'
 import { HideIncompleteConversionWindowPeriodsFilter } from 'scenes/insights/EditorFilters/HideIncompleteConversionWindowPeriodsFilter'
 import { LegendOptionsFilter } from 'scenes/insights/EditorFilters/LegendOptionsFilter'
+import { LifecycleInsightDatesFilter } from 'scenes/insights/EditorFilters/LifecycleInsightDatesFilter'
 import { LifecyclePercentagesFilter } from 'scenes/insights/EditorFilters/LifecyclePercentagesFilter'
 import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
 import { LineStylePicker } from 'scenes/insights/EditorFilters/LineStylePicker'
@@ -222,6 +223,7 @@ export const DisplayOptions = {
     MetricShowChange: { label: () => <MetricShowChangeFilter /> },
     MetricColor: { label: () => <MetricColorFilter /> },
     LifecycleStacking: { label: () => <LifecycleStackingFilter /> },
+    LifecycleInsightDates: { label: () => <LifecycleInsightDatesFilter /> },
     LifecyclePercentages: { label: () => <LifecyclePercentagesFilter /> },
     ValueLabels: { label: () => <ValueOnSeriesFilter /> },
     PercentStack: { label: () => <PercentStackViewFilter /> },

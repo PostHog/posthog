@@ -26,6 +26,7 @@ from posthog.schema import (
     HogQLPropertyFilter,
     IntervalType,
     LifecycleDataWarehouseNode,
+    LifecycleFilter,
     LifecycleQuery,
     PersonPropertyFilter,
     PropertyOperator,
@@ -784,17 +785,22 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-    def _create_query_runner(self, date_from, date_to, interval, days_of_week=None) -> LifecycleQueryRunner:
+    def _create_query_runner(
+        self, date_from, date_to, interval, days_of_week=None, only_use_insight_dates=False
+    ) -> LifecycleQueryRunner:
         series = [EventsNode(event="$pageview")]
         query = LifecycleQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to, daysOfWeek=days_of_week),
             interval=interval,
             series=series,
+            lifecycleFilter=LifecycleFilter(onlyUseInsightDates=only_use_insight_dates),
         )
         return LifecycleQueryRunner(team=self.team, query=query)
 
-    def _run_events_query(self, date_from, date_to, interval):
-        events_query = self._create_query_runner(date_from, date_to, interval).events_query
+    def _run_events_query(self, date_from, date_to, interval, only_use_insight_dates=False):
+        events_query = self._create_query_runner(
+            date_from, date_to, interval, only_use_insight_dates=only_use_insight_dates
+        ).events_query
         return execute_hogql_query(
             team=self.team,
             query="""
@@ -1169,6 +1175,23 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 (datetime(2020, 1, 12, 0, 0), 1, "new"),  # p3
                 (datetime(2020, 1, 12, 0, 0), 1, "resurrecting"),  # p2
                 (datetime(2020, 1, 12, 0, 0), 1, "returning"),  # p1
+                (datetime(2020, 1, 13, 0, 0), 1, "returning"),  # p1
+                (datetime(2020, 1, 13, 0, 0), 2, "dormant"),  # p2, p3
+                (datetime(2020, 1, 14, 0, 0), 1, "dormant"),  # p1
+            },
+            set(response.results),
+        )
+
+    def test_only_use_insight_dates_makes_first_period_activity_new(self):
+        # Every profile here was created before 2020-01-12, so the default classifier can only mark
+        # the first period 'returning' or 'resurrecting', and activity on the 11th turns it dormant.
+        self._create_test_events()
+
+        response = self._run_events_query("2020-01-12", "2020-01-14", IntervalType.DAY, only_use_insight_dates=True)
+
+        self.assertEqual(
+            {
+                (datetime(2020, 1, 12, 0, 0), 3, "new"),  # p1, p2, p3
                 (datetime(2020, 1, 13, 0, 0), 1, "returning"),  # p1
                 (datetime(2020, 1, 13, 0, 0), 2, "dormant"),  # p2, p3
                 (datetime(2020, 1, 14, 0, 0), 1, "dormant"),  # p1

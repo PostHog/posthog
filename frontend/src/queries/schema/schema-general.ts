@@ -2502,6 +2502,11 @@ export type LifecycleFilter = {
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     /** @default true */
     stacked?: boolean
+    /** Decide the status of each period from the date range alone. The first activity in the range
+     *  counts as new, and activity before the range is ignored. Off by default, when the person
+     *  profile creation date decides what counts as new.
+     * @default false */
+    onlyUseInsightDates?: boolean
 }
 
 // See posthog/hogql_queries/query_runner.py `ExecutionMode` for details on what the types mean

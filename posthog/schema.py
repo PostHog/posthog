@@ -5774,6 +5774,15 @@ class LifecycleFilter(BaseModel):
         default=LegendPosition.BOTTOM,
         description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
     )
+    onlyUseInsightDates: bool | None = Field(
+        default=False,
+        description=(
+            "Decide the status of each period from the date range alone. The first"
+            " activity in the range counts as new, and activity before the range is"
+            " ignored. Off by default, when the person profile creation date decides"
+            " what counts as new."
+        ),
+    )
     showLegend: bool | None = False
     showPercentagesOnSeries: bool | None = Field(
         default=None,

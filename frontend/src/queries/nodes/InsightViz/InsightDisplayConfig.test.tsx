@@ -253,6 +253,7 @@ describe('InsightDisplayConfig', () => {
                     sections: ['Display'],
                     displayItems: [
                         'Stack bars',
+                        'Only use insight dates',
                         'Show values on series',
                         'Show percentages on series',
                         'Show legendRight',
