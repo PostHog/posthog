@@ -13,11 +13,9 @@ from posthog.redis import get_client
 
 logger = structlog.get_logger(__name__)
 
-# A failed connect costs three attempts of REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS, and one
-# v3 batch opens the client several times (idempotency, retry tracking, the sync lock).
-# Once a connect has failed, hold the fallback for a window several times longer than that
-# burst, so an outage costs one dead connect and one report per window instead of one per
-# call. Recovery costs at most one window of unnecessary fallback.
+# One v3 batch opens the client several times, and each failed connect costs three attempts
+# of REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS. A window several times that burst holds the cost
+# to one dead connect and one report per window, and delays recovery by at most one window.
 CONNECT_FAILURE_COOLDOWN_SECONDS = 30.0
 
 _cooldown_until = 0.0
