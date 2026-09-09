@@ -396,7 +396,7 @@ export interface loginLogicMeta {
         linkedSocialProviders: (
             precheckResponse: PrecheckResponseType,
             precheckTrusted: boolean,
-            showsSocialLoginButtons: any
+            showsSocialLoginButtons: boolean
         ) => SSOProvider[]
     }
 }
