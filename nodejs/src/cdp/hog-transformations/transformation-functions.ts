@@ -152,6 +152,8 @@ function flattenPropertiesInternal(
         if (FLATTEN_PROPERTY_DENYLIST.includes(key)) {
             // Leave internal properties nested.
         } else if (key === '$set' || key === '$set_once' || key === '$group_set') {
+            // A flattened key that collides with an existing one wins, matching the legacy plugin:
+            // for `{$set: {a__b: 1, a: {b: 2}}}` the flattened `a__b: 2` replaces the literal `a__b: 1`.
             newProps[key] = { ...(props[key] as object), ...flattenPropertiesInternal(props[key], sep, [], budget) }
         } else if (
             Array.isArray(value) ||
