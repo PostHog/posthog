@@ -17,7 +17,7 @@ import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.se
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
-import { EmailService, parseAddressList, sanitizeEmailSubject } from './email.service'
+import { EmailService, parseAddressList, sanitizeEmailSubject, teamEmailCapBuckets } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 
@@ -796,6 +796,99 @@ describe('EmailService', () => {
                 )
                 expect(result.finished).toBe(true)
                 expect(cappedSendSpy).toHaveBeenCalled()
+            })
+
+            // Reproduces the tier-cap face of the 2026-09 email queue incident against the real
+            // limiter: a capped team's denied backlog used to park at the shared deficit horizon,
+            // wake as a herd, and rotate head-of-queue starvation across teams.
+            it('spreads a capped team over distinct slots while another team keeps sending', async () => {
+                const hourlyCap = 360
+                const dailyCap = 8640
+                const redis = createRedisV2PoolFromConfig({
+                    connection: hub.CDP_REDIS_HOST
+                        ? {
+                              url: hub.CDP_REDIS_HOST,
+                              options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                          }
+                        : { url: hub.REDIS_URL },
+                    poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+                    poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+                })
+                const limiter = new RateLimiterService(redis, { name: 'team-email-incident-test' })
+                const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
+                jest.spyOn(configService, 'getEmailSendingTier').mockResolvedValue(0)
+                const enforcedService = new EmailService(
+                    {
+                        sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                        sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                        sesRegion: hub.SES_REGION,
+                        sesEndpoint: hub.SES_ENDPOINT,
+                        sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
+                        sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                        teamEmailCapMode: 'enforce',
+                        teamEmailTierHourlyCaps: [hourlyCap],
+                        teamEmailTierDailyCaps: [dailyCap],
+                    },
+                    hub.integrationManager,
+                    configService,
+                    hub.ENCRYPTION_SALT_KEYS,
+                    hub.SITE_URL,
+                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+                    new RecipientsManagerService(hub.postgres),
+                    undefined,
+                    null,
+                    limiter
+                )
+                const enforcedSendSpy = jest.spyOn(enforcedService.sesV2Client!, 'send') as any
+                enforcedSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                // Drain the capped team's hourly bucket so every send below is a denial. The
+                // 0.1 tokens/s refill makes the slot spacing 10s, far above test wall-clock.
+                const buckets = teamEmailCapBuckets(team.id, hourlyCap, dailyCap)
+                await limiter.claimUpTo({
+                    key: buckets[0].key,
+                    requested: hourlyCap,
+                    capacity: buckets[0].capacity,
+                    refillPerSecond: buckets[0].refillPerSecond,
+                })
+
+                const parkedAt: number[] = []
+                for (let i = 0; i < 4; i++) {
+                    const denied = await enforcedService.executeSendEmail(invocation)
+                    expect(denied.finished).toBe(false)
+                    parkedAt.push(denied.invocation.queueScheduledAt!.toMillis())
+                }
+                // Distinct slots one token interval apart, not a herd at the shared horizon.
+                for (let i = 1; i < parkedAt.length; i++) {
+                    const gapMs = parkedAt[i] - parkedAt[i - 1]
+                    expect(gapMs).toBeGreaterThan(9_000)
+                    expect(gapMs).toBeLessThan(11_000)
+                }
+
+                // A second team's buckets are cold, so its send goes straight out. Tier caps
+                // isolate per team; the capped team's backlog must not reach anyone else.
+                const otherTeam = (await createTestTeamFixture(hub.postgres)).team
+                await insertIntegration(hub.postgres, otherTeam.id, {
+                    id: otherTeam.id + 1,
+                    kind: 'email',
+                    config: {
+                        email: 'test@posthog.com',
+                        name: 'Test User',
+                        domain: 'posthog.com',
+                        verified: true,
+                        provider: 'ses',
+                    },
+                })
+                const other = createExampleInvocation({ team_id: otherTeam.id, id: 'function-other-team' })
+                other.id = 'invocation-other-team'
+                other.state.vmState = { stack: [] } as any
+                other.queueParameters = createEmailParams()
+                other.queueParameters.from = { integrationId: otherTeam.id + 1 }
+                const otherResult = await enforcedService.executeSendEmail(other)
+
+                expect(otherResult.finished).toBe(true)
+                expect(enforcedSendSpy).toHaveBeenCalledTimes(1)
             })
         })
     })
