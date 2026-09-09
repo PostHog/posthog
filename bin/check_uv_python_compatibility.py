@@ -11,12 +11,11 @@ The shape we enforce:
   breaking the moment master ships a new pin. Raise the floor only when the
   code on master genuinely requires a newer uv feature.
 
-- .github/actions/setup-uv/action.yml holds CI's exact uv version. A job whose
-  workspace is a PR head tree cannot reach it — a local action added on master
-  is absent there until the branch rebases — so those jobs, and the .depot
-  shadow's own copies, keep a matching exact pin inline. Exact pins avoid the
-  historical GitHub API rate-limit issue caused by range resolution
-  (astral-sh/setup-uv#325).
+- .github/actions/setup-uv/action.yml holds CI's exact uv version. The Depot
+  mirror and jobs that check out older revisions keep matching exact pins.
+  Exact pins prevent CI from floating to a new release. setup-uv v7.6.0 uses
+  a static manifest rather than the rate-limited releases API used by v7.3.0.
+  See docs/internal/uv-in-ci.md before changing the installation path.
 
 - .flox/env/manifest.toml mirrors the CI pin for parity between local dev and
   CI. Comparison is on major.minor to allow patch drift.
@@ -131,12 +130,15 @@ def get_uv_pins_from_ci_files() -> dict[str, list[str | None]]:
             if "setup-uv@" not in line:
                 continue
             version: str | None = None
-            for lookahead in lines[i + 1 : i + 6]:
-                if re.match(r"^\s+-\s+name:", lookahead):
+            step_indent = len(line) - len(line.lstrip()) - (0 if line.lstrip().startswith("- ") else 2)
+            for lookahead in lines[i + 1 :]:
+                if not lookahead.strip() or lookahead.lstrip().startswith("#"):
+                    continue
+                if len(lookahead) - len(lookahead.lstrip()) <= step_indent:
                     break
-                m = re.match(r"^\s+version:\s*['\"]?([0-9.]+)['\"]?", lookahead)
+                m = re.fullmatch(r"\s+version:\s*(['\"]?)(\d+\.\d+\.\d+)\1\s*(?:#.*)?", lookahead)
                 if m:
-                    version = m.group(1)
+                    version = m.group(2)
                     break
             path = str(ci_file.relative_to(repo_root))
             uv_usages.setdefault(path, []).append(version)
@@ -222,8 +224,8 @@ def check_workflow_pins() -> tuple[bool, str | None]:
         for name in missing_pins:
             print(f"  - {name}")
         print()
-        print("  Without an exact pin, setup-uv may resolve via GitHub API and")
-        print("  hit rate limits under concurrent load (astral-sh/setup-uv#325).")
+        print("  Use the shared setup-uv action, or an exact pin for an older-revision job.")
+        print("  See docs/internal/uv-in-ci.md for the installation and rate-limit rules.")
         ok = False
 
     workflow_pin: str | None = None

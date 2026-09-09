@@ -93,7 +93,10 @@ jobs:
                         - .github/workflows/ci-dagster.yml
                         - .github/workflows/ci-backend.yml
                         - .github/actions/setup-uv/**
+                        - .depot/actions/setup-uv/**
+                        - '.depot/workflows/*.yml'
                         - .flox/env/manifest.toml
+                        - .flox/env/manifest.lock
                         # Schema changes need to trigger Python CI to validate schema.py is regenerated
                         - 'frontend/src/queries/schema.json'
                         # Products changes need to trigger Python CI to validate the json usage is still valid
@@ -196,10 +199,6 @@ jobs:
             - name: Install uv
               id: setup-uv
               uses: ./.github/actions/setup-uv
-              with:
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Check uv and Python version compatibility
               shell: bash
