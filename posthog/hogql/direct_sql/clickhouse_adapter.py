@@ -279,7 +279,10 @@ class ClickHouseAdapter:
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
         from clickhouse_connect.driver.exceptions import ClickHouseError
 
-        from products.warehouse_sources.backend.facade.source_management import ClickHouseConnectionError
+        from products.warehouse_sources.backend.facade.source_management import (
+            ClickHouseConnectionError,
+            DatabaseHostNotAllowedError,
+        )
 
         source = request.source
         clickhouse_source, config = self.validate_source_config(source, request.team)
@@ -319,6 +322,7 @@ class ClickHouseAdapter:
             OSError,
             BaseSSHTunnelForwarderError,
             ExposedHogQLError,
+            DatabaseHostNotAllowedError,
         ) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if request.debug:

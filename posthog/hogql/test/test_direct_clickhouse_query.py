@@ -1,7 +1,12 @@
+import socket
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
+from django.test import override_settings
+
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import HogQLQueryExecutor
 
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
@@ -13,9 +18,11 @@ DIRECT_CLICKHOUSE_URL_PATTERN = "direct://clickhouse"
 DIRECT_CLICKHOUSE_DATABASE_OPTION = "direct_clickhouse_database"
 DIRECT_CLICKHOUSE_TABLE_OPTION = "direct_clickhouse_table"
 
+_MIXINS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
+
 
 class TestDirectClickHouseQuery(APIBaseTest):
-    def _create_source(self, *, database: str) -> ExternalDataSource:
+    def _create_source(self, *, database: str, host: str = "localhost") -> ExternalDataSource:
         return ExternalDataSource.objects.create(
             team=self.team,
             source_id=str(uuid4()),
@@ -25,7 +32,7 @@ class TestDirectClickHouseQuery(APIBaseTest):
             access_method=ExternalDataSource.AccessMethod.DIRECT,
             prefix="ch",
             job_inputs={
-                "host": "localhost",
+                "host": host,
                 "port": 8443,
                 "database": database,
                 "user": "readonly_direct_connect",
@@ -66,6 +73,38 @@ class TestDirectClickHouseQuery(APIBaseTest):
         sql, _context = executor.generate_clickhouse_sql()
         # Normalize away identifier backticks so the assertion is agnostic to escaping.
         return sql.replace("`", "")
+
+    # Staging rather than US or EU, because the internal-host allowlist there exempts one team id
+    # per region and this test cannot choose the team it gets.
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
+    def test_a_host_rejected_at_connect_is_exposed(self):
+        # The host check before the query passes, then the record answers with an internal address
+        # on the connect-time check a moment later. That is the short-TTL flip the check exists to
+        # catch, and the refusal is raised inside the execute block, so it has to reach the same
+        # handler a driver error does rather than surface as an unexpected server error.
+        source = self._create_source(database="posthog", host="db.example.com")
+        self._create_table(source)
+
+        def _answers_with(address: str) -> list[tuple]:
+            return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, 0))]
+
+        executor = HogQLQueryExecutor(query="SELECT id FROM events", team=self.team, connection_id=str(source.id))
+
+        with (
+            patch(
+                f"{_MIXINS_MODULE}.socket.getaddrinfo",
+                side_effect=[_answers_with("52.1.2.3"), _answers_with("10.0.0.5")],
+            ),
+            patch(f"{_MIXINS_MODULE}.logger"),
+        ):
+            with self.assertRaises(ExposedHogQLError) as error:
+                executor.execute()
+
+        self.assertEqual(
+            str(error.exception),
+            "Database host not allowed: This host points to an internal or private IP address, "
+            "which PostHog can't reach. Use a host that's reachable from the public internet.",
+        )
 
     def test_uses_the_sources_configured_database(self):
         source = self._create_source(database="posthog")
