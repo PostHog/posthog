@@ -46,6 +46,18 @@ describe('timestamp-parser.template', () => {
         expect(result.properties.minute).toBe(37)
     })
 
+    it('reads a pre-2001 millisecond timestamp as milliseconds, not seconds', async () => {
+        // 2000-01-01T00:00:00Z in milliseconds. Below the old threshold, this was misread as
+        // seconds and produced a year around 31970.
+        mockGlobals = tester.createGlobals({
+            event: { timestamp: 946684800000 as unknown as string, properties: {} },
+        })
+
+        const result = await invoke(mockGlobals)
+
+        expect(result.properties.year).toBe(2000)
+    })
+
     it('writes no date properties for an unparseable timestamp', async () => {
         mockGlobals = tester.createGlobals({
             event: { timestamp: 'not a real timestamp', properties: { keep: 'me' } },

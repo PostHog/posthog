@@ -23,8 +23,9 @@ let dt := null
 if (typeof(ts) == 'string') {
     dt := toDateTime(ts)
 } else if (typeof(ts) == 'integer' or typeof(ts) == 'float') {
-    // Values large enough to be milliseconds since the epoch are read as milliseconds.
-    dt := ts > 999999999999 ? fromUnixTimestampMilli(ts) : fromUnixTimestamp(ts)
+    // 9999999999 seconds is year 2286, so any larger value is milliseconds. This keeps
+    // millisecond timestamps from before 2001 from being read as far-future second timestamps.
+    dt := ts > 9999999999 ? fromUnixTimestampMilli(ts) : fromUnixTimestamp(ts)
 }
 
 // A string that is not a real timestamp still yields a DateTime, so check that a date part comes
