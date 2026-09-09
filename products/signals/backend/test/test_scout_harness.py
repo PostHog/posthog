@@ -23,6 +23,7 @@ from django.utils import timezone
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
+from temporalio.exceptions import ActivityError, TimeoutError, TimeoutType
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -65,7 +66,12 @@ from products.signals.backend.scout_harness.skill_loader import (
     resolve_scout_acting_user_id,
 )
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
-from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, run_signals_scout_activity
+from products.signals.backend.temporal.agentic.scout_scheduler import (
+    RunSignalsScoutInput,
+    RunSignalsScoutOutput,
+    RunSignalsScoutWorkflow,
+    run_signals_scout_activity,
+)
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable
@@ -2627,6 +2633,107 @@ class TestRunRowProvenanceStamps(BaseTest):
             business_knowledge_maintained=True,
         )
         assert (run.metadata or {})["business_knowledge_maintained"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("workflow_origin_key,wakes", [("job:step:1", True), (None, False)])
+async def test_activity_wakes_the_workflow_step_that_started_the_run(ateam, workflow_origin_key, wakes):
+    async def fake_arun(**_kwargs):
+        return RunResult(
+            run_id="abc",
+            task_run_id="def",
+            status="completed",
+            last_message="Two regressions found",
+            runtime_s=1.5,
+            skill_name="signals-scout-errors",
+            skill_version=2,
+        )
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.arun_signals_scout", side_effect=fake_arun),
+        patch("products.signals.backend.temporal.agentic.scout_scheduler.emit_workflow_step_resume") as resume,
+    ):
+        await ActivityEnvironment().run(
+            run_signals_scout_activity,
+            RunSignalsScoutInput(
+                team_id=ateam.id, skill_name="signals-scout-errors", workflow_origin_key=workflow_origin_key
+            ),
+        )
+
+    assert resume.call_count == (1 if wakes else 0)
+    if wakes:
+        resume.assert_called_once_with(
+            team_id=ateam.id,
+            origin_key="job:step:1",
+            status="completed",
+            result={"run_id": "abc", "summary": "Two regressions found", "error_message": None},
+            raise_on_error=False,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["completed", "preflight_error", "timeout", "cancelled"])
+@pytest.mark.parametrize("workflow_origin_key", ["job:step:1", None])
+async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_cannot(outcome, workflow_origin_key):
+    output = RunSignalsScoutOutput(
+        run_id="abc",
+        task_run_id="def",
+        status="completed",
+        runtime_s=1.5,
+        skill_name="signals-scout-errors",
+        skill_version=2,
+        last_message="Two regressions found",
+    )
+    error = ActivityError(
+        "Scout activity failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="worker",
+        activity_type="run_signals_scout_activity",
+        activity_id="scout",
+        retry_state=None,
+    )
+    error.__cause__ = (
+        TimeoutError("Heartbeat timed out", type=TimeoutType.HEARTBEAT, last_heartbeat_details=[])
+        if outcome == "timeout"
+        else RuntimeError("Preflight failed")
+    )
+
+    async def execute_activity(activity_function, input=None, **kwargs):
+        if activity_function is run_signals_scout_activity:
+            if outcome == "cancelled":
+                raise asyncio.CancelledError()
+            if outcome != "completed":
+                raise error
+            return output
+        return ActivityEnvironment().run(activity_function, *kwargs["args"])
+
+    with (
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.patched", return_value=True
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.execute_activity",
+            side_effect=execute_activity,
+        ),
+        patch("products.signals.backend.temporal.agentic.scout_scheduler.emit_workflow_step_resume") as resume,
+    ):
+        workflow = RunSignalsScoutWorkflow()
+        input = RunSignalsScoutInput(team_id=7, skill_name=output.skill_name, workflow_origin_key=workflow_origin_key)
+        if outcome == "completed":
+            assert await workflow.run(input) == output
+        else:
+            with pytest.raises(asyncio.CancelledError if outcome == "cancelled" else ActivityError):
+                await workflow.run(input)
+
+    if workflow_origin_key is None:
+        resume.assert_not_called()
+    else:
+        resume.assert_called_once()
+        assert resume.call_args.kwargs["origin_key"] == workflow_origin_key
+        assert resume.call_args.kwargs["status"] == (outcome if outcome in ("completed", "cancelled") else "failed")
+        assert resume.call_args.kwargs["raise_on_error"] is True
 
 
 class TestScoutRunTokenCosts(BaseTest):
