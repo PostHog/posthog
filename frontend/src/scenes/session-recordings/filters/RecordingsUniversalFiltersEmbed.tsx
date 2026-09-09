@@ -89,6 +89,7 @@ import {
     DURATION_KEYS,
     deriveOperand,
     isValidRecordingOrder,
+    normalizeMaxRecordingFilters,
     recordingsQueryToUniversalFilters,
 } from './recordingsQueryConversions'
 import { SavedFilters } from './SavedFilters'
@@ -189,12 +190,13 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     // shape the filter bar cannot read. Keep the filters the user has and tell them, rather than replace
     // their work with a filter set the list cannot apply.
     const applyFilters = (toolOutput: Record<string, any>): void => {
-        if (!isValidRecordingFilters(toolOutput?.recordings_filters)) {
+        const recordingsFilters = normalizeMaxRecordingFilters(toolOutput?.recordings_filters)
+        if (!isValidRecordingFilters(recordingsFilters)) {
             lemonToast.error('Max could not apply those filters. Ask again, or set them yourself.')
             setIsFiltersExpanded(true)
             return
         }
-        setFilters(toolOutput.recordings_filters)
+        setFilters(recordingsFilters)
         setIsFiltersExpanded(true)
     }
 

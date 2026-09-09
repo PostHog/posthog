@@ -53,6 +53,30 @@ export function isValidRecordingOrder(order: unknown): boolean {
     return !!order && isString(order) && VALID_RECORDING_ORDERS.includes(order as RecordingOrder)
 }
 
+/**
+ * The replay filter tool's schema and prompt let the agent send null for these fields. A null
+ * `filter_test_accounts` means "include all". The filter bar has no null for them, so replace each
+ * explicit null with the default the tool documents. A key the agent left out stays out, because
+ * `setFilters` merges a partial and a stamped default would overwrite the viewer's own choice.
+ */
+export function normalizeMaxRecordingFilters(filters: Record<string, any>): Record<string, any> {
+    if (!filters || typeof filters !== 'object') {
+        return filters
+    }
+
+    const normalized = { ...filters }
+    if (normalized.filter_test_accounts === null) {
+        normalized.filter_test_accounts = false
+    }
+    if (normalized.order === null) {
+        normalized.order = DEFAULT_RECORDING_FILTERS_ORDER_BY
+    }
+    if (normalized.order_direction === null) {
+        normalized.order_direction = 'DESC'
+    }
+    return normalized
+}
+
 // Normalizes a single property filter's value if it has a multi-select operator.
 function normalizePropertyFilter<T extends { operator?: unknown; value?: unknown; type?: unknown }>(filter: T): T {
     if (
