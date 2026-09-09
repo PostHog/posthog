@@ -13,8 +13,16 @@ import {
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { logsImpactCreate } from 'products/logs/frontend/generated/api'
-import type { _LogsCountBodyApi, _LogsImpactResponseApi } from 'products/logs/frontend/generated/api.schemas'
-import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
+import type {
+    _LogsCountBodyApi,
+    _LogsImpactGroupKeyApi,
+    _LogsImpactResponseApi,
+} from 'products/logs/frontend/generated/api.schemas'
+import {
+    DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
+    DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS,
+    logsConfigLogic,
+} from 'products/logs/frontend/logsConfigLogic'
 
 import type { LogsQuery } from '../../../../../frontend/src/queries/schema/schema-general'
 
@@ -160,33 +168,34 @@ export const logsImpactLogic = kea<logsImpactLogicType>([
             loadImpact: () => null,
         },
     }),
-    listeners(({ actions, values }) => ({
-        // runQuery is the viewer's execute-this-query entrypoint, so the strip refreshes with
-        // the query rather than coupling to the sparkline loader's schedule. Bursts (typing)
-        // collapse in loadImpact's own breakpoint.
-        runQuery: () => actions.loadImpact(null),
-        groupBySessions: () => {
-            // The backend names the (source, key) dimension that carries the session ID on
-            // most matching logs, so the pivot groups by the key the data actually uses. The
-            // fallback covers a stale response: the team's first configured key, then the
-            // default the SDKs emit.
-            const groupKey = values.impact?.sessionGroupKey
+    listeners(({ actions, values }) => {
+        // The backend names the (source, key) dimension that carries the ID on most matching
+        // logs, so the pivot groups by the key the data actually uses. The fallback covers a
+        // stale response: the team's first configured key, then the default the SDKs emit.
+        const pivotToGroup = (groupKey: _LogsImpactGroupKeyApi | null | undefined, fallbackKey: string): void => {
             const dimension: LogsViewerGroupBy = groupKey
                 ? { key: groupKey.key, source: groupKey.source }
-                : { key: values.configuredSessionIdKeys?.[0] ?? 'sessionId', source: 'log' }
+                : { key: fallbackKey, source: 'log' }
             actions.setGroupBys([dimension])
             actions.setViewMode('group')
-        },
-        // Same contract as groupBySessions, for the distinct ID dimension.
-        groupByUsers: () => {
-            const groupKey = values.impact?.personGroupKey
-            const dimension: LogsViewerGroupBy = groupKey
-                ? { key: groupKey.key, source: groupKey.source }
-                : { key: values.configuredDistinctIdKeys?.[0] ?? 'posthogDistinctId', source: 'log' }
-            actions.setGroupBys([dimension])
-            actions.setViewMode('group')
-        },
-    })),
+        }
+        return {
+            // runQuery is the viewer's execute-this-query entrypoint, so the strip refreshes with
+            // the query rather than coupling to the sparkline loader's schedule. Bursts (typing)
+            // collapse in loadImpact's own breakpoint.
+            runQuery: () => actions.loadImpact(null),
+            groupBySessions: () =>
+                pivotToGroup(
+                    values.impact?.sessionGroupKey,
+                    values.configuredSessionIdKeys?.[0] ?? DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS[0]
+                ),
+            groupByUsers: () =>
+                pivotToGroup(
+                    values.impact?.personGroupKey,
+                    values.configuredDistinctIdKeys?.[0] ?? DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY
+                ),
+        }
+    }),
     afterMount(({ actions }) => {
         // The data logic usually mounts (and fires its initial runQuery) before this logic
         // exists, so the first load has to be explicit.
