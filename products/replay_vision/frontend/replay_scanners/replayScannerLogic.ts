@@ -68,6 +68,7 @@ import { clampDurationFilter, durationFilterError } from './durationBounds'
 import {
     ExperimentScannerContext,
     buildExperimentTargeting,
+    experimentScannerName,
     parseExperimentScannerParams,
     prefillScannerForExperiment,
     reconcileVariantKey,
@@ -1814,17 +1815,41 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 ) {
                     return
                 }
-                actions.resetScanner(newScanner(null, teamLogic.values.currentTeam?.name))
+                // An experiment prefill (targeting, scoped name, test-account setting) has to survive
+                // the AI draft the same way it survives a template pick, or a scanner started from an
+                // experiment would end up watching every visitor instead of the participants. A draft
+                // that named an experiment itself is fresher intent, so it wins.
+                const context = goalDraft.experiment_targeting ? null : values.experimentContext
+                if (goalDraft.experiment_targeting && values.experimentContext) {
+                    // rebuildExperimentContext keeps a card whose experiment id already matches, so a
+                    // draft that renames the variant would leave the Recordings step showing the old
+                    // one while the scanner saves the new one. Drop the card and let it rebuild.
+                    actions.setExperimentContext(null)
+                }
+                const base = newScanner(null, teamLogic.values.currentTeam?.name)
+                actions.resetScanner(context ? prefillScannerForExperiment(base, context) : base)
+                const draftQuery = goalDraft.query as RecordingsQuery | undefined
                 // Applied as form values (not baked into the reset) so the draft persists like hand-edited
                 // input and survives a reload of the configure step.
                 actions.setScannerValues({
-                    name: goalDraft.name,
+                    name: context ? experimentScannerName(goalDraft.name, context.experiment.name) : goalDraft.name,
                     description: goalDraft.description,
                     scanner_type: goalDraft.scanner_type as ScannerType,
                     scanner_config: goalDraft.scanner_config as ScannerConfig,
                     // The drafted session filter (when the goal mapped to real screens or events); the
-                    // triggers step shows it for review like any hand-picked filter.
-                    ...(goalDraft.query ? { query: goalDraft.query as RecordingsQuery } : {}),
+                    // triggers step shows it for review like any hand-picked filter. Under an
+                    // experiment prefill it keeps that experiment's test-account setting.
+                    ...(draftQuery
+                        ? {
+                              query: context
+                                  ? {
+                                        ...draftQuery,
+                                        filter_test_accounts:
+                                            context.experiment.exposure_criteria?.filterTestAccounts ?? false,
+                                    }
+                                  : draftQuery,
+                          }
+                        : {}),
                     // A goal-flow draft also solves the budget dials; legacy drafts keep the wizard defaults.
                     ...(goalDraft.sampling_mode ? { sampling_mode: goalDraft.sampling_mode as SamplingMode } : {}),
                     ...(goalDraft.sampling_rate != null ? { sampling_rate: goalDraft.sampling_rate } : {}),
@@ -1837,7 +1862,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // The experiment the goal named, if any. It watches that experiment's
                     // participants, which the query itself can't express — the backend derives the
                     // exposure filter from this field at scan time.
-                    experiment_targeting: goalDraft.experiment_targeting ?? null,
+                    experiment_targeting:
+                        goalDraft.experiment_targeting ?? (context ? buildExperimentTargeting(context) : null),
                 })
                 // Loads the targeted experiment so the Triggers step shows its card and variant
                 // picker, the same way it does for a scanner started from the experiment itself.
