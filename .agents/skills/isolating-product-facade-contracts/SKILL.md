@@ -271,6 +271,9 @@ records the decrease. See `products/architecture.md` § Wiring couplings.
 - Keep facades thin; put business rules behind the facade, in `logic/` by default. Other internal packages (`services/`, `reviewer/`, …) are fine as long as they stay behind the facade.
 - Transaction boundaries belong in the facade (or logic), not in views.
 - Never return ORM models across product boundaries.
+- `hogli product:lint` reads the facade signatures for ORM and DRF types and for logic in a
+  capability submodule. `products/facade_shape_baseline.txt` records what the facades do today
+  and only shrinks, so a new finding fails the lint.
 - Declare every relation field that crosses a product boundary with
   `related_name="+"` — the reverse-accessor ratchet blocks new unsealed ones.
 - Do not register a signal receiver on another boundary's sender; use the moves

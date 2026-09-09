@@ -72,6 +72,12 @@ products/mcp_store/backend/catalog.py @PostHog/team-self-driving @cvolzer3
 # entry. Removals are the mechanical result of a product sealing and are a rubber stamp.
 products/isolation_baseline.txt @PostHog/team-devex
 
+# Adding a line here records a facade that hands a Django or a DRF type across its boundary, or a
+# capability submodule that holds logic. The list only shrinks, so a new row is a decision to ship
+# the coupling rather than a step in the migration. Removals are the mechanical result of a facade
+# returning contracts and are a rubber stamp.
+products/facade_shape_baseline.txt @PostHog/team-devex
+
 # Workflows owns CDP, Workflows and Messaging, and the entries below gate the parts
 # where another team's change breaks a customer silently: the API and models decide
 # which of a tenant's rows get listed and updated, and the plugin-server worker
