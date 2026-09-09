@@ -8,6 +8,7 @@ from posthog.management.commands.start_temporal_worker import (
     WA_DIGEST_WORKFLOWS,
     WEEKLY_DIGEST_WORKFLOWS,
     _task_queue_specs,
+    resolve_queue_registrations,
     workflows_include_data_import_syncs,
 )
 
@@ -33,6 +34,14 @@ def test_wizard_queue_registers_workflows_and_activities() -> None:
     assert WIZARD_ACTIVITIES
     assert set(WIZARD_WORKFLOWS) <= workflows
     assert set(WIZARD_ACTIVITIES) <= activities
+
+
+def test_unknown_queue_raises_instead_of_registering_an_empty_worker() -> None:
+    # A missing registration must fail loudly at boot. The registry dicts are
+    # defaultdicts, so a silent empty lookup reaches Temporal and surfaces as the
+    # opaque "At least one activity... must be specified" error.
+    with pytest.raises(ValueError, match="not-a-registered-queue"):
+        resolve_queue_registrations("not-a-registered-queue")
 
 
 # Data-import sources import vendor SDKs (google-ads, etc.) that register protobuf descriptors into a

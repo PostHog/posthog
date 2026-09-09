@@ -554,6 +554,18 @@ WORKFLOWS_DICT = _workflows
 ACTIVITIES_DICT = _activities
 
 
+def resolve_queue_registrations(
+    task_queue: str,
+) -> tuple[list[type[PostHogWorkflow]], list[typing.Callable[..., typing.Any]]]:
+    # The dicts are defaultdicts, so a plain lookup silently returns empty lists and Temporal
+    # rejects the worker with an opaque "no activities" error. Fail on an unregistered queue
+    # with the real cause instead.
+    if task_queue not in WORKFLOWS_DICT or task_queue not in ACTIVITIES_DICT:
+        raise ValueError(f'Task queue "{task_queue}" not found in WORKFLOWS_DICT or ACTIVITIES_DICT')
+
+    return list(WORKFLOWS_DICT[task_queue]), list(ACTIVITIES_DICT[task_queue])
+
+
 def workflows_include_data_import_syncs(workflows: collections.abc.Iterable[type]) -> bool:
     """True when this worker runs data-warehouse source syncs and must eagerly load the sources."""
     return any(wf in DATA_SYNC_WORKFLOWS for wf in workflows)
@@ -686,11 +698,7 @@ class Command(BaseCommand):
         health_max_idle_seconds = options.get("health_max_idle_seconds", None)
         disable_combined_metrics_server = options.get("disable_combined_metrics_server", False)
 
-        try:
-            workflows = list(WORKFLOWS_DICT[task_queue])
-            activities = list(ACTIVITIES_DICT[task_queue])
-        except KeyError:
-            raise ValueError(f'Task queue "{task_queue}" not found in WORKFLOWS_DICT or ACTIVITIES_DICT')
+        workflows, activities = resolve_queue_registrations(task_queue)
 
         # Data-import source modules import vendor SDKs (google-ads, etc.) at module scope, and those
         # SDKs register protobuf descriptors into a process-global pool that rejects a second
