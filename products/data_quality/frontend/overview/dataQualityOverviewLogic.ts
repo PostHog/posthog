@@ -78,14 +78,11 @@ function subjectRefOf(check: DataQualityOverviewCheckApi): DataQualitySubjectRef
 /** Where the subject's own page lives, or null when it has none and the name renders as text. */
 export function subjectDetailUrl(check: DataQualityOverviewCheckApi): string | null {
     if (check.subject_type === 'metric') {
+        // The catalog addresses a metric by name, so a row that came without one has no route.
         return check.subject_metric_name ? urls.dataCatalogMetric(check.subject_metric_name, 'tests') : null
     }
     if (check.subject_type === 'view') {
         return check.subject_node_id ? urls.nodeDetail(check.subject_node_id, 'tests') : null
-    }
-    if (check.subject_type === 'metric') {
-        // The catalog addresses a metric by name, so a row that came without one has no route.
-        return check.subject_metric_name ? urls.dataCatalogMetric(check.subject_metric_name) : null
     }
     if (check.subject_source_id && check.subject_schema_id) {
         return urls.dataWarehouseSourceSchema(check.subject_source_id, check.subject_schema_id)

@@ -536,7 +536,7 @@ describe('dataQualityOverviewLogic', () => {
         [
             'a metric on its catalog page',
             { subject_type: 'metric', subject_uuid: 'uuid-metric', subject_metric_name: 'signups' },
-            '/data-catalog/metrics/signups',
+            '/data-catalog/metrics/signups?tab=tests',
         ],
         [
             'a metric whose name did not come through',
