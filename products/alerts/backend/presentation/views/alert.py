@@ -6,14 +6,14 @@ from django.db import transaction
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
 
 import posthoganalytics
-from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema, extend_schema_view
 from pydantic import (
     Field as PydanticField,
     RootModel,
 )
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.response import Response
 
 from posthog.schema import (
@@ -52,6 +52,7 @@ from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 from posthog.tasks.alerts.detectors.llm.detector import MAX_PROMPT_POINTS
+from posthog.tasks.alerts.detectors.llm.errors import LLMDetectorError
 from posthog.tasks.alerts.schedule_restriction import validate_and_normalize_schedule_restriction
 from posthog.tasks.alerts.utils import (
     next_check_at_after_schedule_restriction_change,
@@ -116,6 +117,14 @@ class ThresholdConfigurationField(serializers.JSONField):
 @extend_schema_field(AlertCondition)  # type: ignore[arg-type]
 class AlertConditionField(serializers.JSONField):
     pass
+
+
+class LLMDetectorUnavailable(APIException):
+    # The preview makes a live model call. Without this a model outage surfaces as a bare
+    # 500 on the button, indistinguishable from a bug in the simulation itself.
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "The AI detector could not reach the model. Try the preview again in a moment."
+    default_code = "llm_detector_unavailable"
 
 
 def _insight_alert_flag_enabled(context: dict[str, Any], flag: str) -> bool:
@@ -1502,7 +1511,10 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         request=AlertSimulateSerializer,
-        responses={200: AlertSimulateResponseSerializer},
+        responses={
+            200: AlertSimulateResponseSerializer,
+            503: OpenApiResponse(description="The AI detector could not reach the model."),
+        },
         description="Simulate a detector on an insight's historical data. Read-only — no AlertCheck records are created.",
     )
     # Returns an insight's computed result series, so it requires insight read in addition to
@@ -1537,6 +1549,9 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
         except (ValueError, IndexError, AlertExtractionError) as e:
             raise ValidationError(str(e))
+        except LLMDetectorError as e:
+            capture_exception(e)
+            raise LLMDetectorUnavailable()
         except RuntimeError:
             raise ValidationError("Simulation failed: unable to compute results for this insight.")
 

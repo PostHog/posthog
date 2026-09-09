@@ -19,6 +19,7 @@ from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.tasks.alerts.detectors.llm.errors import LLMDetectorUnavailableError
 
 from products.alerts.backend.destinations import AlertDelivery
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
@@ -2645,6 +2646,20 @@ class TestLLMDetectorValidation(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "not enabled for your account" in response.json()["detail"]
+
+    @mock.patch(
+        "products.alerts.backend.presentation.views.alert.simulate_detector_on_insight",
+        side_effect=LLMDetectorUnavailableError("The AI detector could not reach the model: timeout"),
+    )
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_simulate_reports_a_model_outage_as_503_not_500(self, _flag, _simulate) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {"insight": self.insight["id"], "detector_config": {"type": "llm", "threshold": 0.7, "window": 90}},
+        )
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
+        assert response.json()["code"] == "llm_detector_unavailable"
 
     @mock.patch("posthog.rate_limit.AlertLLMSimulationThrottle.rate", new="2/minute")
     @mock.patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
