@@ -608,18 +608,32 @@ class TaskSerializer(DataclassSerializer):
         ]
 
 
+TASK_DESCRIPTION_PREVIEW_LENGTH = 1000
+
+
 class TaskBasicSerializer(TaskSerializer):
     """Basic list response for a task, returned when the list is asked for ``basic=true``.
 
     A surface that renders only a summary of each task asks for the basic payload and gets this
-    smaller shape. It currently drops ``description``, which dominates the list payload; more
-    heavy fields may follow. The default list response keeps every field, and ``retrieve``
-    always returns the description. A client uses the ``search`` query parameter to match
-    description text server-side.
+    smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+    replaces it with ``description_preview`` (the first characters) so a feed can still show a
+    prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+    always returns it. A client uses the ``search`` query parameter to match description text
+    server-side.
     """
 
+    description_preview = serializers.SerializerMethodField(
+        help_text=(
+            f"First {TASK_DESCRIPTION_PREVIEW_LENGTH} characters of the description, so a summary "
+            "surface can show a prompt snippet without the full body. Open the task for the complete text."
+        ),
+    )
+
     class Meta(TaskSerializer.Meta):
-        fields = [field for field in TaskSerializer.Meta.fields if field != "description"]
+        fields = [field for field in TaskSerializer.Meta.fields if field != "description"] + ["description_preview"]
+
+    def get_description_preview(self, obj: TaskDetailDTO) -> str:
+        return (obj.description or "")[:TASK_DESCRIPTION_PREVIEW_LENGTH]
 
 
 class TaskWriteSerializer(serializers.Serializer):

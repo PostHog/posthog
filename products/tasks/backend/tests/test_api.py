@@ -239,12 +239,13 @@ class BaseTaskAPITest(TestCase):
         title: str = "Test Task",
         created_by: User | None = None,
         runtime: Task.Runtime = Task.Runtime.ACP,
+        description: str = "Test Description",
     ) -> Task:
         return Task.objects.create(
             team=self.team,
             created_by=created_by or self.user,
             title=title,
-            description="Test Description",
+            description=description,
             origin_product=Task.OriginProduct.USER_CREATED,
             runtime=runtime,
         )
@@ -1235,8 +1236,20 @@ class TestTaskAPI(BaseTaskAPITest):
         row = response.json()["results"][0]
         if expect_description:
             self.assertEqual(row["description"], "Test Description")
+            self.assertNotIn("description_preview", row)
         else:
             self.assertNotIn("description", row)
+            self.assertEqual(row["description_preview"], "Test Description")
+
+    def test_basic_description_preview_is_truncated(self):
+        self.create_task("Long", description="x" * 1500)
+
+        response = self.client.get("/api/projects/@current/tasks/?basic=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        row = response.json()["results"][0]
+        self.assertNotIn("description", row)
+        self.assertEqual(row["description_preview"], "x" * 1000)
 
     def test_list_tasks_includes_latest_run(self):
         task1 = self.create_task("Task 1")
