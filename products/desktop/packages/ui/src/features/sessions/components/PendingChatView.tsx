@@ -18,8 +18,7 @@ import {
   type SessionStartupStatusProps,
 } from "./SessionStartupStatus";
 
-interface PendingChatViewProps
-  extends Omit<SessionStartupStatusProps, "showDetails"> {
+interface PendingChatViewProps extends SessionStartupStatusProps {
   /**
    * The prompt as the live transcript will render it (serialized content with
    * chips), so the bubble looks the same when the transcript replaces it.
@@ -60,17 +59,13 @@ export function PendingChatView({
             </ChatMessage>
           </div>
           <div
-            className="mx-auto flex w-full flex-col gap-3 px-2.5"
+            className="mx-auto w-full px-2.5"
             style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
           >
             <SessionStartupStatus
               executionTarget={executionTarget}
               phase={phase}
             />
-            <span className="text-gray-11 text-xs">
-              Your prompt is saved with this task. You do not need to submit it
-              again.
-            </span>
           </div>
         </div>
       </div>

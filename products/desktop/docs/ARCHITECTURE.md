@@ -63,9 +63,10 @@ change the current run's startup phase. Startup events do not count as conversat
 history during recovery.
 
 Worktree creation shows its own preparation screen and setup output. Agent startup
-shows either "Starting local agent" or "Running repository setup". The submitted
-prompt stays visible, with a reminder that it does not need to be submitted again.
-These are observed phases, not estimated progress percentages.
+shows one status line beside a spinner: "Starting local agent" or "Running
+repository setup". The submitted prompt stays visible. Prompt retention is
+normal behavior and needs no extra message. These are observed phases, not
+estimated progress percentages.
 
 Desktop does not disable repository hooks, change repository settings, or share
 ignored dependency files between worktrees. Each worktree runs its configured

@@ -10,29 +10,26 @@ describe("SessionInitializingView", () => {
   it.each([
     {
       executionTarget: "local" as const,
-      subtitle: "Connecting to the agent on this device.",
       title: "Starting local agent",
     },
     {
       executionTarget: "cloud" as const,
-      subtitle: "Connecting to your cloud runner.",
       title: "Starting cloud agent",
     },
   ])(
     "shows the current step through $executionTarget startup",
-    ({ executionTarget, subtitle, title }) => {
+    ({ executionTarget, title }) => {
       vi.useFakeTimers();
 
       render(<SessionInitializingView executionTarget={executionTarget} />);
 
-      expect(screen.getByText(title)).toBeInTheDocument();
+      expect(screen.getByRole("status").textContent).toBe(title);
 
       act(() => {
         vi.advanceTimersByTime(2000);
       });
 
-      expect(screen.getByText(title)).toBeInTheDocument();
-      expect(screen.getByText(subtitle)).toBeInTheDocument();
+      expect(screen.getByRole("status").textContent).toBe(title);
     },
   );
 
@@ -50,9 +47,9 @@ describe("SessionInitializingView", () => {
     act(() => {
       vi.advanceTimersByTime(2000);
     });
-    expect(
-      screen.getByText(/A new worktree can take longer/),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("status").textContent).toBe(
+      "Running repository setup",
+    );
     rerender(
       <SessionInitializingView
         executionTarget="local"

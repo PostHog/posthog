@@ -59,8 +59,8 @@ describe("PendingChatView", () => {
     expect(screen.getByText("Ship the login fix")).toBeInTheDocument();
     expect(screen.getByText("Starting local agent")).toBeInTheDocument();
     expect(
-      screen.getByText(/Your prompt is saved with this task/),
-    ).toBeInTheDocument();
+      screen.queryByText(/Your prompt is saved with this task/),
+    ).not.toBeInTheDocument();
   });
 
   it("renders file mentions as chips so the bubble matches the live transcript", () => {
