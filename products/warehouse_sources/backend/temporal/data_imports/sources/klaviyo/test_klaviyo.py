@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
@@ -29,7 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.kl
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.settings import (
     KLAVIYO_ENDPOINTS,
-    SERIES_REPORT_TIMEFRAME_DAYS,
+    SERIES_REPORT_TIMEFRAME_WEEKS,
     KlaviyoEndpointConfig,
     KlaviyoValuesReportConfig,
 )
@@ -1048,6 +1048,9 @@ class TestValuesReports:
 
 
 class TestReportVariants:
+    # Monday 03:30 UTC, which is still Sunday evening in the account's timezone. A window computed in
+    # UTC would open a week later and end seven hours ahead of the account's clock.
+    @freeze_time("2026-09-14T03:30:00Z")
     def test_series_report_carries_interval_and_expands_each_bucket_into_a_row(self, monkeypatch: Any) -> None:
         # Series reports return each statistic as an array aligned to a top-level date_times list;
         # keeping the arrays nested would leave the table unqueryable and collapse the weekly rows.
@@ -1077,6 +1080,8 @@ class TestReportVariants:
                     },
                     "links": {},
                 }
+            if url.endswith("/accounts"):
+                return {"data": [{"id": "A1", "attributes": {"timezone": "America/Los_Angeles"}}]}
             return {"data": [{"id": "M_ORDER", "attributes": {"name": "Placed Order"}}], "links": {}}
 
         monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
@@ -1094,12 +1099,10 @@ class TestReportVariants:
         attributes = captured["body"]["data"]["attributes"]
         assert attributes["interval"] == "weekly"
         # Klaviyo rejects a weekly series report whose window is over 52 weeks, and rejects any
-        # timeframe key it does not publish. A custom start/end pair is the only form that fits.
-        assert "key" not in attributes["timeframe"]
-        window = datetime.fromisoformat(attributes["timeframe"]["end"]) - datetime.fromisoformat(
-            attributes["timeframe"]["start"]
-        )
-        assert timedelta(days=SERIES_REPORT_TIMEFRAME_DAYS) <= window < timedelta(weeks=52)
+        # timeframe key it does not publish, so the window goes as a custom start/end pair. Klaviyo
+        # ignores the offset on the pair and reads it in the account's timezone, so the pair must be
+        # computed there: 51 weeks that open on a Monday and end at the account's current time.
+        assert attributes["timeframe"] == {"start": "2025-09-22T00:00:00-07:00", "end": "2026-09-13T20:30:00-07:00"}
         assert rows == [
             {
                 "flow_id": "F1",
@@ -1107,7 +1110,7 @@ class TestReportVariants:
                 "send_channel": "email",
                 "date_time": "2026-01-05T00:00:00+00:00",
                 "opens": 1,
-                "timeframe_key": f"last_{SERIES_REPORT_TIMEFRAME_DAYS}_days",
+                "timeframe_key": f"last_{SERIES_REPORT_TIMEFRAME_WEEKS}_weeks",
                 "conversion_metric_id": "M_ORDER",
             },
             {
@@ -1116,7 +1119,7 @@ class TestReportVariants:
                 "send_channel": "email",
                 "date_time": "2026-01-12T00:00:00+00:00",
                 "opens": 2,
-                "timeframe_key": f"last_{SERIES_REPORT_TIMEFRAME_DAYS}_days",
+                "timeframe_key": f"last_{SERIES_REPORT_TIMEFRAME_WEEKS}_weeks",
                 "conversion_metric_id": "M_ORDER",
             },
         ]
@@ -1171,7 +1174,7 @@ class TestReportVariants:
         ]
     )
     def test_series_reports_key_on_the_time_bucket(self, endpoint: str) -> None:
-        # Without date_time in the primary key, the ~52 weekly rows per grouping collapse to one on
+        # Without date_time in the primary key, the ~51 weekly rows per grouping collapse to one on
         # merge, silently discarding the whole time series. Without date_time as a cursor the table
         # syncs full refresh, so every sync rebuilds it from Klaviyo's rolling window and drops the
         # weeks that have since left it, which no later sync can fetch again.
@@ -1184,7 +1187,7 @@ class TestReportVariants:
         # rejections are 400s that fail the whole sync, so the window must go as a custom pair.
         assert config.values_report is not None
         assert config.values_report.timeframe_key is None
-        assert config.values_report.timeframe_days == SERIES_REPORT_TIMEFRAME_DAYS
+        assert config.values_report.timeframe_weeks == SERIES_REPORT_TIMEFRAME_WEEKS
 
     def test_a_timeframe_key_klaviyo_does_not_publish_is_refused(self) -> None:
         # An unpublished key reads like a real one but 400s every request the endpoint makes, so

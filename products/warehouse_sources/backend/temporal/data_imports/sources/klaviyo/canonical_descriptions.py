@@ -317,7 +317,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "flow_series_reports": {
         "description": (
-            "Klaviyo's own flow-message performance statistics bucketed by week over the last 52 "
+            "Klaviyo's own flow-message performance statistics bucketed by week over the last 51 "
             "weeks, one row per flow message per week. Each sync updates the weeks Klaviyo still "
             "reports and keeps the weeks it no longer returns, so the table builds a history past "
             "Klaviyo's one-year limit."
@@ -343,7 +343,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "form_series_reports": {
         "description": (
-            "Klaviyo's own signup-form performance statistics bucketed by week over the last 52 "
+            "Klaviyo's own signup-form performance statistics bucketed by week over the last 51 "
             "weeks, one row per form per week. Each sync updates the weeks Klaviyo still reports and "
             "keeps the weeks it no longer returns, so the table builds a history past Klaviyo's "
             "one-year limit."
@@ -368,7 +368,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "segment_series_reports": {
         "description": (
-            "Klaviyo's own segment membership statistics bucketed by week over the last 52 weeks, "
+            "Klaviyo's own segment membership statistics bucketed by week over the last 51 weeks, "
             "one row per segment per week. Each sync updates the weeks Klaviyo still reports and "
             "keeps the weeks it no longer returns, so the table builds a history past Klaviyo's "
             "one-year limit."
