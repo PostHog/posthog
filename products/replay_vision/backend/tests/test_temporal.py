@@ -56,6 +56,7 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
     _extract_segments,
     _inject_known_freeform_tags,
     _load_known_freeform_tags,
+    _MissionOutcome,
     _resolve_citations,
     call_scanner_provider_activity,
 )
@@ -988,7 +989,7 @@ class TestKnownFreeformTags:
             patch(
                 "products.replay_vision.backend.temporal.activities.call_scanner_provider._run_mission",
                 new_callable=AsyncMock,
-                return_value=(model_output, []),
+                return_value=_MissionOutcome(finalized=model_output, signals=[]),
             ) as mock_run_mission,
             patch(
                 "products.replay_vision.backend.temporal.activities.call_scanner_provider._load_llm_inputs",
