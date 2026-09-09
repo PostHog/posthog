@@ -1,3 +1,5 @@
+import './agentTools/registerLogsToolRenderers'
+
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
