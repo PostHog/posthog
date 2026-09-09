@@ -15,15 +15,19 @@ from parameterized import parameterized
 
 from products.posthog_ai.eval_harness import runner
 from products.posthog_ai.eval_harness.config import AgentArtifacts, SandboxedEvalCase
-from products.posthog_ai.eval_harness.harness.cli import parse_args
-from products.posthog_ai.eval_harness.harness.lifecycle import eval_feature_enabled
+from products.posthog_ai.eval_harness.harness.cli import SkillDelivery, parse_args
+from products.posthog_ai.eval_harness.harness.context import EvalContext
+from products.posthog_ai.eval_harness.harness.discovery import EvalSuite
+from products.posthog_ai.eval_harness.harness.lifecycle import SandboxedEvalHarness, eval_feature_enabled
 from products.posthog_ai.eval_harness.harness.live_server import EvalLiveServer
 from products.posthog_ai.eval_harness.harness.providers import ModalProviderStrategy, SandboxProviderStrategy
+from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter
 from products.tasks.backend.constants import (
     WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
     WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
 )
 from products.tasks.backend.facade.agents import TurnPollResult
+from products.tasks.backend.temporal.process_task.utils import mcp_exec_skills_env_vars
 
 
 class _FakeWorkflowHandle:
@@ -157,6 +161,30 @@ def test_parse_args_resolves_team_setup_concurrency(
 )
 def test_eval_feature_enabled_leaves_dispatcher_flags_off(_name: str, flag: str, expected: bool) -> None:
     assert eval_feature_enabled(flag, distinct_id="distinct-1") is expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("delivery", ["bundled", "exec"])
+@pytest.mark.parametrize("origin", ["eval", "slack", None])
+async def test_eval_run_preserves_bundled_skills_unless_exec_is_selected(
+    delivery: SkillDelivery, origin: str | None
+) -> None:
+    harness = SandboxedEvalHarness(parse_args(["--skill-delivery", delivery]))
+    environments: list[dict[str, str]] = []
+
+    async def suite(ctx: EvalContext) -> None:
+        task_context = SimpleNamespace(interaction_origin=origin, organization_id="org-1", distinct_id="user-1")
+        environments.append(await asyncio.to_thread(mcp_exec_skills_env_vars, task_context))
+
+    results = await harness._run_suites(
+        [EvalSuite(domain="test", module_name="skill_delivery", fn_name="suite", fn=suite)],
+        frozenset(),
+        ProgressReporter(total_suites=1),
+    )
+
+    assert results[0].status == "passed", results[0].error
+    expected = {"POSTHOG_CODE_DISABLE_BUNDLED_SKILLS": "1"} if delivery == "exec" and origin else {}
+    assert environments == [expected]
 
 
 @pytest.mark.asyncio

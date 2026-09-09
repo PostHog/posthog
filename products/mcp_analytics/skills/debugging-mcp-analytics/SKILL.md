@@ -149,6 +149,10 @@ before writing queries or changing what gets captured.
 
 ## Reading the data
 
+### Governed metric first
+
+When debugging an MCP failure-rate headline, call `posthog:metric-list` before the dedicated analysis skills, typed tools, or hand-written HogQL and look for `mcp_tool_call_fail_pct`. Run an approved, non-drifted match with `posthog:data-catalog-metric-run` as the canonical headline. Use the paths below only for requested tool, harness, or time breakdowns after that run, and label those breakdowns noncanonical. If no governed metric matches, state that the catalog has no match and label the derived rate noncanonical.
+
 **Prefer the dedicated analysis skills** over hand-written HogQL; they already encode the
 exec-mode and harness handling that Hard rules 1 and 4 describe:
 

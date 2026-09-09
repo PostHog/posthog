@@ -45,6 +45,7 @@ from posthog.temporal.weekly_digest.queries import (
     query_orgs_for_digest,
     query_saved_filters,
     query_surveys_launched,
+    query_team_ids_for_digest,
     query_teams_for_digest,
     queryset_to_list,
 )
@@ -68,6 +69,7 @@ from posthog.temporal.weekly_digest.types import (
     SendWeeklyDigestBatchInput,
     SurveyList,
     TeamDigest,
+    TeamIdRange,
     UsageTrendMetric,
     UsageTrends,
     UserDigestContext,
@@ -104,6 +106,12 @@ async def _load_playlist_counts_from_django_cache(r: redis.Redis, filters: Filte
 LOGGER = get_write_only_logger()
 
 
+def _teams_in_range(input: GenerateDigestDataBatchInput) -> QuerySet:
+    # An id predicate lets Postgres seek to the first row of the batch on the primary key.
+    # LIMIT/OFFSET made it build and discard every row before the batch instead.
+    return query_teams_for_digest().filter(id__gte=input.team_id_range.start, id__lt=input.team_id_range.end)
+
+
 async def generate_digest_data_lookup(
     input: GenerateDigestDataBatchInput,
     key_kind: TeamDataKey,
@@ -116,8 +124,8 @@ async def generate_digest_data_lookup(
             digest_key=input.digest.key,
             period_start=input.digest.period_start,
             period_end=input.digest.period_end,
-            batch_start=input.batch[0],
-            batch_end=input.batch[1],
+            team_id_start=input.team_id_range.start,
+            team_id_end=input.team_id_range.end,
         )
         logger = LOGGER.bind()
         logger.info("Generating digest data batch", key_kind=key_kind)
@@ -128,8 +136,7 @@ async def generate_digest_data_lookup(
         async with redis.from_url(_redis_url(input.common)) as r:
             db_query: QuerySet = query_func(input.digest.period_start, input.digest.period_end)
 
-            batch_start, batch_end = input.batch
-            async for team in query_teams_for_digest()[batch_start:batch_end]:
+            async for team in _teams_in_range(input):
                 try:
                     team_query = db_query.filter(team_id=team.id)
                     if per_team_limit is not None:
@@ -232,8 +239,8 @@ async def generate_filter_lookup(input: GenerateDigestDataBatchInput) -> None:
             digest_key=input.digest.key,
             period_start=input.digest.period_start,
             period_end=input.digest.period_end,
-            batch_start=input.batch[0],
-            batch_end=input.batch[1],
+            team_id_start=input.team_id_range.start,
+            team_id_end=input.team_id_range.end,
         )
         logger = LOGGER.bind()
         logger.info(f"Generating Replay filter batch")
@@ -251,8 +258,7 @@ async def generate_filter_lookup(input: GenerateDigestDataBatchInput) -> None:
         ):
             query_filters: QuerySet = query_saved_filters(input.digest.period_start, input.digest.period_end)
 
-            batch_start, batch_end = input.batch
-            async for team in query_teams_for_digest()[batch_start:batch_end]:
+            async for team in _teams_in_range(input):
                 try:
                     filters = FilterList(await queryset_to_list(query_filters.filter(team_id=team.id)))
                     playlist_counts = await _load_playlist_counts_from_django_cache(django_cache, filters)
@@ -294,8 +300,8 @@ async def generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None
             digest_key=input.digest.key,
             period_start=input.digest.period_start,
             period_end=input.digest.period_end,
-            batch_start=input.batch[0],
-            batch_end=input.batch[1],
+            team_id_start=input.team_id_range.start,
+            team_id_end=input.team_id_range.end,
         )
         logger = LOGGER.bind()
         logger.info(f"Generating Replay recording count batch")
@@ -306,8 +312,7 @@ async def generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None
         async with redis.from_url(_redis_url(input.common)) as r, get_ch_client() as ch_client:
             ch_query: str = SessionReplayEvents.count_soon_to_expire_sessions_query(format="JSON")
 
-            batch_start, batch_end = input.batch
-            async for team in query_teams_for_digest()[batch_start:batch_end]:
+            async for team in _teams_in_range(input):
                 try:
                     parameters = {
                         "team_id": team.id,
@@ -442,8 +447,8 @@ async def generate_usage_trends_lookup(input: GenerateDigestDataBatchInput) -> N
             digest_key=input.digest.key,
             period_start=input.digest.period_start,
             period_end=input.digest.period_end,
-            batch_start=input.batch[0],
-            batch_end=input.batch[1],
+            team_id_start=input.team_id_range.start,
+            team_id_end=input.team_id_range.end,
         )
         logger = LOGGER.bind()
         logger.info("Generating usage trends batch")
@@ -453,8 +458,7 @@ async def generate_usage_trends_lookup(input: GenerateDigestDataBatchInput) -> N
         error_count = 0
 
         async with redis.from_url(_redis_url(input.common)) as r:
-            batch_start, batch_end = input.batch
-            async for team in query_teams_for_digest()[batch_start:batch_end]:
+            async for team in _teams_in_range(input):
                 attempted += 1
                 try:
                     usage_trends = await database_sync_to_async(_query_team_usage_trends)(
@@ -488,7 +492,9 @@ async def generate_usage_trends_lookup(input: GenerateDigestDataBatchInput) -> N
 @activity.defn(name="generate-user-notification-lookup")
 async def generate_user_notification_lookup(input: GenerateDigestDataBatchInput) -> None:
     async with Heartbeater():
-        bind_contextvars(digest_key=input.digest.key, batch_start=input.batch[0], batch_end=input.batch[1])
+        bind_contextvars(
+            digest_key=input.digest.key, team_id_start=input.team_id_range.start, team_id_end=input.team_id_range.end
+        )
         logger = LOGGER.bind()
         logger.info("Generating team access and notification settings batch")
 
@@ -496,8 +502,7 @@ async def generate_user_notification_lookup(input: GenerateDigestDataBatchInput)
         user_count = 0
 
         async with redis.from_url(_redis_url(input.common)) as r:
-            batch_start, batch_end = input.batch
-            async for team in query_teams_for_digest()[batch_start:batch_end]:
+            async for team in _teams_in_range(input):
                 try:
                     async for user in await database_sync_to_async(team.all_users_with_access)():
                         if should_send_notification(user, NotificationSetting.WEEKLY_PROJECT_DIGEST.value, team.id):
@@ -529,8 +534,8 @@ async def generate_product_suggestion_lookup(input: GenerateDigestDataBatchInput
             digest_key=input.digest.key,
             period_start=input.digest.period_start,
             period_end=input.digest.period_end,
-            batch_start=input.batch[0],
-            batch_end=input.batch[1],
+            team_id_start=input.team_id_range.start,
+            team_id_end=input.team_id_range.end,
         )
         logger = LOGGER.bind()
         logger.info("Generating product suggestions batch")
@@ -543,8 +548,7 @@ async def generate_product_suggestion_lookup(input: GenerateDigestDataBatchInput
         campaigns_by_org: dict[str, list[dict]] = {}
 
         async with redis.from_url(_redis_url(input.common)) as r:
-            batch_start, batch_end = input.batch
-            async for team in query_teams_for_digest()[batch_start:batch_end]:
+            async for team in _teams_in_range(input):
                 try:
                     organization_id = str(team.organization_id)
                     if organization_id not in campaigns_by_org:
@@ -608,10 +612,22 @@ async def count_organizations() -> int:
         return await query_orgs_for_digest().acount()
 
 
-@activity.defn(name="count-teams")
-async def count_teams() -> int:
+def _cut_team_id_ranges(team_ids: list[int], batch_size: int) -> list[TeamIdRange]:
+    """Cut ordered team ids into [start, end) ranges of at most `batch_size` teams each."""
+    return [
+        TeamIdRange(
+            start=team_ids[start],
+            end=team_ids[start + batch_size] if start + batch_size < len(team_ids) else team_ids[-1] + 1,
+        )
+        for start in range(0, len(team_ids), batch_size)
+    ]
+
+
+@activity.defn(name="list-team-id-ranges")
+async def list_team_id_ranges(input: CommonInput) -> list[TeamIdRange]:
+    """One index scan of the team ids replaces a LIMIT/OFFSET scan per batch per generator."""
     async with Heartbeater():
-        return await query_teams_for_digest().acount()
+        return _cut_team_id_ranges(await queryset_to_list(query_team_ids_for_digest()), input.batch_size)
 
 
 @activity.defn(name="generate-organization-digest-batch")

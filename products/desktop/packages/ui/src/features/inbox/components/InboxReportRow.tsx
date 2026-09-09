@@ -13,7 +13,7 @@ export function InboxReportRow({
   report: SignalReport;
 }): React.JSX.Element {
   const { pointerHandlers } = useInboxReportDetailPrefetch({
-    to: "/inbox/reports/$reportId",
+    to: "/reports/$reportId",
     params: { reportId: report.id },
   });
 

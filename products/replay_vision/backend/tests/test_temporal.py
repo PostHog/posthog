@@ -1693,6 +1693,46 @@ class TestFetchSessionEventsActivity:
         assert stored.events.rows[0][1:] == ["$pageview", "2026-05-12T10:00:00Z", "sess-1"]
 
     @pytest.mark.asyncio
+    async def test_resolved_identity_reaches_both_the_payload_and_the_observation_row(self) -> None:
+        # The row's `recording_subject_email` and the prompt's identity block are fed by one resolution step.
+        # If it stops populating, the email silently goes NULL — breaking the pinned properties, the
+        # `recording_subject` filter, and the `order_by` — while every scan still succeeds.
+        scanner = await sync_to_async(_make_scanner)()
+        observation = await sync_to_async(_make_observation)(scanner)
+        start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
+        end = dt.datetime(2026, 5, 12, 10, 5, 0, tzinfo=dt.UTC)
+        metadata = {"start_time": start, "end_time": end, "duration": 300, "active_seconds": 200}
+        mock_obj = self._make_session_replay_events_mock(
+            metadata,
+            [(["event", "timestamp", "$session_id"], [("$pageview", start, "sess-1")])],
+        )
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
+                return_value=mock_obj,
+            ),
+            patch(
+                "products.replay_vision.backend.temporal.activities.fetch_session_events.fetch_session_person_properties",
+                return_value={"email": "rene@customer.example", "name": "Rene Diaz", "org__name": "Customer Co"},
+            ),
+        ):
+            await fetch_session_events_activity(
+                FetchSessionEventsInputs(observation_id=observation.id, team_id=scanner.team_id, session_id="sess-1")
+            )
+
+        redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
+        key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation.id))
+        stored = await get_data_class_from_redis(redis_client, key, target_class=ScannerLlmInputs)
+        assert stored is not None
+        assert stored.identity.person_email == "rene@customer.example"
+        assert stored.identity.person_name == "Rene Diaz"
+        assert stored.identity.person_organization == "Customer Co"
+
+        await sync_to_async(observation.refresh_from_db)()
+        assert observation.recording_subject_email == "rene@customer.example"
+
+    @pytest.mark.asyncio
     async def test_fetches_a_single_page_with_the_configured_limit(self) -> None:
         scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()

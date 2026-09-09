@@ -7147,7 +7147,11 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         results = response.json()["results"]
 
         item_ids = {entry["item_id"] for entry in results}
-        self.assertNotIn(str(other_experiment_id), item_ids)
+        # Scoped, because experiments and feature flags number from separate sequences and so reuse
+        # each other's ids. Matching the id alone reads this experiment's own flag entry as the
+        # unrelated experiment leaking in, whenever the two sequences happen to line up.
+        experiment_item_ids = {entry["item_id"] for entry in results if entry["scope"] == "Experiment"}
+        self.assertNotIn(str(other_experiment_id), experiment_item_ids)
         self.assertLessEqual(item_ids, {str(experiment_id), str(holdout_id), str(saved_metric_id), str(flag_id)})
         flag_entries = [entry for entry in results if entry["scope"] == "FeatureFlag"]
         self.assertEqual({entry["item_id"] for entry in flag_entries}, {str(flag_id)})
