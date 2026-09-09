@@ -2179,7 +2179,14 @@ class TestGitHubIntegrationGraphQL(BaseTest):
 BABYSIT_PR_URL = "https://github.com/acme/widgets/pull/7"
 
 
-def _babysit_thread(thread_id: str, *, is_resolved: bool = False, author: str = "reviewer", body: str = "fix this"):
+def _babysit_thread(
+    thread_id: str,
+    *,
+    is_resolved: bool = False,
+    author: str = "reviewer",
+    body: str = "fix this",
+    is_bot: bool = False,
+):
     return {
         "id": thread_id,
         "isResolved": is_resolved,
@@ -2190,7 +2197,7 @@ def _babysit_thread(thread_id: str, *, is_resolved: bool = False, author: str = 
                     "id": f"{thread_id}-C1",
                     "url": f"{BABYSIT_PR_URL}#discussion_{thread_id}",
                     "body": body,
-                    "author": {"login": author},
+                    "author": {"login": author, "__typename": "Bot" if is_bot else "User"},
                     "authorAssociation": "MEMBER",
                 }
             ]
@@ -2198,12 +2205,12 @@ def _babysit_thread(thread_id: str, *, is_resolved: bool = False, author: str = 
     }
 
 
-def _babysit_feedback(node_id: str, *, author: str = "reviewer", body: str = "please rename"):
+def _babysit_feedback(node_id: str, *, author: str = "reviewer", body: str = "please rename", is_bot: bool = False):
     return {
         "id": node_id,
         "url": f"{BABYSIT_PR_URL}#issuecomment-{node_id}",
         "body": body,
-        "author": {"login": author},
+        "author": {"login": author, "__typename": "Bot" if is_bot else "User"},
         "authorAssociation": "MEMBER",
     }
 
@@ -2255,6 +2262,34 @@ class TestGitHubIntegrationPullRequestBabysitSnapshot(BaseTest):
 
         assert [thread["id"] for thread in result["unresolved_threads"]] == ["T2"]
         assert [comment["id"] for comment in result["comments"]] == ["M3", "R2"]
+
+    def test_bot_comments_are_dropped_and_bot_reviews_are_kept(self):
+        """A merge-queue bot comments once per submission, each with a fresh id, so every one
+        wakes the loop. A review bot writes the feedback the loop exists to act on."""
+        payload = self._payload(
+            comments={
+                "nodes": [
+                    _babysit_feedback("M1", author="talyn-app", body="/trunk merge", is_bot=True),
+                    _babysit_feedback("M2", author="github-actions", body="CI report", is_bot=True),
+                    _babysit_feedback("M3"),
+                ]
+            },
+            reviews={"nodes": [_babysit_feedback("R1", author="review-hog", body="rename this", is_bot=True)]},
+        )
+
+        with patch.object(GitHubIntegration, "_gh_graphql", return_value=payload):
+            result = self._github().get_pull_request_babysit_snapshot(BABYSIT_PR_URL)
+
+        assert [comment["id"] for comment in result["comments"]] == ["M3", "R1"]
+
+    def test_a_bot_review_thread_is_kept(self):
+        """An unresolved inline thread is work somebody waits on, whoever opened it."""
+        payload = self._payload(reviewThreads={"nodes": [_babysit_thread("T1", author="review-hog", is_bot=True)]})
+
+        with patch.object(GitHubIntegration, "_gh_graphql", return_value=payload):
+            result = self._github().get_pull_request_babysit_snapshot(BABYSIT_PR_URL)
+
+        assert [thread["id"] for thread in result["unresolved_threads"]] == ["T1"]
 
     @parameterized.expand(
         [
