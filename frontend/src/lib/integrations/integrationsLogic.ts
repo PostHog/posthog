@@ -37,6 +37,13 @@ import { ICONS, getIntegrationNameFromKind } from './utils'
 
 const INTEGRATIONS_POLL_INTERVAL_MS = 30_000
 
+// Kinds whose OAuth callback arrives on another kind's path, because they share that kind's app
+// with the provider. Mirrors OAUTH_REDIRECT_URI_ALIASES on the backend, which puts the real kind
+// in the OAuth state.
+const OAUTH_CALLBACK_KIND_ALIASES: Partial<Record<string, IntegrationKind[]>> = {
+    salesforce: ['pardot'],
+}
+
 function toastApiError(e: unknown): void {
     const detail = e instanceof ApiError ? e.detail : null
     lemonToast.error(detail || 'Something went wrong. Please try again.')
@@ -1055,8 +1062,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
         },
         handleOauthCallback: async ({ kind, searchParams }) => {
             const { state, code, error, stripe_user_id, account_id, user_id } = searchParams
-            const { next, token, source, server_id, team_id } = fromParamsGivenUrl(state)
-            const resolvedKind = kind
+            const { next, token, source, server_id, team_id, kind: stateKind } = fromParamsGivenUrl(state)
+            const resolvedKind: IntegrationKind = OAUTH_CALLBACK_KIND_ALIASES[kind]?.includes(stateKind)
+                ? stateKind
+                : kind
             let replaceUrl: string = next || urls.settings('project-integrations')
 
             if (error) {

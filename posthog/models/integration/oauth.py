@@ -151,6 +151,11 @@ def _salesforce_instance_host(instance_url: str | None) -> str | None:
 # rather than the hardcoded login host (sandbox orgs reject the prod endpoints).
 SALESFORCE_OAUTH_KINDS = ("salesforce", "pardot")
 
+# Kinds that authorize through another kind's connected app. The provider allows only the callback
+# URL that the app was registered with, so a path built from the borrowing kind is rejected with
+# redirect_uri_mismatch before the user can grant anything.
+OAUTH_REDIRECT_URI_ALIASES: dict[str, str] = {"pardot": "salesforce"}
+
 # PostHog connect. Unlike every other OAuth kind — which points at a fixed third-party provider —
 # the `posthog` kind points at *another PostHog project*, in a region chosen by the user at connect
 # time. That region may differ from the connecting project's or be the same one (same-region is just
@@ -749,9 +754,10 @@ class OauthIntegration:
     @classmethod
     def redirect_uri(cls, kind: str) -> str:
         # The redirect uri is fixed but should always be https and include the "next" parameter for the frontend to redirect
+        path_kind = OAUTH_REDIRECT_URI_ALIASES.get(kind, kind)
         if settings.DEBUG and settings.NGROK_URL:
-            return f"{settings.NGROK_URL}/integrations/{kind}/callback"
-        return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
+            return f"{settings.NGROK_URL}/integrations/{path_kind}/callback"
+        return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{path_kind}/callback"
 
     @classmethod
     def authorize_url(
@@ -772,6 +778,10 @@ class OauthIntegration:
         state_payload: dict[str, str] = {"next": next, "token": token}
         if team_id is not None:
             state_payload["team_id"] = str(team_id)
+        if kind in OAUTH_REDIRECT_URI_ALIASES:
+            # The callback lands on the aliased kind's path, so its URL segment names the wrong
+            # integration. The callback handler reads the real kind from here instead.
+            state_payload["kind"] = kind
 
         scope = oauth_config.scope
         if kind == "posthog":

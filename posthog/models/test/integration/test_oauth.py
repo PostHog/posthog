@@ -1499,6 +1499,18 @@ class TestPardotIntegrationModel(BaseTest):
         assert config.scope == "pardot_api refresh_token"
         assert config.scope != OauthIntegration.oauth_config_for_kind("salesforce").scope
 
+    def test_authorize_url_sends_the_registered_salesforce_callback(self):
+        url = OauthIntegration.authorize_url("pardot", token="state_token", next="/projects/test")
+        params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+        state = {k: v[0] for k, v in parse_qs(params["state"]).items()}
+
+        # This kind borrows the Salesforce connected app, whose allowed callback list holds only the
+        # Salesforce path. A /integrations/pardot/callback redirect_uri is rejected with
+        # redirect_uri_mismatch before the user can grant anything.
+        assert params["redirect_uri"] == "https://localhost:8010/integrations/salesforce/callback"
+        # The callback path can no longer name the kind, so the kind rides in the state instead.
+        assert state["kind"] == "pardot"
+
     def test_pardot_is_an_oauth_kind(self):
         # Not being listed makes the authorize + callback endpoints reject the kind and drops
         # it out of the scheduled token refresh sweep.

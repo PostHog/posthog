@@ -230,6 +230,38 @@ describe('integrationsLogic', () => {
             document.cookie = 'ph_oauth_state=; expires=Thu, 01 Jan 1970 00:00:00 GMT'
         })
 
+        describe('aliased callback paths', () => {
+            // Kinds that borrow another kind's registered app come back on that kind's callback
+            // path, so the path segment names the wrong kind and the real one rides in the state.
+            beforeEach(() => {
+                document.cookie = 'ph_oauth_state=csrf-tok'
+                useMocks({ post: { '/api/environments/:team_id/integrations/': () => [201, { id: 7 }] } })
+            })
+
+            afterEach(() => {
+                document.cookie = 'ph_oauth_state=; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+            })
+
+            it.each([
+                ['pardot', 'pardot'],
+                ['hubspot', 'salesforce'],
+            ])('state kind %s on the salesforce path creates %s', async (stateKind, expectedKind) => {
+                const state = `next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations&token=csrf-tok&kind=${stateKind}`
+
+                await expectLogic(logic, () => {
+                    logic.actions.handleOauthCallback('salesforce' as IntegrationKind, {
+                        state,
+                        code: 'oauth-code',
+                    })
+                }).toFinishAllListeners()
+
+                expect(createSpy).toHaveBeenCalledWith(
+                    { kind: expectedKind, config: { state, code: 'oauth-code' } },
+                    undefined
+                )
+            })
+        })
+
         describe('integration create team scoping', () => {
             let requestedTeamIds: string[]
 
