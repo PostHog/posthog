@@ -19,7 +19,7 @@ import { RecordingUniversalFilters } from '~/types'
 
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
-import { parseToolOutputRecord } from '../parseToolOutputRecord'
+import { getToolOutputRecord } from '../getToolOutputRecord'
 
 /**
  * Shared shape extractors for the sandbox MCP tool renderer widgets. Each turns a flattened
@@ -35,37 +35,6 @@ function asString(value: unknown): string | undefined {
     return typeof value === 'string' ? value : undefined
 }
 
-const QUERY_WRAPPER_KIND_BY_TOOL_KEY: Record<string, NodeKind> = {
-    'query-trends': NodeKind.TrendsQuery,
-    'query-funnel': NodeKind.FunnelsQuery,
-    'query-retention': NodeKind.RetentionQuery,
-    'query-stickiness': NodeKind.StickinessQuery,
-    'query-paths': NodeKind.PathsQuery,
-    'query-lifecycle': NodeKind.LifecycleQuery,
-    'query-llm-traces-list': NodeKind.TracesQuery,
-    'query-trends-actors': NodeKind.InsightActorsQuery,
-    'query-lifecycle-actors': NodeKind.InsightActorsQuery,
-    'query-paths-actors': NodeKind.InsightActorsQuery,
-    'query-retention-actors': NodeKind.InsightActorsQuery,
-}
-
-function queryFromToolInput(message: ToolCallMessage): Record<string, unknown> | null {
-    const input = asRecord(message.innerInput)
-    if (!input) {
-        return null
-    }
-
-    const query = { ...input }
-    delete query.output_format
-
-    if (typeof query.kind === 'string') {
-        return query
-    }
-
-    const inferredKind = QUERY_WRAPPER_KIND_BY_TOOL_KEY[message.resolvedKey]
-    return inferredKind ? { ...query, kind: inferredKind } : null
-}
-
 /** The artifact envelope + content the visualization widget proxies consume. */
 export interface VisualizationArtifactExtraction {
     envelope: ArtifactMessage
@@ -79,7 +48,7 @@ export interface VisualizationArtifactExtraction {
  * query-only outputs carry neither and render inline as ephemeral visualizations.
  */
 export function extractVisualizationArtifact(message: ToolCallMessage): VisualizationArtifactExtraction | null {
-    const output = parseToolOutputRecord(message)
+    const output = getToolOutputRecord(message)
     if (!output) {
         return null
     }
@@ -125,8 +94,8 @@ export interface QueryResultExtraction {
  * renderer (e.g. a single LLM trace) return null and fall back to the generic card.
  */
 export function extractQueryResult(message: ToolCallMessage): QueryResultExtraction | null {
-    const output = parseToolOutputRecord(message)
-    const query = (output ? asRecord(output.query) : null) ?? queryFromToolInput(message)
+    const output = getToolOutputRecord(message)
+    const query = asRecord(output?.query)
     if (!query || typeof query.kind !== 'string') {
         return null
     }
@@ -176,7 +145,7 @@ export interface DashboardExtraction {
 }
 
 export function extractDashboard(message: ToolCallMessage): DashboardExtraction | null {
-    const output = parseToolOutputRecord(message)
+    const output = getToolOutputRecord(message)
     if (!output) {
         return null
     }
@@ -195,7 +164,7 @@ export function extractDashboard(message: ToolCallMessage): DashboardExtraction 
  * falls back to the generic card rather than feeding the playlist a shape it can't use.
  */
 export function extractRecordingFilters(message: ToolCallMessage): RecordingUniversalFilters | null {
-    const output = parseToolOutputRecord(message)
+    const output = getToolOutputRecord(message)
     if (!output) {
         return null
     }

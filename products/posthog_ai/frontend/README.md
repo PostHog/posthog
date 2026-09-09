@@ -202,7 +202,9 @@ Errors retain the `posthog_ai_permission_preview` feature tag, and a new permiss
 
 Insights, dashboards, recordings, notebooks, and query widgets live in `components/tool/widgets/`, with lazy declarations in the frontend-root `posthogAiToolRenderers.tsx`. This declaration list is a product contribution, outside the reusable `api/` facade.
 Error tracking owns its widget family and declaration list in `products/error_tracking/frontend/`; replay vision owns its scan widget and polling logic in `products/replay_vision/frontend/posthogAi/`.
-Product-owned tool adapters consume `ToolRendererProps`, `DataToolRow`, `GenericMcpToolRenderer`, and `parseToolOutputRecord` through `api/tools`. Shared frontend dependencies are allowed; widget-specific product internals stay with their owner.
+Product-owned tool adapters consume `ToolRendererProps`, `DataToolRow`, `GenericMcpToolRenderer`, and `getToolOutputRecord` through `api/tools`. Shared frontend dependencies are allowed; widget-specific product internals stay with their owner.
+
+`getToolOutputRecord` reads the handler object from MCP app-data metadata in ACP `rawOutput`, with support for existing `structuredContent` and direct objects. It does not parse tool result text. Transcripts with only TOON or JSON text use the generic tool card.
 CDP's `products/cdp/frontend/posthogAiToolRenderers.tsx` declares a preview-only entry; its result card stays generic.
 Set `requiresPostHogOrigin: true` for product entries; unknown or untrusted colliding keys use generic cards and evidence.
 

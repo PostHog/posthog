@@ -41,19 +41,12 @@ describe('mcp tool adapter extractors', () => {
                     isError: false,
                 },
             ],
-            ['MCP JSON text', { content: [{ type: 'text', text: JSON.stringify(savedInsight) }], isError: false }],
             [
-                'MCP JSON text without optional fields',
-                { content: [{ type: 'text', text: JSON.stringify(savedInsight) }] },
-            ],
-            [
-                'MCP TOON text with no structured content',
+                'MCP metadata takes precedence over formatted and structured content',
                 {
-                    structuredContent: null,
-                    content: [
-                        { type: 'image', data: 'unused', mimeType: 'image/png' },
-                        { type: 'text', text: 'short_id: abc12345\nname: Signups\nquery:\n  kind: TrendsQuery' },
-                    ],
+                    _meta: { 'com.posthog.mcp/app_data': savedInsight },
+                    structuredContent: { query: { kind: 'FunnelsQuery' } },
+                    content: [{ type: 'text', text: 'query: {\n  "kind": "TrendsQuery"\n}' }],
                     isError: false,
                 },
             ],
@@ -78,6 +71,10 @@ describe('mcp tool adapter extractors', () => {
             { content: [null, { type: 'image', data: 'unused', mimeType: 'image/png' }] },
             { content: [{ type: 'text', text: 'No insight found' }] },
             { structuredContent: savedInsight, isError: true },
+            { _meta: { 'com.posthog.mcp/app_data': savedInsight }, isError: true },
+            { _meta: { 'com.posthog.mcp/app_data': [] } },
+            { content: [{ type: 'text', text: JSON.stringify(savedInsight) }] },
+            { content: [{ type: 'text', text: 'query: {\n  "kind": "TrendsQuery"\n}' }] },
         ])('returns null for missing, malformed, or failed insight output: %j', (rawOutput) => {
             expect(extractVisualizationArtifact(toolMessage(rawOutput))).toBeNull()
         })
@@ -102,8 +99,6 @@ describe('mcp tool adapter extractors', () => {
             expect(dashboard).toEqual({ id: '7', name: 'From input', url: '/dashboard/7' })
         })
 
-        // String rawOutput goes through the best-effort JSON/TOON parse — exec `call`s respond with
-        // JSON when `--json` was passed and TOON otherwise, and the off-order format is a fallback.
         test.each([
             [
                 'JSON output when the command carried --json',
@@ -112,10 +107,9 @@ describe('mcp tool adapter extractors', () => {
             ],
             ['TOON output when the command had no flag', 'call dashboard-create {}', 'id: 7\nname: Growth'],
             ['JSON output even without the flag', 'call dashboard-create {}', '{"id": 7, "name": "Growth"}'],
-        ])('parses %s', (_name, command, rawOutput) => {
+        ])('leaves legacy %s to the generic card', (_name, command, rawOutput) => {
             const dashboard = extractDashboard({ ...toolMessage(rawOutput), rawInput: { command } })
-            expect(dashboard?.id).toBe(7)
-            expect(dashboard?.name).toBe('Growth')
+            expect(dashboard).toBeNull()
         })
 
         it('extracts nothing when a string output parses as neither JSON nor TOON', () => {
@@ -179,10 +173,19 @@ describe('mcp tool adapter extractors', () => {
             const result = extractQueryResult(
                 toolMessage(
                     {
-                        query,
-                        results: [],
-                        insight: { name: 'Synthetic insight', description: 'Saved query', url: '/insights/example' },
-                        _posthogUrl: url,
+                        content: [{ type: 'text', text: 'Date|count\n2026-01-01|3' }],
+                        _meta: {
+                            'com.posthog.mcp/app_data': {
+                                query,
+                                results: [],
+                                insight: {
+                                    name: 'Synthetic insight',
+                                    description: 'Saved query',
+                                    url: '/insights/example',
+                                },
+                                _posthogUrl: url,
+                            },
+                        },
                     },
                     { insightId: 'example' },
                     'insight-query'
@@ -214,18 +217,12 @@ describe('mcp tool adapter extractors', () => {
             expect(result?.url).toBeNull()
         })
 
-        it('uses the tool input when optimized streamed results omit structured raw output', () => {
-            const result = extractQueryResult(
-                toolMessage(undefined, { kind: 'TrendsQuery', series: [], output_format: 'optimized' }, 'query-trends')
-            )
-            expect(result?.content.query).toEqual({ kind: 'TrendsQuery', series: [] })
-            expect(result?.url).toBeNull()
-        })
-
-        it('infers the query kind from the wrapper tool key when the input omits kind', () => {
-            const result = extractQueryResult(toolMessage(undefined, { series: [] }, 'query-trends'))
-            expect(result?.content.query).toEqual({ kind: 'TrendsQuery', series: [] })
-        })
+        it.each([{ kind: 'TrendsQuery', series: [] }, { series: [] }])(
+            'falls back when the executed query is absent, even if input could supply it: %j',
+            (input) => {
+                expect(extractQueryResult(toolMessage(undefined, input, 'query-trends'))).toBeNull()
+            }
+        )
 
         it('wraps the actors wrapper output (ActorsQuery envelope) untouched in a DataTableNode', () => {
             const actorsQuery = {

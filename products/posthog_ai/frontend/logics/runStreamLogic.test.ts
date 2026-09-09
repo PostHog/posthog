@@ -245,6 +245,10 @@ describe('runStreamLogic', () => {
             expect(result.threadItems.find((item) => item.id === 'missing-start')?.startedAt).toBeUndefined()
         })
         it('folds a stream of StoredLogEntry frames into thread items', async () => {
+            const rawOutput = {
+                content: [{ type: 'text', text: '1 row' }],
+                _meta: { 'com.posthog.mcp/app_data': { query: { kind: 'HogQLQuery', query: 'select 1' }, rows: 1 } },
+            }
             const frames: StoredLogEntry[] = [
                 notification('_posthog/run_started', {}),
                 sessionUpdate({ sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { text: 'Hel' } }),
@@ -262,7 +266,7 @@ describe('runStreamLogic', () => {
                     sessionUpdate: 'tool_call_update',
                     toolCallId: 't1',
                     status: 'completed',
-                    rawOutput: { rows: 1 },
+                    rawOutput,
                     content: [{ type: 'text', text: 'done' }],
                 }),
                 notification('_posthog/turn_complete', {}),
@@ -292,7 +296,7 @@ describe('runStreamLogic', () => {
             expect(invocation?.rawToolName).toEqual('exec')
             expect(invocation?.input).toEqual({ command: 'call execute-sql {"query":"select 1"}' })
             expect(invocation?.status).toEqual('completed')
-            expect(invocation?.output).toEqual({ rows: 1 })
+            expect(invocation?.output).toEqual(rawOutput)
             expect(invocation?.contentBlocks).toEqual([{ type: 'text', text: 'done' }])
 
             expect(logic.values.threadItems.some((item) => item.type === 'turn_separator')).toEqual(true)

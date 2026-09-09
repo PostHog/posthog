@@ -394,6 +394,28 @@ and [`services/mcp/scripts/yaml-config-schema.ts`](https://github.com/PostHog/po
 See [How to develop and test](/handbook/engineering/ai/implementation#how-to-develop-and-test)
 for instructions on running the MCP server locally and verifying tools end-to-end.
 
+### Structured data for native tool widgets
+
+For the `posthog_ai` consumer, tool responses carry the handler's returned data in
+`_meta["com.posthog.mcp/app_data"]`, including tools without an MCP UI resource.
+This applies to direct calls and calls through `exec`. The metadata excludes the
+internal formatted-results override. The model receives the formatted text in `content`;
+an explicit JSON output request still controls that text independently of widget data.
+
+The agent forwards the MCP result through ACP's `rawOutput`. Claude and Codex adapters
+preserve its metadata in live updates and history. When rebuilding a Claude model
+transcript from ACP logs, the agent removes MCP result metadata before applying the
+resume context budget. Metadata is available to widgets without becoming model input.
+
+Native widgets read app data, existing `structuredContent`, or a direct result object.
+They never decode TOON or JSON from result text or reconstruct an executed query from
+tool arguments. Old transcripts containing only text show the generic tool card.
+Failed calls and missing or malformed widget data also use that fallback.
+
+Deploy MCP and agent transport support before deploying a frontend that requires
+structured widget data. Verify both live calls and history replay, and inspect the
+next model request to confirm that app metadata is absent.
+
 ## Serializer best practices
 
 Descriptions flow through the entire pipeline:
