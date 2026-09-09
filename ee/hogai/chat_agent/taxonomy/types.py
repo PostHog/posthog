@@ -16,6 +16,7 @@ class TaxonomyAgentState(BaseStateWithIntermediateSteps, BaseStateWithMessages, 
     Only includes fields relevant to filter options generation.
     """
 
+    # URL imports can run inside frozen-time tests, where Pydantic sees Freezegun's datetime as arbitrary.
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     output: Optional[OutputType | str] = Field(default=None)
