@@ -231,7 +231,18 @@ describe('ml-mirror-pipeline', () => {
             distinct_id: 'user-123',
             data: JSON.stringify({
                 event: '$snapshot_items',
-                properties: { $session_id: sessionId, $window_id: 'window-1', $snapshot_items: [snapshot] },
+                properties: {
+                    $session_id: sessionId,
+                    $window_id: 'window-1',
+                    $snapshot_items: [
+                        {
+                            type: 4,
+                            timestamp: now.toMillis(),
+                            data: { href: 'https://example.com/private-name?email=private#secret' },
+                        },
+                        snapshot,
+                    ],
+                },
             }),
         })
         return {
@@ -316,7 +327,11 @@ describe('ml-mirror-pipeline', () => {
         )
 
         expect(recordMock).toHaveBeenCalledTimes(1)
-        const node = recordedEvents()[0][1].data.node.childNodes[0]
+        expect(recordMock.mock.calls[0][0].message.preSerialized.events).toEqual([
+            { ts: now.toMillis(), flags: 32, href: 'https://example.com/[redacted]?[key]=private' },
+            { ts: now.toMillis(), flags: 16 },
+        ])
+        const node = recordedEvents()[1][1].data.node.childNodes[0]
         expect(node.childNodes[0].textContent).toBe('Hello **********') // DOM text
         expect(node.attributes.href).toContain('https://example.com/') // authority kept...
         expect(node.attributes.href).not.toContain('abc') // ...path segments redacted

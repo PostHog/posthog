@@ -1207,6 +1207,102 @@ describe('SnappySessionRecorder', () => {
         expect(Buffer.byteLength(JSON.stringify(result.replayIndexEntries))).toBeLessThan(128 * 1024 + 2)
     })
 
+    it.each([
+        {
+            name: 'across payloads',
+            events: [
+                ['w1', 1, 32, 'https://example.com/page'],
+                ['w1', 2, 16],
+            ],
+            expected: 'https://example.com/page',
+        },
+        {
+            name: 'interleaved windows',
+            events: [
+                ['w1', 1, 32, 'https://example.com/page'],
+                ['w2', 1, 32, 'https://other.example/page'],
+                ['w1', 2, 16],
+            ],
+            expected: 'https://example.com/page',
+        },
+        {
+            name: 'missing Meta URL',
+            events: [
+                ['w1', 1, 32, 'https://example.com/page'],
+                ['w1', 2, 32],
+                ['w1', 3, 16],
+            ],
+            expected: undefined,
+        },
+        {
+            name: 'intervening event',
+            events: [
+                ['w1', 1, 32, 'https://example.com/page'],
+                ['w1', 2, 0],
+                ['w1', 3, 16],
+            ],
+            expected: undefined,
+        },
+        {
+            name: 'different window',
+            events: [
+                ['w1', 1, 32, 'https://example.com/page'],
+                ['w2', 2, 16],
+            ],
+            expected: undefined,
+        },
+        {
+            name: 'out-of-order timestamp',
+            events: [
+                ['w1', 3, 32, 'https://example.com/page'],
+                ['w1', 2, 16],
+            ],
+            expected: undefined,
+        },
+        {
+            name: 'late Meta',
+            events: [
+                ['w1', 2, 16],
+                ['w1', 1, 32, 'https://example.com/page'],
+            ],
+            expected: undefined,
+        },
+        {
+            name: 'older metadata without Meta flag',
+            events: [
+                ['w1', 1, 0, 'https://example.com/page'],
+                ['w1', 2, 16],
+            ],
+            expected: undefined,
+        },
+    ])('indexes a full snapshot URL conservatively: $name', async ({ events, expected }) => {
+        const t = 1_700_000_000_000
+        for (const [windowId, offset, flags, href] of events) {
+            const ts = t + Number(offset)
+            recorder.recordMessage({
+                ...createMessage(String(windowId), []),
+                eventsRange: { start: DateTime.fromMillis(ts), end: DateTime.fromMillis(ts) },
+                preSerialized: {
+                    windowId: String(windowId),
+                    events: [{ ts, flags: Number(flags), href: href as string | undefined }],
+                    lines: Buffer.from('[]\n'),
+                    consoleLogCount: 0,
+                    consoleWarnCount: 0,
+                    consoleErrorCount: 0,
+                },
+            })
+        }
+        const result = await recorder.end()
+        const snapshots = result.replayIndexEntries!.filter((entry) => entry.kind === 'full_snapshot')
+        expect(snapshots).toHaveLength(1)
+        expect(snapshots[0].url).toBe(expected)
+        expect(result.eventCount).toBe(events.length)
+        const missingMeta = events.filter(([, , flags, href]) => flags === 32 && !href)
+        expect(result.replayIndexEntries!.filter((entry) => entry.kind === 'page' && !entry.url)).toHaveLength(
+            missingMeta.length
+        )
+    })
+
     it('keeps index ordinals across payloads and windows', async () => {
         const t = 1_700_000_000_000.5
         const eventBatches = [

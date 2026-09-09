@@ -7,6 +7,7 @@ import {
     PRE_SERIALIZED_FLAG_CLICK,
     PRE_SERIALIZED_FLAG_FULL_SNAPSHOT,
     PRE_SERIALIZED_FLAG_KEYPRESS,
+    PRE_SERIALIZED_FLAG_META,
     PRE_SERIALIZED_FLAG_MOUSE_ACTIVITY,
     ParsedMessageData,
 } from '~/ingestion/pipelines/sessionreplay/kafka/types'
@@ -112,6 +113,7 @@ export class SnappySessionRecorder {
     private replayIndexEntries: ReplayIndexEntry[] = []
     private replayIndexBytes = 0
     private replayIndexTruncated = false
+    private pendingMetaByWindow = new Map<string, { timestamp: number; url?: string }>()
 
     constructor(
         public readonly sessionId: string,
@@ -213,21 +215,37 @@ export class SnappySessionRecorder {
         for (const event of events) {
             if (
                 windowId !== undefined &&
-                (event.flags & PRE_SERIALIZED_FLAG_FULL_SNAPSHOT || event.jsonLd || event.href)
+                (event.flags & (PRE_SERIALIZED_FLAG_FULL_SNAPSHOT | PRE_SERIALIZED_FLAG_META) ||
+                    event.jsonLd ||
+                    event.href)
             ) {
                 const common = { windowId, eventTimestamp: event.ts, eventIndex: this.eventCount }
                 if (event.flags & PRE_SERIALIZED_FLAG_FULL_SNAPSHOT) {
-                    this.appendReplayIndexEntry({ ...common, kind: 'full_snapshot' })
-                }
-                if (event.jsonLd) {
+                    const meta = this.pendingMetaByWindow.get(windowId)
+                    this.appendReplayIndexEntry({
+                        ...common,
+                        kind: 'full_snapshot',
+                        ...(meta && meta.timestamp <= event.ts && meta.url ? { url: meta.url } : {}),
+                    })
+                } else if (event.jsonLd) {
                     this.appendReplayIndexEntry({
                         ...common,
                         kind: 'json_ld',
                         ...event.jsonLd,
                         url: event.href?.slice(0, MAX_URL_LENGTH),
                     })
-                } else if (event.href) {
-                    this.appendReplayIndexEntry({ ...common, kind: 'page', url: event.href.slice(0, MAX_URL_LENGTH) })
+                } else if (event.href || event.flags & PRE_SERIALIZED_FLAG_META) {
+                    this.appendReplayIndexEntry({ ...common, kind: 'page', url: event.href?.slice(0, MAX_URL_LENGTH) })
+                }
+            }
+            if (windowId !== undefined) {
+                if (event.flags & PRE_SERIALIZED_FLAG_META && !this.replayIndexTruncated) {
+                    this.pendingMetaByWindow.set(windowId, {
+                        timestamp: event.ts,
+                        url: event.href?.slice(0, MAX_URL_LENGTH),
+                    })
+                } else {
+                    this.pendingMetaByWindow.delete(windowId)
                 }
             }
             this.segmentationEvents.push({
