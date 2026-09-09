@@ -139,10 +139,12 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
         id_token = cast(dict[str, Any] | None, self.id_token)
         if id_token is None:
             raise AuthFailed(self, "OIDC did not return a valid ID token.")
-        claims = dict(id_token)
-        email = claims.get("email")
-        if not isinstance(email, str):
-            raise AuthFailed(self, "OIDC requires an email address in the ID token.")
+        userinfo = super().user_data(access_token, *args, **kwargs)
+        if not isinstance(userinfo, dict) or userinfo.get("sub") != id_token.get("sub"):
+            raise AuthFailed(self, "The OIDC user does not match the ID token.")
+        email = userinfo.get("email")
+        if userinfo.get("email_verified") is not True or not isinstance(email, str):
+            raise AuthFailed(self, "OIDC requires a verified email address from the identity provider.")
         if not (
             IdentityProviderConfig.objects.get_queryset()
             .oidc_for_email(email)
@@ -150,7 +152,7 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
             .exists()
         ):
             raise AuthFailed(self, "The OIDC email domain does not belong to this identity provider configuration.")
-        return claims
+        return userinfo
 
     def get_user_id(self, details: dict[str, Any], response: dict[str, Any]) -> str:
         return f"{self.identity_provider_config.id}:{response['sub']}"

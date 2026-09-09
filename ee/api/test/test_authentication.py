@@ -143,10 +143,20 @@ class TestOIDCAuthentication(APILicensedTest):
                     "issuer": self.config.oidc_issuer_url,
                     "authorization_endpoint": "https://idp.example.com/authorize",
                     "token_endpoint": "https://idp.example.com/token",
+                    "userinfo_endpoint": "https://idp.example.com/userinfo",
                     "jwks_uri": "https://idp.example.com/keys",
                 }
             elif url.endswith("/keys"):
                 data = {"keys": [public_key]}
+            elif url.endswith("/userinfo"):
+                self.assertEqual(method, "GET")
+                self.assertEqual(kwargs["headers"], {"Authorization": "Bearer example-access-token"})
+                data = {
+                    "sub": "example-user",
+                    "email": self.user.email,
+                    "email_verified": True,
+                    "name": "Example User",
+                }
             else:
                 self.assertEqual(url, "https://idp.example.com/token")
                 self.assertEqual(method, "POST")
@@ -163,8 +173,6 @@ class TestOIDCAuthentication(APILicensedTest):
                 "iss": self.config.oidc_issuer_url,
                 "aud": "example-client",
                 "sub": "example-user",
-                "email": self.user.email,
-                "email_verified": True,
                 "name": "Example User",
                 "iat": int(timezone.now().timestamp()),
                 "exp": int(timezone.now().timestamp()) + 60,
@@ -203,21 +211,50 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertTrue(params["nonce"])
 
     def test_oidc_rejects_another_domain(self):
-        self.backend.id_token = cast(
-            Any, {"sub": "example-user", "email": "member@other.example", "email_verified": True}
-        )
-        with self.assertRaises(AuthFailed):
-            self.backend.user_data("example-access-token")
+        self.backend.id_token = cast(Any, {"sub": "example-user"})
+        with patch(
+            "posthog.api.oidc.OpenIdConnectAuth.user_data",
+            return_value={
+                "sub": "example-user",
+                "email": "member@other.example",
+                "email_verified": True,
+            },
+        ):
+            with self.assertRaises(AuthFailed):
+                self.backend.user_data("example-access-token")
 
-    @parameterized.expand([("missing", None), ("false", False), ("string", "true"), ("true", True)])
-    def test_oidc_accepts_email_without_relying_on_email_verified(self, _name, email_verified):
-        claims: dict[str, Any] = {"sub": "example-user", "email": "member@example.com"}
+    @parameterized.expand([("missing", None), ("false", False), ("string", "true")])
+    def test_oidc_requires_verified_email_from_userinfo(self, _name, email_verified):
+        self.backend.id_token = cast(Any, {"sub": "example-user"})
+        userinfo: dict[str, Any] = {"sub": "example-user", "email": "member@example.com"}
         if email_verified is not None:
-            claims["email_verified"] = email_verified
-        self.backend.id_token = cast(Any, claims)
-        response = self.backend.user_data("example-access-token")
+            userinfo["email_verified"] = email_verified
+        with patch("posthog.api.oidc.OpenIdConnectAuth.user_data", return_value=userinfo):
+            with self.assertRaises(AuthFailed):
+                self.backend.user_data("example-access-token")
+
+    def test_oidc_accepts_verified_email_from_userinfo(self):
+        self.backend.id_token = cast(Any, {"sub": "example-user"})
+        userinfo = {
+            "sub": "example-user",
+            "email": "member@example.com",
+            "email_verified": True,
+        }
+        with patch("posthog.api.oidc.OpenIdConnectAuth.user_data", return_value=userinfo):
+            response = self.backend.user_data("example-access-token")
         self.assertEqual(self.backend.get_user_id({}, response), f"{self.config.id}:example-user")
         self.assertEqual(self.backend.extra_data(None, "uid", response, {}), {})
+
+    def test_oidc_rejects_userinfo_for_another_subject(self):
+        self.backend.id_token = cast(Any, {"sub": "example-user"})
+        userinfo = {
+            "sub": "other-user",
+            "email": "member@example.com",
+            "email_verified": True,
+        }
+        with patch("posthog.api.oidc.OpenIdConnectAuth.user_data", return_value=userinfo):
+            with self.assertRaises(AuthFailed):
+                self.backend.user_data("example-access-token")
 
     def test_oidc_rejects_removed_entitlement(self):
         self.organization.available_product_features = []
