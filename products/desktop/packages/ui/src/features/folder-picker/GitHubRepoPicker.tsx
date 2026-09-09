@@ -13,6 +13,7 @@ import {
   ComboboxItem,
   ComboboxList,
   ComboboxTrigger,
+  cn,
   InputGroupAddon,
   InputGroupButton,
   Spinner,
@@ -20,7 +21,6 @@ import {
 } from "@posthog/quill";
 import { Spin } from "@posthog/ui/primitives/Spinner";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
-import { FIELD_TRIGGER_CLASS } from "@posthog/ui/styles/fieldTrigger";
 import { defaultFilter } from "cmdk";
 import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 
@@ -92,6 +92,12 @@ export function GitHubRepoPicker({
 }: GitHubRepoPickerProps) {
   const buttonSize = size === "2" ? "lg" : "sm";
   const buttonTextClass = size === "2" ? "text-[13px]" : "";
+  const triggerSize = variant === "field" ? "lg" : buttonSize;
+  const triggerClass = cn(
+    variant === "field" && "w-full justify-start",
+    buttonTextClass,
+    triggerClassName,
+  );
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const [uncontrolledSearchQuery, setUncontrolledSearchQuery] = useState("");
@@ -148,8 +154,8 @@ export function GitHubRepoPicker({
       <Button
         variant="outline"
         disabled
-        size={buttonSize}
-        className={`${buttonTextClass} ${triggerClassName ?? ""}`}
+        size={triggerSize}
+        className={triggerClass}
       >
         <GithubLogo size={16} weight="regular" className="shrink-0" />
         Loading repos...
@@ -169,8 +175,8 @@ export function GitHubRepoPicker({
       <Button
         variant="outline"
         disabled
-        size={buttonSize}
-        className={`${buttonTextClass} ${triggerClassName ?? ""}`}
+        size={triggerSize}
+        className={triggerClass}
       >
         <GithubLogo size={16} weight="regular" className="shrink-0" />
         No GitHub repos
@@ -185,10 +191,15 @@ export function GitHubRepoPicker({
           <Button
             type="button"
             variant="outline"
-            size={buttonSize}
+            size={triggerSize}
             disabled
             aria-label="Repository"
-            className={`pointer-events-none min-w-0 max-w-full cursor-default justify-start disabled:opacity-100 ${buttonTextClass} ${triggerClassName ?? ""}`}
+            className={cn(
+              "pointer-events-none min-w-0 max-w-full cursor-default justify-start disabled:opacity-100",
+              variant === "field" && "w-full",
+              buttonTextClass,
+              triggerClassName,
+            )}
           >
             <GithubLogo size={14} weight="regular" className="shrink-0" />
             <span className="min-w-0 truncate">{onlyRepo}</span>
@@ -228,12 +239,15 @@ export function GitHubRepoPicker({
       <ComboboxTrigger
         render={
           variant === "field" ? (
-            <button
+            <Button
               ref={triggerRef}
               type="button"
+              variant="outline"
+              size="lg"
+              left
               disabled={disabled}
               aria-label="Repository"
-              className={`${FIELD_TRIGGER_CLASS} ${triggerClassName ?? ""}`}
+              className={triggerClass}
             >
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 <GithubLogo size={16} className="shrink-0 text-(--gray-12)" />
@@ -244,8 +258,8 @@ export function GitHubRepoPicker({
                   {value ?? placeholder}
                 </span>
               </div>
-              <CaretDown size={14} className="shrink-0 text-(--gray-9)" />
-            </button>
+              <CaretDown size={14} className="shrink-0 text-muted-foreground" />
+            </Button>
           ) : (
             <Button
               ref={triggerRef}
