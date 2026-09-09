@@ -167,6 +167,26 @@ class TestCheckSuiteActivities(BaseTest):
 
         assert prepared.batches == []
 
+    def test_a_paused_schedule_prepares_no_batches(self) -> None:
+        metric_id = uuid4()
+        self._check(saved_query_id=None, metric_id=metric_id, subject_type=SubjectType.METRIC)
+        schedule = DataQualityCheckSchedule.objects.for_team(self.team.id).create(
+            team=self.team,
+            subject_type=SubjectType.METRIC,
+            subject_uuid=metric_id,
+            next_run_at=datetime.now(UTC),
+            enabled=False,
+        )
+
+        prepared = self._prepare(
+            saved_query_ids=[],
+            metric_ids=[str(metric_id)],
+            trigger=SuiteRunTrigger.SCHEDULED,
+            schedule_id=str(schedule.id),
+        )
+
+        assert prepared.batches == []
+
     def test_an_unreadable_flag_fails_instead_of_preparing_an_empty_suite(self) -> None:
         metric_id = uuid4()
         self._check(saved_query_id=None, metric_id=metric_id, subject_type=SubjectType.METRIC)

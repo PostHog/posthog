@@ -26,7 +26,7 @@ async def prepare_check_suite_activity(inputs: RunCheckSuiteInputs) -> PreparedS
 
 
 def _prepare(inputs: RunCheckSuiteInputs) -> PreparedSuite:
-    checks = _select_checks(inputs) if _checks_enabled(inputs.team_id) else []
+    checks = _select_checks(inputs) if _checks_enabled(inputs.team_id) and _schedule_wants_run(inputs) else []
     suite_run = _suite_run(inputs)
     _stamp_schedule(inputs, suite_run)
 
@@ -47,6 +47,20 @@ def _checks_enabled(team_id: int) -> bool:
     if enabled is None:
         raise RuntimeError(f"Could not read the data quality checks flag for team {team_id}.")
     return enabled
+
+
+def _schedule_wants_run(inputs: RunCheckSuiteInputs) -> bool:
+    """Whether the schedule that asked for this suite still wants it.
+
+    The dispatcher starts the child before it acknowledges the occurrence, so a pause can reach the
+    row while this suite is already on its way. Read the row again, or the pause runs one more full
+    suite after the API reported it applied.
+    """
+    if inputs.trigger != SuiteRunTrigger.SCHEDULED or not inputs.schedule_id:
+        return True
+    return (
+        DataQualityCheckSchedule.objects.for_team(inputs.team_id).filter(id=inputs.schedule_id, enabled=True).exists()
+    )
 
 
 def _stamp_schedule(inputs: RunCheckSuiteInputs, suite_run: DataQualitySuiteRun) -> None:
