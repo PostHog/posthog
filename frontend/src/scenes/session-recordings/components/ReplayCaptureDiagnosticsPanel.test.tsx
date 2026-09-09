@@ -49,6 +49,21 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
             ).toBeInTheDocument()
         })
 
+        it('renders the trigger group headline when no group matched', () => {
+            render(
+                <ReplayCaptureDiagnosticsPanel
+                    eventProperties={{
+                        $recording_status: 'buffering',
+                        $sdk_debug_replay_remote_trigger_matching_config: 'v2_trigger_groups',
+                        $sdk_debug_replay_trigger_groups_count: 2,
+                        $sdk_debug_replay_matched_recording_trigger_groups: [],
+                    }}
+                />
+            )
+
+            expect(screen.getByText('Recording was gated on trigger groups and none matched')).toBeInTheDocument()
+        })
+
         it('renders disabled headline', () => {
             render(
                 <ReplayCaptureDiagnosticsPanel

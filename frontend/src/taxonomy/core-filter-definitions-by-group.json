@@ -2938,6 +2938,12 @@
             "label": "Replay rrweb error",
             "used_for_debug": true
         },
+        "$sdk_debug_replay_stale_config": {
+            "description": "Whether the SDK could not refresh its recording settings and started recording under the last settings it had.",
+            "label": "Recording started under a stale config",
+            "type": "Boolean",
+            "used_for_debug": true
+        },
         "$sdk_debug_replay_trigger_groups_count": {
             "description": "The number of V2 recording trigger groups configured for this project.",
             "examples": [
@@ -8056,6 +8062,12 @@
         "$sdk_debug_replay_rrweb_error": {
             "description": "An error reported by the rrweb session recording library while capturing the replay.",
             "label": "Replay rrweb error",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_stale_config": {
+            "description": "Whether the SDK could not refresh its recording settings and started recording under the last settings it had.",
+            "label": "Recording started under a stale config",
+            "type": "Boolean",
             "used_for_debug": true
         },
         "$sdk_debug_replay_trigger_groups_count": {

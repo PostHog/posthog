@@ -5,6 +5,7 @@ export type DiagnosisVerdict =
     | 'ad_blocked'
     | 'disabled'
     | 'trigger_pending'
+    | 'trigger_gated'
     | 'sampled_out'
     | 'buffering_empty'
     | 'recorder_error'
@@ -40,6 +41,7 @@ const DIAGNOSTIC_KEYS = [
     '$sdk_debug_replay_internal_buffer_size',
     '$sdk_debug_replay_flushed_size',
     '$sdk_debug_replay_remote_trigger_matching_config',
+    '$sdk_debug_replay_stale_config',
     '$sdk_debug_recording_script_not_loaded',
     '$sdk_debug_rrweb_start_attempted',
     '$sdk_debug_rrweb_attached',
@@ -96,6 +98,9 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
     const flushedSize = toNumber(properties['$sdk_debug_replay_flushed_size'])
     const scriptNotLoaded = properties['$sdk_debug_recording_script_not_loaded']
     const rrwebError = properties['$sdk_debug_replay_rrweb_error']
+    const triggerMatchingConfig = properties['$sdk_debug_replay_remote_trigger_matching_config']
+    const triggerGroupsCount = toNumber(properties['$sdk_debug_replay_trigger_groups_count'])
+    const matchedTriggerGroups = properties['$sdk_debug_replay_matched_recording_trigger_groups']
 
     const settingsAction: SuggestedAction = {
         label: 'Open replay settings',
@@ -158,6 +163,25 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
             ],
             rawSignals,
             suggestedActions: [troubleshootingAction],
+        }
+    }
+
+    const noTriggerGroupMatched = !Array.isArray(matchedTriggerGroups) || matchedTriggerGroups.length === 0
+    if (triggerMatchingConfig === 'v2_trigger_groups' && noTriggerGroupMatched) {
+        return {
+            verdict: 'trigger_gated',
+            headline: 'Recording was gated on trigger groups and none matched',
+            reasons: [
+                triggerGroupsCount === null
+                    ? 'This project sends trigger groups to the SDK, and none of them matched this session.'
+                    : `This project sends ${triggerGroupsCount} trigger ${
+                          triggerGroupsCount === 1 ? 'group' : 'groups'
+                      } to the SDK, and none of them matched this session.`,
+                'With trigger groups configured, the SDK only records a session that matches a group. Every other session is dropped.',
+                'posthog-js before 1.369.0 ignores trigger groups and records every session, so an SDK upgrade can start this gating without any settings change.',
+            ],
+            rawSignals,
+            suggestedActions: [settingsAction, troubleshootingAction],
         }
     }
 
