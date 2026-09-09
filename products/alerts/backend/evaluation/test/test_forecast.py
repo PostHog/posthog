@@ -1,7 +1,7 @@
 import datetime
 from collections.abc import Callable
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from freezegun import freeze_time
@@ -579,13 +579,30 @@ def test_scheduled_forecast_capacity_is_deferred_without_extracting() -> None:
     extractor.extract.assert_not_called()
 
 
-def test_forecast_extraction_disables_comparison_in_the_execution_query() -> None:
+@parameterized.expand(
+    [
+        ("comparison insight", {"compareFilter": {"compare": True}}, False, None),
+        ("metric display", {"trendsFilter": {"display": "Metric"}}, None, False),
+        (
+            "metric display on a comparison insight",
+            {"trendsFilter": {"display": "Metric"}, "compareFilter": {"compare": True}},
+            False,
+            False,
+        ),
+    ]
+)
+def test_forecast_extraction_leaves_the_execution_query_no_way_to_compare(
+    _name: str,
+    query_extra: dict[str, Any],
+    expected_compare: bool | None,
+    expected_metric_show_change: bool | None,
+) -> None:
     query = TrendsQuery.model_validate(
         {
             "kind": "TrendsQuery",
             "interval": "day",
             "series": [{"kind": "EventsNode", "event": "$pageview"}],
-            "compareFilter": {"compare": True},
+            **query_extra,
         }
     )
     calculation = SimpleNamespace(result=[])
@@ -602,7 +619,12 @@ def test_forecast_extraction_disables_comparison_in_the_execution_query() -> Non
         )
 
     execution_query = calculate.call_args.kwargs["query_override"]
-    assert execution_query["compareFilter"]["compare"] is False
+    assert execution_query is not None, "the execution query must not run with the insight's own comparison settings"
+    compare_filter = execution_query["compareFilter"]
+    trends_filter = execution_query["trendsFilter"]
+    assert (compare_filter["compare"] if compare_filter else None) is expected_compare
+    # The Metric display forces comparison on from the change pill, so the pill has to be off too.
+    assert (trends_filter["metricShowChange"] if trends_filter else None) is expected_metric_show_change
 
 
 def test_forecast_simulation_rejects_smoothed_trends_before_extraction() -> None:
