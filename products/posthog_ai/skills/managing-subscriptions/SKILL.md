@@ -36,7 +36,7 @@ When someone wants the **key numbers from an existing dashboard or insight** pos
 
 - Set `dashboard` (or `insight`) and deliver to Slack or email. For a **dashboard** subscription, pick the tiles via `dashboard_export_insights` — that field is dashboard-only, and an insight subscription is rejected if you send it (an insight subscription needs no tile list).
 - **Offer the AI summary, don't assume it.** Per step 6, ask before enabling it, then set `summary_enabled: true` once the user agrees — it has AI-consent, quota, and budget gates that can reject the create, so keep it opt-in.
-- The attached **tile snapshots are exact**. The AI summary text is model-written, so treat any figure it quotes as approximate (the same drift caveat as a prompt subscription) and lean on the snapshot for exact numbers.
+- The attached **tile snapshots are exact**, and each tile is recomputed when the subscription sends — a snapshot never reuses a result someone cached earlier in the app. The AI summary text is model-written, so treat any figure it quotes as approximate (the same drift caveat as a prompt subscription) and lean on the snapshot for exact numbers.
 
 Usually a better fit than a **prompt subscription** (`creating-ai-subscription`) or a **Signals scout**.
 A prompt subscription composes its own HogQL and can drift from the dashboard's numbers; a scout is for open-ended watching that decides what's worth surfacing, not scheduled delivery of a fixed, user-specified metric set.

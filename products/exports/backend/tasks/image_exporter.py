@@ -4,7 +4,7 @@ import time
 import uuid
 from collections.abc import Callable
 from datetime import timedelta
-from typing import Literal, Optional
+from typing import TYPE_CHECKING, Literal, Optional
 from urllib.parse import parse_qsl, quote, quote_plus, urlencode, urlparse, urlunparse
 
 from django.conf import settings
@@ -27,6 +27,7 @@ from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.insight_result import InsightResult
 from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
@@ -45,6 +46,9 @@ from products.exports.backend.tasks.failure_handler import (
 from products.exports.backend.url_security import is_heatmap_url_allowed
 from products.product_analytics.backend.facade.api import insight_variables_for_team, map_stale_to_latest
 
+if TYPE_CHECKING:
+    from products.product_analytics.backend.facade.models import Insight
+
 logger = structlog.get_logger(__name__)
 
 IMAGE_EXPORT_RENDER_DURATION = Histogram(
@@ -58,6 +62,24 @@ IMAGE_EXPORT_RENDER_FAILURE_COUNTER = Counter(
     "Image export render failures by backend and classified failure type",
     labelnames=["backend", "failure_type"],
 )
+
+
+def _legacy_filters_as_query(insight: "Insight") -> Optional[dict]:
+    """Convert an insight that stores only legacy `filters` into a query, or None if it has none.
+
+    The render converts the same filters in the browser and asks for the converted query, so the
+    export must convert them the same way. Without a query there is nothing to recompute, and the
+    render falls back to whatever the shared viewer finds in the cache — possibly an old result.
+    """
+    if insight.query is not None or not insight.filters:
+        return None
+    try:
+        return filter_to_query(insight.filters).model_dump()
+    except Exception as e:
+        # An unconvertible filter set must not lose an export the browser can still render.
+        logger.warning("export_image.legacy_filters_conversion_failed", insight_id=insight.id)
+        capture_exception(e)
+        return None
 
 
 def _build_cache_keys_param(insight_cache_keys: Optional[dict[int, str]]) -> str:
@@ -557,6 +579,8 @@ def export_image(
                     if tile:
                         tile_filters_override = tile.filters_overrides
 
+                legacy_filters_query = None if query_override else _legacy_filters_as_query(exported_asset.insight)
+
                 result: InsightResult | None = None
                 if query_override:
                     # query_override is upgraded inside calculate_for_query_based_insight,
@@ -576,11 +600,10 @@ def export_image(
                         query_override=query_override,
                         analytics_props=export_analytics_props,
                     )
-                elif exported_asset.insight.query is None:
-                    # Nothing to warm: the insight stores only legacy filters, which the render
-                    # converts in the browser. Failing here would lose an export the browser can
-                    # still produce, so the render just starts without a warm cache. The dashboard
-                    # branch below skips such a tile for the same reason.
+                elif not exported_asset.insight.query and not legacy_filters_query:
+                    # Nothing to warm, and failing here would lose an export the browser can still
+                    # produce, so the render just starts without a warm cache. The dashboard branch
+                    # below skips such a tile for the same reason.
                     logger.info(
                         "export_image.skip_warming_insight_without_query",
                         insight_id=exported_asset.insight.id,
@@ -596,6 +619,7 @@ def export_image(
                             user=exported_asset.created_by,
                             variables_override=dashboard_variables,
                             tile_filters_override=tile_filters_override,
+                            query_override=legacy_filters_query,
                             analytics_props=export_analytics_props,
                         )
                 if result is not None and result.cache_key:
@@ -620,7 +644,10 @@ def export_image(
                 )
                 for tile in tiles:
                     insight = tile.insight
-                    if not insight or not insight.query:
+                    if not insight:
+                        continue
+                    legacy_filters_query = _legacy_filters_as_query(insight)
+                    if not insight.query and not legacy_filters_query:
                         continue
 
                     with upgrade_insight(insight):
@@ -633,6 +660,7 @@ def export_image(
                             user=exported_asset.created_by,
                             variables_override=dashboard_variables,
                             tile_filters_override=tile.filters_overrides,
+                            query_override=legacy_filters_query,
                             analytics_props=export_analytics_props,
                         )
                         if result.cache_key:
