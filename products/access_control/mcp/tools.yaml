@@ -12,6 +12,7 @@ tools:
     access-control-default-objects-list:
         operation: organizations_projects_access_control_default_objects_retrieve
         enabled: true
+        feature_entitlement: access_control
         scopes:
             - access_control:read
         annotations:
@@ -32,6 +33,7 @@ tools:
     access-control-default-properties-list:
         operation: organizations_projects_access_control_default_properties_retrieve
         enabled: true
+        feature_entitlement: access_control
         scopes:
             - access_control:read
         annotations:
@@ -53,6 +55,7 @@ tools:
     access-control-defaults-get:
         operation: organizations_projects_access_control_defaults_retrieve
         enabled: true
+        feature_entitlement: access_control
         scopes:
             - access_control:read
         annotations:
@@ -82,6 +85,7 @@ tools:
     access-control-member-objects-list:
         operation: organizations_projects_access_control_member_objects_retrieve
         enabled: true
+        feature_entitlement: access_control
         scopes:
             - access_control:read
         annotations:
@@ -110,6 +114,7 @@ tools:
     access-control-member-properties-list:
         operation: organizations_projects_access_control_member_properties_retrieve
         enabled: true
+        feature_entitlement: access_control
         scopes:
             - access_control:read
         annotations:
@@ -138,6 +143,7 @@ tools:
     access-control-members-list:
         operation: organizations_projects_access_control_members_retrieve
         enabled: true
+        feature_entitlement: access_control
         scopes:
             - access_control:read
         annotations:
@@ -177,6 +183,7 @@ tools:
     access-control-role-objects-list:
         operation: organizations_projects_access_control_role_objects_retrieve
         enabled: true
+        feature_entitlement: access_control
         scopes:
             - access_control:read
         annotations:
@@ -201,6 +208,7 @@ tools:
     access-control-role-properties-list:
         operation: organizations_projects_access_control_role_properties_retrieve
         enabled: true
+        feature_entitlement: access_control
         scopes:
             - access_control:read
         annotations:
@@ -225,6 +233,7 @@ tools:
     access-control-roles-list:
         operation: organizations_projects_access_control_roles_retrieve
         enabled: true
+        feature_entitlement: access_control
         scopes:
             - access_control:read
         annotations:

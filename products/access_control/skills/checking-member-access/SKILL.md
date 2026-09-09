@@ -26,8 +26,9 @@ Not for changing rules. The read tools cannot write, and the settings page is wh
 
 ## Plan availability
 
-- Free and pay-as-you-go plans have no access control. Every level resolves to the PostHog default with
-  `source` `system_default`, and any rule the tools return has no effect. Say so, and stop.
+- Free and pay-as-you-go plans have no access control, and the access control tools are not offered to
+  them. If the tools are missing from the catalog, say that the plan does not include access control, and
+  stop.
 - Boost and Scale include the default levels and rules for single members on the project, on tools, on
   objects and on properties.
 - Roles exist on every plan, but role rules count for access only on Enterprise. On other plans a role

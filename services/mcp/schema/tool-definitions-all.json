@@ -11,7 +11,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_entitlement": "access_control"
     },
     "access-control-default-properties-list": {
         "description": "Property rules that apply to everyone in the project without a rule of their own on that property: which person and event properties are hidden (`none`), read-only (`read`), or open (`read_write`). Every property is `read_write` unless a rule says otherwise.",
@@ -25,7 +26,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_entitlement": "access_control"
     },
     "access-control-defaults-get": {
         "description": "The access everyone in the project gets unless a rule of their own, or a role's rule, says otherwise: the default project level (member or admin) and the default level per tool (none, viewer, editor, manager), with the lowest and highest level each tool allows. Also lists which tools accept rules on single objects, such as one dashboard or one notebook. Start here to understand a project's baseline before checking a member or a role.",
@@ -39,7 +41,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_entitlement": "access_control"
     },
     "access-control-member-objects-list": {
         "description": "The rules configured for a member on single objects, for example a dashboard, a notebook or a warehouse table they are given access to, or blocked from, regardless of their tool-level access. Only the member's own rules are returned. An empty list means the member has no object rules of their own. Their tool-level access still applies.",
@@ -53,7 +56,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_entitlement": "access_control"
     },
     "access-control-member-properties-list": {
         "description": "The property rules configured for a member: which person and event properties they cannot see (`none`), can only read (`read`), or can read and write (`read_write`). Every property is `read_write` unless a rule says otherwise. Only the member's own rules are returned.",
@@ -67,7 +71,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_entitlement": "access_control"
     },
     "access-control-members-list": {
         "description": "For every organization member, the access enforced in the project: to the project itself and to each tool (dashboards, insights, feature flags, and so on). Per entry, `access_level` is the member's own stored rule (null when none), `effective_access_level` is what is enforced, and `inherited_access` says where that level comes from when it is not the member's own rule: `source_subject` is `role` or `default`, and `source` is `org_admin` when the member is an organization admin with full access to everything. Pass `member_id` (an `organization_membership_id`, from this tool or org-members-list) for one member. The checking-member-access skill explains how the levels combine.",
@@ -81,7 +86,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_entitlement": "access_control"
     },
     "access-control-role-objects-list": {
         "description": "The rules configured for a role on single objects, for example a dashboard, a notebook or a warehouse table the role's members are given access to, or blocked from, regardless of their tool-level access.",
@@ -95,7 +101,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_entitlement": "access_control"
     },
     "access-control-role-properties-list": {
         "description": "The property rules configured for a role: which person and event properties the role's members cannot see (`none`), can only read (`read`), or can read and write (`read_write`).",
@@ -109,7 +116,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_entitlement": "access_control"
     },
     "access-control-roles-list": {
         "description": "For every role in the organization, the access it grants in the project: to the project itself and to each tool. Per entry, `access_level` is the role's own stored rule, `effective_access_level` is what the role's members get from it, and `inherited_access` says where that level comes from when the role has no rule of its own. Pass `role_id` for one role.",
@@ -123,7 +131,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_entitlement": "access_control"
     },
     "account-relationship-definitions-create": {
         "description": "Create a Customer Analytics account relationship definition — a team-defined relationship type between a PostHog user and an account, such as CSM or Onboarding manager. Provide `name` (required, unique within the team), optional `description` explaining what the relationship means, and `is_single_holder` (default true) controlling whether only one user can hold the relationship per account at a time. Definitions are team-scoped and shared across all accounts; assign a user to a specific account with `accounts-relationships-create`.",
@@ -575,34 +584,6 @@
         "feature": "alerts",
         "summary": "Delete alert",
         "title": "Delete alert",
-        "required_scopes": ["alert:write"],
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "alert-destinations-create": {
-        "description": "Post this insight alert to a Slack channel as well as emailing its subscribed users. The Slack workspace must already be connected to the project — list the workspaces and their channels with integrations-channels-retrieve. An alert can have up to 5 destinations. The returned hog_function_ids identify the destination; pass them to alert-destinations-delete to remove it.",
-        "category": "Alerts",
-        "feature": "alerts",
-        "summary": "Send an alert to Slack",
-        "title": "Send an alert to Slack",
-        "required_scopes": ["alert:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "alert-destinations-delete": {
-        "description": "Remove a destination from an insight alert by passing the hog_function_ids that alert-destinations-create returned. The alert keeps its email recipients.",
-        "category": "Alerts",
-        "feature": "alerts",
-        "summary": "Stop sending an alert to Slack",
-        "title": "Stop sending an alert to Slack",
         "required_scopes": ["alert:write"],
         "annotations": {
             "destructiveHint": true,
@@ -1261,20 +1242,6 @@
         "feature": "canvas",
         "summary": "Read canvas build status",
         "title": "Read canvas build status",
-        "required_scopes": ["canvas:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "canvas-connectors-retrieve": {
-        "description": "List the connector catalog a canvas can read live third-party data through with `ph.connectors.call`: every native provider (GitHub) and every MCP store server the authenticated user has connected, each with its tools, their argument schemas, and authoring docs. Use this before writing a canvas that shows pull requests, calendar events, issues, or any other data that must stay fresh per viewer, then declare each provider and tool you call in the project's `capabilities.connectors`. Calls run with the VIEWER's own connection at view time, never the author's, so results are never baked into the source. Only read-only tools may be declared. Pass `mcp_hosts` to include a server the user has not connected yet.",
-        "category": "Canvas",
-        "feature": "canvas",
-        "summary": "List canvas connectors",
-        "title": "List canvas connectors",
         "required_scopes": ["canvas:read"],
         "annotations": {
             "destructiveHint": false,
@@ -13128,48 +13095,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
-    },
-    "web-analytics-bot-rules-create": {
-        "description": "Add one bot rule so traffic matching it classifies as a bot. Set `key` to the event property to read (such as $raw_user_agent or $ip), `matcher` to 'contains' (case-insensitive substring), 'regex' (RE2), or 'cidr' (an IP network range, only with $ip), `pattern` to the value to match, and `name` to the label to report. Optionally set `category` to a built-in category like ai_crawler to relabel the traffic type. The rule is rejected if its pattern cannot run. Use this when a scraper is hitting the site that the built-in list misses.",
-        "category": "Web analytics",
-        "feature": "web_analytics",
-        "summary": "Create a custom bot rule",
-        "title": "Create a custom bot rule",
-        "required_scopes": ["web_analytics:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "web-analytics-bot-rules-destroy": {
-        "description": "Delete one bot rule by its `id` (from the list tool). The built-in bot list is unaffected.",
-        "category": "Web analytics",
-        "feature": "web_analytics",
-        "summary": "Delete a custom bot rule",
-        "title": "Delete a custom bot rule",
-        "required_scopes": ["web_analytics:write"],
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "web-analytics-bot-rules-list": {
-        "description": "List the project's own bot rules. Each rule names an event property, how to match it, a value, and the label reported when it matches. Rules extend PostHog's built-in bot list, so `Is bot` (isLikelyBot), `Bot name`, and `Traffic category` reflect them everywhere — insights, web analytics, session filters, and SQL.",
-        "category": "Web analytics",
-        "feature": "web_analytics",
-        "summary": "List custom bot rules",
-        "title": "List custom bot rules",
-        "required_scopes": ["web_analytics:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
         }
     },
     "web-analytics-path-cleaning-suggestions-apply": {
