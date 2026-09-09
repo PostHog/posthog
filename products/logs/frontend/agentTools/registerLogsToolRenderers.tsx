@@ -30,7 +30,7 @@ registerToolRenderers([
         'Log attributes',
         <IconList />
     ),
-    ...labelled(['logs-anomalies-scan'], 'Scan for anomalies', <IconWarning />),
+    ...labelled(['logs-anomalies-scan', 'logs-anomalies-series-bands'], 'Log anomalies', <IconWarning />),
     ...labelled(
         [
             'logs-alerts-list',
