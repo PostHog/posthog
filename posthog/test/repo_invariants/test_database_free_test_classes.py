@@ -179,4 +179,6 @@ def test_database_free_test_classes_match_the_baseline() -> None:
 
 
 if __name__ == "__main__":
-    write_baseline(collect_candidates())
+    candidates = collect_candidates()
+    write_baseline(candidates)
+    print(f"baseline written: {len(candidates)} candidates")  # noqa: T201
