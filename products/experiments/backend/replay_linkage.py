@@ -40,6 +40,7 @@ stamped-property fallback flavor (the read with no event name to prune on) is re
 precomputing teams rather than left to time out.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -66,6 +67,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationTable,
     ensure_precomputed,
 )
+from products.experiments.backend.facade.contracts import TargetableExperiment
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
@@ -266,6 +268,52 @@ def resolve_in_session_exposure_semantics(team: Team, experiment: Experiment) ->
     return InSessionExposureSemantics(session_exposure=session_exposure, unavailable_reason=None)
 
 
+def _requestable_variant_keys(experiment: Experiment) -> list[str]:
+    """The variant keys a caller may narrow an exposed population to, in the flag's own order."""
+    excluded_variants = set(experiment.excluded_variants or [])
+    return [
+        variant_definition["key"]
+        for variant_definition in experiment.feature_flag.variants or []
+        if variant_definition.get("key") and variant_definition["key"] not in excluded_variants
+    ]
+
+
+def targetable_experiments(team: Team, *, experiment_ids: Sequence[int]) -> list[TargetableExperiment]:
+    """The experiments among `experiment_ids` a replay surface can narrow to, each with its variants.
+
+    For a surface that offers experiments to pick from before it has a query to run: Postgres reads
+    only, and it applies the same refusals `resolve_exposure_linkage` raises on — deleted, no flag,
+    not launched, group-aggregated, no variants — so an experiment listed here is one the exposure
+    filter will accept rather than a ValidationError once a query runs.
+
+    Object-level access is the caller's job: pass ids the principal may already read.
+    """
+    if not experiment_ids:
+        return []
+    experiments = Experiment.objects.filter(id__in=experiment_ids, team=team, deleted=False).select_related(
+        "feature_flag"
+    )
+    targetable = []
+    for experiment in experiments:
+        flag = getattr(experiment, "feature_flag", None)
+        if flag is None or experiment.start_date is None:
+            continue
+        if (flag.filters or {}).get("aggregation_group_type_index") is not None:
+            continue
+        variants = _requestable_variant_keys(experiment)
+        if not variants:
+            continue
+        targetable.append(
+            TargetableExperiment(
+                id=experiment.id,
+                name=experiment.name,
+                description=experiment.description or "",
+                variants=tuple(variants),
+            )
+        )
+    return targetable
+
+
 def resolve_exposure_linkage(
     team: Team, *, experiment_id: int, variant: str | None, in_session: bool = False
 ) -> ExperimentExposureLinkage:
@@ -294,12 +342,7 @@ def resolve_exposure_linkage(
             "This experiment aggregates by group, so its exposures can't be matched to persons' recordings."
         )
 
-    excluded_variants = set(experiment.excluded_variants or [])
-    variant_keys = [
-        variant_definition["key"]
-        for variant_definition in flag.variants or []
-        if variant_definition.get("key") and variant_definition["key"] not in excluded_variants
-    ]
+    variant_keys = _requestable_variant_keys(experiment)
     if not variant_keys:
         raise ValidationError("This experiment's feature flag defines no variants.")
     if variant is not None:

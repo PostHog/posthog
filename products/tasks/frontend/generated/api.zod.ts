@@ -3101,7 +3101,7 @@ export const TasksRunsCancelCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, mcp_response, side_question, native Pi RPC commands, and Pi queue operations.
+ * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, mcp_response, side_question, native Pi RPC commands, and Pi queue operations. Permission responses return 503 agent_session_not_ready only when rejected before execution; clients may retry that code within a bounded startup wait. HTTP 200 preserves JSON-RPC errors; permission acceptance requires result.resolved=true.
  * @summary Send command to task run
  */
 export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod

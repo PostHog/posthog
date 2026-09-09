@@ -2382,7 +2382,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'metrics',
         iconColor: ['var(--color-product-metrics-light)', 'var(--color-product-metrics-dark)'] as FileSystemIconColor,
         href: urls.metrics(),
-        flag: FEATURE_FLAGS.METRICS,
         tags: ['alpha'],
         sceneKey: 'Metrics',
         sceneKeys: ['Metrics'],
@@ -2720,14 +2719,6 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         href: urls.annotations(),
         sceneKey: 'Annotations',
         sceneKeys: ['Annotations'],
-    },
-    {
-        path: 'Comments',
-        category: 'Metadata',
-        iconType: 'comment',
-        href: urls.comments(),
-        sceneKey: 'Comments',
-        sceneKeys: ['Comments'],
     },
     {
         path: 'Core events',
