@@ -60,6 +60,7 @@ import {
     MAX_REPLAY_IFRAME_HTML_CHARS,
     ReplayIframeData,
     isUsableHeatmapUrl,
+    resolveHeatmapUrl,
     persistReplayIframeData,
 } from 'products/web_analytics/frontend/heatmaps/replayIframeData'
 
@@ -3233,7 +3234,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            const url = values.currentURL?.trim()
+            // The snapshot href can be a path. The heatmap query needs the full address, so the
+            // recording's own addresses supply the origin, latest first.
+            const url = resolveHeatmapUrl(values.currentURL, [
+                ...values.urls.map((u) => u.url).reverse(),
+                values.sessionPlayerMetaData?.start_url,
+            ])
             if (!isUsableHeatmapUrl(url)) {
                 rejectHeatmapSnapshot('no_url', rawIframeHtml.length)
                 return

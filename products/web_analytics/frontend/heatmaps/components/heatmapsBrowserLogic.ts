@@ -100,6 +100,16 @@ export const isUrlPattern = (url: string): boolean => {
     return /[*+?^${}()|[\]\\]/.test(url)
 }
 
+// A recorded address is a literal, and the URL field documents `*` as the only wildcard. The API
+// matches a pattern as a regular expression, so every other special character gets escaped. Without
+// this, the `?` of a query string quantifies the character before it and the page matches nothing.
+export const recordingUrlToHref = (url: string): { href: string; matchType: 'pattern' | 'exact' } => {
+    if (!url.includes('*')) {
+        return { href: url, matchType: 'exact' }
+    }
+    return { href: url.replace(/[.+?^${}()|[\]\\]/g, '\\$&'), matchType: 'pattern' }
+}
+
 const normalizeUrlPath = (urlObj: URL): string => {
     if (urlObj.pathname === '') {
         urlObj.pathname = '/'
@@ -664,10 +674,9 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         },
         setReplayIframeData: ({ replayIframeData }) => {
             if (isUsableHeatmapUrl(replayIframeData?.url)) {
-                actions.setHref(replayIframeData.url)
-                // Auto-detect match type for replay data URLs too
-                const isPattern = isUrlPattern(replayIframeData.url)
-                actions.setHrefMatchType(isPattern ? 'pattern' : 'exact')
+                const { href, matchType } = recordingUrlToHref(replayIframeData.url)
+                actions.setHref(href)
+                actions.setHrefMatchType(matchType)
             } else {
                 removeReplayIframeDataFromLocalStorage()
             }
@@ -730,10 +739,9 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         setReplayIframeDataURL: async ({ url }, breakpoint) => {
             await breakpoint(150)
             if (url?.trim().length) {
-                actions.setHref(url)
-                // Auto-detect match type for replay URLs too
-                const isPattern = isUrlPattern(url)
-                actions.setHrefMatchType(isPattern ? 'pattern' : 'exact')
+                const { href, matchType } = recordingUrlToHref(url)
+                actions.setHref(href)
+                actions.setHrefMatchType(matchType)
             }
         },
 

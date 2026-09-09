@@ -18,7 +18,11 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { ExporterFormat, RecordingSegment, RecordingSnapshot } from '~/types'
 
 import { analysisNudgeLogic } from 'products/replay_vision/frontend/logics/analysisNudgeLogic'
-import { isUsableHeatmapUrl } from 'products/web_analytics/frontend/heatmaps/replayIframeData'
+import {
+    ReplayIframeDatakeyPrefix,
+    isUsableHeatmapUrl,
+    resolveHeatmapUrl,
+} from 'products/web_analytics/frontend/heatmaps/replayIframeData'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -109,6 +113,26 @@ describe('isUsableHeatmapUrl', () => {
         ['https://example.com/pricing', true],
     ] as const)('isUsableHeatmapUrl(%s) → %s', (input, expected) => {
         expect(isUsableHeatmapUrl(input)).toBe(expected)
+    })
+})
+
+describe('resolveHeatmapUrl', () => {
+    const bases = ['https://example.com/pricing', 'https://example.com/']
+
+    it.each([
+        ['keeps the query string of a path', '/search?q=shoes', bases, 'https://example.com/search?q=shoes'],
+        ['keeps a wildcard in a path', '/search*', bases, 'https://example.com/search*'],
+        [
+            'uses the first usable base',
+            '/pricing',
+            [undefined, 'unknown', 'https://example.com/'],
+            'https://example.com/pricing',
+        ],
+        ['keeps the path when no base has an origin', '/pricing', ['unknown', undefined], '/pricing'],
+        ['rejects a recording with no address', undefined, bases, undefined],
+        ['rejects the synthesized unknown address', 'unknown', bases, undefined],
+    ] as const)('%s', (_description, url, urlBases, expected) => {
+        expect(resolveHeatmapUrl(url, [...urlBases])).toBe(expected)
     })
 })
 
@@ -1587,6 +1611,82 @@ describe('sessionRecordingPlayerLogic', () => {
             logic.actions.setCurrentSegment(segmentWithNoWindowId)
 
             expect(tryInitReplayerSpy).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('openHeatmap', () => {
+        // Mock recording meta: start=1682952380877
+        const START = 1682952380877
+        const SOURCE = {
+            source: 'blob_v2',
+            blob_key: '7',
+            start_timestamp: new Date(START).toISOString(),
+            end_timestamp: new Date(START + 60000).toISOString(),
+        }
+
+        // The Meta snapshot opens the recording on firstHref; a later page view moves it to
+        // secondHref, which is the address the heatmap hand-off then uses.
+        const seedRecording = (firstHref: string, secondHref: string): void => {
+            const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
+            dataLogic.actions.loadSnapshotSourcesSuccess([SOURCE] as any)
+            const snapshots = [
+                {
+                    timestamp: START,
+                    type: EventType.Meta,
+                    windowId: 1,
+                    data: { width: 1024, height: 768, href: firstHref },
+                },
+                {
+                    timestamp: START + 1000,
+                    type: EventType.Custom,
+                    windowId: 1,
+                    data: { tag: '$pageview', payload: { href: secondHref } },
+                },
+                ...[2000, 3000].map((offset) => ({
+                    timestamp: START + offset,
+                    type: EventType.IncrementalSnapshot,
+                    windowId: 1,
+                    data: { source: IncrementalSource.MouseMove },
+                })),
+            ] as unknown as RecordingSnapshot[]
+            markLoaded(dataLogic.cache.store, 0, snapshots)
+            dataLogic.actions.storeUpdated()
+            sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actions.setProcessedSnapshots(snapshots)
+        }
+
+        const attachPlayerIframe = (): void => {
+            const rootFrame = document.createElement('div')
+            document.body.appendChild(rootFrame)
+            logic.actions.setRootFrame(rootFrame)
+            rootFrame.appendChild(document.createElement('iframe'))
+        }
+
+        const storedHeatmapUrl = (): string | undefined => {
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i)
+                if (key?.startsWith(ReplayIframeDatakeyPrefix)) {
+                    return JSON.parse(localStorage.getItem(key) as string).url
+                }
+            }
+            return undefined
+        }
+
+        beforeEach(() => {
+            localStorage.clear()
+        })
+
+        it.each([
+            ['a path gets the origin of the recording', '/checkout', 'https://example.com/checkout'],
+            ['a full address is kept', 'https://other.example.com/checkout', 'https://other.example.com/checkout'],
+        ])('%s', (_description, secondHref, expected) => {
+            seedRecording('https://example.com/pricing', secondHref)
+            attachPlayerIframe()
+            logic.actions.setPause()
+            logic.actions.seekToTimestamp(START + 2500)
+
+            logic.actions.openHeatmap()
+
+            expect(storedHeatmapUrl()).toBe(expected)
         })
     })
 

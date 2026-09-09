@@ -9,6 +9,7 @@ import { initKeaTests } from '~/test/init'
 import {
     PagePreflight,
     heatmapsBrowserLogic,
+    recordingUrlToHref,
     normalizeHeatmapDataUrl,
     preflightBannerMessage,
 } from './heatmapsBrowserLogic'
@@ -28,6 +29,18 @@ describe('heatmapsBrowserLogic', () => {
             ['https://example.com/users/*', { href: 'https://example.com/users/*', matchType: 'pattern' }],
         ] as const)('normalizeHeatmapDataUrl(%s) → %s', (input, expected) => {
             expect(normalizeHeatmapDataUrl(input)).toEqual(expected)
+        })
+    })
+
+    describe('recordingUrlToHref', () => {
+        it.each([
+            ['https://example.com/pricing', { href: 'https://example.com/pricing', matchType: 'exact' }],
+            // a recorded query string is literal; as a regex its ? would quantify the character before it
+            ['https://example.com/search?q=shoes', { href: 'https://example.com/search?q=shoes', matchType: 'exact' }],
+            ['https://example.com/search?q=*', { href: 'https://example\\.com/search\\?q=*', matchType: 'pattern' }],
+            ['https://example.com/blog/*', { href: 'https://example\\.com/blog/*', matchType: 'pattern' }],
+        ] as const)('recordingUrlToHref(%s) → %s', (input, expected) => {
+            expect(recordingUrlToHref(input)).toEqual(expected)
         })
     })
 
