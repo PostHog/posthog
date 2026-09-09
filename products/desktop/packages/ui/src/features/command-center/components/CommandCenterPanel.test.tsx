@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
     currentProjectId: 2,
   },
   createdTask: { id: "task-2", title: "Composed in a tile" },
+  spacesEnabled: true,
   store: {
     layout: "2x2",
     cells: [null, null, null, null] as (string | null)[],
@@ -101,7 +102,7 @@ vi.mock("../../autoresearch/autoresearchDraftStore", () => ({
   },
 }));
 vi.mock("../../feature-flags/useBluebirdFlag", () => ({
-  useBluebirdFlag: () => true,
+  useBluebirdFlag: () => mocks.spacesEnabled,
 }));
 vi.mock("../../canvas/hooks/useTaskChannels", () => ({
   useTaskChannels: () => ({
@@ -233,6 +234,7 @@ describe("CommandCenterPanel", () => {
     mocks.currentUserUuid = "user-1";
     mocks.taskCreatedCallback = null;
     mocks.store.composer = null;
+    mocks.spacesEnabled = true;
     mocks.store.finishCreating.mockReturnValue(true);
   });
 
@@ -334,6 +336,22 @@ describe("CommandCenterPanel", () => {
     );
   });
 
+  // A project without spaces has nowhere to file a task, and the shared
+  // task-channels cache can hold spaces another surface loaded.
+  it("hides the space chip when spaces are off", () => {
+    mocks.spacesEnabled = false;
+    mocks.store.composer = {
+      cellIndex: 2,
+      sessionId: "cc-cell-us:2:user-1-2",
+    };
+    render(<CommandCenterPanel cell={emptyCell} isActiveSession={false} />);
+
+    expect(screen.queryByRole("button", { name: "Space me" })).toBeNull();
+    expect(screen.getByText("Send").parentElement).not.toHaveAttribute(
+      "data-channel-id",
+    );
+  });
+
   it("does not open a created task when the auth scope changed", () => {
     mocks.store.composer = {
       cellIndex: 2,
@@ -389,6 +407,7 @@ describe("CommandCenterPanel", () => {
       sessionId: "cc-cell-us:2:user-1-2",
     };
     render(<CommandCenterPanel cell={emptyCell} isActiveSession={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Space me" }));
 
     fireEvent.click(screen.getByTitle("Cancel"));
 
@@ -398,6 +417,11 @@ describe("CommandCenterPanel", () => {
     expect(mocks.setDraft).toHaveBeenCalledWith("cc-cell-us:2:user-1-2", null);
     expect(mocks.clearAutoresearchDraft).toHaveBeenCalledWith(
       "cc-cell-us:2:user-1-2",
+    );
+    // A space picked for the abandoned task must not carry into the next one.
+    expect(screen.getByText("Send").parentElement).toHaveAttribute(
+      "data-channel-id",
+      "me",
     );
   });
 });

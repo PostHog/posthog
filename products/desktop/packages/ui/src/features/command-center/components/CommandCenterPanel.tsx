@@ -185,8 +185,12 @@ function EmptyCell({
     enabled: spacesEnabled,
   });
   const [pickedSpaceId, setPickedSpaceId] = useState<string | null>(null);
-  // A task created without a space lands in #me, so the chip starts there.
-  const spaceId = pickedSpaceId ?? personalChannel?.id ?? null;
+  // A task created without a space lands in #me, so the chip starts there. The
+  // flag gates the chip here rather than through the query, whose cache another
+  // surface may have already filled.
+  const spaceId = spacesEnabled
+    ? (pickedSpaceId ?? personalChannel?.id ?? null)
+    : null;
   const space = channels.find((c) => c.id === spaceId);
   const authIdentity = useAuthStateValue(getAuthIdentity);
   const client = useOptionalAuthenticatedClient();
@@ -248,6 +252,8 @@ function EmptyCell({
     if (!sessionId) return;
     stopCreating(sessionId);
     clearComposerDraft(sessionId);
+    // The next task in this tile starts from #me again, like its prompt draft.
+    setPickedSpaceId(null);
   }, [stopCreating, sessionId]);
 
   useEffect(() => {

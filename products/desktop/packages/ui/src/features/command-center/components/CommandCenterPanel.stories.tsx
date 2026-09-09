@@ -12,7 +12,7 @@ import { WorkspaceModeSelect } from "@posthog/ui/features/task-detail/components
 import { DotPatternBackground } from "@posthog/ui/primitives/DotPatternBackground";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { CommandCenterEmptyCell } from "./CommandCenterPanel";
 
 const spaces = [
@@ -37,8 +37,12 @@ const spaces = [
 // here.
 function SeededSpaces({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
-  useState(() => queryClient.setQueryData(TASK_CHANNELS_QUERY_KEY, spaces));
-  return children;
+  const [seeded, setSeeded] = useState(false);
+  useEffect(() => {
+    queryClient.setQueryData(TASK_CHANNELS_QUERY_KEY, spaces);
+    setSeeded(true);
+  }, [queryClient]);
+  return seeded ? children : null;
 }
 
 const modelOption = {
