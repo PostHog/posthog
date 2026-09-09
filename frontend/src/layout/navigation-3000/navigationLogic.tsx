@@ -45,7 +45,7 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { AccessControlLevel, AccessControlResourceType, ReplayTabs } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, InsightType, ReplayTabs } from '~/types'
 
 import type { GroupsAccessStatus } from '../../lib/introductions/groupsAccessLogic'
 import type { SceneConfig, SceneExport, SceneParams, SceneProps } from '../../scenes/sceneTypes'
@@ -723,7 +723,9 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                 AccessControlLevel.Editor
                                     ? {
                                           icon: <IconPlusSmall />, // The regular plus is too big
-                                          to: urls.insightNew(),
+                                          // Name the type so this stays distinguishable from the
+                                          // stray same-page writes the insight scene refuses.
+                                          to: urls.insightNew({ type: InsightType.TRENDS }),
                                           tooltip: 'New insight',
                                           identifier: Scene.Insight,
                                       }

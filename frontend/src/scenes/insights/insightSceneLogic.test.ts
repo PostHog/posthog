@@ -218,6 +218,119 @@ describe('insightSceneLogic', () => {
         expect(query.source?.tags?.productKey).toEqual(ProductKey.PRODUCT_ANALYTICS)
     })
 
+    // Something else in the app pushes a bare `/insights/new` on top of a settled drill-down, and
+    // the drill-down only exists in the `#q=` hash that push drops. The scene must keep it. The
+    // refusal has to stay narrow: a navigation that names a type, or one that arrives from another
+    // page, is a person asking for a blank insight and must still reset.
+    test.each([
+        ['keeps a drill-down when the same page drops the query hash', () => urls.insightNew(), NodeKind.DataTableNode],
+        [
+            'replaces a drill-down when the navigation names a type',
+            () => urls.insightNew({ type: InsightType.TRENDS }),
+            NodeKind.InsightVizNode,
+        ],
+    ])('%s', async (_name, buildUrl, expectedKind) => {
+        const dataTableQuery = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.ActorsQuery,
+                select: ['person'],
+            },
+        }
+
+        router.actions.push(urls.insightNew())
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
+        await expectLogic(logic).toFinishAllListeners()
+        expect((logic.values.insightLogicRef?.logic.values.insight.query as any)?.kind).toEqual(NodeKind.DataTableNode)
+
+        router.actions.push(buildUrl())
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect((logic.values.insightLogicRef?.logic.values.insight.query as any)?.kind).toEqual(expectedKind)
+    })
+
+    it('keeps a drill-down through repeated stray writes to the same page', async () => {
+        // The writer behind these navigations is unidentified, so its write count is unknown. A
+        // guard that only survives one write would leave the table gone on the second.
+        const dataTableQuery = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.ActorsQuery,
+                select: ['person'],
+            },
+        }
+
+        router.actions.push(urls.insightNew())
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        for (let write = 0; write < 2; write++) {
+            router.actions.push(urls.insightNew())
+            await expectLogic(logic).toFinishAllListeners()
+            expect((logic.values.insightLogicRef?.logic.values.insight.query as any)?.kind).toEqual(
+                NodeKind.DataTableNode
+            )
+        }
+    })
+
+    it('keeps a drill-down when a stray write lands during the cold-load upgrade', async () => {
+        // A cold load applies the drill-down through upgradeQuery rather than the reset block, and
+        // that request is in flight for about the second the table is visible before it disappears.
+        const dataTableQuery = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.ActorsQuery,
+                select: ['person'],
+            },
+        }
+
+        router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['upgradeQuery'])
+
+        router.actions.push(urls.insightNew())
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect((logic.values.insightLogicRef?.logic.values.insight.query as any)?.kind).toEqual(NodeKind.DataTableNode)
+    })
+
+    it('replaces a drill-down left in memory when a blank insight is opened from another page', async () => {
+        // The scene's insight logics outlive the scene, so a drill-down stays in memory after the
+        // user leaves. Opening a blank insight from the saved insights list must still reset.
+        const dataTableQuery = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.ActorsQuery,
+                select: ['person'],
+            },
+        }
+
+        router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
+        logic = insightSceneLogic()
+        const unmount = logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect((logic.values.insightLogicRef?.logic.values.insight.query as any)?.kind).toEqual(NodeKind.DataTableNode)
+
+        unmount()
+        router.actions.push(urls.savedInsights())
+        router.actions.push(urls.insightNew())
+
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect((logic.values.insightLogicRef?.logic.values.insight.query as any)?.kind).toEqual(NodeKind.InsightVizNode)
+    })
+
     it("applies a shared link's #q= query to a saved insight on in-app navigation", async () => {
         // Opening a shared link inside the app is a router PUSH, not a cold load, so it misses the
         // upgradeQuery path.
