@@ -10,6 +10,8 @@ import ast
 import warnings
 from pathlib import Path
 
+from parameterized import parameterized
+
 REPO_ROOT = Path(__file__).parents[3]
 BASELINE_PATH = Path(__file__).parent / "database_free_test_classes_baseline.txt"
 SCANNED_ROOTS = ("posthog", "ee", "products", "common")
@@ -107,6 +109,31 @@ def _runs_tests(node: ast.ClassDef) -> bool:
     )
 
 
+def _base_names_in_source(source: str) -> set[str]:
+    return {
+        base_name.strip().split("[")[0].split(".")[-1]
+        for match in CLASS_BASES.finditer(source)
+        for base_name in match.group(1).split(",")
+    }
+
+
+def _candidates_in_source(source: str) -> list[str]:
+    tree = ast.parse(source)
+    django_names = _django_test_names(tree)
+    lines = source.splitlines()
+    names = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        if not _takes_a_database(node, django_names) or not _runs_tests(node):
+            continue
+        # Raw source, so a comment naming a table counts as a sign too.
+        body = "\n".join(lines[node.lineno - 1 : node.end_lineno])
+        if not any(token in body for token in DATABASE_TOKENS):
+            names.append(node.name)
+    return names
+
+
 def collect_candidates() -> list[str]:
     # Reporting a class other tests inherit would ask for `BaseTest` itself to move to
     # `SimpleTestCase`, so gather the inherited names first and drop them at the end.
@@ -119,9 +146,7 @@ def collect_candidates() -> list[str]:
             if SKIPPED_DIRS.intersection(path.parts):
                 continue
             source = path.read_text(encoding="utf-8", errors="ignore")
-            for match in CLASS_BASES.finditer(source):
-                for base_name in match.group(1).split(","):
-                    inherited.add(base_name.strip().split("[")[0].split(".")[-1])
+            inherited.update(_base_names_in_source(source))
             if not any(base in source for base in DATABASE_BASES):
                 continue
             # A bad escape sequence in some other file is that file's problem, not a
@@ -129,22 +154,124 @@ def collect_candidates() -> list[str]:
             try:
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore", SyntaxWarning)
-                    tree = ast.parse(source)
+                    names = _candidates_in_source(source)
             except SyntaxError:
                 continue
-            django_names = _django_test_names(tree)
-            lines = source.splitlines()
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.ClassDef):
-                    continue
-                if not _takes_a_database(node, django_names) or not _runs_tests(node):
-                    continue
-                # Raw source, so a comment naming a table counts as a sign too.
-                body = "\n".join(lines[node.lineno - 1 : node.end_lineno])
-                if any(token in body for token in DATABASE_TOKENS):
-                    continue
-                found.append((path.relative_to(REPO_ROOT).as_posix(), node.name))
+            found.extend((path.relative_to(REPO_ROOT).as_posix(), name) for name in names)
     return sorted(f"{path}::{name}" for path, name in found if name not in inherited)
+
+
+# Each case below is a bug this scan actually had. The baseline test cannot catch a
+# detection regression on its own: a class that stops being detected leaves as a '-'
+# line, which reads as a class someone fixed, and the advertised remedy is to
+# regenerate the baseline.
+DETECTION_CASES = [
+    (
+        "pure_class_on_a_posthog_base_is_reported",
+        "from posthog.test.base import BaseTest\n"
+        "class ExamplePure(BaseTest):\n"
+        "    def test_adds(self) -> None:\n"
+        "        assert 1 + 1 == 2\n",
+        ["ExamplePure"],
+    ),
+    (
+        "class_reading_a_fixture_is_left_alone",
+        "from posthog.test.base import BaseTest\n"
+        "class ExampleReadsTeam(BaseTest):\n"
+        "    def test_named(self) -> None:\n"
+        "        assert self.team.name\n",
+        [],
+    ),
+    (
+        "class_querying_a_model_is_left_alone",
+        "from posthog.test.base import BaseTest\n"
+        "class ExampleQueries(BaseTest):\n"
+        "    def test_empty(self) -> None:\n"
+        "        assert Insight.objects.count() == 0\n",
+        [],
+    ),
+    (
+        "unittest_testcase_takes_no_database",
+        "from unittest import TestCase\n"
+        "class ExampleUnittest(TestCase):\n"
+        "    def test_adds(self) -> None:\n"
+        "        assert 1 + 1 == 2\n",
+        [],
+    ),
+    (
+        "django_testcase_does_take_one",
+        "from django.test import TestCase\n"
+        "class ExampleDjango(TestCase):\n"
+        "    def test_adds(self) -> None:\n"
+        "        assert 1 + 1 == 2\n",
+        ["ExampleDjango"],
+    ),
+    (
+        "django_testcase_under_an_alias",
+        "from django.test import TestCase as DjangoTestCase\n"
+        "class ExampleAliased(DjangoTestCase):\n"
+        "    def test_adds(self) -> None:\n"
+        "        assert 1 + 1 == 2\n",
+        ["ExampleAliased"],
+    ),
+    (
+        "django_testcase_written_out_in_full",
+        "import django.test\n"
+        "class ExampleDotted(django.test.TestCase):\n"
+        "    def test_adds(self) -> None:\n"
+        "        assert 1 + 1 == 2\n",
+        ["ExampleDotted"],
+    ),
+    (
+        "class_with_no_test_method_is_infrastructure",
+        "from posthog.test.base import BaseTest\n"
+        "class ExampleHelpers(BaseTest):\n"
+        "    def assert_ok(self, response) -> None:\n"
+        "        assert response\n",
+        [],
+    ),
+    (
+        "simpletestcase_is_already_where_this_wants_it",
+        "from django.test import SimpleTestCase\n"
+        "class ExampleAlreadyFree(SimpleTestCase):\n"
+        "    def test_adds(self) -> None:\n"
+        "        assert 1 + 1 == 2\n",
+        [],
+    ),
+]
+
+
+@parameterized.expand(DETECTION_CASES)
+def test_detection(_name: str, source: str, expected: list[str]) -> None:
+    assert _candidates_in_source(source) == expected
+
+
+BASE_NAME_CASES = [
+    ("plain", "class ExampleChild(ExampleParent):\n    pass\n", "ExampleParent"),
+    (
+        "signature_split_over_lines",
+        "class ExampleChild(\n    ExampleParent,\n    ExampleOther,\n):\n    pass\n",
+        "ExampleParent",
+    ),
+    ("nested_in_another_class", "class Outer:\n    class Inner(ExampleParent):\n        pass\n", "ExampleParent"),
+    ("dotted", "class ExampleChild(module.ExampleParent):\n    pass\n", "ExampleParent"),
+]
+
+
+@parameterized.expand(BASE_NAME_CASES)
+def test_base_names_seen(_name: str, source: str, expected: str) -> None:
+    assert expected in _base_names_in_source(source)
+
+
+def test_a_base_other_tests_inherit_is_dropped() -> None:
+    shared = (
+        "from posthog.test.base import BaseTest\n"
+        "class ExampleSharedBase(BaseTest):\n"
+        "    def test_inherited_by_others(self) -> None:\n"
+        "        assert self.helper()\n"
+    )
+    assert _candidates_in_source(shared) == ["ExampleSharedBase"]
+    assert "ExampleSharedBase" in _base_names_in_source("class ExampleUser(ExampleSharedBase):\n    pass\n")
 
 
 def read_baseline() -> list[str]:
