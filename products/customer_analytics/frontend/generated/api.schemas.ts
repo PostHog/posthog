@@ -1374,6 +1374,38 @@ export interface HogQLQueryModifiersApi {
     webAnalyticsFirstPageviewFilters?: boolean | null
 }
 
+export type QueryScanModeApi = (typeof QueryScanModeApi)[keyof typeof QueryScanModeApi]
+
+export const QueryScanModeApi = {
+    LogOnly: 'log_only',
+    Show: 'show',
+} as const
+
+export interface QueryScanRangeApi {
+    from: string
+    to: string
+}
+
+export type QueryScanStatusApi = (typeof QueryScanStatusApi)[keyof typeof QueryScanStatusApi]
+
+export const QueryScanStatusApi = {
+    Pending: 'pending',
+    Done: 'done',
+} as const
+
+export interface QueryScanSummaryApi {
+    /** ClickHouse time for the last fresh run. */
+    duration_ms: number
+    events_in_range?: number | null
+    /** Flag mode for this team: what clients may show */
+    mode: QueryScanModeApi
+    range?: QueryScanRangeApi | null
+    /** Rows ClickHouse read for the last fresh run of this query, all tables included. */
+    rows_read: number
+    /** Absent below the floor. pending = enqueued, not finished. done = findings are in `warnings`. */
+    status?: QueryScanStatusApi | null
+}
+
 export interface ClickhouseQueryProgressApi {
     active_cpu_time: number
     bytes_read: number
@@ -1516,6 +1548,7 @@ export interface AccountsTableQueryResponseApi {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset: number
+    query_scan?: QueryScanSummaryApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
