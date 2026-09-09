@@ -1,8 +1,10 @@
 """Ratchet on test classes that take a database they never use.
 
-`BaseTest` and its relatives inherit Django `TestCase`, so one such class puts its
-whole module in the lane that waits for database setup. A class that never reads or
-writes a row pays that cost for nothing.
+`BaseTest` and its relatives inherit Django `TestCase`, so a class on one of them needs
+a database to run. `setUpTestData` writes an organization, a project, a team and a user
+for the class, and every test method runs inside a transaction that is rolled back
+afterwards. A class that only asserts on constants and pure functions pays all of that
+and reads no row. On `SimpleTestCase` the same assertions need no database at all.
 
 Deciding "needs a database" from source is not possible in general, because the query
 can sit several helper calls deep. So this scan is deliberately conservative: it
@@ -177,8 +179,8 @@ def test_database_free_test_classes_match_the_baseline() -> None:
     raise AssertionError(
         f"{BASELINE_PATH.name} no longer matches the repo.\n"
         "A '+' line is a test class that inherits a database base class but never names "
-        "anything that reaches the database, so the module waits for database setup for "
-        "nothing. Confirm it by swapping the base for django.test.SimpleTestCase and running "
+        "anything that reaches the database, so it needs a database it never reads. "
+        "Confirm it by swapping the base for django.test.SimpleTestCase and running "
         "the class: SimpleTestCase refuses database access, so a passing run means the class "
         "never needed one, and that base is the fix. If the class does need a database through "
         "a helper this scan cannot see, add the baseline line back in the same change.\n"

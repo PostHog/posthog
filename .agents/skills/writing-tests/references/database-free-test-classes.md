@@ -1,8 +1,10 @@
 # A test class that takes a database it never uses
 
 `BaseTest`, `APIBaseTest`, and `NonAtomicBaseTest` inherit Django `TestCase`.
-One such class puts its whole module in the lane that waits for database setup, so a module of pure assertions pays that cost on every run, for every developer, in every CI shard that picks it up.
-The base class is the whole cost: a class that asserts on constants and pure functions runs in milliseconds on `django.test.SimpleTestCase` and in seconds on `BaseTest`.
+A class on one of them needs a database to run.
+`setUpTestData` writes an organization, a project, a team and a user for the class, and every test method runs inside a transaction that is rolled back afterwards.
+A class that only asserts on constants and pure functions pays all of that and reads no row.
+The base class is the whole difference: on `django.test.SimpleTestCase` the same assertions need no database at all, so the file runs anywhere, including a checkout with no test database.
 
 ## The check
 
@@ -44,7 +46,7 @@ Say what the helper does when you explain it in review.
 **The class only touches the database in part of its cases.**
 Split it.
 Move the pure cases to a `SimpleTestCase` class and leave the rest on `BaseTest`.
-That takes the pure cases out of the slow lane without weakening the rest, and it is usually the honest shape when a class has grown two jobs.
+That takes the pure cases off the database without weakening the rest, and it is usually the honest shape when a class has grown two jobs.
 
 ## Regenerating the baseline
 
