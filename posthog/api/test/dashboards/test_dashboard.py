@@ -853,6 +853,19 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.filters, {})
 
+    def test_can_clear_dashboard_filters(self) -> None:
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="dashboard",
+            created_by=self.user,
+            filters={"date_from": "-7d"},
+        )
+
+        self.dashboard_api.update_dashboard(dashboard.pk, {"filters": {}})
+
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.filters, {})
+
     def test_cannot_update_dashboard_with_invalid_variables(self):
         dashboard = Dashboard.objects.create(
             team=self.team,
@@ -860,11 +873,12 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             created_by=self.user,
             variables={"existing": "value"},
         )
-        self.dashboard_api.update_dashboard(
+        _, response = self.dashboard_api.update_dashboard(
             dashboard.pk,
             {"variables": ["not", "a", "dict"]},
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
+        self.assertEqual(response["detail"], "Variables must be a dictionary")
 
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.variables, {"existing": "value"})
@@ -3214,6 +3228,29 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             assert value["code_name"] == variable.code_name
             assert value["variableId"] == str(variable.id)
             assert value["value"] == "some override value"
+
+    def test_clearing_the_last_dashboard_variable_persists(self):
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Test 1", code_name="test_1", default_value="some_default_value", type="String"
+        )
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="dashboard 1",
+            created_by=self.user,
+            variables={
+                str(variable.id): {
+                    "code_name": variable.code_name,
+                    "variableId": str(variable.id),
+                    "value": "some override value",
+                }
+            },
+        )
+
+        _, response_data = self.dashboard_api.update_dashboard(dashboard.pk, {"variables": {}})
+
+        assert response_data["persisted_variables"] is None
+        dashboard.refresh_from_db()
+        assert dashboard.variables == {}
 
     def test_dashboard_variables_stale(self):
         # if a variable is deleted/updated, the dashboard should not show the stale variable
