@@ -1,21 +1,56 @@
 name: table_stats
-description: Per-table scan/tuple/vacuum counters (pg_stat_user_tables + pg_statio_user_tables).
+description: Per-table scan/tuple/vacuum counters (pg_stat_user_tables + pg_statio_user_tables columns).
 interval: 10m
 scope: database
 kind: cumulative
 key: [schemaname, relname]
 passthrough: [n_live_tup, n_dead_tup, n_mod_since_analyze, xid_age, mxid_age, reltuples, relpages]
+# The two stats views each rescan pg_class and pg_index themselves, so joining them
+# costs three pg_class scans and three pg_index passes per tick. One pass instead:
+# pg_index is aggregated once into `idx`, then reused for the table's own indexes
+# and for its TOAST indexes.
 query: |
-  SELECT s.schemaname, s.relname, s.relid::bigint AS relid,
-         s.seq_scan, s.seq_tup_read, s.idx_scan, s.idx_tup_fetch,
-         s.n_tup_ins, s.n_tup_upd, s.n_tup_del, s.n_tup_hot_upd,
-         s.n_live_tup, s.n_dead_tup, s.n_mod_since_analyze,
-         s.vacuum_count, s.autovacuum_count, s.analyze_count, s.autoanalyze_count,
-         s.last_vacuum, s.last_autovacuum, s.last_analyze, s.last_autoanalyze,
-         io.heap_blks_read, io.heap_blks_hit, io.idx_blks_read, io.idx_blks_hit,
-         io.toast_blks_read, io.toast_blks_hit, io.tidx_blks_read, io.tidx_blks_hit,
+  WITH idx AS MATERIALIZED (
+    SELECT i.indrelid,
+           sum(pg_stat_get_numscans(i.indexrelid))::bigint AS idx_scan,
+           sum(pg_stat_get_tuples_fetched(i.indexrelid))::bigint AS idx_tup_fetch,
+           sum(pg_stat_get_blocks_fetched(i.indexrelid) - pg_stat_get_blocks_hit(i.indexrelid))::bigint AS idx_blks_read,
+           sum(pg_stat_get_blocks_hit(i.indexrelid))::bigint AS idx_blks_hit
+    FROM pg_index i
+    GROUP BY i.indrelid
+  )
+  SELECT n.nspname AS schemaname, c.relname, c.oid::bigint AS relid,
+         pg_stat_get_numscans(c.oid) AS seq_scan,
+         pg_stat_get_tuples_returned(c.oid) AS seq_tup_read,
+         ci.idx_scan,
+         ci.idx_tup_fetch + pg_stat_get_tuples_fetched(c.oid) AS idx_tup_fetch,
+         pg_stat_get_tuples_inserted(c.oid) AS n_tup_ins,
+         pg_stat_get_tuples_updated(c.oid) AS n_tup_upd,
+         pg_stat_get_tuples_deleted(c.oid) AS n_tup_del,
+         pg_stat_get_tuples_hot_updated(c.oid) AS n_tup_hot_upd,
+         pg_stat_get_live_tuples(c.oid) AS n_live_tup,
+         pg_stat_get_dead_tuples(c.oid) AS n_dead_tup,
+         pg_stat_get_mod_since_analyze(c.oid) AS n_mod_since_analyze,
+         pg_stat_get_vacuum_count(c.oid) AS vacuum_count,
+         pg_stat_get_autovacuum_count(c.oid) AS autovacuum_count,
+         pg_stat_get_analyze_count(c.oid) AS analyze_count,
+         pg_stat_get_autoanalyze_count(c.oid) AS autoanalyze_count,
+         pg_stat_get_last_vacuum_time(c.oid) AS last_vacuum,
+         pg_stat_get_last_autovacuum_time(c.oid) AS last_autovacuum,
+         pg_stat_get_last_analyze_time(c.oid) AS last_analyze,
+         pg_stat_get_last_autoanalyze_time(c.oid) AS last_autoanalyze,
+         pg_stat_get_blocks_fetched(c.oid) - pg_stat_get_blocks_hit(c.oid) AS heap_blks_read,
+         pg_stat_get_blocks_hit(c.oid) AS heap_blks_hit,
+         ci.idx_blks_read, ci.idx_blks_hit,
+         pg_stat_get_blocks_fetched(NULLIF(c.reltoastrelid, 0)) - pg_stat_get_blocks_hit(NULLIF(c.reltoastrelid, 0)) AS toast_blks_read,
+         pg_stat_get_blocks_hit(NULLIF(c.reltoastrelid, 0)) AS toast_blks_hit,
+         ti.idx_blks_read AS tidx_blks_read, ti.idx_blks_hit AS tidx_blks_hit,
          age(c.relfrozenxid)::bigint AS xid_age, mxid_age(c.relminmxid)::bigint AS mxid_age,
          c.reltuples::bigint AS reltuples, c.relpages::bigint AS relpages
-  FROM pg_stat_user_tables s
-  JOIN pg_statio_user_tables io ON io.relid = s.relid
-  JOIN pg_class c ON c.oid = s.relid
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  LEFT JOIN idx ci ON ci.indrelid = c.oid
+  LEFT JOIN idx ti ON ti.indrelid = NULLIF(c.reltoastrelid, 0)
+  WHERE c.relkind IN ('r', 'm')
+    AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+    AND n.nspname !~ '^pg_toast'
