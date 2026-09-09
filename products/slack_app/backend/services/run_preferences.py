@@ -103,9 +103,9 @@ def resolve_run_preferences(
     what a caller with no project context (or a test exercising the Slack rungs alone)
     wants.
 
-    Note that `resolve_ai_preferences` yields nothing at all for a workspace that
-    hasn't enabled `slack-app-home`, so there the chain is the fallback plus
-    whatever the mention asked for.
+    Note that `resolve_ai_preferences` yields nothing at all for a user with no
+    saved row, so there the chain is the fallback plus whatever the mention asked
+    for.
     """
     override_model = override.model if override else None
     override_effort = override.reasoning_effort if override else None
