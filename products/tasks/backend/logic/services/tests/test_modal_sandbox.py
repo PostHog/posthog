@@ -573,7 +573,7 @@ class TestModalSandboxAgentServer:
         # Newer binaries block on --repoReadyFile internally, so we drop the bash wait wrapper and
         # let the boot/gateway warm run under the clone; a stale overlay that lacks the flag keeps it.
         def _execute(command: str, *args: Any, **kwargs: Any) -> ExecutionResult:
-            if "grep -q repoReadyFile" in command:
+            if "grep -q waitForRepoReady" in command:
                 return ExecutionResult(stdout="", stderr="", exit_code=0 if binary_supports else 1, error=None)
             return ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None)
 
