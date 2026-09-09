@@ -445,8 +445,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
 
     @property
     def event_scan_lower_bound(self) -> str:
-        # The scan normally reaches one interval before the range, so that activity just before the
-        # range can turn the first period dormant. With the range as the origin, it must not.
+        # The default lookback lets activity just before the range turn the first period dormant.
         if self.only_use_insight_dates:
             return "{timestamp_field} >= {date_from_start_of_interval}"
         return "{timestamp_field} >= {date_from_start_of_interval} - {one_interval_period}"
@@ -456,8 +455,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
         trunc = self.query_date_range.date_to_start_of_interval_hogql(ast.Field(chain=["created_at"]))
         if not self.only_use_insight_dates:
             return trunc
-        # The classifier marks a period 'new' when it equals the creation period. Clamping an older
-        # creation date up to the start of the range makes the first activity in the range 'new'.
+        # The classifier marks a period 'new' when it equals the creation period.
         return parse_expr(
             "greatest({trunc}, {date_from_start_of_interval})",
             {**self.query_date_range.to_placeholders(), "trunc": trunc},

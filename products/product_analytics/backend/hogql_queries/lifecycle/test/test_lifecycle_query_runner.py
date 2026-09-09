@@ -1183,8 +1183,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_only_use_insight_dates_makes_first_period_activity_new(self):
-        # Every profile here was created before 2020-01-12, so the default classifier can only mark
-        # the first period 'returning' or 'resurrecting', and activity on the 11th turns it dormant.
+        # Every profile predates 2020-01-12, so the default classifier never marks that period 'new'.
         self._create_test_events()
 
         response = self._run_events_query("2020-01-12", "2020-01-14", IntervalType.DAY, only_use_insight_dates=True)

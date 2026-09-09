@@ -5777,10 +5777,8 @@ class LifecycleFilter(BaseModel):
     onlyUseInsightDates: bool | None = Field(
         default=False,
         description=(
-            "Decide the status of each period from the date range alone. The first"
-            " activity in the range counts as new, and activity before the range is"
-            " ignored. Off by default, when the person profile creation date decides"
-            " what counts as new."
+            "Take the origin of the history from the date range instead of the person"
+            " profile creation date, so the first activity in the range counts as new."
         ),
     )
     showLegend: bool | None = False
