@@ -104,6 +104,10 @@ A `ForeignKey` _targeting_ a hot table is the same hazard from the other side, a
 - **`db_constraint=False` on the `ForeignKey`** — emits no FK constraint and takes **no** lock on the parent at all (app-level enforcement only). This is the only truly lock-free path.
 - **A real DB constraint, two-phase** — declare the FK `db_constraint=False`, then add it back as a DB constraint with `AddForeignKeyNotValid`, and `ValidateForeignKey` in a later migration. Be honest: `ADD CONSTRAINT ... NOT VALID` still takes a _brief_ `SHARE ROW EXCLUSIVE` lock on the parent for the metadata add — it skips the row scan, so it shrinks the lock window but does not eliminate it. `VALIDATE` then runs lock-free on the parent.
 
+## Product database boundaries
+
+Apps listed in `products/db_routing.yaml` migrate on their own database and nowhere else. A migration may only depend on migrations that apply to a database it applies to itself, so never add a dependency from another app onto one of those apps, and never the reverse. No foreign key or index can cross databases, so the edge buys nothing, and the CI schema restore relies on its absence: it forgets the routed apps' `django_migrations` rows so each job applies them under its own routing, and a dependant of a forgotten row makes Django refuse to migrate. `posthog/test/repo_invariants/test_migration_dependencies_share_a_database.py` blocks the edge.
+
 ## Cross-language `NOT NULL` hazard
 
 `posthog_user`, `posthog_team`, and other core tables in the main Postgres database are written by Django **and** by `nodejs/` (plugin-server tests via `insertRow`), `rust/` services, and Temporal workers. Those non-Django writers issue raw `INSERT`s that only list the columns they care about, so any new `NOT NULL` column without a Postgres-level `DEFAULT` will break them with `null value in column "<col>" violates not-null constraint`.
