@@ -43,7 +43,8 @@ then dies in the rendered canvas. Declare:
   canvas reads through `ph.connectors.call`, listing every tool it calls on that provider. A
   provider is a native id (`github`) or `mcp:<server host>` (`mcp:mcp.calendly.com`). Unknown
   providers, unregistered native tools, and private MCP hosts fail validation; every declared
-  tool must be read-only. A canvas with connectors cannot declare shared state.
+  tool must have `is_read_only: true` in the catalog. An upstream hint alone does not grant access.
+  A canvas with connectors cannot declare shared state.
 - `capabilities.network.origins` — each exact HTTPS origin used by `fetch`, `XMLHttpRequest`, or an
   external stylesheet, image, font, media file, or frame. Remote scripts remain blocked.
   Do not include paths, credentials, queries, fragments, or wildcards. The host must be public:

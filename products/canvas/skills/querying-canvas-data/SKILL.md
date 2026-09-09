@@ -269,7 +269,8 @@ it is published, and it shows every viewer the author's data.
   `mcp:<server host>` for any server the viewer has connected in the MCP store (for example
   `mcp:mcp.calendly.com`). Discover providers, tools, argument schemas, and per-tool `usage`
   with the `canvas-connectors-retrieve` tool; pass `mcp_hosts` to inspect a server the current
-  user has not connected. Only read-only tools may be called.
+  user has not connected. Call only tools whose catalog entry has `is_read_only: true`.
+  MCP tools need an explicit read-only hint and a name that passes the local read-verb check.
 - **Declare every provider and tool** in `capabilities.connectors` as
   `[{ "provider": "github", "tools": ["list_pull_requests"] }]`. Validation rejects an
   undeclared `ph.connectors.call` literal, and the host refuses undeclared calls at runtime.
