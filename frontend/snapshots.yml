@@ -5712,6 +5712,34 @@ snapshots:
         hash: v1.k794b7964.5590e8e6497de2fefefa74cf07edd5f814a798deb8f7e5f0102a383f5e8ac6c8.ZvuooUS3qT6kDX8yW2_oQ1iDgO1DwVFMAWM517bhCHw
     products-tracing-virtualizedspanlist--empty--light:
         hash: v1.k794b7964.72ff685c9162da170263d416510a2cc5229c999691288c0b8038143000a40f15.ebvPm2A_7cN8QvjEaroudYEO1lp9qFUooW98MMcDBwY
+    products-web-analytics-content-autopilot-proposal-card--blocking-validation--dark:
+        hash: v1.k794b7964.8209374f939a22b6b211c2a21698ca15c4d6e18eda905eafc2c826539fa6a6f3.iZuZv-_mdz_BoFNzarvgUmumBKyNRvbdYMCWKcRQ5Bs
+    products-web-analytics-content-autopilot-proposal-card--blocking-validation--light:
+        hash: v1.k794b7964.5f57f98214e924ea35b8b0ee1246f9fb01bc73b6611fbb47d24673a32585a39f.aCi-hrNzgZ5o9NZWhs5Etj5X4ICf2vJyL3Zle7J3XnM
+    products-web-analytics-content-autopilot-proposal-card--ready-for-review--dark:
+        hash: v1.k794b7964.bf31cb5454ab3b5b5410666a11ba19a0c149cccd7ae57b56efb32035f98239c8.I25YeYWQe17NAqrEq81n-U3tR8dMX8usKI0RRXhc7vI
+    products-web-analytics-content-autopilot-proposal-card--ready-for-review--light:
+        hash: v1.k794b7964.2d32fe2131b0ecca9c82ad58d395e73e204ab96db50f814fea3797f241829965.ndis7gl5c6uNZ_5DhF8CiTwDrvHWrUHsSyp3db3PUL0
+    products-web-analytics-content-autopilot-workspace--active-run--dark:
+        hash: v1.k794b7964.e51cfbfc3a423eba287aaf1163748e16a97cea29e8930762d6dab49f63a02cd8.hOdOrO1ZlSf_W9yT7zwWxnEwXAsBezXHwPYrDAAe8KA
+    products-web-analytics-content-autopilot-workspace--active-run--light:
+        hash: v1.k794b7964.3c178c7659561d5ed484a45ec199507ff813fe318f11b3c298ebda28ee1cf2c6.VglouF0l0BcgYhRN2rnU5GcOLraPGLfWVxyde925pQI
+    products-web-analytics-content-autopilot-workspace--multiple-sites--dark:
+        hash: v1.k794b7964.075627fbb891aa2c4389a264858fc5eb95de795aadf79bef985e0d59c98779f6.E_AQXIFnTooveaFPZDRpvDzTpyxBYlS_MxfujssbM90
+    products-web-analytics-content-autopilot-workspace--multiple-sites--light:
+        hash: v1.k794b7964.8f13d0485b02c3cd59cb8943c112aacac38e38c7baa748bdf31c45ff47e56d02.cLk4Gq7iiI6Hi0IhYQWMj2heMo8i6GSg75rk_6GrXmI
+    products-web-analytics-content-autopilot-workspace--onboarding--dark:
+        hash: v1.k794b7964.cf94fd6e5af83fcf38742042c5611ba25bfefda32590f511a6c8e2a08d14dd7c.oE7i5mmGnUIJGySMCWU-h7zKk5toT5bm4JvuUC8C644
+    products-web-analytics-content-autopilot-workspace--onboarding--light:
+        hash: v1.k794b7964.4885036d8942b5c3cdb48c0a6a6614fea41afe1dcf25214d29d5973abde207bb.ZYYarqpsfM6PeMJvs0eie_yiLR0lvsXMo5FQvKn97vo
+    products-web-analytics-content-autopilot-workspace--ready-for-review--dark:
+        hash: v1.k794b7964.430ccb5f1ad7d6e1bb688c69221e2b60d8ad44bfc5b254c08b54bb90a8364189.Ksjd4WNULdqsgzy4Ye4txkdgFpmsINkvXRvlB_EtjhM
+    products-web-analytics-content-autopilot-workspace--ready-for-review--light:
+        hash: v1.k794b7964.d7aa367129b95dd772d6c0777d7ea4c9e359b0ff83ea83beab2b141d1da5b410.ApXV6wy_Fn5rBtnSE8JQfm-RZNvNzYGRe6MXHwVHahg
+    products-web-analytics-content-autopilot-workspace--site-settings--dark:
+        hash: v1.k794b7964.fc4421d5eb2f507adff62378c528a85f0d2afda601f5c64c427c01f8be0017e6.CwCi0RyySiohuekOKlnZxKFInJdQLJTSVx3upnSWs_g
+    products-web-analytics-content-autopilot-workspace--site-settings--light:
+        hash: v1.k794b7964.db7571e09c46c966f50fb87b8b34511803d4aef56c41faa405c2db039f17fa43.PUpkT3j7DpGmhBztUzWMk0vKk_5cA4nMK6WztMyXBRE
     products-workflows-customerioimportmodal--all-steps-completed--dark:
         hash: v1.k794b7964.da9d1ebf1836700267307224631511bd8fe3b9fb0906654a383e545e1c6f98f1.lPijIVizKAMxsGEVt28x0Y5izfhcfnbjbPhoHzriWFg
     products-workflows-customerioimportmodal--all-steps-completed--light:
