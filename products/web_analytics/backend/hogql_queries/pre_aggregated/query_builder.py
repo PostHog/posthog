@@ -1,6 +1,8 @@
 from datetime import timedelta
 from typing import Optional
 
+from posthog.schema import PropertyOperator
+
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.property import property_to_expr
@@ -15,6 +17,13 @@ from products.web_analytics.backend.hogql_queries.pre_aggregated.property_transf
 # V1 tables have been removed - always use v2 tables
 get_stats_table = lambda use_v2: "web_pre_aggregated_stats"
 get_bounces_table = lambda use_v2: "web_pre_aggregated_bounces"
+
+
+def _prop_attr(prop, attr: str):
+    # Drill-down filters are pydantic property objects; saved test-account filters are raw dicts.
+    if isinstance(prop, dict):
+        return prop.get(attr)
+    return getattr(prop, attr, None)
 
 
 @frozen
@@ -36,16 +45,26 @@ class WebAnalyticsPreAggregatedQueryBuilder:
     def bounces_table(self) -> str:
         return get_bounces_table(self.runner.use_v2_tables)
 
-    def can_use_preaggregated_tables(self) -> bool:
-        query = self.runner.query
+    def _filter_properties(self) -> list:
+        # Drill-down filters plus the saved test-account filters (empty unless filterTestAccounts is on).
+        return [*self.runner.query.properties, *self.runner._test_account_filters]
 
+    def can_use_preaggregated_tables(self) -> bool:
         if self.runner.rewritten_first_pageview_filters:
             return False
 
-        for prop in query.properties:
-            if hasattr(prop, "type") and prop.type == "cohort":
+        # A property the pre-aggregated tables cannot express forces the raw-events path. Test-account
+        # filters go through the same gate, so a saved filter that pre-aggregation cannot reproduce
+        # falls back instead of being silently dropped from the query.
+        for prop in self._filter_properties():
+            if _prop_attr(prop, "type") == "cohort":
                 return False
-            if hasattr(prop, "key") and prop.key not in self.supported_props_filters:
+            key = _prop_attr(prop, "key")
+            if key is not None and key not in self.supported_props_filters:
+                return False
+            # Pre-aggregated columns store an unset value as an empty string, not NULL, so
+            # is_set / is_not_set cannot be reproduced on them. Fall back to raw events.
+            if _prop_attr(prop, "operator") in (PropertyOperator.IS_SET, PropertyOperator.IS_NOT_SET):
                 return False
 
         if self._is_recent_relative_date_range():
@@ -126,15 +145,17 @@ class WebAnalyticsPreAggregatedQueryBuilder:
             ),
         ]
 
-        if self.runner.query.properties:
+        filter_properties = self._filter_properties()
+        if filter_properties:
             virtual_properties = []
             regular_properties = []
 
-            for prop in self.runner.query.properties:
-                if hasattr(prop, "key") and prop.key in self.supported_props_filters:
-                    if exclude_pathname and prop.key == "$pathname":
+            for prop in filter_properties:
+                key = _prop_attr(prop, "key")
+                if key is not None and key in self.supported_props_filters:
+                    if exclude_pathname and key == "$pathname":
                         continue
-                    if self.supported_props_filters[prop.key] is None:
+                    if self.supported_props_filters[key] is None:
                         virtual_properties.append(prop)
                     else:
                         regular_properties.append(prop)
