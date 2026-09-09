@@ -11,6 +11,8 @@ import { llmPromptsEmptyState } from 'products/ai_observability/frontend/emptySt
 import { alertsEmptyState } from 'products/alerts/frontend/emptyState/alertsEmptyState'
 import { annotationsEmptyState } from 'products/annotations/frontend/emptyState/annotationsEmptyState'
 import { businessKnowledgeEmptyState } from 'products/business_knowledge/frontend/emptyState/businessKnowledgeEmptyState'
+import { destinationsEmptyState } from 'products/cdp/frontend/emptyState/destinationsEmptyState'
+import { transformationsEmptyState } from 'products/cdp/frontend/emptyState/transformationsEmptyState'
 import { webScriptsEmptyState } from 'products/cdp/frontend/emptyState/webScriptsEmptyState'
 import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsEmptyState'
 import { supportEmptyState } from 'products/conversations/frontend/emptyState/supportEmptyState'
@@ -20,6 +22,7 @@ import { dataCatalogEmptyState } from 'products/data_catalog/frontend/emptyState
 import { dataWarehouseEmptyState } from 'products/data_warehouse/frontend/emptyState/dataWarehouseEmptyState'
 import { earlyAccessFeaturesEmptyState } from 'products/early_access_features/frontend/emptyState/earlyAccessFeaturesEmptyState'
 import { endpointsEmptyState } from 'products/endpoints/frontend/emptyState/endpointsEmptyState'
+import { engineeringAnalyticsEmptyState } from 'products/engineering_analytics/frontend/emptyState/engineeringAnalyticsEmptyState'
 import { errorTrackingEmptyState } from 'products/error_tracking/frontend/emptyState/errorTrackingEmptyState'
 import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
@@ -31,6 +34,7 @@ import { metricsEmptyState } from 'products/metrics/frontend/emptyState/metricsE
 import { notebooksEmptyState } from 'products/notebooks/frontend/emptyState/notebooksEmptyState'
 import { productAnalyticsEmptyState } from 'products/product_analytics/frontend/emptyState/productAnalyticsEmptyState'
 import { productToursEmptyState } from 'products/product_tours/frontend/emptyState/productToursEmptyState'
+import { pulseEmptyState } from 'products/pulse/frontend/emptyState/pulseEmptyState'
 import { sessionReplayEmptyState } from 'products/replay/frontend/emptyState/sessionReplayEmptyState'
 import { replayVisionEmptyState } from 'products/replay_vision/frontend/emptyState/replayVisionEmptyState'
 import { llmSkillsEmptyState } from 'products/skills/frontend/emptyState/llmSkillsEmptyState'
@@ -39,6 +43,7 @@ import { surveysEmptyState } from 'products/surveys/frontend/emptyState/surveysE
 import { tracingEmptyState } from 'products/tracing/frontend/emptyState/tracingEmptyState'
 import { userInterviewsEmptyState } from 'products/user_interviews/frontend/emptyState/userInterviewsEmptyState'
 import { webVitalsEmptyState } from 'products/web_analytics/frontend/emptyState/webVitalsEmptyState'
+import { heatmapsEmptyState } from 'products/web_analytics/frontend/heatmaps/emptyState/heatmapsEmptyState'
 import { workflowsEmptyState } from 'products/workflows/frontend/emptyState/workflowsEmptyState'
 
 import { ProductEmptyState } from './ProductEmptyState'
@@ -376,6 +381,49 @@ export const DataCatalogNeedsSetup: ProductEmptyStateStory = productEmptyStateSt
 export const NotebooksNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(notebooksEmptyState, 'needs-setup', {
     mocks: { get: { '/api/projects/:team_id/notebooks/': [200, { count: 0, results: [] }] } },
 })
+
+// Pulse detection counts briefs on mount; its run button also reads the focus configs.
+export const PulseNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(pulseEmptyState, 'needs-setup', {
+    mocks: {
+        get: {
+            '/api/projects/:team_id/pulse/briefs/': [200, emptyEntityList],
+            '/api/projects/:team_id/pulse/brief_configs/': [200, emptyEntityList],
+        },
+    },
+})
+
+// Destinations detection counts hog functions, legacy plugin destinations, and batch
+// exports on mount - answer "none yet" to each.
+export const DestinationsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    destinationsEmptyState,
+    'needs-setup',
+    {
+        mocks: {
+            get: {
+                '/api/projects/:team_id/hog_functions/': [200, emptyEntityList],
+                '/api/projects/:team_id/pipeline_destination_configs/': [200, emptyEntityList],
+                // nosemgrep: no-environments-api-urls-frontend -- batch exports are env-scoped, so the msw mock must match /api/environments to intercept them
+                '/api/environments/:team_id/batch_exports/': [200, emptyEntityList],
+            },
+        },
+    }
+)
+
+// Transformations detection counts transformation hog functions on mount - answer "none yet".
+export const TransformationsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    transformationsEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/hog_functions/': [200, emptyEntityList] } } }
+)
+
+// Engineering analytics detection lists GitHub sources on mount - answer "none yet".
+export const EngineeringAnalyticsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    engineeringAnalyticsEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/engineering_analytics/sources/': [200, []] } } }
+)
+
+export const HeatmapsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(heatmapsEmptyState, 'needs-setup')
 
 // Data warehouse detection lists sources and tables on mount - answer "none yet".
 export const DataWarehouseNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(

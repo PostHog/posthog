@@ -43,6 +43,11 @@ class MultiTurnSession:
     printed_lines: int = 0
     verbose: bool = False
     output_fn: OutputFn = field(default=None)
+    last_full_log: str = ""
+    """Cumulative session log (S3 JSONL) as of the latest completed turn. Empty until
+    the first turn returns. Callers slice per-turn ranges off it via ``log_lines_seen`` —
+    ``poll_for_turn`` already reads the full log each turn and discarded it, so retaining
+    it costs nothing extra."""
     # Per-turn poll budget. None falls back to `poll_for_turn`'s default (`MAX_POLL_SECONDS`).
     # Set this below the caller's Temporal activity `start_to_close_timeout` so the
     # dropped-finalization salvage can fire before the activity is cancelled.
@@ -232,6 +237,7 @@ class MultiTurnSession:
             )
             session.log_lines_seen = turn.total_lines
             session.printed_lines = turn.printed_lines
+            session.last_full_log = turn.full_log or ""
             logger.info(
                 "multi_turn: initial turn completed run=%s duration=%.2fs",
                 task_run.id,
@@ -311,6 +317,7 @@ class MultiTurnSession:
             )
             self.log_lines_seen = turn.total_lines
             self.printed_lines = turn.printed_lines
+            self.last_full_log = turn.full_log or ""
             return turn.last_message
         # Catch empty turns, raise everything else
         except EmptyAgentTurnError as e:
@@ -328,6 +335,13 @@ class MultiTurnSession:
                 action = "retrying..." if attempt == 1 else "giving up"
                 self.output_fn(f"Agent returned empty response for {label or 'followup'}, {action}")
             return None
+
+    @property
+    def workflow_handle(self) -> WorkflowHandle:
+        """The parent workflow's handle. Raises when the session was built without one."""
+        if self._workflow_handle is None:
+            raise RuntimeError("Workflow handle is not available in this session.")
+        return self._workflow_handle
 
     @staticmethod
     def _parse_and_validate(text: str, model: type[_ModelT], label: str) -> _ModelT:

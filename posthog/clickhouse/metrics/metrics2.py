@@ -1,6 +1,6 @@
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import kafka_engine
+from posthog.clickhouse.kafka_engine import kafka_engine, kafka_num_consumers
 from posthog.clickhouse.table_engines import (
     AggregatingMergeTree,
     Distributed,
@@ -60,7 +60,7 @@ ENGINE = {kafka_engine(topic=KAFKA_TOPIC, group=KAFKA_GROUP, serialization="Avro
 SETTINGS
     kafka_skip_broken_messages = 100,
     kafka_thread_per_consumer = 1,
-    kafka_num_consumers = 8,
+    kafka_num_consumers = {kafka_num_consumers(8)},
     kafka_poll_timeout_ms = 3000,
     kafka_poll_max_batch_size = 1000,
     input_format_avro_allow_missing_fields = 1
