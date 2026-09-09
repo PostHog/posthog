@@ -28,6 +28,26 @@ class ErrorTrackingSuppressionRuleSerializer(serializers.Serializer):
     updated_at = serializers.DateTimeField(read_only=True)
 
 
+def _rejected_filter_message(err: PydanticValidationError | TypeError, filters: dict) -> str:
+    """Name the filter row the rule modal should send the user back to.
+
+    A rule can hold many filters, so a message that only reports an invalid payload leaves the user
+    to find the bad row. Positions are 1-based to match the order the modal lists the filters in.
+    """
+    errors = err.errors() if isinstance(err, PydanticValidationError) else []
+    for error in errors:
+        location = error["loc"]
+        if len(location) < 2 or location[0] != "values" or not isinstance(location[1], int):
+            continue
+        index = location[1]
+        entries = filters.get("values") or []
+        entry = entries[index] if index < len(entries) else None
+        key = entry.get("key") if isinstance(entry, dict) else None
+        named = f" ({key})" if isinstance(key, str) else ""
+        return f"Filter {index + 1}{named} is not valid. Check its property, operator, and value."
+    return "Invalid filters payload."
+
+
 @extend_schema_field(PropertyGroupFilterValue)  # type: ignore[arg-type]
 class ErrorTrackingSuppressionRuleFiltersField(serializers.JSONField):
     def to_internal_value(self, data):
@@ -41,7 +61,7 @@ class ErrorTrackingSuppressionRuleFiltersField(serializers.JSONField):
                 PropertyGroupFilterValue(**value)
             except (PydanticValidationError, TypeError) as err:
                 logger.warning("Invalid suppression rule filters payload", exc_info=err)
-                raise serializers.ValidationError("Invalid filters payload.") from err
+                raise serializers.ValidationError(_rejected_filter_message(err, value)) from err
         elif "values" not in value:
             raise serializers.ValidationError("Invalid filters")
 

@@ -7,6 +7,7 @@ import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import { ErrorTrackingIssueSeverityRuleEnumApi } from '../../../generated/api.schemas'
+import { ruleSaveErrorMessage } from '../rules/ruleSaveError'
 import { rulesLogic } from '../rules/rulesLogic'
 import { ErrorTrackingRuleType, ErrorTrackingSeverityRule, ErrorTrackingSeverityRuleNew } from '../rules/types'
 
@@ -36,6 +37,7 @@ export interface severityRuleModalLogicValues {
     } | null
     matchResultLoading: boolean
     rule: EditableSeverityRule
+    saveError: string | null
     saving: boolean
     savingLoading: boolean
 }
@@ -160,6 +162,16 @@ export const severityRuleModalLogic = kea<severityRuleModalLogicType>([
 
     reducers({
         isOpen: [false, { openModal: () => true, closeModal: () => false }],
+        saveError: [
+            null as string | null,
+            {
+                openModal: () => null,
+                updateRule: () => null,
+                saveRule: () => null,
+                saveRuleFailure: (_: string | null, { errorObject }: { errorObject?: unknown }) =>
+                    ruleSaveErrorMessage(errorObject),
+            },
+        ],
         rule: [
             emptyRule() as EditableSeverityRule,
             {
