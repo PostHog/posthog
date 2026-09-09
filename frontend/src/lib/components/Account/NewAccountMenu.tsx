@@ -155,7 +155,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                         setAccountMenuOpen(false)
                                                         showCreateProjectModal()
                                                     },
-                                                    { currentUsage: currentOrganization?.teams?.length }
+                                                    { currentUsage: currentOrganization?.projects?.length }
                                                 )
                                             }}
                                         >
