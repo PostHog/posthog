@@ -883,6 +883,25 @@ describe('HogFunctionHandler', () => {
                 ).toBeLessThanOrEqual(5120)
             })
 
+            it('continues past a completed task whose output is off, and warns in the run log', async () => {
+                invocation.state.currentAction!.resumeResult = {
+                    key: dispatchKey,
+                    status: 'completed',
+                    result: { output: { verdict: 'ship' }, warnings: ["'score' is a required property"] },
+                }
+
+                const { handlerResult, invocationResult } = await execute()
+
+                expect(handlerResult.nextAction?.id).toBe('exit')
+                expect(handlerResult.result).toMatchObject({ output: { verdict: 'ship' } })
+                expect(invocationResult.logs).toContainEqual(
+                    expect.objectContaining({
+                        level: 'warn',
+                        message: expect.stringContaining("'score' is a required property"),
+                    })
+                )
+            })
+
             it('fails the step when the task did not complete', async () => {
                 invocation.state.currentAction!.resumeResult = {
                     key: dispatchKey,

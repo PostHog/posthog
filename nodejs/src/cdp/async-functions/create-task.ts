@@ -8,6 +8,7 @@ import { registerAsyncFunction } from '../async-function-registry'
 import { PosthogJwtAudience } from '../utils/jwt-utils'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 import { workflowStepDispatchKeyFromInvocation } from '../utils/workflow-step-dispatch-key'
+import { buildWorkflowTaskOutputSchema } from '../utils/workflow-task-output-schema'
 
 // The token rides the staged fetch verbatim through every engine retry (executeFetch re-queues
 // the identical request), so its lifetime must cover the whole backoff chain plus queue lag,
@@ -45,6 +46,10 @@ registerAsyncFunction('postHogCreateTask', {
         }
         const token = jwt.mint({ team_id: context.invocation.teamId, hog_flow_id: hogFlow.id }, TOKEN_TTL_SECONDS)
 
+        // Derived from the step's own output variables, so the author declares the fields once.
+        const action = hogFlow.actions?.find((candidate) => candidate.id === context.invocation.state.actionId)
+        const outputSchema = buildWorkflowTaskOutputSchema(action?.output_variable, hogFlow.variables)
+
         result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
             type: 'fetch',
             url: `${context.siteUrl}/api/projects/${context.invocation.teamId}/workflow_tasks/`,
@@ -56,6 +61,7 @@ registerAsyncFunction('postHogCreateTask', {
             body: JSON.stringify({
                 ...payload,
                 idempotency_key: idempotencyKey,
+                ...(outputSchema ? { output_schema: outputSchema } : {}),
             }),
         })
     },

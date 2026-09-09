@@ -20,6 +20,15 @@ After success, the next step sees the dispatch IDs, `status: completed`, and a c
 A failed or cancelled run fails the step. The step's `on_error` setting decides whether the workflow continues.
 With `on_error: continue`, the dispatch IDs remain available. The failed step does not store the terminal status, message, or `error_message` in its result.
 
+### Fields the agent returns
+
+An AI task step can hand fields the agent produced to later steps.
+The author adds an output variable mapping with the result path `output.<name>`, for example `output.verdict` into the variable `verdict`.
+The engine builds a JSON Schema from these mappings, one required property per field, typed after the workflow variable (`string`, `number`, or `boolean`), and sends it with the create request.
+The agent runtime enforces the schema at the end of the run, and the resume result carries the fields under `output`.
+When the agent finishes without output that matches the schema, the step still completes.
+The resume result carries `warnings`, the engine writes each one to the run log at `warn` level, and the unmatched variables stay null.
+
 A template asks for the wait by returning an `await` object next to its result, for example `{ 'id': ..., 'run_id': ..., 'await': { 'max_wait': '190m', 'label': 'task' } }`.
 `max_wait` is set by the template's author, never by the workflow author, and the engine caps it at 24 hours.
 The task template uses 190 minutes and the scout template 35 minutes: each product's own runtime cap plus slack, so the product's own timeout wake lands before the step's deadline.

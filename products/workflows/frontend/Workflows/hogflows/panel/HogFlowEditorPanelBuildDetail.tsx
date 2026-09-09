@@ -62,6 +62,9 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     }
 
     const action = selectedNode.data
+    // A real run of this step starts an agent and parks for minutes, so the panel offers the
+    // known result fields instead of a live test call.
+    const isAiTaskAction = action.type === 'function' && action.config.template_id === 'template-posthog-create-task'
 
     const isBranchingStep = ['conditional_branch', 'wait_until_condition', 'random_cohort_branch'].includes(action.type)
     const actionFilters = action.filters ?? {}
@@ -245,7 +248,11 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                     </div>
                                                     <LemonField.Pure
                                                         label="Result path"
-                                                        info="Specify a path within the step result to store, e.g. 'body.results[0].id'. Leave blank for the entire result."
+                                                        info={
+                                                            isAiTaskAction
+                                                                ? "Specify a path within the step result to store. A path like 'output.verdict' asks the agent to return that field, typed like the variable. Leave blank for the entire result."
+                                                                : "Specify a path within the step result to store, e.g. 'body.results[0].id'. Leave blank for the entire result."
+                                                        }
                                                         className="w-full"
                                                     >
                                                         <LemonInput
@@ -256,7 +263,9 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                             prefix={<span>result.</span>}
                                                             value={mapping.result_path}
                                                             onChange={(value) => updateMappingResultPath(index, value)}
-                                                            placeholder="body.results[0].id"
+                                                            placeholder={
+                                                                isAiTaskAction ? 'output.verdict' : 'body.results[0].id'
+                                                            }
                                                             size="small"
                                                         />
                                                     </LemonField.Pure>
@@ -289,17 +298,19 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                 >
                                                     Add mapping
                                                 </LemonButton>
-                                                <LemonButton
-                                                    icon={<IconPlay />}
-                                                    size="small"
-                                                    type="primary"
-                                                    className={shakePickButton ? 'animate-shake' : ''}
-                                                    loading={testLoading}
-                                                    tooltip="Executes a real HTTP request to this step's endpoint and shows the response so you can pick which property to store."
-                                                    onClick={runOutputTest}
-                                                >
-                                                    Pick from response
-                                                </LemonButton>
+                                                {!isAiTaskAction && (
+                                                    <LemonButton
+                                                        icon={<IconPlay />}
+                                                        size="small"
+                                                        type="primary"
+                                                        className={shakePickButton ? 'animate-shake' : ''}
+                                                        loading={testLoading}
+                                                        tooltip="Executes a real HTTP request to this step's endpoint and shows the response so you can pick which property to store."
+                                                        onClick={runOutputTest}
+                                                    >
+                                                        Pick from response
+                                                    </LemonButton>
+                                                )}
                                             </div>
                                             {testError && (
                                                 <LemonBanner type="error" className="w-full">

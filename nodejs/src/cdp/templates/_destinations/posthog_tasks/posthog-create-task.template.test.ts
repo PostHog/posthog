@@ -109,6 +109,30 @@ describe('posthog create task template', () => {
         })
     })
 
+    it('asks the agent for the fields the output variables read from the output', async () => {
+        const hogFlow = {
+            ...workflowOptions.hogFlow,
+            actions: [
+                {
+                    id: 'action_1',
+                    output_variable: [
+                        { key: 'verdict', result_path: 'output.verdict' },
+                        { key: 'run', result_path: 'run_id' },
+                    ],
+                },
+            ],
+            variables: [{ key: 'verdict', type: 'string', label: 'Verdict', description: 'ship or hold' }],
+        } as any
+        const response = await tester.invoke({ prompt: 'Judge the PR' }, undefined, { ...workflowOptions, hogFlow })
+
+        expect(response.error).toBeUndefined()
+        expect(parseJSON((response.invocation.queueParameters as any).body).output_schema).toEqual({
+            type: 'object',
+            properties: { verdict: { type: 'string', description: 'ship or hold' } },
+            required: ['verdict'],
+        })
+    })
+
     it.each([
         ['a top-level post binds to its own ts', { thread_ts: null }, '1700000000.000100'],
         ['a thread reply binds to the parent thread', { thread_ts: '1699999999.000001' }, '1699999999.000001'],

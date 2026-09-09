@@ -58,6 +58,12 @@ const parseAwaitRequest = (execResult: unknown): AwaitRequest | null => {
 
 const humanDuration = (duration: Duration): string => duration.rescale().toHuman()
 
+// Read off the raw resume result, before the variable cap, so a long warning is not cut.
+const readWarnings = (resumeResult: unknown): string[] => {
+    const warnings = (resumeResult as { warnings?: unknown } | undefined)?.warnings
+    return Array.isArray(warnings) ? warnings.filter((warning): warning is string => typeof warning === 'string') : []
+}
+
 const counterAwaitedStepStaleResume = new Counter({
     name: 'cdp_hogflow_awaited_step_stale_resume',
     help: 'A parked step received a wake keyed to an earlier visit of the same step and kept waiting.',
@@ -244,6 +250,15 @@ export class HogFunctionHandler implements ActionHandler {
                 timestamp: DateTime.now(),
                 message: `${actionIdForLogging(action)} The ${label} finished`,
             })
+            // The product that ran the job reports what went wrong short of failing it, such as
+            // an agent whose output misses a field. The step continues; the author reads the log.
+            for (const warning of readWarnings(resume.result)) {
+                result.logs.push({
+                    level: 'warn',
+                    timestamp: DateTime.now(),
+                    message: `${actionIdForLogging(action)} ${warning}`,
+                })
+            }
             return {
                 nextAction: findContinueAction(invocation),
                 result: payload,
