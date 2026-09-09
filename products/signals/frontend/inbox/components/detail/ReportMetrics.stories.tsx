@@ -11,6 +11,7 @@ import { ReportImpactMetrics } from './ReportImpactMetrics'
 import { ReportPrimaryMetric } from './ReportPrimaryMetric'
 
 const [primaryMetric, ...supportingMetrics] = reportMetricsFixture
+const rateMetric = reportMetricsFixture.find((metric) => metric.kind === 'conversion_rate') ?? primaryMetric
 
 /** The observation in a rail-width column beside the Impact tiles, the way the report detail lays them out. */
 function ReportMetricsLayout({ reportId, railWidth }: { reportId: string; railWidth: string }): JSX.Element {
@@ -74,6 +75,17 @@ export const SavedValue: Story = {
         <div className="min-h-screen bg-primary p-6">
             <div className="w-[26rem] max-w-full">
                 <ReportPrimaryMetric reportId="report-with-saved-metric" metric={reportSavedValueMetricFixture} />
+            </div>
+        </div>
+    ),
+}
+
+/** A rate draws a line strip that floats to its range, where a count draws bars from zero. */
+export const RateObservation: Story = {
+    render: () => (
+        <div className="min-h-screen bg-primary p-6">
+            <div className="w-[26rem] max-w-full">
+                <ReportPrimaryMetric reportId="report-with-rate-metric" metric={{ ...rateMetric, role: 'primary' }} />
             </div>
         </div>
     ),

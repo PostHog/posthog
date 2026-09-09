@@ -20,7 +20,7 @@ function isString(value: unknown): value is string {
     return typeof value === 'string'
 }
 
-export function reportMetricAggregate(response: unknown): number | null {
+function firstTrendsSeries(response: unknown): Record<string, unknown> | null {
     if (!response || typeof response !== 'object') {
         return null
     }
@@ -33,9 +33,38 @@ export function reportMetricAggregate(response: unknown): number | null {
           : null
     const firstSeries = series?.[0]
 
-    return firstSeries && typeof firstSeries === 'object'
-        ? finiteNumber((firstSeries as { aggregated_value?: unknown }).aggregated_value)
-        : null
+    return firstSeries && typeof firstSeries === 'object' ? (firstSeries as Record<string, unknown>) : null
+}
+
+export function reportMetricAggregate(response: unknown): number | null {
+    return finiteNumber(firstTrendsSeries(response)?.aggregated_value)
+}
+
+export interface ReportMetricSeriesPoints {
+    /** ISO bucket starts, aligned with `values`. */
+    labels: string[]
+    /** One value per bucket, `NaN` where the bucket has no number. */
+    values: number[]
+}
+
+export function reportMetricSeriesPoints(response: unknown): ReportMetricSeriesPoints | null {
+    const firstSeries = firstTrendsSeries(response)
+    const days = firstSeries?.days
+    const data = firstSeries?.data
+    if (!Array.isArray(days) || !Array.isArray(data)) {
+        return null
+    }
+
+    const labels = days.filter(isString)
+    const length = Math.min(labels.length, data.length)
+    if (length === 0) {
+        return null
+    }
+
+    return {
+        labels: labels.slice(0, length),
+        values: data.slice(0, length).map((value) => finiteNumber(value) ?? NaN),
+    }
 }
 
 function withUnit(value: string, unit: string | null): string {

@@ -2,6 +2,8 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 
+import { ensureJsdom } from '@posthog/quill-charts/testing'
+
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -75,6 +77,8 @@ function trendsResponse(aggregatedValue: number): Record<string, unknown> {
     }
 }
 
+ensureJsdom()
+
 describe('ReportPrimaryMetric', () => {
     beforeEach(() => initKeaTests())
     afterEach(() => {
@@ -103,7 +107,12 @@ describe('ReportPrimaryMetric', () => {
         const observation = within(primaryMetricElement(container))
         expect(await observation.findByText('42')).toBeInTheDocument()
         expect(observation.getByText('users')).toBeInTheDocument()
-        expect(container.querySelector('.InsightCard__viz--ActionsBar')).not.toBeNull()
+        const chart = await waitFor(() => {
+            const element = container.querySelector('[data-attr="report-primary-metric-chart"]')
+            expect(element).not.toBeNull()
+            return element
+        })
+        expect(chart).toHaveAttribute('data-chart-type', 'bar')
         await waitFor(() =>
             expect(requestedDisplays).toEqual(
                 expect.arrayContaining([ChartDisplayType.BoldNumber, ChartDisplayType.ActionsBar])
@@ -177,24 +186,32 @@ describe('ReportPrimaryMetric', () => {
         expect(screen.getByText('9')).toBeInTheDocument()
         expect(screen.getByText('users')).toBeInTheDocument()
         expect(screen.getByText(/Measured/)).toHaveTextContent('Measured 2026-08-29T12:00:00Z')
-        expect(container.querySelector('.InsightCard__viz--ActionsBar')).toBeNull()
-        expect(screen.queryByText(/Couldn't load this metric's trend/)).not.toBeInTheDocument()
+        expect(container.querySelector('[data-attr="report-primary-metric-chart"]')).toBeNull()
+        expect(screen.queryByText(/Couldn't load the trend/)).not.toBeInTheDocument()
         expect(screen.queryByText(/Refresh the page to try again/)).not.toBeInTheDocument()
     })
 
-    it('describes the count and names the query behind it with a link to open it as an insight', () => {
+    it('describes the count and names the window and filters behind it with a link to open it in Trends', () => {
+        const filteredQuery = {
+            ...query,
+            source: { ...query.source, properties: [{ key: '$browser', value: 'Chrome', type: 'event' }] },
+        }
         const { container } = render(
             <ReportPrimaryMetric
                 reportId="source"
-                metric={makeMetric({ role: 'primary', caption: 'Unique users on the captured exception.' })}
+                metric={makeMetric({
+                    role: 'primary',
+                    query: filteredQuery,
+                    caption: 'Unique users on the captured exception.',
+                })}
             />
         )
 
         expect(screen.getByText('Unique users on the captured exception.')).toBeInTheDocument()
         const source = container.querySelector('[data-attr="report-primary-metric-source"]')
-        expect(source).toHaveTextContent(/unique users/i)
+        expect(source).toHaveTextContent('Last 7 days · 1 filter')
         const open = container.querySelector<HTMLAnchorElement>('[data-attr="report-primary-metric-open"]')
-        expect(open).toHaveTextContent('Open as new insight')
+        expect(open).toHaveTextContent('Open in Trends')
         expect(open?.getAttribute('href')).toContain('/insights/new')
     })
 

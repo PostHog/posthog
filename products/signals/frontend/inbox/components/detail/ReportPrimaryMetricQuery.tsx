@@ -1,17 +1,23 @@
 import { useValues } from 'kea'
 
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
-import { InsightLogicProps } from '~/types'
 
 import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { formatReportMetricValue, reportMetricAggregate, reportMetricWindowLabel } from '../../utils/reportMetrics'
+import {
+    formatReportMetricValue,
+    reportMetricAggregate,
+    reportMetricChartType,
+    reportMetricSeriesPoints,
+} from '../../utils/reportMetrics'
 import { comparisonMetaSegments, measuredMetaSegments, ReportMetricMetaLine } from './ReportMetricMetaLine'
 import { ReportObservationCard } from './ReportObservationCard'
+import { ReportObservationChart } from './ReportObservationChart'
 import { ReportObservationValue } from './ReportObservationValue'
 
 export function ReportPrimaryMetricQuery({
@@ -23,36 +29,36 @@ export function ReportPrimaryMetricQuery({
     reportId: string
     metric: ReportMetricApi
     aggregateQuery: TrendsQuery
-    seriesQuery: InsightVizNode
+    seriesQuery: InsightVizNode<TrendsQuery>
 }): JSX.Element {
-    const metricKey = `report-metric-${reportId}-${metric.metric_id}`
-    const insightProps: InsightLogicProps<InsightVizNode> = {
-        dashboardItemId: `new-AdHoc.${metricKey}`,
-        dataNodeCollectionId: `report-metrics-${reportId}`,
-        query: seriesQuery,
-    }
-    const dataNodeProps: DataNodeLogicProps = {
+    const collectionId = `report-metrics-${reportId}`
+    const aggregateProps: DataNodeLogicProps = {
         key: `ReportMetricAggregate.${reportId}.${metric.metric_id}`,
         query: aggregateQuery,
-        dataNodeCollectionId: `report-metrics-${reportId}`,
+        dataNodeCollectionId: collectionId,
         autoLoad: true,
     }
-    const { response, responseError, responseLoading } = useValues(dataNodeLogic(dataNodeProps))
+    const seriesProps: DataNodeLogicProps = {
+        key: `ReportMetricSeries.${reportId}.${metric.metric_id}`,
+        query: seriesQuery.source,
+        dataNodeCollectionId: collectionId,
+        autoLoad: true,
+    }
+    const { response, responseError, responseLoading } = useValues(dataNodeLogic(aggregateProps))
+    const {
+        response: seriesResponse,
+        responseError: seriesError,
+        responseLoading: seriesLoading,
+    } = useValues(dataNodeLogic(seriesProps))
 
     const aggregate = reportMetricAggregate(response)
     const hasAggregate = formatReportMetricValue(metric, aggregate) !== null
     const snapshot = formatReportMetricValue(metric, metric.value)
     const responseResolved = response !== null && response !== undefined
-    const windowLabel = reportMetricWindowLabel(metric.query) ?? 'Current window'
+    const seriesResolved = seriesResponse !== null && seriesResponse !== undefined
+    const points = seriesResolved ? reportMetricSeriesPoints(seriesResponse) : null
 
-    const liveMeta = (
-        <ReportMetricMetaLine
-            segments={[
-                ...comparisonMetaSegments(metric, aggregate),
-                { key: 'window', node: <span>{windowLabel}</span> },
-            ]}
-        />
-    )
+    const liveMeta = <ReportMetricMetaLine segments={comparisonMetaSegments(metric, aggregate)} />
     const snapshotMeta = snapshot ? (
         <ReportMetricMetaLine
             segments={[...comparisonMetaSegments(metric, metric.value), ...measuredMetaSegments(metric)]}
@@ -61,7 +67,7 @@ export function ReportPrimaryMetricQuery({
 
     return (
         <ReportObservationCard metric={metric}>
-            <div className="flex min-h-12 flex-col gap-1.5">
+            <div className="flex min-h-8 flex-col gap-1">
                 {responseLoading && !responseResolved ? (
                     <div className="flex items-center gap-2 text-xs text-tertiary">
                         <Spinner className="text-lg" />
@@ -93,9 +99,18 @@ export function ReportPrimaryMetricQuery({
                     <span className="text-xs text-tertiary">No value for this window.</span>
                 )}
             </div>
-            <div className="flex h-28 min-w-0 flex-col overflow-hidden">
-                <Query query={seriesQuery} uniqueKey={metricKey} context={{ insightProps }} readOnly embedded />
-            </div>
+            {seriesLoading && !seriesResolved ? (
+                <LemonSkeleton className="h-20 w-full" />
+            ) : seriesError ? (
+                <p className="m-0 text-xs text-tertiary">Couldn't load the trend. Refresh the page to try again.</p>
+            ) : points ? (
+                <ReportObservationChart
+                    metric={metric}
+                    points={points}
+                    type={reportMetricChartType(metric)}
+                    interval={seriesQuery.source.interval}
+                />
+            ) : null}
         </ReportObservationCard>
     )
 }

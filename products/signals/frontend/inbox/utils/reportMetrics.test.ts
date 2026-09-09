@@ -16,6 +16,7 @@ import {
     reportMetricDelta,
     reportMetricFilterCount,
     reportMetricRowParts,
+    reportMetricSeriesPoints,
     reportMetricUnitWord,
     reportMetricWindowLabel,
     type ReportMetricInsightQuery,
@@ -361,6 +362,24 @@ describe('reportMetrics', () => {
         ['a missing current value', { kind: 'affected_users', value_format: 'count' } as const, null, 72, null],
     ])('describes %s as a change a reader can act on', (_name, metric, current, previous, expected) => {
         expect(reportMetricDelta(metric, current, previous)).toEqual(expected)
+    })
+
+    describe('reportMetricSeriesPoints', () => {
+        const bucket = { days: ['2026-09-07', '2026-09-08', '2026-09-09'], data: [3, null, 9] }
+
+        it.each([
+            ['a `results` envelope', { results: [bucket] }, { labels: bucket.days, values: [3, NaN, 9] }],
+            ['a `result` envelope', { result: [bucket] }, { labels: bucket.days, values: [3, NaN, 9] }],
+            ['no series', { results: [] }, null],
+            ['a series without days', { results: [{ data: [1, 2] }] }, null],
+            [
+                'more days than values',
+                { results: [{ days: ['2026-09-08', '2026-09-09'], data: [4] }] },
+                { labels: ['2026-09-08'], values: [4] },
+            ],
+        ])('reads the first series buckets from %s', (_name, response, expected) => {
+            expect(reportMetricSeriesPoints(response)).toEqual(expected)
+        })
     })
 
     describe('reportMetricFilterCount', () => {
