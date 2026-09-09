@@ -1855,6 +1855,39 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ],
         )
 
+    def test_activity_page_past_the_last_page_is_empty(self):
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["1"],
+            properties={"$browser": "whatever"},
+            immediate=True,
+        )
+        created_person = self.client.get(f"/api/person/{person.uuid}/").json()
+        created_person["properties"]["a"] = "b"
+        self.client.patch(f"/api/person/{person.uuid}/", created_person)
+
+        response = self.client.get("/api/person/activity?limit=100&page=2")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        page = response.json()
+        self.assertEqual(page["results"], [])
+        self.assertEqual(page["total_count"], 1)
+        self.assertIsNone(page["next"])
+        self.assertIsNotNone(page["previous"])
+
+    @parameterized.expand(
+        [
+            ("junk_page", "page=not-a-number"),
+            ("junk_limit", "limit=not-a-number"),
+            ("page_below_one", "page=0"),
+            ("limit_below_one", "limit=0"),
+        ]
+    )
+    def test_activity_rejects_invalid_pagination_params(self, _name: str, query: str):
+        response = self.client.get(f"/api/person/activity?{query}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_csv_export(self):
         _create_person(
             team=self.team,

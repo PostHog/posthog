@@ -14,6 +14,17 @@ class ActivityLogPaginatedResponseSerializer(serializers.Serializer):
     total_count = serializers.IntegerField()
 
 
+class ActivityQueryParamsSerializer(serializers.Serializer):
+    limit = serializers.IntegerField(required=False, default=10, min_value=1, help_text="Number of items per page")
+    page = serializers.IntegerField(required=False, default=1, min_value=1, help_text="Page number")
+
+
+def parse_activity_page_params(request: request.Request) -> tuple[int, int]:
+    serializer = ActivityQueryParamsSerializer(data=request.query_params)
+    serializer.is_valid(raise_exception=True)
+    return serializer.validated_data["limit"], serializer.validated_data["page"]
+
+
 def activity_page_response(
     activity_page: ActivityPage, limit: int, page: int, request: request.Request
 ) -> response.Response:

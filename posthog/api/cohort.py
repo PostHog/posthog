@@ -73,7 +73,7 @@ from posthog.models.activity_logging.activity_log import (
     load_activity,
     log_activity,
 )
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.utils import earliest_timestamp_func
@@ -1996,8 +1996,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         required_scopes=["activity_log:read"],
     )
     def all_activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        limit, page = parse_activity_page_params(request)
 
         activity_page = load_activity(scope="Cohort", team_id=self.team_id, limit=limit, page=page)
 
@@ -2005,8 +2004,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        limit, page = parse_activity_page_params(request)
 
         item_id = kwargs["pk"]
         if not Cohort.objects.filter(id=item_id, team__project_id=self.project_id).exists():
