@@ -21,12 +21,15 @@ import {
     DataWarehouseSavedQueryRunHistory,
 } from '~/types'
 
-import { STATUS_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
+import { STATUS_TAG_SETTINGS, statusBackgroundClass } from 'products/data_modeling/frontend/lineage/nodeStyles'
 
 import { TableCertificationTag } from '../TableCertificationBadge'
 import { PAGE_SIZE, ViewTypeFilter, viewsTabLogic } from './viewsTabLogic'
 
 type ViewColumn = LemonTableColumn<DataWarehouseSavedQuery, keyof DataWarehouseSavedQuery | undefined>
+
+const VIEW_TYPE_TOOLTIP =
+    'A materialized view is refreshed on a schedule and stored as a table. A view runs its query each time it is read.'
 
 const TYPE_FILTER_OPTIONS: { value: ViewTypeFilter; label: string }[] = [
     { value: 'all', label: 'All types' },
@@ -70,9 +73,7 @@ function RunHistoryDisplay({
                         title={`${run.status}${friendlyTime ? ` - ${friendlyTime}` : ''}`}
                         placement="top"
                     >
-                        <div
-                            className={`w-4 h-4 rounded-sm ${run.status === 'Completed' ? 'bg-success' : 'bg-danger'}`}
-                        />
+                        <div className={`w-4 h-4 rounded-sm ${statusBackgroundClass(run.status)}`} />
                     </Tooltip>
                 )
             })}
@@ -166,22 +167,15 @@ export function ViewsTab({ getViewUrl }: ViewsTabProps = {}): JSX.Element {
                 return (
                     <div className="flex items-center gap-2">
                         <LemonTableLink to={to} title={view.name} description={description} />
+                        <Tooltip title={VIEW_TYPE_TOOLTIP}>
+                            <LemonTag type={view.is_materialized ? 'highlight' : 'default'}>
+                                {view.is_materialized ? 'Materialized' : 'View'}
+                            </LemonTag>
+                        </Tooltip>
                         <TableCertificationTag certification={viewsMapById[view.id]?.certification} />
                     </div>
                 )
             },
-        } as ViewColumn,
-        {
-            title: 'Type',
-            key: 'is_materialized',
-            tooltip:
-                'A materialized view is refreshed on a schedule and stored as a table. A view runs its query each time it is read.',
-            render: (_, view) =>
-                view.is_materialized ? (
-                    <LemonTag type="highlight">Materialized</LemonTag>
-                ) : (
-                    <LemonTag type="default">View</LemonTag>
-                ),
         } as ViewColumn,
         {
             title: 'Status',

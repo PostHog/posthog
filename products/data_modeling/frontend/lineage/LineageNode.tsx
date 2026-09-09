@@ -12,7 +12,8 @@ import { DataModelingJobStatus, DataModelingNode } from '~/types'
 import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
 import { ElkDirection, NodeHandle } from './autolayout'
-import { NODE_TYPE_TAG_SETTINGS } from './nodeStyles'
+import { NODE_TYPE_TAG_SETTINGS, statusBackgroundClass } from './nodeStyles'
+import { NodeTypeTag } from './NodeTypeTag'
 
 export type LineageVariant = 'full' | 'canvas'
 
@@ -56,35 +57,13 @@ export interface LineageNodeData extends Record<string, unknown> {
     handles: NodeHandle[]
 }
 
-function NodeTypeTag({ type }: { type: DataModelingNode['type'] }): JSX.Element {
-    const { label, color } = NODE_TYPE_TAG_SETTINGS[type]
-    return (
-        <span
-            className="text-[10px] lowercase tracking-wide px-1 rounded border-1"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                color,
-                backgroundColor: `color-mix(in srgb, ${color} 20%, transparent)`,
-                borderColor: `color-mix(in srgb, ${color} 80%, transparent)`,
-            }}
-        >
-            {label}
-        </span>
-    )
-}
-
 function StatusDot({ status }: { status?: DataModelingJobStatus }): JSX.Element {
     return (
         <Tooltip title={status ?? 'Not run yet'}>
             <div
                 className={clsx(
                     'rounded-full w-3 h-3 border-1 border-primary',
-                    status === 'Completed' && 'bg-success',
-                    status === 'Running' && 'bg-warning',
-                    status === 'Failed' && 'bg-danger',
-                    status === 'Cancelled' && 'bg-warning',
-                    status === 'Skipped' && 'bg-muted',
-                    !status && 'bg-surface-primary'
+                    status ? statusBackgroundClass(status) : 'bg-surface-primary'
                 )}
             />
         </Tooltip>

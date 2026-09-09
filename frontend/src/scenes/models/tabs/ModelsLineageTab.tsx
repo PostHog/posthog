@@ -55,7 +55,7 @@ export function ModelsLineageTab(): JSX.Element {
                 <LemonInput
                     type="search"
                     size="small"
-                    placeholder="Search models, or +name for upstream"
+                    placeholder="Search, or +name for upstream"
                     value={searchTerm}
                     onChange={setSearchTerm}
                     className="w-72"
