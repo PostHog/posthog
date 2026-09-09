@@ -23,7 +23,7 @@ permissions:
 jobs:
     test:
         name: HogQL language service tests
-        runs-on: ubuntu-24.04
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
 
         steps:
@@ -41,4 +41,4 @@ jobs:
 
             - name: Run tests
               working-directory: services/hogql-language-service
-              run: go test ./...
+              run: go test -race ./...
