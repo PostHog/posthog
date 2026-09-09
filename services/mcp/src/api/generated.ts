@@ -88908,7 +88908,10 @@ export namespace Schemas {
     }
 
     export interface WebAnalyticsBotCondition {
-      /** Stable id for the condition. Generated when omitted. */
+      /**
+         * Stable id for the condition. Generated when omitted.
+         * @maxLength 100
+         */
       id?: string;
       /** Event property the condition reads. One of: $raw_user_agent, $ip, $lib, $host, $pathname, $current_url, $browser, $os, $browser_language, $screen_width, $screen_height, $geoip_country_code, $referrer, $referring_domain. */
       key: string;

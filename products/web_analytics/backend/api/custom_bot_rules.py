@@ -17,6 +17,7 @@ from products.web_analytics.backend.hogql_queries.custom_bot_definitions import 
     CIDR_MATCHER,
     CUSTOM_BOT_FIELDS,
     MAX_CUSTOM_BOT_DEFINITIONS,
+    MAX_ID_LENGTH,
     PATTERN_MATCHERS,
     assert_patterns_compile,
     compiled_patterns,
@@ -30,7 +31,11 @@ _FIELD_LIST = ", ".join(CUSTOM_BOT_FIELDS)
 
 
 class WebAnalyticsBotConditionSerializer(serializers.Serializer):
-    id = serializers.CharField(required=False, help_text="Stable id for the condition. Generated when omitted.")
+    id = serializers.CharField(
+        required=False,
+        max_length=MAX_ID_LENGTH,
+        help_text="Stable id for the condition. Generated when omitted.",
+    )
     key = serializers.CharField(help_text=f"Event property the condition reads. One of: {_FIELD_LIST}.")
     matcher = serializers.CharField(
         help_text="How `pattern` is compared: 'contains' (case-insensitive substring), 'regex' (RE2), 'exact' (case-sensitive equality), or 'cidr' (an IP network range, only valid with the `$ip` property)."

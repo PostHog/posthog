@@ -106,6 +106,12 @@ describe('customBotRulesUtils', () => {
             ['an empty name', rule({ name: '' }), 'Give this bot a name.'],
             ['no conditions', rule({ items: [] }), 'Add at least one condition.'],
             ['an unusable condition', rule({ items: [condition({ pattern: '' })] }), 'Add a value to match.'],
+            [
+                // Dragging a condition into a rule can exceed the cap without the add button.
+                'too many conditions',
+                rule({ items: Array.from({ length: 11 }, (_, i) => condition({ id: String(i) })) }),
+                'A rule can have at most 10 conditions.',
+            ],
         ])('rejects %s', (_name, value, expected) => {
             expect(validateCustomBotRule(value)).toEqual(expected)
         })
@@ -236,18 +242,42 @@ describe('customBotRulesUtils', () => {
                 { id: '1', name: 'Acme', key: '$raw_user_agent', matcher: 'contains', pattern: 'AcmeBot' },
             ])
 
+            // The condition id must differ from the rule id: the editor keys both in one
+            // drag-and-drop context, where a shared id collapses them.
             expect(upcast).toEqual([
                 rule({
                     name: 'Acme',
-                    items: [condition()],
+                    items: [condition({ id: '1-condition' })],
                 }),
             ])
+        })
+
+        it('mints ids so rules without one do not collapse in the id-keyed editor', () => {
+            const upcast = upcastCustomBotRules([
+                { name: 'One', key: '$raw_user_agent', matcher: 'contains', pattern: 'One' },
+                { name: 'Two', key: '$raw_user_agent', matcher: 'contains', pattern: 'Two' },
+            ])
+
+            expect(upcast).toHaveLength(2)
+            expect(upcast[0].id).toBeTruthy()
+            expect(upcast[0].id).not.toEqual(upcast[1].id)
+            expect(upcast[0].items[0].id).not.toEqual(upcast[0].id)
         })
 
         it('keeps the current shape and drops what does not parse', () => {
             const current = rule()
 
-            expect(upcastCustomBotRules([current, 'garbage', { pattern: 'no key' }])).toEqual([current])
+            // A malformed items-shape entry must be dropped, not blind-cast: it would otherwise
+            // throw in validation during render and crash the settings scene.
+            expect(
+                upcastCustomBotRules([
+                    current,
+                    'garbage',
+                    { pattern: 'no key' },
+                    { id: 'x', items: [{}] },
+                    { items: [condition()], name: null },
+                ])
+            ).toEqual([current])
         })
     })
 })

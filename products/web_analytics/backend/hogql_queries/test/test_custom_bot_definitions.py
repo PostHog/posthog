@@ -129,6 +129,8 @@ class TestValidation:
             ),
             ("unknown category", {"category": "not_a_category"}, "Unknown category"),
             ("no conditions", {"items": []}, "at least one condition"),
+            # Ids are stored on team.modifiers, which is read on every query for the team.
+            ("oversized rule id", {"id": "a" * 101}, "Rule id cannot be longer"),
         ]
     )
     def test_rejects_unusable_rules(self, _name: str, overrides: dict, expected_message: str):
@@ -222,6 +224,19 @@ class TestUpcastRules:
 
         assert [(r.name, r.combiner, len(r.items)) for r in upcast] == [("Acme", FilterLogicalOperator.AND_, 1)]
         assert upcast[0].items[0].pattern == "AcmeBot"
+        # The editor keys rules and conditions by id in one drag-and-drop context; a shared id
+        # collapses them.
+        assert upcast[0].items[0].id != upcast[0].id
+
+    def test_a_flat_rule_without_an_id_gets_one(self):
+        # An id-less rule would otherwise store id "", and several such rules collapse to one
+        # entry in the id-keyed editor, deleting the rest on the next save.
+        upcast = upcast_rules(
+            [{"name": "Acme", "key": "$raw_user_agent", "matcher": "contains", "pattern": "AcmeBot"}], strict=True
+        )
+
+        assert upcast[0].id
+        assert upcast[0].items[0].id != upcast[0].id
 
     def test_keeps_the_current_shape_and_drops_what_does_not_parse(self):
         current = rule().model_dump(exclude_none=True)
@@ -325,6 +340,30 @@ class TestCompileDefinitions:
         assert isinstance(composite, CompositeGroup)
         assert composite.combiner == "AND"
         assert composite.definition.name == "Headless 800x600"
+
+    def test_a_bucket_does_not_reach_back_across_a_composite(self):
+        # The editor promises list order is precedence. Sharing a bucket across the composite
+        # would check the last rule ahead of the composite listed above it, so the label of an
+        # event both match would go to the wrong rule.
+        composite = rule(
+            id="2",
+            name="Headless 800x600",
+            items=[
+                condition(id="w", key=CustomBotField.FIELD_SCREEN_WIDTH, matcher=CustomBotMatcher.EXACT, pattern="800"),
+                condition(
+                    id="h", key=CustomBotField.FIELD_SCREEN_HEIGHT, matcher=CustomBotMatcher.EXACT, pattern="600"
+                ),
+            ],
+        )
+        groups = compile_definitions(
+            [rule(id="1", name="First", pattern="First"), composite, rule(id="3", name="Last", pattern="Last")]
+        )
+
+        assert [type(group) for group in groups] == [PatternGroup, CompositeGroup, PatternGroup]
+        assert isinstance(groups[0], PatternGroup)
+        assert isinstance(groups[2], PatternGroup)
+        assert [bot.name for bot in groups[0].definitions] == ["First"]
+        assert [bot.name for bot in groups[2].definitions] == ["Last"]
 
     def test_category_drives_traffic_type(self):
         groups = compile_definitions([rule(category="ai_crawler")])

@@ -1885,6 +1885,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     )
 
         if "customBotDefinitions" in value and isinstance(value["customBotDefinitions"], list):
+            # Cap before parsing, so an oversized list is rejected without instantiating a model
+            # per entry.
+            if len(value["customBotDefinitions"]) > MAX_CUSTOM_BOT_DEFINITIONS:
+                raise exceptions.ValidationError(
+                    {"customBotDefinitions": f"You can define at most {MAX_CUSTOM_BOT_DEFINITIONS} bots."}
+                )
             # A stale client can still send the pre-combiner flat shape; store the upcast rules so
             # the saved modifiers always hold one shape. Strict, so a malformed rule is rejected
             # rather than silently dropped from the save.

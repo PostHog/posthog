@@ -1,3 +1,5 @@
+import { uuid } from 'lib/utils/dom'
+
 import { CustomBotCondition, CustomBotField, CustomBotMatcher, CustomBotRule } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator } from '~/types'
 
@@ -33,6 +35,17 @@ const MATCHER_LABELS: Record<CustomBotMatcher, string> = {
     [CustomBotMatcher.Cidr]: 'is in range',
 }
 
+// "equals" and "contains" sit next to each other in the same select but differ in case handling,
+// so each says which it is.
+const MATCHER_TOOLTIPS: Partial<Record<CustomBotMatcher, string>> = {
+    [CustomBotMatcher.Contains]: 'Case-insensitive',
+    [CustomBotMatcher.Exact]: 'Case-sensitive, matches the whole value',
+}
+
+export function matcherLabel(matcher: CustomBotMatcher): string {
+    return MATCHER_LABELS[matcher]
+}
+
 // Mirrors TRAFFIC_TYPE_BY_CATEGORY in
 // products/web_analytics/backend/hogql_queries/custom_bot_definitions.py
 export const CUSTOM_BOT_CATEGORY_OPTIONS: { value: string; label: string }[] = [
@@ -55,12 +68,16 @@ export function fieldLabel(key: CustomBotField): string {
 }
 
 /** Comparing an IP to a network range is the only sensible default, and only works on an IP. */
-export function matcherOptionsFor(key: CustomBotField): { value: CustomBotMatcher; label: string }[] {
+export function matcherOptionsFor(key: CustomBotField): { value: CustomBotMatcher; label: string; tooltip?: string }[] {
     const matchers =
         key === CustomBotField.IP
             ? [CustomBotMatcher.Cidr, CustomBotMatcher.Contains, CustomBotMatcher.Exact, CustomBotMatcher.Regex]
             : [CustomBotMatcher.Contains, CustomBotMatcher.Exact, CustomBotMatcher.Regex]
-    return matchers.map((matcher) => ({ value: matcher, label: MATCHER_LABELS[matcher] }))
+    return matchers.map((matcher) => ({
+        value: matcher,
+        label: MATCHER_LABELS[matcher],
+        tooltip: MATCHER_TOOLTIPS[matcher],
+    }))
 }
 
 export function defaultMatcherFor(key: CustomBotField): CustomBotMatcher {
@@ -77,6 +94,10 @@ export function patternPlaceholderFor(key: CustomBotField, matcher: CustomBotMat
     }
     if (matcher === CustomBotMatcher.Regex) {
         return key === CustomBotField.RawUserAgent ? 'AcmeBot/[0-9]+' : '^/api/'
+    }
+    // The contains placeholder for an IP is a prefix, which an equality match can never satisfy.
+    if (matcher === CustomBotMatcher.Exact && key === CustomBotField.IP) {
+        return '192.0.2.55'
     }
     return (
         {
@@ -248,6 +269,10 @@ export function validateCustomBotRule(rule: CustomBotRule): string | null {
     if (rule.items.length === 0) {
         return 'Add at least one condition.'
     }
+    // Dragging a condition into a rule can exceed the cap without ever using the add button.
+    if (rule.items.length > MAX_CONDITIONS_PER_RULE) {
+        return `A rule can have at most ${MAX_CONDITIONS_PER_RULE} conditions.`
+    }
     for (const condition of rule.items) {
         const error = validateCustomBotCondition(condition)
         if (error) {
@@ -293,7 +318,22 @@ export function ruleMatchesValues(rule: CustomBotRule, values: Partial<Record<Cu
     return rule.combiner === FilterLogicalOperator.Or ? matches.some(Boolean) : matches.every(Boolean)
 }
 
-/** Read stored rules, upcasting the pre-combiner flat shape into a one-condition rule. */
+function isCondition(value: unknown): value is CustomBotCondition {
+    if (!value || typeof value !== 'object') {
+        return false
+    }
+    const condition = value as CustomBotCondition
+    return (
+        typeof condition.key === 'string' &&
+        typeof condition.matcher === 'string' &&
+        typeof condition.pattern === 'string'
+    )
+}
+
+/** Read stored rules, upcasting the pre-combiner flat shape into a one-condition rule.
+
+Entries that do not parse are dropped, mirroring the backend: one bad entry must not take down
+the one surface that could be used to fix it. */
 export function upcastCustomBotRules(raw: unknown): CustomBotRule[] {
     if (!Array.isArray(raw)) {
         return []
@@ -303,8 +343,19 @@ export function upcastCustomBotRules(raw: unknown): CustomBotRule[] {
         if (!entry || typeof entry !== 'object') {
             continue
         }
-        if (Array.isArray((entry as CustomBotRule).items)) {
-            rules.push(entry as CustomBotRule)
+        const current = entry as CustomBotRule
+        if (Array.isArray(current.items)) {
+            if (typeof current.name !== 'string' || !current.items.every(isCondition)) {
+                continue
+            }
+            // The editor keys rules and conditions by id in one drag-and-drop context, so every
+            // id must exist and be unique or entries silently collapse.
+            rules.push({
+                ...current,
+                id: current.id || uuid(),
+                combiner: current.combiner === FilterLogicalOperator.Or ? current.combiner : FilterLogicalOperator.And,
+                items: current.items.map((condition) => ({ ...condition, id: condition.id || uuid() })),
+            })
             continue
         }
         const flat = entry as {
@@ -315,15 +366,16 @@ export function upcastCustomBotRules(raw: unknown): CustomBotRule[] {
             pattern?: string
             category?: string
         }
-        if (!flat.key || !flat.matcher || flat.pattern === undefined) {
+        if (!flat.key || !flat.matcher || typeof flat.pattern !== 'string') {
             continue
         }
+        const id = flat.id || uuid()
         rules.push({
-            id: flat.id ?? '',
+            id,
             name: flat.name ?? '',
             category: flat.category,
             combiner: FilterLogicalOperator.And,
-            items: [{ id: flat.id ?? '', key: flat.key, matcher: flat.matcher, pattern: flat.pattern }],
+            items: [{ id: `${id}-condition`, key: flat.key, matcher: flat.matcher, pattern: flat.pattern }],
         })
     }
     return rules

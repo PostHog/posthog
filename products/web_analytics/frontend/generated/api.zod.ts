@@ -261,6 +261,7 @@ export const WebAnalyticsAchievementsRecordInteractionBody = /* @__PURE__ */ zod
  * @summary Create a custom bot rule
  */
 export const webAnalyticsBotRulesCreateBodyCombinerDefault = `AND`
+export const webAnalyticsBotRulesCreateBodyItemsItemIdMax = 100
 
 export const WebAnalyticsBotRulesCreateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -283,7 +284,11 @@ export const WebAnalyticsBotRulesCreateBody = /* @__PURE__ */ zod.object({
     items: zod
         .array(
             zod.object({
-                id: zod.string().optional().describe('Stable id for the condition. Generated when omitted.'),
+                id: zod
+                    .string()
+                    .max(webAnalyticsBotRulesCreateBodyItemsItemIdMax)
+                    .optional()
+                    .describe('Stable id for the condition. Generated when omitted.'),
                 key: zod
                     .string()
                     .describe(

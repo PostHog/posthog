@@ -458,6 +458,7 @@ export const WebAnalyticsBotRulesCreateParams = () => zod.object({
 })
 
 export const webAnalyticsBotRulesCreateBodyCombinerDefault = `AND`
+export const webAnalyticsBotRulesCreateBodyItemsItemIdMax = 100
 
 export const WebAnalyticsBotRulesCreateBody = () => zod.object({
     name: zod
@@ -480,7 +481,11 @@ export const WebAnalyticsBotRulesCreateBody = () => zod.object({
     items: zod
         .array(
             zod.object({
-                id: zod.string().optional().describe('Stable id for the condition. Generated when omitted.'),
+                id: zod
+                    .string()
+                    .max(webAnalyticsBotRulesCreateBodyItemsItemIdMax)
+                    .optional()
+                    .describe('Stable id for the condition. Generated when omitted.'),
                 key: zod
                     .string()
                     .describe(

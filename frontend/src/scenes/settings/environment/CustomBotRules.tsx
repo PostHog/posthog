@@ -28,6 +28,7 @@ import {
     MAX_CUSTOM_BOT_RULES,
     defaultMatcherFor,
     fieldLabel,
+    matcherLabel,
     matcherOptionsFor,
     patternPlaceholderFor,
     ruleMatchesValues,
@@ -37,10 +38,45 @@ import {
     validateCustomBotRule,
 } from './customBotRulesUtils'
 
+// Lowercase: the labels render mid-sentence ("when all conditions are met").
 const combinerOptions = [
-    { label: 'All', value: FilterLogicalOperator.And },
-    { label: 'Any', value: FilterLogicalOperator.Or },
+    { label: 'all', value: FilterLogicalOperator.And },
+    { label: 'any', value: FilterLogicalOperator.Or },
 ]
+
+function categoryLabel(category: string | undefined): string {
+    const value = category || CUSTOM_BOT_CATEGORY
+    return CUSTOM_BOT_CATEGORY_OPTIONS.find((option) => option.value === value)?.label ?? value
+}
+
+/** The list without edit affordances: the shared editor always renders drag handles and delete
+buttons, which would look actionable to someone whose changes can never be saved. */
+function ReadOnlyBotRules({ rules }: { rules: CustomBotRule[] }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2">
+            {rules.map((rule) => (
+                <div key={rule.id} className="border rounded p-3 flex flex-col gap-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold">{rule.name}</span>
+                        <LemonTag>{categoryLabel(rule.category)}</LemonTag>
+                    </div>
+                    {rule.items.length > 1 ? (
+                        <span className="text-muted text-xs">
+                            When {rule.combiner === FilterLogicalOperator.Or ? 'any' : 'all'} of these conditions are
+                            met:
+                        </span>
+                    ) : null}
+                    {rule.items.map((condition) => (
+                        <span key={condition.id} className="text-sm">
+                            {fieldLabel(condition.key)} {matcherLabel(condition.matcher)}{' '}
+                            <code>{condition.pattern}</code>
+                        </span>
+                    ))}
+                </div>
+            ))}
+        </div>
+    )
+}
 
 function newCondition(): CustomBotCondition {
     return {
@@ -116,148 +152,158 @@ export function CustomBotRules(): JSX.Element {
                 <Link to="https://posthog.com/docs/web-analytics/bot-detection">Read more about bot detection</Link>
             </p>
 
-            <VerticalNestedDND<CustomBotCondition, CustomBotRule>
-                initialItems={rules}
-                onChange={setRules}
-                renderContainerItem={(rule, { updateContainerItem }) => {
-                    const ruleError = validateCustomBotRule(rule)
-                    return (
-                        <div className="flex flex-col gap-2">
-                            <div className="flex flex-row items-center gap-2 flex-wrap">
-                                <span>Flag as bot</span>
-                                <LemonInput
-                                    className="flex-1 min-w-40"
-                                    value={rule.name}
-                                    onChange={(name) => updateContainerItem({ ...rule, name })}
-                                    placeholder="Acme scraper"
-                                    disabledReason={restrictedReason}
-                                />
-                                <span>in category</span>
-                                <LemonSelect
-                                    value={rule.category || CUSTOM_BOT_CATEGORY}
-                                    options={CUSTOM_BOT_CATEGORY_OPTIONS}
-                                    onChange={(category) => updateContainerItem({ ...rule, category })}
-                                    disabledReason={restrictedReason}
-                                />
-                            </div>
-                            {rule.items.length === 1 ? (
-                                <span>when this condition is met</span>
-                            ) : (
-                                <div className="flex flex-row items-center gap-2">
-                                    <span>When</span>
-                                    <LemonSelect
-                                        value={rule.combiner}
-                                        options={combinerOptions}
-                                        onChange={(combiner) => updateContainerItem({ ...rule, combiner })}
+            {rules.length === 0 ? (
+                <p className="text-muted mb-0">
+                    No bots added yet. PostHog's built-in list still applies. Add one to extend it.
+                </p>
+            ) : null}
+
+            {!canEdit ? (
+                <ReadOnlyBotRules rules={rules} />
+            ) : (
+                <VerticalNestedDND<CustomBotCondition, CustomBotRule>
+                    initialItems={rules}
+                    onChange={setRules}
+                    renderContainerItem={(rule, { updateContainerItem }) => {
+                        const ruleError = validateCustomBotRule(rule)
+                        return (
+                            <div className="flex flex-col gap-2">
+                                <div className="flex flex-row items-center gap-2 flex-wrap">
+                                    <span>Flag as bot</span>
+                                    <LemonInput
+                                        className="flex-1 min-w-40"
+                                        value={rule.name}
+                                        onChange={(name) => updateContainerItem({ ...rule, name })}
+                                        placeholder="Acme scraper"
                                         disabledReason={restrictedReason}
                                     />
-                                    <span>conditions are met</span>
+                                    <span>in category</span>
+                                    <LemonSelect
+                                        value={rule.category || CUSTOM_BOT_CATEGORY}
+                                        options={CUSTOM_BOT_CATEGORY_OPTIONS}
+                                        onChange={(category) => updateContainerItem({ ...rule, category })}
+                                        disabledReason={restrictedReason}
+                                    />
                                 </div>
-                            )}
-                            {ruleError && !rule.items.some(validateCustomBotCondition) ? (
-                                <span className="text-danger text-xs">{ruleError}</span>
-                            ) : null}
-                        </div>
-                    )
-                }}
-                renderChildItem={(condition, { updateChildItem }) => {
-                    const error = validateCustomBotCondition(condition)
-                    const changeKey = (key: CustomBotField): void => {
-                        // Regex works on every property, so treat it as a deliberate choice and keep
-                        // it. Anything else follows the new property, which moves an IP condition
-                        // onto ranges and a screen dimension onto equality.
-                        const matcher =
-                            condition.matcher === CustomBotMatcher.Regex
-                                ? CustomBotMatcher.Regex
-                                : defaultMatcherFor(key)
-                        updateChildItem({ ...condition, key, matcher })
-                    }
-                    return (
-                        <div className="w-full flex flex-col gap-1">
-                            <div className="flex flex-row items-center gap-2">
-                                <LemonSelect
-                                    value={condition.key}
-                                    options={CUSTOM_BOT_FIELD_OPTIONS}
-                                    onChange={changeKey}
-                                    disabledReason={restrictedReason}
-                                />
-                                <LemonSelect
-                                    value={condition.matcher}
-                                    options={matcherOptionsFor(condition.key)}
-                                    onChange={(matcher) => updateChildItem({ ...condition, matcher })}
-                                    disabledReason={restrictedReason}
-                                />
-                                <LemonInput
-                                    className="flex-1 font-mono"
-                                    value={condition.pattern}
-                                    onChange={(pattern) => updateChildItem({ ...condition, pattern })}
-                                    placeholder={patternPlaceholderFor(condition.key, condition.matcher)}
-                                    status={error ? 'danger' : undefined}
-                                    disabledReason={restrictedReason}
-                                />
+                                {rule.items.length === 1 ? (
+                                    <span>when this condition is met</span>
+                                ) : (
+                                    <div className="flex flex-row items-center gap-2">
+                                        <span>when</span>
+                                        <LemonSelect
+                                            value={rule.combiner}
+                                            options={combinerOptions}
+                                            onChange={(combiner) => updateContainerItem({ ...rule, combiner })}
+                                            disabledReason={restrictedReason}
+                                        />
+                                        <span>conditions are met</span>
+                                    </div>
+                                )}
+                                {ruleError && !rule.items.some(validateCustomBotCondition) ? (
+                                    <span className="text-danger text-xs">{ruleError}</span>
+                                ) : null}
                             </div>
-                            {error ? <span className="text-danger text-xs">{error}</span> : null}
-                        </div>
-                    )
-                }}
-                renderAddChildItem={(rule, { onAddChild }) =>
-                    canEdit ? (
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconPlus />}
-                            onClick={() => onAddChild(rule.id)}
-                            data-attr="custom-bot-rules-add-condition"
-                            disabledReason={
-                                rule.items.length >= MAX_CONDITIONS_PER_RULE
-                                    ? `A rule can have at most ${MAX_CONDITIONS_PER_RULE} conditions`
-                                    : undefined
-                            }
-                        >
-                            Add condition
-                        </LemonButton>
-                    ) : null
-                }
-                renderAddContainerItem={({ onAddContainer }) =>
-                    canEdit ? (
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconPlus />}
-                            onClick={onAddContainer}
-                            data-attr="custom-bot-rules-add-rule"
-                            disabledReason={
-                                rules.length >= MAX_CUSTOM_BOT_RULES
-                                    ? `You can define at most ${MAX_CUSTOM_BOT_RULES} bots`
-                                    : undefined
-                            }
-                        >
-                            Add bot
-                        </LemonButton>
-                    ) : null
-                }
-                renderAdditionalControls={() =>
-                    canEdit ? (
-                        <LemonButton
-                            type="primary"
-                            onClick={save}
-                            loading={currentTeamLoading}
-                            data-attr="custom-bot-rules-save"
-                            disabledReason={
-                                currentTeamLoading
-                                    ? 'Saving'
-                                    : firstError
-                                      ? 'Fix the errors above first'
-                                      : isUnchanged
-                                        ? 'No changes to save'
+                        )
+                    }}
+                    renderChildItem={(condition, { updateChildItem }) => {
+                        const error = validateCustomBotCondition(condition)
+                        const changeKey = (key: CustomBotField): void => {
+                            // Regex works on every property, so treat it as a deliberate choice and keep
+                            // it. Anything else follows the new property, which moves an IP condition
+                            // onto ranges and a screen dimension onto equality.
+                            const matcher =
+                                condition.matcher === CustomBotMatcher.Regex
+                                    ? CustomBotMatcher.Regex
+                                    : defaultMatcherFor(key)
+                            updateChildItem({ ...condition, key, matcher })
+                        }
+                        return (
+                            <div className="w-full flex flex-col gap-1">
+                                <div className="flex flex-row items-center gap-2">
+                                    <LemonSelect
+                                        value={condition.key}
+                                        options={CUSTOM_BOT_FIELD_OPTIONS}
+                                        onChange={changeKey}
+                                        disabledReason={restrictedReason}
+                                    />
+                                    <LemonSelect
+                                        value={condition.matcher}
+                                        options={matcherOptionsFor(condition.key)}
+                                        onChange={(matcher) => updateChildItem({ ...condition, matcher })}
+                                        disabledReason={restrictedReason}
+                                    />
+                                    <LemonInput
+                                        className="flex-1 font-mono"
+                                        value={condition.pattern}
+                                        onChange={(pattern) => updateChildItem({ ...condition, pattern })}
+                                        placeholder={patternPlaceholderFor(condition.key, condition.matcher)}
+                                        status={error ? 'danger' : undefined}
+                                        disabledReason={restrictedReason}
+                                    />
+                                </div>
+                                {error ? <span className="text-danger text-xs">{error}</span> : null}
+                            </div>
+                        )
+                    }}
+                    renderAddChildItem={(rule, { onAddChild }) =>
+                        canEdit ? (
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconPlus />}
+                                onClick={() => onAddChild(rule.id)}
+                                data-attr="custom-bot-rules-add-condition"
+                                disabledReason={
+                                    rule.items.length >= MAX_CONDITIONS_PER_RULE
+                                        ? `A rule can have at most ${MAX_CONDITIONS_PER_RULE} conditions`
                                         : undefined
-                            }
-                        >
-                            Save
-                        </LemonButton>
-                    ) : null
-                }
-                createNewContainerItem={newRule}
-                createNewChildItem={newCondition}
-            />
+                                }
+                            >
+                                Add condition
+                            </LemonButton>
+                        ) : null
+                    }
+                    renderAddContainerItem={({ onAddContainer }) =>
+                        canEdit ? (
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconPlus />}
+                                onClick={onAddContainer}
+                                data-attr="custom-bot-rules-add-rule"
+                                disabledReason={
+                                    rules.length >= MAX_CUSTOM_BOT_RULES
+                                        ? `You can define at most ${MAX_CUSTOM_BOT_RULES} bots`
+                                        : undefined
+                                }
+                            >
+                                Add bot
+                            </LemonButton>
+                        ) : null
+                    }
+                    renderAdditionalControls={() =>
+                        canEdit ? (
+                            <LemonButton
+                                type="primary"
+                                onClick={save}
+                                loading={currentTeamLoading}
+                                data-attr="custom-bot-rules-save"
+                                disabledReason={
+                                    currentTeamLoading
+                                        ? 'Saving'
+                                        : firstError
+                                          ? 'Fix the errors above first'
+                                          : isUnchanged
+                                            ? 'No changes to save'
+                                            : undefined
+                                }
+                            >
+                                Save
+                            </LemonButton>
+                        ) : null
+                    }
+                    createNewContainerItem={newRule}
+                    createNewChildItem={newCondition}
+                />
+            )}
 
             {ipRulesAreDead ? (
                 <LemonBanner type="warning">

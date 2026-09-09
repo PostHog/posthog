@@ -31,6 +31,7 @@ to the API before a rule tightened cannot break every query for the project.
 import re
 from ipaddress import ip_network
 from typing import TYPE_CHECKING, Literal, Union
+from uuid import uuid4
 
 import structlog
 
@@ -49,6 +50,8 @@ MAX_CUSTOM_BOT_DEFINITIONS = 50
 MAX_CONDITIONS_PER_RULE = 10
 MAX_PATTERN_LENGTH = 200
 MAX_NAME_LENGTH = 100
+# Ids are stored on team.modifiers, which is read on every query for the team.
+MAX_ID_LENGTH = 100
 
 USER_AGENT_FIELD = "$raw_user_agent"
 IP_FIELD = "$ip"
@@ -248,11 +251,15 @@ def validate_rule(rule: "CustomBotRule") -> None:
         raise ValueError(f"Bot name cannot be longer than {MAX_NAME_LENGTH} characters.")
     if rule.category and rule.category not in TRAFFIC_TYPE_BY_CATEGORY:
         raise ValueError(f"Unknown category '{rule.category}'.")
+    if len(rule.id) > MAX_ID_LENGTH:
+        raise ValueError(f"Rule id cannot be longer than {MAX_ID_LENGTH} characters.")
     if not rule.items:
         raise ValueError("A rule needs at least one condition.")
     if len(rule.items) > MAX_CONDITIONS_PER_RULE:
         raise ValueError(f"A rule can have at most {MAX_CONDITIONS_PER_RULE} conditions.")
     for item in rule.items:
+        if len(item.id) > MAX_ID_LENGTH:
+            raise ValueError(f"Condition id cannot be longer than {MAX_ID_LENGTH} characters.")
         if item.key not in CUSTOM_BOT_FIELDS:
             raise ValueError(f"Cannot match on property '{item.key}'.")
         validate_pattern(item.pattern, item.matcher.value, item.key)
@@ -283,15 +290,22 @@ def upcast_rules(raw: list, strict: bool = False) -> list["CustomBotRule"]:
             if "items" in entry:
                 rules.append(CustomBotRule(**entry))
             else:
+                # The condition id must differ from the rule id: the settings editor registers
+                # rules and conditions in one id-keyed drag-and-drop context, where a shared id
+                # collapses them.
+                rule_id = str(entry.get("id") or "") or str(uuid4())
+                condition_id = f"{rule_id}-condition"
+                if len(condition_id) > MAX_ID_LENGTH:
+                    condition_id = str(uuid4())
                 condition = CustomBotCondition(
-                    id=str(entry.get("id", "")),
+                    id=condition_id,
                     key=entry["key"],
                     matcher=entry["matcher"],
                     pattern=entry["pattern"],
                 )
                 rules.append(
                     CustomBotRule(
-                        id=str(entry.get("id", "")),
+                        id=rule_id,
                         name=entry["name"],
                         category=entry.get("category"),
                         combiner=FilterLogicalOperator.AND_,
@@ -301,6 +315,14 @@ def upcast_rules(raw: list, strict: bool = False) -> list["CustomBotRule"]:
         except (ValidationError, KeyError, ValueError, TypeError) as error:
             if strict:
                 raise ValueError(f"Invalid bot rule: {error}") from error
+            # A dropped rule stops classifying with no other trace, so make the drop visible the
+            # same way the bypassed compile probe is.
+            logger.warning(
+                "custom_bot_rule_dropped",
+                entry_id=str(entry.get("id", "")) if isinstance(entry, dict) else "",
+                name=str(entry.get("name", "")) if isinstance(entry, dict) else "",
+                error=str(error),
+            )
     return rules
 
 
@@ -390,9 +412,11 @@ def compile_definitions(rules: list["CustomBotRule"] | None) -> list[CustomBotGr
         return []
 
     # (property, kind) -> the one-condition rules that share that group. A bucket takes its place
-    # in `order` at first appearance, which keeps precedence meaningful.
-    buckets: dict[tuple[str, str], list[CustomBotRule]] = {}
-    order: list[Union[tuple[str, str], CustomBotRule]] = []
+    # in `order` at first appearance, which keeps precedence meaningful. A composite rule closes
+    # every open bucket: a later same-property rule must not slide into a bucket positioned above
+    # the composite, because the editor promises list order is precedence.
+    open_buckets: dict[tuple[str, str], list[CustomBotRule]] = {}
+    order: list[Union[tuple[str, str, list[CustomBotRule]], CustomBotRule]] = []
     for rule in rules[:MAX_CUSTOM_BOT_DEFINITIONS]:
         try:
             validate_rule(rule)
@@ -400,22 +424,24 @@ def compile_definitions(rules: list["CustomBotRule"] | None) -> list[CustomBotGr
             continue
         if len(rule.items) > 1:
             order.append(rule)
+            open_buckets = {}
             continue
         item = rule.items[0]
         kind = CIDR_MATCHER if item.matcher.value == CIDR_MATCHER else "pattern"
         bucket_key = (str(item.key), kind)
-        if bucket_key not in buckets:
-            buckets[bucket_key] = []
-            order.append(bucket_key)
-        buckets[bucket_key].append(rule)
+        bucket = open_buckets.get(bucket_key)
+        if bucket is None:
+            bucket = []
+            open_buckets[bucket_key] = bucket
+            order.append((str(item.key), kind, bucket))
+        bucket.append(rule)
 
     groups: list[CustomBotGroup] = []
     for entry in order:
         if not isinstance(entry, tuple):
             groups.append(_compile_composite(entry))
             continue
-        key, kind = entry
-        bucket = buckets[entry]
+        key, kind, bucket = entry
         if kind == CIDR_MATCHER:
             groups.append(
                 CidrGroup(
