@@ -67,6 +67,7 @@ export function CustomerTaskWorkflowReferenceInput({
             </div>
             {mode === 'raw' ? (
                 <CodeEditorInline
+                    className="ph-no-capture"
                     minHeight="37"
                     value={rawValue}
                     onChange={(value) => onChange({ ...input, value: value ?? '' })}
