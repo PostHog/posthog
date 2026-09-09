@@ -251,7 +251,7 @@ async def test_execute_canary_retries_with_new_correlation_ids_without_leaking_c
     assert case_result.attempts[0].task_url == (
         "https://us.posthog.test/project/2/tasks/task-failed?runId=task-run-failed"
     )
-    assert result.schema_version == 2
+    assert result.schema_version == 3
     serialized = result.model_dump_json()
     assert "Show weekly widget activations" not in serialized
     assert "private failure" not in serialized
@@ -371,12 +371,17 @@ async def test_execute_canary_resumes_an_open_stream_without_resending_the_quest
 
 
 @pytest.mark.asyncio
-async def test_execute_canary_accepts_an_agent_clarification_question_as_a_completed_turn() -> None:
+async def test_execute_canary_cancels_the_run_behind_an_agent_clarification_question() -> None:
+    cancelled: list[str] = []
+
     async def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/datasets/"):
             return _dataset_response()
         if request.url.path.endswith("/dataset_items/"):
             return _items_response([_dataset_item("ambiguous", question="How engaged are our workspaces?")])
+        if request.url.path.endswith("/cancel/"):
+            cancelled.append(request.url.path)
+            return httpx.Response(200, json={"id": "task-run-1", "status": "cancelled"})
         if request.method == "POST":
             payload = json.loads(request.content)
             return _open_response(task_id="task-1", task_run_id="task-run-1", trace_id=str(payload["trace_id"]))
@@ -405,6 +410,8 @@ async def test_execute_canary_accepts_an_agent_clarification_question_as_a_compl
 
     assert result.status == "completed"
     assert result.cases[0].task_run_id == "task-run-1"
+    assert result.cases[0].clarification_questions == ["Which engagement window?"]
+    assert cancelled == ["/api/projects/2/tasks/task-1/runs/task-run-1/cancel/"]
 
 
 @pytest.mark.asyncio

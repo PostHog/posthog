@@ -52,6 +52,12 @@ class PermanentCanaryError(CanaryError):
     pass
 
 
+class ClarificationRequested(CanaryError):
+    def __init__(self, questions: list[str]) -> None:
+        super().__init__("clarification_requested")
+        self.questions = questions
+
+
 class _DatasetSummary(BaseModel):
     id: str
     name: str
@@ -151,6 +157,7 @@ class CanaryAttemptResult(BaseModel):
     task_url: str | None
     duration_ms: int
     error: str | None = None
+    clarification_questions: list[str] = Field(default_factory=list)
 
 
 class CanaryCaseResult(BaseModel):
@@ -167,11 +174,12 @@ class CanaryCaseResult(BaseModel):
     task_id: str | None
     task_run_id: str | None
     task_url: str | None
+    clarification_questions: list[str] = Field(default_factory=list)
     attempts: list[CanaryAttemptResult]
 
 
 class CanaryRunResult(BaseModel):
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
     run_id: str
     project_id: int
     dataset_id: str
@@ -324,7 +332,19 @@ class PostHogCanaryClient:
             raise RetryableCanaryError("invalid_open_response")
         return opened
 
-    async def wait_for_turn(self, opened: _ConversationOpenResponse) -> None:
+    async def cancel_run(self, opened: _ConversationOpenResponse) -> None:
+        try:
+            response = await self._client.post(
+                f"/api/projects/{self.project_id}/tasks/{opened.task_id}/runs/{opened.run_id}/cancel/",
+                json={"reason": "semantic-layer canary: agent asked a clarifying question"},
+            )
+        except (httpx.TimeoutException, httpx.TransportError):
+            return
+        if response.status_code >= 500:
+            return
+        _raise_for_api_error(response)
+
+    async def wait_for_turn(self, opened: _ConversationOpenResponse) -> list[str]:
         last_event_id: str | None = None
         stream_path = f"/api/projects/{self.project_id}/tasks/{opened.task_id}/runs/{opened.run_id}/stream/"
 
@@ -338,7 +358,10 @@ class PostHogCanaryClient:
                     if "text/event-stream" not in response.headers.get("content-type", ""):
                         raise RetryableCanaryError("invalid_content_type")
                     await _consume_task_stream(response)
-                    return
+                    return []
+            except ClarificationRequested as clarification:
+                await self.cancel_run(opened)
+                return clarification.questions
             except TaskStreamReconnect as reconnect:
                 if reconnect.last_event_id is not None:
                     last_event_id = reconnect.last_event_id
@@ -346,12 +369,13 @@ class PostHogCanaryClient:
                     raise RetryableCanaryError("task_stream_reconnect_exhausted") from reconnect
             except TaskStreamEnded:
                 await self._confirm_terminal_status(opened)
-                return
+                return []
             except CanaryError:
                 raise
             except (httpx.TimeoutException, httpx.TransportError) as error:
                 if reconnect_number == MAX_STREAM_RECONNECTS:
                     raise RetryableCanaryError("task_stream_reconnect_exhausted") from error
+        return []
 
     async def _confirm_terminal_status(self, opened: _ConversationOpenResponse) -> None:
         try:
@@ -516,8 +540,16 @@ def _is_completed_turn(payload: dict[str, object]) -> bool:
         raise PermanentCanaryError("permission_required")
     questions = metadata.get("questions")
     if metadata.get("codeToolKind") == "question" and isinstance(questions, list) and questions:
-        return True
+        raise ClarificationRequested(_question_texts(questions))
     raise PermanentCanaryError("permission_required")
+
+
+def _question_texts(questions: list[object]) -> list[str]:
+    texts: list[str] = []
+    for question in questions:
+        text = question.get("question") if isinstance(question, dict) else None
+        texts.append(text if isinstance(text, str) else "")
+    return texts
 
 
 async def execute_canary(
@@ -596,7 +628,7 @@ async def _execute_case(
                 conversation_id=conversation_id,
                 trace_id=trace_id,
             )
-            await client.wait_for_turn(opened)
+            clarification_questions = await client.wait_for_turn(opened)
         except CanaryError as error:
             unconfirmed_conversation_id = conversation_id if opened is None else None
             attempts.append(
@@ -626,6 +658,7 @@ async def _execute_case(
                 task_run_id=opened.run_id,
                 task_url=client.task_url(opened.task_id, opened.run_id),
                 duration_ms=_duration_ms(attempt_started_at),
+                clarification_questions=clarification_questions,
             )
         )
         return CanaryCaseResult(
@@ -642,6 +675,7 @@ async def _execute_case(
             task_id=opened.task_id,
             task_run_id=opened.run_id,
             task_url=client.task_url(opened.task_id, opened.run_id),
+            clarification_questions=clarification_questions,
             attempts=attempts,
         )
 
