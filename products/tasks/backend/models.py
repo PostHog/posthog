@@ -319,6 +319,7 @@ class Task(DeletedMetaFields, models.Model):
         EVAL_CLUSTERS = "eval_clusters", "Eval Clusters"
         USER_CREATED = "user_created", "User Created"
         SLACK = "slack", "Slack"
+        SKETCHPAD = "sketchpad", "Sketchpad"
         SUPPORT_QUEUE = "support_queue", "Support Queue"
         SESSION_SUMMARIES = "session_summaries", "Session Summaries"
         POSTHOG_AI = "posthog_ai", "PostHog AI"

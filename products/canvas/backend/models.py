@@ -268,3 +268,70 @@ class CanvasState(TeamScopedRootMixin, UUIDModel):
                 name="canvas_state_shared_key",
             ),
         ]
+
+
+class Sketchpad(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    channel = models.ForeignKey(
+        "tasks.Channel", on_delete=models.CASCADE, db_constraint=False, related_name="sketchpads"
+    )
+    name = models.CharField(max_length=120)
+    created_by = models.ForeignKey(
+        "posthog.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+", db_constraint=False
+    )
+    head_seq = models.IntegerField(default=0)
+    pinned_at = models.DateTimeField(null=True, blank=True)
+    deleted = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_sketchpad"
+        indexes = [models.Index(fields=["channel", "-created_at"], name="sketchpad_channel_recency")]
+
+
+class SketchpadRecord(TeamScopedRootMixin, UUIDModel):
+    class Kind(models.TextChoices):
+        FRAGMENT = "fragment"
+        SOURCE = "source"
+        COMPILED = "compiled"
+        COMPILE = "compile"
+        STATE = "state"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    sketchpad = models.ForeignKey(Sketchpad, on_delete=models.CASCADE, related_name="records")
+    kind = models.CharField(max_length=8, choices=Kind.choices)
+    key = models.CharField(max_length=128)
+    value = models.JSONField()
+    position = models.IntegerField(default=0)
+    seq = models.IntegerField()
+
+    class Meta:
+        db_table = "posthog_sketchpad_record"
+        constraints = [models.UniqueConstraint(fields=["sketchpad", "kind", "key"], name="sketchpad_record_key")]
+        indexes = [models.Index(fields=["sketchpad", "kind", "position"], name="sketchpad_record_order")]
+
+
+class SketchpadOp(TeamScopedRootMixin, UUIDModel):
+    ACTOR_KIND_USER = "user"
+    ACTOR_KIND_AGENT = "agent"
+    ACTOR_KINDS = [ACTOR_KIND_USER, ACTOR_KIND_AGENT]
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    sketchpad = models.ForeignKey(Sketchpad, on_delete=models.CASCADE, related_name="ops")
+    seq = models.IntegerField()
+    op_id = models.CharField(max_length=64)
+    actor_kind = models.CharField(max_length=16)
+    actor_user = models.ForeignKey(
+        "posthog.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+", db_constraint=False
+    )
+    actor_task_id = models.CharField(max_length=64, null=True, blank=True)
+    op = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posthog_sketchpad_op"
+        constraints = [
+            models.UniqueConstraint(fields=["sketchpad", "seq"], name="sketchpad_op_unique_seq"),
+            models.UniqueConstraint(fields=["sketchpad", "op_id"], name="sketchpad_op_unique_op_id"),
+        ]

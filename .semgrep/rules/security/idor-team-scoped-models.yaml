@@ -95,6 +95,9 @@ rules:
                               |BriefConfig
                               |ButtonTile
                               |Canvas
+                              |Sketchpad
+                              |SketchpadOp
+                              |SketchpadRecord
                               |CanvasBuild
                               |CanvasHomePreference
                               |CanvasSourceVersion
@@ -501,6 +504,9 @@ rules:
                         |BriefConfig
                         |ButtonTile
                         |Canvas
+                        |Sketchpad
+                        |SketchpadOp
+                        |SketchpadRecord
                         |CanvasBuild
                         |CanvasHomePreference
                         |CanvasSourceVersion
