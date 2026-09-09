@@ -1079,6 +1079,30 @@ describe('MenuFilterCombobox', () => {
         })
     })
 
+    it('does not blame the stale filter when the events request failed', async () => {
+        apiGet.mockRejectedValue(new Error('boom'))
+
+        render(
+            <Provider>
+                <TaxonomicFilterHeadless.Root
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                    onChange={jest.fn()}
+                    searchQuery="zzz_no_match"
+                >
+                    <MenuFilterCombobox
+                        drillTo={TaxonomicFilterGroupType.Events}
+                        onCommit={jest.fn()}
+                        onBack={jest.fn()}
+                    />
+                </TaxonomicFilterHeadless.Root>
+            </Provider>
+        )
+
+        // The opt-in stays — it refetches, so it's the only way out of a failed load.
+        expect(await screen.findByText('Include stale events')).toBeInTheDocument()
+        expect(screen.queryByText(/Events with no new data in the last 30 days are hidden/)).not.toBeInTheDocument()
+    })
+
     it('offers a jump to All when a single category comes up empty, and clicking it switches scope', async () => {
         const user = userEvent.setup()
         apiGet.mockResolvedValue({ results: [], count: 0 })

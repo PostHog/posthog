@@ -236,6 +236,9 @@ export function MenuFilterCombobox({
     // `loadingByType` which is `loading && no-items-yet`). Drives the reveal
     // barrier so kept-previous-data refetches still hold the list.
     const [fetchingByType, setFetchingByType] = useState<Record<string, { query?: string; fetching: boolean }>>({})
+    // Per-group "the fetch failed" flags. A failed request leaves the same empty list a genuine
+    // no-match search does, so without this the empty state explains a cause that never happened.
+    const [failedByType, setFailedByType] = useState<Record<string, boolean>>({})
     // Only engages while actively searching a fetching scope. Recent/Pinned read
     // pre-resolved entries (`drillItems` when drilled to, the recents/pinned props
     // when picked from the category select) and never fetch, so they're never gated.
@@ -290,6 +293,10 @@ export function MenuFilterCombobox({
                 ? prev
                 : { ...prev, [type]: { query, fetching } }
         )
+    }, [])
+
+    const reportFailed = useCallback((type: string, failed: boolean): void => {
+        setFailedByType((prev) => (prev[type] === failed ? prev : { ...prev, [type]: failed }))
     }, [])
 
     // Chips show only when `drillTo='all'` — drilled scopes lock to one
@@ -829,6 +836,10 @@ export function MenuFilterCombobox({
         (g) => g.type === TaxonomicFilterGroupType.Events || g.type === TaxonomicFilterGroupType.CustomEvents
     )
     const canOfferStaleToggle = !includeStaleEvents && !!searchQuery.trim() && eventGroupInScope
+    // A timeout or a 5xx empties the list too, and then the stale rule is not why there is nothing
+    // to show. Legacy keeps the two apart with its own error state (`showErrorState` in
+    // `infiniteListLogic`); here we withhold the explanation and leave the opt-in, which refetches.
+    const anyGroupFailed = targetGroups.some((g) => failedByType[g.type])
     const handleIncludeStaleEvents = useCallback((): void => {
         setIncludeStaleEvents(true)
         posthog.capture('taxonomic filter include stale toggled', {
@@ -1057,6 +1068,7 @@ export function MenuFilterCombobox({
                                     onItems={reportItems}
                                     onLoadingChange={reportLoading}
                                     onFetchingChange={reportFetching}
+                                    onFailedChange={reportFailed}
                                 />
                             ))}
                         <ScrollArea className="flex-1 min-h-0 scroll-py-8" alwaysShowScrollbars>
@@ -1078,10 +1090,12 @@ export function MenuFilterCombobox({
                                                 )}
                                                 {canOfferStaleToggle && !emptyState.body && (
                                                     <>
-                                                        <div className="text-xs text-secondary leading-relaxed">
-                                                            Events with no new data in the last {STALE_EVENT_DAYS} days
-                                                            are hidden. Their history is still in your project.
-                                                        </div>
+                                                        {!anyGroupFailed && (
+                                                            <div className="text-xs text-secondary leading-relaxed">
+                                                                Events with no new data in the last {STALE_EVENT_DAYS}{' '}
+                                                                days are hidden. Their history is still in your project.
+                                                            </div>
+                                                        )}
                                                         <Button
                                                             variant="outline"
                                                             size="sm"
@@ -1395,6 +1409,7 @@ function Fetcher({
     onItems,
     onLoadingChange,
     onFetchingChange,
+    onFailedChange,
 }: {
     group: TaxonomicFilterGroup
     /** Hide stale event definitions (event / custom-event groups only). */
@@ -1406,6 +1421,9 @@ function Fetcher({
     /** Reports `isFetching` (true during background refetches too) so the
      *  parent's reveal barrier holds the list until every group settles. */
     onFetchingChange: (type: string, fetching: boolean, query?: string) => void
+    /** Reports a failed fetch so the parent doesn't attribute the resulting
+     *  empty list to something it can't know. */
+    onFailedChange: (type: string, failed: boolean) => void
 }): null {
     const { getGroupListInput } = useTaxonomicFilterContext()
     const input = getGroupListInput(group)
@@ -1419,6 +1437,9 @@ function Fetcher({
     useEffect(() => {
         onFetchingChange(group.type, list.isFetching, input.searchQuery)
     }, [group.type, list.isFetching, input.searchQuery, onFetchingChange])
+    useEffect(() => {
+        onFailedChange(group.type, list.error !== undefined)
+    }, [group.type, list.error, onFailedChange])
     // Make sure we flip back to "not loading"/"not fetching" when this group
     // unmounts — otherwise a stale `true` from a previously-active chip would
     // keep the skeleton (or the reveal barrier) stuck after we switch scope.
@@ -1426,8 +1447,9 @@ function Fetcher({
         return () => {
             onLoadingChange(group.type, false)
             onFetchingChange(group.type, false)
+            onFailedChange(group.type, false)
         }
-    }, [group.type, onLoadingChange, onFetchingChange])
+    }, [group.type, onLoadingChange, onFetchingChange, onFailedChange])
     return null
 }
 
