@@ -51,6 +51,7 @@ class _RecordingBackend:
     answers."""
 
     def __init__(self, stored_key: str = "", mints: bool = True):
+        self.web_url = "https://pen-test.boxes.example.dev"
         self.files: dict[str, str] = {}
         self.stored_key = stored_key
         self.mints = mints
@@ -125,6 +126,13 @@ class PreviewOidcKeyTest(unittest.TestCase):
         stack._ensure_oidc_private_key()
         self.assertEqual(stack.oidc_private_key, backend.stored_key)
         self.assertNotIn("openssl", " ".join(backend.commands))
+
+    def test_the_site_url_is_the_preview_url(self):
+        # OAuth metadata builds its issuer and endpoints from SITE_URL, so a
+        # placeholder sends a discovery client to its own machine.
+        backend = _RecordingBackend()
+        stack = PostHogPreviewStack(backend)
+        self.assertEqual(_from_override(stack, backend, "SITE_URL"), backend.web_url)
 
     def test_a_box_that_cannot_mint_serves_without_a_key(self):
         backend = _RecordingBackend(mints=False)

@@ -28,6 +28,7 @@ class _RecordingBackend:
     write_file, so that's all the stack needs from us here."""
 
     def __init__(self):
+        self.web_url = "https://pen-test.boxes.example.dev"
         self.files: dict[str, str] = {}
 
     def write_file(self, remote_path, content) -> None:

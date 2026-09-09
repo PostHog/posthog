@@ -339,10 +339,12 @@ class PostHogPreviewStack:
             lines += [f"      - ./{src}:{dst}" for src, dst in mounts]
         lines += [
             "    environment:",
-            # SITE_URL is a cosmetic placeholder (absolute links in emails etc.);
-            # serving is driven by JS_URL="" (relative assets) + the wildcard
-            # CSRF origin, so the box's own edge host serves with no per-box env.
-            "      - SITE_URL=http://localhost:8000",
+            # The OAuth metadata documents (RFC 8414, RFC 9728) build their
+            # issuer and endpoints from SITE_URL, so a placeholder would send a
+            # discovery client to its own machine. Serving still needs no per-box
+            # env: JS_URL="" keeps assets relative, and the CSRF origin is a
+            # wildcard.
+            f"      - SITE_URL={self.backend.web_url}",
             "      - JS_URL=",
             f"      - EXTRA_CSRF_TRUSTED_ORIGINS={_CSRF_TRUSTED_ORIGINS}",
             "      - DISABLE_SECURE_SSL_REDIRECT=1",
