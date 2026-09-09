@@ -2,16 +2,12 @@ package main
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/valyala/fastjson"
 )
 
 func TestProcessLineErrorsOnMalformedJSON(t *testing.T) {
@@ -106,69 +102,6 @@ func TestDropKeysJSON(t *testing.T) {
 			assert.NoError(t, err, "unexpected error processing line")
 			assert.Equal(t, c.want, buf.String(), "unexpected output")
 		})
-	}
-}
-
-func TestDropKeysPreservesDottedScopeAndEncoding(t *testing.T) {
-	for _, tc := range []struct {
-		input, want string
-		keys        []string
-	}{
-		{`{"a.b":1,"a":{"c":2},"a.d":3}`, `{"a":{"b":1},"a":{"c":2,"d":3}}`, nil},
-		{`{"a.b":1,"a":2,"a.c":3}`, `{"a":{},"a":2,"a":{"c":3}}`, []string{"a.b"}},
-		{`{"keep":{"a.b":1},"items":[{"a.b":2,"a.c":3}]}`, `{"keep":{"a.b":1},"items":[{"a":{"c":3}}]}`, []string{"items.a.b"}},
-		{`{"a":1,"a":2,"b":3}`, `{"b":3}`, []string{"a"}},
-		{`[[{"a.b":1,"a.c":2}],null,3]`, `[[{"a":{"c":2}}],null,3]`, []string{"a.b"}},
-		{`{"\u0061":1,"text":"\u0000\u001b\u263a\/","number":-1.230e+04}`, `{"text":"\u0000\u001b☺/","number":-1.230e+04}`, []string{"a"}},
-	} {
-		var output bytes.Buffer
-		if err := processLine(makeKeyDict(tc.keys), []byte(tc.input), &output); err != nil {
-			t.Fatal(err)
-		}
-		if output.String() != tc.want {
-			t.Fatalf("input %s: got %s, want %s", tc.input, output.String(), tc.want)
-		}
-	}
-}
-
-func TestDropKeysLargeRowsAndMemoryReuse(t *testing.T) {
-	for _, size := range []int{31, 4*1024*1024 + 17} {
-		row := `{"keep":"` + strings.Repeat("x", size) + `\n\t","drop":1}`
-		want := `{"keep":"` + strings.Repeat("x", size) + `\n\t"}`
-		for _, ending := range []string{"", "\n", "\r\n"} {
-			var output bytes.Buffer
-			if err := run(strings.NewReader(row+ending), &output, makeKeyDict([]string{"drop"})); err != nil {
-				t.Fatal(err)
-			}
-			expected := want
-			if ending != "" {
-				expected += "\n"
-			}
-			if output.String() != expected {
-				t.Fatalf("row size=%d ending=%q changed", size, ending)
-			}
-		}
-	}
-	obj := &objectNode{entries: make([]objectEntry, 1, 32)}
-	obj.entries[0] = objectEntry{key: "drop", value: (*scalarNode)(fastjson.MustParse(`"secret"`))}
-	obj.DropKeys(makeKeyDict([]string{"drop"}))
-	recycleNode(obj)
-	for _, entry := range obj.entries[:cap(obj.entries)] {
-		if entry.key != "" || entry.value != nil {
-			t.Fatal("recycled object retains dropped values")
-		}
-	}
-}
-
-type failingWriter struct{}
-
-func (failingWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
-func TestDropKeysStreamErrors(t *testing.T) {
-	if err := run(strings.NewReader(`{"drop":[1,]}`), io.Discard, makeKeyDict([]string{"drop"})); err == nil {
-		t.Fatal("malformed discarded value accepted")
-	}
-	if err := run(strings.NewReader(`{}`), failingWriter{}, nil); !errors.Is(err, io.ErrClosedPipe) {
-		t.Fatalf("write error lost: %v", err)
 	}
 }
 

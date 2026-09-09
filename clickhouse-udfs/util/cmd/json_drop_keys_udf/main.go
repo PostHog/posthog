@@ -15,6 +15,8 @@ import (
 	"github.com/valyala/fastjson"
 )
 
+type emptyT struct{}
+
 // a struct for hierarchical keys, e.g. if someone wants to drop "properties.foo.bar", works only for objects
 type jsonKey map[string]jsonKey
 
@@ -23,18 +25,40 @@ type node interface {
 	DropKeys(keys jsonKey) node
 }
 
-type scalarNode fastjson.Value
+type valueKind int
 
-func (v *scalarNode) Write(buf *bytes.Buffer) {
-	value := (*fastjson.Value)(v)
-	if value.Type() == fastjson.TypeString {
-		writeJSONString(buf, value.GetStringBytes())
-	} else {
-		buf.Write(value.MarshalTo(buf.AvailableBuffer()))
+const (
+	kindString valueKind = iota
+	kindNumber
+	kindBool
+	kindNull
+)
+
+type valueNode struct {
+	kind valueKind
+	str  string
+	num  string
+	b    bool
+}
+
+func (v *valueNode) Write(buf *bytes.Buffer) {
+	switch v.kind {
+	case kindString:
+		writeJSONString(buf, v.str)
+	case kindNumber:
+		buf.WriteString(v.num)
+	case kindBool:
+		if v.b {
+			buf.WriteString("true")
+		} else {
+			buf.WriteString("false")
+		}
+	case kindNull:
+		buf.WriteString("null")
 	}
 }
 
-func (v *scalarNode) DropKeys(jsonKey) node {
+func (v *valueNode) DropKeys(jsonKey) node {
 	return v
 }
 
@@ -53,7 +77,7 @@ func (o *objectNode) Write(buf *bytes.Buffer) {
 		if i > 0 {
 			buf.WriteByte(',')
 		}
-		writeJSONString(buf, []byte(entry.key))
+		writeJSONString(buf, entry.key)
 		buf.WriteByte(':')
 		entry.value.Write(buf)
 	}
@@ -76,7 +100,6 @@ func (o *objectNode) DropKeys(keysToDrop jsonKey) node {
 	writeIdx := 0
 	for _, entry := range o.entries {
 		if val, toDrop := keysToDrop[entry.key]; toDrop && val == nil {
-			recycleNode(entry.value)
 			continue
 		}
 		o.entries[writeIdx] = entry
@@ -120,10 +143,10 @@ func expandDottedEntries(entries []objectEntry) []objectEntry {
 		insertDottedKey(nil, &expanded, entry.key, entry.value, index)
 	}
 
-	if len(index) <= 4096 {
-		clear(index)
-		dottedIndexPool.Put(index)
+	for key := range index {
+		delete(index, key)
 	}
+	dottedIndexPool.Put(index)
 
 	return expanded
 }
@@ -161,7 +184,12 @@ func insertDottedKey(parent *objectNode, entries *[]objectEntry, key string, val
 }
 
 func indexByte(s string, c byte) int {
-	return strings.IndexByte(s, c)
+	for i := 0; i < len(s); i++ {
+		if s[i] == c {
+			return i
+		}
+	}
+	return -1
 }
 
 type arrayNode struct {
@@ -186,7 +214,7 @@ func (a *arrayNode) DropKeys(keys jsonKey) node {
 	return a
 }
 
-func writeJSONString(buf *bytes.Buffer, s []byte) {
+func writeJSONString(buf *bytes.Buffer, s string) {
 	buf.WriteByte('"')
 	start := 0
 	for i := 0; i < len(s); i++ {
@@ -195,7 +223,7 @@ func writeJSONString(buf *bytes.Buffer, s []byte) {
 			continue
 		}
 		if start < i {
-			buf.Write(s[start:i])
+			buf.WriteString(s[start:i])
 		}
 		switch ch {
 		case '\\', '"':
@@ -220,19 +248,20 @@ func writeJSONString(buf *bytes.Buffer, s []byte) {
 		start = i + 1
 	}
 	if start < len(s) {
-		buf.Write(s[start:])
+		buf.WriteString(s[start:])
 	}
 	buf.WriteByte('"')
 }
 
-type cachedParser struct {
-	fastjson.Parser
-	maxInput int
-}
-
 var parserPool = sync.Pool{
 	New: func() interface{} {
-		return &cachedParser{}
+		return &fastjson.Parser{}
+	},
+}
+
+var valueNodePool = sync.Pool{
+	New: func() interface{} {
+		return &valueNode{}
 	},
 }
 
@@ -250,27 +279,21 @@ var arrayNodePool = sync.Pool{
 
 func recycleNode(n node) {
 	switch v := n.(type) {
+	case *valueNode:
+		v.str = ""
+		v.num = ""
+		valueNodePool.Put(v)
 	case *objectNode:
 		for _, entry := range v.entries {
 			recycleNode(entry.value)
 		}
-		if cap(v.entries) > 4096 {
-			v.entries = nil
-		} else {
-			clear(v.entries[:cap(v.entries)])
-			v.entries = v.entries[:0]
-		}
+		v.entries = v.entries[:0]
 		objectNodePool.Put(v)
 	case *arrayNode:
 		for _, child := range v.values {
 			recycleNode(child)
 		}
-		if cap(v.values) > 4096 {
-			v.values = nil
-		} else {
-			clear(v.values[:cap(v.values)])
-			v.values = v.values[:0]
-		}
+		v.values = v.values[:0]
 		arrayNodePool.Put(v)
 	}
 }
@@ -323,98 +346,62 @@ func convertFastJSON(value *fastjson.Value) (node, error) {
 		}
 
 		return arrNode, nil
-	case fastjson.TypeString, fastjson.TypeNumber, fastjson.TypeTrue, fastjson.TypeFalse, fastjson.TypeNull:
-		return (*scalarNode)(value), nil
+	case fastjson.TypeString:
+		vn := valueNodePool.Get().(*valueNode)
+		vn.kind = kindString
+		vn.str = string(value.GetStringBytes())
+		vn.num = ""
+		return vn, nil
+	case fastjson.TypeNumber:
+		num := value.String()
+		vn := valueNodePool.Get().(*valueNode)
+		vn.kind = kindNumber
+		vn.num = num
+		vn.str = ""
+		return vn, nil
+	case fastjson.TypeTrue:
+		vn := valueNodePool.Get().(*valueNode)
+		vn.kind = kindBool
+		vn.b = true
+		vn.str = ""
+		vn.num = ""
+		return vn, nil
+	case fastjson.TypeFalse:
+		vn := valueNodePool.Get().(*valueNode)
+		vn.kind = kindBool
+		vn.b = false
+		vn.str = ""
+		vn.num = ""
+		return vn, nil
+	case fastjson.TypeNull:
+		vn := valueNodePool.Get().(*valueNode)
+		vn.kind = kindNull
+		vn.str = ""
+		vn.num = ""
+		return vn, nil
 	default:
 		return nil, fmt.Errorf("unexpected fastjson type %v", value.Type())
 	}
 }
 
 func processLine(keys jsonKey, rawLine []byte, buf *bytes.Buffer) error {
-	parser := parserPool.Get().(*cachedParser)
+	parser := parserPool.Get().(*fastjson.Parser)
 	defer parserPool.Put(parser)
-	if parser.maxInput > max(64*1024, 2*len(rawLine)) {
-		parser.Parser = fastjson.Parser{}
-		parser.maxInput = 0
-	}
-	parser.maxInput = max(parser.maxInput, len(rawLine))
-	if buf.Cap() > max(64*1024, 2*len(rawLine)) {
-		*buf = bytes.Buffer{}
-	}
 
 	value, err := parser.ParseBytes(rawLine)
 	if err != nil {
 		return fmt.Errorf("json parse error: %w", err)
 	}
 
+	parsed, err := convertFastJSON(value)
+	if err != nil {
+		return fmt.Errorf("json parse error: %w", err)
+	}
+	result := parsed.DropKeys(keys)
 	buf.Reset()
 	buf.Grow(len(rawLine))
-	if keys == nil {
-		keys = jsonKey{}
-	}
-	return writeFilteredJSON(buf, value, keys)
-}
-
-// Nil keys leave dotted names untouched below paths the filter does not visit.
-func writeFilteredJSON(buf *bytes.Buffer, value *fastjson.Value, keys jsonKey) error {
-	switch value.Type() {
-	case fastjson.TypeObject:
-		obj, _ := value.Object()
-		if keys != nil {
-			hasDottedKeys := false
-			obj.Visit(func(key []byte, _ *fastjson.Value) {
-				hasDottedKeys = hasDottedKeys || bytes.IndexByte(key, '.') >= 0
-			})
-			if hasDottedKeys {
-				// Dotted expansion must preserve duplicate entries and their original merge order.
-				parsed, err := convertFastJSON(value)
-				if err != nil {
-					return err
-				}
-				result := parsed.DropKeys(keys)
-				result.Write(buf)
-				recycleNode(result)
-				return nil
-			}
-		}
-		buf.WriteByte('{')
-		first := true
-		var err error
-		obj.Visit(func(key []byte, child *fastjson.Value) {
-			if err != nil {
-				return
-			}
-			childKeys, drop := keys[string(key)]
-			if drop && childKeys == nil {
-				return
-			}
-			if !first {
-				buf.WriteByte(',')
-			}
-			first = false
-			writeJSONString(buf, key)
-			buf.WriteByte(':')
-			err = writeFilteredJSON(buf, child, childKeys)
-		})
-		buf.WriteByte('}')
-		return err
-	case fastjson.TypeArray:
-		values, _ := value.Array()
-		buf.WriteByte('[')
-		for i, child := range values {
-			if i > 0 {
-				buf.WriteByte(',')
-			}
-			if err := writeFilteredJSON(buf, child, keys); err != nil {
-				return err
-			}
-		}
-		buf.WriteByte(']')
-	case fastjson.TypeString:
-		writeJSONString(buf, value.GetStringBytes())
-	default:
-		buf.Write(value.MarshalTo(buf.AvailableBuffer()))
-	}
+	result.Write(buf)
+	recycleNode(result)
 	return nil
 }
 
@@ -532,55 +519,46 @@ func main() {
 		}()
 	}
 
-	if err := run(os.Stdin, os.Stdout, keysToDrop); err != nil {
-		fmt.Fprintln(stdErr, err)
-		os.Exit(1)
-	}
-}
-
-func readLine(reader *bufio.Reader) ([]byte, error) {
-	line, err := reader.ReadSlice('\n')
-	if err != bufio.ErrBufferFull {
-		return line, err
-	}
-	var full []byte
-	for {
-		full = append(full, line...)
-		if err != bufio.ErrBufferFull {
-			return full, err
-		}
-		line, err = reader.ReadSlice('\n')
-	}
-}
-
-func run(input io.Reader, output io.Writer, keys jsonKey) error {
-	reader := bufio.NewReaderSize(input, 64*1024)
-	writer := bufio.NewWriterSize(output, 64*1024)
+	reader := bufio.NewReaderSize(os.Stdin, 4*1024*1024)
+	writer := bufio.NewWriterSize(os.Stdout, 4*1024*1024)
+	defer writer.Flush()
 	buf := bytes.NewBuffer(make([]byte, 0, 64*1024))
+
 	for {
-		line, err := readLine(reader)
+		line, err := reader.ReadBytes('\n')
 		if err != nil && err != io.EOF {
-			return fmt.Errorf("stdin read error: %w", err)
+			fmt.Fprintf(stdErr, "stdin read error: %v\n", err)
+			return
 		}
+
 		if len(line) == 0 && err == io.EOF {
-			return writer.Flush()
+			return
 		}
-		hadNewline := len(line) > 0 && line[len(line)-1] == '\n'
-		line = bytes.TrimSuffix(line, []byte("\n"))
-		line = bytes.TrimSuffix(line, []byte("\r"))
-		if procErr := processLine(keys, line, buf); procErr != nil {
-			return fmt.Errorf("line processing error: %w", procErr)
+
+		hadNewline := false
+		n := len(line)
+		if n > 0 && line[n-1] == '\n' {
+			hadNewline = true
+			n--
 		}
-		if _, writeErr := writer.Write(buf.Bytes()); writeErr != nil {
-			return fmt.Errorf("stdout write error: %w", writeErr)
+		if n > 0 && line[n-1] == '\r' {
+			n--
 		}
+		line = line[:n]
+
+		procErr := processLine(keysToDrop, line, buf)
+		if procErr != nil {
+			fmt.Fprintf(stdErr, "line processing error: %v\n", procErr)
+			os.Exit(1)
+		}
+
+		_, _ = writer.Write(buf.Bytes())
 		if hadNewline {
-			if writeErr := writer.WriteByte('\n'); writeErr != nil {
-				return fmt.Errorf("stdout write error: %w", writeErr)
-			}
+			_, _ = writer.WriteString("\n")
 		}
+
 		if err == io.EOF {
-			return writer.Flush()
+			return
 		}
 	}
 }
