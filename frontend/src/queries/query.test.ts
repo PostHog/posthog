@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import api, { ApiError } from 'lib/api'
+import api, { ApiError, MalformedResponseError, NetworkError } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
 import { performQuery, pollForResults, queryExportContext, waitForPageVisible } from '~/queries/query'
@@ -157,9 +157,28 @@ describe('query', () => {
             duration: expect.any(Number),
             error_status: 500,
             error_code: null,
+            error_class: 'server',
         })
         // Raw error text must stay out of telemetry
         expect(queryFailedCalls[0][1]).not.toHaveProperty('error_message')
+    })
+
+    it.each([
+        ['network', () => new NetworkError('network')],
+        ['malformed_response', () => new MalformedResponseError('Malformed JSON response')],
+    ])('classifies a status-less failure as %s', async (errorClass, buildError) => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        jest.spyOn(api, 'query').mockRejectedValueOnce(buildError())
+        const q: HogQLQuery = setLatestVersionsOnQuery({
+            kind: NodeKind.HogQLQuery,
+            query: 'select * from events',
+        })
+        captureSpy.mockClear()
+        await expect(performQuery(q)).rejects.toThrow()
+
+        const queryFailedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query failed')
+        expect(queryFailedCalls).toHaveLength(1)
+        expect(queryFailedCalls[0][1]).toMatchObject({ error_status: null, error_code: null, error_class: errorClass })
     })
 
     it('does not emit a query failed event when the request is aborted', async () => {

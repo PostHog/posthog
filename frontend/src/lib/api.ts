@@ -7,7 +7,13 @@ import { encodeParams } from 'kea-router'
 export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import { ApiError, BROWSER_FETCH_FAILURE_MESSAGES, NetworkError, type NetworkFailureReason } from 'lib/api-error'
+import {
+    ApiError,
+    BROWSER_FETCH_FAILURE_MESSAGES,
+    MalformedResponseError,
+    NetworkError,
+    type NetworkFailureReason,
+} from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
@@ -314,7 +320,7 @@ export interface ApiMethodOptions {
     headers?: Record<string, any>
 }
 
-export { ApiError, NetworkError }
+export { ApiError, MalformedResponseError, NetworkError }
 
 export class RateLimitError extends Error {
     constructor(public retryAfterSeconds: number) {
@@ -404,7 +410,7 @@ async function getJSONFromSuccessResponse(response: Response, method: string, ur
         }
         // The body stream failed mid-read (e.g. a network drop truncating a chunked response) —
         // the response is unusable, so surface it instead of handing callers a null.
-        throw new ApiError(`Failed to read response body ${requestContext()}`)
+        throw new MalformedResponseError(`Failed to read response body ${requestContext()}`)
     }
     if (!text.trim()) {
         return null
@@ -412,7 +418,7 @@ async function getJSONFromSuccessResponse(response: Response, method: string, ur
     try {
         return JSON.parse(text)
     } catch {
-        throw new ApiError(`Malformed JSON response ${requestContext()}`)
+        throw new MalformedResponseError(`Malformed JSON response ${requestContext()}`)
     }
 }
 

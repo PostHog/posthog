@@ -1,4 +1,11 @@
-import { ApiError, NetworkError, isTransientServerError, shouldReportApiFailure } from './api-error'
+import {
+    ApiError,
+    MalformedResponseError,
+    NetworkError,
+    classifyApiFailure,
+    isTransientServerError,
+    shouldReportApiFailure,
+} from './api-error'
 
 describe('api-error', () => {
     describe('ApiError.fromResponse', () => {
@@ -79,6 +86,26 @@ describe('api-error', () => {
             ['a bare object shaped like an error', { status: 503 }],
         ])('does not classify %s as transient', (_, error) => {
             expect(isTransientServerError(error)).toBe(false)
+        })
+    })
+
+    describe('classifyApiFailure', () => {
+        it.each([
+            // Both of these carry no status, so status and code alone leave them unattributable.
+            ['a classified NetworkError', new NetworkError('network'), 'network'],
+            ['a raw browser fetch failure', new TypeError('Failed to fetch'), 'network'],
+            ['a body that is not JSON', new MalformedResponseError('Malformed JSON response'), 'malformed_response'],
+            ['a 500 backend exception', new ApiError('boom', 500), 'server'],
+            ['a 503 gateway failure', new ApiError(undefined, 503), 'server'],
+            ['a 400 the user caused', new ApiError('bad query', 400), 'client'],
+            ['a 403', { status: 403 }, 'client'],
+            // A stale chunk is a defect of ours, not connectivity, so it must not read as network.
+            ['a missing chunk after a deploy', new TypeError('Failed to fetch dynamically imported module'), 'unknown'],
+            ['an application TypeError', new TypeError('u.filter is not a function'), 'unknown'],
+            ['a thrown string', 'went wrong', 'unknown'],
+            ['null', null, 'unknown'],
+        ])('classifies %s', (_, error, expected) => {
+            expect(classifyApiFailure(error)).toBe(expected)
         })
     })
 
