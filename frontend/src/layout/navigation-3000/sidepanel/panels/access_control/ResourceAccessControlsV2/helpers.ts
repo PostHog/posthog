@@ -7,7 +7,8 @@ import { AccessControlMemberEntry, AccessControlRoleEntry, AccessControlSettings
 
 /** What a project level grants, so a picker can say who ends up with the access. */
 const PROJECT_LEVEL_DESCRIPTIONS: Partial<Record<AccessControlLevel, string>> = {
-    [AccessControlLevel.None]: 'No access to the project, unless a role or a person-level rule grants it.',
+    [AccessControlLevel.None]:
+        'No access to the project, unless a role or a person-level rule grants it. Organization admins always have full access.',
     [AccessControlLevel.Viewer]: 'Read-only access to the project.',
     [AccessControlLevel.Member]: 'Can use the project, but cannot manage project settings.',
     [AccessControlLevel.Admin]: 'Full access, including managing project settings and access.',
