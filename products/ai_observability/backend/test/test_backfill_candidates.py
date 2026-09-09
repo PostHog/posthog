@@ -1,4 +1,5 @@
 import uuid
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -143,6 +144,25 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
             }
         ]
         assert self._count(target="trace", conditions=conditions) == 2
+
+    @parameterized.expand([("a tenth", 10), ("two fifths", 40), ("just under the first bucket", 8)])
+    def test_sampling_picks_the_units_the_live_scheduler_would_pick(self, _case: str, rollout: int) -> None:
+        # `checkRolloutPercentage` in the evaluation scheduler reads the first four bytes of the
+        # key's md5 as a big-endian integer, modulo 10000. Sampling on any other hash would take a
+        # share of the population disjoint from the live one, so a backfill over a window the live
+        # path already covered would grade about twice the rollout the user set.
+        def live_bucket(unit_id: str) -> int:
+            return int(hashlib.md5(unit_id.encode()).hexdigest()[:8], 16) % 10000
+
+        expected = sorted(trace for trace in ("t1", "t2", "t3") if live_bucket(trace) < rollout * 100)
+
+        page = self._fetch(
+            target="trace",
+            conditions=[{"properties": [], "rollout_percentage": rollout}],
+            limit=10,
+        )
+
+        assert sorted(candidate.unit_id for candidate in page.candidates) == expected
 
     def test_zero_rollout_matches_nothing_and_condition_sets_are_ored(self) -> None:
         conditions = [

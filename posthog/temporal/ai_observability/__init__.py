@@ -54,6 +54,7 @@ from posthog.temporal.ai_observability.run_aggregate_evaluation import (
     RunAggregateEvaluationWorkflow,
     check_session_settled_activity,
     check_trace_settled_activity,
+    find_evaluation_quiet_point_activity,
 )
 from posthog.temporal.ai_observability.run_evaluation import RunEvaluationWorkflow
 from posthog.temporal.ai_observability.run_session_evaluation import (
@@ -118,6 +119,7 @@ EVAL_ACTIVITIES = [
     execute_session_hog_eval_activity,
     check_trace_settled_activity,
     check_session_settled_activity,
+    find_evaluation_quiet_point_activity,
     emit_evaluation_event_activity,
     emit_trace_evaluation_event_activity,
     emit_internal_telemetry_activity,

@@ -7,10 +7,38 @@ from posthog.hogql.property import property_to_expr
 
 from posthog.models.team import Team
 
-# cityHash64(key) % 10000 < rollout * 100 gives 0.01% steps, matching the rollout slider. The hash
-# differs from the live scheduler's md5 on purpose: the two paths never need to agree, because
-# dedupe removes any unit the live path already covered.
+# Buckets of 0.01%, matching the rollout slider.
 _SAMPLING_BUCKETS = 10000
+
+
+def _rollout_bucket(unit_key: ast.Expr) -> ast.Expr:
+    """The bucket the live scheduler puts this unit in, rebuilt in SQL.
+
+    `checkRolloutPercentage` in the evaluation scheduler reads the first four bytes of the key's
+    md5 as a big-endian integer, then takes it modulo the bucket count. Any other hash would put
+    the same unit in a different bucket, so a backfill would sample a disjoint share of the
+    population and grade far more units than the rollout asks for.
+    """
+    first_four_bytes = ast.Call(
+        name="unhex",
+        args=[
+            ast.Call(
+                name="substring",
+                args=[
+                    ast.Call(name="hex", args=[ast.Call(name="MD5", args=[unit_key])]),
+                    ast.Constant(value=1),
+                    ast.Constant(value=8),
+                ],
+            )
+        ],
+    )
+    return ast.ArithmeticOperation(
+        op=ast.ArithmeticOperationOp.Mod,
+        # reinterpretAsUInt32 reads little-endian, so the bytes are reversed to read them the way
+        # the scheduler's parseInt does.
+        left=ast.Call(name="reinterpretAsUInt32", args=[ast.Call(name="reverse", args=[first_four_bytes])]),
+        right=ast.Constant(value=_SAMPLING_BUCKETS),
+    )
 
 
 def _sampling_predicate(unit_key: ast.Expr, rollout_percentage: float) -> ast.Expr | None:
@@ -18,11 +46,7 @@ def _sampling_predicate(unit_key: ast.Expr, rollout_percentage: float) -> ast.Ex
         return None
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Lt,
-        left=ast.ArithmeticOperation(
-            op=ast.ArithmeticOperationOp.Mod,
-            left=ast.Call(name="cityHash64", args=[unit_key]),
-            right=ast.Constant(value=_SAMPLING_BUCKETS),
-        ),
+        left=_rollout_bucket(unit_key),
         right=ast.Constant(value=int(round(rollout_percentage * 100))),
     )
 
