@@ -284,8 +284,15 @@ class TestExperimentRetentionMetricEventsPreaggregation(ExperimentQueryRunnerBas
 
         assert first_result.ready is True
         assert second_result.ready is True
-        assert first_result.job_ids == second_result.job_ids
-        assert mock_sync_execute.call_count == len(first_result.job_ids)
+        # The stable hash makes the complete day-aligned jobs shared across as_of
+        # values. The final partial day is claimed only up to each as_of, so the
+        # second read rebuilds just that job instead of reusing one that stores
+        # nothing between the two as_of values.
+        first_jobs = set(first_result.job_ids)
+        second_jobs = set(second_result.job_ids)
+        assert len(second_jobs) == len(first_jobs)
+        assert len(first_jobs & second_jobs) == len(first_jobs) - 1
+        assert mock_sync_execute.call_count == len(first_jobs) + 1
 
     @patch("products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute")
     def test_retention_metric_events_precomputation_hash_tracks_retention_window(self, mock_sync_execute):
