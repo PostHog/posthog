@@ -207,8 +207,12 @@ const memoizeListResponse = (memoKey: string, response: RecordingsQueryResponse,
 export const clearMemoizedListResponses = (): void => landedListResponses.clear()
 
 const getDefaultFilterTestAccounts = (): boolean => {
-    const stored = localStorage.getItem('default_filter_test_accounts')
-    return stored === 'true'
+    try {
+        return localStorage.getItem('default_filter_test_accounts') === 'true'
+    } catch {
+        // Runs while the logic mounts, so a throw here would blank the scene
+        return false
+    }
 }
 
 // Keyed per team so a sort preference does not leak across accounts.
