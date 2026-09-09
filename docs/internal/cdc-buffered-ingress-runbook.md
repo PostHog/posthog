@@ -143,6 +143,12 @@ preserved, so there is no WAL gap and no re-sync.
    python manage.py validate_cdc_buffer --source-id <uuid> --since-hours 40
    ```
 
+   Capture stops writing shadow copies the moment a source is buffered: a schema not yet served
+   would otherwise accumulate files the consumer merges the day it turns eligible, on top of what
+   the legacy lane already wrote. So this window exists only before the first flip. A schema
+   added to a buffered source later, or one left on legacy by an earlier flip, moves on the re-run
+   without one.
+
 5. Check what will move:
 
    ```bash
@@ -174,9 +180,10 @@ python manage.py migrate_cdc_source_to_buffered --source-id <uuid>
 The command pauses the extraction schedule, waits for the in-flight extraction run to finish,
 pauses each eligible schema's schedule and waits for running sync jobs (a sync that started legacy
 resolved its pipeline version then, and must not straddle the mode change), waits for in-flight
-`sourcebatch` batches to reach a terminal state, purges pre-flip buffer files **and aborts if any
-file survives the purge**, sets `job_inputs.cdc_ingest_mode = "buffered"`, then unpauses the
-extraction schedule and each eligible schema's own schedule.
+`sourcebatch` batches to reach a terminal state, retires any companion job a hard kill left
+Running, purges pre-flip buffer files **and aborts if any file survives the purge**, sets
+`job_inputs.cdc_ingest_mode = "buffered"`, then unpauses the extraction schedule and each eligible
+schema's own schedule.
 
 If a batch is still working after the drain timeout the command aborts with the source **left
 paused**. That is deliberate — flipping on top of a stuck load lets that batch land against a table
@@ -228,10 +235,16 @@ The order matters, and the command enforces it:
 3. **Wait for the consumer to drain the buffer.** The buffer's tail holds WAL the slot has already
    advanced past — it exists nowhere else, and flipping to legacy before it is applied loses it for
    good. The command refuses to proceed (extraction left paused, consumer left running) until every
-   file is gone. The consumer deletes each file once the job that read it completes, so an empty
-   prefix is its own proof that every change reached every table the mode feeds.
-4. Pause the per-schema schedules and wait for running sync jobs, so no in-flight merge of old
-   buffered rows can land after legacy delivery resumes and overwrite newer rows.
+   file is gone. The consumer deletes a file at the start of a run once every table the mode
+   feeds is past it, so an empty prefix is its own proof that every change reached every table.
+   The last file needs two completed runs after it was written: one to list it, and the next to
+   find that listing older than the file by the deletion margin. At the 5-minute cadence that
+   fits inside the drain timeout; a schema whose schedule is paused or slower than that holds
+   the drain open, and the command says which schema is behind when it gives up.
+4. Pause the per-schema schedules, wait for running sync jobs and for in-flight `sourcebatch`
+   batches, then retire any companion job a hard kill left Running — nothing else can, once the
+   schedules are paused. No in-flight merge of old buffered rows can then land after legacy
+   delivery resumes and overwrite newer rows.
 5. Set the mode to `legacy` and unpause the extraction schedule.
 
 The buffer-drain check covers every schema the buffered lane serves, including ones disabled after

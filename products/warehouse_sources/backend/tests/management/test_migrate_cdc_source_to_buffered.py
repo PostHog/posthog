@@ -11,11 +11,15 @@ from django.core.management.base import CommandError
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    update_sync_type_config_keys,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import build_buffer_file_name
+from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import COMPANION_RETIRED_ERROR
 
 _CMD = "products.warehouse_sources.backend.management.commands.migrate_cdc_source_to_buffered"
 
@@ -353,6 +357,62 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         assert "cdc_buffered_lane" not in history.sync_type_config
         assert history.sync_type_config["cdc_buffered_before"] is True
 
+    @parameterized.expand([("flip", None, False), ("rollback", "buffered", True)])
+    def test_marking_keeps_the_keys_a_run_wrote_while_the_command_waited(self, _name, ingest_mode, rollback):
+        # The command waits out an in-flight capture run, and that run appends to the same JSON —
+        # under backpressure, the only record of batches it deferred. Saving the copy loaded before
+        # the wait would put the JSON back the way it was.
+        source = self._source(ingest_mode)
+        schema = self._schema(source, "users")
+        if rollback:
+            update_sync_type_config_keys(schema.id, self.team.pk, updates={"cdc_buffered_lane": True})
+
+        def run_writes_during_the_wait(*_args):
+            update_sync_type_config_keys(schema.id, self.team.pk, updates={"cdc_deferred_runs": [{"run": 1}]})
+
+        with (
+            _mocked_side_effects(),
+            patch(f"{_CMD}.Command._wait_for_extraction_idle", side_effect=run_writes_during_the_wait),
+        ):
+            self._run(source, rollback=rollback)
+
+        schema.refresh_from_db()
+        assert schema.sync_type_config["cdc_deferred_runs"] == [{"run": 1}]
+        assert schema.sync_type_config.get("cdc_buffered_lane") is (None if rollback else True)
+
+    @parameterized.expand([("flip", None, False), ("rollback", "buffered", True)])
+    def test_an_orphaned_companion_job_is_retired_instead_of_blocking(self, _name, ingest_mode, rollback):
+        # A hard kill leaves the companion row Running; only a run's start retires it, and the
+        # command has just paused the schedules — so waiting on it would never end.
+        source = self._source(ingest_mode)
+        schema = self._schema(source, "users", table_mode="both")
+        if rollback:
+            update_sync_type_config_keys(schema.id, self.team.pk, updates={"cdc_buffered_lane": True})
+        parent = ExternalDataJob.objects.create(
+            team_id=self.team.pk,
+            pipeline_id=source.id,
+            schema_id=schema.id,
+            status=ExternalDataJob.Status.COMPLETED,
+            rows_synced=0,
+        )
+        companion = ExternalDataJob.objects.create(
+            team_id=self.team.pk,
+            pipeline_id=source.id,
+            schema_id=schema.id,
+            status=ExternalDataJob.Status.RUNNING,
+            rows_synced=0,
+            workflow_run_id=None,
+            schema_snapshot={"companion_of": str(parent.id)},
+        )
+
+        with _mocked_side_effects():
+            self._run(source, rollback=rollback, drain_timeout=0)
+
+        companion.refresh_from_db()
+        source.refresh_from_db()
+        assert (companion.status, companion.latest_error) == (ExternalDataJob.Status.FAILED, COMPANION_RETIRED_ERROR)
+        assert source.job_inputs["cdc_ingest_mode"] == ("legacy" if rollback else "buffered")
+
     def test_rerunning_on_a_buffered_source_moves_only_the_unserved_schemas(self):
         # A source flipped before history modes were served left its `cdc_only` schema on legacy.
         # Re-running moves that schema, marks it, and purges only its prefix — the served schema's
@@ -367,6 +427,8 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
             out = self._run(source)
 
         assert "buffered lane (1): events" in out
+        assert "already buffered (1): users" in out
+        assert "staying on legacy" not in out
         left_behind.refresh_from_db()
         served.refresh_from_db()
         assert left_behind.sync_type_config.get("cdc_buffered_lane") is True

@@ -4,9 +4,9 @@ The egress half of buffered CDC: capture writes position-named Parquet files (se
 this reads them back as an ordinary source, so change events reach the loader through the same path
 every other source uses.
 
-Files are deleted by the loader once the job that drained them completes, never on yield — the v3
-batcher buffers across generator yields, so a yielded table can still be in memory when the
-generator resumes.
+Files are deleted at the start of the next run, once every table the schema feeds is proven past
+them, never on yield — the v3 batcher buffers across generator yields, so a yielded table can still
+be in memory when the generator resumes.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from django.utils import timezone
 
 import psycopg
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 from structlog.types import FilteringBoundLogger
 
@@ -347,7 +348,9 @@ def has_batches_in_flight(schema: ExternalDataSchema) -> bool:
     batches too. It sees an attempt only once that attempt has staged a batch: one timed out by
     its heartbeat but still alive inside the listing can stage after this check passed. The busy
     gate keeps the two loads apart, but the history lane then holds both copies. Legacy has the
-    same window; fencing batches by attempt in the producer is the follow-up. The v3 pipeline lock keeps two scheduled runs apart — it is held from the start of
+    same window; fencing batches by attempt in the producer is the follow-up.
+
+    The v3 pipeline lock keeps two scheduled runs apart — it is held from the start of
     the workflow until the loader completes the job — but a retried activity runs under the lock its
     own workflow already holds, and a takeover hands the lock to a new job while the old one's
     batches are still queued. Attempts are superseded only when the loader shows no recent
@@ -425,15 +428,27 @@ class ReplayFilter:
         self._key_columns = list(position.key_columns)
         self._content_schema = position.content_schema
         self._content_matched = position.content_matched
+        self._load_applied = position.load_applied
         self._team_id = team_id
         self.rows_skipped = 0
 
     def apply(self, table: pa.Table) -> pa.Table:
         table, dropped = drop_superseded_rows(table, self._position)
         self._count_skipped(dropped, "superseded")
-        if self._position is None or not self._applied or not table.num_rows:
+        if self._position is None or not table.num_rows or (not self._applied and self._load_applied is None):
             return table
         return self._drop_already_written(table)
+
+    def _resolve_applied(self) -> None:
+        # Deferred to the first batch that holds a row at the position: on an idle tick there is
+        # none, and the table's rows there are never read.
+        if self._load_applied is None:
+            return
+        resolved = self._load_applied()
+        self._load_applied = None
+        self._applied = {key: list(rows) for key, rows in resolved.applied.items()}
+        self._content_schema = resolved.content_schema
+        self._content_matched = resolved.content_matched
 
     def _count_skipped(self, dropped: int, reason: str) -> None:
         # `superseded` is the series the loader raised while the position lived there. It now
@@ -450,11 +465,14 @@ class ReplayFilter:
         if any(name not in table.column_names for name in self._key_columns):
             # The batch cannot be keyed the way the table was, so nothing can be proven applied.
             return table
-        seqs = table.column(CDC_SEQ_COLUMN).to_pylist()
         # Only rows at the position can match anything, and they sit in a run's first batch;
         # materializing the rest as Python objects would cost every batch for nothing.
-        candidates = [i for i, seq in enumerate(seqs) if seq == self._position]
-        if not candidates:
+        mask = pc.equal(table.column(CDC_SEQ_COLUMN), pa.scalar(self._position, pa.int64()))
+        if not pc.any(mask).as_py():
+            return table
+        candidates = [i for i, hit in enumerate(mask.to_pylist()) if hit]
+        self._resolve_applied()
+        if not self._applied:
             return table
         at_position = table.take(pa.array(candidates, type=pa.int64()))
         identities = list(zip(*(at_position.column(name).to_pylist() for name in self._key_columns)))

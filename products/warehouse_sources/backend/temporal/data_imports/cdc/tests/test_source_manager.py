@@ -400,6 +400,24 @@ class TestReplayFilter:
         assert self._append(None, {}).apply(table) is table
         assert ReplayFilter(LanePosition(position=None, applied={}, key_columns=())).apply(table) is table
 
+    def test_the_table_rows_are_read_only_once_a_batch_holds_a_row_at_the_position(self):
+        loads = 0
+
+        def load():
+            nonlocal loads
+            loads += 1
+            return LanePosition(position=20, applied=_held((2, "I")), key_columns=("id", CDC_OP_COLUMN))
+
+        replay = ReplayFilter(
+            LanePosition(position=20, applied={}, key_columns=("id", CDC_OP_COLUMN), load_applied=load)
+        )
+
+        assert replay.apply(_ops([3], [30])).column("id").to_pylist() == [3]
+        assert loads == 0
+        assert replay.apply(_ops([2, 3], [20, 30])).column("id").to_pylist() == [3]
+        assert replay.apply(_ops([2], [20])).column("id").to_pylist() == [2]
+        assert loads == 1
+
     def test_rows_below_the_position_are_dropped(self):
         result = ReplayFilter(LanePosition(position=20, applied={}, key_columns=())).apply(
             _ops([1, 2, 3], [10, 20, 30])

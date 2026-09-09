@@ -15,7 +15,10 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter, defaultdict
+from collections.abc import Callable
+from functools import partial
 from typing import TYPE_CHECKING, Any, cast
+from urllib.parse import unquote
 
 import pyarrow as pa
 import structlog
@@ -50,6 +53,10 @@ _DEFAULT_INDEXED_COLUMNS = 32
 # where that stops fitting alongside the batch being staged.
 MAX_POSITION_ROWS = 100_000
 
+# The same cutoff by size, estimated from the candidate files' stored bytes per row: the row cap
+# alone lets a wide, JSON-heavy transaction read back gigabytes.
+MAX_POSITION_BYTES = 64 * 1024 * 1024
+
 _MAX_STAT = f"max.{CDC_SEQ_COLUMN}"
 _NULL_COUNT_STAT = f"null_count.{CDC_SEQ_COLUMN}"
 
@@ -79,6 +86,9 @@ class LanePosition:
     # False above the position-row cap: `applied` then carries keys only, and a batch row is
     # matched on key and operation alone.
     content_matched: bool = True
+    # Reads the rows at the position into a resolved copy of this. Deferred so a tick whose
+    # buffer holds nothing at the position — every idle tick — never reads them at all.
+    load_applied: Callable[[], LanePosition] | None = None
 
 
 EMPTY_POSITION = LanePosition(position=None, applied={}, key_columns=())
@@ -138,26 +148,40 @@ async def read_lane_position(
     present = {field.name for field in delta_table.schema().fields}
     columns = [name for name in key_columns if name in present]
     candidates = _files_at_position(add_actions, highest)
+    return LanePosition(
+        position=highest,
+        applied={},
+        key_columns=tuple(columns),
+        load_applied=partial(_load_applied, delta_table, add_actions, highest, candidates, columns),
+    )
+
+
+def _load_applied(
+    delta_table: deltalake.DeltaTable,
+    add_actions: pa.Table,
+    highest: int,
+    candidates: dict[str, int],
+    columns: list[str],
+) -> LanePosition:
+    """The rows the table holds at `highest`, read from the candidate files."""
     rows_at_position = sum(candidates.values())
     if rows_at_position > MAX_POSITION_ROWS:
         # File totals overstate it: after compaction the file holding the newest position holds
         # most of the table. Count the rows actually at the position first — one integer
         # column, row-group pruned — and only degrade when that count is what exceeds the cap.
-        only_seq = await asyncio.to_thread(
-            _rows_at_position, delta_table, add_actions, highest, list(candidates), [CDC_SEQ_COLUMN]
-        )
+        only_seq = _rows_at_position(delta_table, add_actions, highest, list(candidates), [CDC_SEQ_COLUMN])
         rows_at_position = only_seq.num_rows
-    if rows_at_position > MAX_POSITION_ROWS:
+    estimated_bytes = rows_at_position * _bytes_per_row(add_actions, list(candidates))
+    if rows_at_position > MAX_POSITION_ROWS or estimated_bytes > MAX_POSITION_BYTES:
         # One bulk transaction stamps every row it touched with one position, and reading them
-        # all back as Python objects on every tick until the next change lands would exhaust
-        # memory before anything could be staged — the schema would never move again. Above the
-        # cap the lane matches on key and operation alone: a bulk change touches each key once,
-        # so the content is not needed to tell its rows apart, and a replay still spends the
-        # stored row rather than appending a copy.
-        logger.warning("cdc_position_identity_degraded", position=highest, rows=rows_at_position)
-        keys_only = await asyncio.to_thread(
-            _rows_at_position, delta_table, add_actions, highest, list(candidates), columns
+        # all back as Python objects would exhaust memory before anything could be staged — the
+        # schema would never move again. Above the cap the lane matches on key and operation
+        # alone: a bulk change touches each key once, so the content is not needed to tell its
+        # rows apart, and a replay still spends the stored row rather than appending a copy.
+        logger.warning(
+            "cdc_position_identity_degraded", position=highest, rows=rows_at_position, estimated_bytes=estimated_bytes
         )
+        keys_only = _rows_at_position(delta_table, add_actions, highest, list(candidates), columns)
         return LanePosition(
             position=highest,
             applied={
@@ -166,13 +190,24 @@ async def read_lane_position(
             key_columns=tuple(columns),
             content_matched=False,
         )
-    at_position = await asyncio.to_thread(_rows_at_position, delta_table, add_actions, highest, list(candidates))
+    at_position = _rows_at_position(delta_table, add_actions, highest, list(candidates))
     return LanePosition(
         position=highest,
         applied=_group_by_identity(at_position, columns),
         key_columns=tuple(columns),
         content_schema=at_position.select(content_columns(at_position.column_names)).schema,
     )
+
+
+def _bytes_per_row(add_actions: pa.Table, candidates: list[str]) -> float:
+    """Stored bytes per row across the candidate files, from the add actions' own accounting."""
+    wanted = set(candidates)
+    paths = add_actions.column("path").to_pylist()
+    sizes = add_actions.column("size_bytes").to_pylist()
+    counts = add_actions.column("num_records").to_pylist()
+    rows = sum(int(count or 0) for path, count in zip(paths, counts) if path in wanted)
+    size = sum(int(byte or 0) for path, byte in zip(paths, sizes) if path in wanted)
+    return size / rows if rows else 0.0
 
 
 def _scan_position(delta_table: deltalake.DeltaTable) -> int | None:
@@ -223,12 +258,14 @@ def _rows_at_position(
     the dataset is built over every active file, so it prunes by parquet footers alone, and a
     seed file's key columns would be read in full on every tick just to be filtered away.
     """
-    wanted = set(candidates)
+    # The add action escapes a partition value once more than the fragment does, so a value with
+    # a space or an equals sign would never match by raw string.
+    wanted = {_unescaped(path) for path in candidates}
     dataset = cast(pa_ds.FileSystemDataset, delta_table.to_pyarrow_dataset())
     fragments = [
         fragment
         for fragment in dataset.get_fragments()
-        if fragment.path in wanted and CDC_SEQ_COLUMN in fragment.physical_schema.names
+        if _unescaped(fragment.path) in wanted and CDC_SEQ_COLUMN in fragment.physical_schema.names
     ]
     logger.info(
         "cdc_position_rows_read", position=highest, files_read=len(fragments), files_active=add_actions.num_rows
@@ -237,6 +274,12 @@ def _rows_at_position(
         return dataset.schema.empty_table()
     selected = pa_ds.FileSystemDataset(fragments, dataset.schema, dataset.format, dataset.filesystem)
     return selected.to_table(columns=columns, filter=pc.field(CDC_SEQ_COLUMN) == highest)
+
+
+def _unescaped(path: str) -> str:
+    while (decoded := unquote(path)) != path:
+        path = decoded
+    return path
 
 
 def _identities(rows: pa.Table, key_columns: list[str]) -> list[tuple[Any, ...]]:
