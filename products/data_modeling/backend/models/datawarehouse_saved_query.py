@@ -346,7 +346,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             )
 
     def revert_materialization(self):
-        from products.data_modeling.backend.logic.node_suspension import resume_saved_query
+        from products.data_modeling.backend.logic.node_suspension import unsuspend_saved_query
         from products.data_modeling.backend.logic.schedule_reconcile import apply_saved_query_frequency_target
         from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
 
@@ -380,7 +380,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         # The circuit breaker suspended a materialization that no longer exists, so the marker
         # would outlive it and keep reporting a view its owner stopped themselves.
         try:
-            resume_saved_query(self, by="revert")
+            unsuspend_saved_query(self, by="revert")
         except Exception as e:
             capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
             logger.exception(

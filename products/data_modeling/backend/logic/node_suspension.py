@@ -90,7 +90,7 @@ def mark_node_suspended(node: Node, *, engine: str, reason: str, job_id: str, fi
         "job_id": job_id,
         "query_fingerprint": fingerprint,
     }
-    # A fresh suspension supersedes the resume that preceded it.
+    # A fresh suspension supersedes the watermark that preceded it.
     (system.get(RESET_KEY) or {}).pop(str(engine), None)
     node.properties = properties
 
@@ -134,7 +134,7 @@ def _persist_change(node: Node, change: Callable[[Node], bool]) -> bool:
     return True
 
 
-def resume_nodes(
+def unsuspend_nodes(
     nodes: Iterable[Node],
     *,
     by: str,
@@ -143,7 +143,7 @@ def resume_nodes(
 ) -> int:
     """Returns how many of the nodes were actually suspended, not how many were passed in.
 
-    `only_if` runs against the locked row, so a caller that decided to resume from an earlier read
+    `only_if` runs against the locked row, so a caller that decided to unsuspend from an earlier read
     can re-test that decision against state nothing else can change while the check runs.
     """
 
@@ -191,10 +191,10 @@ def suspended_saved_query_ids_by_team(engine: str) -> dict[int, list[str]]:
     return {team_id: sorted(ids) for team_id, ids in by_team.items()}
 
 
-def resume_saved_query(saved_query: "DataWarehouseSavedQuery", *, by: str = "api") -> int:
-    """One query can back several nodes when it landed in duplicate DAGs, and "resume this model"
-    means all of them."""
-    return resume_nodes(
+def unsuspend_saved_query(saved_query: "DataWarehouseSavedQuery", *, by: str = "api") -> int:
+    """Clears the marker on every node the query backs, which is more than one when it landed in
+    duplicate DAGs. Schedules nothing: the next tier fire runs the node because no marker stops it."""
+    return unsuspend_nodes(
         Node.objects.filter(team_id=saved_query.team_id, saved_query_id=saved_query.id),
         by=by,
     )

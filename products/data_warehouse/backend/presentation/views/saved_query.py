@@ -1731,9 +1731,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         Scheduled runs skip a suspended model and everything downstream of it, so it cannot succeed
         its way back on its own.
         """
-        from products.data_modeling.backend.facade.api import resume_saved_query
+        from products.data_modeling.backend.facade.api import unsuspend_saved_query
 
-        resumed = resume_saved_query(self.get_object())
+        resumed = unsuspend_saved_query(self.get_object())
 
         return response.Response({"resumed": bool(resumed)}, status=status.HTTP_200_OK)
 
@@ -1899,7 +1899,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         Accepts a list of view IDs in the request body: {"view_ids": ["id1", "id2", ...]}
         This endpoint is idempotent - calling it on models that are already running is safe.
         """
-        from products.data_modeling.backend.facade.api import resume_saved_query
+        from products.data_modeling.backend.facade.api import unsuspend_saved_query
 
         serializer = SavedQueryResumeSchedulesRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -1915,7 +1915,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         self.user_access_control.preload_object_access_controls(cast(list[Model], candidates))
         for saved_query in candidates:
             if self.user_access_control.check_access_level_for_object(saved_query, "editor"):
-                resume_saved_query(saved_query)
+                unsuspend_saved_query(saved_query)
         return response.Response(status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(request=SavedQueryLineageRequestSerializer, responses={200: SavedQueryAncestorsSerializer})

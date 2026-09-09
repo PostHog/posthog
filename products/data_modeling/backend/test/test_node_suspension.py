@@ -9,9 +9,9 @@ from products.data_modeling.backend.logic.node_frequency import get_declared_tar
 from products.data_modeling.backend.logic.node_suspension import (
     mark_node_suspended,
     query_fingerprint,
-    resume_nodes,
     suspension_reset_at,
     suspension_state,
+    unsuspend_nodes,
 )
 from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -61,7 +61,7 @@ class TestSuspensionClearedOnQueryChange(BaseTest):
         self.assertEqual(suspension_state(node), {})
 
 
-class TestResumeNodes(BaseTest):
+class TestUnsuspendNodes(BaseTest):
     def test_resume_clears_state_and_records_a_reset_watermark(self) -> None:
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="resumed_model",
@@ -73,7 +73,7 @@ class TestResumeNodes(BaseTest):
         mark_node_suspended(node, engine=ENGINE, reason="boom", job_id=str(uuid4()), fingerprint=None)
         node.save()
 
-        resumed = resume_nodes([node], by="api")
+        resumed = unsuspend_nodes([node], by="api")
 
         self.assertEqual(resumed, 1)
         node.refresh_from_db()
@@ -97,7 +97,7 @@ class TestResumeNodes(BaseTest):
         stale = Node.objects.get(id=node.id)
         set_declared_target(Node.objects.get(id=node.id), timedelta(hours=1))
 
-        self.assertEqual(resume_nodes([stale], by="api"), 1)
+        self.assertEqual(unsuspend_nodes([stale], by="api"), 1)
 
         node.refresh_from_db()
         self.assertEqual(suspension_state(node), {})
@@ -112,7 +112,7 @@ class TestResumeNodes(BaseTest):
         node = sync_saved_query_to_dag(saved_query)
         assert node is not None
 
-        self.assertEqual(resume_nodes([node], by="api"), 0)
+        self.assertEqual(unsuspend_nodes([node], by="api"), 0)
         node.refresh_from_db()
         self.assertIsNone(suspension_reset_at(node, ENGINE))
 

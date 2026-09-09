@@ -26,7 +26,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
-from products.data_modeling.backend.facade.api import get_declared_target, resume_nodes, suspension_state
+from products.data_modeling.backend.facade.api import get_declared_target, suspension_state, unsuspend_nodes
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
 
@@ -318,7 +318,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # ExecuteDAGWorkflow skips suspended nodes, so without this the request is a silent no-op
         # for exactly the nodes that need it most.
-        resume_nodes(Node.objects.filter(team_id=self.team_id, id__in=node_ids), by="manual_run")
+        unsuspend_nodes(Node.objects.filter(team_id=self.team_id, id__in=node_ids), by="manual_run")
 
         inputs = ExecuteDAGInputs(
             team_id=self.team_id,
@@ -444,6 +444,6 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Resuming puts a model back on the materialization schedule, so it needs write access.
         self._require_warehouse_access(level="editor", message="Resuming a node requires data warehouse write access.")
 
-        resumed = resume_nodes([self.get_object()], by="api")
+        resumed = unsuspend_nodes([self.get_object()], by="api")
 
         return response.Response({"resumed": bool(resumed)}, status=status.HTTP_200_OK)

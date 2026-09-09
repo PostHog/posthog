@@ -706,7 +706,7 @@ class TestNodeSuspension:
     async def test_does_not_resuspend_on_failures_from_before_a_resume(self, ateam, anode, asaved_query, adag):
         from posthog.temporal.data_modeling.activities.utils import is_node_suspended, maybe_suspend_node_for_engine
 
-        from products.data_modeling.backend.facade.api import resume_nodes
+        from products.data_modeling.backend.facade.api import unsuspend_nodes
 
         jobs = [await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom") for _ in range(5)]
         first_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
@@ -722,7 +722,7 @@ class TestNodeSuspension:
         )
 
         await database_sync_to_async(anode.refresh_from_db)()
-        await database_sync_to_async(resume_nodes)([anode], by="query_edit")
+        await database_sync_to_async(unsuspend_nodes)([anode], by="query_edit")
 
         next_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom again")
         jobs.append(next_job)
