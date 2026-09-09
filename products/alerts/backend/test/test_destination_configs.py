@@ -4,12 +4,14 @@ import pytest
 
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 
-from products.alerts.backend.destination_configs import (
-    DESTINATION_SPECS,
+from products.alerts.backend.facade.contracts import (
     AlertDestinationAction,
     AlertDestinationData,
     DestinationType,
     EventKindSpec,
+)
+from products.alerts.backend.logic.destination_configs import (
+    DESTINATION_SPECS,
     build_alert_destination_config,
     slack_blocks,
     teams_text,
@@ -98,7 +100,7 @@ class TestDestinationTemplateContract:
         template = _TEMPLATES_BY_ID[DESTINATION_SPECS[destination_type].template_id]
         data = _DESTINATION_DATA[destination_type]
         config = build_alert_destination_config(
-            team=None,
+            team_id=1,
             spec=DEFAULT_SPEC,
             alert_id="alert-1",
             alert_name="Signups",
@@ -118,7 +120,7 @@ class TestDestinationTemplateContract:
             "slack_channel_name": "eng",
         }
         config = build_alert_destination_config(
-            team=None,
+            team_id=1,
             spec=DEFAULT_SPEC,
             alert_id="alert-1",
             alert_name="Signups",

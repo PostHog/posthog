@@ -65,7 +65,7 @@ class TestAlertSubscriptionOrgMembership(APIBaseTest):
         assert not AlertSubscription.objects.filter(alert_configuration=alert, user=self.other_user).exists()
         assert AlertSubscription.objects.filter(alert_configuration=alert, user=self.user).exists()
 
-    @patch("products.alerts.backend.email_notifications.EmailMessage")
+    @patch("products.alerts.backend.logic.email_notifications.EmailMessage")
     def test_send_notifications_excludes_removed_members(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         alert = AlertConfiguration.objects.get(pk=self.alert["id"])
@@ -180,7 +180,7 @@ class TestAlertEmailNotifications(APIBaseTest):
             },
         ).json()
 
-    @patch("products.alerts.backend.email_notifications.EmailMessage")
+    @patch("products.alerts.backend.logic.email_notifications.EmailMessage")
     def test_send_emails(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         alert = AlertConfiguration.objects.get(pk=self.alert["id"])
@@ -195,7 +195,7 @@ class TestAlertEmailNotifications(APIBaseTest):
         assert "first anomaly description" in email.html_body
         assert "second anomaly description" in email.html_body
 
-    @patch("products.alerts.backend.email_notifications.EmailMessage")
+    @patch("products.alerts.backend.logic.email_notifications.EmailMessage")
     def test_send_disabled_email(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         alert = AlertConfiguration.objects.get(pk=self.alert["id"])

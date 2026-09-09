@@ -7,7 +7,7 @@ from posthog.api.test.dashboards import DashboardAPI
 from posthog.tasks.alerts.test.alert_check_helpers import run_alert_check
 from posthog.tasks.alerts.utils import AlertEvaluationResult, record_alert_delivery
 
-from products.alerts.backend.destinations import AlertDelivery
+from products.alerts.backend.facade.contracts import AlertDelivery
 from products.alerts.backend.models import AlertCheck, AlertConfiguration
 
 

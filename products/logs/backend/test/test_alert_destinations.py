@@ -4,15 +4,38 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.alerts.backend.destination_configs import (
+from products.alerts.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
-    slack_body as _slack_body,
-    teams_text as _teams_text,
-    validate_destination_data,
+    EventKindSpec,
 )
+from products.alerts.backend.facade.destinations import build_alert_destination_config, validate_destination_data
 from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EVENT_KINDS, LOGS_DESTINATION_TYPES, EventKind
+
+
+def _inputs_for(spec: EventKindSpec, data: AlertDestinationData) -> dict:
+    return build_alert_destination_config(
+        team_id=1,
+        spec=spec,
+        alert_id="alert-1",
+        alert_name="Alert",
+        data=data,
+        slack_context_elements=(),
+    ).payload["inputs"]
+
+
+def _slack_body(spec: EventKindSpec) -> str:
+    """The message body a Slack destination posts for one event kind."""
+    inputs = _inputs_for(spec, {"type": DestinationType.SLACK, "slack_workspace_id": 1, "slack_channel_id": "C-ENG"})
+    # The renderer emits header, body, context, divider, actions; the body is the section block.
+    return next(block["text"]["text"] for block in inputs["blocks"]["value"] if block["type"] == "section")
+
+
+def _teams_text(spec: EventKindSpec) -> str:
+    """The Adaptive Card text a Microsoft Teams destination posts for one event kind."""
+    inputs = _inputs_for(spec, {"type": DestinationType.TEAMS, "webhook_url": "https://teams.example.com/hook"})
+    return inputs["text"]["value"]
 
 
 class TestDestinationValidation(SimpleTestCase):

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Collection, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from datetime import datetime
 from typing import Any, NamedTuple, cast
 from urllib.parse import urlsplit
@@ -16,20 +16,26 @@ from django.db.models import Q, QuerySet
 import structlog
 import posthoganalytics
 from prometheus_client import Counter
-from rest_framework.exceptions import ValidationError
 
 from posthog.cdp.internal_events import InternalEventEvent, flush_internal_events_producer, produce_internal_event
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 
-from products.alerts.backend.destination_configs import (
-    SPEC_BY_TEMPLATE_ID,
+from products.alerts.backend.facade.contracts import (
+    ActiveAlertDestination,
+    AlertDelivery,
     AlertDestinationConfig,
     AlertDestinationData,
+    AlertDestinationGroup,
+    AlertDestinationValidationError,
+    OwnedAlertDestination,
 )
-from products.cdp.backend.api.hog_function import HogFunctionSerializer
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.alerts.backend.logic.destination_configs import SPEC_BY_TEMPLATE_ID
+from products.cdp.backend.facade.api import create_hog_function
+from products.cdp.backend.facade.models import HogFunction
 
 logger = structlog.get_logger(__name__)
 
@@ -42,28 +48,8 @@ ALERT_INTERNAL_EVENT_DELIVERY_FAILURES = Counter(
 )
 
 
-@dataclass(frozen=True, kw_only=True)
-class AlertDelivery:
-    """Receipt for one destination that accepted a send. `status` is an open set, so a
-    future transport can report an outcome other than "accepted"."""
-
-    channel: str  # "email" | "hog_function"
-    target: str  # email address or destination name
-    target_id: str | None = None  # hog function id
-    template: str | None = None  # "slack" | "discord" | "webhook" | "teams"
-    status: str = "accepted"
-    at: str  # ISO-8601 timestamp
-
-
 def serialize_deliveries(deliveries: Sequence[AlertDelivery]) -> list[dict[str, Any]]:
     return [asdict(delivery) for delivery in deliveries]
-
-
-@dataclass(frozen=True, kw_only=True)
-class ActiveAlertDestination:
-    id: str
-    name: str
-    destination_type: str | None
 
 
 class AlertDestinationGroupKey(NamedTuple):
@@ -79,13 +65,6 @@ class AlertDestinationRow(NamedTuple):
     hog_function_id: UUID
     template_id: str | None
     inputs: dict[str, Any] | None
-
-
-@dataclass(frozen=True, kw_only=True)
-class AlertDestinationGroup:
-    hog_function_ids: tuple[UUID, ...]
-    data: AlertDestinationData
-    fully_enabled: bool
 
 
 def alert_destination_group_key(*, template_id: str, inputs: dict[str, Any] | None) -> AlertDestinationGroupKey:
@@ -158,6 +137,38 @@ def owned_alert_destinations_qs(
     )
 
 
+def list_owned_alert_destinations(
+    *,
+    team_id: int,
+    alert_ids: Collection[str],
+    allowed_event_ids: Collection[str],
+    template_ids: Collection[str] | None = None,
+    enabled: bool | None = None,
+) -> tuple[OwnedAlertDestination, ...]:
+    """Alert-owned destination rows, without their stored inputs.
+
+    `inputs` is several KB per row and is what a caller listing many alerts must not pay
+    for, so this read stops at the columns a caller needs to tell one destination from
+    another.
+    """
+    queryset = owned_alert_destinations_qs(team_id=team_id, alert_ids=alert_ids, allowed_event_ids=allowed_event_ids)
+    if template_ids is not None:
+        queryset = queryset.filter(template_id__in=list(template_ids))
+    if enabled is not None:
+        queryset = queryset.filter(enabled=enabled)
+    return tuple(
+        OwnedAlertDestination(
+            hog_function_id=hog_function_id,
+            template_id=template_id,
+            enabled=row_enabled,
+            filters=filters if isinstance(filters, dict) else None,
+        )
+        for hog_function_id, template_id, row_enabled, filters in queryset.values_list(
+            "id", "template_id", "enabled", "filters"
+        )
+    )
+
+
 def _active_alert_destinations_qs(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> QuerySet[HogFunction]:
@@ -190,41 +201,42 @@ def _raise_if_alert_already_has_these_destination_configs(
         alert_destination_group_key(template_id=template_id or "", inputs=inputs) in readable_keys
         for template_id, inputs in stored_rows
     ):
-        raise ValidationError("This destination is already configured for this alert.")
+        raise AlertDestinationValidationError("This destination is already configured for this alert.")
 
 
 def create_alert_destination_hog_functions(
-    configs: list[AlertDestinationConfig], *, request: Any, alert_id: str, allowed_event_ids: Collection[str]
-) -> list[HogFunction]:
+    configs: list[AlertDestinationConfig],
+    *,
+    team: Team,
+    created_by: User,
+    alert_id: str,
+    allowed_event_ids: Collection[str],
+) -> tuple[UUID, ...]:
+    """Persist one HogFunction per config and return their ids.
+
+    Every config belongs to `team`; the caller builds them for one alert at a time.
+    """
     if not configs:
-        return []
-    created: list[HogFunction] = []
-    hog_function_ids_by_team: dict[int, list[UUID]] = {}
+        return ()
+    created_ids: list[UUID] = []
     with transaction.atomic():
         _raise_if_alert_already_has_these_destination_configs(
-            team_id=configs[0].team.id,
+            team_id=team.id,
             alert_id=alert_id,
             allowed_event_ids=allowed_event_ids,
             configs=configs,
         )
         for config in configs:
-            team = config.team
-            serializer = HogFunctionSerializer(
-                data=config.payload,
-                context={
-                    "request": request,
-                    "get_team": lambda team=team: team,
-                    "is_create": True,
-                    "allow_managed_alert_destination": True,
-                },
+            created_ids.append(
+                create_hog_function(
+                    team=team,
+                    payload=config.payload,
+                    created_by=created_by,
+                    allow_managed_alert_destination=True,
+                )
             )
-            serializer.is_valid(raise_exception=True)
-            hog_function = serializer.save(team=team)
-            created.append(hog_function)
-            hog_function_ids_by_team.setdefault(team.id, []).append(hog_function.id)
-        for team_id, hog_function_ids in hog_function_ids_by_team.items():
-            _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=hog_function_ids)
-    return created
+        _reload_hog_functions_after_commit(team_id=team.id, hog_function_ids=created_ids)
+    return tuple(created_ids)
 
 
 def _report_unreadable_destination_configs(
@@ -278,12 +290,9 @@ def soft_delete_alert_destinations(
         invalid_ids = unique_ids - owned_ids
         if invalid_ids:
             formatted_ids = ", ".join(str(hog_function_id) for hog_function_id in sorted(invalid_ids, key=str))
-            raise ValidationError(
-                {
-                    "hog_function_ids": [
-                        f"These HogFunctions do not belong to this alert: {formatted_ids}. Refresh the alert and try again."
-                    ]
-                }
+            raise AlertDestinationValidationError(
+                f"These HogFunctions do not belong to this alert: {formatted_ids}. Refresh the alert and try again.",
+                field="hog_function_ids",
             )
 
         _report_unreadable_destination_configs(team_id=team_id, alert_id=alert_id, rows=owned_rows)
@@ -296,7 +305,7 @@ def soft_delete_alert_destinations(
                     if group_key.is_config_readable
                     else "Some destinations of this type have settings that can no longer be read. To delete any of them, remove every destination of this type together."
                 )
-                raise ValidationError({"hog_function_ids": [message]})
+                raise AlertDestinationValidationError(message, field="hog_function_ids")
 
         HogFunction.objects.filter(team_id=team_id, id__in=unique_ids).update(deleted=True, enabled=False)
         _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=unique_ids)

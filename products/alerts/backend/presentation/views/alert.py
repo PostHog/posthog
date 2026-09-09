@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Collection
 from typing import Annotated, Any, cast
 from zoneinfo import ZoneInfo
 
@@ -66,21 +67,24 @@ from products.alerts.backend.evaluation.validation import (
     should_default_check_ongoing_interval,
     validate_alert_config,
 )
-from products.alerts.backend.facade.api import (
+from products.alerts.backend.facade.contracts import (
+    AlertDestinationData,
+    AlertDestinationValidationError,
+    AlertScheduleRestriction,
+    DestinationType,
+)
+from products.alerts.backend.facade.destinations import (
     INSIGHT_ALERT_DESTINATION_TYPES,
     INSIGHT_ALERT_EVENT_IDS,
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
     MAX_DESTINATIONS_PER_ALERT,
-    AlertDestinationData,
-    AlertDestinationValidationError,
-    DestinationType,
     build_insight_alert_slack_config,
     count_active_alert_destinations,
     create_alert_destination_hog_functions,
     soft_delete_alert_destinations,
-    validate_and_normalize_schedule_start_time,
     validate_destination_data,
 )
+from products.alerts.backend.facade.scheduling import validate_and_normalize_schedule_start_time
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,
     apply_enable,
@@ -89,7 +93,6 @@ from products.alerts.backend.insight_alert_state_machine import (
     apply_unsnooze,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
-from products.alerts.backend.presentation.views.alert_schedule_restriction import AlertScheduleRestriction
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
 
@@ -926,6 +929,32 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         return attrs
 
 
+def insight_alerts_prefetch(to_attr: str) -> Prefetch:
+    """A ``Prefetch`` loading an insight's alerts in the shape ``serialize_insight_alerts`` needs.
+
+    Callers add it to their insight queryset and read the alerts back off ``to_attr``. The
+    select_related/prefetch_related shape belongs here because it follows AlertSerializer:
+    that serializer emits threshold and subscribed_users per alert, so without them every
+    alert in the response costs two extra queries.
+    """
+    # Sets no team filter of its own: the prefetch is scoped by the insight queryset it is
+    # attached to, and an alert always belongs to its insight's team.
+    # nosemgrep: idor-lookup-without-team
+    queryset = AlertConfiguration.objects.select_related("created_by", "threshold").prefetch_related("subscribed_users")
+    return Prefetch("alertconfiguration_set", queryset=queryset, to_attr=to_attr)
+
+
+def serialize_insight_alerts(alerts: Collection[AlertConfiguration], context: dict[str, Any]) -> list[dict[str, Any]]:
+    """Render an insight's alerts for the insight API response.
+
+    The insight API prefetches the alerts so the render costs no extra query, then hands them
+    back here — the alert JSON shape is this product's to define, not product_analytics'.
+    ``context`` is the calling serializer's DRF context.
+    """
+    # `many=True` yields a ReturnList; the DRF stubs type `.data` as ReturnDict either way.
+    return cast(list[dict[str, Any]], AlertSerializer(alerts, many=True, context=context).data)
+
+
 class AlertSimulateSerializer(serializers.Serializer):
     insight = TeamScopedInsightReferenceField(
         queryset=Insight.objects.all(),
@@ -1456,16 +1485,22 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 f"This alert already has {MAX_DESTINATIONS_PER_ALERT} destinations. Remove one to add another."
             )
 
-        hog_functions = create_alert_destination_hog_functions(
-            [
-                build_insight_alert_slack_config(
-                    team=alert.team, alert_id=str(alert.id), alert_name=alert.name, data=data
-                )
-            ],
-            request=self.request,
-            alert_id=str(alert.id),
-            allowed_event_ids=INSIGHT_ALERT_EVENT_IDS,
-        )
+        try:
+            hog_function_ids = create_alert_destination_hog_functions(
+                [
+                    build_insight_alert_slack_config(
+                        team_id=alert.team_id, alert_id=str(alert.id), alert_name=alert.name, data=data
+                    )
+                ],
+                team=alert.team,
+                created_by=request.user,
+                alert_id=str(alert.id),
+                allowed_event_ids=INSIGHT_ALERT_EVENT_IDS,
+            )
+        except AlertDestinationValidationError as error:
+            if error.field:
+                raise ValidationError({error.field: [error.message]})
+            raise ValidationError(error.message)
 
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),
@@ -1477,7 +1512,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "type": data["type"],
             },
         )
-        response = AlertDestinationResponseSerializer({"hog_function_ids": [hf.id for hf in hog_functions]})
+        response = AlertDestinationResponseSerializer({"hog_function_ids": list(hog_function_ids)})
         return Response(response.data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
@@ -1492,12 +1527,17 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         hog_function_ids = serializer.validated_data["hog_function_ids"]
 
-        soft_delete_alert_destinations(
-            team_id=self.team_id,
-            alert_id=str(alert.id),
-            allowed_event_ids=INSIGHT_ALERT_EVENT_IDS,
-            hog_function_ids=hog_function_ids,
-        )
+        try:
+            soft_delete_alert_destinations(
+                team_id=self.team_id,
+                alert_id=str(alert.id),
+                allowed_event_ids=INSIGHT_ALERT_EVENT_IDS,
+                hog_function_ids=hog_function_ids,
+            )
+        except AlertDestinationValidationError as error:
+            if error.field:
+                raise ValidationError({error.field: [error.message]})
+            raise ValidationError(error.message)
 
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),

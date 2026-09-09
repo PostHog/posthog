@@ -2,10 +2,10 @@ from unittest.mock import MagicMock, call, patch
 
 from django.template.loader import render_to_string
 
-from products.alerts.backend.email_notifications import send_alert_email
+from products.alerts.backend.facade.email import send_alert_email
 
 
-@patch("products.alerts.backend.email_notifications.EmailMessage")
+@patch("products.alerts.backend.logic.email_notifications.EmailMessage")
 def test_send_alert_email_delivers_to_every_recipient(MockEmailMessage: MagicMock) -> None:
     send_alert_email(
         recipients=("first@example.com", "second@example.com"),

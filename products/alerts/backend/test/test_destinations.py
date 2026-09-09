@@ -6,21 +6,20 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
-from rest_framework.exceptions import ValidationError
 
 from posthog.models.team.team import Team
 
-from products.alerts.backend.destination_configs import (
-    DESTINATION_SPECS,
+from products.alerts.backend.facade.contracts import (
+    AlertDelivery,
     AlertDestinationConfig,
     AlertDestinationData,
+    AlertDestinationValidationError,
     DestinationType,
     EventKindSpec,
-    build_alert_destination_config,
 )
-from products.alerts.backend.destinations import (
+from products.alerts.backend.logic.destination_configs import DESTINATION_SPECS, build_alert_destination_config
+from products.alerts.backend.logic.destinations import (
     SPEC_BY_TEMPLATE_ID,
-    AlertDelivery,
     AlertDestinationGroupKey,
     AlertDestinationRow,
     _raise_if_alert_already_has_these_destination_configs,
@@ -33,7 +32,7 @@ from products.alerts.backend.destinations import (
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
 )
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.facade.models import HogFunction
 
 ALLOWED_EVENT_IDS = (
     "$logs_alert_firing",
@@ -126,7 +125,7 @@ class AlertDestinationTestCase(APIBaseTest):
 
 def _config_for(destination_type: DestinationType, event_id: str) -> AlertDestinationConfig:
     return build_alert_destination_config(
-        team=None,
+        team_id=1,
         spec=EventKindSpec(
             event_id=event_id,
             display_kind=event_id,
@@ -224,7 +223,7 @@ class TestRaiseIfAlertAlreadyHasTheseDestinationConfigs(AlertDestinationTestCase
             alert_id=alert_id,
             allowed_event_ids=ALLOWED_EVENT_IDS,
             configs=[
-                AlertDestinationConfig(team=self.team, payload={"template_id": template_id, "inputs": inputs})
+                AlertDestinationConfig(team_id=self.team.id, payload={"template_id": template_id, "inputs": inputs})
                 for template_id, inputs in configs
             ],
         )
@@ -232,7 +231,7 @@ class TestRaiseIfAlertAlreadyHasTheseDestinationConfigs(AlertDestinationTestCase
     def test_rejects_a_destination_whose_config_already_exists(self) -> None:
         self._make_group(template_id="template-webhook", alert_id="alert-1", inputs=webhook_inputs("https://a"))
 
-        with self.assertRaisesRegex(ValidationError, "already configured for this alert"):
+        with self.assertRaisesRegex(AlertDestinationValidationError, "already configured for this alert"):
             self._raise_if_exists(configs=[("template-webhook", webhook_inputs("https://a"))])
 
     def test_allows_a_second_destination_with_a_different_config(self) -> None:
@@ -257,7 +256,7 @@ class TestRaiseIfAlertAlreadyHasTheseDestinationConfigs(AlertDestinationTestCase
         destinations = self._make_group(template_id="template-slack", alert_id="alert-1", inputs=slack_inputs("C-ENG"))
         HogFunction.objects.filter(id__in=[destination.id for destination in destinations]).update(enabled=False)
 
-        with self.assertRaisesRegex(ValidationError, "already configured for this alert"):
+        with self.assertRaisesRegex(AlertDestinationValidationError, "already configured for this alert"):
             self._raise_if_exists(configs=[("template-slack", slack_inputs("C-ENG"))])
 
     def test_allows_a_destination_whose_config_cannot_be_read(self) -> None:
@@ -268,7 +267,7 @@ class TestRaiseIfAlertAlreadyHasTheseDestinationConfigs(AlertDestinationTestCase
     def test_rejects_a_duplicate_that_is_not_the_first_config_in_the_call(self) -> None:
         self._make_group(template_id="template-webhook", alert_id="alert-1", inputs=webhook_inputs("https://a"))
 
-        with self.assertRaisesRegex(ValidationError, "already configured for this alert"):
+        with self.assertRaisesRegex(AlertDestinationValidationError, "already configured for this alert"):
             self._raise_if_exists(
                 configs=[
                     ("template-slack", slack_inputs("C-NEW")),
@@ -299,7 +298,7 @@ class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
     def test_rejects_partial_destination_group(self) -> None:
         destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
 
-        with self.assertRaisesRegex(ValidationError, "Delete all destinations in this group"):
+        with self.assertRaisesRegex(AlertDestinationValidationError, "Delete all destinations in this group"):
             soft_delete_alert_destinations(
                 team_id=self.team.id,
                 alert_id="alert-1",
@@ -364,7 +363,7 @@ class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
         destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
         HogFunction.objects.filter(id=destinations[0].id).update(enabled=False)
 
-        with self.assertRaisesRegex(ValidationError, "Delete all destinations in this group"):
+        with self.assertRaisesRegex(AlertDestinationValidationError, "Delete all destinations in this group"):
             soft_delete_alert_destinations(
                 team_id=self.team.id,
                 alert_id="alert-1",
@@ -389,7 +388,7 @@ class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
         first = self._make_group(template_id="template-slack", alert_id="alert-1", inputs=slack_inputs("C-ENG"))
         second = self._make_group(template_id="template-slack", alert_id="alert-1", inputs=slack_inputs("C-OPS"))
 
-        with self.assertRaisesRegex(ValidationError, "Delete all destinations in this group"):
+        with self.assertRaisesRegex(AlertDestinationValidationError, "Delete all destinations in this group"):
             soft_delete_alert_destinations(
                 team_id=self.team.id,
                 alert_id="alert-1",
@@ -420,7 +419,7 @@ class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
             template_id="template-webhook", alert_id="alert-1", inputs=webhook_inputs("https://x")
         )
 
-        with self.assertRaisesRegex(ValidationError, "Delete all destinations in this group"):
+        with self.assertRaisesRegex(AlertDestinationValidationError, "Delete all destinations in this group"):
             soft_delete_alert_destinations(
                 team_id=self.team.id,
                 alert_id="alert-1",
@@ -434,7 +433,7 @@ class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
         orphan = self._make_hog_function(template_id="template-slack", alert_id="alert-1", inputs={})
         destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
 
-        with self.assertRaisesRegex(ValidationError, "can no longer be read"):
+        with self.assertRaisesRegex(AlertDestinationValidationError, "can no longer be read"):
             soft_delete_alert_destinations(
                 team_id=self.team.id,
                 alert_id="alert-1",
@@ -448,7 +447,7 @@ class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
         orphan = self._make_hog_function(template_id="template-slack", alert_id="alert-1", inputs={})
         destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
 
-        with self.assertRaisesRegex(ValidationError, "can no longer be read"):
+        with self.assertRaisesRegex(AlertDestinationValidationError, "can no longer be read"):
             soft_delete_alert_destinations(
                 team_id=self.team.id,
                 alert_id="alert-1",
@@ -485,8 +484,8 @@ class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
         self._assert_deleted(webhooks)
         self._assert_intact([orphan])
 
-    @patch("products.alerts.backend.destinations.logger")
-    @patch("products.alerts.backend.destinations.posthoganalytics.capture")
+    @patch("products.alerts.backend.logic.destinations.logger")
+    @patch("products.alerts.backend.logic.destinations.posthoganalytics.capture")
     def test_unreadable_config_is_captured_and_logged(self, capture, logger) -> None:
         self._make_hog_function(template_id="template-slack", alert_id="alert-1", inputs={})
         webhooks = self._make_group(template_id="template-webhook", alert_id="alert-1")
@@ -516,7 +515,7 @@ class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
         destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
         other_alert = self._make_group(template_id="template-slack", alert_id="alert-2")
 
-        with self.assertRaisesRegex(ValidationError, "do not belong to this alert"):
+        with self.assertRaisesRegex(AlertDestinationValidationError, "do not belong to this alert"):
             soft_delete_alert_destinations(
                 team_id=self.team.id,
                 alert_id="alert-1",
@@ -530,7 +529,7 @@ class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
         other_team = Team.objects.create(organization=self.organization, name="Other")
         other_team_destinations = self._make_group(template_id="template-slack", alert_id="alert-1", team=other_team)
 
-        with self.assertRaisesRegex(ValidationError, "do not belong to this alert"):
+        with self.assertRaisesRegex(AlertDestinationValidationError, "do not belong to this alert"):
             soft_delete_alert_destinations(
                 team_id=self.team.id,
                 alert_id="alert-1",
@@ -557,7 +556,7 @@ class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
         destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
         other = self._make_hog_function(template_id="template-webhook", alert_id="alert-1", event_id="$unrelated_event")
 
-        with self.assertRaises(ValidationError) as error:
+        with self.assertRaises(AlertDestinationValidationError) as error:
             soft_delete_alert_destinations(
                 team_id=self.team.id,
                 alert_id="alert-1",
@@ -565,10 +564,8 @@ class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
                 hog_function_ids=[destinations[0].id, other.id],
             )
 
-        assert isinstance(error.exception.detail, dict)
-        hog_function_id_errors = error.exception.detail["hog_function_ids"]
-        assert isinstance(hog_function_id_errors, list)
-        assert str(hog_function_id_errors[0]) == (
+        assert error.exception.field == "hog_function_ids"
+        assert error.exception.message == (
             f"These HogFunctions do not belong to this alert: {other.id}. Refresh the alert and try again."
         )
         self._assert_intact([*destinations, other])
@@ -598,7 +595,7 @@ class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
 
         self._assert_intact(destinations)
 
-    @patch("products.alerts.backend.destinations.reload_hog_functions_on_workers")
+    @patch("products.alerts.backend.logic.destinations.reload_hog_functions_on_workers")
     def test_reload_happens_after_destination_delete_commits(self, reload_hog_functions_on_workers) -> None:
         destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
 
@@ -615,7 +612,9 @@ class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
             team_id=self.team.id, hog_function_ids=sorted(str(destination.id) for destination in destinations)
         )
 
-    @patch("products.alerts.backend.destinations.reload_hog_functions_on_workers", side_effect=RuntimeError("boom"))
+    @patch(
+        "products.alerts.backend.logic.destinations.reload_hog_functions_on_workers", side_effect=RuntimeError("boom")
+    )
     def test_reload_failure_does_not_fail_committed_delete(self, _reload_hog_functions_on_workers) -> None:
         destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
 
@@ -631,8 +630,8 @@ class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
 
 
 class TestAlertInternalEventDelivery(APIBaseTest):
-    @patch("products.alerts.backend.destinations.capture_exception")
-    @patch("products.alerts.backend.destinations.ALERT_INTERNAL_EVENT_DELIVERY_FAILURES")
+    @patch("products.alerts.backend.logic.destinations.capture_exception")
+    @patch("products.alerts.backend.logic.destinations.ALERT_INTERNAL_EVENT_DELIVERY_FAILURES")
     def test_expected_delivery_failure_records_metric_without_capturing_exception(
         self, delivery_failures, capture_exception
     ) -> None:

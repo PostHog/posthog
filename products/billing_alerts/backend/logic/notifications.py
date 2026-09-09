@@ -11,7 +11,7 @@ import structlog
 from posthog.kafka_client.client import ProduceResult
 from posthog.utils import absolute_uri
 
-from products.alerts.backend.destinations import (
+from products.alerts.backend.facade.destinations import (
     alert_internal_event_delivered,
     flush_alert_internal_events,
     produce_alert_internal_event,

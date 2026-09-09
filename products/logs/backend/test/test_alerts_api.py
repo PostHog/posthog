@@ -876,7 +876,7 @@ class TestLogsAlertAPI(APIBaseTest):
         reset_calls = [c for c in mock_report.call_args_list if c.args[1] == "logs alert destination created"]
         assert len(reset_calls) == 1
 
-    @patch("products.alerts.backend.destinations.reload_hog_functions_on_workers")
+    @patch("products.alerts.backend.logic.destinations.reload_hog_functions_on_workers")
     @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
     def test_create_webhook_destination_creates_one_hog_function_per_event_kind(
         self, signal_reload_hog_functions, alert_reload_hog_functions
@@ -1038,7 +1038,7 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    @patch("products.alerts.backend.destinations.reload_hog_functions_on_workers")
+    @patch("products.alerts.backend.logic.destinations.reload_hog_functions_on_workers")
     def test_delete_destination_removes_hog_functions(self, reload_hog_functions):
         self._sync_destination_templates()
         created = self._create_via_api()
@@ -2136,7 +2136,7 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
         # A None return would read as "enqueue failed" and roll back every
         # notification, so the fake must return a (mock) ProduceResult.
         self._kafka_patcher = patch(
-            "products.alerts.backend.destinations.produce_internal_event",
+            "products.alerts.backend.logic.destinations.produce_internal_event",
             return_value=MagicMock(),
         )
         self._kafka_patcher.start()

@@ -22,10 +22,10 @@ from pydantic import BaseModel
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.kafka_client.client import ProduceResult
 from posthog.sync import database_sync_to_async
 
-from products.alerts.backend.destinations import (
-    ProduceResult,
+from products.alerts.backend.facade.destinations import (
     alert_internal_event_delivered,
     flush_alert_internal_events,
     produce_alert_internal_event,

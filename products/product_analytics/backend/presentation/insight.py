@@ -142,7 +142,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.alerts.backend.facade.api import delete_insight_alerts, insight_alerts_prefetch, serialize_insight_alerts
+from products.alerts.backend.facade.api import delete_insight_alerts
 from products.dashboards.backend.facade.access import (
     DashboardAccessMethod,
     dashboard_access_method,
@@ -1152,6 +1152,10 @@ class InsightSerializer(InsightBasicSerializer):
         if self.context.get("hide_extra_details", False):
             return []
 
+        # Deferred: the alerts view module imports this one back for InsightBasicSerializer,
+        # so a module-level import here would close the loop.
+        from products.alerts.backend.presentation.views.alert import serialize_insight_alerts  # noqa: PLC0415
+
         # Use prefetched alerts data
         alerts = getattr(insight, "_prefetched_alerts", [])
         return serialize_insight_alerts(alerts, self.context)
@@ -1892,6 +1896,9 @@ class InsightViewSet(
         if is_basic:
             queryset = queryset.prefetch_related(tile_ids_prefetch())
         else:
+            # Deferred for the same reason as in InsightSerializer.get_alerts above.
+            from products.alerts.backend.presentation.views.alert import insight_alerts_prefetch  # noqa: PLC0415
+
             queryset = queryset.prefetch_related(
                 tile_permissions_prefetch(),
                 insight_alerts_prefetch(to_attr="_prefetched_alerts"),

@@ -23,14 +23,15 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.alerts.backend.destinations import AlertDelivery, count_active_alert_destinations
-from products.alerts.backend.insight_alert_destinations import (
+from products.alerts.backend.facade.contracts import AlertDelivery
+from products.alerts.backend.facade.destinations import (
     INSIGHT_ALERT_EVENT_IDS,
     MAX_DESTINATIONS_PER_ALERT,
-    SLACK_TEMPLATE_ID,
+    count_active_alert_destinations,
 )
+from products.alerts.backend.logic.insight_alert_destinations import SLACK_TEMPLATE_ID
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.facade.models import HogFunction
 from products.product_analytics.backend.facade.models import Insight
 
 TEST_DESTINATION_DELIVERY = AlertDelivery(
@@ -1890,7 +1891,7 @@ class TestAlertTestDelivery(APIBaseTest):
         assert AlertCheck.objects.filter(alert_configuration_id=self.alert["id"]).count() == 0
 
     @mock.patch("products.alerts.backend.presentation.views.alert.trigger_alert_hog_functions")
-    @mock.patch("products.alerts.backend.email_notifications.EmailMessage")
+    @mock.patch("products.alerts.backend.logic.email_notifications.EmailMessage")
     def test_sends_test_delivery_to_subscribed_users_without_a_destination(
         self, mock_email_message, mock_trigger
     ) -> None:

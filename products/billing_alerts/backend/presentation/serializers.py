@@ -13,12 +13,12 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.security.url_validation import is_microsoft_teams_webhook_url
 
-from products.alerts.backend.facade.api import (
+from products.alerts.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
-    validate_destination_data,
 )
+from products.alerts.backend.facade.destinations import validate_destination_data
 from products.billing_alerts.backend.facade import api as billing_alerts_api
 from products.billing_alerts.backend.facade.api import (
     BillingAlertConfiguration,
