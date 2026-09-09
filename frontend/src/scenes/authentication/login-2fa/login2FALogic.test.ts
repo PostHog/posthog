@@ -32,6 +32,18 @@ describe('login2FALogic', () => {
         expect(methodsHandler).not.toHaveBeenCalled()
     })
 
+    // A refresh or a hard load lands on the route before this logic exists, so the request has to
+    // follow the current URL and not only a navigation to it.
+    it('asks when it mounts on the 2FA step, so a refresh still offers a passkey', async () => {
+        router.actions.push(urls.login2FA())
+        login2FALogic().mount()
+
+        await expectLogic(login2FALogic).toFinishAllListeners()
+
+        expect(methodsHandler).toHaveBeenCalledTimes(1)
+        await expectLogic(login2FALogic).toMatchValues({ passkeysAvailable: true })
+    })
+
     it('asks again on every arrival at the 2FA step, so a passkey stays offered', async () => {
         router.actions.push(urls.login())
         loginTelemetryLogic().mount()
