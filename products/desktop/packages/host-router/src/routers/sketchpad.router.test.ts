@@ -38,6 +38,7 @@ describe("sketchpadRouter", () => {
     await expect(
       caller.appendOps({
         id: "board",
+        baseSeq: 0,
         ops: [],
         actor: { kind: "user" },
       }),

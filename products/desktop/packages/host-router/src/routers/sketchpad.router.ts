@@ -83,6 +83,7 @@ export const sketchpadRouter = router({
       ctx.container
         .get<ISketchpadService>(SKETCHPAD_BOARDS_SERVICE)
         .appendOps(input.id, {
+          baseSeq: input.baseSeq,
           ops: input.ops,
           actor: input.actor,
         }),
