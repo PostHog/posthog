@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 import { router } from 'kea-router'
 
@@ -271,6 +270,6 @@ export const UnsavedChangesPopover: Story = {
             }
             return element
         })
-        await userEvent.click(trigger)
+        trigger.click()
     },
 }
