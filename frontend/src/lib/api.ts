@@ -228,6 +228,7 @@ import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
+import type { SignalUserAutonomyConfigCreateApi } from 'products/signals/frontend/generated/api.schemas'
 import {
     SignalReport,
     SignalReportArtefact,
@@ -5286,7 +5287,7 @@ const api = {
             }
         },
         async update(
-            data: Partial<SignalUserAutonomyConfig>,
+            data: SignalUserAutonomyConfigCreateApi,
             userId: string | '@me' = '@me'
         ): Promise<SignalUserAutonomyConfig> {
             return await new ApiRequest().signalUserAutonomy(userId).create({ data })

@@ -305,15 +305,24 @@ def test_dispatch_no_notification_without_team_channel_or_user_config(org_and_te
     assert slack_cls.call_count == 0
 
 
+@pytest.mark.parametrize(
+    ("target", "expected_conversation", "expects_mention"),
+    [
+        ("C123|#inbox", "C123", True),
+        # A member target is delivered as a direct message, where the only reviewer the message
+        # could mention is the person already reading it.
+        ("U0123ABC456|@reviewer", "U0123ABC456", False),
+    ],
+)
 @pytest.mark.django_db
-def test_dispatch_sends_to_configured_reviewer(org_and_team):
+def test_dispatch_sends_to_configured_reviewer(org_and_team, target, expected_conversation, expects_mention):
     org, team = org_and_team
     user = _make_reviewer_user(org, "reviewer2@example.com", "another-bot")
     integration = _make_slack_integration(team, user)
     SignalUserAutonomyConfig.objects.create(
         user=user,
         slack_notification_integration=integration,
-        slack_notification_channel="C123|#inbox",
+        slack_notification_channel=target,
     )
     report = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["another-bot"])
 
@@ -331,14 +340,42 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team):
     assert sent == 1
     assert fake_client.chat_postMessage.call_count == 1
     call_kwargs = fake_client.chat_postMessage.call_args.kwargs
-    assert call_kwargs["channel"] == "C123"
+    assert call_kwargs["channel"] == expected_conversation
     assert "Report (P1)" in call_kwargs["text"]
     blocks = call_kwargs["blocks"]
     assert blocks[0]["text"]["text"] == "Test report"
     assert blocks[1]["text"].startswith("**❗ P1 · Error tracking**")
-    assert "👤 Suggested reviewers: <@U_REVIEWER>" in blocks[2]["elements"][0]["text"]
+    context_text = blocks[2]["elements"][0]["text"]
+    if expects_mention:
+        assert "👤 Suggested reviewers: <@U_REVIEWER>" in context_text
+    else:
+        assert "Suggested reviewers" not in context_text
     assert all("<@" not in t for t in _plain_text_block_texts(blocks))
     assert blocks[3]["elements"][0]["url"] == f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}"
+
+
+@pytest.mark.django_db
+def test_dispatch_skips_a_direct_message_to_an_ineligible_member(org_and_team):
+    # A member who was reachable when the target was saved can leave the workspace or become a
+    # guest, and report contents must not follow them there.
+    org, team = org_and_team
+    user = _make_reviewer_user(org, "reviewer-dm@example.com", "dm-bot")
+    integration = _make_slack_integration(team, user)
+    SignalUserAutonomyConfig.objects.create(
+        user=user,
+        slack_notification_integration=integration,
+        slack_notification_channel="U0123ABC456|@reviewer",
+    )
+    report = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["dm-bot"])
+
+    fake_client = MagicMock()
+    with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
+        slack_cls.return_value.client = fake_client
+        slack_cls.return_value.get_user_by_id.return_value = None
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 0
+    assert fake_client.chat_postMessage.call_count == 0
 
 
 @pytest.mark.django_db

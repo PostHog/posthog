@@ -154,6 +154,12 @@ from products.signals.backend.serializers import (
     SignalUserAutonomyConfigSerializer,
 )
 from products.signals.backend.signal_metadata import fetch_source_products_for_reports
+from products.signals.backend.slack_notification_targets import (
+    is_slack_member_target,
+    resolve_own_direct_message_target,
+    saved_notification_integration,
+    validate_slack_notification_target,
+)
 from products.signals.backend.task_attribution import (
     TASK_ID_HEADER,
     resolve_request_attribution,
@@ -4537,7 +4543,9 @@ class SignalUserAutonomyConfigView(APIView):
             return Response(status=status.HTTP_404_NOT_FOUND)
         return Response(SignalUserAutonomyConfigSerializer(config).data)
 
-    @extend_schema(responses={200: SignalUserAutonomyConfigSerializer})
+    @extend_schema(
+        request=SignalUserAutonomyConfigCreateSerializer, responses={200: SignalUserAutonomyConfigSerializer}
+    )
     def post(self, request, user_id, **kwargs):
         user = self._resolve_user(request, user_id)
         serializer = SignalUserAutonomyConfigCreateSerializer(data=request.data)
@@ -4555,7 +4563,8 @@ class SignalUserAutonomyConfigView(APIView):
             defaults["github_assign_on_pull_request"] = validated.get("github_assign_on_pull_request", False)
         if "slack_notification_channel" in serializer.initial_data:
             defaults["slack_notification_channel"] = validated.get("slack_notification_channel") or None
-        if "slack_notification_integration_id" in serializer.initial_data:
+        integration_in_request = "slack_notification_integration_id" in serializer.initial_data
+        if integration_in_request:
             integration_id = validated.get("slack_notification_integration_id")
             integration = None
             if integration_id is not None:
@@ -4575,6 +4584,20 @@ class SignalUserAutonomyConfigView(APIView):
                     )
                 integration = candidate
             defaults["slack_notification_integration"] = integration
+        target = defaults.get("slack_notification_channel")
+        wants_direct_message = bool(validated.get("slack_notification_direct_message"))
+        if wants_direct_message or (target and is_slack_member_target(target)):
+            # A member target sends report contents to one person, so it is resolved against the
+            # workspace that would deliver it: the one this request sets, or the saved one.
+            workspace = (
+                defaults["slack_notification_integration"]
+                if integration_in_request
+                else saved_notification_integration(user)
+            )
+            if wants_direct_message:
+                defaults["slack_notification_channel"] = resolve_own_direct_message_target(user, workspace)
+            elif target:
+                validate_slack_notification_target(target, workspace)
         config, _created = SignalUserAutonomyConfig.objects.update_or_create(
             user=user,
             defaults=defaults,
