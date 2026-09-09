@@ -15465,6 +15465,15 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface CalendarSyncBackfill {
+      /** Id of the Google account integration to backfill. */
+      integration_id: number;
+      /** First UTC date to include. Must be within the last 365 days. */
+      start_date: string;
+      /** Final UTC date to include. Cannot be after today. */
+      end_date: string;
+    }
+
     /**
      * Sync state of one connected calendar (read-only).
      */
