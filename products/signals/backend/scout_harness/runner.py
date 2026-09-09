@@ -797,10 +797,8 @@ async def _spawn_and_run(
         # splittable out of the ai_product='signals' bucket (scouts carry no signal_report_id)
         # and attributable to one scout. Team attribution rides along as `team_id`.
         ai_stage=_ai_stage(skill),
-        # `ai_stage` collapses every team-authored scout to `scout:custom`, so it cannot name a
-        # custom scout. This carries the full skill name for canonical and custom scouts alike:
-        # it is team-scoped, so its cardinality is one team's fleet rather than the whole fleet's,
-        # and spend groups by scout without a join back to the run rows in Postgres.
+        # `ai_stage` collapses team-authored scouts to `scout:custom` to bound a fleet-wide tag's
+        # cardinality, so it cannot name one. This is read per team, so it carries the full name.
         scout_skill_name=skill.name,
         on_task_run_created=_create_bridge_row,
         # Keep the per-turn poll budget at the run's runtime cap so the dropped-finalization

@@ -1122,8 +1122,7 @@ class Task(DeletedMetaFields, models.Model):
         if ai_stage:
             extra_state["ai_stage"] = ai_stage
 
-        # Rides the same path as `ai_stage` onto $ai_generation. Names the Signals scout whose
-        # run this is, which `ai_stage` cannot do for a team-authored scout.
+        # Reaches $ai_generation by the same path as `ai_stage`, which cannot name a custom scout.
         if scout_skill_name:
             extra_state["scout_skill_name"] = scout_skill_name
 

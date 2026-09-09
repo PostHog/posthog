@@ -5707,8 +5707,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "sandbox_gone": True,
                     # implementation provenance is what the self-driving review carve-outs trust
                     "ai_stage": "implementation",
-                    # the scout the run's spend is billed to; a forged value moves that spend
-                    # onto another scout's per-scout cost numbers
+                    # a forged scout name bills this run's spend to another scout
                     "scout_skill_name": "signals-scout-general",
                     # the stamped branch is the unforgeable run->PR link; a writable value re-aims it
                     "self_driving_head_branch": "posthog-self-driving/attacker-000000",
@@ -6137,10 +6136,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertTrue(data["log_url"].startswith("http"))
 
     def test_retrieve_run_serves_the_sandbox_its_attribution_stamps(self):
-        # The in-sandbox agent server reads these back off this endpoint and forwards them to
-        # the LLM gateway, which lifts them onto the run's $ai_generation events. A stamp the
-        # public-state filter drops silently loses that attribution. Sandbox credentials, which
-        # share the same server-owned run state, must not ride along.
+        # The in-sandbox agent server reads run state back off this endpoint, so a stamp the
+        # public filter drops never reaches the gateway. Sandbox credentials share that state.
         task = self.create_task()
         run = TaskRun.objects.create(
             task=task,

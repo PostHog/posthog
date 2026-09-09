@@ -292,8 +292,7 @@ describe("AgentServer.configureEnvironment", () => {
     );
   });
 
-  // A run started before the scout stamp shipped, and every non-scout run, has neither
-  // value in its state — the headers must simply be absent rather than empty.
+  // A run with neither value in its state must send no header, not an empty one.
   it("omits ai_stage and scout_skill_name from anthropicCustomHeaders when not provided", () => {
     const env = buildServer("background").configureEnvironment({
       isInternal: false,

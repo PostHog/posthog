@@ -5149,9 +5149,7 @@ ${commonInstructions}
       task_internal: isInternal,
       signal_report_id: signalReportId,
       ai_stage: resolvedStage,
-      // `ai_stage` collapses team-authored scouts to `scout:custom`; this names the scout.
-      // Absent on every non-scout run, and on scout runs started before this shipped, so the
-      // header builders drop it rather than stamping an empty property.
+      // Names the scout, which `ai_stage` cannot do once it collapses to `scout:custom`.
       scout_skill_name: scoutSkillName,
       task_id: taskId,
       task_run_id: taskRunId,
