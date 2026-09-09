@@ -69,6 +69,10 @@ export function TaskRunChat({
     // Staff can view tasks they don't own (support/debugging); those are read-only — hide the composer so
     // they can't try to drive a run they can't control (the backend rejects the write anyway).
     const readOnly = !!user?.is_staff && !!task?.created_by && task.created_by.id !== user.id
+    // The scene logic is keyed by task, so `selectedRun` can name a different run than this surface renders
+    // — the side panel opens `task.latest_run` while the page follows a `?runId=` link or a newer run. Read
+    // the run's setup only when the two agree; a mismatch would launch the successor on another run's config.
+    const runConfig = selectedRun?.id === runId ? selectedRun : undefined
     const logicProps: RunInteractionLogicProps = {
         taskId,
         runId,
@@ -77,15 +81,15 @@ export function TaskRunChat({
         onDraftAdopted,
         flushDraft: () => flushDraftRef.current(),
         currentModel:
-            selectedRun?.model ?? (typeof selectedRun?.state?.model === 'string' ? selectedRun.state.model : undefined),
+            runConfig?.model ?? (typeof runConfig?.state?.model === 'string' ? runConfig.state.model : undefined),
         currentEffort:
-            selectedRun?.reasoning_effort ??
-            (typeof selectedRun?.state?.reasoning_effort === 'string' ? selectedRun.state.reasoning_effort : undefined),
+            runConfig?.reasoning_effort ??
+            (typeof runConfig?.state?.reasoning_effort === 'string' ? runConfig.state.reasoning_effort : undefined),
         currentMode:
-            typeof selectedRun?.state?.initial_permission_mode === 'string'
-                ? selectedRun.state.initial_permission_mode
+            typeof runConfig?.state?.initial_permission_mode === 'string'
+                ? runConfig.state.initial_permission_mode
                 : undefined,
-        currentRuntimeAdapter: selectedRun?.runtime_adapter,
+        currentRuntimeAdapter: runConfig?.runtime_adapter,
         onRunStarted: (newRunId, handoff) => {
             if (handoff) {
                 continueWithRun(handoff)
