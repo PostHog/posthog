@@ -61,6 +61,7 @@ import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './ba
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
 import { ScheduleStatusBadge } from './components/ScheduleStatusBadge'
+import { TriggerVolumeEstimate } from './components/TriggerVolumeEstimate'
 
 type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
 type EventTriggerConfig = {
@@ -349,6 +350,7 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
             {registeredMatch?.ConfigComponent ? (
                 <>
                     <registeredMatch.ConfigComponent node={node} />
+                    <TriggerVolumeEstimate action={node.data} />
                     {registeredMatch.frequencyOptions ? (
                         <>
                             <LemonDivider />
@@ -427,6 +429,8 @@ function StepTriggerConfigurationEvents({
                     })
                 }
             />
+
+            <TriggerVolumeEstimate action={action} />
 
             <LemonDivider />
             <FrequencySection />

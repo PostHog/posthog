@@ -32,7 +32,10 @@ const PANEL_WORKFLOW: HogFlow = {
             type: 'trigger',
             name: 'New account created',
             description: 'Start when a new account is created.',
-            config: { type: 'event', filters: {} },
+            config: {
+                type: 'event',
+                filters: { events: [{ id: 'account_created', name: 'Account created', type: 'events' }] },
+            },
         },
         {
             id: 'delay',
@@ -136,6 +139,15 @@ const meta: Meta<typeof HogFlowEditorPanel> = {
                     dedupe_key: null,
                     confirm_token: 'storybook-confirm-token',
                 },
+                '/api/environments/:team_id/query/:query_kind/': {
+                    results: [
+                        {
+                            data: [120, 140, 180, 150, 130, 190, 170],
+                            count: 1080,
+                            labels: ['1-Sep', '2-Sep', '3-Sep', '4-Sep', '5-Sep', '6-Sep', '7-Sep'],
+                        },
+                    ],
+                },
             },
         }),
     ],
@@ -181,6 +193,9 @@ Build.args = { mode: 'build', selectedNodeId: 'delay' }
 
 export const BuildPalette: StoryFn<PanelStoryProps> = Template.bind({})
 BuildPalette.args = { mode: 'build', selectedNodeId: null }
+
+export const Trigger: StoryFn<PanelStoryProps> = Template.bind({})
+Trigger.args = { mode: 'build', selectedNodeId: 'trigger' }
 
 export const Webhook: StoryFn<PanelStoryProps> = Template.bind({})
 Webhook.args = { mode: 'build', selectedNodeId: 'webhook' }
