@@ -822,11 +822,18 @@ def lookup_invite_for_saml(email: str, saml_relay_state: str) -> Optional[Organi
     config = IdentityProviderConfig.objects.filter(saml_relay_state=saml_relay_state).first()
     if config is None:
         return None
-    return (
+    invite = (
         OrganizationInvite.objects.filter(target_email=email, organization_id=config.organization_id)
         .order_by("-created_at")
         .first()
     )
+    # This lookup is a convenience for a person who logged in with a plain SSO button and presented
+    # no invite link. An expired invite must read as no invite here, because `validate()` raises on
+    # it and the signup then stops before it can fall through to JIT provisioning. Only the newest
+    # invite needs the test, because every older invite for the same email is expired too.
+    if invite is not None and invite.is_expired():
+        return None
+    return invite
 
 
 def process_social_invite_signup(
@@ -1037,10 +1044,11 @@ def social_create_user(
         missing_attr = "email" if not email else "name"
         posthoganalytics.tag("email", email)
         posthoganalytics.tag("name", full_name)
-        raise ValidationError(
-            {missing_attr: "This field is required and was not provided by the IdP."},
-            code="required",
-        )
+        # A raise here reaches Django's default 500 handler and shows the generic error page,
+        # because this is a plain Django view and the social auth middleware only translates
+        # `social_core` exceptions. A redirect gives the person a message they can act on.
+        logger.warning("social_create_user_missing_idp_attribute", missing_attribute=missing_attr)
+        return redirect("/login?error_code=missing_idp_attribute")
 
     # If we get here then it's a new user. We'll check for outstanding invites for them
     # on the organization domain or if JIT provisioning is enabled, we'll provision them.
