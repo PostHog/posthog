@@ -404,7 +404,7 @@ def pause_workflow_email_sending(
         # immediately, and inside this transaction that is before the pause commits, so a worker
         # could reload, read the still-unpaused row, and cache it for minutes. The explicit publish
         # below waits for the commit; it is what stops in-flight runs and queued batch sends.
-        HogFlow.objects.filter(id=hog_flow_id).update(
+        HogFlow.objects.filter(id=hog_flow_id, team_id=team_id).update(
             email_sending_paused_at=now,
             email_sending_paused_reason=reason,
             email_sending_paused_by=paused_by,
@@ -584,7 +584,7 @@ def resume_workflow_email_sending(flow: HogFlow, *, actor: str = "customer", now
             raise StaffPausedError("Only PostHog staff can resume this pause.")
         # Queryset update for the same reason as the pause writer: the reload must publish only
         # once the resume is committed.
-        HogFlow.objects.filter(id=flow.id).update(
+        HogFlow.objects.filter(id=flow.id, team_id=flow.team_id).update(
             email_sending_paused_at=None,
             email_sending_paused_reason="",
             email_sending_paused_by="",
