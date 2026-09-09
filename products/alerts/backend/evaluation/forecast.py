@@ -245,6 +245,19 @@ def _actual_breach(
     )
 
 
+def _breach_moment(result: ExtractionResult, forecast_date: str) -> str:
+    """Name the forecast bucket in the words a notification reader can act on.
+
+    Only an hourly bucket carries a time of day. Coarser buckets are anchored to midnight, so the
+    date is the whole label there. A notification renders the breach message on its own, and the
+    full timestamp reaches only ``triggered_metadata``, so an hourly reader has nowhere else to
+    find the hour. The hour is stated in the timezone the forecast converted its output to.
+    """
+    if result.interval_type != IntervalType.HOUR:
+        return f"on {forecast_date[:10]}"
+    return f"at {datetime.fromisoformat(forecast_date):%Y-%m-%d %H:%M} ({result.forecast_timezone})"
+
+
 def _forecast_breach(
     result: ExtractionResult,
     forecast: ForecastResult,
@@ -266,9 +279,9 @@ def _forecast_breach(
         if comparison is None or threshold is None:
             continue
 
-        breach_date = forecast.dates[index][:10]
         message = (
-            f"The forecast for {label} is {_format_value(result, predicted)} on {breach_date}, "
+            f"The forecast for {label} is {_format_value(result, predicted)} "
+            f"{_breach_moment(result, forecast.dates[index])}, "
             f"{comparison} ({_format_value(result, threshold)})."
         )
         return AlertEvaluationResult(

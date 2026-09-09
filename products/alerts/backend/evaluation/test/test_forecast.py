@@ -186,6 +186,30 @@ class TestPredictedThresholdBreach:
             "The forecast for pageviews is 105.0 users on 2026-02-11, more than the upper threshold (100.0 users)."
         ]
 
+    def test_an_hourly_breach_names_the_predicted_hour(self) -> None:
+        engine = StubEngine(
+            _forecast(
+                ["2026-02-10T14:00:00-05:00", "2026-02-10T15:00:00-05:00"],
+                [95.0, 105.0],
+            )
+        )
+        extraction = _series(n=49, interval=IntervalType.HOUR)
+        extraction.forecast_timezone = "America/New_York"
+
+        with patch("products.alerts.backend.evaluation.forecast.get_forecast_engine", return_value=engine):
+            result = evaluate_with_forecast(
+                extraction,
+                {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach", "horizon": 2},
+                _threshold(upper=100.0),
+            )
+
+        # A day alone cannot answer which bucket crosses, because the default hourly look-ahead is
+        # a few hours. Notifications render this string on its own.
+        assert result.breaches == [
+            "The forecast for pageviews is 105 at 2026-02-10 15:00 (America/New_York), "
+            "more than the upper threshold (100)."
+        ]
+
     @parameterized.expand(
         [
             ("upper", None, 100.0, 100.0),
