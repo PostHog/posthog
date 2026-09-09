@@ -14,6 +14,7 @@ import { HogFlowAction } from '../../types'
 import {
     DEFAULT_AI_TASKS_PER_WORKFLOW_PER_DAY,
     TRIGGER_VOLUME_DAYS,
+    aiTaskLimitSupportRequest,
     countAiTaskSteps,
     countScoutSteps,
     eventTriggerVolumeFilters,
@@ -39,9 +40,9 @@ export function TriggerVolumeEstimate({ action }: { action: HogFlowAction }): JS
 
     const taskSteps = countAiTaskSteps(workflow)
     const scoutSteps = countScoutSteps(workflow)
-    // Every step a run reaches creates its own task, so the tasks a day is the runs a day times the
-    // steps, not the runs alone.
-    const aiTasksPerDay = volume != null ? volume.perDay * taskSteps : 0
+    // Every step a run reaches creates its own task, so the tasks a day is the runs times the steps,
+    // not the runs alone. Measured on the busiest day, which is what the cap is tested against.
+    const aiTasksPerDay = volume != null ? volume.peakPerDay * taskSteps : 0
     const overAiLimit = volume != null && exceedsAiTaskLimit(volume.peakPerDay, taskSteps)
     const perRunCopy =
         taskSteps > 1 ? `Each run can start up to ${taskSteps} AI tasks` : 'Each run can start an AI task'
@@ -85,10 +86,13 @@ export function TriggerVolumeEstimate({ action }: { action: HogFlowAction }): JS
                                     ? {
                                           children: 'Ask for a higher limit',
                                           onClick: () =>
-                                              openSupportForm({
-                                                  kind: 'support',
-                                                  message: `Please raise the daily AI task limit for my workflow "${workflow.name}". Its trigger matches about ${humanFriendlyNumber(volume.perDay)} events a day, which is about ${humanFriendlyNumber(aiTasksPerDay)} AI tasks a day.`,
-                                              }),
+                                              openSupportForm(
+                                                  aiTaskLimitSupportRequest({
+                                                      workflowName: workflow.name,
+                                                      peakPerDay: volume.peakPerDay,
+                                                      tasksPerDay: aiTasksPerDay,
+                                                  })
+                                              ),
                                       }
                                     : undefined
                             }

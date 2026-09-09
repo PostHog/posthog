@@ -2,6 +2,7 @@ import { HogFlowAction } from '../types'
 import {
     DEFAULT_AI_TASKS_PER_WORKFLOW_PER_DAY,
     TRIGGER_VOLUME_DAYS,
+    aiTaskLimitSupportRequest,
     countAiTaskSteps,
     countScoutSteps,
     eventTriggerVolumeFilters,
@@ -100,6 +101,25 @@ describe('triggerVolume', () => {
             ['a workflow with no task step', cap * 50, 0, false],
         ])('%s', (_name, peakPerDay, taskSteps, expected) => {
             expect(exceedsAiTaskLimit(peakPerDay as number, taskSteps as number)).toBe(expected)
+        })
+    })
+
+    describe('aiTaskLimitSupportRequest', () => {
+        const request = aiTaskLimitSupportRequest({
+            workflowName: 'Triage every pageview',
+            peakPerDay: 1310,
+            tasksPerDay: 1310,
+        })
+
+        // The Conversations composer is what reads the message, and only isEmailFormOpen opens it.
+        // Without the flag the support panel opens empty and everything below is dropped.
+        it('opens the composer that reads the message', () => {
+            expect(request.isEmailFormOpen).toBe(true)
+        })
+
+        it('carries the workflow and its volume', () => {
+            expect(request.message).toContain('Triage every pageview')
+            expect(request.message).toContain('1310')
         })
     })
 

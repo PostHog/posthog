@@ -1,3 +1,4 @@
+import { SupportFormFields } from 'lib/components/Support/supportLogic'
 import { matchingFiltersToPropertyGroup } from 'scenes/hog-functions/filters/matchingFilters'
 
 import { EventsNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
@@ -51,6 +52,32 @@ export function countAiTaskSteps(workflow?: { actions?: HogFlowAction[] } | null
  */
 export function countScoutSteps(workflow?: { actions?: HogFlowAction[] } | null): number {
     return countStepsOfTemplate(workflow, SCOUT_TEMPLATE_ID)
+}
+
+/**
+ * The support request behind "Ask for a higher limit", carrying the workflow and its volume so a
+ * support engineer does not have to ask for either.
+ *
+ * `isEmailFormOpen` is load-bearing: it is what opens the Conversations composer, and the composer
+ * is what reads this message. Without it the panel opens empty and the text below is dropped.
+ */
+export function aiTaskLimitSupportRequest({
+    workflowName,
+    peakPerDay,
+    tasksPerDay,
+}: {
+    workflowName: string
+    peakPerDay: number
+    tasksPerDay: number
+}): Partial<SupportFormFields> {
+    return {
+        kind: 'support',
+        isEmailFormOpen: true,
+        message:
+            `Please raise the daily AI task limit for my workflow "${workflowName}". ` +
+            `Its trigger matches about ${peakPerDay} events on its busiest day, ` +
+            `which is about ${tasksPerDay} AI tasks a day.`,
+    }
 }
 
 /**
