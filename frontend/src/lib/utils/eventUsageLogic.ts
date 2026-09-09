@@ -783,11 +783,11 @@ export interface eventUsageLogicActions {
         stepCount: number
     }
     reportDashboardAddMenuOpened: (
-        source: 'header' | 'inline',
+        source: 'header',
         dashboardId: number
     ) => {
         dashboardId: number
-        source: 'header' | 'inline'
+        source: 'header'
     }
     reportDashboardBreakdownColorsSaved: (
         dashboard: DashboardType<QueryBasedInsightModel> | null,

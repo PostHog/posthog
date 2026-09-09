@@ -18,7 +18,12 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { BREAKPOINTS, getInsightQueryError, isWidgetTileVisibleOnPlacement } from 'scenes/dashboard/dashboardUtils'
+import {
+    BREAKPOINTS,
+    BREAKPOINT_COLUMN_COUNTS,
+    getInsightQueryError,
+    isWidgetTileVisibleOnPlacement,
+} from 'scenes/dashboard/dashboardUtils'
 import { continueDragGestureInEditMode, continueResizeGestureInEditMode } from 'scenes/dashboard/editLayoutGesture'
 import { useDashboardLayoutInteraction } from 'scenes/dashboard/useDashboardLayoutInteraction'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
