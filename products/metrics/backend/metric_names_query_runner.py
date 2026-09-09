@@ -80,6 +80,7 @@ class MetricNamesQueryRunner:
         limit: int = 100,
         lookback: dt.timedelta = dt.timedelta(days=7),
         services: Sequence[str] = (),
+        include_sparklines: bool = True,
     ) -> None:
         if limit <= 0 or limit > 1000:
             raise ValueError("limit must be in [1, 1000]")
@@ -97,6 +98,10 @@ class MetricNamesQueryRunner:
         # selection: a sender that omits the `service.name` resource attribute
         # lands in the group the overview labels "unknown".
         self.services = tuple(sorted(set(services)))
+        # Sparklines read `metric_samples`, whose ordering puts `timestamp`
+        # behind `series_fingerprint`, so the scan is the expensive part of a
+        # name lookup. Callers that only need the type (anomaly defaults) skip it.
+        self.include_sparklines = include_sparklines
 
     def _build_query(self) -> ast.SelectQuery:
         # The alias is `last_seen_at`, not `last_seen`: HogQL registers select
@@ -182,7 +187,7 @@ class MetricNamesQueryRunner:
         )
 
         names = [row[0] for row in response.results]
-        sparklines = self._sparklines(names)
+        sparklines = self._sparklines(names) if self.include_sparklines else {}
 
         return [
             {
@@ -209,32 +214,55 @@ class MetricNamesQueryRunner:
         if not names:
             return {}
 
+        # The grid anchors to the query's `now()`: bucket edges land on the
+        # window endpoints, so the window always holds exactly MAX_POINTS buckets
+        # (a bare toStartOfInterval aligns to wall-clock boundaries and a window
+        # starting mid-bucket intersects one extra).
         bucket_seconds = max(int(SPARKLINE_WINDOW.total_seconds()) // SPARKLINE_MAX_POINTS, 1)
+        window_seconds = int(SPARKLINE_WINDOW.total_seconds())
         query = parse_select(
             """
                 SELECT
                     metric_name AS name,
-                    toStartOfInterval(timestamp, {bucket}) AS bucket_start,
+                    toDateTime(toUInt64((toUnixTimestamp(timestamp) - toUnixTimestamp(now() - {window_interval})) / {bucket_seconds}) * {bucket_seconds} + toUnixTimestamp(now() - {window_interval})) AS bucket_start,
                     avg(value) AS bucket_value
                 FROM posthog.metric_samples
-                WHERE timestamp > now() - {window}
+                WHERE timestamp > now() - {window_interval}
                   AND metric_name IN {names}
+                  AND series_fingerprint IN (
+                      SELECT series_fingerprint
+                      FROM posthog.metric_series
+                      WHERE last_seen > now() - {lookback_interval}
+                        AND metric_name IN {names}
+                        {service_filter}
+                      GROUP BY series_fingerprint
+                  )
                 GROUP BY name, bucket_start
                 ORDER BY name, bucket_start
             """,
             placeholders={
-                "bucket": ast.Call(name="toIntervalSecond", args=[ast.Constant(value=bucket_seconds)]),
-                "window": ast.Call(
-                    name="toIntervalSecond", args=[ast.Constant(value=int(SPARKLINE_WINDOW.total_seconds()))]
+                "bucket_seconds": ast.Constant(value=bucket_seconds),
+                "window_interval": ast.Call(name="toIntervalSecond", args=[ast.Constant(value=window_seconds)]),
+                "lookback_interval": ast.Call(
+                    name="toIntervalSecond", args=[ast.Constant(value=int(self.lookback.total_seconds()))]
                 ),
                 "names": ast.Tuple(exprs=[ast.Constant(value=name) for name in names]),
+                # A sample carries no service column; its series_fingerprint is
+                # the link back to the series row that does. Without this, two
+                # services emitting one metric name share a card, and a scoped
+                # catalog draws a shape blended across services.
+                "service_filter": (
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=ast.Field(chain=["service_name"]),
+                        right=ast.Tuple(exprs=[ast.Constant(value=service) for service in self.services]),
+                    )
+                    if self.services
+                    else ast.Constant(value=True)
+                ),
             },
         )
         assert isinstance(query, ast.SelectQuery)
-        # No service filter here: `names` is already the scoped set the name query
-        # returned, so the sparkline can never draw a metric outside the scope.
-        # `metric_samples` has no service_name column, and the per-metric bucketed
-        # average is over all of that metric's series regardless.
 
         response = execute_hogql_query(
             query_type="MetricNamesSparklineQuery",

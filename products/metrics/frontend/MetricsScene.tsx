@@ -17,7 +17,9 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { metricNamePickerLogic } from './components/metricNamePickerLogic'
 import { MetricsCatalog } from './components/MetricsCatalog'
+import { metricsCatalogLogic } from './components/metricsCatalogLogic'
 import { MetricsFundamentals } from './components/MetricsFundamentals'
+import { metricsFundamentalsLogic } from './components/metricsFundamentalsLogic'
 import { MetricsOverview } from './components/MetricsOverview'
 import { MetricsSqlEditor } from './components/MetricsSqlEditor'
 import { metricsUsageTrackingLogic } from './components/metricsUsageTrackingLogic'
@@ -86,6 +88,11 @@ const MetricsSceneContent = (): JSX.Element => {
     // Prime the metric-name list here rather than inside MetricsViewer, so the fetch
     // races the has_metrics check instead of waiting on the setup prompt to resolve.
     useMountedLogic(metricNamePickerLogic)
+    // These two hold cross-tab state: a catalog card click preloads the viewer, and
+    // the viewer's explain button preloads fundamentals. Mounted here, a tab flip
+    // cannot unmount the logic and reset the handoff before the destination reads it.
+    useMountedLogic(metricsCatalogLogic)
+    useMountedLogic(metricsFundamentalsLogic)
 
     const onFeedbackClick = (): void => {
         posthog.displaySurvey(METRICS_FEEDBACK_SURVEY_ID)

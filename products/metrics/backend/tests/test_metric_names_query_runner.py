@@ -352,10 +352,20 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertLess(row["sparkline"][0], row["sparkline"][-1])
 
     def test_metric_with_no_samples_has_empty_sparkline(self):
-        # A series row whose samples all fell outside the sparkline window still
-        # appears in the catalog; it just has nothing to draw.
+        # Samples older than the sparkline window leave the series row (and so
+        # the card) in place but give it nothing to draw.
+        old_anchor = timezone.now().replace(microsecond=0) - dt.timedelta(hours=10)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="old.metric",
+            points=[(old_anchor, 1.0)],
+            metric_type="gauge",
+        )
+
         runner = MetricNamesQueryRunner(team=self.team)
-        self.assertEqual(runner.run(), [])
+        row = next(r for r in runner.run() if r["name"] == "old.metric")
+
+        self.assertEqual(row["sparkline"], [])
 
     def test_sparkline_scoped_to_services(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=20)
@@ -372,3 +382,40 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual([r["name"] for r in rows], ["http.duration"])
         self.assertGreater(len(rows[0]["sparkline"]), 1)
+
+    def test_sparkline_excludes_other_services_series(self):
+        # web and worker emit the same metric name. A card scoped to web must
+        # draw only web's series; an unscoped card averages both.
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=20)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="shared.metric",
+            points=[(anchor + dt.timedelta(minutes=i), 100.0) for i in range(10)],
+            metric_type="gauge",
+            service_name="web",
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="shared.metric",
+            points=[(anchor + dt.timedelta(minutes=i), 1.0) for i in range(10)],
+            metric_type="gauge",
+            service_name="worker",
+        )
+
+        web_row = next(r for r in MetricNamesQueryRunner(team=self.team, services=["web"]).run())
+        all_row = next(r for r in MetricNamesQueryRunner(team=self.team).run())
+
+        self.assertTrue(all(v == 100.0 for v in web_row["sparkline"]))
+        self.assertTrue(all(v < 100.0 for v in all_row["sparkline"]))
+
+    def test_runner_can_skip_the_sparkline_scan(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        _seed_point(team_id=self.team.id, metric_name="m1", value=1.0, timestamp=anchor)
+
+        with patch("products.metrics.backend.metric_names_query_runner.execute_hogql_query") as execute:
+            execute.return_value.results = [("m1", "gauge", "", timezone.now())]
+            rows = MetricNamesQueryRunner(team=self.team, include_sparklines=False).run()
+
+        # One query for the names, none for the samples.
+        self.assertEqual(execute.call_count, 1)
+        self.assertEqual(rows[0]["sparkline"], [])
