@@ -12,7 +12,7 @@ export interface SessionErrorsBadgeProps {
 // rather than implying the log caused the errors.
 export function SessionErrorsBadge({ errorCount, onClick }: SessionErrorsBadgeProps): JSX.Element {
     return (
-        <Tooltip title={`${pluralize(errorCount, 'error')} in this session. Click to see them.`}>
+        <Tooltip title={`${pluralize(errorCount, 'error occurrence')} in this session. Click to see them.`}>
             <LemonButton
                 size="xsmall"
                 icon={<IconWarning className="text-danger" />}

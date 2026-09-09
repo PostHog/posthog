@@ -872,6 +872,13 @@ export namespace Schemas {
       readonly last_modified_by: UserBasic;
     }
 
+    export interface AccountPresenceViewer {
+      /** PostHog user ID of the teammate viewing this account. */
+      readonly user_id: number;
+      /** Display name of the teammate viewing this account. */
+      readonly display_name: string;
+    }
+
     /**
      * A team-defined account relationship type (CSM, Onboarding manager, ...).
      */
@@ -8911,6 +8918,32 @@ export namespace Schemas {
       startAtZero?: boolean | null;
     }
 
+    export type Summary = typeof Summary[keyof typeof Summary];
+
+
+    export const Summary = {
+      Total: 'total',
+      Average: 'average',
+      Latest: 'latest',
+    } as const;
+
+    export interface MetricChartSettings {
+      /** Change pill color when the series went down. Defaults to red. */
+      changeDecreaseColor?: string | null;
+      /** Change pill color when the series went up. Defaults to green. */
+      changeIncreaseColor?: string | null;
+      /** Color the sparkline by whether the series went up or down. */
+      colorByDirection?: boolean | null;
+      /** Sparkline color when the series went down. Defaults to red. */
+      lineDecreaseColor?: string | null;
+      /** Sparkline color when the series went up. Defaults to green. */
+      lineIncreaseColor?: string | null;
+      /** Show the change pill comparing the first point to the latest point. */
+      showChange?: boolean | null;
+      /** Which value the resting headline shows: the latest point, the total, or the average of the returned points. */
+      summary?: Summary | null;
+    }
+
     export type SliceContent = typeof SliceContent[keyof typeof SliceContent];
 
 
@@ -9021,6 +9054,7 @@ export namespace Schemas {
       leftYAxisSettings?: YAxisSettings | null;
       /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest. */
       legendPosition?: LegendPosition | null;
+      metric?: MetricChartSettings | null;
       pie?: PieChartSettings | null;
       /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
       resultCustomizations?: ChartSettingsResultCustomizations;
@@ -15436,6 +15470,15 @@ export namespace Schemas {
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+    }
+
+    export interface CalendarSyncBackfill {
+      /** Id of the Google account integration to backfill. */
+      integration_id: number;
+      /** First UTC date to include. Must be within the last 365 days. */
+      start_date: string;
+      /** Final UTC date to include. Cannot be after today. */
+      end_date: string;
     }
 
     /**
@@ -79951,7 +79994,7 @@ export namespace Schemas {
          */
       readonly slack_notification_integration_id: number | null;
       /**
-         * Slack channel target in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null disables Slack notifications.
+         * Where the reviewer ping goes, in the same `id|name` shape PostHog uses elsewhere (only the id is required): a channel (`C0123ABC456|#alerts`), or a workspace member (`U0123ABC456|@sam`) who is sent a direct message. Null disables Slack notifications.
          * @maxLength 255
          * @nullable
          */
@@ -79968,6 +80011,33 @@ export namespace Schemas {
       github_assign_on_pull_request?: boolean;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    export interface SignalUserAutonomyConfigCreate {
+      autostart_priority?: AutonomyPriorityEnum | null;
+      /**
+         * Primary key of a Slack `Integration` row in one of the caller's teams. Pair with `slack_notification_channel` to enable notifications; pass null on either to disable them.
+         * @nullable
+         */
+      slack_notification_integration_id?: number | null;
+      /**
+         * `channel_id|#channel-name` target, the same convention used by Insight Alerts, or a `member_id|@display-name` target (`U0123ABC456|@sam`) to send the ping as a direct message. A member target is checked against the workspace on save.
+         * @maxLength 255
+         * @nullable
+         */
+      slack_notification_channel?: string | null;
+      /** Set true to send the ping as a direct message from the PostHog app. The caller's own member id is resolved in the connected workspace and stored in `slack_notification_channel`, so nothing has to be picked. Rejected when the workspace has no eligible account for the caller, and cannot be combined with `slack_notification_channel`. */
+      slack_notification_direct_message?: boolean;
+      /** P0 is highest. Null = notify for every priority. When set, reports without a priority judgment do not notify.
+       *
+       * * `P0` - P0
+       * * `P1` - P1
+       * * `P2` - P2
+       * * `P3` - P3
+       * * `P4` - P4 */
+      slack_notification_min_priority?: AutonomyPriorityEnum | null;
+      /** Add this user as a GitHub assignee on implementation pull requests for reports that suggest them as reviewer. Off by default. Turning it off stops future assignment and never removes an existing assignee. */
+      github_assign_on_pull_request?: boolean;
     }
 
     export interface SlackChannel {

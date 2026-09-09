@@ -118,6 +118,15 @@ MAX_INCREMENTAL_SOURCE_RETRIES = 3 if settings.DEBUG else 9
 
 Any_Source_Errors: dict[str, str | None] = {
     "Could not establish session to SSH gateway": None,
+    # Raised by `_check_direct_host` when a direct (untunneled) database connection's host doesn't
+    # resolve, or resolves to a private/internal address. Mirrors the `SSH tunnel host not allowed`
+    # entry: a config problem only the customer can fix, so retrying just re-hits the same
+    # rejection. Match the stable prefix and exclude the volatile host details that follow it.
+    "Database host not allowed": (
+        "PostHog rejected this source's database host because it either couldn't be resolved, or "
+        "resolves to a private/internal address. Check the host is spelled correctly and reachable "
+        "from the public internet, then re-enable the sync."
+    ),
     # Raised by `SSHTunnel.get_tunnel` when `is_auth_valid()` fails — the SSH tunnel private key
     # can't be parsed, or password auth is missing a username/password. Shared by every
     # SSH-capable source (Postgres, Redshift, MySQL, MSSQL, ClickHouse). The auth config is fixed,
@@ -249,6 +258,12 @@ CANCELLED_RUN_MESSAGE = (
     "it or the source is paused. It will run again on its next schedule."
 )
 
+TRANSIENT_SOURCE_ERROR_MESSAGE = (
+    "The source's API kept returning temporary errors, such as rate limits or server errors, so this "
+    "sync run did not finish. This is usually a short problem on the source's side. The sync will run "
+    "again on its next schedule."
+)
+
 
 def _customer_facing_error(cause: BaseException | None) -> str:
     """`latest_error` text a customer reads, without the leaked internal exception class name.
@@ -270,6 +285,13 @@ def _customer_facing_error(cause: BaseException | None) -> str:
     # this one, the source was paused, or a worker was rolled). Give them something readable.
     if isinstance(cause, exceptions.CancelledError):
         return CANCELLED_RUN_MESSAGE
+    # A REST source exhausted every retry on a transient upstream failure (an HTTP 429/5xx, a dropped
+    # connection, or a timeout). Temporal records it as an ApplicationError typed
+    # `RESTClientRetryableError`, whose message is a raw string like "HTTP 503 for <url>". That status
+    # code means nothing to a customer, so replace it with a message that names the cause and says the
+    # sync retries on its next schedule.
+    if getattr(cause, "type", None) == "RESTClientRetryableError":
+        return TRANSIENT_SOURCE_ERROR_MESSAGE
     message = getattr(cause, "message", None)
     return message or str(cause)
 

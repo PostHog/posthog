@@ -121,7 +121,6 @@ export const appSceneModules = {
     WebAnalyticsLive: './scenes/web-analytics/WebAnalyticsScene',
     WebAnalyticsRecap: './scenes/web-analytics/recap/WebAnalyticsRecapScene',
     WebAnalytics: './scenes/web-analytics/WebAnalyticsScene',
-    Wizard: './scenes/wizard/Wizard',
     OrganizationDeactivated: './scenes/organization/Deactivated',
     OrganizationPendingDeletion: './scenes/organization/PendingDeletion',
     ProjectPendingDeletion: './scenes/project/PendingDeletion',

@@ -286,7 +286,6 @@ export const lazySceneImports = {
     WebAnalyticsLive: () => import('./scenes/web-analytics/WebAnalyticsScene'),
     WebAnalyticsRecap: () => import('./scenes/web-analytics/recap/WebAnalyticsRecapScene'),
     WebAnalytics: () => import('./scenes/web-analytics/WebAnalyticsScene'),
-    Wizard: () => import('./scenes/wizard/Wizard'),
     OrganizationDeactivated: () => import('./scenes/organization/Deactivated'),
     OrganizationPendingDeletion: () => import('./scenes/organization/PendingDeletion'),
     ProjectPendingDeletion: () => import('./scenes/project/PendingDeletion'),
