@@ -51,6 +51,18 @@ failure. A failed replacement keeps its session when available, or restores the
 previous session with an error. A later retry can send the original prompt.
 A retry without a session reports failure instead of successful recovery.
 
+Claude initialization includes the repository's `SessionStart` hooks. These hooks
+can prepare a new worktree and install dependencies before the SDK becomes ready.
+An observed setup hook gets a separate, bounded wait of ten minutes. Startup with
+no active setup hooks keeps its 30-second timeout. Hook progress does not extend
+the hook deadline. Startup phase changes and failures use the desktop log path,
+without recording hook commands or output.
+
+A connected local session only waits for its first prompt when the session still
+has a prompt to send. A task description or an existing run does not imply that a
+prompt is pending. This lets an empty session open after a failed startup instead
+of keeping it in the loading view. Opening it does not resend the description.
+
 New cloud runs seed the full user message before subscribing to setup progress.
 The chat renders that message immediately, including its space context chip.
 Reopened transcripts reconcile the plain initial prompt with its context-bearing
