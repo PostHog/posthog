@@ -90,7 +90,7 @@ class TrendsActorsQueryBuilder:
 
         # TODO: Add support for DataWarehouseNode
         if isinstance(entity, DataWarehouseNode):
-            raise Exception("DataWarehouseNodes are not supported for trends actors queries")
+            raise QueryError("Persons are not available for a series that uses a data warehouse table")
         else:
             self.entity = entity
 
