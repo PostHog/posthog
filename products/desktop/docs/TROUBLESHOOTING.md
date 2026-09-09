@@ -1,14 +1,14 @@
 # Troubleshooting
 
-## Connected MCP server authentication failed
+## Claude session initialization timeout
 
-If a task reports a connected MCP server authentication error, reconnect that server in PostHog. Then retry the task.
-Changing the model or billing provider does not repair the connected server's credentials.
+`Session initialization timed out after 30000ms` means that Claude did not finish SDK initialization before the startup deadline.
+The message does not identify the blocked operation. Repository startup hooks and MCP connections can run during initialization.
 
-The desktop MCP proxy returns HTTP 502 when a connected server returns HTTP 401.
-It does not forward the authentication challenge or request a PostHog token refresh for that response.
-This prevents the agent from starting an OAuth flow against the local proxy, which cannot reconnect the server.
-PostHog-owned targets retain their existing token refresh behavior.
+Check the `agent:ClaudeAcpAgent` scope in the desktop logs for CLI stderr and the structured `Session initialization failed` entry.
+Desktop logs are stored in `~/.posthog-code/logs/main.log` (`logs-dev/main.log` for development builds).
+Match the task and run IDs before using those diagnostics to change authentication, MCP connections, or startup hooks.
+The adapter uses the existing desktop logger. It does not enable verbose SDK logging or change the startup timeout.
 
 ## Black screen during development
 

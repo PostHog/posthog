@@ -3,11 +3,15 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   type AgentSideConnection,
+  ClientSideConnection,
+  ndJsonStream,
   RequestError,
 } from "@agentclientprotocol/sdk";
 import type { HookInput, Options } from "@anthropic-ai/claude-agent-sdk";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_GATEWAY_MODEL } from "../../gateway-models";
+import { Logger } from "../../utils/logger";
+import { createAcpConnection } from "../acp-connection";
 
 type SdkQueryHandle = {
   interrupt: ReturnType<typeof vi.fn>;
@@ -487,14 +491,27 @@ describe("ClaudeAcpAgent session creation", () => {
     expect(createdQueries[0]?.close).toHaveBeenCalledTimes(1);
   });
 
-  it("logs diagnostics and closes the query when new-session init times out", async () => {
+  it("delivers startup stderr and timeout diagnostics to the host logger and closes the query", async () => {
     vi.useFakeTimers();
+    const onLog = vi.fn();
+    const connection = createAcpConnection({
+      logger: new Logger({ scope: "agent", onLog }),
+    });
+    const client = new ClientSideConnection(
+      () => ({
+        sessionUpdate: vi.fn().mockResolvedValue(undefined),
+        requestPermission: vi.fn(),
+        extNotification: vi.fn().mockResolvedValue(undefined),
+      }),
+      ndJsonStream(
+        connection.clientStreams.writable,
+        connection.clientStreams.readable,
+      ),
+    );
     try {
       nextInitPromise = new Promise(() => {});
-      const agent = makeAgent();
-      const errorSpy = vi.spyOn(agent.logger, "error");
 
-      const promise = agent.newSession({
+      const promise = client.newSession({
         cwd,
         mcpServers: [],
         _meta: {
@@ -509,11 +526,20 @@ describe("ClaudeAcpAgent session creation", () => {
           1,
         );
       });
+      createdQueryOptions[0]?.stderr?.("CLI startup diagnostic");
       await vi.advanceTimersByTimeAsync(30_001);
 
       await expect(promise).rejects.toBeInstanceOf(RequestError);
       expect(createdQueries[0]?.close).toHaveBeenCalledTimes(1);
-      expect(errorSpy).toHaveBeenCalledWith(
+      expect(onLog).toHaveBeenCalledWith(
+        "error",
+        "agent:ClaudeAcpAgent",
+        "CLI startup diagnostic",
+        undefined,
+      );
+      expect(onLog).toHaveBeenCalledWith(
+        "error",
+        "agent:ClaudeAcpAgent",
         "Session initialization failed",
         expect.objectContaining({
           initializationPhase: "sdk_initialization",
@@ -527,6 +553,7 @@ describe("ClaudeAcpAgent session creation", () => {
         }),
       );
     } finally {
+      await connection.cleanup();
       vi.useRealTimers();
     }
   });

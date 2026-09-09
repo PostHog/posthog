@@ -366,6 +366,7 @@ async function fetchContextUsedTokens(
 
 export interface ClaudeAcpAgentOptions {
   startupLogger?: Logger;
+  logger?: Logger;
   onProcessSpawned?: (info: ProcessSpawnedInfo) => void;
   onProcessExited?: (pid: number) => void;
   onMcpServersReady?: (serverNames: string[]) => void;
@@ -408,7 +409,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     this.toolUseCache = {};
     this.emittedToolCalls = new Set();
     this.toolUseStreamCache = new Map();
-    this.logger = new Logger({ debug: true, prefix: "[ClaudeAcpAgent]" });
+    this.logger =
+      options?.logger ??
+      new Logger({ debug: true, prefix: "[ClaudeAcpAgent]" });
     this.enrichment = createEnrichment(options?.posthogApiConfig, this.logger);
   }
 

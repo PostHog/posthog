@@ -226,26 +226,6 @@ export class McpProxyService {
     try {
       let response = await this.auth.authenticatedFetch(url, options);
 
-      if (
-        target.credentialOwner === "installation" &&
-        response.status === 401
-      ) {
-        this.log.warn("Connected MCP server authentication failed", {
-          id,
-          url,
-          status: response.status,
-        });
-        await response.body?.cancel();
-        res.writeHead(502, { "content-type": "application/json" });
-        res.end(
-          JSON.stringify({
-            error:
-              "Connected MCP server authentication failed. Reconnect this server in PostHog.",
-          }),
-        );
-        return;
-      }
-
       // MCP servers return HTTP 200 with auth failures encoded in the JSON-RPC
       // body, so authenticatedFetch's 401/403 retry never kicks in. Detect the
       // known error shape and retry once with a force-refreshed token.
