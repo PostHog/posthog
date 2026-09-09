@@ -2506,13 +2506,14 @@ async def test_apply_scanner_workflow_splits_rasterizer_failures_by_cause(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "leaf_message,non_retryable,expected_kind,expected_reason",
+    "rasterizer_type,leaf_message,non_retryable,expected_kind,expected_reason",
     [
         # A genuine transport blip (5xx, timeout, dropped connection) reaches the parent as a retryable
         # BLOCK_LISTING_FAILED whose message carries the errno and pod address. It must land as retryable
         # infra_transient with the errno and address dropped, so one outage can't mint a fresh error-tracking
         # issue per variant.
         (
+            "BLOCK_LISTING_FAILED",
             "Failed to fetch block listing: connect ECONNREFUSED 10.0.0.5:6738",
             False,
             FailureKind.INFRA_TRANSIENT,
@@ -2522,18 +2523,32 @@ async def test_apply_scanner_workflow_splits_rasterizer_failures_by_cause(
         # BLOCK_LISTING_FAILED. Retrying can't heal it, so it must keep the recording-level rasterization_failed
         # label with its own message, not a false retry prompt that merges into the transient-outage issue.
         (
+            "BLOCK_LISTING_FAILED",
             "Failed to fetch block listing: 401 - unauthorized",
             True,
             FailureKind.RASTERIZATION_FAILED,
             "rasterization_failed:Failed to fetch block listing: 401 - unauthorized",
         ),
+        # A Chrome target that dies mid-render is the render environment failing one attempt, not a recording
+        # that can never render, so it must read as a retryable renderer blip rather than a "known issue".
+        (
+            "TARGET_CLOSED",
+            "chrome target closed mid-render",
+            False,
+            FailureKind.INFRA_TRANSIENT,
+            "infra_transient:the video renderer stopped before it finished (TARGET_CLOSED)",
+        ),
     ],
 )
-async def test_apply_scanner_workflow_classifies_rasterizer_dependency_failure_by_retryability(
-    leaf_message: str, non_retryable: bool, expected_kind: FailureKind, expected_reason: str
+async def test_apply_scanner_workflow_classifies_rasterizer_environment_failure_by_retryability(
+    rasterizer_type: str,
+    leaf_message: str,
+    non_retryable: bool,
+    expected_kind: FailureKind,
+    expected_reason: str,
 ) -> None:
     new_observation_id = uuid.uuid4()
-    leaf = ApplicationError(leaf_message, type="BLOCK_LISTING_FAILED", non_retryable=non_retryable)
+    leaf = ApplicationError(leaf_message, type=rasterizer_type, non_retryable=non_retryable)
     mocks = _WorkflowMocks(
         activity_results={
             create_observation_activity: CreateObservationOutput(
@@ -2545,7 +2560,7 @@ async def test_apply_scanner_workflow_classifies_rasterizer_dependency_failure_b
     )
 
     with pytest.raises(ScannerFailureError) as exc_info:
-        await _run_workflow(_build_inputs(session_id="sess-blocklist"), mocks)
+        await _run_workflow(_build_inputs(session_id="sess-raster-env"), mocks)
 
     assert exc_info.value.kind is expected_kind
     called = {fn for fn, _ in mocks.activity_calls}
@@ -2558,12 +2573,11 @@ async def test_apply_scanner_workflow_classifies_rasterizer_dependency_failure_b
         # groups by the stable message instead of the errno and pod address the leaf still carries.
         assert exc_info.value.__cause__ is None
         assert exc_info.value.__suppress_context__ is True
-        # Prove it through the real capture serializer: the errno and pod address must not survive into
+        # Prove it through the real capture serializer: none of the raw leaf text may survive into
         # `$exception_list`, or one outage still fragments into a fresh error-tracking issue per variant.
         serialized = exceptions_from_error_tuple((type(exc_info.value), exc_info.value, exc_info.value.__traceback__))
         captured = " ".join(str(item.get("value")) for item in serialized)
-        assert "ECONNREFUSED" not in captured
-        assert "10.0.0.5" not in captured
+        assert leaf_message not in captured
 
 
 @pytest.mark.asyncio
