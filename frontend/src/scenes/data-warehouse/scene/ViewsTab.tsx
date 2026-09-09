@@ -23,8 +23,9 @@ import {
 } from '~/types'
 
 import { NodeSuspensionApi } from 'products/data_modeling/frontend/generated/api.schemas'
-import { STATUS_TAG_SETTINGS, statusBackgroundClass } from 'products/data_modeling/frontend/lineage/nodeStyles'
+import { statusBackgroundClass } from 'products/data_modeling/frontend/lineage/nodeStyles'
 import { SEARCH_SYNTAX_HELP } from 'products/data_modeling/frontend/lineage/SearchSyntaxHelp'
+import { StatusTag } from 'products/data_modeling/frontend/lineage/StatusTag'
 
 import { TableCertificationTag } from '../TableCertificationBadge'
 import { PAGE_SIZE, ViewTypeFilter, viewsTabLogic } from './viewsTabLogic'
@@ -119,7 +120,7 @@ function StatusCell({
             </Tooltip>
         )
     }
-    return <LemonTag type={STATUS_TAG_SETTINGS[view.status] || 'default'}>{view.status}</LemonTag>
+    return <StatusTag status={view.status} />
 }
 
 interface ViewsTabProps {

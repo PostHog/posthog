@@ -42,21 +42,36 @@ describe('modelsSceneLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/data_modeling_nodes/': {
-                    count: 4,
+                    count: 6,
                     results: [
                         buildNode('healthy', { last_run_status: 'Completed' }),
                         buildNode('broken', { last_run_status: 'Failed' }),
+                        buildNode('child', { last_run_status: 'Skipped' }),
+                        buildNode('grandchild', { last_run_status: 'Skipped' }),
                         buildNode('paused', {
                             suspended: { clickhouse: { at: '2024-01-02T00:00:00Z', reason: 'boom', job_id: 'j1' } },
                         }),
                         buildNode('never-ran'),
                     ],
                 },
+                '/api/environments/:team_id/data_modeling_edges/': {
+                    count: 2,
+                    results: [
+                        { id: 'e1', source_id: 'broken', target_id: 'child', dag: 'dag-1' },
+                        { id: 'e2', source_id: 'child', target_id: 'grandchild', dag: 'dag-1' },
+                    ],
+                },
                 '/api/environments/:team_id/warehouse_saved_queries/': {
                     count: 2,
                     results: [
                         { id: 'query-healthy', name: 'healthy', columns: [], is_materialized: true },
-                        { id: 'query-broken', name: 'broken', columns: [], is_materialized: true },
+                        {
+                            id: 'query-broken',
+                            name: 'broken',
+                            columns: [],
+                            is_materialized: true,
+                            latest_error: 'Unknown table foo',
+                        },
                     ],
                 },
             },
@@ -95,5 +110,27 @@ describe('modelsSceneLogic', () => {
 
         expect(logic.values.failingNodes.map((node) => node.id)).toEqual(['broken'])
         expect(logic.values.suspendedNodes.map((node) => node.id)).toEqual(['paused'])
+    })
+
+    it('lists broken models with their error and what they hold up', async () => {
+        await mount('/models')
+        await expectLogic(lineageDataLogic).toDispatchActions(['loadNodesSuccess', 'loadEdgesSuccess'])
+        await expectLogic(dataWarehouseViewsLogic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
+
+        // Suspended sorts above failed, because a suspended model has stopped running altogether.
+        expect(logic.values.attentionModels.map((row) => [row.node.id, row.problem])).toEqual([
+            ['paused', 'Suspended'],
+            ['broken', 'Failed'],
+        ])
+
+        const paused = logic.values.attentionModels[0]
+        expect(paused.reason).toEqual('boom')
+        expect(paused.downstreamCount).toEqual(0)
+
+        // The whole cone counts, not just direct children, and the anchor is not one of them.
+        const broken = logic.values.attentionModels[1]
+        expect(broken.reason).toEqual('Unknown table foo')
+        expect(broken.downstreamCount).toEqual(2)
+        expect(broken.skippedCount).toEqual(2)
     })
 })

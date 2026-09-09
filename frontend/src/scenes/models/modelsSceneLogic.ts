@@ -6,10 +6,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { urls } from 'scenes/urls'
 
-import { DataModelingNode } from '~/types'
+import { DataModelingEdge, DataModelingNode } from '~/types'
 
 import { NodeSuspensionApi } from 'products/data_modeling/frontend/generated/api.schemas'
 import { lineageDataLogic } from 'products/data_modeling/frontend/lineage/lineageDataLogic'
+import { buildAdjacencyMaps, traverseLineage } from 'products/data_modeling/frontend/lineage/lineageSearch'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { DataWarehouseSavedQuery } from '../../types'
@@ -22,6 +23,15 @@ function isModelsSceneTab(tab: unknown): tab is ModelsSceneTab {
     return typeof tab === 'string' && (MODELS_SCENE_TABS as string[]).includes(tab)
 }
 
+/** One row of the overview's attention table: a broken model, why, and what it holds up. */
+export interface AttentionModel {
+    node: DataModelingNode
+    problem: 'Failed' | 'Suspended'
+    reason: string | null
+    downstreamCount: number
+    skippedCount: number
+}
+
 export interface modelsSceneLogicValues {
     dataWarehouseSavedQueries: DataWarehouseSavedQuery[] // dataWarehouseViewsLogic
     dataWarehouseSavedQueriesLoading: boolean // dataWarehouseViewsLogic
@@ -30,10 +40,12 @@ export interface modelsSceneLogicValues {
     dataQualityTabEnabled: boolean
     nodes: DataModelingNode[] // lineageDataLogic
     nodesLoading: boolean // lineageDataLogic
+    edges: DataModelingEdge[] // lineageDataLogic
     savedQueryIdToNodeId: Record<string, string>
     failingNodes: DataModelingNode[]
     suspendedNodes: DataModelingNode[]
     suspensionBySavedQueryId: Record<string, NodeSuspensionApi | undefined>
+    attentionModels: AttentionModel[]
 }
 
 export interface modelsSceneLogicActions {
@@ -48,6 +60,13 @@ export interface modelsSceneLogicMeta {
         suspendedNodes: (nodes: DataModelingNode[]) => DataModelingNode[]
         suspensionBySavedQueryId: (nodes: DataModelingNode[]) => Record<string, NodeSuspensionApi | undefined>
         dataQualityTabEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        attentionModels: (
+            failingNodes: DataModelingNode[],
+            suspendedNodes: DataModelingNode[],
+            edges: DataModelingEdge[],
+            nodes: DataModelingNode[],
+            savedQueries: DataWarehouseSavedQuery[]
+        ) => AttentionModel[]
     }
 }
 
@@ -67,7 +86,7 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             lineageDataLogic,
-            ['nodes', 'nodesLoading'],
+            ['nodes', 'nodesLoading', 'edges'],
         ],
         actions: [dataWarehouseViewsLogic, ['loadDataWarehouseSavedQueries']],
     })),
@@ -116,6 +135,59 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
                     }
                 }
                 return map
+            },
+        ],
+        /**
+         * What the overview leads with. Suspension outranks a failure because scheduled runs have
+         * stopped entirely, and within each the widest blast radius comes first.
+         */
+        attentionModels: [
+            (s) => [s.failingNodes, s.suspendedNodes, s.edges, s.nodes, s.dataWarehouseSavedQueries],
+            (
+                failingNodes: DataModelingNode[],
+                suspendedNodes: DataModelingNode[],
+                edges: DataModelingEdge[],
+                nodes: DataModelingNode[],
+                savedQueries: DataWarehouseSavedQuery[]
+            ): AttentionModel[] => {
+                const suspendedIds = new Set(suspendedNodes.map((node) => node.id))
+                const affected = [...suspendedNodes, ...failingNodes.filter((node) => !suspendedIds.has(node.id))]
+                if (affected.length === 0) {
+                    return []
+                }
+
+                const errorBySavedQueryId: Record<string, string | null> = {}
+                for (const query of savedQueries) {
+                    errorBySavedQueryId[query.id] = query.latest_error ?? null
+                }
+                const nodeById: Record<string, DataModelingNode> = {}
+                for (const node of nodes) {
+                    nodeById[node.id] = node
+                }
+                const maps = buildAdjacencyMaps(edges)
+
+                const rows = affected.map((node): AttentionModel => {
+                    const suspension = Object.values(node.suspended ?? {})[0]
+                    // The cone includes the node itself, which is not something it blocks.
+                    const downstream = [...traverseLineage(node.id, maps, 'downstream')].filter((id) => id !== node.id)
+                    return {
+                        node,
+                        problem: suspension ? 'Suspended' : 'Failed',
+                        reason:
+                            suspension?.reason ??
+                            (node.saved_query_id ? errorBySavedQueryId[node.saved_query_id] : null) ??
+                            null,
+                        downstreamCount: downstream.length,
+                        skippedCount: downstream.filter((id) => nodeById[id]?.last_run_status === 'Skipped').length,
+                    }
+                })
+
+                return rows.sort((a, b) => {
+                    if (a.problem !== b.problem) {
+                        return a.problem === 'Suspended' ? -1 : 1
+                    }
+                    return b.downstreamCount - a.downstreamCount
+                })
             },
         ],
         dataQualityTabEnabled: [

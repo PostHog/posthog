@@ -1,80 +1,195 @@
 import { useValues } from 'kea'
 
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonCard, Link } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { modelsSceneLogic } from '../modelsSceneLogic'
+import { checkDisplayName } from 'products/data_quality/frontend/checksConstants'
+import { CheckStatusCell } from 'products/data_quality/frontend/CheckStatusCell'
+import { DataQualityOverviewCheckApi } from 'products/data_quality/frontend/generated/api.schemas'
+import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
-const NAMES_SHOWN = 3
+import { AttentionModel, modelsSceneLogic } from '../modelsSceneLogic'
 
-function namesSummary(names: string[]): string {
-    const shown = names.slice(0, NAMES_SHOWN).join(', ')
-    const rest = names.length - NAMES_SHOWN
-    return rest > 0 ? `${shown} and ${rest} more` : shown
-}
-
-interface AttentionTileProps {
+function Section({
+    title,
+    description,
+    action,
+    children,
+}: {
     title: string
-    count: number
-    detail: string
-    tone: 'danger' | 'warning'
-    'data-attr': string
+    description: string
+    action?: JSX.Element
+    children: React.ReactNode
+}): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="flex items-start justify-between gap-4">
+                <div>
+                    <h3 className="mb-0">{title}</h3>
+                    <p className="mb-0 text-secondary text-sm">{description}</p>
+                </div>
+                {action}
+            </div>
+            {children}
+        </div>
+    )
 }
 
-function AttentionTile({ title, count, detail, tone, ...props }: AttentionTileProps): JSX.Element {
+/** What the failure holds up, so a reader can tell a leaf model from one the whole graph waits on. */
+function ImpactCell({ row }: { row: AttentionModel }): JSX.Element {
+    if (row.downstreamCount === 0) {
+        return <span className="text-secondary whitespace-nowrap">Nothing downstream</span>
+    }
     return (
-        <LemonCard className="flex flex-col gap-1" data-attr={props['data-attr']}>
-            <span className="text-xs uppercase text-secondary">{title}</span>
-            <span className={`text-2xl font-semibold ${tone === 'danger' ? 'text-danger' : 'text-warning'}`}>
-                {count}
-            </span>
-            <span className="text-xs text-secondary truncate">{detail}</span>
-        </LemonCard>
+        <div className="flex flex-col whitespace-nowrap">
+            <span>{pluralize(row.downstreamCount, 'model')} downstream</span>
+            {row.skippedCount > 0 && (
+                <span className="text-secondary text-xs">{pluralize(row.skippedCount, 'model')} skipped</span>
+            )}
+        </div>
+    )
+}
+
+const ATTENTION_COLUMNS: LemonTableColumns<AttentionModel> = [
+    {
+        title: 'Model',
+        key: 'name',
+        render: (_, row) => <LemonTableLink to={urls.nodeDetail(row.node.id)} title={row.node.name} />,
+    },
+    {
+        title: 'Problem',
+        key: 'problem',
+        width: 0,
+        render: (_, row) => (
+            <LemonTag type={row.problem === 'Suspended' ? 'warning' : 'danger'}>{row.problem}</LemonTag>
+        ),
+    },
+    {
+        title: 'Error',
+        key: 'reason',
+        render: (_, row) =>
+            row.reason ? (
+                <Tooltip title={<div className="whitespace-pre-wrap font-mono text-xs">{row.reason}</div>}>
+                    <span className="line-clamp-2 text-secondary text-xs">{row.reason}</span>
+                </Tooltip>
+            ) : (
+                <span className="text-secondary">-</span>
+            ),
+    },
+    {
+        title: 'Impact',
+        key: 'impact',
+        width: 0,
+        render: (_, row) => <ImpactCell row={row} />,
+    },
+]
+
+const CHECK_COLUMNS: LemonTableColumns<DataQualityOverviewCheckApi> = [
+    {
+        title: 'Check',
+        key: 'check',
+        render: (_, check) => checkDisplayName(check),
+    },
+    {
+        title: 'Subject',
+        key: 'subject',
+        render: (_, check) =>
+            check.subject_node_id ? (
+                <Link to={urls.nodeDetail(check.subject_node_id, 'tests')}>{check.subject_name}</Link>
+            ) : (
+                check.subject_name
+            ),
+    },
+    {
+        title: 'Status',
+        key: 'status',
+        width: 0,
+        render: (_, check) => <CheckStatusCell check={check} />,
+    },
+]
+
+function OverviewBody({
+    failingChecks,
+    checksLoading,
+}: {
+    failingChecks: DataQualityOverviewCheckApi[]
+    checksLoading: boolean
+}): JSX.Element {
+    const { attentionModels, nodesLoading } = useValues(modelsSceneLogic)
+
+    if (!nodesLoading && attentionModels.length === 0 && failingChecks.length === 0) {
+        return (
+            <div className="flex items-center gap-2" data-attr="models-overview-healthy">
+                <IconCheckCircle className="text-success text-xl" />
+                <span>Every model ran as scheduled and every check passed.</span>
+            </div>
+        )
+    }
+
+    return (
+        <div className="flex flex-col gap-6">
+            {(nodesLoading || attentionModels.length > 0) && (
+                <Section
+                    title="Models needing attention"
+                    description="A failed model did not finish its last run. A suspended one has stopped running on its schedule after repeated failures."
+                    action={
+                        <Link to={urls.models('models')} data-attr="models-overview-all-models">
+                            All models
+                        </Link>
+                    }
+                >
+                    <LemonTable
+                        columns={ATTENTION_COLUMNS}
+                        dataSource={attentionModels}
+                        loading={nodesLoading}
+                        rowKey={(row) => row.node.id}
+                        size="small"
+                        data-attr="models-overview-attention"
+                    />
+                </Section>
+            )}
+            {failingChecks.length > 0 && (
+                <Section
+                    title="Failing data quality checks"
+                    description="Assertions your models did not hold up on their last run."
+                    action={
+                        <Link to={urls.models('data-quality')} data-attr="models-overview-all-checks">
+                            All checks
+                        </Link>
+                    }
+                >
+                    <LemonTable
+                        columns={CHECK_COLUMNS}
+                        dataSource={failingChecks}
+                        loading={checksLoading}
+                        rowKey={(check) => check.id}
+                        size="small"
+                        data-attr="models-overview-failing-checks"
+                    />
+                </Section>
+            )}
+        </div>
+    )
+}
+
+/** Split out so the checks request is only made where the tab exists. */
+function OverviewWithChecks(): JSX.Element {
+    const { checks, overviewLoading } = useValues(dataQualityOverviewLogic)
+
+    return (
+        <OverviewBody
+            failingChecks={checks.filter((check) => check.last_status === 'failed' || check.last_status === 'errored')}
+            checksLoading={overviewLoading}
+        />
     )
 }
 
 export function ModelsOverviewTab(): JSX.Element {
-    const { failingNodes, suspendedNodes } = useValues(modelsSceneLogic)
+    const { dataQualityTabEnabled } = useValues(modelsSceneLogic)
 
-    const nothingToDo = failingNodes.length === 0 && suspendedNodes.length === 0
-
-    return (
-        <div className="flex flex-col gap-4">
-            {nothingToDo ? (
-                <LemonCard hoverEffect={false} className="flex items-center gap-2" data-attr="models-overview-healthy">
-                    <IconCheckCircle className="text-lg text-success" />
-                    <span className="text-sm">Every model ran as scheduled. Nothing needs your attention.</span>
-                </LemonCard>
-            ) : (
-                <div className="@container">
-                    <div className="grid grid-cols-1 @md:grid-cols-2 @4xl:grid-cols-3 gap-2">
-                        {failingNodes.length > 0 && (
-                            <AttentionTile
-                                title="Failing"
-                                count={failingNodes.length}
-                                detail={namesSummary(failingNodes.map((node) => node.name))}
-                                tone="danger"
-                                data-attr="models-overview-failing"
-                            />
-                        )}
-                        {suspendedNodes.length > 0 && (
-                            <AttentionTile
-                                title="Suspended"
-                                count={suspendedNodes.length}
-                                detail={namesSummary(suspendedNodes.map((node) => node.name))}
-                                tone="warning"
-                                data-attr="models-overview-suspended"
-                            />
-                        )}
-                    </div>
-                </div>
-            )}
-            <p className="text-xs text-secondary">
-                Open a model from the <Link to={urls.models('models')}>Models</Link> tab to see its runs, errors, and
-                schedule.
-            </p>
-        </div>
-    )
+    return dataQualityTabEnabled ? <OverviewWithChecks /> : <OverviewBody failingChecks={[]} checksLoading={false} />
 }
