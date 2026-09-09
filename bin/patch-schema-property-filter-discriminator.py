@@ -73,7 +73,7 @@ EXPECTED_SITE_COUNTS = {
     # recursive site, discriminated including the group via its AND/OR -> property_group tag.
     "recursive": 1,
     # Plain inlined runs: list[<members>], optionally `| PropertyGroupFilter` / `| None`.
-    "plain": 64,
+    "plain": 65,
 }
 
 

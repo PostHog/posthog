@@ -24,6 +24,7 @@ from posthog.schema import (
     LogEntryPropertyFilter,
     LogPropertyFilter,
     LogPropertyFilterType,
+    MCPModelBreakdownQuery,
     MetricPropertyFilter,
     PersonMetadataPropertyFilter,
     PersonPropertyFilter,
@@ -270,6 +271,17 @@ class TestPropertyFilterDiscriminator(SimpleTestCase):
             {"kind": "TrendsQuery", "series": [], "properties": [{"type": "event", "key": "k", "operator": "exact"}]}
         )
         assert isinstance(query.properties, list)
+        assert type(query.properties[0]) is EventPropertyFilter
+
+    def test_mcp_model_breakdown_properties_use_the_discriminated_filter(self) -> None:
+        query = MCPModelBreakdownQuery.model_validate(
+            {
+                "kind": "MCPModelBreakdownQuery",
+                "properties": [{"type": "event", "key": "$mcp_llm_model", "operator": "exact"}],
+            }
+        )
+
+        assert query.properties is not None
         assert type(query.properties[0]) is EventPropertyFilter
 
     def test_serialization_round_trip_is_stable(self) -> None:

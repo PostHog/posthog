@@ -19,6 +19,7 @@ import {
     HogQLFilters,
     HogQLQueryResponse,
     MCPHarnessBreakdownItem,
+    MCPModelBreakdownItem,
     MCPToolCallBreakdownItem,
     MCPToolCallsAndErrorsItem,
     NodeKind,
@@ -191,6 +192,13 @@ export interface HarnessRow {
     errors: number
     error_rate_pct: number
     sessions: number
+}
+
+export interface ModelRow {
+    model: string
+    total_calls: number
+    client_metadata_calls: number
+    self_reported_calls: number
 }
 
 export interface SessionRow {
@@ -385,11 +393,14 @@ export interface mcpDashboardOverviewLogicValues {
     filterTestAccountsOverride: boolean | null
     harnessRows: HarnessRow[]
     harnessRowsLoading: boolean
+    hasKnownModelData: boolean
     intentClusterCount: KPIMetric
     interval: IntervalType
     kpiIncompleteTail: boolean
     kpis: KPIData
     kpisLoading: boolean
+    modelRows: ModelRow[]
+    modelRowsLoading: boolean
     notableSessions: NotableSession[]
     propertyFilters: AnyPropertyFilter[]
     queryFilters: HogQLFilters
@@ -461,6 +472,21 @@ export interface mcpDashboardOverviewLogicActions {
         payload?: void
     ) => {
         kpis: KPIData
+        payload?: void
+    }
+    loadModelRows: (_: void) => void
+    loadModelRowsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadModelRowsSuccess: (
+        modelRows: ModelRow[],
+        payload?: void
+    ) => {
+        modelRows: ModelRow[]
         payload?: void
     }
     loadSessionRows: (_: void) => void
@@ -588,6 +614,7 @@ export interface mcpDashboardOverviewLogicMeta {
         dailyActivity: (activityRows: ActivityRow[], bucketKeys: string[]) => DailyActivity
         toolDailySeries: (toolDailyRows: ToolDailyRow[], bucketKeys: string[]) => ToolDailySeries
         notableSessions: (sessionRows: SessionRow[]) => NotableSession[]
+        hasKnownModelData: (modelRows: any) => boolean
         intentClusterCount: (totalClusterCount: number) => KPIMetric
     }
 }
@@ -766,6 +793,22 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 },
             },
         ],
+        modelRows: [
+            [] as ModelRow[],
+            {
+                loadModelRows: async (_: void, breakpoint): Promise<ModelRow[]> => {
+                    const { dateRange, properties, filterTestAccounts } = values.queryFilters
+                    const response = (await api.query({
+                        kind: NodeKind.MCPModelBreakdownQuery,
+                        dateRange,
+                        properties,
+                        filterTestAccounts,
+                    })) as { results?: MCPModelBreakdownItem[] }
+                    breakpoint()
+                    return response?.results ?? []
+                },
+            },
+        ],
         activityRows: [
             [] as ActivityRow[],
             {
@@ -864,6 +907,10 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             (s) => [s.sessionRows],
             (sessionRows: SessionRow[]): NotableSession[] => pickNotableSessions(sessionRows),
         ],
+        hasKnownModelData: [
+            (s) => [s.modelRows],
+            (modelRows: ModelRow[]): boolean => modelRows.some((row) => row.model !== 'Unknown' && row.total_calls > 0),
+        ],
         intentClusterCount: [
             // The snapshot only stores the top clusters by call volume — report
             // the run's true count, not the length of the truncated list.
@@ -894,6 +941,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             actions.loadToolRows()
             actions.loadSessionRows()
             actions.loadHarnessRows()
+            actions.loadModelRows()
             actions.loadActivityRows()
             actions.loadToolDailyRows()
         },
