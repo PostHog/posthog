@@ -2025,9 +2025,17 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         # Member entry: user info, org level, project access, per-resource access
         member_data = self._find_member(data["results"], self.user2_membership.id)
         assert member_data is not None
-        expected_member_keys = {"organization_membership_id", "user", "organization_level", "project", "resources"}
+        expected_member_keys = {
+            "organization_membership_id",
+            "user",
+            "organization_level",
+            "role_ids",
+            "project",
+            "resources",
+        }
         assert expected_member_keys <= set(member_data.keys())
         assert member_data["organization_membership_id"] == str(self.user2_membership.id)
+        assert member_data["role_ids"] == []
 
         # User object: identity fields
         expected_user_keys = {"uuid", "first_name", "last_name", "email"}
@@ -2088,6 +2096,7 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         assert member_data["project"]["effective_access_level"] == "admin"
         assert member_data["project"]["inherited_access"]["access_level"] == "admin"
         assert member_data["project"]["inherited_access"]["source_subject"] == "role"
+        assert member_data["role_ids"] == [str(self.role.id)]
 
     def test_project_admin_does_not_affect_resource_effective_level(self):
         """Project-level admin default does not grant resource-level access."""
