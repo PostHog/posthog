@@ -22,6 +22,14 @@ PLUGIN_ID_OVERRIDES = {
 class MigrationResult:
     created: list[int] = field(default_factory=list)
     skipped: dict[int, str] = field(default_factory=dict)
+    dropped_inputs: dict[int, list[str]] = field(default_factory=dict)
+
+
+@frozen
+class _BuildOutcome:
+    hog_function: HogFunction | None = None
+    skip_reason: str | None = None
+    dropped_inputs: list[str] = field(default_factory=list)
 
 
 def plugin_id_from_url(url: str) -> str:
@@ -48,17 +56,17 @@ def build_inputs(plugin_config: Mapping[str, Any], plugin_id: str) -> dict[str, 
     return inputs
 
 
-def _build_hog_function(plugin_config: Mapping[str, Any]) -> tuple[HogFunction | None, str | None]:
+def _build_hog_function(plugin_config: Mapping[str, Any], drop_unmapped_inputs: bool) -> _BuildOutcome:
     url: str = plugin_config["plugin__url"] or ""
 
     if not url:
-        return None, "plugin has no url"
+        return _BuildOutcome(skip_reason="plugin has no url")
 
     plugin_id = plugin_id_from_url(url)
     template = HogFunctionTemplate.get_template(f"plugin-{plugin_id}")
 
     if not template:
-        return None, f"no bundled template for plugin-{plugin_id}"
+        return _BuildOutcome(skip_reason=f"no bundled template for plugin-{plugin_id}")
 
     team_id = plugin_config["team_id"]
 
@@ -70,18 +78,22 @@ def _build_hog_function(plugin_config: Mapping[str, Any]) -> tuple[HogFunction |
         template_id=template.template_id,
         deleted=False,
     ).exists():
-        return None, "already migrated"
+        return _BuildOutcome(skip_reason="already migrated")
 
     inputs = build_inputs(plugin_config, plugin_id)
 
     # HogFunction.save() drops any key the template schema does not declare, without a trace
     schema_keys = {entry["key"] for entry in template.inputs_schema or []}
     unmapped = sorted(set(inputs) - schema_keys)
-    if unmapped:
-        return None, f"inputs not in the template schema: {', '.join(unmapped)}"
+    if unmapped and not drop_unmapped_inputs:
+        return _BuildOutcome(skip_reason=f"inputs not in the template schema: {', '.join(unmapped)}")
 
-    return (
-        HogFunction(
+    for key in unmapped:
+        del inputs[key]
+
+    return _BuildOutcome(
+        dropped_inputs=unmapped,
+        hog_function=HogFunction(
             team_id=team_id,
             type=HogFunctionType.LEGACY_DESTINATION,
             template_id=template.template_id,
@@ -96,7 +108,6 @@ def _build_hog_function(plugin_config: Mapping[str, Any]) -> tuple[HogFunction |
             enabled=True,
             deleted=False,
         ),
-        None,
     )
 
 
@@ -105,6 +116,7 @@ def migrate_legacy_destinations(
     dry_run: bool = True,
     team_ids: list[int] | None = None,
     plugin_config_ids: list[int] | None = None,
+    drop_unmapped_inputs: bool = False,
     batch_size: int = 100,
     limit: int | None = None,
 ) -> MigrationResult:
@@ -112,6 +124,10 @@ def migrate_legacy_destinations(
 
     The plugin config is left enabled. The consumer prefers the hog function for a matching template, so
     rolling back means deleting the hog function rather than restoring the plugin config.
+
+    A config carrying inputs the template schema does not declare is refused, because saving it would
+    drop them silently. Read them off a dry run, confirm the bundled processor ignores them, then pass
+    drop_unmapped_inputs to migrate anyway.
     """
     candidates = (
         PluginConfig.objects.values("id")
@@ -129,6 +145,7 @@ def migrate_legacy_destinations(
     candidate_ids = [row["id"] for row in candidates]
     created: list[int] = []
     skipped: dict[int, str] = {}
+    dropped_inputs: dict[int, list[str]] = {}
 
     for start in range(0, len(candidate_ids), batch_size):
         # nosemgrep: idor-lookup-without-team (internal migration; ids come from the team-scoped query above)
@@ -137,16 +154,19 @@ def migrate_legacy_destinations(
         )
 
         for row in batch:
-            hog_function, skip_reason = _build_hog_function(row)
+            outcome = _build_hog_function(row, drop_unmapped_inputs)
 
-            if hog_function is None:
-                skipped[row["id"]] = skip_reason or "unknown"
+            if outcome.hog_function is None:
+                skipped[row["id"]] = outcome.skip_reason or "unknown"
                 continue
+
+            if outcome.dropped_inputs:
+                dropped_inputs[row["id"]] = outcome.dropped_inputs
 
             if not dry_run:
                 # Saved one at a time rather than bulk, so each row fires the worker reload signal
-                hog_function.save()
+                outcome.hog_function.save()
 
             created.append(row["id"])
 
-    return MigrationResult(created=created, skipped=skipped)
+    return MigrationResult(created=created, skipped=skipped, dropped_inputs=dropped_inputs)

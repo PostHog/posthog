@@ -36,8 +36,10 @@ class TestLegacyDestinationMigration(BaseTest):
         plugin.save()
         return plugin
 
-    def _migrate(self, dry_run=False):
-        return migrate_legacy_destinations(dry_run=dry_run, team_ids=[self.team.id])
+    def _migrate(self, dry_run=False, drop_unmapped_inputs=False):
+        return migrate_legacy_destinations(
+            dry_run=dry_run, team_ids=[self.team.id], drop_unmapped_inputs=drop_unmapped_inputs
+        )
 
     def _hog_functions(self):
         return HogFunction.objects.filter(team=self.team, type=HogFunctionType.LEGACY_DESTINATION)
@@ -142,6 +144,17 @@ class TestLegacyDestinationMigration(BaseTest):
         assert result.created == []
         assert result.skipped == {plugin_config.id: "inputs not in the template schema: removedOption"}
         assert not self._hog_functions().exists()
+
+    def test_drops_unmapped_inputs_when_asked_and_reports_what_went(self):
+        plugin_config = self._plugin_config(config={"customerioSiteId": "site-1", "removedOption": "x"})
+
+        result = self._migrate(drop_unmapped_inputs=True)
+
+        assert result.created == [plugin_config.id]
+        assert result.dropped_inputs == {plugin_config.id: ["removedOption"]}
+        hog_function = self._hog_functions().get()
+        assert hog_function.inputs["customerioSiteId"] == {"value": "site-1"}
+        assert "removedOption" not in hog_function.inputs
 
     def test_moves_attachments_into_inputs(self):
         plugin_config = self._plugin_config()
