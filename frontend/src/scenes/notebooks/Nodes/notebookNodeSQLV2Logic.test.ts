@@ -414,6 +414,25 @@ describe('notebookNodeSQLV2Logic', () => {
         expect(resultSpy).toHaveBeenCalledWith('nb1', 'r1')
     })
 
+    it('adopts a run a whole-notebook run started on the server', async () => {
+        // The server already dispatched this cell, so the node must poll rather than dispatch
+        // again — a second dispatch would run the cell twice and be refused as busy.
+        mount()
+        logic.actions.adoptChainRun('n1', 'r9')
+        await expectLogic(logic).toDispatchActions(['startPolling', 'pollResult'])
+        expect(runSpy).not.toHaveBeenCalled()
+        expect(resultSpy).toHaveBeenCalledWith('nb1', 'r9')
+        // Persisted so a reload mid-run recovers the poll through afterMount.
+        expect(updateAttributes).toHaveBeenCalledWith({ nodeId: 'n1', runId: 'r9', result: null, runStatus: null })
+    })
+
+    it('ignores a whole-notebook run dispatched at another cell', async () => {
+        mount()
+        logic.actions.adoptChainRun('n2', 'r9')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(resultSpy).not.toHaveBeenCalled()
+    })
+
     it('does not poll a persisted run that already has a result', async () => {
         mount({ runId: 'r1', hasResult: true })
         await expectLogic(logic).toFinishAllListeners()

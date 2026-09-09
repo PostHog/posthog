@@ -23,10 +23,13 @@ import { notebookLogic } from './Notebook/notebookLogic'
 import {
     NotebookExpandButton,
     NotebookKernelInfoButton,
+    NotebookRunAllButton,
     NotebookVariablesButton,
     NotebookPresence,
     NotebookSyncInfo,
 } from './Notebook/NotebookMeta'
+import { notebookRunLogic } from './Notebook/notebookRunLogic'
+import { NotebookRunProgressBanner } from './Notebook/NotebookRunProgressBanner'
 import { NotebookShareModal } from './Notebook/NotebookShareModal'
 import { NotebookMenu } from './NotebookMenu'
 import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
@@ -57,6 +60,8 @@ export function NotebookScene(): JSX.Element {
     const [isMarkdownSourceOpen, setIsMarkdownSourceOpen] = useState(false)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
+    const { isRunning, progressLabel: runProgressLabel } = useValues(notebookRunLogic({ shortId: notebookId }))
+    const { interruptRun } = useActions(notebookRunLogic({ shortId: notebookId }))
 
     useEffect(() => {
         if (notebookId === 'new') {
@@ -135,6 +140,7 @@ export function NotebookScene(): JSX.Element {
                     <UserActivityIndicator at={notebook?.last_modified_at} by={notebook?.last_modified_by} />
                     <BindLogic logic={notebookLogic} props={{ shortId: notebookId, target: NotebookTarget.Scene }}>
                         <NotebookVariablesButton type="tertiary" size="small" />
+                        <NotebookRunAllButton type="tertiary" size="small" />
                     </BindLogic>
                 </div>
 
@@ -176,6 +182,13 @@ export function NotebookScene(): JSX.Element {
                     )}
                 </div>
             </div>
+
+            {isRunning && (
+                <NotebookRunProgressBanner
+                    label={runProgressLabel ?? 'Starting the run'}
+                    onStop={() => interruptRun()}
+                />
+            )}
 
             <Notebook
                 key={notebookId}

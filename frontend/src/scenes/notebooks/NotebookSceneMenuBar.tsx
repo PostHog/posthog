@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconCopy, IconDownload, IconOpenSidebar, IconShare, IconTrash } from '@posthog/icons'
+import { IconCopy, IconDownload, IconOpenSidebar, IconPlay, IconShare, IconTrash, IconX } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -21,6 +21,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { isMarkdownNotebookContent } from './Notebook/markdownNotebookV2'
 import { notebookLogic } from './Notebook/notebookLogic'
+import { notebookRunLogic } from './Notebook/notebookRunLogic'
 import { notebookSettingsLogic } from './Notebook/notebookSettingsLogic'
 import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
 import { isKernelUiEnabled } from './utils'
@@ -43,6 +44,8 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
     const { isMarkdownExpanded, showKernelInfo } = useValues(notebookSettingsLogic)
     const { setIsMarkdownExpanded, setShowKernelInfo, setShowVariables } = useActions(notebookSettingsLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
+    const { isRunning } = useValues(notebookRunLogic({ shortId }))
+    const { startRun, interruptRun } = useActions(notebookRunLogic({ shortId }))
     const canDelete = !isLocalOnly && !notebook?.is_template
     // The kernel info panel only renders for markdown (V2) notebooks, so hide the toggle elsewhere
     const showKernelToggle = isKernelUiEnabled(featureFlags) && isMarkdownNotebookContent(content)
@@ -111,6 +114,17 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
                     Show history
                 </SceneMenuBarCheckboxItem>
             </SceneMenuBarMenu>
+            {showKernelToggle && (
+                <SceneMenuBarMenu label="Run" dataAttr={`${RESOURCE_TYPE}-menubar-run`}>
+                    <SceneMenuBarItem
+                        onClick={() => (isRunning ? interruptRun() : startRun())}
+                        data-attr={`${RESOURCE_TYPE}-menubar-run-all`}
+                    >
+                        {isRunning ? <IconX /> : <IconPlay />}
+                        {isRunning ? 'Stop the run' : 'Run all cells'}
+                    </SceneMenuBarItem>
+                </SceneMenuBarMenu>
+            )}
             <SceneMenuBarMenu label="View" dataAttr={`${RESOURCE_TYPE}-menubar-view`}>
                 <SceneMenuBarCheckboxItem
                     checked={isMarkdownExpanded}

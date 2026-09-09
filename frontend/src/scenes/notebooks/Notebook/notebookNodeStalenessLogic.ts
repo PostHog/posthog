@@ -89,6 +89,13 @@ export interface notebookNodeStalenessLogicActions {
     abortChain: (reason: string | null) => {
         reason: string | null
     }
+    adoptChainRun: (
+        nodeId: string,
+        runId: string
+    ) => {
+        nodeId: string
+        runId: string
+    }
     clearNodeStale: (nodeId: string) => {
         nodeId: string
     }
@@ -214,6 +221,10 @@ export const notebookNodeStalenessLogic = kea<notebookNodeStalenessLogicType>([
         runWidgetDataChain: (content: JSONContent | null, nodeIds: string[]) => ({ content, nodeIds }),
         // Consumed by the matching notebookNodeSQLV2Logic, which builds refs and runs itself.
         dispatchChainRun: (nodeId: string) => ({ nodeId }),
+        // A whole-notebook run dispatched this cell on the server. The matching cell takes the
+        // run over — polls it, writes the result into the document, and reports it finished —
+        // so a run started from the toolbar lands in the cells exactly like a per-cell run.
+        adoptChainRun: (nodeId: string, runId: string) => ({ nodeId, runId }),
         setChainQueue: (nodeIds: string[]) => ({ nodeIds }),
         setChainRoot: (nodeId: string | null) => ({ nodeId }),
         setLastRun: (nodeId: string, downstreamNodeIds: string[]) => ({ nodeId, downstreamNodeIds }),

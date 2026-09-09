@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useState } from 'react'
 
-import { IconBrackets, IconSparkles, IconTerminal } from '@posthog/icons'
+import { IconBrackets, IconPlay, IconSparkles, IconTerminal, IconX } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { IconDocumentExpand } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -11,11 +12,14 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
-import { NotebookSyncStatus } from '../types'
+import { buildNotebookDependencyGraph } from '../Nodes/notebookNodeContent'
+import { NotebookSyncStatus, NotebookNodeType } from '../types'
 import { isKernelUiEnabled } from '../utils'
 import { isMarkdownNotebookContent } from './markdownNotebookV2'
 import { NotebookLogicProps, notebookLogic } from './notebookLogic'
+import { notebookOperationsLogic } from './notebookOperationsLogic'
 import { NOTEBOOK_AI_PRESENCE_COLOR, type NotebookPresenceParticipant } from './notebookPresence'
+import { notebookRunLogic } from './notebookRunLogic'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 const MAX_PRESENCE_BUBBLES = 6
@@ -266,5 +270,68 @@ export const NotebookKernelInfoButton = ({
             tooltip={showKernelInfo ? 'Hide kernel info' : 'Show kernel info'}
             tooltipPlacement="left"
         />
+    )
+}
+
+/** How many cells a whole-notebook run would execute. Zero means there is nothing to run. */
+function countRunnableCells(content: JSONContent | null): number {
+    return buildNotebookDependencyGraph(content).nodes.filter(
+        (node) =>
+            (node.nodeType === NotebookNodeType.SQLV2 || node.nodeType === NotebookNodeType.PythonV2) &&
+            !!node.code?.trim()
+    ).length
+}
+
+export const NotebookRunAllButton = (
+    props: Pick<LemonButtonProps, 'children' | 'size' | 'type'>
+): JSX.Element | null => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { content, shortId, isEditable, isShared } = useValues(notebookLogic)
+    const { isRunning, isStarting } = useValues(notebookRunLogic({ shortId }))
+    const { isBusy } = useValues(notebookOperationsLogic({ shortId }))
+    const { startRun, interruptRun } = useActions(notebookRunLogic({ shortId }))
+
+    // Only the revamped cells run, so the button stays out of every other notebook.
+    if (!isKernelUiEnabled(featureFlags) || !isMarkdownNotebookContent(content)) {
+        return null
+    }
+    if (!countRunnableCells(content)) {
+        return null
+    }
+
+    if (isRunning) {
+        return (
+            <LemonButton
+                {...props}
+                onClick={() => interruptRun()}
+                icon={<IconX />}
+                loading={isStarting}
+                tooltip="Stop the run. The cell that is running now stops too."
+                data-attr="notebook-run-all-stop"
+            >
+                Stop
+            </LemonButton>
+        )
+    }
+
+    return (
+        <LemonButton
+            {...props}
+            onClick={() => startRun()}
+            icon={<IconPlay />}
+            disabledReason={
+                isShared
+                    ? 'A shared notebook is read-only.'
+                    : !isEditable
+                      ? 'You can only run a notebook you can edit.'
+                      : isBusy
+                        ? 'Another operation is running in this notebook.'
+                        : undefined
+            }
+            tooltip="Run every SQL and Python cell, in order. The run stops at the first cell that fails."
+            data-attr="notebook-run-all"
+        >
+            Run all
+        </LemonButton>
     )
 }
