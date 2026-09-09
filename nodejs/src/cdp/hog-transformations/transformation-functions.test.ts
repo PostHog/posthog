@@ -98,6 +98,13 @@ describe('transformation-functions', () => {
             expect(durationMs).toBeLessThan(500)
         })
 
+        it('falls back to the default separator when the configured one is too long', () => {
+            // A huge separator would otherwise be copied into every flattened key.
+            const result = flattenProperties({ a: { b: 1 } }, 'x'.repeat(200)) as Record<string, any>
+
+            expect(result.a__b).toBe(1)
+        })
+
         it('returns the input unchanged when it is not an object', () => {
             expect(flattenProperties('nope', '__')).toBe('nope')
         })

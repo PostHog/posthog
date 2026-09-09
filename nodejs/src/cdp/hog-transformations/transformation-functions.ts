@@ -128,27 +128,39 @@ const FLATTEN_PROPERTY_DENYLIST = [
     '$web_vitals_data',
 ]
 
+// Real separators join keys and run a few characters. Cap the configured one so a huge value
+// cannot be copied into every flattened key and blow up memory and CPU.
+const MAX_SEPARATOR_LENGTH = 100
+// Backstop on the number of flattened keys, so one pathological event cannot generate an unbounded
+// number of properties. Well above any real event; capture already bounds the event size.
+const MAX_FLATTENED_KEYS = 100000
+
 // Flattening runs as a host function rather than in hog, because the hog VM re-costs a local on
 // every read, which makes an in-language recursive flatten quadratic in the property count and can
 // exhaust the transformation time budget. This accumulates in place, so it is linear.
 function flattenPropertiesInternal(
     props: Record<string, any>,
     sep: string,
-    nestedChain: string[]
+    nestedChain: string[],
+    budget: { remaining: number }
 ): Record<string, any> {
     const newProps: Record<string, any> = {}
     for (const [key, value] of Object.entries(props)) {
+        if (budget.remaining <= 0) {
+            break
+        }
         if (FLATTEN_PROPERTY_DENYLIST.includes(key)) {
             // Leave internal properties nested.
         } else if (key === '$set' || key === '$set_once' || key === '$group_set') {
-            newProps[key] = { ...(props[key] as object), ...flattenPropertiesInternal(props[key], sep, []) }
+            newProps[key] = { ...(props[key] as object), ...flattenPropertiesInternal(props[key], sep, [], budget) }
         } else if (
             Array.isArray(value) ||
             (value !== null && typeof value === 'object' && Object.keys(value).length > 0)
         ) {
-            Object.assign(newProps, flattenPropertiesInternal(props[key], sep, [...nestedChain, key]))
+            Object.assign(newProps, flattenPropertiesInternal(props[key], sep, [...nestedChain, key], budget))
         } else if (nestedChain.length > 0) {
             newProps[nestedChain.join(sep) + sep + key] = value
+            budget.remaining -= 1
         }
     }
     return nestedChain.length > 0 ? newProps : { ...props, ...newProps }
@@ -158,8 +170,11 @@ export const flattenProperties = (properties: unknown, separator?: unknown): unk
     if (properties === null || typeof properties !== 'object' || Array.isArray(properties)) {
         return properties
     }
-    const sep = typeof separator === 'string' && separator.length > 0 ? separator : '__'
-    return flattenPropertiesInternal(properties as Record<string, any>, sep, [])
+    let sep = typeof separator === 'string' && separator.length > 0 ? separator : '__'
+    if (sep.length > MAX_SEPARATOR_LENGTH) {
+        sep = '__'
+    }
+    return flattenPropertiesInternal(properties as Record<string, any>, sep, [], { remaining: MAX_FLATTENED_KEYS })
 }
 
 export const getTransformationFunctions = (geoipLookup: GeoIp) => {
