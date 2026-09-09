@@ -17,6 +17,7 @@ import {
     IconHide,
     IconLeave,
     IconLive,
+    IconLock,
     IconMessage,
     IconNight,
     IconPieChart,
@@ -40,6 +41,7 @@ import { retryImport } from 'lib/utils/retryImport'
 import { AnimatedLogomark } from '~/toolbar/bar/AnimatedLogomark'
 import { AuthConfirmModal } from '~/toolbar/bar/AuthConfirmModal'
 import { PII_MASKING_PRESET_COLORS } from '~/toolbar/bar/piiMaskingStyles'
+import { ToolbarLockedFeature } from '~/toolbar/bar/ToolbarLockedFeature'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { UiHostConfigModal } from '~/toolbar/bar/UiHostConfigModal'
 import { fieldNotesLogic } from '~/toolbar/field-notes/fieldNotesLogic'
@@ -48,7 +50,9 @@ import { screenshotUploadLogic } from '~/toolbar/screenshot-upload/screenshotUpl
 import { ScreenshotUploadModal } from '~/toolbar/screenshot-upload/ScreenshotUploadModal'
 import { surveysToolbarLogic } from '~/toolbar/surveys/surveysToolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { useToolbarFeatureGate } from '~/toolbar/toolbarEntitlementsLogic'
 import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
+import { AvailableFeature } from '~/types'
 
 import { ToolbarButton } from './ToolbarButton'
 
@@ -110,6 +114,22 @@ const WebVitalsToolbarMenu = lazy(() =>
 )
 
 const HELP_URL = 'https://posthog.com/docs/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
+
+function LockableMenuIcon({ icon, locked }: { icon: JSX.Element; locked: boolean }): JSX.Element {
+    if (!locked) {
+        return icon
+    }
+    return (
+        <span
+            className="relative flex"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ fontSize: '1.5rem' }}
+        >
+            {icon}
+            <IconLock className="absolute -top-1 -right-1 text-xs text-secondary" />
+        </span>
+    )
+}
 
 function EnabledStatusItem({ label, value }: { label: string; value: boolean }): JSX.Element {
     return (
@@ -378,10 +398,16 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     const fieldNotesFlag = useToolbarFeatureFlag('field-notes')
     const showFieldNotes = inStorybook() || inStorybookTestRunner() || fieldNotesFlag
 
+    const heatmapGated = useToolbarFeatureGate(AvailableFeature.TOOLBAR_HEATMAPS, 'toolbar-paid-heatmaps')
+
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
     ) : visibleMenu === 'heatmap' ? (
-        <HeatmapToolbarMenu />
+        heatmapGated ? (
+            <ToolbarLockedFeature featureName="Heatmaps" />
+        ) : (
+            <HeatmapToolbarMenu />
+        )
     ) : visibleMenu === 'actions' ? (
         <ActionsToolbarMenu />
     ) : visibleMenu === 'debugger' ? (
@@ -465,6 +491,8 @@ export function Toolbar(): JSX.Element | null {
     const fieldNotesFlag = useToolbarFeatureFlag('field-notes')
     const showFieldNotes = inStorybook() || inStorybookTestRunner() || fieldNotesFlag
     const { hasOpenedFieldNotes } = useValues(fieldNotesLogic)
+
+    const heatmapGated = useToolbarFeatureGate(AvailableFeature.TOOLBAR_HEATMAPS, 'toolbar-paid-heatmaps')
 
     useEffect(() => {
         setElement(ref.current)
@@ -569,8 +597,11 @@ export function Toolbar(): JSX.Element | null {
                                 </span>
                             </ToolbarButton>
                         ) : (
-                            <ToolbarButton menuId="heatmap">
-                                <IconCursorClick />
+                            <ToolbarButton
+                                menuId="heatmap"
+                                title={heatmapGated ? 'Heatmaps (paid feature)' : undefined}
+                            >
+                                <LockableMenuIcon icon={<IconCursorClick />} locked={heatmapGated} />
                             </ToolbarButton>
                         )}
                         <ToolbarButton menuId="actions">
@@ -595,8 +626,11 @@ export function Toolbar(): JSX.Element | null {
                         )}
                         {/* Heatmaps moves here and takes the app icon when field notes is enabled */}
                         {showFieldNotes && (
-                            <ToolbarButton menuId="heatmap" title="Heatmaps">
-                                <IconApp />
+                            <ToolbarButton
+                                menuId="heatmap"
+                                title={heatmapGated ? 'Heatmaps (paid feature)' : 'Heatmaps'}
+                            >
+                                <LockableMenuIcon icon={<IconApp />} locked={heatmapGated} />
                             </ToolbarButton>
                         )}
                         {showSurveys && (

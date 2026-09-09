@@ -58,6 +58,7 @@ type StoryArgs = {
     minimized?: boolean
     unauthenticated?: boolean
     theme?: 'light' | 'dark'
+    heatmapLocked?: boolean
 }
 
 const meta: Meta<StoryArgs> = {
@@ -92,6 +93,7 @@ const meta: Meta<StoryArgs> = {
                     featureFlags: {
                         'web-vitals': true,
                         'web-vitals-toolbar': true,
+                        'toolbar-paid-heatmaps': props.heatmapLocked ?? false,
                     },
                     sessionRecording: {
                         endpoint: '/s/',
@@ -99,6 +101,7 @@ const meta: Meta<StoryArgs> = {
                 },
                 '/api/element/stats/': listHeatmapStatsAPIResponse,
                 '/api/heatmap/': { results: [] },
+                '/api/user/toolbar_entitlements': { entitlements: { toolbar_heatmaps: !props.heatmapLocked } },
                 '/api/projects/@current/feature_flags/my_flags': listMyFlagsAPIResponse,
                 '/api/projects/@current/actions/': listActionsAPIResponse,
                 '/api/projects/@current/web_experiments/': listExperimentsAPIResponse,
@@ -144,6 +147,10 @@ export const Minimized: Story = {
 
 export const Heatmap: Story = {
     args: { menu: 'heatmap' },
+}
+
+export const HeatmapLocked: Story = {
+    args: { menu: 'heatmap', heatmapLocked: true },
 }
 
 export const Inspect: Story = {

@@ -227,6 +227,7 @@ export enum AvailableFeature {
     DATA_COLOR_THEMES = 'data_color_themes',
     ORGANIZATION_INVITE_SETTINGS = 'organization_invite_settings',
     ORGANIZATION_SECURITY_SETTINGS = 'organization_security_settings',
+    TOOLBAR_HEATMAPS = 'toolbar_heatmaps',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`

@@ -76,7 +76,7 @@ from posthog.auth import (
     SessionAuthentication,
     session_auth_required,
 )
-from posthog.constants import INVITE_DAYS_VALIDITY, PERMITTED_FORUM_DOMAINS
+from posthog.constants import INVITE_DAYS_VALIDITY, PERMITTED_FORUM_DOMAINS, AvailableFeature
 from posthog.email import is_email_available
 from posthog.event_usage import (
     report_user_deleted_account,
@@ -1975,6 +1975,28 @@ def get_toolbar_preloaded_flags(request):
     feature_flags = cache_data.get("feature_flags", {})
 
     return JsonResponse({"featureFlags": feature_flags})
+
+
+TOOLBAR_ENTITLEMENT_FEATURES: list[AvailableFeature] = [
+    AvailableFeature.TOOLBAR_HEATMAPS,
+]
+
+
+@session_auth_required
+def get_toolbar_entitlements(request):
+    team = request.user.team
+    if not team:
+        return JsonResponse({"error": "No team found"}, status=400)
+
+    if not _user_can_access_toolbar(request.user, team):
+        return JsonResponse({"error": "Unauthorized"}, status=403)
+
+    organization = team.organization
+    entitlements = {
+        feature.value: organization.is_feature_available(feature) for feature in TOOLBAR_ENTITLEMENT_FEATURES
+    }
+
+    return JsonResponse({"entitlements": entitlements})
 
 
 @session_auth_required

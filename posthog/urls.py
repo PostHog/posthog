@@ -565,6 +565,7 @@ urlpatterns = [
     path("", include(tf_urls)),
     opt_slash_path("api/user/prepare_toolbar_preloaded_flags", user.prepare_toolbar_preloaded_flags),
     opt_slash_path("api/user/get_toolbar_preloaded_flags", user.get_toolbar_preloaded_flags),
+    opt_slash_path("api/user/toolbar_entitlements", user.get_toolbar_entitlements),
     opt_slash_path("api/user/toolbar_oauth_refresh", user.toolbar_oauth_refresh),
     path("toolbar_oauth/authorize/", login_required(user.toolbar_oauth_authorize)),
     path("toolbar_oauth/callback", user.toolbar_oauth_callback),
