@@ -5071,6 +5071,10 @@ export type TasksListParams = {
      */
     archived?: TasksListArchived
     /**
+     * Return a basic payload with heavy fields dropped, for surfaces that render only a summary of each task. Defaults to false. Currently this omits the description body, which dominates the list payload; the search parameter still matches description text server-side.
+     */
+    basic?: boolean
+    /**
      * Filter tasks to a channel's feed.
      */
     channel?: string
