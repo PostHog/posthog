@@ -1,8 +1,8 @@
 from django.db import migrations
 
 # Each feature flag action and the experiment action that will replace it once experiment-owned
-# flags leave `feature_flag.*` scope. Copying now, ahead of that change, keeps the 22 organizations
-# with policies at the coverage they have today.
+# flags leave `feature_flag.*` scope. Copying now, ahead of that change, keeps organizations with
+# existing policies at the coverage they have today.
 ACTION_MAP = {
     "feature_flag.enable": "experiment.launch",
     "feature_flag.disable": "experiment.pause",
