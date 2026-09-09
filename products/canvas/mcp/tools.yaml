@@ -423,3 +423,27 @@ tools:
     canvases-versions-retrieve:
         operation: canvases_versions_retrieve
         enabled: false
+    sketchpads-compiled-create:
+        operation: sketchpads_compiled_create
+        enabled: false
+    sketchpads-create:
+        operation: sketchpads_create
+        enabled: false
+    sketchpads-destroy:
+        operation: sketchpads_destroy
+        enabled: false
+    sketchpads-list:
+        operation: sketchpads_list
+        enabled: false
+    sketchpads-ops-append:
+        operation: sketchpads_ops_append
+        enabled: false
+    sketchpads-ops-retrieve:
+        operation: sketchpads_ops_retrieve
+        enabled: false
+    sketchpads-partial-update:
+        operation: sketchpads_partial_update
+        enabled: false
+    sketchpads-retrieve:
+        operation: sketchpads_retrieve
+        enabled: false
