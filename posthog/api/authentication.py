@@ -1129,13 +1129,9 @@ class PasswordResetSerializer(serializers.Serializer):
                 code="email_not_available",
             )
 
-        try:
-            user = User.objects.filter(is_active=True).get(email__iexact=email)
-        except User.DoesNotExist:
-            user = None
-        except User.MultipleObjectsReturned:
-            # If multiple users share the same email (different casing), use the exact match
-            user = User.objects.filter(is_active=True, email=email).first()
+        # Same lookup login uses, so a reset link can never reach a different account than the
+        # password it replaces.
+        user = EmailLookupHandler.get_user_by_email(email)
 
         if user:
             user.requested_password_reset_at = datetime.datetime.now(datetime.UTC)
