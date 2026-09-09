@@ -11,6 +11,7 @@ from django.test import SimpleTestCase, override_settings
 from parameterized import parameterized
 
 from posthog.models.integration import Integration
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
@@ -533,19 +534,32 @@ class TestDirectHostIsCheckedAtConnect(SimpleTestCase):
                     pass
 
 
-class TestDirectHostRejectionIsNonRetryable(SimpleTestCase):
-    # The rejection is a config problem only the customer can fix, so it has to stop the schedule
-    # the way its SSH counterpart does. Raising it through the real path couples the wording to the
-    # registered pattern: reword one without the other and this fails.
+class TestRejectedHostStopsTheScheduleWithoutReporting(SimpleTestCase):
+    # A rejected host is a config problem only the customer can fix, so it has to stop the schedule
+    # and stay out of error tracking. Two properties, both raised through the real path: the message
+    # keeps the prefix a registered pattern pauses the schema on (reword one without the other and
+    # this fails), and the type is `NonReportableError`, the only marker the Temporal activity
+    # interceptor honors. The fingerprint groups by source module rather than by host, so reporting
+    # a rejection both misnames the group and mints noise nobody on our side can act on.
+    @parameterized.expand(
+        [
+            ("direct", None, "Database host not allowed"),
+            (
+                "ssh_tunnel",
+                FakeSSHTunnelConfig(enabled=True, host="bastion.example.com"),
+                "SSH tunnel host not allowed",
+            ),
+        ]
+    )
     @override_settings(CLOUD_DEPLOYMENT="US")
-    def test_rejection_message_matches_a_registered_non_retryable_error(self):
-        config = FakeConfig(host="db.example.com", ssh_tunnel=None)
-        addrinfo = [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("169.254.169.254", 0))]
+    def test_rejection_is_non_reportable_and_stays_classified(self, _name: str, ssh_tunnel, expected_prefix: str):
+        config = FakeConfig(host="db.example.com", ssh_tunnel=ssh_tunnel)
         with (
-            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=addrinfo),
+            patch(f"{_MIXINS_MODULE}.SSHTunnel"),
+            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", side_effect=socket.gaierror("Name or service not known")),
             patch(f"{_MIXINS_MODULE}.logger"),
         ):
-            with pytest.raises(Exception) as exc:
+            with pytest.raises(NonReportableError, match=expected_prefix) as exc:
                 with open_ssh_tunnel(config, 999):
                     pass
 
