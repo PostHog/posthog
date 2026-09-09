@@ -55,7 +55,7 @@ def op_sources(rows: Sequence[SketchpadOp]) -> dict[str, JsonValue]:
     if not rows:
         return {}
     fragments = [fragment for row in rows for fragment in _op_fragments(row.op)]
-    refs = {fragment["codeRef"] for fragment in fragments if isinstance(fragment.get("codeRef"), str)}
+    refs = source_refs(fragments)
     if not refs:
         return {}
     return dict(
@@ -63,6 +63,14 @@ def op_sources(rows: Sequence[SketchpadOp]) -> dict[str, JsonValue]:
         .filter(sketchpad_id=rows[0].sketchpad_id, kind=SketchpadRecordKind.SOURCE, key__in=refs)
         .values_list("key", "value")
     )
+
+
+def source_refs(fragments: Iterable[JsonObject]) -> set[str]:
+    return {ref for fragment in fragments if isinstance(ref := fragment.get("codeRef"), str)}
+
+
+def op_source_refs(rows: Iterable[SketchpadOp]) -> set[str]:
+    return source_refs(fragment for row in rows for fragment in _op_fragments(row.op))
 
 
 def hydrate_ops(rows: Sequence[SketchpadOp]) -> None:

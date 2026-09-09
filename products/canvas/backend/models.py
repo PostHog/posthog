@@ -8,6 +8,10 @@ from posthog.models.utils import UUIDModel
 from products.canvas.backend.facade.enums import SketchpadActorKind, SketchpadRecordKind
 
 
+def empty_sketchpad_snapshot() -> dict[str, object]:
+    return {"schemaVersion": 1, "fragments": [], "state": {}}
+
+
 class Canvas(TeamScopedRootMixin, UUIDModel):
     """A canvas document: an agent-built, sandboxed browser app filed in a channel.
 
@@ -280,6 +284,8 @@ class Sketchpad(TeamScopedRootMixin, UUIDModel):
         "posthog.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+", db_constraint=False
     )
     head_seq = models.IntegerField(default=0)
+    history_start_seq = models.IntegerField(default=0, db_default=0)
+    history_snapshot = models.JSONField(default=empty_sketchpad_snapshot, db_default=empty_sketchpad_snapshot())
     pinned_at = models.DateTimeField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now)

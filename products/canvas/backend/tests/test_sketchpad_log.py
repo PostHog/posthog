@@ -18,12 +18,56 @@ from products.canvas.backend.presentation.sketchpad.serializers import (
     SketchpadSerializer,
 )
 from products.canvas.backend.sketchpad.compiler import compile_sketchpad_fragments, compiled_fragments
-from products.canvas.backend.sketchpad.log import append_ops
+from products.canvas.backend.sketchpad.log import SketchpadHistoryCompacted, append_ops
 from products.canvas.backend.sketchpad.records import with_sketchpad_records
 from products.tasks.backend.models import Channel
 
 
 class TestSketchpadLog(BaseTest):
+    @patch("products.canvas.backend.sketchpad.log.SKETCHPAD_COMPACTION_CHUNK", 2)
+    @patch("products.canvas.backend.sketchpad.log.SKETCHPAD_HISTORY_LIMIT", 3)
+    def test_compacts_old_ops_into_a_checkpoint_and_rejects_stale_retries(self) -> None:
+        channel = Channel.objects.for_team(self.team.id).create(team_id=self.team.id, name="general")
+        sketchpad = Sketchpad.objects.for_team(self.team.id).create(
+            team_id=self.team.id, channel=channel, name="History test"
+        )
+        first = {
+            "id": "note",
+            "x": 0,
+            "y": 0,
+            "w": 360,
+            "h": 240,
+            "code": "export default () => 1",
+        }
+        second = "export default () => 2"
+        ops = [
+            {"op_id": "add", "op": {"type": "add_fragment", "fragment": first}},
+            {"op_id": "edit", "op": {"type": "update_fragment", "id": "note", "patch": {"code": second}}},
+            {"op_id": "state", "op": {"type": "set_state", "key": "one", "value": 1}},
+            {"op_id": "state-2", "op": {"type": "set_state", "key": "two", "value": 2}},
+        ]
+        append_ops(sketchpad, ops, "user", None, self.user)
+        sketchpad.refresh_from_db()
+
+        assert sketchpad.history_start_seq == 2
+        assert sketchpad.history_snapshot["fragments"][0]["code"] == second
+        retained = SketchpadOp.objects.for_team(self.team.id).filter(sketchpad=sketchpad).order_by("seq")
+        assert list(retained.values_list("seq", flat=True)) == [3, 4]
+        sources = SketchpadRecord.objects.for_team(self.team.id).filter(sketchpad=sketchpad, kind="source")
+        assert list(sources.values_list("value", flat=True)) == [second]
+
+        with self.assertRaises(SketchpadHistoryCompacted):
+            append_ops(
+                sketchpad,
+                [{"op_id": "add", "op": {"type": "set_state", "key": "bad", "value": True}}],
+                "user",
+                None,
+                self.user,
+                base_seq=0,
+            )
+        replay = append_ops(sketchpad, [ops[2]], "user", None, self.user, base_seq=0)
+        assert replay.results[0].seq == 3
+
     def test_compiled_sources_are_shared_and_removed_after_the_last_fragment(self) -> None:
         channel = Channel.objects.for_team(self.team.id).create(team_id=self.team.id, name="general")
         sketchpad = Sketchpad.objects.for_team(self.team.id).create(
@@ -231,7 +275,12 @@ class TestSketchpadLog(BaseTest):
         assert data["source_versions"][snapshot["fragments"][0]["codeRef"]] == code
         assert snapshot["state"]["large"] == "large-state-" * 1000
         page = SketchpadOpsPageSerializer(
-            {"results": list(stored_ops.select_related("actor_user")), "head_seq": sketchpad.head_seq}
+            {
+                "results": list(stored_ops.select_related("actor_user")),
+                "head_seq": sketchpad.head_seq,
+                "history_start_seq": sketchpad.history_start_seq,
+                "history_snapshot": sketchpad.history_snapshot,
+            }
         ).data
         assert len(page["source_versions"]) == 1
         for entry in page["results"][:2]:

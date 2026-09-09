@@ -28,10 +28,11 @@ Serializers receive board queries annotated by `with_sketchpad_records`. They do
 not fetch missing annotations. Read responses carry source references and a
 source map. Replayed append responses hydrate those references into source text.
 
-The operation log retains history for replay and undo. Source text must remain
-available while any retained operation references it, including restore snapshots.
-A retention policy needs a checkpoint and an explicit response for clients whose
-sequence predates that checkpoint. Removing sources by age alone breaks replay.
+The operation log retains at most 10,000 edits for replay and undo. A checkpoint
+stores the board state before the retained edits. Compaction advances it in blocks
+of 1,000 edits, removes older operations, and removes source versions that no
+current fragment, retained operation, or active compile job uses. A stale retry
+gets a `history_compacted` conflict and remains local until the client reloads.
 
 Sketchpad HTTP views and serializers live in `backend/presentation/sketchpad/`.
 The route registry imports that presentation package. Canvas still uses its legacy

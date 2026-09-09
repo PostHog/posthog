@@ -1660,6 +1660,59 @@ export interface SketchpadCreateApi {
  */
 export type SketchpadApiSourceVersions = { [key: string]: string }
 
+export type SketchpadSnapshotApiFragmentsItemSurface =
+    (typeof SketchpadSnapshotApiFragmentsItemSurface)[keyof typeof SketchpadSnapshotApiFragmentsItemSurface]
+
+export const SketchpadSnapshotApiFragmentsItemSurface = {
+    Card: 'card',
+    Plain: 'plain',
+} as const
+
+export type SketchpadSnapshotApiFragmentsItem = {
+    /**
+     * @minLength 1
+     * @maxLength 64
+     * @pattern ^[a-z0-9][a-z0-9-_]*$
+     */
+    id: string
+    /** @maxLength 120 */
+    title?: string
+    x: number
+    y: number
+    /**
+     * @minimum 80
+     * @maximum 4000
+     */
+    w: number
+    /**
+     * @minimum 60
+     * @maximum 4000
+     */
+    h: number
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    z?: number
+    /**
+     * @minLength 1
+     * @maxLength 200000
+     */
+    code: string
+    codeVersion?: number
+    surface?: SketchpadSnapshotApiFragmentsItemSurface
+    hidden?: boolean
+}
+
+export type SketchpadSnapshotApiState = { [key: string]: unknown }
+
+export interface SketchpadSnapshotApi {
+    schemaVersion: CanvasLayoutSchemaVersionEnumApi
+    /** @maxItems 2000 */
+    fragments?: SketchpadSnapshotApiFragmentsItem[]
+    state?: SketchpadSnapshotApiState
+}
+
 export type SketchpadReadSnapshotApiFragmentsItemSurface =
     (typeof SketchpadReadSnapshotApiFragmentsItemSurface)[keyof typeof SketchpadReadSnapshotApiFragmentsItemSurface]
 
@@ -1730,6 +1783,10 @@ export interface SketchpadApi {
     readonly pinned: boolean
     /** Who created the sketchpad, or null. */
     readonly created_by: SketchpadCreatorApi | null
+    /** Seq represented by history_snapshot. */
+    readonly history_start_seq: number
+    /** Board state before the retained operation log. */
+    readonly history_snapshot: SketchpadSnapshotApi
     /** Current sketchpad. Resolve fragment codeRef values through source_versions. */
     readonly snapshot: SketchpadReadSnapshotApi
     /** Source text by SHA-256 hash. */
@@ -2004,6 +2061,10 @@ export interface SketchpadOpsPageApi {
     results: SketchpadLogEntryApi[]
     /** Seq of the newest op in the sketchpad's log. */
     head_seq: number
+    /** Seq represented by history_snapshot. */
+    history_start_seq: number
+    /** Board state before the retained operation log. */
+    history_snapshot: SketchpadSnapshotApi
     /** Fragment source text keyed by SHA-256, once per page. */
     readonly source_versions: SketchpadOpsPageApiSourceVersions
 }
@@ -2194,6 +2255,11 @@ export interface SketchpadActorInputApi {
 }
 
 export interface SketchpadAppendOpsApi {
+    /**
+     * Newest server sequence known when the first op was created.
+     * @minimum 0
+     */
+    base_seq: number
     /** Up to 1000 ops to record, in order. An empty list makes no change. */
     ops: SketchpadOpDraftApi[]
     /** Who is making the change. */

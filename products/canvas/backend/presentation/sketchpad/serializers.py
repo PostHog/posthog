@@ -15,6 +15,7 @@ from products.canvas.backend.sketchpad.schema import (
     OP_SCHEMA,
     READ_OP_SCHEMA,
     READ_SNAPSHOT_SCHEMA,
+    SNAPSHOT_SCHEMA,
     validate_op,
 )
 
@@ -48,6 +49,11 @@ class SketchpadReadOpField(SketchpadOpField):
 
 @extend_schema_field(READ_SNAPSHOT_SCHEMA, component_name="SketchpadReadSnapshot")
 class SketchpadReadSnapshotField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(SNAPSHOT_SCHEMA, component_name="SketchpadSnapshot")
+class SketchpadSnapshotField(serializers.JSONField):
     pass
 
 
@@ -157,6 +163,10 @@ class SketchpadSummarySerializer(SketchpadBaseSerializer):
 
 
 class SketchpadSerializer(SketchpadBaseSerializer):
+    history_start_seq = serializers.IntegerField(read_only=True, help_text="Seq represented by history_snapshot.")
+    history_snapshot = SketchpadSnapshotField(
+        read_only=True, help_text="Board state before the retained operation log."
+    )
     snapshot = SketchpadReadSnapshotField(
         read_only=True, help_text="Current sketchpad. Resolve fragment codeRef values through source_versions."
     )
@@ -226,6 +236,8 @@ class SketchpadHydratedLogEntrySerializer(SketchpadLogEntrySerializer):
 class SketchpadOpsPageSerializer(serializers.Serializer):
     results = SketchpadLogEntrySerializer(many=True, help_text="Ops in ascending seq order.")
     head_seq = serializers.IntegerField(help_text="Seq of the newest op in the sketchpad's log.")
+    history_start_seq = serializers.IntegerField(help_text="Seq represented by history_snapshot.")
+    history_snapshot = SketchpadSnapshotField(help_text="Board state before the retained operation log.")
     source_versions = serializers.SerializerMethodField(
         help_text="Fragment source text keyed by SHA-256, once per page."
     )
@@ -256,6 +268,9 @@ class SketchpadOpDraftSerializer(serializers.Serializer):
 
 
 class SketchpadAppendOpsSerializer(serializers.Serializer):
+    base_seq = serializers.IntegerField(
+        min_value=0, help_text="Newest server sequence known when the first op was created."
+    )
     ops = SketchpadOpDraftSerializer(
         # DRF passes max_length to the ListSerializer that many=True builds, but the stubs
         # type this call against the child serializer, which has no such argument.

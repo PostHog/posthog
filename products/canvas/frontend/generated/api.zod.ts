@@ -1437,6 +1437,8 @@ export const SketchpadsCompiledCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Team, channel, and sandbox visibility rules shared by every canvas-like resource.
  */
+export const sketchpadsOpsAppendBodyBaseSeqMin = 0
+
 export const sketchpadsOpsAppendBodyOpsItemOpIdMax = 64
 
 export const sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentIdMax = 64
@@ -1503,6 +1505,10 @@ export const sketchpadsOpsAppendBodyOpsItemOpOneSevenRemoveItemMax = 64
 export const sketchpadsOpsAppendBodyOpsItemOpOneSevenRemoveMax = 2000
 
 export const SketchpadsOpsAppendBody = /* @__PURE__ */ zod.object({
+    base_seq: zod
+        .number()
+        .min(sketchpadsOpsAppendBodyBaseSeqMin)
+        .describe('Newest server sequence known when the first op was created.'),
     ops: zod
         .array(
             zod.object({

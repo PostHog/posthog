@@ -157,7 +157,16 @@ class SketchpadViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             .select_related("actor_user")
             .order_by("seq")[:limit]
         )
-        return Response(SketchpadOpsPageSerializer(instance={"results": rows, "head_seq": sketchpad.head_seq}).data)
+        return Response(
+            SketchpadOpsPageSerializer(
+                instance={
+                    "results": rows,
+                    "head_seq": sketchpad.head_seq,
+                    "history_start_seq": sketchpad.history_start_seq,
+                    "history_snapshot": sketchpad.history_snapshot,
+                }
+            ).data
+        )
 
     @validated_request(
         SketchpadAppendOpsSerializer,
@@ -179,6 +188,7 @@ class SketchpadViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             data["actor"]["kind"],
             self._actor_task_id(request, data["actor"].get("task_id")),
             self._request_user(),
+            base_seq=data["base_seq"],
         )
         return Response(SketchpadAppendResultSerializer(instance=result).data)
 

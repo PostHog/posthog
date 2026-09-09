@@ -18,7 +18,12 @@ SNAPSHOT = {"schemaVersion": 1, "fragments": [FRAGMENT], "state": {"title": "Not
 
 
 def append_payload(op: object, **overrides: object) -> dict[str, object]:
-    return {"ops": [{"op_id": "test-op", "op": op}], "actor": {"kind": "user"}, **overrides}
+    return {
+        "base_seq": 0,
+        "ops": [{"op_id": "test-op", "op": op}],
+        "actor": {"kind": "user"},
+        **overrides,
+    }
 
 
 class TestSketchpadValidation(SimpleTestCase):
@@ -26,6 +31,7 @@ class TestSketchpadValidation(SimpleTestCase):
     def test_operation_batch_limit(self, _name: str, count: int, accepted: bool) -> None:
         serializer = SketchpadAppendOpsSerializer(
             data={
+                "base_seq": 0,
                 "actor": {"kind": "user"},
                 "ops": [
                     {"op_id": str(index), "op": {"type": "remove_fragment", "id": "note"}} for index in range(count)
@@ -146,13 +152,14 @@ class TestSketchpadValidationEndpoint(APIBaseTest):
             for key in ["one", "two"]
         ]
         operations.append({"op_id": "move", "op": {"type": "update_fragment", "id": "one", "patch": {"x": 80}}})
-        response = self.client.post(f"{url}ops/", {"ops": operations, "actor": {"kind": "user"}})
+        response = self.client.post(f"{url}ops/", {"base_seq": 0, "ops": operations, "actor": {"kind": "user"}})
         assert response.status_code == 200
         assert response.json()["replayed"] == []
         task = Task.objects.create(team=self.team, channel=channel, created_by=self.user, title="Edit sketchpad")
         retry = self.client.post(
             f"{url}ops/",
             {
+                "base_seq": 0,
                 "ops": [
                     {
                         "op_id": "one",
