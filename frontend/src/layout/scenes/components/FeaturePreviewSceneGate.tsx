@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 
-import { IconCheck } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
-import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
+import { ConceptWaitlistCTA } from 'lib/components/FeaturePreviews/ConceptWaitlistCTA'
+import { featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import {
@@ -40,7 +40,8 @@ export function FeaturePreviewSceneGate({
 
 function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfig }): JSX.Element {
     const { earlyAccessFeatures } = useValues(featurePreviewsLogic)
-    const { loadEarlyAccessFeatures, updateEarlyAccessFeatureEnrollment } = useActions(featurePreviewsLogic)
+    const { loadEarlyAccessFeatures, updateEarlyAccessFeatureEnrollment, addProductIntentForCrossSell } =
+        useActions(featurePreviewsLogic)
     const { activeSceneId } = useValues(sceneLogic)
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
@@ -71,7 +72,21 @@ function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfi
                     titleOverride={config.title}
                     description={config.description}
                     isEmpty
-                    actionElementOverride={<ConceptWaitlistForm feature={feature} config={config} />}
+                    actionElementOverride={
+                        <ConceptWaitlistCTA
+                            feature={feature}
+                            size="medium"
+                            onSignUp={() => {
+                                if (config.productIntent) {
+                                    void addProductIntentForCrossSell({
+                                        from: ProductKey.EARLY_ACCESS_FEATURES,
+                                        to: config.productIntent,
+                                        intent_context: ProductIntentContext.FEATURE_PREVIEW_ENABLED,
+                                    })
+                                }
+                            }}
+                        />
+                    }
                     docsURL={config.docsURL}
                 />
             </SceneContent>
@@ -140,83 +155,5 @@ function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfi
                 docsURL={config.docsURL}
             />
         </SceneContent>
-    )
-}
-
-function ConceptWaitlistForm({
-    feature,
-    config,
-}: {
-    feature: EnrichedEarlyAccessFeature
-    config: FeaturePreviewGateConfig
-}): JSX.Element {
-    const { waitlistSurveysEnabled, conceptSurveySubmissions } = useValues(featurePreviewsLogic)
-    const { submitConceptSurvey, updateEarlyAccessFeatureEnrollment, addProductIntentForCrossSell } =
-        useActions(featurePreviewsLogic)
-    const [email, setEmail] = useState('')
-
-    const surveySubmitted = !!conceptSurveySubmissions[feature.flagKey] || feature.enabled
-
-    // Mirrors the previews page's ConceptPreview: email collection only when the waitlist
-    // surveys gate is on, otherwise the plain one-click registration.
-    const hasWaitlistSurvey = waitlistSurveysEnabled
-
-    const recordIntent = (): void => {
-        // submitConceptSurvey refuses impersonated sessions; skip the intent too so a
-        // rejected signup never records a false adoption signal.
-        if (config.productIntent && !window.IMPERSONATED_SESSION) {
-            void addProductIntentForCrossSell({
-                from: ProductKey.EARLY_ACCESS_FEATURES,
-                to: config.productIntent,
-                intent_context: ProductIntentContext.FEATURE_PREVIEW_ENABLED,
-            })
-        }
-    }
-
-    if (surveySubmitted) {
-        return (
-            <span role="status" className="flex items-center gap-1 text-success font-medium">
-                <IconCheck /> Thanks — we'll email you when it's ready.
-            </span>
-        )
-    }
-
-    if (hasWaitlistSurvey) {
-        return (
-            <form
-                className="flex items-center gap-2"
-                onSubmit={(e) => {
-                    e.preventDefault()
-                    if (email) {
-                        submitConceptSurvey(feature.flagKey, email)
-                        recordIntent()
-                    }
-                }}
-            >
-                <LemonInput
-                    type="email"
-                    value={email}
-                    onChange={setEmail}
-                    placeholder="email@yourcompany.com"
-                    aria-label="Email address"
-                    autoComplete="email"
-                />
-                <LemonButton type="primary" htmlType="submit" disabledReason={!email ? 'Enter your email' : undefined}>
-                    Get notified
-                </LemonButton>
-            </form>
-        )
-    }
-
-    return (
-        <LemonButton
-            type="primary"
-            onClick={() => {
-                updateEarlyAccessFeatureEnrollment(feature.flagKey, true, feature.stage)
-                recordIntent()
-            }}
-        >
-            Get notified
-        </LemonButton>
     )
 }

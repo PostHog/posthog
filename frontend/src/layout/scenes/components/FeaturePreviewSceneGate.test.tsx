@@ -361,7 +361,7 @@ describe('FeaturePreviewSceneGate', () => {
 
             render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
 
-            expect(screen.getByText(/Thanks — we'll email you when it's ready/)).toBeInTheDocument()
+            expect(screen.getByText(/Thanks, we'll email you when it's ready/)).toBeInTheDocument()
             expect(screen.queryByRole('switch')).not.toBeInTheDocument()
         })
 

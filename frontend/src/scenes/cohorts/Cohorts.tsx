@@ -37,6 +37,7 @@ import {
 } from '~/types'
 
 import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsEmptyState'
+import { RealtimeCohortsWaitlistBanner } from 'products/cohorts/frontend/RealtimeCohortsWaitlistBanner'
 
 export const scene: SceneExport = {
     component: Cohorts,
@@ -292,6 +293,8 @@ export function Cohorts(): JSX.Element {
                     </Shortcut>
                 }
             />
+
+            <RealtimeCohortsWaitlistBanner />
 
             <div>{filtersSection}</div>
             <LemonTable

@@ -467,6 +467,7 @@ export const FEATURE_FLAGS = {
     QUILL_DATE_PICKER: 'quill-date-picker', // owner: @pauldambra, flips the lib/components/DatePicker seam from LemonUI to Quill
     REAL_TIME_NOTIFICATIONS: 'real-time-notifications', // owner: #team-platform-features
     REALTIME_COHORT_FLAG_TARGETING: 'realtime-cohort-flag-targeting', // owner: @dmarticus #team-feature-flags
+    REALTIME_COHORTS: 'realtime-cohorts', // owner: #team-feature-flags, links the cohorts list waitlist banner to its early access feature
     RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION: 'recordings-player-event-property-expansion', // owner: @pauldambra #team-replay
     REMOTE_CONFIG: 'remote-config', // owner: #team-platform-features
     REPLAY_COLLAPSE_INSPECTOR_ITEMS: 'replay-collapse-inspector-items', // owner: @fasyy612 #team-replay
