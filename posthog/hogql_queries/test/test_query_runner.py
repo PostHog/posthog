@@ -262,6 +262,60 @@ class TestQueryRunner(BaseTest):
 
         assert response.query_scan == summary
 
+    @parameterized.expand(
+        [
+            (
+                "flag turned off",
+                QueryScanFlag(mode="show", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5),
+                None,
+                None,
+            ),
+            (
+                "mode narrowed",
+                QueryScanFlag(mode="show", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5),
+                QueryScanFlag(mode="log_only", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5),
+                "log_only",
+            ),
+            (
+                "flag turned on",
+                None,
+                QueryScanFlag(mode="show", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5),
+                None,
+            ),
+        ]
+    )
+    def test_cache_hit_serves_the_current_query_scan_mode(self, _name, flag_at_write, flag_at_read, expected_mode):
+        # A cached entry holds the mode the flag gave the run that wrote it, and an insight entry
+        # outlives a rollback by days, so the hit has to re-read the flag. Turning the flag on is the
+        # one direction that waits for a recompute: the entry carries no measurements to re-stamp.
+        TestQueryRunner = self.setup_test_query_runner_class()
+
+        def calculate_with_clickhouse_stats(_self):
+            record(rows_read=12, bytes_read=120, duration_ms=34.0)
+            return TheTestBasicQueryResponse(results=[])
+
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        with (
+            freeze_time(datetime(2023, 2, 4, 13, 37, 42)),
+            mock.patch.object(
+                TestQueryRunner, "_calculate", autospec=True, side_effect=calculate_with_clickhouse_stats
+            ),
+        ):
+            with mock.patch("posthog.hogql_queries.query_runner.get_query_scan_flag", return_value=flag_at_write):
+                runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+            with mock.patch("posthog.hogql_queries.query_runner.get_query_scan_flag", return_value=flag_at_read):
+                response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+
+        assert response.is_cached
+        if expected_mode is None:
+            assert response.query_scan is None
+        else:
+            assert response.query_scan is not None
+            assert response.query_scan.mode == expected_mode
+            # The numbers describe the run that wrote the entry, so a mode change leaves them alone.
+            assert response.query_scan.rows_read == 12
+            assert response.query_scan.duration_ms == 34
+
     def test_calculate_runs_validators_before_calculation(self):
         TestQueryRunner = self.setup_test_query_runner_class()
         validation_rule = mock.MagicMock()

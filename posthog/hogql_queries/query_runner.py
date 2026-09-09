@@ -73,6 +73,7 @@ from posthog.schema import (
     PathsV2Query,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
+    QueryScanMode,
     QueryStatus,
     QueryStatusResponse,
     QueryTiming,
@@ -2291,6 +2292,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             # Cached from the fresh run that produced these results, so the numbers
                             # describe that run rather than this one, which touched no ClickHouse.
                             cached_query_scan = getattr(results, "query_scan", None)
+                            if cached_query_scan is not None:
+                                # The entry carries the mode the flag gave the run that wrote it, and
+                                # an insight entry lives for days. Re-read the flag so turning it off,
+                                # or moving it to another mode, reaches a hit rather than waiting for
+                                # the entry to recompute. The measurements stay as they were taken.
+                                current_scan_flag = get_query_scan_flag(self.team)
+                                if current_scan_flag is None:
+                                    # setattr, like the getattr above: not every response class declares the field.
+                                    setattr(results, "query_scan", None)  # noqa: B010
+                                else:
+                                    cached_query_scan.mode = QueryScanMode(current_scan_flag.mode)
                             query_executed_props = {
                                 "insight_id": insight_id,
                                 "dashboard_id": dashboard_id,
