@@ -124,11 +124,11 @@ Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/pr
         if status is None or status == 429 or status >= 500:
             return (
                 False,
-                "Couldn't reach Cloudflare to verify your API token. Please try again in a moment.",
+                "Couldn't reach Cloudflare to verify your API token. Try again in a moment.",
             )
         return (
             False,
-            "Invalid Cloudflare API token. Please check the token has read permissions and hasn't been revoked.",
+            "Your Cloudflare API token was rejected. Create a new token with read permissions in your Cloudflare dashboard, then reconnect.",
         )
 
     def source_for_pipeline(self, config: CloudflareSourceConfig, inputs: SourceInputs) -> SourceResponse:

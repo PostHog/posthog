@@ -137,6 +137,44 @@ fn end_to_end_contract() {
 }
 
 #[test]
+fn replay_index_metadata_tracks_snapshots_and_root_types() {
+    let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+    for (payload, expected) in [
+        (
+            json!({"@context":"https://schema.org", "@type":"Product", "offers":{"@type":"Offer", "price":10}}),
+            vec!["Product"],
+        ),
+        (
+            json!({"@context":"https://schema.org", "@graph":[{"@type":["WebPage", "Product"]}, {"@type":"WebPage"}]}),
+            vec!["WebPage", "Product"],
+        ),
+        (
+            json!([{"@context":"https://schema.org", "@type":"Article"}, {"@context":"https://schema.org", "@type":"Product"}]),
+            vec!["Article", "Product"],
+        ),
+    ] {
+        for reference in [json!(TS0 + 0.5), json!(-1), json!("invalid"), Value::Null] {
+            let inner = snapshot_message(json!([
+                {"type":2,"timestamp":TS0 + 0.5,"data":{"node":{"type":0,"id":1,"childNodes":[]},"initialOffset":{"left":0,"top":0}}},
+                {"type":5,"timestamp":TS0 + 0.5,"data":{"tag":"$json_ld","payload":payload,"fullSnapshotTimestamp":reference}},
+            ]));
+            assert_stream_matches_tree(&allow, &inner.to_string(), "replay index metadata");
+            let out = run(&allow, &payload_of(&inner)).unwrap();
+            assert_eq!(
+                out.meta.events[0].flags,
+                posthog_replay_anonymizer::snapshot::FLAG_FULL_SNAPSHOT
+            );
+            let metadata = out.meta.events[1].json_ld.as_ref().unwrap();
+            assert_eq!(metadata.root_types, expected);
+            assert_eq!(
+                metadata.full_snapshot_timestamp,
+                reference.as_f64().filter(|n| *n > 0.0)
+            );
+        }
+    }
+}
+
+#[test]
 fn failure_classification_matches_the_ts_parse_step() {
     let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
     let ok_items = r#"[{"type":3,"timestamp":1700000000000,"data":{"source":1}}]"#;

@@ -62,12 +62,13 @@ from posthog.hogql.resolver_utils import extract_base_table_types, extract_lazy_
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
 from posthog.hogql.variables import replace_variables
-from posthog.hogql.visitor import clone_expr
+from posthog.hogql.visitor import TraversingVisitor, clone_expr
 from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
+from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
 from posthog.models.team import Team
@@ -83,6 +84,20 @@ if TYPE_CHECKING:
 tracer = trace.get_tracer(__name__)
 
 TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
+
+
+@frozen
+class EmbeddedClickHouseQuery:
+    sql: str
+    context: HogQLContext
+    settings: dict[str, object]
+
+
+class _EmbeddedSelectSettingsValidator(TraversingVisitor):
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        if node.settings is not None:
+            raise ExposedHogQLError("SETTINGS are not allowed when embedding a HogQL query.")
+        super().visit_select_query(node)
 
 
 @dataclasses.dataclass(frozen=False)
@@ -610,7 +625,7 @@ class HogQLQueryExecutor:
             self.print_columns = result.print_columns
 
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_clickhouse_sql")
-    def _generate_clickhouse_sql(self):
+    def _generate_clickhouse_sql(self, *, include_settings: bool = True):
         settings = get_default_hogql_global_settings(self.team.pk, self.settings)
         if self.limit_context in (
             LimitContext.EXPORT,
@@ -639,6 +654,7 @@ class HogQLQueryExecutor:
                 modifiers=self.query_modifiers,
                 limit_context=self.limit_context,
                 database=self.hogql_context.database if self.hogql_context else None,
+                emit_top_level_settings=include_settings,
             )
             with self.timings.measure("prepare_ast_for_printing"):
                 self.clickhouse_prepared_ast = prepare_ast_for_printing(
@@ -675,8 +691,11 @@ class HogQLQueryExecutor:
             else:
                 raise
 
-    def _prepare_execution(self) -> _PreparedExecution:
+    def _prepare_execution(self, *, embedded_select: bool = False) -> _PreparedExecution:
         self._parse_query()
+
+        if embedded_select:
+            self.context.limit_top_select = False
 
         source = self._resolve_direct_source()
         if source is not None and source.direct_engine == "trino":
@@ -686,7 +705,10 @@ class HogQLQueryExecutor:
 
         self._process_variables()
         self._process_placeholders()
-        self._apply_limit()
+        if embedded_select:
+            _EmbeddedSelectSettingsValidator().visit(self.select_query)
+        if not embedded_select:
+            self._apply_limit()
         with self.timings.measure("_generate_hogql"):
             self._generate_hogql()
 
@@ -695,7 +717,7 @@ class HogQLQueryExecutor:
             return direct_execution
 
         with self.timings.measure("_generate_clickhouse_sql"):
-            self._generate_clickhouse_sql()
+            self._generate_clickhouse_sql(include_settings=not embedded_select)
 
         assert self.clickhouse_sql is not None
         assert self.clickhouse_context is not None
@@ -830,6 +852,17 @@ class HogQLQueryExecutor:
     def generate_clickhouse_sql(self) -> tuple[str, HogQLContext]:
         prepared_execution = self._prepare_execution()
         return prepared_execution.sql, prepared_execution.context
+
+    @tracer.start_as_current_span("HogQLQueryExecutor.generate_clickhouse_subquery_sql")
+    def generate_clickhouse_subquery_sql(self) -> EmbeddedClickHouseQuery:
+        prepared_execution = self._prepare_execution(embedded_select=True)
+        if prepared_execution.engine != "clickhouse":
+            raise ExposedHogQLError("Only ClickHouse-backed HogQL queries can be embedded.")
+        return EmbeddedClickHouseQuery(
+            sql=prepared_execution.sql,
+            context=prepared_execution.context,
+            settings=prepared_execution.context.top_level_settings,
+        )
 
     @tracer.start_as_current_span("HogQLQueryExecutor.execute")
     def execute(self) -> HogQLQueryResponse:

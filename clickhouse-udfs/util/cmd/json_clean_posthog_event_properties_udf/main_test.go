@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,12 +17,19 @@ func TestProcessLineCleansEventProperties(t *testing.T) {
 	input := []byte(`{"$active_feature_flags":"undefined","$active_feature_flags":["beta",42,null,{"a.b":1}],"Account.client_id":"abc","Account":{"client_id":null},"huge":18446744073709551616,"max_uint":18446744073709551615,"too_negative":-9223372036854775809,"min_int":-9223372036854775808,"null_field":null,"dupe":"","dupe":"kept","emptydupe":"","emptydupe":null}`)
 	want := `{"Account":{"client_id":"abc"},"huge":"18446744073709551616","max_uint":18446744073709551615,"too_negative":"-9223372036854775809","min_int":-9223372036854775808,"dupe":"kept","emptydupe":""}`
 
-	var got bytes.Buffer
-	if err := processLine(input, &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.String() != want {
-		t.Fatalf("processLine() = %s, want %s", got.String(), want)
+	for _, width := range []int{0, 16, 256} {
+		var prefix strings.Builder
+		prefix.WriteByte('{')
+		for i := range width {
+			fmt.Fprintf(&prefix, `"key%d":%d,`, i, i)
+		}
+		var got bytes.Buffer
+		if err := processLine([]byte(prefix.String()+string(input[1:])), &got); err != nil {
+			t.Fatal(err)
+		}
+		if expected := prefix.String() + want[1:]; got.String() != expected {
+			t.Fatalf("processLine() = %s, want %s", got.String(), expected)
+		}
 	}
 }
 
@@ -53,6 +62,7 @@ func TestProcessLinePreservesPersonProperties(t *testing.T) {
 
 func TestProcessLineGroupsFeaturePropertiesAndPreservesExistingFlagValues(t *testing.T) {
 	tests := map[string]string{
+		`{"$feature_flags.z":true,"$feature_flags.a":false,"other":1}`: `{"$feature_flags":{"a":false,"z":true},"other":1}`,
 		`{"$feature/first-flag":"fresh","$feature/number":42,"$feature/enabled":true,"$feature/config":{"nested.value":"dropped"},"$feature_flags":"invalid","$feature_flags":{"existing":"kept","first-flag":"existing"},"$feature_flag_payloads":{"flag":"dropped"},"other":"value"}`: `{"$feature_flags":{"config":{"nested":{"value":"dropped"}},"enabled":true,"existing":"kept","first-flag":"existing","number":42},"other":"value"}`,
 		`{"$feature/zebra":false,"$feature/alpha":"control","other":1}`: `{"other":1,"$feature_flags":{"alpha":"control","zebra":false}}`,
 		`{"$feature_flags":{"zebra":false,"alpha":"control"}}`:          `{"$feature_flags":{"alpha":"control","zebra":false}}`,
@@ -183,6 +193,25 @@ func TestProcessLineArrayDepthBoundary(t *testing.T) {
 	}
 }
 
+func TestProcessLineDottedDepthBoundary(t *testing.T) {
+	for _, depth := range []int{maxJSONDepth - 1, maxJSONDepth} {
+		for _, leaf := range []string{`1`, `{}`, `{"y":1}`, `[1]`} {
+			input := `{"` + strings.Repeat("x.", depth-2) + `x":` + leaf + `}`
+			want := strings.Repeat(`{"x":`, depth-1) + leaf + strings.Repeat(`}`, depth-1)
+			if depth == maxJSONDepth && (leaf == `{"y":1}` || leaf == `[1]`) {
+				want = fmt.Sprintf(`{"$unparseable_properties":%q}`, input)
+			}
+			var output bytes.Buffer
+			if err := processLine([]byte(input), &output); err != nil {
+				t.Fatal(err)
+			}
+			if output.String() != want {
+				t.Fatalf("depth=%d leaf=%s: got %s, want %s", depth, leaf, output.String(), want)
+			}
+		}
+	}
+}
+
 func TestProcessLineChecksArrayDepthAfterNormalization(t *testing.T) {
 	for _, depth := range []int{7, 8} {
 		object := `{"x":` + strings.Repeat(`[`, depth) + `1` + strings.Repeat(`]`, depth) + `}`
@@ -257,11 +286,11 @@ func TestCleanNodeMatchesNestedArrayStringPath(t *testing.T) {
 
 	var proc processor
 	proc.data = input
-	parsed, err := proc.parseValue()
+	parsed, err := proc.parseValue(1, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cleaned, err := proc.cleanNode(makePathRules("outer.$exception_sources"), parsed)
+	cleaned, err := proc.cleanNode(makePathRules("outer.$exception_sources"), parsed, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,9 +317,95 @@ func TestProcessLineHandlesEscapedDottedKeysAndStrings(t *testing.T) {
 }
 
 func TestProcessLineErrorsOnMalformedJSON(t *testing.T) {
-	var got bytes.Buffer
-	if err := processLine([]byte(`{"broken"`), &got); err == nil {
-		t.Fatal("expected error for malformed JSON, got nil")
+	for _, invalid := range []string{
+		`{"broken"`, `{"x":1,}`, `[1,]`, `01`, `1e`, `true false`,
+		`"unterminated`, `"bad\q"`, `"bad\uXYZW"`, `"\ud800"`, `"\ud800\u0041"`,
+		"\"control\x01\"", strings.Repeat(`[`, 9) + `1,]` + strings.Repeat(`]`, 8),
+	} {
+		for _, key := range []string{"keep", "$ai_input", "$set"} {
+			for _, kind := range []propertiesKind{eventProperties, personProperties, temporaryProperties} {
+				var got bytes.Buffer
+				proc := processor{kind: kind}
+				input := fmt.Sprintf(`{%q:%s}`, key, invalid)
+				if err := proc.processLine([]byte(input), &got); err == nil {
+					t.Fatalf("expected error for malformed JSON (%d): %s", kind, input)
+				}
+				if err := proc.processLine([]byte(`{"$set":1,"keep":2}`), &got); err != nil {
+					t.Fatal(err)
+				}
+				want := `{"keep":2}`
+				if kind == personProperties {
+					want = `{"$set":1,"keep":2}`
+				} else if kind == temporaryProperties {
+					want = `{"$set":1}`
+				}
+				if got.String() != want {
+					t.Fatalf("row after parse error = %s, want %s", got.String(), want)
+				}
+			}
+		}
+	}
+}
+
+func TestRunReusesInputBuffer(t *testing.T) {
+	for _, size := range []int{31, 4*1024*1024 + 17} {
+		text := strings.Repeat("x", size) + "\n\t\"\\😀"
+		encoded, err := json.Marshal(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		row := `{"keep":` + string(encoded) + `,"$ai_input":` + string(encoded) + `}`
+		cleaned := `{"keep":` + string(encoded) + `}`
+		for _, newline := range []string{"\n", "\r\n"} {
+			for _, chunked := range []bool{false, true} {
+				input := row + newline + `{"keep":1}` + newline
+				runner := run
+				if chunked {
+					input = "1\n" + row + newline + "1\n" + `{"keep":1}` + newline
+					runner = runChunked
+				}
+				var got bytes.Buffer
+				if err := runner(strings.NewReader(input), &got, eventProperties); err != nil {
+					t.Fatal(err)
+				}
+				if got.String() != cleaned+"\n"+`{"keep":1}`+"\n" {
+					t.Fatalf("incorrect output (size=%d, chunked=%t)", size, chunked)
+				}
+			}
+		}
+		var got bytes.Buffer
+		if err := run(strings.NewReader(row), &got, eventProperties); err != nil || got.String() != cleaned {
+			t.Fatalf("final row without newline: %v", err)
+		}
+		if err := runChunked(strings.NewReader("1\n"+row), io.Discard, eventProperties); err == nil {
+			t.Fatal("expected truncated chunk to fail")
+		}
+	}
+}
+
+func TestProcessLineStringBytes(t *testing.T) {
+	for _, offset := range []int{0, 7, 8, 15, 16, 31, 32} {
+		for c := range 256 {
+			input := []byte(`{"keep":"` + strings.Repeat("a", offset) + string([]byte{byte(c)}) + `x"}`)
+			valid := c >= 0x20 && c != '"' && c != '\\'
+			for _, kind := range []propertiesKind{eventProperties, personProperties, temporaryProperties} {
+				var output bytes.Buffer
+				proc := processor{kind: kind}
+				err := proc.processLine(input, &output)
+				if (err == nil) != valid {
+					t.Fatalf("offset=%d byte=%d kind=%d: error=%v, valid=%t", offset, c, kind, err, valid)
+				}
+				if valid {
+					want := input
+					if kind == temporaryProperties {
+						want = []byte(`{}`)
+					}
+					if !bytes.Equal(output.Bytes(), want) {
+						t.Fatalf("offset=%d byte=%d kind=%d: got %q, want %q", offset, c, kind, output.Bytes(), want)
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -338,7 +453,7 @@ func TestProcessLineReleasesPreviousInput(t *testing.T) {
 		t.Run(fmt.Sprint(kind), func(t *testing.T) {
 			proc := processor{kind: kind}
 			var output bytes.Buffer
-			input := []byte(`{"$set":1,"discard":null}`)
+			input := []byte(`{"$set":1,"discard":null,"nested.path":2,"$sdk_debug_probe.path":3,"escaped\u002ekey":"line\n"}`)
 			previousInput := weak.Make(&input[0])
 			if err := proc.processLine(input, &output); err != nil {
 				t.Fatal(err)
@@ -401,6 +516,71 @@ func TestProcessLineReleasesOversizedContainers(t *testing.T) {
 			}
 			runtime.KeepAlive(&proc)
 		})
+	}
+}
+
+func TestProcessLineBoundsRetainedMemory(t *testing.T) {
+	input := []byte(`{"keep":[` + strings.Repeat(`{"x":1},`, 8192) + `{}]}`)
+	var proc processor
+	var output bytes.Buffer
+	if err := proc.processLine(input, &output); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(output.Bytes(), input) {
+		t.Fatal("large retained property changed")
+	}
+	if len(proc.free) > maxRecycledValues {
+		t.Fatalf("retained %d parser nodes after a large row", len(proc.free))
+	}
+	if err := proc.processLine([]byte(`{}`), &output); err != nil {
+		t.Fatal(err)
+	}
+	if output.String() != "{}" || output.Cap() > 64*1024 {
+		t.Fatalf("small row output length=%d capacity=%d", output.Len(), output.Cap())
+	}
+}
+
+func TestProcessLineReusesDottedBuffers(t *testing.T) {
+	var proc processor
+	var output bytes.Buffer
+	for _, width := range []int{32, 256, 4096, 17, 512, 32, 256, 1} {
+		var input, expected strings.Builder
+		input.WriteByte('{')
+		expected.WriteString(`{"group":{`)
+		for i := range width {
+			if i > 0 {
+				input.WriteByte(',')
+				expected.WriteByte(',')
+			}
+			fmt.Fprintf(&input, `"group.key%d":%d`, i, i)
+			fmt.Fprintf(&expected, `"key%d":%d`, i, i)
+		}
+		input.WriteByte('}')
+		expected.WriteString("}}")
+		if err := proc.processLine([]byte(input.String()), &output); err != nil {
+			t.Fatal(err)
+		}
+		if output.String() != expected.String() {
+			t.Fatalf("dotted expansion changed after buffer reuse at width %d", width)
+		}
+		retained := 0
+		for _, entries := range proc.entryBuffers {
+			retained += cap(entries)
+			for _, entry := range entries[:cap(entries)] {
+				if entry.key != "" || entry.value != nil {
+					t.Fatal("cached entry retains input or a recycled value")
+				}
+			}
+		}
+		if retained >= 8192 {
+			t.Fatalf("cached %d entries", retained)
+		}
+	}
+	if err := proc.processLine([]byte(`{}`), &output); err != nil {
+		t.Fatal(err)
+	}
+	if proc.entryBufferMask != 0 {
+		t.Fatal("small row retains oversized cached buffers")
 	}
 }
 

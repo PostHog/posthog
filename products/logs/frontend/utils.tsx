@@ -132,6 +132,8 @@ const DISTINCT_ID_KEYS = [
     'posthog.distinct.id',
     'posthog.distinct_id',
 ]
+// Mirror of SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS in products/logs/backend/models.py — keep the
+// two in sync, or the impact counts stop covering logs this list renders as session links.
 // Some pipelines emit `posthogSessionId` even though no SDK does. Removing it breaks them.
 const SESSION_ID_KEYS = [
     'session.id',
@@ -241,6 +243,17 @@ export function getSessionIdFromLogAttributes(
 ): string | null {
     return getSessionIdWithKey(attributes, resourceAttributes, configuredKeys)?.value ?? null
 }
+
+// Log timestamps are ISO strings, but some pipelines send epoch numbers instead. Shared so every
+// surface reading `LogMessage.timestamp` parses it the same way.
+export function parseLogTimestamp(timestamp: string): dayjs.Dayjs {
+    const epoch = Number(timestamp)
+    return Number.isNaN(epoch) ? dayjs(timestamp) : dayjs(epoch)
+}
+
+// How far either side of a log the Related errors lookup searches for exceptions in the same
+// session. Shared so the drawer's tab and the row badge that opens it agree on the range.
+export const RELATED_ERRORS_WINDOW_HOURS = 6
 
 // Wide enough to cover a session around a single event without drowning it in unrelated logs.
 export const SESSION_LOGS_WINDOW_MINUTES = 30

@@ -201,9 +201,11 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        # 55, not 54: the app context serializes the project's tags, which costs one
-        # indexed lookup on posthog_taggeditem per page load.
-        cls.base_app_num_queries = 55
+        # 56, not 54: the app context serializes the project's tags, which costs one
+        # indexed lookup on posthog_taggeditem per page load, and the organization it
+        # serializes comes off the user's current_organization foreign key, which carries
+        # no signed-BAA annotation, so the AI training lock costs one more indexed lookup.
+        cls.base_app_num_queries = 56
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
 

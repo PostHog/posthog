@@ -307,6 +307,7 @@ rules:
                               |ReplayObservation
                               |ReplayObservationLabel
                               |ReplayObservationUsage
+                              |ReplayObservationView
                               |ReplayScanner
                               |ReplayScannerBackfill
                               |ReplayScannerPromptSuggestion
@@ -702,6 +703,7 @@ rules:
                         |ReplayObservation
                         |ReplayObservationLabel
                         |ReplayObservationUsage
+                        |ReplayObservationView
                         |ReplayScanner
                         |ReplayScannerBackfill
                         |ReplayScannerPromptSuggestion

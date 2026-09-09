@@ -1216,6 +1216,28 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertIn("Task 1", task_titles)
         self.assertIn("Task 2", task_titles)
 
+    @parameterized.expand(
+        [
+            ("default_full", None, True),
+            ("basic_false_full", "false", True),
+            ("basic_true_summary", "true", False),
+        ]
+    )
+    def test_list_basic_omits_description(self, _name, basic_param, expect_description):
+        self.create_task("Task 1")
+
+        url = "/api/projects/@current/tasks/"
+        if basic_param is not None:
+            url += f"?basic={basic_param}"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        row = response.json()["results"][0]
+        if expect_description:
+            self.assertEqual(row["description"], "Test Description")
+        else:
+            self.assertNotIn("description", row)
+
     def test_list_tasks_includes_latest_run(self):
         task1 = self.create_task("Task 1")
         task2 = self.create_task("Task 2")
@@ -6402,8 +6424,20 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertNotIn("pending_user_message", run.state)
         self.assertNotIn("pending_user_artifact_ids", run.state)
 
+    @parameterized.expand(
+        [
+            ("without_a_trace_id", {}, None),
+            (
+                "with_a_trace_id",
+                {"trace_id": "f960aead-b2af-4ee0-b0eb-630109a1b2a0"},
+                "f960aead-b2af-4ee0-b0eb-630109a1b2a0",
+            ),
+        ]
+    )
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
-    def test_relay_message_enqueues_slack_relay_workflow(self, mock_execute_relay):
+    def test_relay_message_enqueues_slack_relay_workflow(
+        self, _name, extra_body, expected_trace_id, mock_execute_relay
+    ):
         from posthog.models.integration import Integration
 
         from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -6427,7 +6461,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
-            {"text": "Which license should I use?"},
+            {"text": "Which license should I use?", **extra_body},
             format="json",
         )
 
@@ -6438,6 +6472,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             text="Which license should I use?",
             delete_progress=True,
             message_id=None,
+            trace_id=expected_trace_id,
         )
 
     @parameterized.expand(
@@ -6491,6 +6526,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             text=expected_posted_text,
             delete_progress=True,
             message_id=None,
+            trace_id=None,
         )
 
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
@@ -8272,7 +8308,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertNotIn("user_id", decoded)
         self.assertIn("exp", decoded)
 
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_stream_token_returns_proxy_url_when_configured_and_flag_enabled(self):
+        reset_sandbox_jwt_key_cache()
+
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
@@ -8285,9 +8324,12 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["stream_base_url"], "https://agent-proxy.example.com")
 
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_stream_token_omits_proxy_url_for_thin_tail_run(self):
         # Only the Django read leg serves the durable backlog, so a thin-tail run must
         # never be routed to the agent-proxy even with the proxy flag enabled.
+        reset_sandbox_jwt_key_cache()
+
         task = self.create_task()
         run = TaskRun.objects.create(
             task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state={"stream_thin_tail": True}
@@ -8302,7 +8344,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNone(response.json()["stream_base_url"])
 
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_stream_token_omits_proxy_url_when_flag_disabled(self):
+        reset_sandbox_jwt_key_cache()
+
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
@@ -8323,7 +8368,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNone(response.json()["stream_base_url"])
 
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_stream_token_returns_proxy_url_for_pi_when_flag_disabled(self):
+        reset_sandbox_jwt_key_cache()
+
         task = self.create_task(runtime=Task.Runtime.PI)
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
@@ -8342,8 +8390,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["stream_base_url"], "https://agent-proxy.example.com")
 
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_stream_token_returns_proxy_url_in_debug_without_flag(self):
         # Local dev (DEBUG) disables the analytics SDK, so the URL setting alone opts in.
+        reset_sandbox_jwt_key_cache()
+
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
@@ -8353,8 +8404,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["stream_base_url"], "http://localhost:8003")
 
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_stream_token_omits_proxy_url_when_flag_evaluation_fails(self):
         # A flag-service outage must fall back to reading from Django, not break token issuance.
+        reset_sandbox_jwt_key_cache()
+
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
