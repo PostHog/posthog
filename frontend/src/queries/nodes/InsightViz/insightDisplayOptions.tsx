@@ -170,15 +170,16 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     }
 
     const items: LemonMenuItems = []
+    const displayItems = getDisplayItems()
 
     if (showSmoothing) {
         items.push({ title: 'Smoothing', items: [DisplayOptions.Smoothing] })
     }
 
-    if (showDisplaySection) {
+    if (showDisplaySection && displayItems.length > 0) {
         items.push({
             title: <SectionHeader dataAttr="options-display-section">Display</SectionHeader>,
-            items: getDisplayItems(),
+            items: displayItems,
         })
     }
 

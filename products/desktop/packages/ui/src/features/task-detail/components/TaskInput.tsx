@@ -131,7 +131,6 @@ import { useResolvedWorkspaceMode } from "../hooks/useResolvedWorkspaceMode";
 import { useTaskCreation } from "../hooks/useTaskCreation";
 import { useWarmTask } from "../hooks/useWarmTask";
 import { ChannelContextChip } from "./ChannelContextChip";
-import { CloudGithubMissingNotice } from "./CloudGithubMissingNotice";
 import { NewTaskSuggestions } from "./ContinueCliSessions";
 import { shouldShowChannelContextChip } from "./channelContext";
 import {
@@ -852,6 +851,10 @@ export function TaskInput({
 
   const effectiveWorkspaceMode = workspaceMode;
   const cloudIds = workspaceMode === "cloud" ? cloudTargetIds(cloudTarget) : {};
+  const cloudGithubUnavailable =
+    effectiveWorkspaceMode === "cloud" &&
+    !isLoadingIntegrations &&
+    !hasGithubIntegration;
 
   const repoOptional = !!allowNoRepo && workspaceMode === "cloud";
 
@@ -925,6 +928,7 @@ export function TaskInput({
       : effectiveReasoningLevel;
 
   useWarmTask({
+    claudeModelAccess: adapter === "claude" ? composerModelAccess : undefined,
     workspaceMode,
     selectedRepository: selectedCloudRepository,
     repositories: repoOptional ? taskRepositories : undefined,
@@ -1403,6 +1407,8 @@ export function TaskInput({
                   adapter={runtime === "pi" ? undefined : adapter}
                   cloudTarget={cloudTarget}
                   onCloudTargetChange={setCloudTarget}
+                  hasGithubIntegration={hasGithubIntegration}
+                  isLoadingGithubIntegration={isLoadingIntegrations}
                   size="1"
                 />
                 {repoOptional && (
@@ -1410,7 +1416,7 @@ export function TaskInput({
                     cloud={workspaceMode === "cloud"}
                     repositoryCount={taskRepositories.length}
                     hasFolder={!!taskFolder}
-                    disabled={isCreatingTask}
+                    disabled={isCreatingTask || cloudGithubUnavailable}
                     onOpen={() => setRepositoryDialogOpen(true)}
                   />
                 )}
@@ -1690,6 +1696,9 @@ export function TaskInput({
                         isDefaultSelection={isDefaultSelection}
                         onResetToDefault={resetToDefault}
                         resetToDefaultDisabled={resetToDefaultDisabled}
+                        onOpenDefaultSettings={() =>
+                          openSettings("task-agent-defaults")
+                        }
                       />
                     )
                   }
@@ -1752,13 +1761,6 @@ export function TaskInput({
                     </Tooltip>
                   </div>
                 )}
-                {effectiveWorkspaceMode === "cloud" &&
-                  !isLoadingRepos &&
-                  !hasGithubIntegration && (
-                    <div className="mx-2 mt-2">
-                      <CloudGithubMissingNotice />
-                    </div>
-                  )}
               </Flex>
               <div className="absolute top-full right-0 left-0 z-10">
                 {suggestions ? (

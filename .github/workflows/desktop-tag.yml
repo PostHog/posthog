@@ -8,6 +8,10 @@ on:
             quiet_retries:
                 type: number
                 default: 0
+            ignore_master_ci:
+                description: Skip the master Desktop Tests check, for a break-glass release.
+                type: boolean
+                default: false
     pull_request:
         types: [closed]
         branches:
@@ -30,10 +34,11 @@ jobs:
         permissions:
             contents: write
             actions: write
+            checks: read
             pull-requests: write
             issues: write
         runs-on: depot-ubuntu-24.04
-        timeout-minutes: 30
+        timeout-minutes: 60
         steps:
             - name: Get app token
               id: app-token
@@ -121,11 +126,83 @@ jobs:
                   gh workflow run desktop-tag.yml -f quiet_retries="$NEXT"
                   echo "proceed=false" >> "$GITHUB_OUTPUT"
 
+            # A release is cut from master, and nothing tests a master commit on push, so
+            # the tag job runs Desktop Tests on the tree it is about to tag and waits.
+            - name: Run Desktop Tests on master
+              id: master-ci-run
+              if: steps.quiet.outputs.proceed != 'false' && steps.labeler.outputs.authorized != 'false' && github.event.inputs.ignore_master_ci != 'true'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  DISPATCHED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+                  gh workflow run desktop-test.yml --ref master
+                  # The run appears a few seconds after the dispatch call returns.
+                  RUN=""
+                  for _ in $(seq 1 12); do
+                    sleep 5
+                    RUN=$(gh run list --workflow desktop-test.yml --event workflow_dispatch --branch master --limit 5 \
+                      --json databaseId,headSha,createdAt \
+                      --jq "[.[] | select(.createdAt >= \"$DISPATCHED_AT\")] | first | select(. != null) | \"\(.databaseId) \(.headSha)\"")
+                    [ -n "$RUN" ] && break
+                  done
+                  if [ -z "$RUN" ]; then
+                    echo "::warning::Desktop Tests did not start on master, so the release tag is held."
+                    echo "proceed=false" >> "$GITHUB_OUTPUT"
+                    exit 0
+                  fi
+                  echo "run_id=${RUN%% *}" >> "$GITHUB_OUTPUT"
+                  echo "sha=${RUN##* }" >> "$GITHUB_OUTPUT"
+                  echo "proceed=true" >> "$GITHUB_OUTPUT"
+
+            - name: Wait for Desktop Tests
+              id: master-ci
+              if: steps.master-ci-run.outputs.sha != ''
+              uses: ./.github/actions/wait-for-check
+              with:
+                  token: ${{ github.token }}
+                  checkName: Desktop Tests Pass
+                  ref: ${{ steps.master-ci-run.outputs.sha }}
+                  # The Linux suite finishes in about fifteen minutes. The wait plus the
+                  # quiet period stays inside the job timeout.
+                  timeoutSeconds: '1500'
+                  intervalSeconds: '30'
+
+            - name: Hold the tag unless Desktop Tests passed
+              id: master-ci-verdict
+              if: steps.master-ci-run.outputs.sha != ''
+              env:
+                  CONCLUSION: ${{ steps.master-ci.outputs.conclusion }}
+                  SHA: ${{ steps.master-ci-run.outputs.sha }}
+                  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ steps.master-ci-run.outputs.run_id }}
+                  EVENT_NAME: ${{ github.event_name }}
+                  COMMENT_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: |
+                  if [ "$CONCLUSION" = "success" ]; then
+                    echo "Desktop Tests passed on ${SHA}: ${RUN_URL}"
+                    echo "proceed=true" >> "$GITHUB_OUTPUT"
+                    exit 0
+                  fi
+
+                  echo "proceed=false" >> "$GITHUB_OUTPUT"
+                  if [ "$CONCLUSION" = "timed_out" ]; then
+                    echo "Desktop Tests has not completed on ${SHA}. The next scheduled run picks it up. ${RUN_URL}"
+                    exit 0
+                  fi
+
+                  echo "::warning::Desktop Tests concluded '${CONCLUSION}' on ${SHA}, so the release tag is held. ${RUN_URL}"
+                  if [ "$EVENT_NAME" = "pull_request" ]; then
+                    GH_TOKEN="$COMMENT_TOKEN" gh pr comment "$PR_NUMBER" --repo "$REPOSITORY" \
+                      --body "Auto-release is on hold: Desktop Tests concluded \`${CONCLUSION}\` on master (${RUN_URL}). It ships with the next scheduled release once master is green." || true
+                  fi
+
             - name: Compute version and create tag
-              if: steps.quiet.outputs.proceed != 'false' && steps.labeler.outputs.authorized != 'false'
+              if: steps.quiet.outputs.proceed != 'false' && steps.labeler.outputs.authorized != 'false' && steps.master-ci-run.outputs.proceed != 'false' && steps.master-ci-verdict.outputs.proceed != 'false'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   REPOSITORY: ${{ github.repository }}
+                  TESTED_SHA: ${{ steps.master-ci-run.outputs.sha }}
               run: |
                   LATEST_TAG=$(git tag --list 'desktop-v[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^desktop-v[0-9]+\.[0-9]+(\.0)?$' | head -1 || true)
 
@@ -134,13 +211,20 @@ jobs:
                     exit 1
                   fi
 
+                  # The tag points at the commit the suite ran on, which can be newer than
+                  # this checkout, so fetch master before the commit is used.
+                  if [ -n "$TESTED_SHA" ]; then
+                    git fetch --no-tags origin master
+                  fi
+                  TARGET="${TESTED_SHA:-HEAD}"
+
                   VERSION_PART=${LATEST_TAG#desktop-v}
                   MAJOR=$(echo "$VERSION_PART" | cut -d. -f1)
                   MINOR=$(echo "$VERSION_PART" | cut -d. -f2)
 
                   # Scoped to products/desktop/: an unscoped count would include every PostHog
                   # commit and inflate patch numbers meaninglessly.
-                  PATCH=$(git rev-list "$LATEST_TAG"..HEAD --count -- products/desktop/)
+                  PATCH=$(git rev-list "$LATEST_TAG".."$TARGET" --count -- products/desktop/)
 
                   if [ "$PATCH" -eq 0 ]; then
                     echo "No desktop commits since $LATEST_TAG. Nothing to release."
@@ -158,5 +242,5 @@ jobs:
 
                   git config user.email "github-actions[bot]@users.noreply.github.com"
                   git config user.name "github-actions[bot]"
-                  git tag -a "$TAG" -m "Release $TAG"
+                  git tag -a "$TAG" -m "Release $TAG" "$TARGET"
                   git push "https://x-access-token:${GH_TOKEN}@github.com/$REPOSITORY" "$TAG"

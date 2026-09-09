@@ -1167,11 +1167,14 @@ export class LogsIngestionConsumer {
             if (retentionMetric) {
                 this.queueUsageMetric(teamId, retentionMetric, stats.bytesAllowed)
             }
-            // Byte-days: ingested bytes weighted by retention days. Summed over a period it is total
-            // storage-duration and scales to any retention day count (average retention =
-            // retention_byte_days / bytes_ingested). Uses credit-adjusted `bytesAllowed` to reconcile
-            // with `bytes_ingested`. Runs beside the per-tier metric above until billing leaves fixed tiers.
-            this.queueUsageMetric(teamId, 'retention_byte_days', stats.bytesAllowed * stats.retentionDays)
+            // Byte-days: ingested bytes weighted by the full retention day count, only for teams that
+            // chose a retention longer than the default. The default tier is covered by `bytes_ingested`,
+            // so it must not be billed a second time here. Uses credit-adjusted `bytesAllowed` to
+            // reconcile with `bytes_ingested`. Runs beside the per-tier metric above until billing
+            // leaves fixed tiers.
+            if (stats.retentionDays !== DEFAULT_LOGS_RETENTION_DAYS) {
+                this.queueUsageMetric(teamId, 'retention_byte_days', stats.bytesAllowed * stats.retentionDays)
+            }
             const source = this.appSource === 'traces' ? 'apm_traces' : 'logs'
             // These records are per-flush aggregates, not one per billed thing, so there is no
             // stable identity to reproduce. A fresh ID per flush is what keeps two pods flushing

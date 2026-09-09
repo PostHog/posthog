@@ -208,6 +208,9 @@ class SignalUserAutonomyConfig(UUIDModel):
     # When null, every prioritized report notifies. A report with no priority then
     # notifies only on the reviewer-added path (see slack_inbox_notifications).
     slack_notification_min_priority = models.CharField(max_length=2, choices=AutonomyPriority, null=True, blank=True)
+    # Off by default because assignment is visible to everyone on the pull request, so a reviewer
+    # has to ask for it rather than be volunteered.
+    github_assign_on_pull_request = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

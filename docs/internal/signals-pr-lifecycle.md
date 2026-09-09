@@ -24,6 +24,15 @@ closure. The shared-PR guard checks both assignment and task-backed links, and
 keeps the PR open while another unfinished report uses it. GitHub must confirm
 the PR is open and unmerged before PostHog comments or closes it.
 
+`reviewer_pr_assignment` queues an after-commit task that adds a report's suggested reviewers as GitHub assignees.
+It runs when a PR URL first reaches a report, and when a person adds a reviewer to a report that already has a reviewable PR.
+Only reviewers who set `github_assign_on_pull_request` on their `SignalUserAutonomyConfig` are assigned, and the default is off.
+The task reads the latest `suggested_reviewers` row, so a reviewer removed from the list is not assigned later.
+Assignment is additive, so nothing here removes an assignee and a reviewer somebody added by hand stays on the PR.
+Closed and merged PRs are skipped.
+Every GitHub failure is logged without blocking the sync, the claim, or the reviewer edit that queued it.
+One PR can back several reports, and each report queues its own task, so the PR ends up with the union of qualifying reviewers.
+
 Fallback reads do not require a data migration. This does not replay webhook
 events that were missed before the fix; those reports need a subsequent event
 or explicit reconciliation.
