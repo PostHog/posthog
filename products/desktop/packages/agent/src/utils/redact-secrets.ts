@@ -1,28 +1,41 @@
-export function redactClaudeTokens(value: string): string;
-export function redactClaudeTokens(
-  value: string | undefined,
-): string | undefined;
-export function redactClaudeTokens(value: unknown): unknown;
-export function redactClaudeTokens(value: unknown): unknown {
-  if (typeof value === "string")
-    return value.replace(/sk-ant-oat01-[A-Za-z0-9_-]+/g, "[REDACTED]");
-  if (Array.isArray(value)) return value.map(redactClaudeTokens);
+const REDACTED = "[REDACTED]";
+const CLAUDE_TOKEN_PREFIX = "sk-ant-oat01-";
+const CLAUDE_TOKEN = /sk-ant-oat01-[A-Za-z0-9_-]+/g;
+const CLAUDE_TOKEN_HEAD = /sk-ant-oat01-[A-Za-z0-9_-]*/g;
+const CLAUDE_TOKEN_TAIL = /^[A-Za-z0-9_-]+/;
+
+function isAuthorization(name: unknown): boolean {
+  return typeof name === "string" && name.toLowerCase() === "authorization";
+}
+
+export function redactSecrets(value: string): string;
+export function redactSecrets(value: string | undefined): string | undefined;
+export function redactSecrets(value: unknown): unknown;
+export function redactSecrets(value: unknown): unknown {
+  if (typeof value === "string") return value.replace(CLAUDE_TOKEN, REDACTED);
+  if (Array.isArray(value)) return value.map(redactSecrets);
   if (value instanceof Error)
     return {
       name: value.name,
-      message: redactClaudeTokens(value.message),
-      stack: redactClaudeTokens(value.stack),
+      message: redactSecrets(value.message),
+      stack: redactSecrets(value.stack),
     };
   if (value instanceof Date) return value;
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, nested]) => [
-        key,
-        redactClaudeTokens(nested),
-      ]),
-    );
+  if (value === null || typeof value !== "object") return value;
+
+  const record = value as Record<string, unknown>;
+  if (isAuthorization(record.name) && "value" in record) {
+    return { ...record, value: REDACTED };
   }
-  return value;
+
+  return Object.fromEntries(
+    Object.entries(record).map(([key, nested]) => [
+      key,
+      isAuthorization(key) && typeof nested === "string"
+        ? REDACTED
+        : redactSecrets(nested),
+    ]),
+  );
 }
 
 type TextEvent = Record<string, unknown> & {
@@ -67,7 +80,7 @@ function withText(event: TextEvent, text: string): TextEvent {
   };
 }
 
-export class ClaudeTokenEventRedactor {
+export class SecretEventRedactor {
   private pending: TextEvent | null = null;
   private redacting = false;
   private chunkKind: string | null = null;
@@ -83,7 +96,7 @@ export class ClaudeTokenEventRedactor {
     }
     this.chunkKind = kind;
     if (!chunk) {
-      events.push(redactClaudeTokens(event) as Record<string, unknown>);
+      events.push(redactSecrets(event) as Record<string, unknown>);
       return events;
     }
     const previous = this.pending;
@@ -92,21 +105,20 @@ export class ClaudeTokenEventRedactor {
       event.notification.params.update.content.text;
     this.pending = null;
     if (this.redacting) {
-      text = text.replace(/^[A-Za-z0-9_-]+/, "");
+      text = text.replace(CLAUDE_TOKEN_TAIL, "");
       if (text.length > 0) this.redacting = false;
     }
-    const prefix = "sk-ant-oat01-";
     text = text.replace(
-      /sk-ant-oat01-[A-Za-z0-9_-]*/g,
+      CLAUDE_TOKEN_HEAD,
       (match, offset: number, source: string) => {
         this.redacting = offset + match.length === source.length;
-        return "[REDACTED]";
+        return REDACTED;
       },
     );
-    const redacted = redactClaudeTokens(withText(event, text)) as TextEvent;
+    const redacted = redactSecrets(withText(event, text)) as TextEvent;
     if (!this.redacting) {
-      for (let length = prefix.length - 1; length > 0; length--) {
-        if (text.endsWith(prefix.slice(0, length))) {
+      for (let length = CLAUDE_TOKEN_PREFIX.length - 1; length > 0; length--) {
+        if (text.endsWith(CLAUDE_TOKEN_PREFIX.slice(0, length))) {
           if (previous) {
             events.push(withText(previous, text.slice(0, -length)));
             this.pending = withText(redacted, text.slice(-length));
