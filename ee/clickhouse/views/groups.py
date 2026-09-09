@@ -765,16 +765,16 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         except Group.DoesNotExist:
             raise NotFound()
 
-        limit, page = parse_activity_page_params(request)
+        page_params = parse_activity_page_params(request)
 
         activity_page = load_activity(
             scope="Group",
             team_id=self.team_id,
             item_ids=[group.pk],
-            limit=limit,
-            page=page,
+            limit=page_params.limit,
+            page=page_params.page,
         )
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @extend_schema(
         parameters=[

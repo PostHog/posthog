@@ -1944,7 +1944,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
-        limit, page = parse_activity_page_params(request)
+        page_params = parse_activity_page_params(request)
 
         item_id = kwargs["pk"]
         if not DataWarehouseSavedQuery.objects.filter(id=item_id, team_id=self.team_id).exists():
@@ -1954,10 +1954,10 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             scope="DataWarehouseSavedQuery",
             team_id=self.team_id,
             item_ids=[str(item_id)],
-            limit=limit,
-            page=page,
+            limit=page_params.limit,
+            page=page_params.page,
         )
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @action(methods=["POST"], detail=True)
     def cancel(self, request: request.Request, *args, **kwargs) -> response.Response:

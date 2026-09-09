@@ -377,14 +377,16 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     @extend_schema(operation_id="error_tracking_issues_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs: object) -> Response:
-        limit, page = parse_activity_page_params(request)
+        page_params = parse_activity_page_params(request)
 
-        activity_page = load_activity(scope="ErrorTrackingIssue", team_id=self.team_id, limit=limit, page=page)
-        return activity_page_response(activity_page, limit, page, request)
+        activity_page = load_activity(
+            scope="ErrorTrackingIssue", team_id=self.team_id, limit=page_params.limit, page=page_params.page
+        )
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, *args: object, pk: object = None, **kwargs: object) -> Response:
-        limit, page = parse_activity_page_params(request)
+        page_params = parse_activity_page_params(request)
 
         if not facade_api.issue_exists_by_id(self.team_id, str(pk)):
             return Response(status=status.HTTP_404_NOT_FOUND)
@@ -393,7 +395,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             scope="ErrorTrackingIssue",
             team_id=self.team_id,
             item_ids=[str(pk)],
-            limit=limit,
-            page=page,
+            limit=page_params.limit,
+            page=page_params.page,
         )
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)

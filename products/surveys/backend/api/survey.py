@@ -2868,15 +2868,17 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
     @extend_schema(operation_id="surveys_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
-        limit, page = parse_activity_page_params(request)
+        page_params = parse_activity_page_params(request)
 
-        activity_page = load_activity(scope="Survey", team_id=self.team_id, limit=limit, page=page)
+        activity_page = load_activity(
+            scope="Survey", team_id=self.team_id, limit=page_params.limit, page=page_params.page
+        )
 
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
-        limit, page = parse_activity_page_params(request)
+        page_params = parse_activity_page_params(request)
 
         item = self.get_object()
 
@@ -2884,10 +2886,10 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             scope="Survey",
             team_id=self.team_id,
             item_ids=[str(item.id)],
-            limit=limit,
-            page=page,
+            limit=page_params.limit,
+            page=page_params.page,
         )
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @extend_schema(
         description=(

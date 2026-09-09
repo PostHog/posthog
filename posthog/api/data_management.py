@@ -11,13 +11,13 @@ class DataManagementViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
-        limit, page = parse_activity_page_params(request)
+        page_params = parse_activity_page_params(request)
 
         activity_page = load_all_activity(
             scope_list=["EventDefinition", "PropertyDefinition"],
             team_id=self.team.id,
-            limit=limit,
-            page=page,
+            limit=page_params.limit,
+            page=page_params.page,
         )
 
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
