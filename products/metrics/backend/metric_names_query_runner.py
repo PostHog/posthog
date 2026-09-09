@@ -229,37 +229,19 @@ class MetricNamesQueryRunner:
                 FROM posthog.metric_samples
                 WHERE timestamp > now() - {window_interval}
                   AND metric_name IN {names}
-                  AND series_fingerprint IN (
-                      SELECT series_fingerprint
-                      FROM posthog.metric_series
-                      WHERE last_seen > now() - {lookback_interval}
-                        AND metric_name IN {names}
-                        {service_filter}
-                      GROUP BY series_fingerprint
-                  )
+                  AND series_fingerprint IN {series_scope}
                 GROUP BY name, bucket_start
                 ORDER BY name, bucket_start
             """,
             placeholders={
                 "bucket_seconds": ast.Constant(value=bucket_seconds),
                 "window_interval": ast.Call(name="toIntervalSecond", args=[ast.Constant(value=window_seconds)]),
-                "lookback_interval": ast.Call(
-                    name="toIntervalSecond", args=[ast.Constant(value=int(self.lookback.total_seconds()))]
-                ),
                 "names": ast.Tuple(exprs=[ast.Constant(value=name) for name in names]),
                 # A sample carries no service column; its series_fingerprint is
-                # the link back to the series row that does. Without this, two
-                # services emitting one metric name share a card, and a scoped
+                # the link back to the series row that does. Without this scope,
+                # two services emitting one metric name share a card and a scoped
                 # catalog draws a shape blended across services.
-                "service_filter": (
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["service_name"]),
-                        right=ast.Tuple(exprs=[ast.Constant(value=service) for service in self.services]),
-                    )
-                    if self.services
-                    else ast.Constant(value=True)
-                ),
+                "series_scope": self._series_scope_subquery(names),
             },
         )
         assert isinstance(query, ast.SelectQuery)
@@ -276,6 +258,41 @@ class MetricNamesQueryRunner:
         for name, _bucket_start, bucket_value in response.results:
             sparklines.setdefault(name, []).append(float(bucket_value))
         return sparklines
+
+    def _series_scope_subquery(self, names: Sequence[str]) -> ast.SelectQuery:
+        """The series fingerprints, for these names, owned by the scoped services.
+
+        Built as its own parsed query so the service predicate is attached with an
+        explicit And the way `_build_query` does, not spliced into the SQL text.
+        """
+        lookback = ast.Call(name="toIntervalSecond", args=[ast.Constant(value=int(self.lookback.total_seconds()))])
+        subquery = parse_select(
+            """
+                SELECT series_fingerprint
+                FROM posthog.metric_series
+                WHERE last_seen > now() - {lookback}
+                  AND metric_name IN {names}
+                GROUP BY series_fingerprint
+            """,
+            placeholders={
+                "lookback": lookback,
+                "names": ast.Tuple(exprs=[ast.Constant(value=name) for name in names]),
+            },
+        )
+        assert isinstance(subquery, ast.SelectQuery)
+        assert subquery.where is not None
+        if self.services:
+            subquery.where = ast.And(
+                exprs=[
+                    subquery.where,
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=ast.Field(chain=["service_name"]),
+                        right=ast.Tuple(exprs=[ast.Constant(value=service) for service in self.services]),
+                    ),
+                ]
+            )
+        return subquery
 
 
 def cached_metric_names(
