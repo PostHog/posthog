@@ -1852,7 +1852,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
             retainedMessage?: string
         }) => payload,
         openSseForRun: (payload: { taskId: string; runId: string; startLatest?: boolean; traceId?: string }) => payload,
-        /** Internal: the read-only replay snapshot finished loading — clears the bootstrap spinner. */
+        /**
+         * Internal: a replay snapshot finished loading and no stream will follow — clears the bootstrap
+         * spinner. Covers the read-only viewer and a live instance that bootstrapped an already-terminal
+         * run, which never opens SSE and so never gets `sseOpened` to clear the spinner for it.
+         */
         bootstrapReplayComplete: true,
         /** Internal: the live run history snapshot finished loading or was intentionally skipped. */
         bootstrapLogReady: true,
@@ -2712,7 +2716,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // Read-only history — surface the terminal status, do not open SSE. Flag the replay
                 // so the listener records the status without re-emitting termination telemetry.
                 actions.handleTerminalStatus({ status: run.status as RunStatus, replayedFromHistory: true })
-                actions.bootstrapLogReady()
+                // `bootstrapReplayComplete`, not `bootstrapLogReady`: with no SSE to open, `sseOpened`
+                // never clears the bootstrap spinner, so a terminal run whose history folds to no
+                // renderable rows would sit on the skeleton for the instance's lifetime.
+                actions.bootstrapReplayComplete()
                 return
             }
 

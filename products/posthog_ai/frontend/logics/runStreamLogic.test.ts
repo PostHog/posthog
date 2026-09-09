@@ -1721,6 +1721,33 @@ describe('runStreamLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
         })
 
+        it('clears the bootstrap spinner for a terminal run whose history renders no rows', async () => {
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'failed', state: {} } as any)
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
+                notification('_posthog/progress', {
+                    step: 'sandbox',
+                    status: 'completed',
+                    label: 'Set up sandbox',
+                    group: 'setup',
+                }),
+                notification('_posthog/progress', {
+                    step: 'clone',
+                    status: 'completed',
+                    label: 'Cloned repository',
+                    group: 'setup',
+                }),
+            ])
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            // Routine setup steps are filtered out, so the thread has nothing to render — the surface
+            // falls back to the skeleton unless the bootstrap spinner is cleared.
+            expect(logic.values.hasThreadItems).toBe(false)
+            expect(logic.values.bootstrapLoading).toBe(false)
+        })
+
         it('stores bootstrap errors for inline task-run error UI', async () => {
             const error = mapHttpStatusToStreamError(404)
 
