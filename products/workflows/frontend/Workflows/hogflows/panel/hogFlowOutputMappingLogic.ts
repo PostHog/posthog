@@ -15,6 +15,14 @@ import type { HogFlow, HogFlowActionNode } from '../types'
 import { hogFlowEditorTestLogic } from './testing/hogFlowEditorTestLogic'
 
 export type OutputMapping = { key: string; result_path: string; spread?: boolean | null }
+// The variable types the output schema of an AI task step can express. Other input types stay
+// selectable only from the variables tab.
+export type WorkflowVariableType = 'string' | 'number' | 'boolean'
+export const WORKFLOW_VARIABLE_TYPE_OPTIONS: { value: WorkflowVariableType; label: string }[] = [
+    { value: 'string', label: 'Text' },
+    { value: 'number', label: 'Number' },
+    { value: 'boolean', label: 'True or false' },
+]
 
 export function normalizeOutputVariable(raw: HogFlowAction['output_variable']): OutputMapping[] {
     if (!raw) {
@@ -94,6 +102,13 @@ export interface hogFlowOutputMappingLogicActions {
     selectPath: (path: string) => {
         path: string
     }
+    setMappingVariable: (
+        index: number,
+        key: string
+    ) => {
+        index: number
+        key: string
+    }
     setMappings: (mappings: OutputMapping[]) => {
         mappings: OutputMapping[]
     }
@@ -111,6 +126,13 @@ export interface hogFlowOutputMappingLogicActions {
     }
     setTestResultData: (data: unknown | null) => {
         data: unknown
+    }
+    setVariableType: (
+        key: string,
+        type: WorkflowVariableType
+    ) => {
+        key: string
+        type: WorkflowVariableType
     }
     triggerShake: () => {
         value: true
@@ -171,6 +193,8 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
         initMappings: (mappings: OutputMapping[]) => ({ mappings }),
         setMappings: (mappings: OutputMapping[]) => ({ mappings }),
         updateMappingResultPath: (index: number, path: string) => ({ index, path }),
+        setMappingVariable: (index: number, key: string) => ({ index, key }),
+        setVariableType: (key: string, type: WorkflowVariableType) => ({ key, type }),
         addMapping: true,
         removeMapping: (index: number) => ({ index }),
         selectPath: (path: string) => ({ path }),
@@ -233,6 +257,11 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                 updateMappingResultPath: (state, { index, path }) => {
                     const updated = [...state]
                     updated[index] = { ...updated[index], result_path: path }
+                    return updated
+                },
+                setMappingVariable: (state, { index, key }) => {
+                    const updated = [...state]
+                    updated[index] = { ...updated[index], key }
                     return updated
                 },
                 addMapping: (state) => [...state, { key: '', result_path: '' }],
@@ -310,6 +339,18 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
             } as HogFlowAction)
         }
 
+        // A mapping can name a variable the workflow does not have yet. Creating it here keeps the
+        // author on the step instead of sending them to the variables tab and back.
+        const ensureVariable = (key: string, label: string): void => {
+            const existingVars = values.workflow.variables ?? []
+            if (existingVars.some((v) => v.key === key)) {
+                return
+            }
+            workflowLogic(props).actions.setWorkflowInfo({
+                variables: [...existingVars, { key, label, type: 'string' as const, default: '' }],
+            })
+        }
+
         return {
             setSelectedActionId: () => {
                 const selectedNode = values.selectedNode
@@ -324,6 +365,18 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
             updateMappingResultPath: () => {
                 persistMappings(values.mappings)
                 actions.triggerShake()
+            },
+            setMappingVariable: ({ key }) => {
+                if (key) {
+                    ensureVariable(key, key)
+                }
+                persistMappings(values.mappings)
+            },
+            setVariableType: ({ key, type }) => {
+                const existingVars = values.workflow.variables ?? []
+                workflowLogic(props).actions.setWorkflowInfo({
+                    variables: existingVars.map((v) => (v.key === key ? { ...v, type } : v)),
+                })
             },
             addMapping: () => {
                 persistMappings(values.mappings)
@@ -355,19 +408,8 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                 }
             },
             applySuggestion: ({ suggestion }) => {
-                const newMappings = [...values.mappings, { key: suggestion.key, result_path: suggestion.result_path }]
-                actions.setMappings(newMappings)
-
-                const { workflow } = values
-                const existingVars = workflow.variables ?? []
-                if (!existingVars.some((v) => v.key === suggestion.key)) {
-                    workflowLogic(props).actions.setWorkflowInfo({
-                        variables: [
-                            ...existingVars,
-                            { key: suggestion.key, label: suggestion.label, type: 'string' as const, default: '' },
-                        ],
-                    })
-                }
+                actions.setMappings([...values.mappings, { key: suggestion.key, result_path: suggestion.result_path }])
+                ensureVariable(suggestion.key, suggestion.label)
             },
             runOutputTest: async () => {
                 const { selectedNode, workflow, hogFunctionTemplatesById } = values

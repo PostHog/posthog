@@ -9,6 +9,7 @@ import {
     LemonCollapse,
     LemonDivider,
     LemonInput,
+    LemonInputSelect,
     LemonLabel,
     LemonSelect,
     LemonSwitch,
@@ -29,7 +30,7 @@ import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { isEmailAction, isOptOutEligibleAction, isScheduleTrigger } from '../steps/types'
 import type { HogFlowAction } from '../types'
-import { hogFlowOutputMappingLogic } from './hogFlowOutputMappingLogic'
+import { WORKFLOW_VARIABLE_TYPE_OPTIONS, hogFlowOutputMappingLogic } from './hogFlowOutputMappingLogic'
 import { OutputTestResultTree } from './OutputTestResultTree'
 
 export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
@@ -40,7 +41,6 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
         useValues(hogFlowOutputMappingLogic(logicProps))
     const {
         setSelectedActionId,
-        setMappings,
         updateMappingResultPath,
         addMapping,
         removeMapping,
@@ -49,6 +49,8 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
         cancelPendingPath,
         runOutputTest,
         applySuggestion,
+        setMappingVariable,
+        setVariableType,
     } = useActions(hogFlowOutputMappingLogic(logicProps))
 
     useEffect(() => {
@@ -213,32 +215,49 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                 >
                                                     <div className="flex items-center gap-1">
                                                         <LemonField.Pure label="Variable" className="flex-1">
-                                                            <LemonSelect
-                                                                options={[
-                                                                    { value: '', label: 'Select variable...' },
-                                                                    ...(workflow.variables || [])
-                                                                        .filter(
-                                                                            ({ key }) =>
-                                                                                key === mapping.key ||
-                                                                                !mappings.some((m) => m.key === key)
-                                                                        )
-                                                                        .map(({ key }) => ({
-                                                                            value: key,
-                                                                            label: key,
-                                                                        })),
-                                                                ]}
-                                                                value={mapping.key || ''}
-                                                                onChange={(value) => {
-                                                                    const updated = [...mappings]
-                                                                    updated[index] = {
-                                                                        ...updated[index],
-                                                                        key: value || '',
-                                                                    }
-                                                                    setMappings(updated)
-                                                                }}
+                                                            <LemonInputSelect
+                                                                mode="single"
+                                                                allowCustomValues
+                                                                placeholder="Select or type a new name"
+                                                                formatCreateLabel={(input) =>
+                                                                    `Create variable "${input}"`
+                                                                }
+                                                                inputTransform={(input) => input.replace(/\s+/g, '_')}
+                                                                options={(workflow.variables || [])
+                                                                    .filter(
+                                                                        ({ key }) =>
+                                                                            key === mapping.key ||
+                                                                            !mappings.some((m) => m.key === key)
+                                                                    )
+                                                                    .map(({ key }) => ({ key, label: key }))}
+                                                                value={mapping.key ? [mapping.key] : []}
+                                                                onChange={([value]) =>
+                                                                    setMappingVariable(index, value || '')
+                                                                }
                                                                 size="small"
                                                             />
                                                         </LemonField.Pure>
+                                                        {mapping.key && (
+                                                            <LemonField.Pure label="Type">
+                                                                <LemonSelect
+                                                                    options={WORKFLOW_VARIABLE_TYPE_OPTIONS}
+                                                                    value={
+                                                                        WORKFLOW_VARIABLE_TYPE_OPTIONS.find(
+                                                                            ({ value }) =>
+                                                                                value ===
+                                                                                workflow.variables?.find(
+                                                                                    (v) => v.key === mapping.key
+                                                                                )?.type
+                                                                        )?.value ?? null
+                                                                    }
+                                                                    placeholder="Other"
+                                                                    onChange={(type) =>
+                                                                        type && setVariableType(mapping.key, type)
+                                                                    }
+                                                                    size="small"
+                                                                />
+                                                            </LemonField.Pure>
+                                                        )}
                                                         <LemonButton
                                                             icon={<IconX />}
                                                             size="small"
