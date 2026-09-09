@@ -6,7 +6,7 @@ import { CurrencyCode, InsightVizNode, Node, NodeKind, TrendsQuery } from '~/que
 import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
-import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
+import type { ReportMetricApi, SignalReportMetricSnapshotsApi } from 'products/signals/frontend/generated/api.schemas'
 
 export type ReportMetricInsightQuery = InsightVizNode & { source: TrendsQuery }
 type ReportMetricFormatting = Pick<ReportMetricApi, 'unit' | 'value_format'>
@@ -401,4 +401,56 @@ export function reportMetricFilterCount(query: ReportMetricInsightQuery): number
         0
     )
     return seriesFilters + countPropertyFilters(query.source.properties)
+}
+
+/** The server serves a snapshot measured inside this window as is, so the request is not worth sending. */
+export const REPORT_METRIC_SNAPSHOT_FRESH_FOR_MS = 15 * 60 * 1000
+
+/** Whether any metric on the report has no snapshot, or one older than the freshness window. */
+export function reportNeedsMetricRefresh(report: { metrics?: ReportMetricApi[] }, now: number): boolean {
+    return (report.metrics ?? []).some((metric) => {
+        if (metric.value === null || metric.value === undefined || !metric.value_at) {
+            return true
+        }
+        const measuredAt = Date.parse(metric.value_at)
+        return !Number.isFinite(measuredAt) || now - measuredAt >= REPORT_METRIC_SNAPSHOT_FRESH_FOR_MS
+    })
+}
+
+function sameSeries(a: number[] | null | undefined, b: number[] | null | undefined): boolean {
+    if (!a || !b) {
+        return !a === !b
+    }
+    return a.length === b.length && a.every((point, index) => point === b[index])
+}
+
+/**
+ * Copy refreshed `value`, `value_at`, and `series` onto the report's metrics by metric_id. The
+ * query and comparison stay as loaded. Returns the same report object when nothing changed, so a
+ * memoized row does not re-render for a refresh that measured the same number.
+ */
+export function mergeReportMetricSnapshots<T extends { id: string; metrics?: ReportMetricApi[] }>(
+    report: T,
+    snapshots: readonly SignalReportMetricSnapshotsApi[]
+): T {
+    const refreshed = snapshots.find((snapshot) => snapshot.id === report.id)
+    if (!refreshed || !report.metrics?.length) {
+        return report
+    }
+    const byId = new Map(refreshed.metrics.map((metric) => [metric.metric_id, metric]))
+    let changed = false
+    const metrics = report.metrics.map((metric) => {
+        const snapshot = byId.get(metric.metric_id)
+        if (
+            !snapshot ||
+            (snapshot.value === metric.value &&
+                snapshot.value_at === metric.value_at &&
+                sameSeries(snapshot.series, metric.series))
+        ) {
+            return metric
+        }
+        changed = true
+        return { ...metric, value: snapshot.value, value_at: snapshot.value_at, series: snapshot.series }
+    })
+    return changed ? { ...report, metrics } : report
 }

@@ -1,13 +1,17 @@
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
+import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
+
 import {
     asReportMetricAggregateQuery,
     asReportMetricBarQuery,
     asReportMetricTrendsQuery,
     formatReportMetricParts,
     formatReportMetricValue,
+    mergeReportMetricSnapshots,
     reportMetricAggregate,
+    reportNeedsMetricRefresh,
     reportMetricDelta,
     reportMetricFilterCount,
     reportMetricRowParts,
@@ -15,6 +19,22 @@ import {
     reportMetricWindowLabel,
     type ReportMetricInsightQuery,
 } from './reportMetrics'
+
+const NOW = Date.parse('2026-09-09T12:00:00Z')
+const SNAPSHOT_METRIC: ReportMetricApi = {
+    metric_id: 'affected-users',
+    title: 'Affected users',
+    kind: 'affected_users',
+    role: 'primary',
+    value: 17,
+    value_at: '2026-09-09T11:30:00Z',
+    series: [3, 5, 9],
+    value_format: 'count',
+    unit: 'users',
+    query: { kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] } },
+    caption: null,
+    comparison: { value: 12, label: 'Previous 14 days' },
+}
 
 describe('reportMetrics', () => {
     test.each([
@@ -345,5 +365,42 @@ describe('reportMetrics', () => {
         ])('counts %s', (_label, query, expected) => {
             expect(reportMetricFilterCount(query)).toBe(expected)
         })
+    })
+    test.each([
+        ['no metrics', {}, false],
+        ['fresh snapshot', { metrics: [{ ...SNAPSHOT_METRIC, value_at: '2026-09-09T11:50:00Z' }] }, false],
+        ['stale snapshot', { metrics: [SNAPSHOT_METRIC] }, true],
+        ['no snapshot', { metrics: [{ ...SNAPSHOT_METRIC, value: null, value_at: null }] }, true],
+    ])('asks for a refresh when a report has %s', (_name, report, expected) => {
+        expect(reportNeedsMetricRefresh(report as { metrics?: ReportMetricApi[] }, NOW)).toBe(expected)
+    })
+
+    it('merges refreshed numbers by metric_id and keeps the query and comparison', () => {
+        const report = { id: 'r1', metrics: [{ ...SNAPSHOT_METRIC }] }
+        const merged = mergeReportMetricSnapshots(report, [
+            {
+                id: 'r1',
+                metrics: [
+                    {
+                        ...SNAPSHOT_METRIC,
+                        value: 21,
+                        value_at: '2026-09-09T12:00:00Z',
+                        series: [5, 9, 21],
+                    },
+                ],
+            },
+        ])
+
+        expect(merged).not.toBe(report)
+        expect(merged.metrics[0]).toMatchObject({
+            value: 21,
+            value_at: '2026-09-09T12:00:00Z',
+            series: [5, 9, 21],
+            query: SNAPSHOT_METRIC.query,
+            comparison: SNAPSHOT_METRIC.comparison,
+        })
+        // The same numbers back, or another report's snapshot, leave the row object untouched.
+        expect(mergeReportMetricSnapshots(report, [{ id: 'r1', metrics: [SNAPSHOT_METRIC] }])).toBe(report)
+        expect(mergeReportMetricSnapshots(report, [{ id: 'other', metrics: [] }])).toBe(report)
     })
 })
