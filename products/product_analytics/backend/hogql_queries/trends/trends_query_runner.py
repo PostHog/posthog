@@ -43,9 +43,10 @@ from posthog.schema import (
     TrendsQueryResponse,
 )
 
-from posthog.hogql import ast
+from posthog.hogql import ast, query_stats
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.query_stats import QueryStats
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.caching.insights_api import (
@@ -391,6 +392,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             timings: HogQLTimings,
             is_parallel: bool,
             query_tags: Optional[QueryTags] = None,
+            stats: Optional[QueryStats] = None,
         ):
             try:
                 if query_tags:
@@ -398,16 +400,17 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
                 series_with_extra = self.series[index]
 
-                response = execute_hogql_query(
-                    query_type="TrendsQuery",
-                    query=query,
-                    team=self.team,
-                    user=self.user,
-                    timings=timings,
-                    modifiers=self.modifiers,
-                    limit_context=self.limit_context,
-                    context=self.build_hogql_context(),
-                )
+                with query_stats.use(stats):
+                    response = execute_hogql_query(
+                        query_type="TrendsQuery",
+                        query=query,
+                        team=self.team,
+                        user=self.user,
+                        timings=timings,
+                        modifiers=self.modifiers,
+                        limit_context=self.limit_context,
+                        context=self.build_hogql_context(),
+                    )
 
                 timings_matrix[index + 1] = response.timings
                 res_matrix[index] = self.build_series_response(response, series_with_extra, len(queries))
@@ -432,6 +435,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 for index, query in enumerate(queries):
                     run(index, query, self.timings.clone_for_subquery(index), False)
             else:
+                # A thread starts with an empty context, so the query tags and the query scan
+                # accumulator are handed over explicitly.
                 jobs = [
                     threading.Thread(
                         target=run,
@@ -441,6 +446,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                             self.timings.clone_for_subquery(index),
                             True,
                             query_tagging.get_query_tags().model_copy(deep=True),
+                            query_stats.get_active(),
                         ),
                     )
                     for index, query in enumerate(queries)

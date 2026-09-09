@@ -19584,7 +19584,6 @@ class QueryResponseAlternative5(BaseModel):
     compare: list[CompareItem] | None = None
     day: list[DayItem] | None = None
     interval: list[IntervalItem] | None = None
-    query_scan: QueryScanSummary | None = None
     series: list[Series] | None = None
     status: list[StatusItem] | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
@@ -25628,7 +25627,6 @@ class CachedInsightActorsQueryOptionsResponse(BaseModel):
     last_refresh: AwareDatetime
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -26882,7 +26880,6 @@ class InsightActorsQueryOptionsResponse(BaseModel):
     compare: list[CompareItem] | None = None
     day: list[DayItem] | None = None
     interval: list[IntervalItem] | None = None
-    query_scan: QueryScanSummary | None = None
     series: list[Series] | None = None
     status: list[StatusItem] | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(

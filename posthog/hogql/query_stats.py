@@ -10,13 +10,19 @@ the outermost scope reports.
 
 The query runner installs the scope only for a team whose query scan flag is on. With no scope
 ``record`` does nothing, so a team with the flag off pays nothing.
+
+A new thread starts with an empty context, so a runner that fans its series out over raw threads
+takes the accumulator with ``get_active`` and installs it in the worker with ``use``. Without that
+hand-off the worker records nothing and the response under-reports what ClickHouse read.
 """
 
 from __future__ import annotations
 
+import threading
 import contextlib
 from collections.abc import Iterator
 from contextvars import ContextVar, Token
+from dataclasses import field
 
 from posthog.dataclasses import frozen
 
@@ -28,11 +34,14 @@ class QueryStats:
     rows_read: int = 0
     bytes_read: int = 0
     duration_ms: float = 0.0
+    # Worker threads add into the one scope they were handed, and `+=` is not atomic.
+    lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def add(self, *, rows_read: int, bytes_read: int, duration_ms: float) -> None:
-        self.rows_read += rows_read
-        self.bytes_read += bytes_read
-        self.duration_ms += duration_ms
+        with self.lock:
+            self.rows_read += rows_read
+            self.bytes_read += bytes_read
+            self.duration_ms += duration_ms
 
 
 _accumulator: ContextVar[QueryStats | None] = ContextVar("query_stats_accumulator", default=None)
@@ -56,6 +65,24 @@ def query_stats_scope() -> Iterator[QueryStats]:
     finally:
         if token is not None:
             _accumulator.reset(token)
+
+
+def get_active() -> QueryStats | None:
+    """The accumulator of the current context, to hand to a thread that does not inherit it."""
+    return _accumulator.get()
+
+
+@contextlib.contextmanager
+def use(stats: QueryStats | None) -> Iterator[None]:
+    """Install an accumulator taken from another thread. Does nothing when there is none."""
+    if stats is None:
+        yield
+        return
+    token = _accumulator.set(stats)
+    try:
+        yield
+    finally:
+        _accumulator.reset(token)
 
 
 def record(*, rows_read: int, bytes_read: int, duration_ms: float) -> None:

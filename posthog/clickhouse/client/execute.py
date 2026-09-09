@@ -24,6 +24,7 @@ from posthog.hogql import query_stats
 from posthog.api_queries_budget import API_QUERIES_BUDGET_ERRORS_COUNTER, QueryCost, debit, record_request_query_cost
 from posthog.clickhouse.client.connection import (
     ClickHouseUser,
+    QuerySummary,
     Workload,
     get_client_from_pool,
     get_default_clickhouse_workload_type,
@@ -244,6 +245,32 @@ def _chargeable_query_info(client: Any, query_info_before: Any) -> Optional[Any]
     return query_info
 
 
+def _query_stats_summary(client: Any, query_info_before: Any) -> Optional[QuerySummary]:
+    """What the execution that just ran on `client` read, or None when the client reports nothing.
+
+    The HTTP client has no `last_query` and reports its own summary instead. The native driver
+    clears `last_query` when it disconnects after a server-side error, so a query the server killed
+    is read back from the stash `ClickHouseClient` keeps. The identity check against
+    `query_info_before` keeps a pooled client's previous query out of the totals, the same guard
+    metering uses, because the driver only creates a new query info once the connection is
+    established.
+    """
+    if not hasattr(client, "last_query"):
+        return getattr(client, "last_query_summary", None)
+    query_info = client.last_query
+    if query_info is None:
+        take_stashed = getattr(client, "take_last_query_before_reset", None)
+        query_info = take_stashed() if take_stashed is not None else None
+    if query_info is None or query_info is query_info_before or not query_info.progress:
+        return None
+    progress = query_info.progress
+    return QuerySummary(
+        rows=int(progress.rows or 0),
+        bytes=int(progress.bytes or 0),
+        elapsed_ns=int(progress.elapsed_ns or 0),
+    )
+
+
 def _record_query_stats(client: Any, query_info_before: Any, start_time: float) -> None:
     """Add what this execution read to the active query stats scope, for the query scan warnings.
 
@@ -252,19 +279,13 @@ def _record_query_stats(client: Any, query_info_before: Any, start_time: float) 
     a failure to collect them must not fail the query.
     """
     try:
-        query_info = _chargeable_query_info(client, query_info_before)
-        if query_info is None:
+        summary = _query_stats_summary(client, query_info_before)
+        if summary is None:
             return
-        progress = query_info.progress
         # elapsed_ns is what the server measured. It is 0 on old protocol revisions, so fall back to
         # the client-side round trip.
-        elapsed_ns = progress.elapsed_ns or 0
-        duration_ms = elapsed_ns / 1e6 if elapsed_ns else (perf_counter() - start_time) * 1000
-        query_stats.record(
-            rows_read=int(progress.rows or 0),
-            bytes_read=int(progress.bytes or 0),
-            duration_ms=duration_ms,
-        )
+        duration_ms = summary.elapsed_ns / 1e6 if summary.elapsed_ns else (perf_counter() - start_time) * 1000
+        query_stats.record(rows_read=summary.rows, bytes_read=summary.bytes, duration_ms=duration_ms)
     except Exception:
         pass
 

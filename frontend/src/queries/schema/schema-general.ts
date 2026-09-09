@@ -6115,7 +6115,6 @@ export interface InsightActorsQueryOptionsResponse {
     }[]
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
-    query_scan?: QueryScanSummary
 }
 export const insightActorsQueryOptionsResponseKeys: string[] = [
     'day',

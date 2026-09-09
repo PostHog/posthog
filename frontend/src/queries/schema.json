@@ -9600,9 +9600,6 @@
                 "query_metadata": {
                     "type": "object"
                 },
-                "query_scan": {
-                    "$ref": "#/definitions/QueryScanSummary"
-                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -30564,9 +30561,6 @@
                     },
                     "type": "array"
                 },
-                "query_scan": {
-                    "$ref": "#/definitions/QueryScanSummary"
-                },
                 "series": {
                     "items": {
                         "additionalProperties": false,
@@ -41242,9 +41236,6 @@
                                 "type": "object"
                             },
                             "type": "array"
-                        },
-                        "query_scan": {
-                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "series": {
                             "items": {

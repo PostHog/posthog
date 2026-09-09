@@ -29,7 +29,8 @@ from posthog.schema import (
     TrendsQueryResponse,
 )
 
-from posthog.hogql import ast
+from posthog.hogql import ast, query_stats
+from posthog.hogql.query_stats import QueryStats
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import ExperimentNoResultsErrorKeys
@@ -252,9 +253,17 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         shared_results: dict[str, Optional[Any]] = {"count_result": None, "exposure_result": None}
         errors = []
 
-        def run(query_runner: TrendsQueryRunner, result_key: str, is_parallel: bool):
+        def run(
+            query_runner: TrendsQueryRunner,
+            result_key: str,
+            is_parallel: bool,
+            stats: Optional[QueryStats] = None,
+        ):
             try:
-                result = query_runner.calculate()
+                # A thread starts with an empty context, so the query scan accumulator is handed
+                # over explicitly. Without it the response under-reports what ClickHouse read.
+                with query_stats.use(stats):
+                    result = query_runner.calculate()
                 shared_results[result_key] = result
             except Exception as e:
                 errors.append(e)
@@ -270,9 +279,10 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             run(self.count_query_runner, "count_result", False)
             run(self.exposure_query_runner, "exposure_result", False)
         else:
+            stats = query_stats.get_active()
             jobs = [
-                threading.Thread(target=run, args=(self.count_query_runner, "count_result", True)),
-                threading.Thread(target=run, args=(self.exposure_query_runner, "exposure_result", True)),
+                threading.Thread(target=run, args=(self.count_query_runner, "count_result", True, stats)),
+                threading.Thread(target=run, args=(self.exposure_query_runner, "exposure_result", True, stats)),
             ]
             [j.start() for j in jobs]  # type: ignore
             [j.join() for j in jobs]  # type: ignore

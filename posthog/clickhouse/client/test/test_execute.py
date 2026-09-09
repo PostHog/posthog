@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from posthog.hogql.query_stats import query_stats_scope
 
-from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.clickhouse.client.connection import ClickHouseClient, ClickHouseUser, ProxyClient, Workload
 from posthog.clickhouse.client.execute import query_with_columns, sync_execute
 from posthog.clickhouse.client.limit import ConcurrencySlot, RateLimit, get_llm_analytics_rate_limiter
 from posthog.clickhouse.query_tagging import AccessMethod, Product, tags_context
@@ -117,39 +117,60 @@ def _fake_query_info(rows: int, elapsed_ns: int) -> SimpleNamespace:
     return SimpleNamespace(progress=SimpleNamespace(rows=rows, bytes=rows * 10, elapsed_ns=elapsed_ns, written_rows=0))
 
 
-class _FakeClient:
-    # Enough of the driver for the progress handling: `last_query` only holds this query once it has
-    # run, and a pooled client can come back still holding the previous query's.
-    def __init__(self, query_info: SimpleNamespace, raises: bool, last_query: SimpleNamespace | None) -> None:
+class _FakeNativeClient(ClickHouseClient):
+    # The driver's own last_query handling without a server behind it: last_query holds this query
+    # only once the connection is established, and any failure disconnects the client, which clears
+    # last_query. Nothing here connects, so the client stays offline and disconnect is a no-op on
+    # the socket.
+    def __init__(self, query_info: SimpleNamespace, fails: str | None, last_query: SimpleNamespace | None) -> None:
+        super().__init__(host="localhost")
         self.last_query = last_query
         self._query_info = query_info
-        self._raises = raises
+        self._fails = fails
 
     def execute(self, *args: Any, **kwargs: Any) -> list[tuple[int]]:
+        if self._fails == "connect":
+            self.disconnect()
+            raise ValueError("Connection refused")
         self.last_query = self._query_info
-        if self._raises:
+        if self._fails == "kill":
+            self.disconnect()
             raise ValueError("Memory limit (for query) exceeded")
         return [(1,)]
 
 
-@pytest.mark.parametrize(
-    "raises,holds_previous_query_info,expected_rows,expected_bytes,expected_duration_ms",
-    [
-        (False, False, 7, 70, 3.0),
-        # A query the server killed already cost the read it reports, so it counts too.
-        (True, False, 7, 70, 3.0),
-        # Connecting failed, so the pooled client still holds the previous query's progress.
-        (True, True, 0, 0, 0.0),
-    ],
-)
-def test_sync_execute_records_what_clickhouse_read(
-    raises, holds_previous_query_info, expected_rows, expected_bytes, expected_duration_ms
-):
-    query_info = _fake_query_info(rows=7, elapsed_ns=3_000_000)
-    client = _FakeClient(query_info, raises=raises, last_query=query_info if holds_previous_query_info else None)
+def _native_client(fails: str | None = None, previous_query_info: SimpleNamespace | None = None) -> _FakeNativeClient:
+    return _FakeNativeClient(_fake_query_info(rows=7, elapsed_ns=3_000_000), fails, previous_query_info)
 
+
+def _proxy_client() -> ProxyClient:
+    summary = {"read_rows": "7", "read_bytes": "70", "elapsed_ns": "3000000", "written_rows": "0"}
+    http_client = SimpleNamespace(query=lambda **kwargs: SimpleNamespace(summary=summary, result_set=[(1,)]))
+    return ProxyClient(http_client)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "make_client,raises,expected",
+    [
+        (_native_client, False, (7, 70, 3.0)),
+        # A query the server killed already cost the read it reports, so it counts too. The driver
+        # clears last_query on the way out, so this only works off what the client stashed.
+        (lambda: _native_client(fails="kill"), True, (7, 70, 3.0)),
+        # Connecting failed, so the pooled client still holds the previous query's progress and the
+        # stash holds it too. Counting it would charge this query with another query's rows.
+        (
+            lambda: _native_client(fails="connect", previous_query_info=_fake_query_info(rows=99, elapsed_ns=1)),
+            True,
+            (0, 0, 0.0),
+        ),
+        # The HTTP client has no last_query at all and reports its own summary instead.
+        (_proxy_client, False, (7, 70, 3.0)),
+    ],
+    ids=["ok", "killed_by_the_server", "connect_failed", "http_client"],
+)
+def test_sync_execute_records_what_clickhouse_read(make_client, raises, expected):
     with patch("posthog.clickhouse.client.execute.get_client_from_pool") as pool:
-        pool.return_value.__enter__.return_value = client
+        pool.return_value.__enter__.return_value = make_client()
         with query_stats_scope() as stats:
             if raises:
                 with pytest.raises(ValueError):
@@ -157,11 +178,7 @@ def test_sync_execute_records_what_clickhouse_read(
             else:
                 sync_execute("SELECT 1", flush=False)
 
-    assert (stats.rows_read, stats.bytes_read, stats.duration_ms) == (
-        expected_rows,
-        expected_bytes,
-        expected_duration_ms,
-    )
+    assert (stats.rows_read, stats.bytes_read, stats.duration_ms) == expected
 
 
 @pytest.mark.parametrize(
