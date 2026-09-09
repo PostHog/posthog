@@ -20,6 +20,7 @@ from posthog.schema import HogQLQuery
 from posthog.hogql_queries.query_runner import ExecutionMode
 
 from products.autoresearch.backend.dataset.labeling import (
+    LABELER_QUERY_MODIFIERS,
     _build_labeled_users_cte,
     _build_population_conditions,
     _build_population_kind_conditions,
@@ -436,7 +437,7 @@ class TestAnchoredPopulationsAgainstClickhouse(ClickhouseTestMixin, APIBaseTest)
         )
         rows = run_hogql_rows(
             team=self.team,
-            query=HogQLQuery(query=sql, values=values),
+            query=HogQLQuery(query=sql, values=values, modifiers=LABELER_QUERY_MODIFIERS),
             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
         )
         assert int(rows[0][0]) == expected
