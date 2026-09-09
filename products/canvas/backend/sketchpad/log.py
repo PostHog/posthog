@@ -14,6 +14,7 @@ from products.canvas.backend.facade.enums import SketchpadRecordKind
 from products.canvas.backend.models import Sketchpad, SketchpadCompileJob, SketchpadOp, SketchpadRecord
 from products.canvas.backend.sketchpad.records import (
     JsonObject,
+    JsonValue,
     SketchpadRecords,
     hydrate_ops,
     merge_field,
@@ -121,9 +122,11 @@ def fold_snapshot(snapshot: JsonObject, rows: Sequence[SketchpadOp]) -> JsonObje
             current = deepcopy(cast(JsonObject, op["snapshot"]))
         elif op_type == "add_fragment":
             fragment = deepcopy(cast(JsonObject, op["fragment"]))
-            current["fragments"] = [
+            kept: list[JsonValue] = [
                 item for item in cast(list[JsonObject], current.get("fragments", [])) if item["id"] != fragment["id"]
-            ] + [fragment]
+            ]
+            kept.append(fragment)
+            current["fragments"] = kept
         elif op_type == "update_fragment":
             for fragment in cast(list[JsonObject], current.get("fragments", [])):
                 if fragment["id"] == op["id"]:

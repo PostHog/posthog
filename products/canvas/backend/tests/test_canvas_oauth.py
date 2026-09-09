@@ -77,7 +77,11 @@ class TestCanvasOAuthAccess(APIBaseTest):
             actor["task_id"] = str({"own": own.id, "other": other.id, "missing": uuid4()}[claim])
         response = self.client.post(
             f"/api/projects/{self.team.id}/sketchpads/{sketchpad.id}/ops/",
-            {"ops": [{"op_id": "edit", "op": {"type": "set_state", "key": "title", "value": "Notes"}}], "actor": actor},
+            {
+                "base_seq": 0,
+                "ops": [{"op_id": "edit", "op": {"type": "set_state", "key": "title", "value": "Notes"}}],
+                "actor": actor,
+            },
             format="json",
         )
         assert response.status_code == expected_status, response.data
@@ -132,6 +136,7 @@ class TestCanvasOAuthAccess(APIBaseTest):
         response = self.client.post(
             f"{url}ops/",
             {
+                "base_seq": 0,
                 "ops": [{"op_id": "edit", "op": {"type": "set_state", "key": "note", "value": "new"}}],
                 "actor": {"kind": "agent", "task_id": str(task.id)},
             },
