@@ -1059,6 +1059,8 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
     let taskSeq = 0
     let consoleSeq = 0
     let contextSeq = 0
+    let timestamp: number | undefined
+    let importedRun = false
 
     const pushHuman = (text: string): void => {
         items = insertHumanMessageAtTurnStart(items, {
@@ -1066,6 +1068,7 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             type: 'human_message',
             text,
             complete: true,
+            ...(timestamp !== undefined && { startedAt: timestamp }),
         })
     }
 
@@ -1090,10 +1093,20 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
         // does, since the backend drops chunks), so the bare fallback id would collide as a React key
         // across messages. The continuation lookup matches the `${id}@` prefix, so it still works.
         if (idx === -1 || items[idx].complete || idx !== items.length - 1) {
-            items.push({ id: `${id}@${bubbleSeq++}`, type, text: delta, complete: false })
+            items.push({
+                id: `${id}@${bubbleSeq++}`,
+                type,
+                text: delta,
+                complete: false,
+                ...(timestamp !== undefined && { startedAt: timestamp, endedAt: timestamp }),
+            })
             return
         }
-        items[idx] = { ...items[idx], text: (items[idx].text ?? '') + delta }
+        items[idx] = {
+            ...items[idx],
+            text: (items[idx].text ?? '') + delta,
+            ...(timestamp !== undefined && { endedAt: timestamp }),
+        }
     }
 
     const finalizeMessage = (id: string, text: string): void => {
@@ -1119,15 +1132,26 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             // No buffer to close (the common replay case: S3 drops chunks, so a finalized message
             // arrives alone). Push a fresh bubble with a unique id — a bare fallback id would collide
             // as a React key with every other no-`messageId` message in the thread.
-            items.push({ id: `${id}@${bubbleSeq++}`, type: 'assistant_message', text, complete: true })
+            items.push({
+                id: `${id}@${bubbleSeq++}`,
+                type: 'assistant_message',
+                text,
+                complete: true,
+                ...(timestamp !== undefined && { startedAt: timestamp, endedAt: timestamp }),
+            })
             return
         }
-        items[idx] = { ...items[idx], text, complete: true }
+        items[idx] = { ...items[idx], text, complete: true, ...(timestamp !== undefined && { endedAt: timestamp }) }
     }
 
-    const upsertInvocationItem = (toolCallId: string): void => {
+    const upsertInvocationItem = (toolCallId: string, hasStart = true): void => {
         if (!items.some((item) => item.type === 'tool_invocation' && item.toolCallId === toolCallId)) {
-            items.push({ id: toolCallId, type: 'tool_invocation', toolCallId })
+            items.push({
+                id: toolCallId,
+                type: 'tool_invocation',
+                toolCallId,
+                ...(hasStart && timestamp !== undefined && { startedAt: timestamp }),
+            })
         }
     }
 
@@ -1182,7 +1206,13 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
         }
         invocations.set(next.toolCallId, next)
         if (!existing && !subagentParentToolCallId(update._meta)) {
-            upsertInvocationItem(next.toolCallId)
+            upsertInvocationItem(next.toolCallId, false)
+        }
+        if (timestamp !== undefined && (next.status === 'completed' || next.status === 'failed')) {
+            const index = items.findIndex((item) => item.toolCallId === next.toolCallId)
+            if (index !== -1) {
+                items[index] = { ...items[index], endedAt: timestamp }
+            }
         }
     }
 
@@ -1190,6 +1220,12 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
         const notification = entry.notification
         const method = notification.method
         const params = (notification.params ?? {}) as Record<string, unknown>
+        if (method === '_posthog/run_started') {
+            importedRun = params.imported === true
+        }
+        const updateMeta = isRecord(params.update) && isRecord(params.update._meta) ? params.update._meta : null
+        const recordedAt = entry.timestamp ? Date.parse(entry.timestamp) : NaN
+        timestamp = !importedRun && !updateMeta?.imported && Number.isFinite(recordedAt) ? recordedAt : undefined
 
         if (method === '_client/human_message') {
             pushHuman(String(params.content ?? ''))
@@ -1215,7 +1251,12 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
         }
         if (method === '_posthog/turn_complete') {
             const traceId = typeof params.traceId === 'string' ? params.traceId : undefined
-            items.push({ id: `turn-${separatorSeq++}`, type: 'turn_separator', ...(traceId && { traceId }) })
+            items.push({
+                id: `turn-${separatorSeq++}`,
+                type: 'turn_separator',
+                ...(traceId && { traceId }),
+                ...(timestamp !== undefined && { startedAt: timestamp }),
+            })
             continue
         }
         if (method === '_posthog/progress') {
@@ -1297,6 +1338,7 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
                 type: 'task_notification',
                 status: stringifyOptional(params.status),
                 summary: stringifyOptional(params.summary),
+                ...(timestamp !== undefined && { startedAt: timestamp, endedAt: timestamp }),
             })
             continue
         }
@@ -2341,13 +2383,16 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 threadItems: ThreadItem[],
                 toolInvocations: Map<string, ToolInvocation>
             ): boolean => {
-                if (streamPhase !== 'thinking') {
+                if (streamPhase === 'idle') {
                     return false
                 }
                 // Scan the current turn only (items after the last separator).
                 const turnStart = threadItems.findLastIndex((item) => item.type === 'turn_separator') + 1
                 for (let i = turnStart; i < threadItems.length; i++) {
                     const item = threadItems[i]
+                    if (streamPhase === 'provisioning' && (item.type === 'progress' || item.type === 'error')) {
+                        return false
+                    }
                     // A running structured-progress activity owns the "busy" line.
                     if (item.type === 'progress' && item.progressSteps?.some((step) => step.status === 'in_progress')) {
                         return false

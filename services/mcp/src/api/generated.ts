@@ -8911,6 +8911,32 @@ export namespace Schemas {
       startAtZero?: boolean | null;
     }
 
+    export type Summary = typeof Summary[keyof typeof Summary];
+
+
+    export const Summary = {
+      Total: 'total',
+      Average: 'average',
+      Latest: 'latest',
+    } as const;
+
+    export interface MetricChartSettings {
+      /** Change pill color when the series went down. Defaults to red. */
+      changeDecreaseColor?: string | null;
+      /** Change pill color when the series went up. Defaults to green. */
+      changeIncreaseColor?: string | null;
+      /** Color the sparkline by whether the series went up or down. */
+      colorByDirection?: boolean | null;
+      /** Sparkline color when the series went down. Defaults to red. */
+      lineDecreaseColor?: string | null;
+      /** Sparkline color when the series went up. Defaults to green. */
+      lineIncreaseColor?: string | null;
+      /** Show the change pill comparing the first point to the latest point. */
+      showChange?: boolean | null;
+      /** Which value the resting headline shows: the latest point, the total, or the average of the returned points. */
+      summary?: Summary | null;
+    }
+
     export type SliceContent = typeof SliceContent[keyof typeof SliceContent];
 
 
@@ -9021,6 +9047,7 @@ export namespace Schemas {
       leftYAxisSettings?: YAxisSettings | null;
       /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest. */
       legendPosition?: LegendPosition | null;
+      metric?: MetricChartSettings | null;
       pie?: PieChartSettings | null;
       /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
       resultCustomizations?: ChartSettingsResultCustomizations;

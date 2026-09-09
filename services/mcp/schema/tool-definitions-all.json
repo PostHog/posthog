@@ -11,7 +11,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_entitlement": "access_control"
     },
     "access-control-default-properties-list": {
         "description": "Property rules that apply to everyone in the project without a rule of their own on that property: which person and event properties are hidden (`none`), read-only (`read`), or open (`read_write`). Every property is `read_write` unless a rule says otherwise.",
@@ -25,7 +26,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_entitlement": "access_control"
     },
     "access-control-defaults-get": {
         "description": "The access everyone in the project gets unless a rule of their own, or a role's rule, says otherwise: the default project level (member or admin) and the default level per tool (none, viewer, editor, manager), with the lowest and highest level each tool allows. Also lists which tools accept rules on single objects, such as one dashboard or one notebook. Start here to understand a project's baseline before checking a member or a role.",
@@ -39,7 +41,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_entitlement": "access_control"
     },
     "access-control-member-objects-list": {
         "description": "The rules configured for a member on single objects, for example a dashboard, a notebook or a warehouse table they are given access to, or blocked from, regardless of their tool-level access. Only the member's own rules are returned. An empty list means the member has no object rules of their own. Their tool-level access still applies.",
@@ -53,7 +56,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_entitlement": "access_control"
     },
     "access-control-member-properties-list": {
         "description": "The property rules configured for a member: which person and event properties they cannot see (`none`), can only read (`read`), or can read and write (`read_write`). Every property is `read_write` unless a rule says otherwise. Only the member's own rules are returned.",
@@ -67,7 +71,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_entitlement": "access_control"
     },
     "access-control-members-list": {
         "description": "For every organization member, the access enforced in the project: to the project itself and to each tool (dashboards, insights, feature flags, and so on). Per entry, `access_level` is the member's own stored rule (null when none), `effective_access_level` is what is enforced, and `inherited_access` says where that level comes from when it is not the member's own rule: `source_subject` is `role` or `default`, and `source` is `org_admin` when the member is an organization admin with full access to everything. Pass `member_id` (an `organization_membership_id`, from this tool or org-members-list) for one member. The checking-member-access skill explains how the levels combine.",
@@ -81,7 +86,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_entitlement": "access_control"
     },
     "access-control-role-objects-list": {
         "description": "The rules configured for a role on single objects, for example a dashboard, a notebook or a warehouse table the role's members are given access to, or blocked from, regardless of their tool-level access.",
@@ -95,7 +101,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_entitlement": "role_based_access"
     },
     "access-control-role-properties-list": {
         "description": "The property rules configured for a role: which person and event properties the role's members cannot see (`none`), can only read (`read`), or can read and write (`read_write`).",
@@ -109,7 +116,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_entitlement": "role_based_access"
     },
     "access-control-roles-list": {
         "description": "For every role in the organization, the access it grants in the project: to the project itself and to each tool. Per entry, `access_level` is the role's own stored rule, `effective_access_level` is what the role's members get from it, and `inherited_access` says where that level comes from when the role has no rule of its own. Pass `role_id` for one role.",
@@ -123,7 +131,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_entitlement": "role_based_access"
     },
     "account-relationship-definitions-create": {
         "description": "Create a Customer Analytics account relationship definition — a team-defined relationship type between a PostHog user and an account, such as CSM or Onboarding manager. Provide `name` (required, unique within the team), optional `description` explaining what the relationship means, and `is_single_holder` (default true) controlling whether only one user can hold the relationship per account at a time. Definitions are team-scoped and shared across all accounts; assign a user to a specific account with `accounts-relationships-create`.",
@@ -2295,7 +2304,7 @@
         }
     },
     "create-feature-flag": {
-        "description": "Create a feature flag in the current project. Call when the user asks to add a flag, gate a feature behind a flag, set up a percentage rollout, or deliver a remote config value. If this flag is for a new version of a page or flow, or for a pricing or onboarding change, an experiment may be in order. Ask the user if they want to run an experiment, and if so create the experiment with `experiment-create`, which will manage its own flag. Release conditions, rollout percentages, multivariate variants, and payloads all go in the structured `filters` param (`filters.groups` for release conditions, `filters.multivariate.variants` for variants, `filters.payloads` for JSON-encoded payloads). Use `update-feature-flag` to change an existing flag, and `feature-flag-get-all` first to check whether the key is already taken.",
+        "description": "Create a feature flag in the current project. Call when the user asks to add a flag, gate a feature behind a flag, set up a percentage rollout, or deliver a remote config value. If this flag is for a new version of a page or flow, or for a pricing or onboarding change, an experiment may be in order. Ask the user if they want to run an experiment, and if so create the experiment with `experiment-create`, which will manage its own flag. Release conditions, rollout percentages, multivariate variants, and payloads all go in the structured `filters` param (`filters.groups` for release conditions, `filters.multivariate.variants` for variants, `filters.payloads` for JSON-encoded payloads). Use `update-feature-flag` to change an existing flag. Check the key first: `feature-flag-get-definition-by-key` when you already have the exact key it will use, `feature-flag-get-all` when you only know part of the key or the name.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Create feature flag",
