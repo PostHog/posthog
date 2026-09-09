@@ -429,6 +429,13 @@ const mergeChartSettings = (state: ChartSettings, settings: ChartSettings): Char
                       ...settings.boxPlot,
                   }
                 : undefined,
+        metric:
+            state.metric || settings.metric
+                ? {
+                      ...state.metric,
+                      ...settings.metric,
+                  }
+                : undefined,
         leftYAxisSettings:
             state.leftYAxisSettings || settings.leftYAxisSettings
                 ? {
@@ -533,6 +540,10 @@ export function applyVisualizationType(
 
     if (visualizationType === ChartDisplayType.ActionsPie && chartSettings.pie?.sliceContent === undefined) {
         chartSettings.pie = { ...chartSettings.pie, sliceContent: 'labels' }
+    }
+
+    if (visualizationType === ChartDisplayType.Metric) {
+        yAxis = yAxis.slice(0, 1)
     }
 
     if (
@@ -847,7 +858,8 @@ export interface dataVisualizationLogicMeta {
                 | TraceSpansQueryResponse
                 | null,
             columns: Column[],
-            chartSettings: ChartSettings
+            chartSettings: ChartSettings,
+            effectiveVisualizationType: ChartDisplayType
         ) => AxisSeries<number | null>[]
         xData: (
             selectedXAxis: string | null,
@@ -1450,7 +1462,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             (query: DataVisualizationNode): boolean => query.tableSettings?.transpose ?? false,
         ],
         yData: [
-            (s) => [s.selectedYAxis, s.response, s.columns, s.chartSettings],
+            (s) => [s.selectedYAxis, s.response, s.columns, s.chartSettings, s.effectiveVisualizationType],
             (
                 ySeries: (SelectedYAxis | null)[] | null,
                 response:
@@ -1469,7 +1481,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansQueryResponse,
                 columns: Column[],
-                chartSettings: ChartSettings
+                chartSettings: ChartSettings,
+                visualizationType: ChartDisplayType
             ): AxisSeries<number | null>[] => {
                 if (!response || ySeries === null || ySeries.length === 0) {
                     return [EmptyYAxisSeries]
@@ -1483,7 +1496,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                           ? response.result
                           : []
 
-                return ySeries
+                const mappedSeries = visualizationType === ChartDisplayType.Metric ? ySeries.slice(0, 1) : ySeries
+                const seriesData = mappedSeries
                     .map((series): AxisSeries<number | null> | null => {
                         if (!series) {
                             return EmptyYAxisSeries
@@ -1528,6 +1542,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                         }
                     })
                     .filter((series): series is AxisSeries<number | null> => Boolean(series))
+
+                return seriesData
             },
         ],
         xData: [
