@@ -574,6 +574,72 @@ class TestHandleRulesCommandActivity:
         assert "not connected" in msg.kwargs["text"]
 
     @patch("posthog.models.integration.SlackIntegration")
+    def test_add_rejects_over_long_rule_text(self, mock_slack_cls):
+        mock_slack = MagicMock()
+        mock_slack_cls.return_value = mock_slack
+
+        from posthog.temporal.ai.slack_app import handle_posthog_code_rules_command_activity
+
+        long_rule = "x" * (RepoRoutingRule.MAX_RULE_TEXT_LENGTH + 1)
+        result = handle_posthog_code_rules_command_activity(
+            self._make_inputs(f'<@U123> rules add "{long_rule}" posthog/posthog-js'),
+            self.channel,
+            self.thread_ts,
+            self.slack_user_id,
+            self.user.id,
+        )
+
+        assert result.status == "handled"
+        assert RepoRoutingRule.objects.filter(team=self.team).count() == 0
+        msg = mock_slack.client.chat_postEphemeral.call_args
+        assert f"limit is {RepoRoutingRule.MAX_RULE_TEXT_LENGTH}" in msg.kwargs["text"]
+
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_add_rejects_at_rule_count_limit(self, mock_slack_cls):
+        mock_slack = MagicMock()
+        mock_slack_cls.return_value = mock_slack
+
+        from posthog.temporal.ai.slack_app import handle_posthog_code_rules_command_activity
+
+        RepoRoutingRule.objects.bulk_create(
+            RepoRoutingRule(team=self.team, rule_text=f"Rule {n}", repository="posthog/posthog-js", priority=n)
+            for n in range(RepoRoutingRule.MAX_RULES_PER_TEAM)
+        )
+        result = handle_posthog_code_rules_command_activity(
+            self._make_inputs('<@U123> rules add "One more" posthog/posthog-js'),
+            self.channel,
+            self.thread_ts,
+            self.slack_user_id,
+            self.user.id,
+        )
+
+        assert result.status == "handled"
+        assert RepoRoutingRule.objects.filter(team=self.team).count() == RepoRoutingRule.MAX_RULES_PER_TEAM
+        msg = mock_slack.client.chat_postEphemeral.call_args
+        assert f"already has {RepoRoutingRule.MAX_RULES_PER_TEAM} rules" in msg.kwargs["text"]
+
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_picker_create_rejects_over_long_rule_text(self, mock_slack_cls):
+        mock_slack = MagicMock()
+        mock_slack_cls.return_value = mock_slack
+
+        from posthog.temporal.ai.slack_app import create_posthog_code_routing_rule_activity
+
+        long_rule = "x" * (RepoRoutingRule.MAX_RULE_TEXT_LENGTH + 1)
+        create_posthog_code_routing_rule_activity(
+            self._make_inputs("<@U123> ignored"),
+            self.channel,
+            self.thread_ts,
+            self.user.id,
+            long_rule,
+            "posthog/posthog-js",
+        )
+
+        assert RepoRoutingRule.objects.filter(team=self.team).count() == 0
+        msg = mock_slack.client.chat_postMessage.call_args
+        assert f"limit is {RepoRoutingRule.MAX_RULE_TEXT_LENGTH}" in msg.kwargs["text"]
+
+    @patch("posthog.models.integration.SlackIntegration")
     def test_remove_deletes_rule(self, mock_slack_cls):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
