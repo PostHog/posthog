@@ -44,6 +44,10 @@ describe('mcp tool adapter extractors', () => {
             ],
             ['MCP JSON text', { content: [{ type: 'text', text: JSON.stringify(savedInsight) }], isError: false }],
             [
+                'MCP JSON text without optional fields',
+                { content: [{ type: 'text', text: JSON.stringify(savedInsight) }] },
+            ],
+            [
                 'MCP TOON text with no structured content',
                 {
                     structuredContent: null,

@@ -153,6 +153,7 @@ Registered product tools can render rich cards in PostHog AI threads, including 
 The shared widget parser accepts direct tool payloads and MCP result envelopes: it prefers `structuredContent`,
 then decodes JSON or TOON from text content blocks. Failed or unrenderable insight results keep the generic tool card.
 The agent's `rawOutput` can be a transport envelope, so widget extractors unwrap it before reading entity fields.
+Direct entity payloads retain their fields, including notebook IDs when the notebook's `content` is an array of document nodes.
 See the [PostHog AI integration guide](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/README.md#seam-4--render-your-own-tool-cards).
 
 ### Skills

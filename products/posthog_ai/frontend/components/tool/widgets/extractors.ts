@@ -59,7 +59,14 @@ function unwrapToolOutput(rawOutput: unknown): unknown {
     if (structuredContent) {
         return structuredContent
     }
-    return Array.isArray(envelope?.content) ? getAllText(envelope.content).join('\n') : rawOutput
+    // Entity payloads can also have a content array, so only unwrap the MCP envelope's top-level shape.
+    if (
+        !envelope ||
+        !Object.keys(envelope).every((key) => ['content', 'structuredContent', 'isError', '_meta'].includes(key))
+    ) {
+        return rawOutput
+    }
+    return Array.isArray(envelope.content) ? getAllText(envelope.content).join('\n') : rawOutput
 }
 
 /**
