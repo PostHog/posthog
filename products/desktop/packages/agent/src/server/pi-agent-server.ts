@@ -39,6 +39,7 @@ import {
   type RpcExtensionUIResponse,
 } from "../pi/types";
 import { PostHogAPIClient } from "../posthog-api";
+import { createEventIdSource } from "../utils/event-id";
 import { resolveLlmGatewayUrl } from "../utils/gateway";
 import { Logger } from "../utils/logger";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
@@ -69,6 +70,7 @@ interface PiCloudSession {
 const emptySchema = z.object({});
 const MAX_PENDING_EVENTS = 1_000;
 const MAX_PENDING_LOG_ENTRIES = 10_000;
+const MAX_COVERED_EVENT_IDS = 10_000;
 const LOG_FLUSH_ENTRY_COUNT = 100;
 
 const userMessageCommandSchema = z
@@ -131,6 +133,7 @@ export class PiAgentServer {
   });
   private readonly posthogAPI: PostHogAPIClient;
   private readonly eventStreamSender: TaskRunEventStreamSender | null;
+  private readonly nextEventId = createEventIdSource();
   private server: ServerType | null = null;
   private session: PiCloudSession | null = null;
   private initializationPromise: Promise<void> | null = null;
@@ -846,7 +849,7 @@ export class PiAgentServer {
       case "user_message":
         return this.deliverUserMessage(runtime, params);
       case "cancel":
-        return client.abort();
+        return runtime.abort();
       case "queue_get":
         return client.getQueue();
       case "queue_clear": {
@@ -1056,7 +1059,12 @@ export class PiAgentServer {
     return sync;
   }
 
-  private broadcast(event: Record<string, unknown>): void {
+  private broadcast(rawEvent: Record<string, unknown>): void {
+    const eventId = this.nextEventId();
+    const event: Record<string, unknown> = {
+      ...rawEvent,
+      event_id: eventId,
+    };
     const isConversationEvent =
       event.type === "pi_event" || event.type === "pi_run_started";
     const isExtensionMessage =
@@ -1075,6 +1083,7 @@ export class PiAgentServer {
               method: "_posthog/pi_extension_event",
               params: event,
             },
+            event_id: eventId,
           }
         : {
             id: typeof event.id === "string" ? event.id : undefined,
@@ -1085,6 +1094,7 @@ export class PiAgentServer {
               event.type === "pi_event"
                 ? (event.event as AgentConversationEvent)
                 : undefined,
+            event_id: eventId,
           };
       const toolCallId = updatedToolCallId(logEntry.event);
       const pendingLogIndex = toolCallId
@@ -1094,9 +1104,19 @@ export class PiAgentServer {
         : -1;
       if (pendingLogIndex >= 0) {
         const previous = this.pendingLogEntries[pendingLogIndex];
+        const coveredEventIds = previous?.covered_event_ids ?? [];
+        if (
+          previous?.event_id &&
+          coveredEventIds.length < MAX_COVERED_EVENT_IDS
+        ) {
+          coveredEventIds.push(previous.event_id);
+        }
         this.pendingLogEntries[pendingLogIndex] = {
           ...logEntry,
           event: mergeToolCallUpdate(previous?.event, logEntry.event),
+          ...(coveredEventIds.length > 0
+            ? { covered_event_ids: coveredEventIds }
+            : {}),
         };
       } else {
         this.pendingLogEntries.push(logEntry);
@@ -1140,12 +1160,23 @@ export class PiAgentServer {
         : -1;
       if (pendingEventIndex >= 0) {
         const previous = this.pendingEvents[pendingEventIndex];
+        const coveredEventIds =
+          (previous?.covered_event_ids as string[] | undefined) ?? [];
+        if (
+          typeof previous?.event_id === "string" &&
+          coveredEventIds.length < MAX_COVERED_EVENT_IDS
+        ) {
+          coveredEventIds.push(previous.event_id);
+        }
         this.pendingEvents[pendingEventIndex] = {
           ...event,
           event: mergeToolCallUpdate(
             previous?.event as AgentConversationEvent | undefined,
             event.event as AgentConversationEvent | undefined,
           ),
+          ...(coveredEventIds.length > 0
+            ? { covered_event_ids: coveredEventIds }
+            : {}),
         };
       } else {
         this.pendingEvents.push(event);

@@ -211,9 +211,12 @@ export {
   splitMentionSegments,
 } from "./mentions";
 export {
+  customModelMeta,
   DEFAULT_OPTION_META_KEY,
   defaultEligibleModel,
+  isCustomModelOption,
   isDefaultSelectOption,
+  isHiddenPiModelId,
   isRestrictedModelOption,
   modelHarnessMeta,
   OPTION_DOCS_URL_META_KEY,
@@ -275,6 +278,7 @@ export {
 } from "./reasoning-effort";
 export { REFUND_REASON_OPTIONS } from "./refund-reasons";
 export {
+  CLOUD_REGIONS,
   type CloudRegion,
   REGION_LABELS,
 } from "./regions";
@@ -346,6 +350,7 @@ export {
   getLocalDayKey,
   getRelativeDateGroup,
 } from "./time";
+export { singleLineTitle } from "./title-text";
 export {
   mcpToolKey,
   parseMcpToolName,

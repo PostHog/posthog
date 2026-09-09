@@ -168,6 +168,7 @@ async fn async_main(config: Config) -> Result<()> {
     let router = PartitionRouter::with_intake_cap(
         config.partition_channel_buffer,
         config.partition_intake_max_events,
+        config.seed_lane_cap(),
     );
     let offset_tracker = Arc::new(OffsetTracker::new());
 
@@ -263,6 +264,7 @@ async fn async_main(config: Config) -> Result<()> {
             enabled: config.cohort_seed_person_apply_enabled,
             live_margin_ms: config.cohort_seed_person_live_margin_ms,
         },
+        seed_budget: config.seed_run_budget(),
     });
 
     // Cheap `Arc` clones taken before the originals move into the dispatcher: the checkpoint sweeper

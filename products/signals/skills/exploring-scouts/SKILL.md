@@ -26,6 +26,10 @@ This skill helps you **understand and explore what a project's scouts are doing 
 It is the observability counterpart to the `authoring-scouts` skill (which teaches writing and tuning) and to the `inbox-exploration` skill (which covers the inbox reports scouts feed into).
 (The scout tools were recently renamed from `signals-scout-*` to `scout-*`; if a `scout-*` name comes back unknown, the server may still expose it under the legacy `signals-scout-*` name — search the tool catalog and call whichever name it returns.)
 
+## Governed metric first
+
+When the question asks for scout failure rate or cost per run, call `posthog:metric-list` before the scout tools and look for `scout_run_fail_pct` or `scout_cost_per_run`. Run an approved, non-drifted match with `posthog:data-catalog-metric-run` for the canonical headline. If the user also asks which scouts, runs, or failure modes drive the result, answer the headline first, then use the workflows below for a noncanonical breakdown. If no governed metric matches, say so and label the derived measure noncanonical.
+
 **A scout's output is inbox reports, written 1:1.** Scouts list `emit_report` / `edit_report` in their `allowed_tools` and **author or edit inbox reports directly**; a run's output shows up as **`emitted_report_ids`** (reports it authored) and **`edited_report_ids`** (reports it updated).
 The run rows also carry `emitted_count` / `emitted_finding_ids` — **legacy fields from the deprecated signal-emitting channel** (weak `emit_signal` findings a pipeline consolidated). On a report-channel scout they stay `0` / empty even on a productive run; a non-zero tally means the run came from a scout still on the legacy channel (an old custom scout, or a canonical scout not yet ported) — real output for that run, not noise. When unsure of a scout's channel, check its `allowed_tools` via `skill-get`.
 **Never read `emitted_count: 0` as "did nothing"** — check the report columns and the run summary first.
@@ -37,14 +41,14 @@ For "what kind of run was this?" questions — did it author a self-improvement 
 
 There are six things you can observe about the fleet, each with its own tool:
 
-| What you want to know                        | Tool                            | What it tells you                                                                                               |
-| -------------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Which scouts run, how often, in what posture | `scout-config-list`             | One row per scout: schedule, `enabled`, `status` / `pause_reason`, `emit`, `last_run_at`, `description`, `tags` |
-| What the scouts actually did, run by run     | `scout-runs-list` / `-retrieve` | Per-run status, timing, end-of-run summary, `emitted_report_ids` / `edited_report_ids`, deep-link               |
-| What the fleet has learned across runs       | `scout-scratchpad-search`       | Durable per-team memory (baselines, noise, allowlists)                                                          |
-| What the team has told the fleet             | `scout-notes-list`              | Steering notes humans/agents left for scouts (per-scout or fleet-wide, newest first)                            |
-| Which reports a run wrote or edited          | the run row itself              | `emitted_report_ids` / `edited_report_ids` — resolve each id via `inbox-reports-retrieve`                       |
-| What the scouts surfaced to the user         | `inbox-reports-list`            | The scout-written reports, as the user sees them (filter `source_product: "signals_scout"`)                     |
+| What you want to know                        | Tool                            | What it tells you                                                                                                               |
+| -------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Which scouts run, how often, in what posture | `scout-config-list`             | One row per scout: schedule, `enabled`, `status` / `pause_reason`, `emit`, `write_scopes`, `last_run_at`, `description`, `tags` |
+| What the scouts actually did, run by run     | `scout-runs-list` / `-retrieve` | Per-run status, timing, end-of-run summary, `emitted_report_ids` / `edited_report_ids`, deep-link                               |
+| What the fleet has learned across runs       | `scout-scratchpad-search`       | Durable per-team memory (baselines, noise, allowlists)                                                                          |
+| What the team has told the fleet             | `scout-notes-list`              | Steering notes humans/agents left for scouts (per-scout or fleet-wide, newest first)                                            |
+| Which reports a run wrote or edited          | the run row itself              | `emitted_report_ids` / `edited_report_ids` — resolve each id via `inbox-reports-retrieve`                                       |
+| What the scouts surfaced to the user         | `inbox-reports-list`            | The scout-written reports, as the user sees them (filter `source_product: "signals_scout"`)                                     |
 
 `scout-config-list` takes a `tags` parameter (comma-separated) to narrow the roster to the scouts carrying any of the given labels — useful on a large fleet when the question is scoped to one area, e.g. `tags=revenue`.
 

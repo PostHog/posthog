@@ -2224,6 +2224,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "capture-apm-metrics"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.9",
+ "capture",
+ "capture-logs",
+ "common-alloc",
+ "common-metrics",
+ "health",
+ "limiters",
+ "tokio",
+ "tower-http 0.5.2",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "capture-load-gen"
 version = "0.1.0"
 dependencies = [
@@ -2921,6 +2938,7 @@ dependencies = [
 name = "common-kafka-consumer"
 version = "0.1.0"
 dependencies = [
+ "metrics",
  "rdkafka",
 ]
 
@@ -8998,7 +9016,6 @@ dependencies = [
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
- "webpki-roots 1.0.6",
 ]
 
 [[package]]
@@ -9034,7 +9051,6 @@ dependencies = [
  "toml 0.8.23",
  "tracing",
  "tracing-subscriber",
- "webpki-roots 1.0.6",
 ]
 
 [[package]]
@@ -9302,7 +9318,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.4.7"
+version = "0.6.0"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
@@ -13888,12 +13904,15 @@ dependencies = [
  "common-kafka",
  "common-liveness",
  "envconfig",
+ "futures",
  "health",
  "metrics",
  "metrics-exporter-prometheus",
  "moka",
  "rdkafka",
+ "redis",
  "reqwest 0.12.28",
+ "rustls 0.23.37",
  "serde",
  "serde_json",
  "sqlx",

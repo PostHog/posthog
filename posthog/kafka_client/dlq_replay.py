@@ -4,9 +4,42 @@ from typing import Any, Optional, cast
 
 from confluent_kafka import Consumer, KafkaError, KafkaException, Producer
 
+from posthog.dataclasses import frozen
 from posthog.kafka_client.routing import get_profile_settings
+from posthog.kafka_client.topics import (
+    KAFKA_LOGS_INGESTION,
+    KAFKA_LOGS_INGESTION_DLQ,
+    KAFKA_TRACES_INGESTION,
+    KAFKA_TRACES_INGESTION_DLQ,
+)
 
 Header = tuple[str, bytes]
+
+
+@frozen
+class DLQReplayPipeline:
+    """The DLQ topic, the topic it drains into, and the consumer group that tracks the drain."""
+
+    source_topic: str
+    target_topic: str
+    group_id: str
+
+
+# One entry per ingestion consumer that quarantines to a DLQ this tool can drain. The topic
+# constants keep the replay on the cluster the consumer uses, because routing resolves the
+# exact topic string.
+DLQ_REPLAY_PIPELINES: dict[str, DLQReplayPipeline] = {
+    "traces": DLQReplayPipeline(
+        source_topic=KAFKA_TRACES_INGESTION_DLQ,
+        target_topic=KAFKA_TRACES_INGESTION,
+        group_id="dlq-replay-ingestion-traces",
+    ),
+    "logs": DLQReplayPipeline(
+        source_topic=KAFKA_LOGS_INGESTION_DLQ,
+        target_topic=KAFKA_LOGS_INGESTION,
+        group_id="dlq-replay-ingestion-logs",
+    ),
+}
 
 # The logs/traces ingestion consumer records the resolved team on every quarantined
 # message, so a replay can read past a team's records without reproducing them.
@@ -157,6 +190,7 @@ def drain_dlq(
     security_protocol: Optional[str] = None,
     skip_team_ids: frozenset[int] = frozenset(),
     max_messages_per_second: Optional[float] = None,
+    max_message_bytes: Optional[int] = None,
     unassigned_timeout_seconds: float = 60.0,
     should_stop: Callable[[], bool] = lambda: False,
     log: Callable[[str], None] = print,
@@ -172,8 +206,11 @@ def drain_dlq(
 
     Records whose team is in skip_team_ids are read past without reproducing, so their
     offsets advance but they stay on the DLQ. max_messages_per_second caps the produce
-    rate. should_stop is polled between batches so a caller can stop the run after the
-    current batch commits, rather than abandoning it mid-flight. A run that holds no
+    rate. max_message_bytes is the largest record the producer sends; unset, it takes the
+    target profile's max_request_size (KAFKA_<PROFILE>_PRODUCER_MAX_REQUEST_SIZE), and
+    then the librdkafka default of 1 MiB. should_stop is polled between batches so a
+    caller can stop the run after the current batch commits, rather than abandoning it
+    mid-flight. A run that holds no
     partitions for unassigned_timeout_seconds gives up, so a spare member of an
     over-subscribed group exits instead of polling forever.
     """
@@ -209,6 +246,12 @@ def drain_dlq(
             ),
             "acks": "all",
         }
+        # A DLQ record can be as large as the ingestion producer allowed, so the replay
+        # producer must accept the same size or the broker rejects the record and the run
+        # stops on the first big one.
+        message_max_bytes = max_message_bytes or target.producer_settings.get("max_request_size")
+        if message_max_bytes:
+            producer_conf["message.max.bytes"] = int(message_max_bytes)
         producer = Producer(producer_conf)
 
     replayed = 0
