@@ -1400,7 +1400,7 @@ class TestLogsPersonIdFilter(_LogsScopeFilterTestMixin, ClickhouseTestMixin, API
             data={"query": {**query_params, "facetField": "severity_text"}},
         )
         self.assertEqual(facet_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(facet_response.json()["results"], [{"value": "info", "count": 1}])
+        self.assertEqual(facet_response.json()["results"]["facetField"], [{"value": "info", "count": 1}])
 
 
 class TestLogsSessionIdFilter(_LogsScopeFilterTestMixin, ClickhouseTestMixin, APIBaseTest):
@@ -1495,7 +1495,7 @@ class TestLogsSessionIdFilter(_LogsScopeFilterTestMixin, ClickhouseTestMixin, AP
             data={"query": {**query_params, "facetField": "severity_text"}},
         )
         self.assertEqual(facet_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(facet_response.json()["results"], [{"value": "info", "count": 1}])
+        self.assertEqual(facet_response.json()["results"]["facetField"], [{"value": "info", "count": 1}])
 
         # total_count is the rows the miner matched, not the templates it kept, so this asserts
         # the scope without depending on which single-occurrence bodies survive mining.
