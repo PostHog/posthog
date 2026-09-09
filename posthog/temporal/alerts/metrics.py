@@ -14,7 +14,7 @@ def record_due_insight_alert_metrics(alerts: Iterable[AlertConfiguration], polle
 
     for alert in alerts:
         due_count += 1
-        due_at = alert.next_check_at or alert.created_at
+        due_at = alert.next_check_at or polled_at
         if oldest_due_at is None or due_at < oldest_due_at:
             oldest_due_at = due_at
 
