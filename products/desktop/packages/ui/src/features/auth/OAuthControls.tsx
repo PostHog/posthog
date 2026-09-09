@@ -1,7 +1,7 @@
 import type { CloudRegion } from "@posthog/shared";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
-import { Callout } from "@radix-ui/themes";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
+import { Callout } from "@radix-ui/themes";
 import { CustomCloudFields } from "./CustomCloudFields";
 import { RegionSelect } from "./RegionSelect";
 import { useCustomCloud } from "./useCustomCloud";

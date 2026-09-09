@@ -18,9 +18,9 @@ import {
 } from "@posthog/platform/url-launcher";
 import {
   type BackoffOptions,
-  getCloudUrlFromRegion,
   DEV_CALLBACK_PORT,
   DEV_REDIRECT_URI,
+  getCloudUrlFromRegion,
   getOauthClientIdFromRegion,
   OAUTH_SCOPES,
   sleepWithBackoff,

@@ -1,7 +1,7 @@
 import { configureCustomCloud } from "@posthog/shared";
 import { afterEach, describe, expect, it } from "vitest";
-import type { AuthState } from "./schemas";
 import { getAuthIdentity } from "./authIdentity";
+import type { AuthState } from "./schemas";
 
 function authState(overrides: Partial<AuthState>): AuthState {
   return {

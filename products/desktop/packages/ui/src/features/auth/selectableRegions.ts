@@ -1,4 +1,4 @@
-import { type CloudRegion } from "@posthog/shared";
+import type { CloudRegion } from "@posthog/shared";
 
 const PRODUCTION_REGIONS: CloudRegion[] = ["us", "eu"];
 const DEVELOPMENT_REGIONS: CloudRegion[] = ["dev-cloud", "dev"];

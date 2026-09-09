@@ -13,8 +13,8 @@ import { join } from "node:path";
 import { initOtelTransport } from "@main/utils/otel-log-transport";
 import type ElectronLog from "electron-log";
 import log from "electron-log/main";
-import { isDevBuild } from "./env";
 import { isTestChannelBuild } from "./build-channel";
+import { isDevBuild } from "./env";
 
 const isDev = process.env.NODE_ENV === "development" || isDevBuild();
 const LOG_DIR = join(
