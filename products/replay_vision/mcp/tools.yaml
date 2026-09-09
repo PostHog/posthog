@@ -176,6 +176,9 @@ tools:
     vision-observations-search-viewed-create:
         operation: vision_observations_search_viewed_create
         enabled: false
+    vision-observations-viewed-create:
+        operation: vision_observations_viewed_create
+        enabled: false
     vision-quota-retrieve:
         operation: environment_vision_quota_retrieve
         enabled: true
@@ -501,6 +504,9 @@ tools:
             observations with `vision-observations-label-create` before you call
             `vision-scanners-prompt-suggestions-generate`. Testing a suggestion is not available over MCP, so tell the
             person to test it on the scanner's Calibration tab before they apply it.
+    vision-scanners-observations-viewed-create:
+        operation: vision_scanners_observations_viewed_create
+        enabled: false
     vision-scanners-partial-update:
         operation: vision_scanners_partial_update
         enabled: false

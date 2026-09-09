@@ -134,6 +134,50 @@ export namespace Schemas {
       human_readable_error?: string | null;
     }
 
+    export interface AccessControlResourceDefault {
+      /**
+         * The stored default level for this resource type. Null when the PostHog default applies.
+         * @nullable
+         */
+      access_level: string | null;
+      /** The lowest level this resource type allows. */
+      minimum: string;
+      /** The highest level this resource type allows. */
+      maximum: string;
+    }
+
+    /**
+     * The default level per resource type, keyed by resource name.
+     */
+    export type AccessControlDefaultsResponseResourceAccessLevels = {[key: string]: AccessControlResourceDefault};
+
+    export interface AccessControlObjectRuleResource {
+      /** A resource type that supports rules on single objects. */
+      resource: string;
+      /** The levels an object rule on this resource type accepts, lowest first. */
+      available_access_levels: string[];
+      /** The lowest level an object rule on this resource can set. */
+      minimum_access_level: string;
+    }
+
+    /**
+     * The project's defaults: what everyone without a rule of their own gets.
+     */
+    export interface AccessControlDefaultsResponse {
+      /** The project access levels, lowest first. */
+      available_project_levels: string[];
+      /** The resource access levels, lowest first. */
+      available_resource_levels: string[];
+      /** Whether the caller may change access rules in this project. */
+      can_edit: boolean;
+      /** The default project access level for members. */
+      project_access_level: string;
+      /** The default level per resource type, keyed by resource name. */
+      resource_access_levels: AccessControlDefaultsResponseResourceAccessLevels;
+      /** The resource types that accept rules on single objects, with the levels each accepts. */
+      object_rule_resources: AccessControlObjectRuleResource[];
+    }
+
     export interface AccessControlFilterWarning {
       /** Human-readable warning shown to the user */
       message: string;
@@ -154,6 +198,235 @@ export namespace Schemas {
       Editor: 'editor',
       Manager: 'manager',
     } as const;
+
+    /**
+     * * `object` - object
+     * * `parent_object` - parent_object
+     * * `resource` - resource
+     * * `parent_resource` - parent_resource
+     * * `system_default` - system_default
+     * * `org_admin` - org_admin
+     * * `creator` - creator
+     * * `org_membership` - org_membership
+     */
+    export type ResolvedAccessSourceEnum = typeof ResolvedAccessSourceEnum[keyof typeof ResolvedAccessSourceEnum];
+
+
+    export const ResolvedAccessSourceEnum = {
+      Object: 'object',
+      ParentObject: 'parent_object',
+      Resource: 'resource',
+      ParentResource: 'parent_resource',
+      SystemDefault: 'system_default',
+      OrgAdmin: 'org_admin',
+      Creator: 'creator',
+      OrgMembership: 'org_membership',
+    } as const;
+
+    /**
+     * * `member` - member
+     * * `role` - role
+     * * `default` - default
+     */
+    export type ResolvedAccessSourceSubjectEnum = typeof ResolvedAccessSourceSubjectEnum[keyof typeof ResolvedAccessSourceSubjectEnum];
+
+
+    export const ResolvedAccessSourceSubjectEnum = {
+      Member: 'member',
+      Role: 'role',
+      Default: 'default',
+    } as const;
+
+    /**
+     * A resolved access level with the rule that supplied it — the wire form of `ResolvedAccess`.
+     */
+    export interface ResolvedAccess {
+      /** The access level that applies. */
+      access_level: string;
+      /** How the level was derived: a rule on the object, its parent object, the resource, the parent resource, the PostHog default, an organization admin's or a creator's full access, or organization membership when the object is the organization itself.
+       *
+       * * `object` - object
+       * * `parent_object` - parent_object
+       * * `resource` - resource
+       * * `parent_resource` - parent_resource
+       * * `system_default` - system_default
+       * * `org_admin` - org_admin
+       * * `creator` - creator
+       * * `org_membership` - org_membership */
+      source: ResolvedAccessSourceEnum;
+      /** Whose rule decided: a member's own, a role's, or the default for everyone in the project. Null when no rule did.
+       *
+       * * `member` - member
+       * * `role` - role
+       * * `default` - default */
+      source_subject: ResolvedAccessSourceSubjectEnum | null;
+      /** The resource the deciding rule belongs to. */
+      source_resource: string;
+      /**
+         * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
+         * @nullable
+         */
+      source_resource_id: string | null;
+    }
+
+    /**
+     * One subject's access to one scope (the project, or a whole resource type): what is stored,
+     * what is enforced, and where the enforced level comes from.
+     */
+    export interface SubjectAccessEntry {
+      /**
+         * The subject's own stored rule for this scope. Null when the subject has no rule of its own here.
+         * @nullable
+         */
+      access_level: string | null;
+      /**
+         * The level that is enforced for the subject after defaults, roles and bypasses are resolved. Null when nothing resolves for this scope.
+         * @nullable
+         */
+      effective_access_level: string | null;
+      /** The level the subject falls back to without a rule of its own, with the rule that supplies it. Read `source` and `source_subject` to tell a role rule from the project default, or an organization admin's full access. */
+      inherited_access: ResolvedAccess | null;
+      /** The lowest level this scope allows. */
+      minimum: string;
+      /** The highest level this scope allows. */
+      maximum: string;
+    }
+
+    /**
+     * Access per resource type, keyed by resource name (for example `dashboard`, `feature_flag`).
+     */
+    export type AccessControlMemberAccessResources = {[key: string]: SubjectAccessEntry};
+
+    export interface AccessControlMemberUser {
+      /** The user's UUID. */
+      uuid: string;
+      /** The user's first name. */
+      first_name: string;
+      /** The user's last name. */
+      last_name: string;
+      /** The user's email. */
+      email: string;
+    }
+
+    /**
+     * * `1` - member
+     * * `8` - administrator
+     * * `15` - owner
+     */
+    export type OrganizationMembershipLevelEnum = typeof OrganizationMembershipLevelEnum[keyof typeof OrganizationMembershipLevelEnum];
+
+
+    export const OrganizationMembershipLevelEnum = {
+      Number1: 1,
+      Number8: 8,
+      Number15: 15,
+    } as const;
+
+    /**
+     * A member's resolved access to the project and to every resource type in it.
+     */
+    export interface AccessControlMemberAccess {
+      /** The organization membership id. Use it as `member_id` on the member rule endpoints. */
+      organization_membership_id: string;
+      /** The member's identity. */
+      user: AccessControlMemberUser;
+      /** The member's organization level: 1 member, 8 admin, 15 owner. Admins and owners have full access to everything.
+       *
+       * * `1` - member
+       * * `8` - administrator
+       * * `15` - owner */
+      organization_level: OrganizationMembershipLevelEnum;
+      /** The roles the member is in. Use them as `role_id` on the role rule endpoints. */
+      role_ids: string[];
+      /** Access to the project itself. */
+      project: SubjectAccessEntry;
+      /** Access per resource type, keyed by resource name (for example `dashboard`, `feature_flag`). */
+      resources: AccessControlMemberAccessResources;
+    }
+
+    export interface AccessControlMembersResponse {
+      /** The project access levels, lowest first. */
+      available_project_levels: string[];
+      /** The resource access levels, lowest first. */
+      available_resource_levels: string[];
+      /** Whether the caller may change access rules in this project. */
+      can_edit: boolean;
+      /** One entry per organization member. */
+      results: AccessControlMemberAccess[];
+    }
+
+    /**
+     * A stored rule on one object, as configured for a subject.
+     */
+    export interface AccessControlObjectRule {
+      /** The object's resource type, for example `dashboard`. */
+      resource: string;
+      /** The object's primary key. */
+      resource_id: string;
+      /** The object's display name. Falls back to the id when it has no name. */
+      name: string;
+      /**
+         * The object's short id, for models that link by one (insights, notebooks).
+         * @nullable
+         */
+      short_id: string | null;
+      /** The level the rule grants or restricts to. */
+      access_level: string;
+    }
+
+    export interface AccessControlObjectRulesResponse {
+      /** The subject's object rules, sorted by resource and name. */
+      results: AccessControlObjectRule[];
+    }
+
+    /**
+     * A stored rule on one property definition, as configured for a subject.
+     */
+    export interface AccessControlPropertyRule {
+      /** The property definition id. */
+      property_definition_id: string;
+      /** The property name. */
+      property: string;
+      /** Whether the property is a `person` or an `event` property. */
+      property_type: string;
+      /** The rule's level: `none`, `read` or `read_write`. */
+      access_level: string;
+    }
+
+    export interface AccessControlPropertyRulesResponse {
+      /** The subject's property rules, sorted by property type and name. */
+      results: AccessControlPropertyRule[];
+    }
+
+    /**
+     * Access per resource type, keyed by resource name (for example `dashboard`, `feature_flag`).
+     */
+    export type AccessControlRoleAccessResources = {[key: string]: SubjectAccessEntry};
+
+    /**
+     * A role's resolved access to the project and to every resource type in it.
+     */
+    export interface AccessControlRoleAccess {
+      /** The role id. Use it as `role_id` on the role rule endpoints. */
+      role_id: string;
+      /** The role's name. */
+      role_name: string;
+      /** Access to the project itself. */
+      project: SubjectAccessEntry;
+      /** Access per resource type, keyed by resource name (for example `dashboard`, `feature_flag`). */
+      resources: AccessControlRoleAccessResources;
+    }
+
+    export interface AccessControlRolesResponse {
+      /** The project access levels, lowest first. */
+      available_project_levels: string[];
+      /** The resource access levels, lowest first. */
+      available_resource_levels: string[];
+      /** Whether the caller may change access rules in this project. */
+      can_edit: boolean;
+      /** One entry per role in the organization. */
+      results: AccessControlRoleAccess[];
+    }
 
     /**
      * * `read_write` - read_write
@@ -7917,6 +8190,8 @@ export namespace Schemas {
     } as const;
 
     export interface IntegrationFilter {
+      /** Keep rows that no integration reports cost for, such as organic, email or an unmapped source. Defaults to true. */
+      includeNonIntegrated?: boolean | null;
       /** Selected integration source IDs to filter by (e.g., table IDs or source map IDs) */
       integrationSourceIds?: string[] | null;
     }
@@ -14167,6 +14442,44 @@ export namespace Schemas {
       state: string | null;
     }
 
+    /**
+     * * `auto` - auto
+     * * `manual` - manual
+     */
+    export type BreakdownColorConfigSourceEnum = typeof BreakdownColorConfigSourceEnum[keyof typeof BreakdownColorConfigSourceEnum];
+
+
+    export const BreakdownColorConfigSourceEnum = {
+      Auto: 'auto',
+      Manual: 'manual',
+    } as const;
+
+    export interface BreakdownColorConfig {
+      /** The breakdown value this color applies to, as it appears in the chart legend. */
+      breakdownValue: string;
+      /**
+         * Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex value is rejected. Null leaves the value on its default color.
+         * @nullable
+         * @pattern ^preset-[1-9][0-9]*$
+         */
+      colorToken: string | null;
+      /**
+         * Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.
+         * @nullable
+         */
+      breakdownType?: string | null;
+      /**
+         * Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.
+         * @nullable
+         */
+      breakdownProperty?: string | null;
+      /** `manual` for a color a person picked, `auto` for one the dashboard assigned.
+       *
+       * * `auto` - auto
+       * * `manual` - manual */
+      source?: BreakdownColorConfigSourceEnum | null;
+    }
+
     export interface BreakdownItem {
       label: string;
       value: string | number;
@@ -15816,9 +16129,32 @@ export namespace Schemas {
       origins: string[];
     }
 
+    /**
+     * One provider a canvas may call through ph.connectors, with the tools it may use.
+     */
+    export interface CanvasConnectorDeclaration {
+      /**
+         * Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store.
+         * @maxLength 300
+         */
+      provider: string;
+      /**
+         * Tool names the canvas may call on this provider. Read-only tools only.
+         * @minItems 1
+         * @maxItems 64
+         * @items.maxLength 200
+         */
+      tools: string[];
+    }
+
     export interface CanvasCapabilities {
       posthog: CanvasPostHogCapabilities;
       network: CanvasNetworkCapabilities;
+      /**
+         * Third-party providers the canvas reads through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review.
+         * @maxItems 20
+         */
+      connectors?: CanvasConnectorDeclaration[];
     }
 
     /**
@@ -15842,6 +16178,151 @@ export namespace Schemas {
       state_scopes_added: string[];
       /** Action verbs the draft newly declares it may invoke via ph.actions. */
       actions_added: string[];
+      /** Connector providers and tools the draft newly declares it may call via ph.connectors. */
+      connectors_added: CanvasConnectorDeclaration[];
+    }
+
+    /**
+     * * `native` - Native
+     * * `mcp` - Mcp
+     */
+    export type ConnectorKindEnum = typeof ConnectorKindEnum[keyof typeof ConnectorKindEnum];
+
+
+    export const ConnectorKindEnum = {
+      Native: 'native',
+      Mcp: 'mcp',
+    } as const;
+
+    /**
+     * JSON Schema of the tool's arguments object.
+     */
+    export type CanvasConnectorToolInputSchema = { [key: string]: unknown };
+
+    /**
+     * One tool a connector provider exposes to canvases.
+     */
+    export interface CanvasConnectorTool {
+      /** Tool name, as passed to ph.connectors.call. */
+      name: string;
+      /** One line naming what the tool reads. */
+      summary: string;
+      /** True when the tool only reads. Canvases may call read-only tools. */
+      is_read_only: boolean;
+      /** JSON Schema of the tool's arguments object. */
+      input_schema: CanvasConnectorToolInputSchema;
+      /** Authoring docs: argument and result shape, limits, and behavior. */
+      usage: string;
+    }
+
+    /**
+     * One connector provider, with the caller's connection state and the tools it exposes.
+     */
+    export interface CanvasConnector {
+      /** Provider id to declare and call, e.g. 'github' or 'mcp:mcp.calendly.com'. */
+      provider: string;
+      /** Display name of the provider. */
+      display_name: string;
+      /** 'native' runs through a PostHog personal integration; 'mcp' through an MCP store installation.
+       *
+       * * `native` - Native
+       * * `mcp` - Mcp */
+      kind: ConnectorKindEnum;
+      /** True when the caller has a usable connection to this provider. */
+      connected: boolean;
+      /** In-app path where the caller connects this provider. */
+      connect_path: string;
+      /** Tools the caller's connection exposes, sorted by name. */
+      tools: CanvasConnectorTool[];
+    }
+
+    /**
+     * Tool arguments, validated against the tool's input schema.
+     */
+    export type CanvasConnectorCallArguments = { [key: string]: unknown };
+
+    /**
+     * Payload for calling one connector tool as the viewer.
+     */
+    export interface CanvasConnectorCall {
+      /**
+         * Declared provider id, e.g. 'github'.
+         * @maxLength 300
+         */
+      provider: string;
+      /**
+         * Declared tool name, e.g. 'list_pull_requests'.
+         * @maxLength 200
+         */
+      tool: string;
+      /** Tool arguments, validated against the tool's input schema. */
+      arguments?: CanvasConnectorCallArguments;
+    }
+
+    /**
+     * Tool output. Native tools return their documented shape; MCP tools return {content, structured_content, is_error}.
+     * @nullable
+     */
+    export type CanvasConnectorCallResultResult = { [key: string]: unknown } | null;
+
+    /**
+     * * `ok` - Ok
+     * * `not_connected` - Not Connected
+     * * `needs_reauth` - Needs Reauth
+     * * `blocked` - Blocked
+     * * `tool_missing` - Tool Missing
+     * * `write_blocked` - Write Blocked
+     * * `upstream_error` - Upstream Error
+     */
+    export type ConnectorCallStatusEnum = typeof ConnectorCallStatusEnum[keyof typeof ConnectorCallStatusEnum];
+
+
+    export const ConnectorCallStatusEnum = {
+      Ok: 'ok',
+      NotConnected: 'not_connected',
+      NeedsReauth: 'needs_reauth',
+      Blocked: 'blocked',
+      ToolMissing: 'tool_missing',
+      WriteBlocked: 'write_blocked',
+      UpstreamError: 'upstream_error',
+    } as const;
+
+    /**
+     * Result of one connector call. `status` is 'ok' when `result` holds the tool's output.
+     */
+    export interface CanvasConnectorCallResult {
+      /** 'ok' carries a result. 'not_connected' and 'needs_reauth' mean the viewer must connect the provider at connect_path. 'blocked' is team policy. 'write_blocked' is a tool that may write. 'upstream_error' is a failure at the provider.
+       *
+       * * `ok` - Ok
+       * * `not_connected` - Not Connected
+       * * `needs_reauth` - Needs Reauth
+       * * `blocked` - Blocked
+       * * `tool_missing` - Tool Missing
+       * * `write_blocked` - Write Blocked
+       * * `upstream_error` - Upstream Error */
+      status: ConnectorCallStatusEnum;
+      /**
+         * Tool output. Native tools return their documented shape; MCP tools return {content, structured_content, is_error}.
+         * @nullable
+         */
+      result: CanvasConnectorCallResultResult;
+      /** Human-readable explanation for a non-ok status. */
+      detail: string;
+      /** True when the result exceeded the size cap and was cut to a preview. */
+      truncated: boolean;
+      /**
+         * In-app path where the viewer can connect the provider, when that would help.
+         * @nullable
+         */
+      connect_path: string | null;
+    }
+
+    /**
+     * The connector catalog: every provider a canvas may declare and call.
+     */
+    export interface CanvasConnectorsResponse {
+      /** Native providers first, then the requested MCP hosts. */
+      connectors: CanvasConnector[];
     }
 
     /**
@@ -21277,8 +21758,11 @@ export namespace Schemas {
       readonly filters: DashboardFilters;
       /** @nullable */
       readonly variables: DashboardVariables;
-      /** Custom color mapping for breakdown values. */
-      breakdown_colors?: unknown;
+      /**
+         * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
+         * @nullable
+         */
+      breakdown_colors?: BreakdownColorConfig[] | null;
       /**
          * ID of the color theme used for chart visualizations.
          * @nullable
@@ -30244,7 +30728,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly assignee: EarlyAccessFeatureSerializerCreateOnlyAssignee;
-      /** Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not be group-based, and must not be multivariate. */
+      /** Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not belong to another product such as a survey or experiment, must not be group-based, and must not be multivariate. */
       feature_flag_id?: number;
       readonly feature_flag: MinimalFeatureFlag;
       _create_in_folder?: string;
@@ -53953,6 +54437,8 @@ export namespace Schemas {
       readonly next_observation_id: string | null;
       /** The team's shared label on this observation (correct/incorrect + feedback), or null if unlabeled. */
       readonly label: ReplayObservationLabel | null;
+      /** Whether the calling user has opened this observation. */
+      readonly viewed: boolean;
       /** @nullable */
       started_at?: string | null;
       /** @nullable */
@@ -54282,20 +54768,6 @@ export namespace Schemas {
     export type OrganizationProjectsItem = { [key: string]: unknown };
 
     export type OrganizationMetadata = {[key: string]: string};
-
-    /**
-     * * `1` - member
-     * * `8` - administrator
-     * * `15` - owner
-     */
-    export type OrganizationMembershipLevelEnum = typeof OrganizationMembershipLevelEnum[keyof typeof OrganizationMembershipLevelEnum];
-
-
-    export const OrganizationMembershipLevelEnum = {
-      Number1: 1,
-      Number8: 8,
-      Number15: 15,
-    } as const;
 
     /**
      * * `0` - none
@@ -66109,8 +66581,11 @@ export namespace Schemas {
       pinned?: boolean;
       /** Dashboard-level filters (date range and properties) applied across all tiles as the source of truth. */
       filters?: DashboardFiltersOpenApi;
-      /** Custom color mapping for breakdown values. */
-      breakdown_colors?: unknown;
+      /**
+         * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
+         * @nullable
+         */
+      breakdown_colors?: BreakdownColorConfig[] | null;
       /**
          * ID of the color theme used for chart visualizations.
          * @nullable
@@ -86750,6 +87225,11 @@ export namespace Schemas {
          * @items.maxLength 10000
          */
       text_parts?: string[];
+      /**
+         * AI observability trace id of the turn that wrote this answer, when the sandbox reported one.
+         * @nullable
+         */
+      trace_id?: string | null;
     }
 
     export interface TaskRunRelayMessageResponse {
@@ -92375,6 +92855,48 @@ export namespace Schemas {
       Any: 'any',
     } as const;
 
+    export type OrganizationsProjectsAccessControlMemberObjectsRetrieveParams = {
+    /**
+     * The organization membership id, as `organization_membership_id` in the members endpoint.
+     */
+    member_id: string;
+    };
+
+    export type OrganizationsProjectsAccessControlMemberPropertiesRetrieveParams = {
+    /**
+     * The organization membership id, as `organization_membership_id` in the members endpoint.
+     */
+    member_id: string;
+    };
+
+    export type OrganizationsProjectsAccessControlMembersRetrieveParams = {
+    /**
+     * Narrow the list to one organization membership id.
+     */
+    member_id?: string;
+    };
+
+    export type OrganizationsProjectsAccessControlRoleObjectsRetrieveParams = {
+    /**
+     * The role id, as `role_id` in the roles endpoint.
+     */
+    role_id: string;
+    };
+
+    export type OrganizationsProjectsAccessControlRolePropertiesRetrieveParams = {
+    /**
+     * The role id, as `role_id` in the roles endpoint.
+     */
+    role_id: string;
+    };
+
+    export type OrganizationsProjectsAccessControlRolesRetrieveParams = {
+    /**
+     * Narrow the list to one role.
+     */
+    role_id?: string;
+    };
+
     export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
     /**
      * Name of the evaluation context to restore to suggestions.
@@ -93598,6 +94120,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type CanvasesConnectorsRetrieveParams = {
+    /**
+     * Comma-separated MCP server hosts to include (e.g. 'mcp.calendly.com'). Defaults to every server the caller has connected in the MCP store.
+     */
+    mcp_hosts?: string;
     };
 
     export type ChangeRequestsListParams = {
@@ -101587,6 +102116,10 @@ export namespace Schemas {
      * @minLength 1
      */
     archived?: TasksListArchived;
+    /**
+     * Return a basic payload with heavy fields dropped, for surfaces that render only a summary of each task. Defaults to false. Currently this omits the description body, which dominates the list payload; the search parameter still matches description text server-side.
+     */
+    basic?: boolean;
     /**
      * Filter tasks to a channel's feed.
      */

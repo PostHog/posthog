@@ -1,4 +1,130 @@
 {
+    "access-control-default-objects-list": {
+        "description": "Rules on single objects (for example a dashboard, a notebook or a warehouse table) that apply to everyone in the project without a rule of their own on that object. Each rule names the object and the level it sets.",
+        "category": "Access control",
+        "feature": "access_control",
+        "summary": "List the project's object-level default rules",
+        "title": "List the project's object-level default rules",
+        "required_scopes": ["access_control:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "access-control-default-properties-list": {
+        "description": "Property rules that apply to everyone in the project without a rule of their own on that property: which person and event properties are hidden (`none`), read-only (`read`), or open (`read_write`). Every property is `read_write` unless a rule says otherwise.",
+        "category": "Access control",
+        "feature": "access_control",
+        "summary": "List the project's property default rules",
+        "title": "List the project's property default rules",
+        "required_scopes": ["access_control:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "access-control-defaults-get": {
+        "description": "The access everyone in the project gets unless a rule of their own, or a role's rule, says otherwise: the default project level (member or admin) and the default level per tool (none, viewer, editor, manager), with the lowest and highest level each tool allows. Also lists which tools accept rules on single objects, such as one dashboard or one notebook. Start here to understand a project's baseline before checking a member or a role.",
+        "category": "Access control",
+        "feature": "access_control",
+        "summary": "Get the project's default access",
+        "title": "Get the project's default access",
+        "required_scopes": ["access_control:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "access-control-member-objects-list": {
+        "description": "The rules configured for a member on single objects, for example a dashboard, a notebook or a warehouse table they are given access to, or blocked from, regardless of their tool-level access. Only the member's own rules are returned. An empty list means the member has no object rules of their own. Their tool-level access still applies.",
+        "category": "Access control",
+        "feature": "access_control",
+        "summary": "List a member's object-level rules",
+        "title": "List a member's object-level rules",
+        "required_scopes": ["access_control:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "access-control-member-properties-list": {
+        "description": "The property rules configured for a member: which person and event properties they cannot see (`none`), can only read (`read`), or can read and write (`read_write`). Every property is `read_write` unless a rule says otherwise. Only the member's own rules are returned.",
+        "category": "Access control",
+        "feature": "access_control",
+        "summary": "List a member's property rules",
+        "title": "List a member's property rules",
+        "required_scopes": ["access_control:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "access-control-members-list": {
+        "description": "For every organization member, the access enforced in the project: to the project itself and to each tool (dashboards, insights, feature flags, and so on). Per entry, `access_level` is the member's own stored rule (null when none), `effective_access_level` is what is enforced, and `inherited_access` says where that level comes from when it is not the member's own rule: `source_subject` is `role` or `default`, and `source` is `org_admin` when the member is an organization admin with full access to everything. Pass `member_id` (an `organization_membership_id`, from this tool or org-members-list) for one member. The checking-member-access skill explains how the levels combine.",
+        "category": "Access control",
+        "feature": "access_control",
+        "summary": "Resolve every member's access in the project",
+        "title": "Resolve every member's access in the project",
+        "required_scopes": ["access_control:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "access-control-role-objects-list": {
+        "description": "The rules configured for a role on single objects, for example a dashboard, a notebook or a warehouse table the role's members are given access to, or blocked from, regardless of their tool-level access.",
+        "category": "Access control",
+        "feature": "access_control",
+        "summary": "List a role's object-level rules",
+        "title": "List a role's object-level rules",
+        "required_scopes": ["access_control:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "access-control-role-properties-list": {
+        "description": "The property rules configured for a role: which person and event properties the role's members cannot see (`none`), can only read (`read`), or can read and write (`read_write`).",
+        "category": "Access control",
+        "feature": "access_control",
+        "summary": "List a role's property rules",
+        "title": "List a role's property rules",
+        "required_scopes": ["access_control:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "access-control-roles-list": {
+        "description": "For every role in the organization, the access it grants in the project: to the project itself and to each tool. Per entry, `access_level` is the role's own stored rule, `effective_access_level` is what the role's members get from it, and `inherited_access` says where that level comes from when the role has no rule of its own. Pass `role_id` for one role.",
+        "category": "Access control",
+        "feature": "access_control",
+        "summary": "Resolve every role's access in the project",
+        "title": "Resolve every role's access in the project",
+        "required_scopes": ["access_control:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "account-relationship-definitions-create": {
         "description": "Create a Customer Analytics account relationship definition — a team-defined relationship type between a PostHog user and an account, such as CSM or Onboarding manager. Provide `name` (required, unique within the team), optional `description` explaining what the relationship means, and `is_single_holder` (default true) controlling whether only one user can hold the relationship per account at a time. Definitions are team-scoped and shared across all accounts; assign a user to a specific account with `accounts-relationships-create`.",
         "category": "Customer analytics",
@@ -1120,6 +1246,20 @@
         "feature": "canvas",
         "summary": "Read canvas build status",
         "title": "Read canvas build status",
+        "required_scopes": ["canvas:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "canvas-connectors-retrieve": {
+        "description": "List the connector catalog a canvas can read live third-party data through with `ph.connectors.call`: every native provider (GitHub) and every MCP store server the authenticated user has connected, each with its tools, their argument schemas, and authoring docs. Use this before writing a canvas that shows pull requests, calendar events, issues, or any other data that must stay fresh per viewer, then declare each provider and tool you call in the project's `capabilities.connectors`. Calls run with the VIEWER's own connection at view time, never the author's, so results are never baked into the source. Only read-only tools may be declared. Pass `mcp_hosts` to include a server the user has not connected yet.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "List canvas connectors",
+        "title": "List canvas connectors",
         "required_scopes": ["canvas:read"],
         "annotations": {
             "destructiveHint": false,
@@ -11006,6 +11146,36 @@
         },
         "feature_flag": "context-layer"
     },
+    "tasks-config-create": {
+        "description": "Set the project-wide default AI run preferences (runtime adapter, model, reasoning effort) applied to task runs created without an explicit runtime selection. Requires project admin. `runtime_adapter` and `model` must be set together; send all three fields as null to clear the project default. Use tasks-models-retrieve to list valid model identifiers.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Set project task run defaults",
+        "title": "Set project task run defaults",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks"
+    },
+    "tasks-config-list": {
+        "description": "Get the project-wide default AI run preferences (runtime adapter, model, reasoning effort) applied to task runs created without an explicit runtime selection. All fields are null when no project default is stored.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Get project task run defaults",
+        "title": "Get project task run defaults",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tasks"
+    },
     "tasks-create": {
         "description": "Create an agent task in the current project — a unit of work an AI agent picks up and actions, such as investigating an inbox report, fixing an error, or opening a pull request. `description` is the prompt handed to the agent, so make it specific and actionable. Pass `repository` in `organization/repo` format for code tasks so the agent knows where to work; omit it for investigation-only tasks. This creates the task record only — it does not start the agent. Returns the created task including its URL; open that URL to start the run. Requires the calling token's organization to have Tasks access enabled.",
         "category": "Tasks",
@@ -11027,6 +11197,51 @@
         "feature": "tasks",
         "summary": "Search and list tasks",
         "title": "Search and list tasks",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tasks"
+    },
+    "tasks-me-config-create": {
+        "description": "Set the caller's per-project default AI run preferences (runtime adapter, model, reasoning effort). They override the project default wholesale. `runtime_adapter` and `model` must be set together; send all three fields as null to clear and inherit the project default. Returns the stored preferences plus the resolved defaults a new run will use. Use tasks-models-retrieve to list valid model identifiers.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Set my task run defaults",
+        "title": "Set my task run defaults",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks"
+    },
+    "tasks-me-config-list": {
+        "description": "Get the caller's per-project default AI run preferences, plus the resolved defaults a new run will use when no explicit runtime selection is sent (the caller's preference wins over the project default; `source` says which level supplied it).",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Get my task run defaults",
+        "title": "Get my task run defaults",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tasks"
+    },
+    "tasks-models-retrieve": {
+        "description": "List the models a task run may use, each with its runtime adapter and the reasoning efforts it supports. Use the returned identifiers when setting task run default preferences or creating a run. An empty list means the model catalogue is temporarily unavailable, not that no models exist.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "List available task run models",
+        "title": "List available task run models",
         "required_scopes": ["task:read"],
         "annotations": {
             "destructiveHint": false,
