@@ -86,10 +86,6 @@ pub fn evaluate_tree(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use serde_json::Value;
-
     use super::*;
     use crate::filters::tree::{CohortLeaf, CohortRefLeafConfig, CohortTree, PersonLeafConfig};
     use crate::filters::{CohortId, TeamId};
@@ -108,8 +104,6 @@ mod tests {
         FilterNode::Leaf(CohortLeaf::PersonProperty(PersonLeafConfig {
             condition_hash: key.0,
             leaf_state_key: key,
-            bytecode: Arc::new(Vec::new()),
-            raw: Value::Null,
             negated,
         }))
     }
@@ -150,8 +144,7 @@ mod tests {
         };
         let flags = CohortParseFlags {
             state_keyed_leaf_count: state_keyed_leaf_count(root),
-            has_cohort_ref: false,
-            has_dropped_leaf: false,
+            ..CohortParseFlags::default()
         };
         matches!(
             classify(&tree, &flags),
