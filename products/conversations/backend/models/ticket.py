@@ -1,13 +1,13 @@
 from typing import TYPE_CHECKING
 
-from django.db import connection, models, transaction
+from django.db import models, transaction
 
 from posthog.models.utils import UUIDTModel
 
 from .constants import Channel, ChannelDetail, Priority, Status
 
 # Two-arg lock namespace for ticket_number allocation. Keep this value stable:
-# mixed-version allocators only serialize if they use the same pair.
+# every allocator (create_with_number and bulk import) must use the same pair.
 _TICKET_NUMBER_LOCK_NAMESPACE = 0x0C0F_5E71
 
 if TYPE_CHECKING:
@@ -15,25 +15,30 @@ if TYPE_CHECKING:
 
 
 class TicketManager(models.Manager):
+    def lock_ticket_number_allocation(self, team_id: int) -> None:
+        """Serialize ticket_number assignment for this team.
+
+        Uses a transaction-scoped advisory lock instead of locking the Team row,
+        so unrelated writers of Team children are not blocked. Callers must be
+        inside ``transaction.atomic()``.
+        """
+        db_connection = transaction.get_connection(self.db)
+        if not db_connection.in_atomic_block:
+            raise RuntimeError("lock_ticket_number_allocation requires an open transaction")
+        with db_connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(%s, %s)",
+                [_TICKET_NUMBER_LOCK_NAMESPACE, team_id],
+            )
+
     def create_with_number(self, **kwargs):
         """Create a ticket with the next ticket_number for its team."""
-        from posthog.models import Team
-
         team = kwargs.get("team")
         if not team:
             raise ValueError("team is required")
 
-        with transaction.atomic():
-            # Advisory lock first so every allocator shares one mutex. The Team
-            # row lock stays so processes that only lock Team still serialize.
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT pg_advisory_xact_lock(%s, %s)",
-                    [_TICKET_NUMBER_LOCK_NAMESPACE, team.id],
-                )
-            # nosemgrep: hot-parent-row-select-for-update -- keep Team lock until every allocator takes the advisory lock first
-            Team.objects.select_for_update().get(id=team.id)
-
+        with transaction.atomic(using=self.db):
+            self.lock_ticket_number_allocation(team.id)
             max_num = self.filter(team=team).aggregate(models.Max("ticket_number"))["ticket_number__max"] or 0
             kwargs["ticket_number"] = max_num + 1
             return self.create(**kwargs)

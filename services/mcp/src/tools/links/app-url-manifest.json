@@ -309,16 +309,6 @@
         "params": [],
         "scope": "global"
     },
-    "comment": {
-        "template": "/data-management/comments/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "comments": {
-        "template": "/data-management/comments",
-        "params": [],
-        "scope": "project"
-    },
     "communitySkills": {
         "template": "/skills/community",
         "params": [],
@@ -1706,6 +1696,11 @@
     },
     "webAnalyticsBotAnalytics": {
         "template": "/web/bots",
+        "params": [],
+        "scope": "project"
+    },
+    "webAnalyticsContentAutopilot": {
+        "template": "/web/content-autopilot",
         "params": [],
         "scope": "project"
     },

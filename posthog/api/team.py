@@ -14,7 +14,7 @@ from django.utils.dateparse import parse_datetime
 import re2
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from opentelemetry import trace
 from pydantic import (
     RootModel as PydanticRootModel,
@@ -2841,16 +2841,13 @@ class RootTeamViewSet(TeamViewSet):
     hide_api_docs = True
 
 
-@extend_schema_view(
-    list=extend_schema(deprecated=True),
-    retrieve=extend_schema(deprecated=True),
-    create=extend_schema(deprecated=True),
-    update=extend_schema(deprecated=True),
-    partial_update=extend_schema(deprecated=True),
-    destroy=extend_schema(deprecated=True),
-)
 class ProjectEnvironmentsViewSet(TeamViewSet):
-    """Deprecated: use /api/environments/{id}/ instead."""
+    """Deprecated: use /api/environments/{id}/ instead.
+
+    Hidden from the API docs, so the actions it inherits from TeamViewSet do not reach the
+    generated types and MCP tools under a route that rejects every request."""
+
+    hide_api_docs = True
 
     def initial(self, request: request.Request, *args, **kwargs) -> None:
         raise exceptions.PermissionDenied(

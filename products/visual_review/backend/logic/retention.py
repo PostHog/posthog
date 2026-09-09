@@ -168,6 +168,16 @@ class RetentionSweep:
             .values_list("id", flat=True)[:limit]
         )
 
+    def _splice_out_of_chain(self, run_id: UUID) -> None:
+        """Give the runs that name this run its own successor instead."""
+        successor_id = self._runs().filter(id=run_id).values_list("superseded_by_id", flat=True).first()
+        if successor_id is None:
+            # The run is the group's latest. Only the quiet-branch pass deletes
+            # one of those, and it takes a group where no run is superseded, so
+            # there is nothing to re-point.
+            return
+        self._runs().filter(superseded_by_id=run_id).update(superseded_by_id=successor_id)
+
     def _delete_runs(self, run_ids: list[UUID]) -> int:
         deleted = 0
         # One run per DELETE, in the order given (oldest first). Django applies
@@ -175,10 +185,18 @@ class RetentionSweep:
         # anything, so a batch that holds two links of one supersession chain
         # would set the older link to NULL while the group's latest run still
         # exists and break the unique_latest_run_per_group index.
+        #
+        # Oldest first is not enough on its own, because the retention class is
+        # a property of the row, not of its age: a run with no PR number counts
+        # as protected history and gets 180 days while the runs after it on the
+        # same branch get 30. Such a run survives the sweep that deletes the run
+        # it names, so it has to be re-pointed before the DELETE runs.
         for run_id in run_ids:
             if self._out_of_time():
                 break
-            _total, per_model = self._runs().filter(id=run_id).delete()
+            with transaction.atomic(using=WRITER_DB):
+                self._splice_out_of_chain(run_id)
+                _total, per_model = self._runs().filter(id=run_id).delete()
             deleted += per_model.get(Run._meta.label, 0)
         return deleted
 
