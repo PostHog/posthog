@@ -212,7 +212,9 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                             <p className="text-secondary text-sm m-0">{text.lead}</p>
                         </div>
 
-                        {text.hint && callToAction ? <div className="text-xs text-tertiary mt-2">{text.hint}</div> : null}
+                        {text.hint && callToAction ? (
+                            <div className="text-xs text-tertiary mt-2">{text.hint}</div>
+                        ) : null}
 
                         {callToAction}
 
