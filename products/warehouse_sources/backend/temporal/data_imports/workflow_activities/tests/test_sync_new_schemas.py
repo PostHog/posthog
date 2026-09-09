@@ -3,7 +3,9 @@ import contextlib
 import pytest
 from unittest import mock
 
+from posthog.integration_secrets.errors import IntegrationServiceUnreachableError
 from posthog.models.integration import UndecryptedIntegrationSecretError
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.models.external_data_schema import SchemaSyncResult
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import sync_new_schemas as module
@@ -84,6 +86,20 @@ def test_undecrypted_integration_secret_error_is_skipped():
     source_mock.get_non_retryable_errors.return_value = {}
 
     _run_activity(source_mock)
+
+
+def test_integration_service_unreachable_error_is_retried_without_reporting():
+    # An unreachable integration service is transient and never the customer's fault, so
+    # discovery must not disable the source (would need `handle_non_retryable_error`) nor mint
+    # an error tracking issue for it (reportable = False) — it must re-raise as
+    # NonReportableError so the workflow's retry policy picks it back up.
+    source_mock = mock.MagicMock()
+    source_mock.parse_config.return_value = {}
+    source_mock.get_schemas.side_effect = IntegrationServiceUnreachableError("connect timeout")
+    source_mock.get_non_retryable_errors.return_value = {}
+
+    with pytest.raises(NonReportableError):
+        _run_activity(source_mock)
 
 
 def test_discovery_uses_source_pinned_api_version():
