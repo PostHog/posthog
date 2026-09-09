@@ -132,6 +132,10 @@ import {
 import { selectSessionsToEvict } from "./sessionEviction";
 import { createBaseSession } from "./sessionFactory";
 import { type ParsedSessionLogs, parseSessionLogContent } from "./sessionLogs";
+import {
+  readSessionStartupPhase,
+  type SessionStartupPhase,
+} from "./sessionStartup";
 
 const LOCAL_SESSION_RECONNECT_ATTEMPTS = 3;
 const LOCAL_SESSION_RECONNECT_BACKOFF = {
@@ -360,7 +364,12 @@ export interface ISessionStore {
   setSession(session: AgentSession): void;
   removeSession(taskRunId: string): void;
   setTaskStarting?(taskId: string, runId?: string): void;
-  clearTaskStarting?(taskId: string): void;
+  clearTaskStarting?(taskId: string, runId?: string): void;
+  setTaskStartupPhase?(
+    taskId: string,
+    runId: string,
+    phase: SessionStartupPhase,
+  ): void;
   updateSession(taskRunId: string, updates: Partial<AgentSession>): void;
   appendEvents(
     taskRunId: string,
@@ -2673,28 +2682,51 @@ export class SessionService {
       claude: modelAccess?.claude ?? settingsClaudeModelAccess,
     };
     const preferredModel = model ?? this.d.DEFAULT_GATEWAY_MODEL;
-    const result = await this.d.trpc.agent.start.mutate({
-      taskId,
-      taskRunId: taskRun.id,
-      repoPath,
-      apiHost: auth.apiHost,
-      projectId: auth.projectId,
-      permissionMode: executionMode,
-      adapter,
-      codexModelAccess: resolvedModelAccess.codex,
-      claudeModelAccess: resolvedModelAccess.claude,
-      customInstructions: startCustomInstructions || undefined,
-      rtkEnabled: rtkEnabledLocal,
-      spokenNarration: spokenNarrationEnabled === true,
-      bedrockGatewayVariant,
-      effort: effortLevelSchema.safeParse(reasoningLevel).success
-        ? (reasoningLevel as EffortLevel)
-        : undefined,
-      contextWindow,
-      fastMode,
-      model: preferredModel,
-      importedSessionId,
-    });
+    this.d.store.setTaskStarting?.(taskId, taskRun.id);
+    const startupSubscription = this.d.trpc.agent.onSessionEvent.subscribe(
+      { taskRunId: taskRun.id },
+      {
+        onData: (event) => {
+          const phase = readSessionStartupPhase(event);
+          if (phase)
+            this.d.store.setTaskStartupPhase?.(taskId, taskRun.id, phase);
+        },
+        onError: () => {
+          this.d.log.warn("Startup progress is unavailable", {
+            taskId,
+            taskRunId: taskRun.id,
+          });
+        },
+      },
+    );
+    const result = await this.d.trpc.agent.start
+      .mutate({
+        taskId,
+        taskRunId: taskRun.id,
+        repoPath,
+        apiHost: auth.apiHost,
+        projectId: auth.projectId,
+        permissionMode: executionMode,
+        adapter,
+        codexModelAccess: resolvedModelAccess.codex,
+        claudeModelAccess: resolvedModelAccess.claude,
+        customInstructions: startCustomInstructions || undefined,
+        rtkEnabled: rtkEnabledLocal,
+        spokenNarration: spokenNarrationEnabled === true,
+        bedrockGatewayVariant,
+        effort: effortLevelSchema.safeParse(reasoningLevel).success
+          ? (reasoningLevel as EffortLevel)
+          : undefined,
+        contextWindow,
+        fastMode,
+        model: preferredModel,
+        importedSessionId,
+      })
+      .catch((error) => {
+        this.d.store.clearTaskStarting?.(taskId, taskRun.id);
+        throw error;
+      })
+      .finally(() => startupSubscription.unsubscribe());
 
     const session = createBaseSession(taskRun.id, taskId, taskTitle);
     session.channel = result.channel;
@@ -2750,6 +2782,7 @@ export class SessionService {
     }
 
     this.d.store.setSession(session);
+    this.d.store.clearTaskStarting?.(taskId, taskRun.id);
     this.subscribeToChannel(taskRun.id);
 
     this.d.track(ANALYTICS_EVENTS.TASK_RUN_STARTED, {
@@ -6247,19 +6280,20 @@ export class SessionService {
   private async runHasConversationHistory(
     session: AgentSession,
   ): Promise<boolean> {
-    const isPromptEcho = (event: AcpMessage): boolean =>
-      isJsonRpcRequest(event.message) &&
-      event.message.method === "session/prompt";
-    if (session.events.some((event) => !isPromptEcho(event))) {
+    const isConversationEvent = (event: AcpMessage): boolean =>
+      !readSessionStartupPhase(event) &&
+      !(
+        isJsonRpcRequest(event.message) &&
+        event.message.method === "session/prompt"
+      );
+    if (session.events.some(isConversationEvent)) {
       return true;
     }
     const { rawEntries } = await this.fetchSessionLogs(
       session.logUrl,
       session.taskRunId,
     );
-    return convertStoredEntriesToEvents(rawEntries).some(
-      (event) => !isPromptEcho(event),
-    );
+    return convertStoredEntriesToEvents(rawEntries).some(isConversationEvent);
   }
 
   /**

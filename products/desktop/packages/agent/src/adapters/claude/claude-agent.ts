@@ -2843,6 +2843,14 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         taskRunId: meta?.taskRunId,
         initializationPhase,
       });
+      void this.client
+        .extNotification(POSTHOG_NOTIFICATIONS.STATUS, {
+          taskRunId: meta?.taskRunId,
+          status: initializationPhase,
+        })
+        .catch(() => {
+          startupLogger.warn("Failed to publish session startup phase");
+        });
     });
     const options = buildSessionOptions({
       cwd,

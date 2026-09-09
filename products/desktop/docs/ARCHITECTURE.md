@@ -56,7 +56,26 @@ can prepare a new worktree and install dependencies before the SDK becomes ready
 An observed setup hook gets a separate, bounded wait of ten minutes. Startup with
 no active setup hooks keeps its 30-second timeout. Hook progress does not extend
 the hook deadline. Startup phase changes and failures use the desktop log path,
-without recording hook commands or output.
+without recording hook commands or output. The renderer subscribes before starting
+an agent, so it can show active setup hooks while `session/new` is still pending.
+Startup subscriptions end on success or failure. Updates from an older run cannot
+change the current run's startup phase. Startup events do not count as conversation
+history during recovery.
+
+Worktree creation shows its own preparation screen and setup output. Agent startup
+shows either "Starting local agent" or "Running repository setup". The submitted
+prompt stays visible, with a reminder that it does not need to be submitted again.
+These are observed phases, not estimated progress percentages.
+
+In this repository, `.claude/hooks/setup-flox.sh` does not activate Flox for a
+worktree without a valid cached environment. This keeps dependency installation
+out of the agent connection step. The hook tells the agent to use
+`flox activate -- bash -c '<command>'` from that worktree when it needs project
+tools. That explicit activation can install dependencies and build tools.
+Editing does not require a full environment install. Valid worktree caches and
+ordinary checkouts retain their existing setup behavior. Do not share `.flox`
+between worktrees. Other repositories can still have slow startup hooks; the
+bounded hook wait and visible setup phase apply to those hooks too.
 
 A connected local session only waits for its first prompt when the session still
 has a prompt to send. A task description or an existing run does not imply that a

@@ -1,7 +1,15 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ClientSideConnection, ndJsonStream } from "@agentclientprotocol/sdk";
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import { expect, it, vi } from "vitest";
 import { createAcpConnection } from "../src/adapters/acp-connection";
 import { withTimeout } from "../src/utils/common";
@@ -26,6 +34,7 @@ it("initializes the real Claude process after a setup hook exceeds 30 seconds", 
   vi.stubEnv("ANTHROPIC_BASE_URL", "http://127.0.0.1:9");
   vi.stubEnv("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1");
   const onLog = vi.fn();
+  const onNotification = vi.fn();
   const transport = createAcpConnection({
     adapter: "claude",
     deviceType: "local",
@@ -34,6 +43,7 @@ it("initializes the real Claude process after a setup hook exceeds 30 seconds", 
   const connection = new ClientSideConnection(
     () => ({
       sessionUpdate: async () => {},
+      extNotification: onNotification,
       requestPermission: async () => ({ outcome: { outcome: "cancelled" } }),
     }),
     ndJsonStream(
@@ -60,6 +70,14 @@ it("initializes the real Claude process after a setup hook exceeds 30 seconds", 
     const response = await starting;
 
     expect(response.sessionId).toBeTruthy();
+    expect(onNotification).toHaveBeenCalledWith(
+      "_posthog/status",
+      expect.objectContaining({ status: "setup_hooks" }),
+    );
+    expect(onNotification).toHaveBeenCalledWith(
+      "_posthog/status",
+      expect.objectContaining({ status: "sdk_initialization" }),
+    );
     expect(onLog).toHaveBeenCalledWith(
       "info",
       "agent:AcpConnection:ClaudeInitialization",
@@ -80,3 +98,72 @@ it("initializes the real Claude process after a setup hook exceeds 30 seconds", 
     rmSync(directory, { recursive: true, force: true });
   }
 }, 60_000);
+
+it("initializes a cold worktree without running Flox installation", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "desktop-cold-worktree-"));
+  const worktree = join(directory, "worktree");
+  const repository = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+    encoding: "utf8",
+  }).trim();
+  execFileSync(
+    "git",
+    ["worktree", "add", "--detach", "--no-checkout", worktree, "HEAD"],
+    { cwd: repository, stdio: "ignore" },
+  );
+  const bin = join(directory, "bin");
+  mkdirSync(bin);
+  const activationMarker = join(directory, "flox-called");
+  writeFileSync(
+    join(bin, "flox"),
+    '#!/bin/sh\nprintf invoked > "$FLOX_TEST_MARKER"\nprintf "PATH=/usr/bin:/bin\\n"\n',
+    { mode: 0o755 },
+  );
+  const abortController = new AbortController();
+  const sdkQuery = query({
+    prompt: (async function* () {
+      await new Promise(() => {});
+    })(),
+    options: {
+      cwd: worktree,
+      settingSources: [],
+      settings: {
+        hooks: {
+          SessionStart: [
+            { hooks: [{ type: "command", command: 'bash "$FLOX_TEST_HOOK"' }] },
+          ],
+        },
+      },
+      tools: [],
+      mcpServers: {},
+      abortController,
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH}`,
+        FLOX_TEST_MARKER: activationMarker,
+        FLOX_TEST_HOOK: join(repository, ".claude/hooks/setup-flox.sh"),
+        CLAUDE_CONFIG_DIR: join(directory, "config"),
+        CLAUDE_CODE_REMOTE: "false",
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+        ANTHROPIC_API_KEY: "example-not-a-real-key",
+        ANTHROPIC_AUTH_TOKEN: "",
+        ANTHROPIC_BASE_URL: "http://127.0.0.1:9",
+      },
+    },
+  });
+  try {
+    const initialized = await withTimeout(
+      sdkQuery.initializationResult(),
+      5000,
+    );
+    expect(initialized.result).toBe("success");
+    expect(existsSync(activationMarker)).toBe(false);
+  } finally {
+    sdkQuery.close();
+    abortController.abort();
+    execFileSync("git", ["worktree", "remove", "--force", worktree], {
+      cwd: repository,
+      stdio: "ignore",
+    });
+    rmSync(directory, { recursive: true, force: true });
+  }
+}, 15_000);

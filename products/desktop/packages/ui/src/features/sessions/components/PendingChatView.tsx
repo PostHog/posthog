@@ -13,9 +13,13 @@ import {
   CHAT_CONTENT_PADDING_INLINE,
 } from "@posthog/ui/features/sessions/constants";
 import type { UserMessageAttachment } from "@posthog/ui/features/sessions/userMessageTypes";
-import { Spinner } from "@posthog/ui/primitives/Spinner";
+import {
+  SessionStartupStatus,
+  type SessionStartupStatusProps,
+} from "./SessionStartupStatus";
 
-interface PendingChatViewProps {
+interface PendingChatViewProps
+  extends Omit<SessionStartupStatusProps, "showDetails"> {
   /**
    * The prompt as the live transcript will render it (serialized content with
    * chips), so the bubble looks the same when the transcript replaces it.
@@ -27,6 +31,8 @@ interface PendingChatViewProps {
 export function PendingChatView({
   content,
   attachments,
+  executionTarget,
+  phase,
 }: PendingChatViewProps) {
   return (
     <div className="absolute inset-0 flex flex-col bg-background">
@@ -54,11 +60,17 @@ export function PendingChatView({
             </ChatMessage>
           </div>
           <div
-            className="mx-auto flex w-full items-center gap-2 px-2.5"
+            className="mx-auto flex w-full flex-col gap-3 px-2.5"
             style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
           >
-            <Spinner size="sm" className="text-accent-11" />
-            <span className="text-[13px] text-accent-11">Loading</span>
+            <SessionStartupStatus
+              executionTarget={executionTarget}
+              phase={phase}
+            />
+            <span className="text-gray-11 text-xs">
+              Your prompt is saved with this task. You do not need to submit it
+              again.
+            </span>
           </div>
         </div>
       </div>
