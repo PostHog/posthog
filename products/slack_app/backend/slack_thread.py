@@ -135,9 +135,13 @@ class SlackThreadHandler:
         context: SlackThreadContext,
         run_footer: RunFooter | None = None,
         actor_slack_user_id: str | None = None,
+        turn_trace_id: str | None = None,
     ) -> None:
         self.context = context
         self.run_footer = run_footer or RunFooter()
+        # Beside the footer rather than in it: a trace id belongs to one turn, and the
+        # next turn in the same thread has its own.
+        self.turn_trace_id = turn_trace_id
         # Who this reply is for. Links are gated on their access, not the task creator's:
         # a thread outlives its opener, and a link only helps the person looking at it.
         self.actor_slack_user_id = actor_slack_user_id or context.mentioning_slack_user_id
@@ -222,7 +226,7 @@ class SlackThreadHandler:
         run_id = self.run_footer.run_id
         if not run_id:
             return None
-        return turn_feedback_block(self._get_integration().id, run_id)
+        return turn_feedback_block(self._get_integration().id, run_id, self.turn_trace_id)
 
     def _append_trailing_blocks(self, ts: str) -> None:
         """Add the fork menu and the thumbs to a streamed reply, which has no section to

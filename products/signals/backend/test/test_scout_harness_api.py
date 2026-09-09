@@ -9,6 +9,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.apps import apps
+from django.core.cache import cache
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -331,6 +332,7 @@ class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
 # Patch target: the helper is hot-imported into the view module, so patch it there, not at source.
 _FETCH_REPORT_IDS = "products.signals.backend.temporal.signal_queries.fetch_report_ids_for_source_ids"
 _RUN_TOKEN_COSTS_QUERY = "products.signals.backend.scout_harness.run_costs.get_local_task_run_token_costs"
+_SCOUT_COSTS_QUERY = "products.signals.backend.scout_harness.scout_costs.get_local_task_run_token_costs"
 
 
 class TestScoutHarnessEmissionReportsAPI(APIBaseTest):
@@ -527,6 +529,84 @@ class TestScoutHarnessRunTokenCostsAPI(APIBaseTest):
         with patch(_RUN_TOKEN_COSTS_QUERY) as query:
             response = self.client.post(self._url(), data={"run_ids": [str(run.id)]}, format="json")
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        query.assert_not_called()
+
+
+class TestScoutHarnessScoutCostsAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    def _url(self, query: str = "") -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/costs/{query}"
+
+    def _make_staff(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
+
+    def test_staff_reads_spend_counts_and_reports_per_scout(self) -> None:
+        self._make_staff()
+        priced = _make_run(self.team, emitted_report_ids=["r-1"], edited_report_ids=["r-1", "r-2"])
+        _make_run(self.team)
+        with patch(_SCOUT_COSTS_QUERY, return_value={str(priced.task_run_id): Decimal("1.68")}):
+            response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["available"] is True
+        assert body["window_days"] == 7
+        assert body["scouts"] == [
+            {
+                "skill_name": "signals-scout-general",
+                "spend_usd": 1.68,
+                "run_count": 2,
+                # The run that spent nothing is out of the per-run divisor, not priced at zero.
+                "priced_run_count": 1,
+                # `r-1` was filed and then edited by the same run, so it counts once.
+                "reports_touched": 2,
+            }
+        ]
+
+    def test_non_staff_is_refused(self) -> None:
+        # Fleet spend is an internal operating number, and the generations sit in a project other
+        # than the one in the path. Same gate as the per-run cost read.
+        _make_run(self.team)
+        with patch(_SCOUT_COSTS_QUERY) as query:
+            response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        query.assert_not_called()
+
+    def test_child_scoped_api_key_cannot_read_parent_costs(self) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        self._make_staff()
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="child-scoped",
+            user=self.user,
+            secure_value=hash_key_value(raw),
+            scopes=["signal_scout:read"],
+            scoped_teams=[child.id],
+        )
+        self.client.logout()
+
+        with patch(_SCOUT_COSTS_QUERY) as query:
+            response = self.client.get(
+                f"/api/projects/{child.id}/signals/scout/runs/costs/",
+                HTTP_AUTHORIZATION=f"Bearer {raw}",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        query.assert_not_called()
+
+    def test_unsupported_window_is_refused_rather_than_silently_widened(self) -> None:
+        # The parameter exists so a detail page can ask for 30 days later. Until it can, a request
+        # for 30 must not come back as a 7-day number labelled 30.
+        self._make_staff()
+        with patch(_SCOUT_COSTS_QUERY) as query:
+            response = self.client.get(self._url("?window_days=30"))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         query.assert_not_called()
 
 

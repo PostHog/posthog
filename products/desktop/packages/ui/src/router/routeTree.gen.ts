@@ -23,6 +23,7 @@ import { Route as AgentsIndexRouteImport } from './routes/agents.index'
 import { Route as ShellIndexRouteImport } from './routes/_shell/index'
 import { Route as WebsiteSplatRouteImport } from './routes/website.$'
 import { Route as TasksTaskIdRouteImport } from './routes/tasks/$taskId'
+import { Route as ReportsReportIdRouteImport } from './routes/reports/$reportId'
 import { Route as LoopsNewRouteImport } from './routes/loops/new'
 import { Route as LoopsLoopIdRouteImport } from './routes/loops/$loopId'
 import { Route as InboxRunsRouteImport } from './routes/inbox/runs'
@@ -134,6 +135,11 @@ const WebsiteSplatRoute = WebsiteSplatRouteImport.update({
 const TasksTaskIdRoute = TasksTaskIdRouteImport.update({
   id: '/tasks/$taskId',
   path: '/tasks/$taskId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReportsReportIdRoute = ReportsReportIdRouteImport.update({
+  id: '/reports/$reportId',
+  path: '/reports/$reportId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoopsNewRoute = LoopsNewRouteImport.update({
@@ -385,6 +391,7 @@ export interface FileRoutesByFullPath {
   '/inbox/runs': typeof InboxRunsRouteWithChildren
   '/loops/$loopId': typeof LoopsLoopIdRouteWithChildren
   '/loops/new': typeof LoopsNewRoute
+  '/reports/$reportId': typeof ReportsReportIdRoute
   '/tasks/$taskId': typeof TasksTaskIdRoute
   '/website/$': typeof WebsiteSplatRoute
   '/agents/': typeof AgentsIndexRoute
@@ -436,6 +443,7 @@ export interface FileRoutesByTo {
   '/folders/$folderId': typeof FoldersFolderIdRoute
   '/inbox/agents': typeof InboxAgentsRoute
   '/loops/new': typeof LoopsNewRoute
+  '/reports/$reportId': typeof ReportsReportIdRoute
   '/tasks/$taskId': typeof TasksTaskIdRoute
   '/website/$': typeof WebsiteSplatRoute
   '/': typeof ShellIndexRoute
@@ -496,6 +504,7 @@ export interface FileRoutesById {
   '/inbox/runs': typeof InboxRunsRouteWithChildren
   '/loops/$loopId': typeof LoopsLoopIdRouteWithChildren
   '/loops/new': typeof LoopsNewRoute
+  '/reports/$reportId': typeof ReportsReportIdRoute
   '/tasks/$taskId': typeof TasksTaskIdRoute
   '/website/$': typeof WebsiteSplatRoute
   '/_shell/': typeof ShellIndexRoute
@@ -557,6 +566,7 @@ export interface FileRouteTypes {
     | '/inbox/runs'
     | '/loops/$loopId'
     | '/loops/new'
+    | '/reports/$reportId'
     | '/tasks/$taskId'
     | '/website/$'
     | '/agents/'
@@ -608,6 +618,7 @@ export interface FileRouteTypes {
     | '/folders/$folderId'
     | '/inbox/agents'
     | '/loops/new'
+    | '/reports/$reportId'
     | '/tasks/$taskId'
     | '/website/$'
     | '/'
@@ -667,6 +678,7 @@ export interface FileRouteTypes {
     | '/inbox/runs'
     | '/loops/$loopId'
     | '/loops/new'
+    | '/reports/$reportId'
     | '/tasks/$taskId'
     | '/website/$'
     | '/_shell/'
@@ -716,6 +728,7 @@ export interface RootRouteChildren {
   FoldersFolderIdRoute: typeof FoldersFolderIdRoute
   LoopsLoopIdRoute: typeof LoopsLoopIdRouteWithChildren
   LoopsNewRoute: typeof LoopsNewRoute
+  ReportsReportIdRoute: typeof ReportsReportIdRoute
   TasksTaskIdRoute: typeof TasksTaskIdRoute
   WebsiteSplatRoute: typeof WebsiteSplatRoute
   AgentsIndexRoute: typeof AgentsIndexRoute
@@ -822,6 +835,13 @@ declare module '@tanstack/react-router' {
       path: '/tasks/$taskId'
       fullPath: '/tasks/$taskId'
       preLoaderRoute: typeof TasksTaskIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reports/$reportId': {
+      id: '/reports/$reportId'
+      path: '/reports/$reportId'
+      fullPath: '/reports/$reportId'
+      preLoaderRoute: typeof ReportsReportIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/loops/new': {
@@ -1288,6 +1308,7 @@ const rootRouteChildren: RootRouteChildren = {
   FoldersFolderIdRoute: FoldersFolderIdRoute,
   LoopsLoopIdRoute: LoopsLoopIdRouteWithChildren,
   LoopsNewRoute: LoopsNewRoute,
+  ReportsReportIdRoute: ReportsReportIdRoute,
   TasksTaskIdRoute: TasksTaskIdRoute,
   WebsiteSplatRoute: WebsiteSplatRoute,
   AgentsIndexRoute: AgentsIndexRoute,

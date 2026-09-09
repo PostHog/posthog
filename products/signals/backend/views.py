@@ -128,6 +128,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 )
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
+from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
     PullRequestChecksResponseSerializer,
@@ -153,6 +154,12 @@ from products.signals.backend.serializers import (
     SignalUserAutonomyConfigSerializer,
 )
 from products.signals.backend.signal_metadata import fetch_source_products_for_reports
+from products.signals.backend.slack_notification_targets import (
+    is_slack_member_target,
+    resolve_own_direct_message_target,
+    saved_notification_integration,
+    validate_slack_notification_target,
+)
 from products.signals.backend.task_attribution import (
     TASK_ID_HEADER,
     resolve_request_attribution,
@@ -1541,6 +1548,13 @@ class SignalReportViewSet(
                 ),
                 to_attr="prefetched_dismissal_artefacts",
             ),
+            Prefetch(
+                "artefacts",
+                queryset=SignalReportArtefact.objects.filter(
+                    type=SignalReportArtefact.ArtefactType.REPO_SELECTION
+                ).order_by("-created_at")[:1],
+                to_attr="prefetched_repo_selection_artefacts",
+            ),
         )
 
     def _annotate_is_suggested_reviewer(self, queryset):
@@ -2621,6 +2635,10 @@ class SignalReportViewSet(
                 )
                 if is_wrong_repo:
                     self._apply_wrong_repo_selection(report, corrected_repository)
+                    # The wrong-repo path just wrote a new repo_selection artefact; drop the
+                    # stale prefetch so a follow-up serializer reads the corrected/cleared slug.
+                    if hasattr(report, "prefetched_repo_selection_artefacts"):
+                        del report.prefetched_repo_selection_artefacts
                 # The dismissal prefetch may have been evaluated before this artefact
                 # existed; drop the stale cache so a follow-up serializer re-reads the
                 # just-written reason/note instead of the previous (or empty) dismissal.
@@ -3897,6 +3915,17 @@ def append_suggested_reviewers(
                     actor_user_id=attribution.user_id,
                 )
 
+            # Only on an add: assignment is additive, so a removal leaves the pull request alone.
+            if added_logins:
+                assignment = SignalReportAssignment.all_teams.filter(team_id=team.id, report_id=report_id).first()
+                if assignment is not None:
+                    schedule_reviewer_pr_assignment(
+                        team_id=team.id,
+                        report_id=str(report_id),
+                        pr_url=assignment.pr_url,
+                        pr_state=assignment.pr_state,
+                    )
+
             # The same correction also steers the scouts that route on the logins it changed, which
             # is the only return path a scout has for routing memory it already cached — but only for
             # a genuine team edit. An impersonated operator edit is not team ownership evidence, so it
@@ -4525,7 +4554,9 @@ class SignalUserAutonomyConfigView(APIView):
             return Response(status=status.HTTP_404_NOT_FOUND)
         return Response(SignalUserAutonomyConfigSerializer(config).data)
 
-    @extend_schema(responses={200: SignalUserAutonomyConfigSerializer})
+    @extend_schema(
+        request=SignalUserAutonomyConfigCreateSerializer, responses={200: SignalUserAutonomyConfigSerializer}
+    )
     def post(self, request, user_id, **kwargs):
         user = self._resolve_user(request, user_id)
         serializer = SignalUserAutonomyConfigCreateSerializer(data=request.data)
@@ -4539,9 +4570,12 @@ class SignalUserAutonomyConfigView(APIView):
             defaults["autostart_priority"] = validated.get("autostart_priority")
         if "slack_notification_min_priority" in serializer.initial_data:
             defaults["slack_notification_min_priority"] = validated.get("slack_notification_min_priority")
+        if "github_assign_on_pull_request" in serializer.initial_data:
+            defaults["github_assign_on_pull_request"] = validated.get("github_assign_on_pull_request", False)
         if "slack_notification_channel" in serializer.initial_data:
             defaults["slack_notification_channel"] = validated.get("slack_notification_channel") or None
-        if "slack_notification_integration_id" in serializer.initial_data:
+        integration_in_request = "slack_notification_integration_id" in serializer.initial_data
+        if integration_in_request:
             integration_id = validated.get("slack_notification_integration_id")
             integration = None
             if integration_id is not None:
@@ -4561,6 +4595,36 @@ class SignalUserAutonomyConfigView(APIView):
                     )
                 integration = candidate
             defaults["slack_notification_integration"] = integration
+        wants_direct_message = bool(validated.get("slack_notification_direct_message"))
+        existing_config = SignalUserAutonomyConfig.objects.filter(user=user).first() if integration_in_request else None
+        if (
+            integration_in_request
+            and "slack_notification_channel" not in serializer.initial_data
+            and not wants_direct_message
+            and existing_config is not None
+            and existing_config.slack_notification_integration_id
+            != getattr(defaults["slack_notification_integration"], "id", None)
+        ):
+            existing_target = existing_config.slack_notification_channel or ""
+            if is_slack_member_target(existing_target) and defaults["slack_notification_integration"] is not None:
+                defaults["slack_notification_channel"] = resolve_own_direct_message_target(
+                    user, defaults["slack_notification_integration"]
+                )
+            else:
+                defaults["slack_notification_channel"] = None
+
+        target = defaults.get("slack_notification_channel")
+        if wants_direct_message or (target and is_slack_member_target(target)):
+            # Resolve against the workspace that would deliver it: this request's, or the saved one.
+            workspace = (
+                defaults["slack_notification_integration"]
+                if integration_in_request
+                else saved_notification_integration(user)
+            )
+            if wants_direct_message:
+                defaults["slack_notification_channel"] = resolve_own_direct_message_target(user, workspace)
+            elif target:
+                validate_slack_notification_target(user, target, workspace)
         config, _created = SignalUserAutonomyConfig.objects.update_or_create(
             user=user,
             defaults=defaults,
