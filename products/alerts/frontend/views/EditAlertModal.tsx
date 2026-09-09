@@ -49,6 +49,7 @@ import { isNextPlannedEvaluationStale } from '../logic/alertSchedulingStale'
 import {
     dateRangeSupportsForecast,
     displaySupportsForecast,
+    forecastDisplayError,
     intervalSupportsForecast,
     smoothingSupportsForecast,
 } from '../logic/forecastReach'
@@ -355,7 +356,9 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             ? 'Forecast alerts are no longer enabled for this project. This alert will keep running. Disable it to stop it, or switch to another alert mode before editing.'
             : alertMode === 'forecast' && !smoothingSupportsForecast(trendsSource?.trendsFilter?.smoothingIntervals)
               ? 'Forecast alerts do not support smoothed trends yet. Turn smoothing off on the insight, or switch this alert to threshold mode.'
-              : undefined
+              : alertMode === 'forecast'
+                ? (forecastDisplayError(trendDisplay) ?? undefined)
+                : undefined
 
     const definitionNode = (
         <AlertDefinitionSection

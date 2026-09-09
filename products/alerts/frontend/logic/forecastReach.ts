@@ -55,6 +55,15 @@ export function displaySupportsForecast(display: ChartDisplayType | null | undef
     return display == null || !UNFORECASTABLE_DISPLAYS.has(display)
 }
 
+/** Why the insight's chart type cannot carry a forecast, or null when it can. An insight can change
+ * display after its alert was saved, and both the save and simulate paths then refuse the stored
+ * config, so the reason has to land in the editor instead of a failed request. */
+export function forecastDisplayError(display: ChartDisplayType | null | undefined): string | null {
+    return displaySupportsForecast(display)
+        ? null
+        : 'Forecast alerts do not support cumulative, box plot, or slope graph charts. Change the insight to a line, bar, or area chart, or switch this alert to threshold mode.'
+}
+
 export function targetByDateSupportsForecast(interval: IntervalType | null | undefined): boolean {
     return interval !== 'hour'
 }

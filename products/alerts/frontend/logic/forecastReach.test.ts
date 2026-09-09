@@ -8,6 +8,7 @@ import {
     dateRangeSupportsForecast,
     defaultHorizonForInterval,
     displaySupportsForecast,
+    forecastDisplayError,
     forecastTargetDateError,
     forecastTargetIntervalError,
     intervalSupportsForecast,
@@ -134,6 +135,19 @@ describe('displaySupportsForecast', () => {
 
     it('allows an insight with no display set', () => {
         expect(displaySupportsForecast(null)).toBe(true)
+    })
+
+    // An insight can change display after its alert was saved, and the save and simulate paths then
+    // refuse the stored config, so the editor has to say why.
+    const displayError =
+        'Forecast alerts do not support cumulative, box plot, or slope graph charts. Change the insight to a line, bar, or area chart, or switch this alert to threshold mode.'
+    it.each([
+        [ChartDisplayType.BoxPlot, displayError],
+        [ChartDisplayType.ActionsLineGraphCumulative, displayError],
+        [ChartDisplayType.ActionsLineGraph, null],
+        [null, null],
+    ])('reports %s', (display, expected) => {
+        expect(forecastDisplayError(display)).toBe(expected)
     })
 })
 
