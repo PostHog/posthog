@@ -2206,6 +2206,10 @@ describe('Cyclotron V2', () => {
             { touchCount: 1, baseMs: 10_000, maxMs: 600_000, minDeferMs: 4_000, maxDeferMs: 18_000 },
             { touchCount: 2, baseMs: 10_000, maxMs: 600_000, minDeferMs: 13_000, maxDeferMs: 38_000 },
             { touchCount: 2, baseMs: 10_000, maxMs: 5_000, minDeferMs: 2_000, maxDeferMs: 12_000 },
+            // Past 1023 touches, an unclamped POWER(2, touch_count) overflows float8 and the
+            // whole stall-reset UPDATE fails, so no stalled job on the queue recovers. The
+            // clamped exponent must land the row at the cap like any deep backoff.
+            { touchCount: 2_000, baseMs: 10_000, maxMs: 5_000, minDeferMs: 2_000, maxDeferMs: 12_000 },
         ])(
             'resetStalledJobs backs off repeat stalls exponentially, capped (touch=$touchCount, cap=$maxMs)',
             async ({ touchCount, baseMs, maxMs, minDeferMs, maxDeferMs }) => {
@@ -2221,7 +2225,9 @@ describe('Cyclotron V2', () => {
                 const before = Date.now()
                 const janitor = createJanitor({
                     stallTimeoutMs: 1_000,
-                    maxTouchCount: 100,
+                    // Above every touchCount case, so the poison-pill sweep (which runs before
+                    // the stall reset and would drop a non-invocation-queue row) never engages.
+                    maxTouchCount: 100_000,
                     stallBackoffBaseMs: baseMs,
                     stallBackoffMaxMs: maxMs,
                 })

@@ -449,11 +449,15 @@ export class CyclotronV2Janitor {
         //      capped at max — half-jitter ([0.5, 1] x) on this part.
         // Disabled when stallBackoffBaseMs <= 0 — scheduled is left untouched
         // (immediate retry, the pre-backoff behavior).
+        // The exponent clamps at 30 because float8 POWER overflows past 2^1023,
+        // which would fail this UPDATE for every stalled job once one row's touch
+        // count grows past 1023. 2^30 * base already exceeds any real
+        // stallBackoffMaxMs, so the outer LEAST caps the result identically.
         const backoffEnabled = this.stallBackoffBaseMs > 0
         const backoffClause = backoffEnabled
             ? `, scheduled = NOW() + (
                    $4::float8 * random()
-                   + LEAST($2::float8 * (POWER(2, janitor_touch_count) - 1), $3::float8) * (0.5 + 0.5 * random())
+                   + LEAST($2::float8 * (POWER(2, LEAST(janitor_touch_count, 30)) - 1), $3::float8) * (0.5 + 0.5 * random())
                ) * INTERVAL '1 millisecond'`
             : ''
         const params: (Date | number)[] = backoffEnabled
