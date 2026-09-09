@@ -50,6 +50,8 @@ describe('dashboard-update schema', () => {
         ['entries under other key names', [{ breakdown_value: 'good', color: '#36a854' }]],
         ['an entry without a color token', [{ breakdownValue: 'Chrome' }]],
         ['a hex value where a palette slot belongs', [{ breakdownValue: 'Chrome', colorToken: '#3fb950' }]],
+        // Also proves the generated schema carries the serializer's token pattern.
+        ['palette slot zero', [{ breakdownValue: 'Chrome', colorToken: 'preset-0' }]],
     ])('rejects breakdown_colors as %s', (_name, breakdownColors) => {
         const result = tool.schema.safeParse({ id: 1, breakdown_colors: breakdownColors })
 

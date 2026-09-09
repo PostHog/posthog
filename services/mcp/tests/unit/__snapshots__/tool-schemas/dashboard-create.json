@@ -7,8 +7,15 @@
                     "items": {
                         "properties": {
                             "breakdownProperty": {
-                                "description": "Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.",
-                                "type": "string"
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property."
                             },
                             "breakdownType": {
                                 "anyOf": [
@@ -28,7 +35,7 @@
                             "colorToken": {
                                 "anyOf": [
                                     {
-                                        "pattern": "^preset-\\d+$",
+                                        "pattern": "^preset-[1-9][0-9]*$",
                                         "type": "string"
                                     },
                                     {
@@ -38,9 +45,17 @@
                                 "description": "Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex value is rejected. Null leaves the value on its default color."
                             },
                             "source": {
-                                "description": "`manual` for a color a person picked, `auto` for one the dashboard assigned.\n\n* `auto` - auto\n* `manual` - manual",
-                                "enum": ["auto", "manual"],
-                                "type": "string"
+                                "anyOf": [
+                                    {
+                                        "description": "* `auto` - auto\n* `manual` - manual",
+                                        "enum": ["auto", "manual"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "`manual` for a color a person picked, `auto` for one the dashboard assigned.\n\n* `auto` - auto\n* `manual` - manual"
                             }
                         },
                         "required": ["breakdownValue", "colorToken"],

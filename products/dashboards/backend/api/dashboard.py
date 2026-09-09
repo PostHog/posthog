@@ -1215,14 +1215,19 @@ class DashboardCustomizationSerializer(serializers.Serializer):
 class BreakdownColorsField(serializers.ListField):
     # The child serializer decides whether an entry is valid, but it does not decide what gets
     # stored or returned. It rewrites an entry rather than describing it: it drops a key it does not
-    # declare and adds a null for a declared key the entry omits. So both directions validate
-    # through the child and then use the entries as given.
+    # declare and adds a null for a declared key the entry omits. So both directions validate the
+    # entries and then use them as given.
     #
     # This matters in both directions because the dashboard saves the whole color list back. Letting
     # the child shape a write would drop a key the frontend persists before this serializer learns
     # about it, and the loss would only surface as colors disappearing after a later save.
+    #
+    # The write validates through an unbound list, not through `self.child`. DRF resolves `required`
+    # against the root serializer's partial flag, and a dashboard PATCH is partial, so a bound child
+    # skips a missing key instead of failing it, and this field would store the entry as given. An
+    # unbound list is its own root, so the required keys hold on a PATCH too.
     def to_internal_value(self, data: Any) -> Any:
-        super().to_internal_value(data)
+        serializers.ListField(child=BreakdownColorConfigSerializer()).to_internal_value(data)
         return data
 
     def to_representation(self, data: Any) -> Any:

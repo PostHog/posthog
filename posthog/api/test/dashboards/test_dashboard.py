@@ -2262,7 +2262,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         duplicated_dashboard = Dashboard.objects.get(id=response["id"])
         self.assertEqual(duplicated_dashboard.breakdown_colors, breakdown_colors)
 
-    def test_dashboard_rejects_breakdown_colors_entries_that_cannot_apply(self) -> None:
+    @parameterized.expand(
+        [
+            ("object_keyed_by_breakdown_value", {"Chrome": "preset-1"}),
+            # Belongs at the endpoint, not in the field matrix: the update is a PATCH, so DRF
+            # resolves the entry's required keys against the serializer's partial flag.
+            ("entry_under_snake_case_keys", [{"breakdown_value": "good", "color": "#36a854"}]),
+        ]
+    )
+    def test_dashboard_rejects_breakdown_colors_that_cannot_apply(self, _name: str, value: object) -> None:
         # Wiring guard: the viewset has to reject the value rather than store it. The shape matrix
         # lives in products/dashboards/backend/api/test/test_dashboard_filters_validation.py, which
         # needs no database.
@@ -2270,7 +2278,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         _, response = self.dashboard_api.update_dashboard(
             dashboard.pk,
-            {"breakdown_colors": {"Chrome": "preset-1"}},
+            {"breakdown_colors": value},
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 

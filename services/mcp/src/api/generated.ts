@@ -14185,7 +14185,7 @@ export namespace Schemas {
       /**
          * Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex value is rejected. Null leaves the value on its default color.
          * @nullable
-         * @pattern ^preset-\d+$
+         * @pattern ^preset-[1-9][0-9]*$
          */
       colorToken: string | null;
       /**
@@ -14193,13 +14193,16 @@ export namespace Schemas {
          * @nullable
          */
       breakdownType?: string | null;
-      /** Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property. */
-      breakdownProperty?: string;
+      /**
+         * Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.
+         * @nullable
+         */
+      breakdownProperty?: string | null;
       /** `manual` for a color a person picked, `auto` for one the dashboard assigned.
        *
        * * `auto` - auto
        * * `manual` - manual */
-      source?: BreakdownColorConfigSourceEnum;
+      source?: BreakdownColorConfigSourceEnum | null;
     }
 
     export interface BreakdownItem {

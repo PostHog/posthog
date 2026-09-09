@@ -282,8 +282,12 @@ class BreakdownColorConfigSerializer(serializers.Serializer):
     # N out and indexes the theme with it, so any other string yields theme['preset-NaN'], which is
     # undefined. The pattern rather than a fixed range, because a theme may carry more slots than the
     # default palette and the token wraps past its end.
+    #
+    # The slot starts at 1 and its digits must be ASCII. getColorFromToken wraps the index as
+    # ((N - 1) % slots) + 1, so `preset-0` reads theme['preset-0'], and JavaScript parseInt reads
+    # another script's digits as NaN.
     colorToken = serializers.RegexField(
-        r"^preset-\d+$",
+        r"^preset-[1-9][0-9]*$",
         allow_null=True,
         help_text=(
             "Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex "
@@ -295,8 +299,12 @@ class BreakdownColorConfigSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.",
     )
+    # Null means the same as omitted for both keys below: the frontend reads
+    # `breakdownProperty != null` for property scoping, and treats an entry with no source as a
+    # manual pin. So an explicit null must not fail a write.
     breakdownProperty = serializers.CharField(
         required=False,
+        allow_null=True,
         help_text=(
             "Breakdown property the color is scoped to, so the color applies only to tiles that break "
             "down by that property. Omit to apply it under every property."
@@ -309,6 +317,7 @@ class BreakdownColorConfigSerializer(serializers.Serializer):
     source = serializers.ChoiceField(  # type: ignore[assignment]
         choices=["auto", "manual"],
         required=False,
+        allow_null=True,
         help_text="`manual` for a color a person picked, `auto` for one the dashboard assigned.",
     )
 

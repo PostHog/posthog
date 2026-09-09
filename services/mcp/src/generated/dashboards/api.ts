@@ -100,7 +100,7 @@ export const DashboardsCreateQueryParams = () => zod.object({
 
 export const dashboardsCreateBodyNameMax = 400
 
-export const dashboardsCreateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-\\d+$')
+export const dashboardsCreateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
 export const dashboardsCreateBodyDeleteInsightsDefault = false
 
 export const DashboardsCreateBody = () => zod
@@ -129,13 +129,15 @@ export const DashboardsCreateBody = () => zod
                         ),
                     breakdownProperty: zod
                         .string()
-                        .optional()
+                        .nullish()
                         .describe(
                             'Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.'
                         ),
                     source: zod
-                        .enum(['auto', 'manual'])
-                        .describe('\* `auto` - auto\n\* `manual` - manual')
+                        .union([
+                            zod.enum(['auto', 'manual']).describe('\* `auto` - auto\n\* `manual` - manual'),
+                            zod.null(),
+                        ])
                         .optional()
                         .describe(
                             '`manual` for a color a person picked, `auto` for one the dashboard assigned.\n\n\* `auto` - auto\n\* `manual` - manual'
@@ -238,7 +240,7 @@ export const DashboardsPartialUpdateQueryParams = () => zod.object({
 
 export const dashboardsPartialUpdateBodyNameMax = 400
 
-export const dashboardsPartialUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-\\d+$')
+export const dashboardsPartialUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitDefault = 25
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitMax = 50
@@ -350,13 +352,15 @@ export const DashboardsPartialUpdateBody = () => zod
                         ),
                     breakdownProperty: zod
                         .string()
-                        .optional()
+                        .nullish()
                         .describe(
                             'Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.'
                         ),
                     source: zod
-                        .enum(['auto', 'manual'])
-                        .describe('\* `auto` - auto\n\* `manual` - manual')
+                        .union([
+                            zod.enum(['auto', 'manual']).describe('\* `auto` - auto\n\* `manual` - manual'),
+                            zod.null(),
+                        ])
                         .optional()
                         .describe(
                             '`manual` for a color a person picked, `auto` for one the dashboard assigned.\n\n\* `auto` - auto\n\* `manual` - manual'

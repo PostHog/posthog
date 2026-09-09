@@ -65,10 +65,13 @@ class TestDashboardTileFiltersOverridesValidation(SimpleTestCase):
 
 
 class TestDashboardBreakdownColorsValidation(SimpleTestCase):
-    def _field(self) -> serializers.Field:
+    def _field(self, partial: bool) -> serializers.Field:
         # Read the field off the serializer rather than building one, so the cases bind to the shape
         # the endpoint actually validates against.
-        return DashboardSerializer().fields["breakdown_colors"]
+        #
+        # Both modes, because DRF resolves `required` against the root serializer's partial flag
+        # and a dashboard PATCH is partial.
+        return DashboardSerializer(partial=partial).fields["breakdown_colors"]
 
     @parameterized.expand(
         [
@@ -79,19 +82,23 @@ class TestDashboardBreakdownColorsValidation(SimpleTestCase):
             ("entry_missing_the_color_token", [{"breakdownValue": "Chrome"}]),
             ("entry_missing_the_breakdown_value", [{"colorToken": "preset-1"}]),
             ("bare_breakdown_values", ["Chrome", "Firefox"]),
+            ("empty_entry", [{}]),
             # A token names a slot in the color theme, so any other string resolves to nothing.
             # getColorFromToken parses the N out of `preset-N`, and a hex value yields
             # theme['preset-NaN'].
             ("hex_color_token", [{"breakdownValue": "Chrome", "colorToken": "#3fb950"}]),
             ("unresolvable_color_token", [{"breakdownValue": "Chrome", "colorToken": "blue"}]),
+            ("color_token_slot_zero", [{"breakdownValue": "Chrome", "colorToken": "preset-0"}]),
+            ("color_token_non_ascii_digits", [{"breakdownValue": "Chrome", "colorToken": "preset-١"}]),
             # The two shapes that crashed the dashboard scene on every load.
             ("object_keyed_by_breakdown_value", {"Chrome": "preset-1"}),
             ("empty_object", {}),
         ]
     )
     def test_rejects(self, _name: str, value: object) -> None:
-        with self.assertRaises(serializers.ValidationError):
-            self._field().run_validation(value)
+        for partial in (False, True):
+            with self.subTest(partial=partial), self.assertRaises(serializers.ValidationError):
+                self._field(partial=partial).run_validation(value)
 
     @parameterized.expand(
         [
@@ -116,13 +123,20 @@ class TestDashboardBreakdownColorsValidation(SimpleTestCase):
             # A theme may carry more slots than the default palette, and the token wraps past its
             # end, so the pattern must not cap the index.
             ("color_token_past_the_default_palette", [{"breakdownValue": "Chrome", "colorToken": "preset-99"}]),
+            (
+                "null_breakdown_property",
+                [{"breakdownValue": "Chrome", "colorToken": "preset-1", "breakdownProperty": None}],
+            ),
+            ("null_source", [{"breakdownValue": "Chrome", "colorToken": "preset-1", "source": None}]),
             # Clearing every color, and the nullable column's own value.
             ("empty_list", []),
             ("null", None),
         ]
     )
     def test_accepts(self, _name: str, value: object) -> None:
-        assert self._field().run_validation(value) == value
+        for partial in (False, True):
+            with self.subTest(partial=partial):
+                assert self._field(partial=partial).run_validation(value) == value
 
     @parameterized.expand([("write", "run_validation"), ("read", "to_representation")])
     def test_keeps_a_key_the_child_serializer_does_not_declare_on(self, _name: str, method: str) -> None:
@@ -141,4 +155,4 @@ class TestDashboardBreakdownColorsValidation(SimpleTestCase):
             }
         ]
 
-        assert getattr(self._field(), method)(entries) == entries
+        assert getattr(self._field(partial=False), method)(entries) == entries
