@@ -11,7 +11,7 @@ export interface NavigationSource {
   path: string;
   label: string;
   settingsCategory: SettingsCategory | null;
-  agentSlug: string | null;
+  agentSkillName: string | null;
   spaceId: string | null;
   feedId: string | null;
 }
@@ -90,7 +90,7 @@ export function resolveNavigationSource(
     path,
     label: sourceLabel(path, category),
     settingsCategory: category,
-    agentSlug: valid.match(/[?&]agent=([^&#]+)/)?.[1] ?? null,
+    agentSkillName: valid.match(/[?&]agent=([^&#]+)/)?.[1] ?? null,
     spaceId: path.match(/^\/spaces\/([^/]+)/)?.[1] ?? null,
     feedId: path.match(/^\/feeds\/([^/]+)/)?.[1] ?? null,
   };
