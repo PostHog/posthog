@@ -19,10 +19,15 @@ function setup() {
       updatedAt: "2026-01-01T00:00:00.000Z",
       snapshot: emptySketchpadSnapshot(),
       headSeq: 0,
+      historyStartSeq: 0,
+      historySnapshot: emptySketchpadSnapshot(),
     })),
-    opsSince: vi
-      .fn<SketchpadApi["opsSince"]>()
-      .mockResolvedValue({ headSeq: 0, results: [] }),
+    opsSince: vi.fn<SketchpadApi["opsSince"]>().mockResolvedValue({
+      headSeq: 0,
+      results: [],
+      historyStartSeq: 0,
+      historySnapshot: emptySketchpadSnapshot(),
+    }),
     appendOps: vi
       .fn<SketchpadApi["appendOps"]>()
       .mockImplementation(async (_id, input) => {

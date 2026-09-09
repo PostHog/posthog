@@ -37,10 +37,14 @@ async function setup() {
       updatedAt: "2026-01-01T00:00:00.000Z",
       snapshot: { ...emptySketchpadSnapshot(), state: { "key-1": 1 } },
       headSeq: 1,
+      historyStartSeq: 0,
+      historySnapshot: emptySketchpadSnapshot(),
     }),
     opsSince: vi.fn<SketchpadApi["opsSince"]>().mockResolvedValue({
       headSeq: 1,
       results: [],
+      historyStartSeq: 0,
+      historySnapshot: emptySketchpadSnapshot(),
     }),
     appendOps: vi.fn<SketchpadApi["appendOps"]>(),
   };
@@ -100,7 +104,12 @@ describe("useSketchpadCache", () => {
     await tick();
     expect(write).toHaveBeenCalledTimes(1);
 
-    api.opsSince.mockResolvedValue({ headSeq: 3, results: [entry(2)] });
+    api.opsSince.mockResolvedValue({
+      headSeq: 3,
+      results: [entry(2)],
+      historyStartSeq: 0,
+      historySnapshot: emptySketchpadSnapshot(),
+    });
     await client.poll();
     rerender(client.getState());
     await tick();
