@@ -16,7 +16,8 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
+from typing import Any
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -60,12 +61,73 @@ class ScoutCosts:
     available: bool
 
 
+def _serialize_scout_costs(costs: ScoutCosts) -> dict[str, Any]:
+    return {
+        "window_days": costs.window_days,
+        "available": costs.available,
+        "scouts": [
+            {
+                "skill_name": scout.skill_name,
+                "spend_usd": str(scout.spend_usd),
+                "run_count": scout.run_count,
+                "priced_run_count": scout.priced_run_count,
+                "reports_touched": scout.reports_touched,
+            }
+            for scout in costs.scouts
+        ],
+    }
+
+
+def _deserialize_scout_costs(value: object) -> ScoutCosts | None:
+    if not isinstance(value, dict):
+        return None
+    window_days = value.get("window_days")
+    available = value.get("available")
+    scouts_value = value.get("scouts")
+    if type(window_days) is not int or type(available) is not bool or not isinstance(scouts_value, list):
+        return None
+
+    scouts: list[ScoutCost] = []
+    try:
+        for scout_value in scouts_value:
+            if not isinstance(scout_value, dict):
+                return None
+            skill_name = scout_value["skill_name"]
+            spend_usd = Decimal(scout_value["spend_usd"])
+            counts = (
+                scout_value["run_count"],
+                scout_value["priced_run_count"],
+                scout_value["reports_touched"],
+            )
+            if (
+                not isinstance(skill_name, str)
+                or not spend_usd.is_finite()
+                or spend_usd < 0
+                or any(type(count) is not int or count < 0 for count in counts)
+            ):
+                return None
+            scouts.append(
+                ScoutCost(
+                    skill_name=skill_name,
+                    spend_usd=spend_usd,
+                    run_count=counts[0],
+                    priced_run_count=counts[1],
+                    reports_touched=counts[2],
+                )
+            )
+    except (InvalidOperation, KeyError, TypeError, ValueError):
+        return None
+    return ScoutCosts(window_days=window_days, scouts=scouts, available=available)
+
+
 def scout_costs(*, team_id: int, window_days: int) -> ScoutCosts:
     """Sum this team's scout spend and output per scout over the last `window_days`."""
     cache_key = f"scout_costs:v1:{team_id}:{window_days}"
     cached = cache.get(cache_key)
     if cached is not None:
-        return cached
+        cached_costs = _deserialize_scout_costs(cached)
+        if cached_costs is not None:
+            return cached_costs
 
     window_start = timezone.now() - timedelta(days=window_days)
     task_run_ids_by_skill: dict[str, list[str]] = defaultdict(list)
@@ -110,5 +172,5 @@ def scout_costs(*, team_id: int, window_days: int) -> ScoutCosts:
         )
 
     costs = ScoutCosts(window_days=window_days, scouts=scouts, available=True)
-    cache.set(cache_key, costs, timeout=SCOUT_COSTS_CACHE_TIMEOUT_SECONDS)
+    cache.set(cache_key, _serialize_scout_costs(costs), timeout=SCOUT_COSTS_CACHE_TIMEOUT_SECONDS)
     return costs

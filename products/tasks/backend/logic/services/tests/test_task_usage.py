@@ -78,7 +78,9 @@ class TestTaskUsageQueryTagging(SimpleTestCase):
         team_get.assert_not_called()
 
     def test_window_costs_fail_when_the_safe_row_limit_is_exceeded(self) -> None:
-        rows = [("run-1", 1), ("run-2", 2), ("run-3", 3)]
+        # HogQL returns at most the configured limit. The window count still reports that a row was
+        # omitted, so the caller does not mistake a truncated result for the complete cost.
+        rows = [("run-1", 1, 3), ("run-2", 2, 3)]
         with (
             self.settings(CLOUD_DEPLOYMENT="US"),
             patch.object(task_usage, "MAX_TASK_RUN_COST_ROWS", 2),

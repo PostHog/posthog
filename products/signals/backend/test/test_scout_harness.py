@@ -2841,6 +2841,21 @@ class TestScoutCosts(BaseTest):
         assert second == first
         query.assert_called_once()
 
+        cached = cache.get(f"scout_costs:v1:{self.team.id}:7")
+        assert cached == {
+            "window_days": 7,
+            "available": True,
+            "scouts": [
+                {
+                    "skill_name": "signals-scout-general",
+                    "spend_usd": "1",
+                    "run_count": 1,
+                    "priced_run_count": 1,
+                    "reports_touched": 0,
+                }
+            ],
+        }
+
     def test_unreadable_cost_project_is_reported_rather_than_priced_at_zero(self) -> None:
         self._run()
         with patch.object(scout_costs, "get_local_task_run_token_costs", side_effect=TaskTokenUsageUnavailable()):

@@ -223,7 +223,7 @@ def get_local_task_run_token_costs(
         "team_id": ast.Constant(value=str(team_id)),
         # The group-by yields at most one row per run, but a limit-less select is capped at 100
         # rows, and both paths can cover more runs than that.
-        "row_limit": ast.Constant(value=len(task_run_ids) if task_run_ids is not None else MAX_TASK_RUN_COST_ROWS + 1),
+        "row_limit": ast.Constant(value=len(task_run_ids) if task_run_ids is not None else MAX_TASK_RUN_COST_ROWS),
         "run_filter": (
             parse_expr(
                 "in(toString(properties.task_run_id), {task_run_ids})",
@@ -236,7 +236,8 @@ def get_local_task_run_token_costs(
     query = parse_select(
         """
         SELECT toString(properties.task_run_id) AS task_run_id,
-            round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS token_cost_usd
+            round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS token_cost_usd,
+            count() OVER () AS total_run_count
         FROM events
         WHERE equals(event, '$ai_generation')
             AND greaterOrEquals(timestamp, {generated_after})
@@ -255,7 +256,7 @@ def get_local_task_run_token_costs(
             query_type="TaskRunUsageTokenCost",
         )
     rows = result.results or []
-    if task_run_ids is None and len(rows) > MAX_TASK_RUN_COST_ROWS:
+    if task_run_ids is None and rows and int(rows[0][2]) > MAX_TASK_RUN_COST_ROWS:
         raise TaskTokenUsageUnavailable("The task-run cost result exceeded its safe row limit")
     return {str(row[0]): Decimal(str(row[1])) for row in rows if row[0] and row[1] is not None}
 
