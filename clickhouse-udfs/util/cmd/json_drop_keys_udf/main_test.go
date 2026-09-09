@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -25,6 +24,18 @@ func TestDropKeysJSON(t *testing.T) {
 		name, input, want string
 		keys              []string
 	}{
+		{
+			name:  "dotted key in unfiltered sibling stays literal",
+			input: `{"keep":{"a.b":1},"items":{"a.b":2,"a.c":3}}`,
+			want:  `{"keep":{"a.b":1},"items":{"a":{"c":3}}}`,
+			keys:  []string{"items.a.b"},
+		},
+		{
+			name:  "dotted key at root expands even outside filter",
+			input: `{"keep.a.b":1,"items.a.b":2,"items.a.c":3}`,
+			want:  `{"keep":{"a":{"b":1}},"items":{"a":{"c":3}}}`,
+			keys:  []string{"items.a.b"},
+		},
 		{
 			"empty",
 			"{}",
@@ -265,47 +276,58 @@ func TestMakeKeyDict(t *testing.T) {
 }
 
 func BenchmarkProcessLine(b *testing.B) {
-	input := []byte(`{"id":1,"identity":"abc","properties":{"secret":"drop","public":"keep"},"events":[{"identity":"nested","value":1}],"amount":934504962295726700000}`)
-	keys := makeKeyDict([]string{"identity", "properties.secret"})
+	benchmarkProcessLines(b, "testdata/benchmarks/small.jsonl", []string{"identity", "properties.secret"})
+}
+
+func BenchmarkProcessFixture(b *testing.B) {
+	path := os.Getenv("BENCH_FILE")
+	if path == "" {
+		path = "testdata/benchmarks/events.jsonl"
+	} else if !filepath.IsAbs(path) {
+		path = filepath.Join("../..", path)
+	}
+
+	for _, tc := range []struct {
+		name string
+		path string
+		keys []string
+	}{
+		{name: "missing", path: path, keys: []string{"missing"}},
+		{name: "nested", path: path, keys: []string{"properties.secret"}},
+		{name: "subtree", path: path, keys: []string{"properties"}},
+		{name: "array", path: path, keys: []string{"events.identity"}},
+		{name: "dotted", path: "testdata/benchmarks/dotted.jsonl", keys: []string{"items.a.b"}},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			benchmarkProcessLines(b, tc.path, tc.keys)
+		})
+	}
+}
+
+func benchmarkProcessLines(b *testing.B, path string, keyPaths []string) {
+	b.Helper()
+	lines, totalBytes := loadBenchmarkLines(b, path)
+	keys := makeKeyDict(keyPaths)
 	var buf bytes.Buffer
 
+	for _, line := range lines {
+		if err := processLine(keys, line, &buf); err != nil {
+			b.Fatal(err)
+		}
+	}
 	b.ReportAllocs()
-	b.SetBytes(int64(len(input)))
+	b.SetBytes(int64(totalBytes / len(lines)))
+	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		if err := processLine(keys, input, &buf); err != nil {
+		if err := processLine(keys, lines[i%len(lines)], &buf); err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
-func BenchmarkProcessFixture(b *testing.B) {
-	lines, totalBytes := loadBenchmarkLines(b)
-	keys := makeKeyDict([]string{"identity", "properties.secret"})
-	var buf bytes.Buffer
-
-	b.ReportAllocs()
-	b.SetBytes(int64(totalBytes))
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		for _, line := range lines {
-			if err := processLine(keys, line, &buf); err != nil {
-				b.Fatal(err)
-			}
-		}
-	}
-}
-
-func loadBenchmarkLines(b *testing.B) ([][]byte, int) {
+func loadBenchmarkLines(b *testing.B, path string) ([][]byte, int) {
 	b.Helper()
-
-	path := os.Getenv("BENCH_FILE")
-	if path == "" {
-		return generatedBenchmarkLines()
-	} else if !filepath.IsAbs(path) {
-		path = filepath.Join("../..", path)
-	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -326,26 +348,6 @@ func loadBenchmarkLines(b *testing.B) ([][]byte, int) {
 
 	if len(lines) == 0 {
 		b.Fatalf("benchmark file has no JSON lines: %s", path)
-	}
-
-	return lines, totalBytes
-}
-
-func generatedBenchmarkLines() ([][]byte, int) {
-	lines := make([][]byte, 0, 256)
-	totalBytes := 0
-	for i := 0; i < 256; i++ {
-		line := []byte(fmt.Sprintf(
-			`{"id":%d,"identity":"user-%d","properties":{"secret":"s%d","public":"p%d"},"events":[{"identity":"nested-%d","value":%d}],"amount":934504962295726700000}`,
-			i,
-			i,
-			i,
-			i,
-			i,
-			i,
-		))
-		lines = append(lines, line)
-		totalBytes += len(line)
 	}
 
 	return lines, totalBytes
