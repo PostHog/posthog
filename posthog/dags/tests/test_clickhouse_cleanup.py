@@ -372,7 +372,7 @@ def test_the_janitor_reaps_every_foreign_runs_dictionaries(cluster: ClickhouseCl
 def test_the_janitor_never_touches_foreign_tables_or_its_own_run(cluster: ClickhouseCluster, persons_database):
     # Non-matching names are invisible to the janitor, and the run's own dictionaries must
     # survive its janitor pass (they are created after it, but the name gate is the guarantee).
-    def create_decoy(client) -> None:
+    def create_decoy(client: Client) -> None:
         client.execute(
             "CREATE DICTIONARY IF NOT EXISTS not_a_sweep_dictionary (team_id Int64, present UInt8)"
             " PRIMARY KEY team_id"
@@ -380,11 +380,11 @@ def test_the_janitor_never_touches_foreign_tables_or_its_own_run(cluster: Clickh
             " LAYOUT(COMPLEX_KEY_HASHED()) LIFETIME(0)"
         )
 
-    def decoy_exists(client) -> int:
+    def decoy_exists(client: Client) -> int:
         [[count]] = client.execute("SELECT count() FROM system.dictionaries WHERE name = 'not_a_sweep_dictionary'")
         return count
 
-    def drop_decoy(client) -> None:
+    def drop_decoy(client: Client) -> None:
         client.execute("DROP DICTIONARY IF EXISTS not_a_sweep_dictionary SYNC")
 
     cluster.map_all_hosts(create_decoy).result()
