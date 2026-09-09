@@ -26,6 +26,7 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 ## Reusable widgets
 
 The notebooks index shows **Notebooks** and **Reusable widgets** tabs only when `notebook-generated-widgets` is enabled. With the flag disabled, it shows the notebook list without tabs.
+Each reusable widget's page header has a back arrow before the notebook icon that returns to the **Reusable widgets** tab.
 
 A generated widget can be published to the project-scoped reusable widget catalog using **Make reusable…** beside its version pin controls. Publishing gives the widget a stable ID, keeps its existing immutable version history, and saves up to 20 rows per input as a bounded demo fixture. Capture applies each input’s Hog mapping before saving contract-shaped rows and preserves the publishing placement’s bindings. The success message links to the catalog on the notebooks index's **Reusable widgets** tab. Each catalog entry has a dedicated page for its live demo, input contract, source, usage count, and shared improvement or regeneration actions.
 

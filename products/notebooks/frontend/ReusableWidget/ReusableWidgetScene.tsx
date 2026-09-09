@@ -14,6 +14,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -127,6 +128,11 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
                 name={reusableWidget.name}
                 description={reusableWidget.description || 'Reusable notebook widget'}
                 resourceType={{ type: 'notebook' }}
+                forceBackTo={{
+                    key: 'reusable-widgets',
+                    name: 'Reusable widgets',
+                    path: `${urls.notebooks()}?tab=widgets`,
+                }}
                 actions={
                     <div className="flex flex-wrap gap-2">
                         <LemonButton onClick={openDemoDataModal} data-attr="reusable-widget-demo-data">
