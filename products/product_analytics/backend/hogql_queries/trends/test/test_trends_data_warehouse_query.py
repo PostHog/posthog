@@ -38,12 +38,12 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
-from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.instance_setting import override_instance_config
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.product_analytics.backend.hogql_queries.trends.trends_query_builder import TrendsQueryBuilder
+from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 

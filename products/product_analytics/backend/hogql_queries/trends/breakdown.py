@@ -22,8 +22,6 @@ from posthog.hogql.property import apply_path_cleaning
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
-from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.utils import get_properties_chain
 from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER,
@@ -35,6 +33,9 @@ from posthog.hogql_queries.utils.breakdowns import (
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
+
+from products.product_analytics.backend.hogql_queries.trends.display import TrendsDisplay
+from products.product_analytics.backend.hogql_queries.trends.utils import get_properties_chain
 
 
 def hogql_to_string(expr: ast.Expr) -> ast.Call:

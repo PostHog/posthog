@@ -3,7 +3,7 @@ from posthog.test.base import BaseTest
 from posthog.hogql import ast
 from posthog.hogql.constants import BREAKDOWN_VALUE_MAX_LENGTH
 
-from posthog.hogql_queries.insights.trends.breakdown import Breakdown
+from products.product_analytics.backend.hogql_queries.trends.breakdown import Breakdown
 
 
 class TestBreakdownValueTruncation(BaseTest):
