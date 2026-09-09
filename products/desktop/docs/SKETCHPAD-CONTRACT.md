@@ -70,3 +70,27 @@ The session prompt lists the imports accepted by the code guard. Tool
 descriptions focus on each action. Both adapters enable Sketchpad tools only for
 a nonempty Sketchpad ID. Cache expansion lives beside compaction in shared
 schemas and validates each source lookup.
+
+The host assembles its frame document from separate JavaScript and CSS sources.
+The SDK and bootstrap pass through desktop linting and formatting. Source
+substitution replaces each named placeholder once, leaving injected values intact.
+
+Each mounted Sketchpad owns its request budget. Invalid edits and edits that
+produce no operations do not consume write tokens. Oversized requests report a
+size error separately from a full request queue. Replacing a frame resets its
+readiness, state echoes, and caret digest until the replacement reports ready.
+
+Task links persist separately from viewports. The task-link store migrates links
+from the old viewport storage before viewport updates can discard them. Disabled
+Sketchpad queries also hide cached results when the feature flag is turned off.
+
+The scene measures its pane once and shares the reactive rectangle with the
+stage, minimap, pointer handling, and keyboard shortcuts. Unmounted or zero-size
+panes skip viewport calculations. Measurement does not pan the board.
+
+Selection, focus, highlights, and the active panel belong to the mounted board.
+Navigating to another board creates fresh transient state; persisted viewports
+and task links keep their existing lifetimes. A single gesture owns pointer
+capture and cleanup, including cancellation and window blur. Fragment copies use
+UUIDs. The scene delegates header actions and side-panel rendering to their own
+components, and its edit dialog commits synchronously.
