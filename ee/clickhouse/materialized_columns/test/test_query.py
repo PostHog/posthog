@@ -6,15 +6,16 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         # some random
         with self.capture_select_queries() as queries:
             self.client.post(
-                f"/api/projects/{self.team.id}/insights/funnel/",
+                f"/api/projects/{self.team.id}/query/",
                 {
-                    "events": [
-                        {"id": "step one", "type": "events", "order": 0},
-                        {"id": "step two", "type": "events", "order": 1},
-                    ],
-                    "funnel_window_days": 14,
-                    "funnel_order_type": "unordered",
-                    "insight": "funnels",
+                    "query": {
+                        "kind": "FunnelsQuery",
+                        "series": [
+                            {"kind": "EventsNode", "event": "step one"},
+                            {"kind": "EventsNode", "event": "step two"},
+                        ],
+                        "funnelsFilter": {"funnelOrderType": "unordered"},
+                    }
                 },
             ).json()
 
