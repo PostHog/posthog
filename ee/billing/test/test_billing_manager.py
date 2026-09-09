@@ -26,7 +26,9 @@ from ee.billing.billing_manager import (
     BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER,
     BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION,
     BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER,
+    BILLING_STATUS_REQUEST_TIMEOUT,
     BillingManager,
+    BillingServiceUnavailable,
     FundingStatusUnavailable,
     OrganizationFundingStatus,
     PrepaidCreditState,
@@ -115,6 +117,57 @@ class TestFundingStatusParsing(SimpleTestCase):
     def test_rejects_invalid_funding_status(self, _name: str, payload: object) -> None:
         with self.assertRaises(FundingStatusUnavailable):
             _parse_funding_status(payload)
+
+
+class TestGetBillingStatusRequest(BaseTest):
+    def setUp(self):
+        super().setUp()
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+        self.manager = BillingManager(license)
+
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_the_status_request_carries_a_timeout(self, mock_get):
+        mock_get.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"customer": {}}))
+
+        self.manager._get_billing(self.organization)
+
+        assert mock_get.call_args.kwargs["timeout"] == BILLING_STATUS_REQUEST_TIMEOUT
+
+    @parameterized.expand([("read_timeout", requests.Timeout), ("unreachable", requests.ConnectionError)])
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_a_request_that_never_answers_is_unavailable(self, _name, error_class, mock_get):
+        mock_get.side_effect = error_class()
+
+        with self.assertRaises(BillingServiceUnavailable):
+            self.manager._get_billing(self.organization)
+
+    @parameterized.expand([("request_timeout", 408), ("bad_gateway", 502), ("gateway_timeout", 504)])
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_a_transient_status_with_an_empty_body_is_unavailable(self, _name, status_code, mock_get):
+        # Billing answers a slow request with an empty body, so reading it as JSON fails.
+        mock_get.return_value = MagicMock(
+            status_code=status_code, text="", json=MagicMock(side_effect=requests.JSONDecodeError("", "", 0))
+        )
+
+        with self.assertRaises(BillingServiceUnavailable) as context:
+            self.manager._get_billing(self.organization)
+
+        assert str(status_code) in str(context.exception)
+
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_a_rejected_request_is_not_unavailable(self, mock_get):
+        mock_get.return_value = MagicMock(
+            status_code=400, text="", json=MagicMock(return_value={"code": "bad_request"})
+        )
+
+        with self.assertRaises(Exception) as context:
+            self.manager._get_billing(self.organization)
+
+        assert not isinstance(context.exception, BillingServiceUnavailable)
 
 
 class TestBillingManager(BaseTest):

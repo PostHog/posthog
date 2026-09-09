@@ -58,8 +58,9 @@ export function Billing(): JSX.Element {
         minimumBillingAccessLevel,
         canOnlyViewUsageAndSpend,
         hasSupportAddonPlan,
+        isBillingUnavailable,
     } = useValues(billingLogic)
-    const { reportBillingShown } = useActions(billingLogic)
+    const { reportBillingShown, loadBilling } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -108,18 +109,24 @@ export function Billing(): JSX.Element {
     if (!billing && !billingLoading) {
         return (
             <div className="deprecated-space-y-4">
-                <LemonBanner type="error">
-                    {
-                        'There was an issue retrieving your current billing information. If this message persists, please '
-                    }
-                    {preflight?.cloud ? (
-                        <Link onClick={() => openSupportForm({ kind: 'bug', billing_issue: true })}>
-                            submit a bug report
-                        </Link>
+                <LemonBanner type="error" action={{ children: 'Try again', onClick: loadBilling }}>
+                    {isBillingUnavailable ? (
+                        'Billing is taking longer than usual to answer. Try again in a moment.'
                     ) : (
-                        <Link to="mailto:sales@posthog.com">contact sales@posthog.com</Link>
+                        <>
+                            {
+                                'There was an issue retrieving your current billing information. If this message persists, please '
+                            }
+                            {preflight?.cloud ? (
+                                <Link onClick={() => openSupportForm({ kind: 'bug', billing_issue: true })}>
+                                    submit a bug report
+                                </Link>
+                            ) : (
+                                <Link to="mailto:sales@posthog.com">contact sales@posthog.com</Link>
+                            )}
+                            .
+                        </>
                     )}
-                    .
                 </LemonBanner>
             </div>
         )

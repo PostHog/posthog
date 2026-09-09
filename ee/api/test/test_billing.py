@@ -17,7 +17,7 @@ import jwt
 from asgiref.sync import async_to_sync
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
-from requests import Response, get
+from requests import JSONDecodeError, Response, Timeout, get
 from rest_framework import status
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache, get_cached_instance_license
@@ -40,6 +40,7 @@ from ee.api.billing import (
     BillingExportThrottle,
     BillingQueryRejected,
     BillingQueryTooLarge,
+    BillingUnavailable,
     BillingUsageRequestSerializer,
     BillingViewset,
     HasBillingUsageSpendReadAccess,
@@ -271,7 +272,7 @@ class TestUnlicensedBillingAPI(APIBaseTest):
     @patch("ee.billing.billing_manager.http_session.get")
     @freeze_time("2022-01-01")
     def test_billing_calls_the_service_without_token(self, mock_request):
-        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+        def mock_implementation(url: str, headers: Any = None, params: Any = None, timeout: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
 
@@ -318,10 +319,35 @@ class TestBillingAPI(APILicensedTest):
         assert res.status_code == 404
         assert res.json()["detail"] == "Billing is not supported for this license type"
 
+    @parameterized.expand([("request_timeout", 408), ("bad_gateway", 502), ("gateway_timeout", 504)])
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_a_transient_billing_status_is_a_retryable_503(self, _name, upstream_status, mock_request):
+        # A slow billing service answers with an empty body, so reading the body as JSON fails.
+        mock_request.return_value = MagicMock(
+            status_code=upstream_status, text="", json=MagicMock(side_effect=JSONDecodeError("", "", 0))
+        )
+        TEST_clear_instance_license_cache()
+
+        res = self.client.get("/api/billing")
+
+        assert res.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert res.json()["code"] == BillingUnavailable.default_code
+        assert res.json()["detail"] == BillingUnavailable.default_detail
+
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_a_billing_request_that_times_out_is_a_retryable_503(self, mock_request):
+        mock_request.side_effect = Timeout()
+        TEST_clear_instance_license_cache()
+
+        res = self.client.get("/api/billing")
+
+        assert res.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert res.json()["code"] == BillingUnavailable.default_code
+
     @patch("ee.billing.billing_manager.http_session.get")
     @freeze_time("2022-01-01")
     def test_billing_calls_the_service_with_appropriate_token(self, mock_request):
-        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+        def mock_implementation(url: str, headers: Any = None, params: Any = None, timeout: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
 
@@ -364,7 +390,7 @@ class TestBillingAPI(APILicensedTest):
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_billing_returns_if_billing_exists(self, mock_request):
-        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+        def mock_implementation(url: str, headers: Any = None, params: Any = None, timeout: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
 
@@ -479,7 +505,7 @@ class TestBillingAPI(APILicensedTest):
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_billing_returns_if_doesnt_exist(self, mock_request):
-        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+        def mock_implementation(url: str, headers: Any = None, params: Any = None, timeout: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
 
@@ -693,7 +719,7 @@ class TestBillingAPI(APILicensedTest):
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_organization_available_product_features_updated_if_different(self, mock_request):
-        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+        def mock_implementation(url: str, headers: Any = None, params: Any = None, timeout: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
 
@@ -735,7 +761,7 @@ class TestBillingAPI(APILicensedTest):
         self.organization.usage = None
         self.organization.save()
 
-        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+        def mock_implementation(url: str, headers: Any = None, params: Any = None, timeout: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
 
@@ -785,7 +811,9 @@ class TestBillingAPI(APILicensedTest):
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_organization_usage_count_with_demo_project(self, mock_request, *args):
-        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock | Response:
+        def mock_implementation(
+            url: str, headers: Any = None, params: Any = None, timeout: Any = None
+        ) -> MagicMock | Response:
             mock = MagicMock()
             if "api/billing/portal" in url:
                 mock.status_code = 200
@@ -837,7 +865,7 @@ class TestBillingAPI(APILicensedTest):
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_org_trust_score_updated(self, mock_request):
-        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+        def mock_implementation(url: str, headers: Any = None, params: Any = None, timeout: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
 
@@ -886,7 +914,7 @@ class TestBillingAPI(APILicensedTest):
     def test_billing_with_supported_params(self, mock_get):
         """Test that the include_forecasting param is passed through to the billing service."""
 
-        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+        def mock_implementation(url: str, headers: Any = None, params: Any = None, timeout: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 200
 

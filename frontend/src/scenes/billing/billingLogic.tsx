@@ -83,6 +83,9 @@ export enum BillingAPIErrorCodes {
     COULD_NOT_PAY_INVOICES_ERROR = 'could_not_pay_invoices_error',
 }
 
+// The API answers with this code when billing timed out or was unreachable, which a retry can clear.
+export const BILLING_SERVICE_UNAVAILABLE_CODE = 'billing_service_unavailable'
+
 export interface UnsubscribeError {
     detail: string | JSX.Element
     link: JSX.Element
@@ -259,6 +262,7 @@ export interface billingLogicValues {
     isActivateLicenseSubmitting: boolean
     isActivateLicenseValid: boolean
     isAnnualPlanCustomer: boolean
+    isBillingUnavailable: boolean
     isCreditCTAHeroDismissed: boolean
     isCreditFormSubmitting: boolean
     isCreditFormValid: boolean
@@ -773,6 +777,14 @@ export const billingLogic = kea<billingLogicType>([
             false,
             {
                 setShowLicenseDirectInput: (_, { show }) => show,
+            },
+        ],
+        isBillingUnavailable: [
+            false,
+            {
+                loadBilling: () => false,
+                loadBillingSuccess: () => false,
+                loadBillingFailure: (_, { errorObject }) => errorObject?.code === BILLING_SERVICE_UNAVAILABLE_CODE,
             },
         ],
         redirectPath: [

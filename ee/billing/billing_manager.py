@@ -52,6 +52,12 @@ BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER = "X-PostHog-Billing-Provider-Signatur
 BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER = "X-PostHog-Billing-Provider-Timestamp"
 BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION = "sha256"
 BILLING_TIMESERIES_REQUEST_TIMEOUT = (5, 30)
+# The billing overview the page reads on load. It is a status read, so it gets the same budget as
+# a timeseries request.
+BILLING_STATUS_REQUEST_TIMEOUT = (5, 30)
+# Statuses that mean billing did not answer this time, rather than that the request is wrong.
+# A caller can retry them.
+BILLING_TRANSIENT_STATUS_CODES = (408, 502, 503, 504)
 # An export covers every project rather than the chart's top few, so it reads more and is
 # allowed longer. The person is waiting for a file, which tolerates a longer wait than a chart.
 BILLING_EXPORT_REQUEST_TIMEOUT = (5, 120)
@@ -87,6 +93,10 @@ class OrganizationFundingStatus:
 
 class BillingAPIErrorCodes(Enum):
     OPEN_INVOICES_ERROR = "open_invoices_error"
+
+
+class BillingServiceUnavailable(Exception):
+    """Billing did not answer, or answered with a status that a retry can clear."""
 
 
 class BillingServiceOpenInvoicesError(Exception):
@@ -229,13 +239,19 @@ def build_billing_provider_webhook_signature_headers(body: bytes) -> dict[str, s
 
 
 def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 404, 401)) -> None:
-    if res.status_code not in valid_codes:
-        logger.error(f"Billing service returned bad status code: {res.status_code}, body: {res.text}")
-        try:
-            response = res.json()
-            raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", response)
-        except JSONDecodeError:
-            raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", res.text)
+    if res.status_code in valid_codes:
+        return
+
+    logger.error(f"Billing service returned bad status code: {res.status_code}, body: {res.text}")
+    try:
+        body: Any = res.json()
+    except JSONDecodeError:
+        body = res.text
+
+    # A transient status keeps the same argument shape, so callers that read the status out of the
+    # message keep working.
+    error_class = BillingServiceUnavailable if res.status_code in BILLING_TRANSIENT_STATUS_CODES else Exception
+    raise error_class(f"Billing service returned bad status code: {res.status_code}", "body:", body)
 
 
 def _parse_funding_status(data: object) -> OrganizationFundingStatus:
@@ -542,11 +558,16 @@ class BillingManager:
         if not self.license:  # mypy
             raise Exception("No license found")
 
-        res = http_session.get(
-            f"{BILLING_SERVICE_URL}/api/billing",
-            headers=self.get_auth_headers(organization),
-            params=query_params,
-        )
+        try:
+            res = http_session.get(
+                f"{BILLING_SERVICE_URL}/api/billing",
+                headers=self.get_auth_headers(organization),
+                params=query_params,
+                timeout=BILLING_STATUS_REQUEST_TIMEOUT,
+            )
+        except (requests.Timeout, requests.ConnectionError) as error:
+            raise BillingServiceUnavailable("Billing service did not answer the status request") from error
+
         handle_billing_service_error(res)
 
         data = res.json()
