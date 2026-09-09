@@ -2219,7 +2219,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         else:
             assert len(mocked_email_messages) == 0
 
-    def test_send_matview_failure_digest_ignores_duckgres_shadow(self, MockEmailMessage: MagicMock) -> None:
+    def test_send_matview_failure_digest_ignores_managed_warehouse_shadow(self, MockEmailMessage: MagicMock) -> None:
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -2242,8 +2242,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             saved_query=saved_query,
             status=DataModelingJob.Status.FAILED,
-            engine=DataModelingJobEngine.DUCKGRES,
-            error="duckgres translation gap",
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+            error="managed warehouse translation gap",
             last_run_at=timezone.now() - dt.timedelta(hours=1),
         )
 
@@ -2277,8 +2277,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             saved_query=saved_query,
             status=DataModelingJob.Status.FAILED,
-            engine=DataModelingJobEngine.DUCKGRES,
-            error="duckgres boom",
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+            error="managed warehouse boom",
             last_run_at=timezone.now() - dt.timedelta(hours=1),
         )
 
@@ -2286,7 +2286,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         assert len(mocked_email_messages) == 1
         assert "clickhouse boom" in mocked_email_messages[0].html_body
-        assert "duckgres boom" not in mocked_email_messages[0].html_body
+        assert "managed warehouse boom" not in mocked_email_messages[0].html_body
 
     def test_send_matview_failure_digest_not_sent_by_default(self, MockEmailMessage: MagicMock) -> None:
 

@@ -1397,7 +1397,7 @@
 2 posthog/temporal/backfill_group_type_created_at/types.py
 2 posthog/temporal/common/heartbeat.py
 2 posthog/temporal/data_modeling/activities/get_dag_structure.py
-2 posthog/temporal/data_modeling/activities/materialize_view_duckgres.py
+2 posthog/temporal/data_modeling/activities/materialize_view_managed_warehouse.py
 2 posthog/temporal/data_modeling/activities/prepare_queryable_table.py
 2 posthog/temporal/data_modeling/activities/succeed_materialization.py
 2 posthog/temporal/data_modeling/workflows/execute_dag.py

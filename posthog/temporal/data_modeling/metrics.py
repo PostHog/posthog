@@ -49,56 +49,57 @@ def get_node_suspended_metric(engine: str) -> MetricCounter:
     )
 
 
-def get_duckgres_shadow_finished_metric(status: str) -> MetricCounter:
+def get_managed_warehouse_shadow_finished_metrics(status: str) -> tuple[MetricCounter, MetricCounter]:
+    meter = workflow.metric_meter().with_additional_attributes({"status": status})
+    description = "Number of managed warehouse shadow materialization activities finished, by status."
     return (
-        workflow.metric_meter()
-        .with_additional_attributes({"status": status})
-        .create_counter(
-            "duckgres_shadow_materialization_finished",
-            "Number of duckgres shadow materialization activities finished, by status.",
-        )
+        meter.create_counter("managed_warehouse_shadow_materialization_finished", description),
+        meter.create_counter("duckgres_shadow_materialization_finished", description),
     )
 
 
-def get_duckgres_shadow_row_count_match_metric(matched: bool) -> MetricCounter:
+def get_managed_warehouse_shadow_row_count_match_metrics(matched: bool) -> tuple[MetricCounter, MetricCounter]:
+    meter = workflow.metric_meter().with_additional_attributes({"matched": str(matched).lower()})
+    description = "Row count comparison between ClickHouse and managed warehouse shadow materializations."
     return (
-        workflow.metric_meter()
-        .with_additional_attributes({"matched": str(matched).lower()})
-        .create_counter(
-            "duckgres_shadow_row_count_comparison",
-            "Row count comparison between ClickHouse and duckgres shadow materializations.",
-        )
+        meter.create_counter("managed_warehouse_shadow_row_count_comparison", description),
+        meter.create_counter("duckgres_shadow_row_count_comparison", description),
     )
 
 
-def get_duckgres_shadow_duration_metric() -> MetricHistogramFloat:
-    return workflow.metric_meter().create_histogram_float(
-        "duckgres_shadow_materialization_duration_seconds",
-        "Duration of duckgres shadow materialization in seconds.",
-        "s",
+def get_managed_warehouse_shadow_duration_metrics() -> tuple[MetricHistogramFloat, MetricHistogramFloat]:
+    meter = workflow.metric_meter()
+    description = "Duration of managed warehouse shadow materialization in seconds."
+    return (
+        meter.create_histogram_float("managed_warehouse_shadow_materialization_duration_seconds", description, "s"),
+        meter.create_histogram_float("duckgres_shadow_materialization_duration_seconds", description, "s"),
     )
 
 
-def get_duckgres_shadow_rows_materialized_metric() -> MetricHistogramFloat:
-    return workflow.metric_meter().create_histogram_float(
-        "duckgres_shadow_rows_materialized",
-        "Number of rows materialized per duckgres shadow materialization.",
+def get_managed_warehouse_shadow_rows_materialized_metrics() -> tuple[MetricHistogramFloat, MetricHistogramFloat]:
+    meter = workflow.metric_meter()
+    description = "Number of rows materialized per managed warehouse shadow materialization."
+    return (
+        meter.create_histogram_float("managed_warehouse_shadow_rows_materialized", description),
+        meter.create_histogram_float("duckgres_shadow_rows_materialized", description),
     )
 
 
-def get_duckgres_shadow_storage_mib_metric() -> MetricHistogramFloat:
-    return workflow.metric_meter().create_histogram_float(
-        "duckgres_shadow_storage_mib",
-        "Total DuckLake storage size (MiB) of the materialized table after a duckgres shadow materialization.",
-        "MiB",
+def get_managed_warehouse_shadow_storage_mib_metrics() -> tuple[MetricHistogramFloat, MetricHistogramFloat]:
+    meter = workflow.metric_meter()
+    description = "Total DuckLake storage size (MiB) after a managed warehouse shadow materialization."
+    return (
+        meter.create_histogram_float("managed_warehouse_shadow_storage_mib", description, "MiB"),
+        meter.create_histogram_float("duckgres_shadow_storage_mib", description, "MiB"),
     )
 
 
-def get_duckgres_shadow_storage_delta_mib_metric() -> MetricHistogramFloat:
-    return workflow.metric_meter().create_histogram_float(
-        "duckgres_shadow_storage_delta_mib",
-        "Change in DuckLake storage size (MiB) after a duckgres shadow materialization.",
-        "MiB",
+def get_managed_warehouse_shadow_storage_delta_mib_metrics() -> tuple[MetricHistogramFloat, MetricHistogramFloat]:
+    meter = workflow.metric_meter()
+    description = "Change in DuckLake storage size (MiB) after a managed warehouse shadow materialization."
+    return (
+        meter.create_histogram_float("managed_warehouse_shadow_storage_delta_mib", description, "MiB"),
+        meter.create_histogram_float("duckgres_shadow_storage_delta_mib", description, "MiB"),
     )
 
 
