@@ -2,11 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconCalendar, IconPencil, IconPlus, IconTrends, IconWarning } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
 
+import { ProjectTimezoneHint } from 'lib/components/ScheduledRunStatus'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { shortTimeZone } from 'lib/utils/timezones'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -26,26 +25,22 @@ const TEMPLATE_ICONS: Record<ScannerScoutTemplateKey, JSX.Element> = {
     scratch: <IconPencil />,
 }
 
-/** Derived from the template's own cron, so a changed schedule can't leave a stale label behind.
- * The cron runs in the project timezone, so the label names it rather than leave a bare clock time
- * that a reader in another timezone takes for their own. */
-function templateScheduleLabel(template: ScannerScoutTemplate, timezone: string): string {
+/** Derived from the template's own cron, so a changed schedule can't leave a stale label behind. */
+function templateScheduleLabel(template: ScannerScoutTemplate): string {
     const cadence = parseScoutCadence(template.cron)
     if (!cadence) {
         return template.cron
     }
     const frequency = SCOUT_FREQUENCY_OPTIONS.find((option) => option.value === cadence.frequency)
-    return `${frequency?.label ?? 'Every day'} at ${cadence.time} ${shortTimeZone(timezone) ?? timezone}`
+    return `${frequency?.label ?? 'Every day'} at ${cadence.time}`
 }
 
 function ScoutTemplateCard({
     template,
-    timezone,
     disabledReason,
     onUse,
 }: {
     template: ScannerScoutTemplate
-    timezone: string
     disabledReason?: string
     onUse: () => void
 }): JSX.Element {
@@ -53,8 +48,6 @@ function ScoutTemplateCard({
         <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-3">
             <div className="flex min-w-0 items-start gap-2">
                 <span className="mt-0.5 shrink-0 text-muted">{TEMPLATE_ICONS[template.key]}</span>
-                {/* The schedule tag sits with the copy, not beside the button: it names a timezone now,
-                    and the pair no longer fits on one line when four cards sit across a narrow scene. */}
                 <div className="flex min-w-0 flex-col gap-2">
                     <div>
                         <h3 className="m-0 text-sm font-semibold">{template.title}</h3>
@@ -63,11 +56,9 @@ function ScoutTemplateCard({
                     {/* The scratch card carries the same default cron, but it isn't a ready-made scout,
                         so advertising a schedule would promise more than it hands you. */}
                     {template.key !== 'scratch' && (
-                        <Tooltip title={`This time is in the project timezone (${timezone}).`}>
-                            <LemonTag type="muted" size="small" className="self-start">
-                                {templateScheduleLabel(template, timezone)}
-                            </LemonTag>
-                        </Tooltip>
+                        <LemonTag type="muted" size="small" className="self-start">
+                            {templateScheduleLabel(template)} <ProjectTimezoneHint />
+                        </LemonTag>
                     )}
                 </div>
             </div>
@@ -93,7 +84,6 @@ function ScoutTemplateCard({
  * inbox when something is worth reporting. Templates to start from, then the scanner's own roster. */
 export function ScannerScoutsTab({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
-    const { currentTeam } = useValues(teamLogic)
     const scannerName = scanner?.name || ''
     const logic = scannerScoutLogic({ scannerId, scannerName })
     const {
@@ -150,15 +140,13 @@ export function ScannerScoutsTab({ scannerId }: { scannerId: string }): JSX.Elem
                         worth a look. Pick a starting point, then review and edit it before saving.
                     </p>
                 </div>
-                {/* Columns follow the space the cards actually have. The scene keeps far less than the
-                    window once the nav and a side panel are open, and viewport breakpoints miss that. */}
+                {/* Container query: the scene is much narrower than the viewport with a side panel open. */}
                 <div className="@container">
                     <div className="grid gap-2 @md:grid-cols-2 @4xl:grid-cols-4">
                         {templates.map((template) => (
                             <ScoutTemplateCard
                                 key={template.key}
                                 template={template}
-                                timezone={currentTeam?.timezone ?? 'UTC'}
                                 disabledReason={createDisabledReason}
                                 onUse={() => openCreateModal(template.key)}
                             />

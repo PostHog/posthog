@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel, subscribeToTicker } from 'lib/components/TZLabel'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
@@ -17,16 +18,16 @@ import { nextRunAt } from '../../../utils/scoutGroups'
  */
 export function ScoutNextRunLabel({ config }: { config: SignalScoutConfig }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
+    const { isVisible } = usePageVisibility()
     const [, refresh] = useState(0)
     const now = Date.now()
     const next = nextRunAt(config, currentTeam?.timezone ?? 'UTC', new Date(now))
     const dueAt = next?.getTime() ?? null
     const isDue = dueAt !== null && dueAt <= now
 
-    // A surface that does not poll never re-renders this label on its own, so it would keep showing
-    // a time that has passed as the next run. The shared ticker re-renders it as the run falls due.
+    // Surfaces that don't poll never re-render this, so it flips itself to "Due now".
     useEffect(() => {
-        if (dueAt === null || isDue) {
+        if (dueAt === null || isDue || !isVisible) {
             return
         }
         return subscribeToTicker(() => {
@@ -34,7 +35,7 @@ export function ScoutNextRunLabel({ config }: { config: SignalScoutConfig }): JS
                 refresh((count) => count + 1)
             }
         })
-    }, [dueAt, isDue])
+    }, [dueAt, isDue, isVisible])
 
     if (!next) {
         return <span className="text-muted">—</span>

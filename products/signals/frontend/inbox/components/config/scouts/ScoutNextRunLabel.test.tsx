@@ -51,16 +51,16 @@ describe('ScoutNextRunLabel', () => {
     })
 
     it('turns over to "Due now" as the run falls due, with no reload', () => {
-        // Surfaces that do not poll never re-render this label on their own, so without its own
-        // wake-up an open tab keeps showing a time that has already passed as the next run.
         render(<ScoutNextRunLabel config={config} />)
 
+        act(() => {
+            jest.advanceTimersByTime(19 * MINUTE_MS)
+        })
         expect(screen.queryByText('Due now')).not.toBeInTheDocument()
 
         act(() => {
-            jest.advanceTimersByTime(20 * MINUTE_MS)
+            jest.advanceTimersByTime(2 * MINUTE_MS)
         })
-
         expect(screen.getByText('Due now')).toBeInTheDocument()
     })
 })

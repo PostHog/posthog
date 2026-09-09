@@ -3,12 +3,12 @@ import { useActions, useValues } from 'kea'
 import { IconChevronRight, IconEye, IconGear, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
+import { ProjectTimezoneHint } from 'lib/components/ScheduledRunStatus'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { cn } from 'lib/utils/css-classes'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { shortTimeZone } from 'lib/utils/timezones'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
@@ -19,6 +19,8 @@ import { prettifyScoutSkillName } from 'products/signals/frontend/inbox/utils/sc
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { scannerScoutLogic } from '../scannerScoutLogic'
+
+const CLOCK_TIME_RE = /\d{1,2}:\d{2}/
 
 /** One scout on the scanner's Scouts tab: name, cadence, the on/off switch, its
  * settings, and the link into the Inbox (the one place the underlying scout shows through). */
@@ -64,19 +66,15 @@ export function ScannerScoutRow({
     const runDisabledReason =
         editDisabledReason ?? (rollups.get(config.skill_name)?.runningRun ? 'This scout is already running' : undefined)
 
-    const timezone = currentTeam?.timezone ?? 'UTC'
-    // A cron cadence names a wall-clock time that the coordinator resolves in the project timezone,
-    // so the label has to name that zone. A rolling interval carries no clock time to misread.
-    const cadenceTimezone = config.run_cron_schedule ? shortTimeZone(timezone) : null
     const cadenceText = capitalizeFirstLetter(scoutCadenceLabel(config))
-    // A paused scout has no next run, and neither does a rolling one that has never run.
-    const hasNextRun = nextRunAt(config, timezone, new Date()) !== null
+    // Only a clock time is evaluated in the project timezone; "every 30 minutes" has none to name.
+    const namesClockTime = CLOCK_TIME_RE.test(cadenceText)
+    const hasNextRun = nextRunAt(config, currentTeam?.timezone ?? 'UTC', new Date()) !== null
 
     return (
         <div className={cn('flex flex-col rounded border bg-surface-primary', !config.enabled && 'opacity-65')}>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5">
-                {/* The schedule line sits outside the expand button: the next run carries a hover
-                    popover whose rows are clickable, and a click inside it would toggle the row. */}
+                {/* Outside the expand button: the next-run popover has clickable rows. */}
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <button
                         type="button"
@@ -94,12 +92,12 @@ export function ScannerScoutRow({
                         </span>
                     </button>
                     <span className="pl-6 text-[11px] text-muted">
-                        {cadenceTimezone ? (
-                            <Tooltip title={`This time is in the project timezone (${timezone}).`}>
-                                <span>{`${cadenceText} ${cadenceTimezone}`}</span>
-                            </Tooltip>
-                        ) : (
-                            cadenceText
+                        {cadenceText}
+                        {namesClockTime && (
+                            <>
+                                {' '}
+                                <ProjectTimezoneHint />
+                            </>
                         )}
                         {hasNextRun && (
                             <>

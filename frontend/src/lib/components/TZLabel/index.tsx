@@ -29,7 +29,6 @@ const BASE_OUTPUT_FORMAT_WITH_SECONDS = 'ddd, MMM D, YYYY h:mm:ss A'
 const tickerListeners = new Set<() => void>()
 let tickerId: number | null = null
 
-/** Subscribe to the shared 1s ticker. Guard the callback's setState so it re-renders only on change. */
 export function subscribeToTicker(listener: () => void): () => void {
     tickerListeners.add(listener)
     if (tickerId === null) {
