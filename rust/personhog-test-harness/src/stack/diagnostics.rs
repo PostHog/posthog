@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::fs;
+use std::future::Future;
 use std::io::Write as _;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -22,9 +23,10 @@ macro_rules! emit {
     }};
 }
 
-/// Budget for the reads. An unresponsive etcd is a leading explanation
-/// for a convergence timeout, so the dump says it could not read rather
-/// than hanging the run behind the same problem.
+/// Budget for the reads, held as one absolute deadline that every read
+/// shares. An unresponsive etcd is a leading explanation for a
+/// convergence timeout, so the dump names the reads it could not make
+/// rather than hanging the run behind the same problem.
 const DUMP_DEADLINE: Duration = Duration::from_secs(10);
 
 /// What the harness believes about the processes it spawned. etcd cannot
@@ -83,12 +85,7 @@ pub async fn dump(
     log_dir: &Path,
 ) -> String {
     let started = Instant::now();
-    let state = tokio::time::timeout(DUMP_DEADLINE, gather(store))
-        .await
-        .unwrap_or_else(|_| Coordination {
-            errors: vec![format!("etcd answered nothing within {DUMP_DEADLINE:?}")],
-            ..Coordination::default()
-        });
+    let state = gather(store, tokio::time::Instant::now() + DUMP_DEADLINE).await;
 
     let mut report = format!("=== coordination dump: {reason} ===\n");
     report.push_str(&host_line());
@@ -121,15 +118,16 @@ pub async fn dump(
 /// Every read the dump needs, in two concurrent stages. Serialized,
 /// the per-registration lease lookups and per-handoff ack lists would
 /// dominate the round trips, on exactly the slow etcd that makes the
-/// dump necessary.
-async fn gather(store: &PersonhogStore) -> Coordination {
+/// dump necessary. Each read carries the same absolute deadline, so a
+/// stalled one costs its own section and not the sections that answered.
+async fn gather(store: &PersonhogStore, deadline: tokio::time::Instant) -> Coordination {
     let mut state = Coordination::default();
     let (leader, routers, pods, assignments, handoffs) = tokio::join!(
-        store.get_leader(),
-        store.list_routers(),
-        store.list_pods(),
-        store.list_assignments(),
-        store.list_handoffs(),
+        within(deadline, store.get_leader()),
+        within(deadline, store.list_routers()),
+        within(deadline, store.list_pods()),
+        within(deadline, store.list_assignments()),
+        within(deadline, store.list_handoffs()),
     );
     state.leader = take("coordinator election", leader, &mut state.errors);
     state.routers = take("routers", routers, &mut state.errors);
@@ -140,22 +138,30 @@ async fn gather(store: &PersonhogStore) -> Coordination {
     let (leader_lease, pod_leases, router_leases, acks) = tokio::join!(
         async {
             match &state.leader {
-                Some(leader) => lease_state(store, leader.lease_id).await,
+                Some(leader) => lease_within(deadline, lease_state(store, leader.lease_id)).await,
                 None => String::new(),
             }
         },
         futures::future::join_all(state.pods.iter().map(|pod| async {
             let key = store.pod_registration_key(&pod.pod_name);
-            (pod.pod_name.clone(), registration_lease(store, &key).await)
+            (
+                pod.pod_name.clone(),
+                lease_within(deadline, registration_lease(store, &key)).await,
+            )
         })),
         futures::future::join_all(state.routers.iter().map(|router| async {
             let key = store.router_registration_key(&router.router_name);
             (
                 router.router_name.clone(),
-                registration_lease(store, &key).await,
+                lease_within(deadline, registration_lease(store, &key)).await,
             )
         })),
-        futures::future::join_all(state.handoffs.iter().map(|h| handoff_acks(store, h))),
+        futures::future::join_all(
+            state
+                .handoffs
+                .iter()
+                .map(|h| handoff_acks(store, h, deadline)),
+        ),
     );
     state.leader_lease = leader_lease;
     state.pod_leases = pod_leases.into_iter().collect();
@@ -169,12 +175,16 @@ async fn gather(store: &PersonhogStore) -> Coordination {
     state
 }
 
-async fn handoff_acks(store: &PersonhogStore, handoff: &HandoffState) -> HandoffAcks {
+async fn handoff_acks(
+    store: &PersonhogStore,
+    handoff: &HandoffState,
+    deadline: tokio::time::Instant,
+) -> HandoffAcks {
     let (freeze, drained, warmed, quorum) = tokio::join!(
-        store.list_freeze_acks(handoff.partition),
-        store.list_drained_acks(handoff.partition),
-        store.list_warmed_acks(handoff.partition),
-        store.resolve_freeze_quorum(handoff),
+        within(deadline, store.list_freeze_acks(handoff.partition)),
+        within(deadline, store.list_drained_acks(handoff.partition)),
+        within(deadline, store.list_warmed_acks(handoff.partition)),
+        within(deadline, store.resolve_freeze_quorum(handoff)),
     );
     let mut acks = HandoffAcks::default();
     acks.freeze = take("freeze acks", freeze, &mut acks.unreadable);
@@ -182,6 +192,32 @@ async fn handoff_acks(store: &PersonhogStore, handoff: &HandoffState) -> Handoff
     acks.warmed = take("warmed acks", warmed, &mut acks.unreadable);
     acks.quorum = take("freeze quorum", quorum, &mut acks.unreadable);
     acks
+}
+
+/// One read, bounded by the dump's deadline. The etcd client sets no
+/// per-request timeout on purpose, and its transport keepalive needs
+/// about 15s to error an in-flight request, so nothing else ends a
+/// stalled read inside the budget.
+async fn within<T, E: std::fmt::Display>(
+    deadline: tokio::time::Instant,
+    read: impl Future<Output = Result<T, E>>,
+) -> Result<T, String> {
+    match tokio::time::timeout_at(deadline, read).await {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(e)) => Err(e.to_string()),
+        Err(_) => Err(format!("no answer within {DUMP_DEADLINE:?}")),
+    }
+}
+
+/// The same bound for the lease lookups, which render their own failures
+/// rather than returning them.
+async fn lease_within(
+    deadline: tokio::time::Instant,
+    read: impl Future<Output = String>,
+) -> String {
+    tokio::time::timeout_at(deadline, read)
+        .await
+        .unwrap_or_else(|_| format!("lease unread (no answer within {DUMP_DEADLINE:?})"))
 }
 
 /// The value, or the default with `what` recorded as unread. A read that
