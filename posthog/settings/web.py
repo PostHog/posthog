@@ -1220,8 +1220,8 @@ try:
 except ValueError:
     AI_GATEWAY_TEAM_TIER_OVERRIDES = {}
 
-# Wizard gateway-token mint. WIZARD_GATEWAY_MINT_KEY unset disables the endpoint
-# (404), which the CLI treats as "stay on the legacy gateway".
+# Wizard gateway-token mint. Any of the four unset refuses every mint as
+# `unconfigured`, which ends the wizard run: there is no other gateway.
 WIZARD_GATEWAY_URL = get_from_env("WIZARD_GATEWAY_URL", "")
 WIZARD_GATEWAY_MINT_KEY = get_from_env("WIZARD_GATEWAY_MINT_KEY", "")
 # OAuth application client ids allowed to mint: llm_gateway:read is an internal
