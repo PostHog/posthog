@@ -2,11 +2,11 @@
 
 Reads `metric_series` (one row per metric + label-set) rather than the raw
 `metrics` datapoint table. Both are fed from the same Kafka Avro stream, so
-they carry the same names, but the series table is two orders of magnitude
-smaller for the same window — on a busy team, ~3.6M rows against ~800M. It also
-sorts by `(team_id, metric_name, series_fingerprint)`, so `metric_name` is the
-leading key once `team_id` is pinned, where `metrics1` buries it behind
-`time_bucket` and `service_name`.
+they carry the same names, but the series table holds one row per series
+where the datapoint table holds one per scrape, so it is orders of magnitude
+smaller for the same window. It also sorts by `(team_id, metric_name,
+series_fingerprint)` with a materialized `last_seen`, so the lookback needs no
+scan over the datapoint rows.
 
 No FINAL. ReplacingMergeTree duplicates share `(team_id, metric_name,
 series_fingerprint)`, and `max(last_seen)` picks the row FINAL would keep, since
@@ -44,7 +44,8 @@ _QUERY_SETTINGS = HogQLGlobalSettings(
     read_overflow_mode="break",
 )
 
-# `metric_series` drops rows 90 days past `last_seen`; `metrics1` has no TTL.
+# Both `metric_series` and `metrics` expire at the same `original_expiry_timestamp`,
+# which ingest sets to the team's retention (90 days by default).
 # A lookback beyond this would quietly return fewer names than the raw table has.
 SERIES_RETENTION = dt.timedelta(days=90)
 

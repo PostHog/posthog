@@ -115,7 +115,6 @@ from posthog.hogql.database.schema.marketing_costs_precomputed import MarketingC
 from posthog.hogql.database.schema.marketing_touchpoints_preaggregated import MarketingTouchpointsPreaggregatedTable
 from posthog.hogql.database.schema.metrics import (
     MetricAttributesTable,
-    MetricSamplesTable,
     MetricSeriesTable,
     MetricsKafkaMetricsTable,
     MetricsTable,
@@ -474,7 +473,6 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     ),
                     "billing_usage_records": TableNode(name="billing_usage_records", table=BillingUsageRecordsTable()),
                     "metrics": TableNode(name="metrics", table=MetricsTable()),
-                    "metric_samples": TableNode(name="metric_samples", table=MetricSamplesTable()),
                     "metric_series": TableNode(name="metric_series", table=MetricSeriesTable()),
                     "metric_attributes": TableNode(name="metric_attributes", table=MetricAttributesTable()),
                     "metrics_kafka_metrics": TableNode(name="metrics_kafka_metrics", table=MetricsKafkaMetricsTable()),
