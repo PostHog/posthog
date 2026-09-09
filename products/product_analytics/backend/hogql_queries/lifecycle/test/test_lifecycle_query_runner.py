@@ -1198,6 +1198,26 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             set(response.results),
         )
 
+    def test_only_use_insight_dates_counts_backdated_activity_as_new(self):
+        # Ingestion stamps created_at when it first sees the person, so imported history and
+        # out-of-order backfill leave events that predate the profile.
+        with freeze_time("2020-01-14T12:00:00Z"):
+            _create_person(team_id=self.team.pk, distinct_ids=["p5"], properties={"name": "p5"})
+        for timestamp in ["2020-01-12T12:00:00Z", "2020-01-13T12:00:00Z"]:
+            _create_event(team=self.team, event="$pageview", distinct_id="p5", timestamp=timestamp)
+        flush_persons_and_events()
+
+        response = self._run_events_query("2020-01-12", "2020-01-14", IntervalType.DAY, only_use_insight_dates=True)
+
+        self.assertEqual(
+            {
+                (datetime(2020, 1, 12, 0, 0), 1, "new"),  # p5
+                (datetime(2020, 1, 13, 0, 0), 1, "returning"),  # p5
+                (datetime(2020, 1, 14, 0, 0), 1, "dormant"),  # p5
+            },
+            set(response.results),
+        )
+
     def test_lifecycle_trend(self):
         self._create_events(
             data=[

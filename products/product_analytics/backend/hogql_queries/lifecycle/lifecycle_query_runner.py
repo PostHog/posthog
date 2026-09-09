@@ -455,9 +455,11 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
         trunc = self.query_date_range.date_to_start_of_interval_hogql(ast.Field(chain=["created_at"]))
         if not self.only_use_insight_dates:
             return trunc
-        # The classifier marks a period 'new' when it equals the creation period.
+        # The classifier marks a period 'new' when it equals the creation period. Activity in the
+        # first period must be 'new', even when the profile was created later, because ingestion
+        # stamps created_at when it first sees the person and imported events can predate that.
         return parse_expr(
-            "greatest({trunc}, {date_from_start_of_interval})",
+            "if(all_activity[1] = {date_from_start_of_interval}, {date_from_start_of_interval}, {trunc})",
             {**self.query_date_range.to_placeholders(), "trunc": trunc},
             timings=self.timings,
         )
