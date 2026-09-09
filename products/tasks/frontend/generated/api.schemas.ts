@@ -3078,10 +3078,9 @@ export interface PaginatedTaskRunDetailDTOListApi {
  * * `local` - local
  * * `cloud` - cloud
  */
-export type TaskRunBootstrapCreateRequestEnvironmentEnumApi =
-    (typeof TaskRunBootstrapCreateRequestEnvironmentEnumApi)[keyof typeof TaskRunBootstrapCreateRequestEnvironmentEnumApi]
+export type RunEnvironmentEnumApi = (typeof RunEnvironmentEnumApi)[keyof typeof RunEnvironmentEnumApi]
 
-export const TaskRunBootstrapCreateRequestEnvironmentEnumApi = {
+export const RunEnvironmentEnumApi = {
     Local: 'local',
     Cloud: 'cloud',
 } as const
@@ -3104,7 +3103,7 @@ export interface TaskRunBootstrapCreateRequestApi {
      *
      * * `local` - local
      * * `cloud` - cloud */
-    environment?: TaskRunBootstrapCreateRequestEnvironmentEnumApi
+    environment?: RunEnvironmentEnumApi
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
      *
      * * `interactive` - interactive
@@ -4004,9 +4003,9 @@ export interface TaskSessionSyncResponseApi {
  * * `file` - file
  * * `github_pr` - github_pr
  */
-export type ArtifactTypeEnumApi = (typeof ArtifactTypeEnumApi)[keyof typeof ArtifactTypeEnumApi]
+export type ArtifactType2f0EnumApi = (typeof ArtifactType2f0EnumApi)[keyof typeof ArtifactType2f0EnumApi]
 
-export const ArtifactTypeEnumApi = {
+export const ArtifactType2f0EnumApi = {
     SlackMessage: 'slack_message',
     SlackCanvas: 'slack_canvas',
     Document: 'document',
@@ -4066,7 +4065,7 @@ export interface TaskRunLivingArtifactResponseApi {
      * * `dashboard` - dashboard
      * * `file` - file
      * * `github_pr` - github_pr */
-    artifact_type: ArtifactTypeEnumApi
+    artifact_type: ArtifactType2f0EnumApi
     /** Adapter that currently stores or edits the artifact.
      *
      * * `slack_message` - slack_message
@@ -4125,7 +4124,7 @@ export interface TaskRunLivingArtifactCreateRequestApi {
      * * `dashboard` - dashboard
      * * `file` - file
      * * `github_pr` - github_pr */
-    artifact_type?: ArtifactTypeEnumApi
+    artifact_type?: ArtifactType2f0EnumApi
     /** Optional preferred external storage or delivery adapter. Slack adapters deliver into the mapped Slack thread; omitted Slack-run documents use Slack canvas, omitted Slack-run files and spreadsheets use Slack file upload, and document_connector uses a connected external document provider.
      *
      * * `slack_message` - slack_message
@@ -4176,7 +4175,7 @@ export interface TaskRunLivingArtifactOpenResponseApi {
      * * `dashboard` - dashboard
      * * `file` - file
      * * `github_pr` - github_pr */
-    artifact_type: ArtifactTypeEnumApi
+    artifact_type: ArtifactType2f0EnumApi
     /** Adapter that currently stores or edits the artifact.
      *
      * * `slack_message` - slack_message
