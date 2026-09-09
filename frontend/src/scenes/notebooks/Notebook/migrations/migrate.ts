@@ -15,7 +15,7 @@ import { convertMarkdownTablesInContent } from './convertMarkdownTablesInContent
 // It will bust the cache on the localContent in the notebookLogic
 // so that the latest content will fall back to the remote content which
 // is filtered through the migrate function below that ensures integrity
-export const NOTEBOOKS_VERSION = '4'
+export const NOTEBOOKS_VERSION = '3'
 
 export interface MigrateOptions {
     /**
