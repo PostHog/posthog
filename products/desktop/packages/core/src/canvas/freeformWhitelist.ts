@@ -1,4 +1,4 @@
-import { CANVAS_PLATFORM_MANIFEST } from "@posthog/shared";
+import { CANVAS_PLATFORM_MANIFEST, checkCanvasCode } from "@posthog/shared";
 
 // The package whitelist for freeform-React canvases (Q16: curated, PostHog-
 // anchored). Every entry is a package the agent may import; anything else is
@@ -145,61 +145,6 @@ export function buildImportMap(): { imports: Record<string, string> } {
   return { imports };
 }
 
-export interface ImportCheckResult {
-  ok: boolean;
-  /** Human-readable reasons the code was rejected (empty when ok). */
-  violations: string[];
-}
-
-// Matches static module specifiers, which appear either as `from "spec"`
-// (import-with-bindings and export-from) or a bare side-effect `import "spec"`.
-// Anchoring on `from`/`import` (rather than "any quoted string following an
-// import/export keyword") avoids flagging ordinary string literals such as
-// `export default function App() { const s = "hi"; }`. Captures the specifier in
-// group 1 or 2. Note: being regex-based it can still be fooled by the literal
-// text `from "x"` inside a string/JSX — a fully correct check would parse the
-// AST (deferred; this check isn't wired into save/publish yet).
-const STATIC_IMPORT_RE =
-  /\bfrom\s*["']([^"']+)["']|\bimport\s*["']([^"']+)["']/g;
-
-// Patterns we reject outright regardless of specifier (Q9): dynamic import()
-// dodges static analysis; require()/importScripts pull arbitrary modules; inline
-// <script> and javascript: URLs are out-of-band code the import check can't see.
-const FORBIDDEN_PATTERNS: { re: RegExp; reason: string }[] = [
-  { re: /\bimport\s*\(/, reason: "dynamic import() is not allowed" },
-  { re: /\brequire\s*\(/, reason: "require() is not allowed" },
-  { re: /\bimportScripts\s*\(/, reason: "importScripts() is not allowed" },
-  { re: /<script\b/i, reason: "inline <script> is not allowed" },
-];
-
-/**
- * Statically verify that freeform canvas code imports only whitelisted packages
- * and uses no out-of-band code-loading. Intended as the enforcement point (Q9)
- * at save AND publish — but NOT yet wired into the save path (the autosave in
- * freeformChatStore persists code without calling this). For now it is exercised
- * only by tests; wiring it in is a follow-up (and should land with the regex's
- * string/JSX false-positive limitation addressed, ideally via AST parsing).
- * Deliberately conservative — when in doubt it rejects. A relative import (./x)
- * is rejected because a canvas is a single file with no sibling modules.
- */
-export function checkFreeformImports(code: string): ImportCheckResult {
-  const violations: string[] = [];
-
-  for (const { re, reason } of FORBIDDEN_PATTERNS) {
-    if (re.test(code)) violations.push(reason);
-  }
-
-  for (const match of code.matchAll(STATIC_IMPORT_RE)) {
-    const specifier = match[1] ?? match[2];
-    if (!specifier) continue;
-    if (!isAllowedSpecifier(specifier)) {
-      violations.push(`import of non-whitelisted module "${specifier}"`);
-    }
-  }
-
-  return { ok: violations.length === 0, violations };
-}
-
-function isAllowedSpecifier(specifier: string): boolean {
-  return ALLOWED_SPECIFIERS.has(specifier);
+export function checkFreeformImports(code: string) {
+  return checkCanvasCode(code, ALLOWED_SPECIFIERS);
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { checkFragmentCode } from "./fragmentCodeGuard";
+import { checkCanvasCode } from "./canvasCodeGuard";
 
-describe("checkFragmentCode", () => {
+describe("checkCanvasCode", () => {
   it("accepts a fragment that imports only allowed modules", () => {
     const code = `import { ph, useSharedState } from "@posthog/canvas-sdk";
 import { Button } from "@posthog/quill";
@@ -10,7 +10,7 @@ import { useEffect } from "react";
 export default function Card() {
   return <Button>ok</Button>;
 }`;
-    expect(checkFragmentCode(code)).toEqual({ ok: true, violations: [] });
+    expect(checkCanvasCode(code)).toEqual({ ok: true, violations: [] });
   });
 
   it.each([
@@ -18,8 +18,10 @@ export default function Card() {
     ['import evil from "https://esm.sh/left-pad@1.0.0";', "esm.sh"],
     ['import evil from "./sibling";', "./sibling"],
     ['export { x } from "node:fs";', "node:fs"],
+    ['const title = "hello"; import x from "node:fs";', "node:fs"],
+    ['import React from "react"; import x from "node:fs";', "node:fs"],
   ])("rejects %s", (code, needle) => {
-    const result = checkFragmentCode(code);
+    const result = checkCanvasCode(code);
     expect(result.ok).toBe(false);
     expect(result.violations.join(" ")).toContain(needle);
   });
@@ -32,7 +34,7 @@ export default function Card() {
     ['const f = new Function("return 1");', "new Function()"],
     ["const u = import.meta.url;", "import.meta"],
   ])("rejects %s", (code, reason) => {
-    const result = checkFragmentCode(code);
+    const result = checkCanvasCode(code);
     expect(result.ok).toBe(false);
     expect(result.violations).toContain(`${reason} is not allowed`);
   });
@@ -46,15 +48,13 @@ export default function Note() {
   const help = 'eval("no") and import("no")';
   return <p>Imported from "somewhere"</p>;
 }`;
-    expect(checkFragmentCode(code)).toEqual({ ok: true, violations: [] });
+    expect(checkCanvasCode(code)).toEqual({ ok: true, violations: [] });
   });
 
   it("reads the code inside a template hole as code", () => {
     const hole = ["$", "{", 'eval("1")', "}"].join("");
     const code = `const x = \`value ${hole}\`;`;
-    expect(checkFragmentCode(code).violations).toContain(
-      "eval() is not allowed",
-    );
+    expect(checkCanvasCode(code).violations).toContain("eval() is not allowed");
   });
 
   it("finds the source of an import that spans lines", () => {
@@ -62,6 +62,6 @@ export default function Note() {
   AreaChart,
   XAxis,
 } from "https://evil.example/recharts.js";`;
-    expect(checkFragmentCode(code).ok).toBe(false);
+    expect(checkCanvasCode(code).ok).toBe(false);
   });
 });

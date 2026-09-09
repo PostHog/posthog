@@ -55,6 +55,7 @@ export {
 export { omitNullCallToolResultFields } from "./call-tool-result";
 export * from "./canvas-contracts";
 export * from "./canvas-platform";
+export * from "./canvasCodeGuard";
 export type { CloudRunSource, PrAuthorshipMode } from "./cloud";
 export {
   deserializeCloudPrompt,
