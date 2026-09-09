@@ -301,6 +301,12 @@ class TestCanvasCloudBuilder(SimpleTestCase):
                 'if (!requests.some((m) => m.payload.hogql === "SELECT 1")) { console.error("pre-connect request was dropped"); process.exit(1); }',
                 'if (requests.some((m) => m.payload.hogql === "SELECT expired")) { console.error("expired request was still delivered"); process.exit(1); }',
                 'if (!received.some((m) => m.type === "ready")) { console.error("ready was not posted"); process.exit(1); }',
+                'Object.defineProperty(globalThis, "navigator", { value: { userActivation: { isActive: false } }, configurable: true });',
+                'try { window.ph.connectors.connect("github"); throw new Error("connector navigation did not require activation"); } catch (error) { if (!error.message.includes("user action")) throw error; }',
+                'if (received.some((message) => message.type === "navigate")) throw new Error("connector navigation escaped without activation");',
+                "navigator.userActivation.isActive = true;",
+                'window.ph.connectors.connect("github");',
+                'if (!received.some((message) => message.type === "navigate" && message.nav.provider === "github")) throw new Error("connector navigation was not delivered");',
                 "process.exit(0);",
             ]
         )
