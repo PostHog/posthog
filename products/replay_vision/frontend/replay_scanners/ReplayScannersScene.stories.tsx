@@ -193,6 +193,8 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
         status: 'succeeded',
         error_reason: '',
         workflow_id: 'vision-observation-1',
+        // The API always sends this, and only a configured scanner has a page to link to.
+        scanner_origin: 'configured',
         scanner_snapshot: {
             name: summarizerScanner.name,
             scanner_type: 'summarizer',
@@ -278,6 +280,13 @@ const observationDetail = observation({
         },
         signals_count: 1,
     },
+})
+
+// Rated wrong with no feedback written yet, the only state where the feedback placeholder shows.
+const thumbsDownObservationDetail = observation({
+    id: '00000000-0000-0000-0000-0000000000d3',
+    session_id: '01966b3f-70a1-7c52-a4d5-3f9b2e8c1d12',
+    label: { is_correct: false, feedback: '' },
 })
 
 // A monitor observation, so the detail page renders the prompt row and the reasoning card that a
@@ -646,6 +655,42 @@ export const ScannerCalibration: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=calibration` },
 }
 
+export const ScannerCalibrationTestNudge: StoryObj = {
+    parameters: {
+        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=calibration`,
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_TEST_NUDGE]: 'test' },
+    },
+}
+
+const neverRatedStats = {
+    ...summarizerStats,
+    labels: { ...summarizerStats.labels, up_total: 0, down_total: 0 },
+}
+
+export const ScannerCalibrationActivationBadge: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(summarizerScanner.id),
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_ACTIVATION]: 'badge' },
+    },
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:team_id/vision/scanners/:id/observations/stats/': neverRatedStats },
+        }),
+    ],
+}
+
+export const ScannerCalibrationActivationPrompt: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(summarizerScanner.id),
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_ACTIVATION]: 'prompt' },
+    },
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:team_id/vision/scanners/:id/observations/stats/': neverRatedStats },
+        }),
+    ],
+}
+
 const digestScoutConfig = {
     id: '00000000-0000-0000-0000-0000000000c1',
     skill_name: 'signals-scout-daily-digest-confused-checkout',
@@ -804,6 +849,25 @@ export const ObservationDetailMonitor: StoryObj = {
             get: {
                 '/api/projects/:team_id/vision/observations/:id/': monitorObservationDetail,
             },
+        }),
+    ],
+}
+
+export const ObservationDetailCalibrationEntryPoint: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionObservation(observationDetail.id),
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_ENTRY_POINT]: 'test' },
+    },
+}
+
+export const ObservationDetailFeedbackPrompt: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionObservation(thumbsDownObservationDetail.id),
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_FEEDBACK_PROMPT]: 'test' },
+    },
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:team_id/vision/observations/:id/': thumbsDownObservationDetail },
         }),
     ],
 }

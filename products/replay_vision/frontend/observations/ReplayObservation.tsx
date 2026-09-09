@@ -52,6 +52,7 @@ import { ObservationProgressBar } from '../components/ObservationProgressBar'
 import { ObservationRetryButton } from '../components/ObservationRetryButton'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
+import type { ReplayObservationApi } from '../generated/api.schemas'
 import {
     type ClassifierScannerConfig,
     type MonitorScannerConfig,
@@ -67,7 +68,7 @@ import {
     OBSERVATION_TRIGGER_TAG,
     SUCCEEDED_OUTPUT_LABEL,
 } from '../replay_scanners/types'
-import { scannerLabel } from '../utils/observation'
+import { hasScannerPage, scannerLabel } from '../utils/observation'
 import { parseNumericParam } from '../utils/urlParams'
 import { ObservationLabelControl } from './ObservationLabelControl'
 import { ObservationPinnedProperties } from './ObservationPinnedProperties'
@@ -138,6 +139,30 @@ function PromptRow({ prompt }: { prompt: string }): JSX.Element {
                 {prompt}
             </p>
         </div>
+    )
+}
+
+/** Rating happens here, not in the Calibration tab, so a rater never sees the recommendation it feeds. */
+function CalibrationEntryPoint({ observation }: { observation: ReplayObservationApi }): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+    // Multivariate flags resolve to the variant key, and "control" is truthy, so compare rather than coerce.
+    if (
+        !observation.label ||
+        !hasScannerPage(observation) ||
+        featureFlags[FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_ENTRY_POINT] !== 'test'
+    ) {
+        return null
+    }
+    return (
+        <p className="text-sm text-muted m-0">
+            <Link
+                to={`${urls.replayVision(observation.scanner_id)}?tab=calibration`}
+                data-attr="vision-observation-calibration-entry-point"
+            >
+                Rate more results for this scanner
+            </Link>{' '}
+            to get a config recommendation from your ratings.
+        </p>
     )
 }
 
@@ -477,6 +502,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                 </LabeledRow>
                             )}
                             <ObservationLabelControl observationId={observation.id} initialLabel={observation.label} />
+                            <CalibrationEntryPoint observation={observation} />
                         </div>
                     )}
 

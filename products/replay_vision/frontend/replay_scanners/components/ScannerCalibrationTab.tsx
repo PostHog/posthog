@@ -18,8 +18,10 @@ import { BarChart, useChartLayout } from '@posthog/quill-charts'
 import { buildTheme } from 'lib/charts/utils/theme'
 import { getColorVar } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { urls } from 'scenes/urls'
 
@@ -147,16 +149,26 @@ function SuggestionEvaluationPanel({
     suggestion,
     preview,
     editedSinceTest,
+    supported,
+    nudgeUntested,
 }: {
     suggestion: ReplayScannerPromptSuggestionApi
     preview: boolean
     editedSinceTest: boolean
+    supported: boolean
+    nudgeUntested: boolean
 }): JSX.Element | null {
     const [detailsOpen, setDetailsOpen] = useState(false)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const evaluation = suggestion.evaluation
     if (!evaluation) {
-        return null
+        // Most people apply without testing, so say what testing is for rather than showing nothing.
+        return supported && nudgeUntested ? (
+            <div className="border rounded p-3 text-sm text-muted" data-attr="vision-calibration-untested-notice">
+                Not tested yet. Testing re-runs this recommendation on your rated results, so you can see what changes
+                before you apply it.
+            </div>
+        ) : null
     }
     const isPreview = preview || evaluation.results.some((result) => result.outcome === 'preview')
 
@@ -319,6 +331,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         loadSuggestionHistory,
     } = useActions(logic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const { featureFlags } = useValues(featureFlagLogic)
     // `quota` gates the test button (enforcement), `displayQuota` renders spend copy (startup cap applied).
     const { quota, displayQuota } = useValues(visionQuotaLogic)
     const { isDarkModeOn } = useValues(themeLogic)
@@ -394,6 +407,8 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                         suggestion={currentSuggestion}
                         preview={previewEvaluation}
                         editedSinceTest={recommendationEditedSinceTest}
+                        supported={evaluationSupported}
+                        nudgeUntested={featureFlags[FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_TEST_NUDGE] === 'test'}
                     />
                 )}
                 <div className="flex flex-wrap items-center justify-between gap-2">

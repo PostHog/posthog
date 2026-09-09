@@ -4,6 +4,9 @@ import { useState } from 'react'
 import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
 import { LemonButton, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { AccessControlLevel } from '~/types'
 
 import type { ReplayObservationLabelApi } from '../generated/api.schemas'
@@ -21,6 +24,9 @@ export interface ObservationLabelProps {
 
 const FEEDBACK_PLACEHOLDER =
     'Optional: what did it get right or wrong, and why? Used to improve the scanner configuration.'
+// Asked on a thumbs down only, where naming the right answer is what a recommendation can act on.
+const WRONG_ANSWER_PLACEHOLDER =
+    'What should it have concluded? One line is enough, and it shapes the next recommendation.'
 
 function useEditAccess(scannerUserAccessLevel?: AccessControlLevel | null): string | null {
     // Editing the shared rating mutates team-wide data derived from a recording, so it needs the same
@@ -35,7 +41,8 @@ function FeedbackEditor({
     scannerUserAccessLevel,
     compact,
     onBlur,
-}: ObservationLabelProps & { compact: boolean; onBlur?: () => void }): JSX.Element {
+    promptForRightAnswer = false,
+}: ObservationLabelProps & { compact: boolean; onBlur?: () => void; promptForRightAnswer?: boolean }): JSX.Element {
     const logic = observationLabelLogic({ observationId, initialLabel, onChange })
     const { saving, saveFailed, feedbackDraft, feedbackSynced } = useValues(logic)
     const { setFeedbackDraft } = useActions(logic)
@@ -44,7 +51,7 @@ function FeedbackEditor({
     return (
         <div className="space-y-1">
             <LemonTextArea
-                placeholder={FEEDBACK_PLACEHOLDER}
+                placeholder={promptForRightAnswer ? WRONG_ANSWER_PLACEHOLDER : FEEDBACK_PLACEHOLDER}
                 value={feedbackDraft}
                 onChange={setFeedbackDraft}
                 disabled={!canEdit}
@@ -135,6 +142,7 @@ export function ObservationLabelControl({
     const logic = observationLabelLogic({ observationId, initialLabel, onChange })
     const { label, saving, feedbackDraft } = useValues(logic)
     const { rate, clearRating } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const thumbsUp = label?.is_correct === true
     const thumbsDown = label?.is_correct === false
@@ -183,6 +191,9 @@ export function ObservationLabelControl({
                     onChange={onChange}
                     scannerUserAccessLevel={scannerUserAccessLevel}
                     compact={false}
+                    promptForRightAnswer={
+                        thumbsDown && featureFlags[FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_FEEDBACK_PROMPT] === 'test'
+                    }
                 />
             )}
         </div>
