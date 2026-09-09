@@ -15803,7 +15803,6 @@ export namespace Schemas {
       readonly description: string;
       readonly channel: string;
       readonly template_id: string;
-      readonly context: string;
       /** @nullable */
       readonly generation_task_id: string | null;
       /** Whether the canvas is pinned to its channel. */
@@ -62584,8 +62583,6 @@ export namespace Schemas {
          * @maxLength 400
          */
       name?: string;
-      /** Updated author context markdown. */
-      context?: string;
       /** Updated canvas description (for components, the store-search text). */
       description?: string;
       /** Id of the space the canvas belongs to. */
