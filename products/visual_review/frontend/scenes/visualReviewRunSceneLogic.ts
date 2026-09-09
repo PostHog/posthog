@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -57,6 +58,7 @@ export interface visualReviewRunSceneLogicValues {
     repoLoading: boolean
     run: RunApi | null
     runLoading: boolean
+    runNotFound: boolean
     selectedSnapshot: SnapshotApi | null
     selectedSnapshotId: string | null
     showQuarantinedThumbnails: boolean
@@ -317,6 +319,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             false,
             {
                 toggleQuarantinedThumbnails: (state) => !state,
+            },
+        ],
+        runNotFound: [
+            false,
+            {
+                loadRun: () => false,
+                loadRunFailure: (_, { errorObject }: { errorObject?: any }) =>
+                    errorObject instanceof ApiError && errorObject.status === 404,
             },
         ],
     }),

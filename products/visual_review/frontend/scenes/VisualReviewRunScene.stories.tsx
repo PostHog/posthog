@@ -180,3 +180,22 @@ export const TrackingOnlyMasterRun: StoryObj = {
         }),
     ],
 }
+
+// A run the active project can't see. Opening a visual review link from a PR while another
+// project is active lands here, so the state has to name the project mismatch.
+export const RunFromAnotherProject: StoryObj = {
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="not-found-run"]' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/`]: () => [404, { detail: 'Run not found' }],
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/snapshots/`]: () => [
+                    404,
+                    { detail: 'Run not found' },
+                ],
+            },
+        }),
+    ],
+}
