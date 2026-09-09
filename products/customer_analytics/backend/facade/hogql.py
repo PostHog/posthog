@@ -62,6 +62,10 @@ class _AccountScopedPostgresTable(PostgresTable, DANGEROUS_NoTeamIdCheckTable):
 
     Direct top-level SELECT remains safe because the predicate prunes rows whose FK
     doesn't resolve to a team-scoped account.
+
+    The predicate scopes the rows to a team, not to a person, so each table also declares the
+    `account` scope it sits under: a caller without account access is denied the table, and a
+    query that names it partitions the query cache (a cache hit skips the schema check).
     """
 
     predicates: list[Expr] = [parse_expr("account_id IN (SELECT id FROM system.accounts)")]
@@ -70,6 +74,8 @@ class _AccountScopedPostgresTable(PostgresTable, DANGEROUS_NoTeamIdCheckTable):
 account_tagged_items: _AccountScopedPostgresTable = _AccountScopedPostgresTable(
     name="_account_tagged_items",
     postgres_table_name="posthog_taggeditem",
+    access_scope="account",
+    access_control_id_field="account_id",
     description="Internal federated junction table (PostgreSQL `posthog_taggeditem`) of tag-to-account links; not for direct querying — use `system.accounts.tags`.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Primary key of the tagged-item junction row."),
@@ -83,6 +89,8 @@ account_tagged_items: _AccountScopedPostgresTable = _AccountScopedPostgresTable(
 account_resource_notebooks: _AccountScopedPostgresTable = _AccountScopedPostgresTable(
     name="_account_resource_notebooks",
     postgres_table_name="posthog_resourcenotebook",
+    access_scope="account",
+    access_control_id_field="account_id",
     description="Internal federated junction table (PostgreSQL `posthog_resourcenotebook`) of notebook-to-account links; not for direct querying — use `system.accounts.notebooks`.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Primary key of the notebook junction row."),

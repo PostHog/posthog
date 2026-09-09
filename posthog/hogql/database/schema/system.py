@@ -2023,6 +2023,10 @@ class _TicketScopedPostgresTable(PostgresTable, DANGEROUS_NoTeamIdCheckTable):
     own team_id guard the framework re-applies to the inner reference. For the tag junction,
     the same predicate also prunes non-ticket `posthog_taggeditem` rows (tags on insights,
     dashboards, accounts, ...), which carry a NULL `ticket_id` and so never match a ticket id.
+
+    The predicate scopes the rows to a team, not to a person, so each table also declares the
+    `ticket` scope it sits under: a caller without ticket access is denied the table, and a query
+    that names it partitions the query cache (a cache hit skips the schema check).
     """
 
     predicates: list[Expr] = [parse_expr("ticket_id IN (SELECT id FROM system.support_tickets)")]
@@ -2031,6 +2035,8 @@ class _TicketScopedPostgresTable(PostgresTable, DANGEROUS_NoTeamIdCheckTable):
 ticket_tagged_items: _TicketScopedPostgresTable = _TicketScopedPostgresTable(
     name="_ticket_tagged_items",
     postgres_table_name="posthog_taggeditem",
+    access_scope="ticket",
+    access_control_id_field="ticket_id",
     description="Internal junction table (PostgreSQL `posthog_taggeditem`) of tag-to-ticket links; not for direct querying — use `system.support_tickets.tags`.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Primary key of the tagged-item junction row."),
@@ -2133,6 +2139,8 @@ ticket_assignee_roles: _TicketAssigneeRolesTable = _TicketAssigneeRolesTable(
 ticket_assignments: _TicketScopedPostgresTable = _TicketScopedPostgresTable(
     name="_ticket_assignments",
     postgres_table_name="posthog_conversations_ticket_assignment",
+    access_scope="ticket",
+    access_control_id_field="ticket_id",
     description="Internal junction table (PostgreSQL `posthog_conversations_ticket_assignment`) of the current assignee per ticket; not for direct querying — use `system.support_tickets.assignee`.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Primary key of the assignment row."),
