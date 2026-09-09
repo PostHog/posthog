@@ -6,6 +6,9 @@ from django.db import IntegrityError, transaction
 
 from parameterized import parameterized
 
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.scoping import team_scope
+
 from products.data_catalog.backend.facade.api import upsert_metric
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.enums import (
@@ -93,6 +96,30 @@ class TestDataQualityModels(BaseTest):
         assert check.subject_uuid == metric.id
         with self.assertRaises(IntegrityError), transaction.atomic():
             self._create_check(subject_type="metric", saved_query_id=None, metric_id=metric.id)
+
+    def test_moving_a_check_to_another_metric_keeps_its_audit_entry(self) -> None:
+        # A subject FK enters the diff as a Metric instance, which the activity encoder cannot
+        # serialize, and one unserializable change drops the whole entry -- including the fields a
+        # person did edit in the same save.
+        first, second = (
+            upsert_metric(
+                team=self.team,
+                user=self.user,
+                name=name,
+                description="Revenue",
+                definition={"kind": "HogQLQuery", "query": "SELECT 1"},
+            )
+            for name in ("revenue", "refunds")
+        )
+        check = self._create_check(subject_type=SubjectType.METRIC, saved_query_id=None, metric_id=first.id)
+        check.metric_id = second.id
+        check.description = "Revenue must be non-empty"
+
+        with team_scope(self.team.id):
+            check.save()
+
+        entry = ActivityLog.objects.get(scope="DataQualityCheck", item_id=str(check.id), activity="updated")
+        assert [change["field"] for change in entry.detail["changes"]] == ["description"]
 
     def test_blank_names_coexist_but_set_names_are_unique(self) -> None:
         self._create_check()

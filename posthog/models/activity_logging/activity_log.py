@@ -543,6 +543,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "subject_name",
         "subject_status",
         # Subject FKs are immutable after create and not JSON-serializable for the change detail.
+        "metric",
         "saved_query",
         "table",
     ],
