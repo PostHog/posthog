@@ -419,6 +419,7 @@ _TASK_RUN_LOG_URL_CACHE_TTL = 55 * 60
 
 _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
     {
+        "ai_agent_name",
         "ai_stage",
         "auto_publish",
         "benjamin_enabled",
@@ -2265,6 +2266,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # is_interactive_signals_run reads it the same way, so forging it would move the run off
         # the interactive budget and out of its per-run spend ceiling.
         "ai_stage",
+        # Names the agent (scout, custom agent, workflow) the run executes, lifted onto its
+        # $ai_generation events. A PATCHable value would bill a caller's spend to another agent.
+        "ai_agent_name",
         # The server-generated head branch the run->PR link is keyed on (find_signal_implementation_run).
         # A PATCHable value would let a caller re-aim the approve-first carve-out at any App-authored
         # PR, which is the exact forgery the stamp exists to prevent.
