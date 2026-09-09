@@ -18956,7 +18956,7 @@ export const ExperimentsUnfreezeExposureCreateParams = () => zod.object({
  * - "remove": Remove specific tags from each object
  * - "set": Replace all tags on each object with the provided list
  */
-export const ExperimentsBulkUpdateTagsCreateParams = /* @__PURE__ */ zod.object({
+export const ExperimentsBulkUpdateTagsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -18970,7 +18970,7 @@ export const experimentsBulkUpdateTagsCreateBodyTagsItemMax = 255
 
 export const experimentsBulkUpdateTagsCreateBodyTagsMax = 100
 
-export const ExperimentsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
+export const ExperimentsBulkUpdateTagsCreateBody = () => zod.object({
     ids: zod
         .array(zod.number())
         .max(experimentsBulkUpdateTagsCreateBodyIdsMax)

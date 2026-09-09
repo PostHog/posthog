@@ -1406,7 +1406,10 @@ const experimentUpdate = (): ToolBase<ReturnType<typeof ExperimentUpdateSchema>,
         },
     })
 
-const ExperimentsBulkUpdateTagsCreateSchema = () => orvalSchemas.ExperimentsBulkUpdateTagsCreateBody()
+const ExperimentsBulkUpdateTagsCreateSchema = () => {
+    const ExperimentsBulkUpdateTagsCreateBody = orvalSchemas.ExperimentsBulkUpdateTagsCreateBody()
+    return ExperimentsBulkUpdateTagsCreateBody
+}
 
 const experimentsBulkUpdateTagsCreate = (): ToolBase<
     ReturnType<typeof ExperimentsBulkUpdateTagsCreateSchema>,

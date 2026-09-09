@@ -525,7 +525,7 @@ export interface BulkUpdateTagsUUIDItemApi {
 export interface BulkUpdateTagsUUIDErrorApi {
     /** UUID of the object that was skipped. */
     id: string
-    /** Why the object was skipped, e.g. 'Not found'. */
+    /** Why the object was skipped, e.g. 'Not found or no edit access'. */
     reason: string
 }
 

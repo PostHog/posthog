@@ -242,22 +242,24 @@ export const conversationsTicketsBulkUpdateTagsCreateBodyTagsItemMax = 255
 
 export const conversationsTicketsBulkUpdateTagsCreateBodyTagsMax = 100
 
-export const ConversationsTicketsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
-    ids: zod
-        .array(zod.number())
-        .max(conversationsTicketsBulkUpdateTagsCreateBodyIdsMax)
-        .describe('List of object IDs to update tags on.'),
-    action: zod
-        .enum(['add', 'remove', 'set'])
-        .describe('\* `add` - add\n\* `remove` - remove\n\* `set` - set')
-        .describe(
-            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
-        ),
-    tags: zod
-        .array(zod.string().max(conversationsTicketsBulkUpdateTagsCreateBodyTagsItemMax))
-        .max(conversationsTicketsBulkUpdateTagsCreateBodyTagsMax)
-        .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
-})
+export const ConversationsTicketsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod
+    .object({
+        ids: zod
+            .array(zod.uuid())
+            .max(conversationsTicketsBulkUpdateTagsCreateBodyIdsMax)
+            .describe('List of object UUIDs to update tags on.'),
+        action: zod
+            .enum(['add', 'remove', 'set'])
+            .describe('\* `add` - add\n\* `remove` - remove\n\* `set` - set')
+            .describe(
+                "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
+            ),
+        tags: zod
+            .array(zod.string().max(conversationsTicketsBulkUpdateTagsCreateBodyTagsItemMax))
+            .max(conversationsTicketsBulkUpdateTagsCreateBodyTagsMax)
+            .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
+    })
+    .describe('Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).')
 
 /**
  * Create a new outbound ticket and send the first message to the customer.

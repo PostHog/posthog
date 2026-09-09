@@ -36038,13 +36038,6 @@ export namespace Schemas {
       can_view_task: boolean;
     }
 
-    export interface ExperimentMatchingIdsResponse {
-      /** IDs of all experiments matching the current list filters that the user can edit. */
-      ids: number[];
-      /** Number of matching editable experiments. */
-      total: number;
-    }
-
     /**
      * How the recordings tab's in-session exposure scope reads on this experiment.
      */
@@ -36058,6 +36051,13 @@ export namespace Schemas {
       unavailable_reason: string | null;
       /** True when in-session evidence is the stamped `$feature/<flag_key>` property, which means the flag was active in the session, rather than the exposure event itself being captured there. Copy must not claim the exposure was captured in the session when this is set. */
       uses_stamped_fallback: boolean;
+    }
+
+    export interface ExperimentMatchingIdsResponse {
+      /** IDs of all experiments matching the current list filters that the user can edit. */
+      ids: number[];
+      /** Number of matching editable experiments. */
+      total: number;
     }
 
     /**
