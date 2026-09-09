@@ -1984,8 +1984,6 @@ describe('exec tool', () => {
                 )
             })
 
-            // Naming the mistake still costs the caller a retry. These lock in the
-            // rewrap that spends the call instead, and the cases it must leave alone.
             describe('rewrapping it into the call the caller meant', () => {
                 const rewrapFor = (schema: ZodObjectAny, input: unknown): Record<string, unknown> | undefined => {
                     const result = schema.safeParse(input, { reportInput: true })
@@ -2000,9 +1998,8 @@ describe('exec tool', () => {
                 })
 
                 it('leaves a sibling the outer schema declares at the top level', () => {
-                    // `logs-patterns-diff` takes `baselineDateRange` beside `query`. Folding
-                    // it inside would have the nested schema strip it, and the caller would
-                    // get a diff against the default baseline without being told.
+                    // Folding `baselineDateRange` inside `query` would have the nested schema strip it,
+                    // and the caller would get a diff against the default baseline without being told.
                     const tool = GENERATED_TOOL_MAP['logs-patterns-diff']!()
                     const input = {
                         serviceNames: ['api'],

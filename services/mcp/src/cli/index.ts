@@ -145,8 +145,7 @@ async function runDryCall(args: string[]): Promise<void> {
         throw new Error(`Invalid JSON input: ${detail}`)
     }
 
-    // The same rewrap and formatter the MCP paths use, so a dry run reports what
-    // a real call would do rather than printing a raw Zod dump.
+    // The same rewrap the MCP paths apply, so a dry run reports what a real call would do.
     const firstPass = tool.schema.safeParse(parsed, { reportInput: true })
     const rewrapped = firstPass.success ? undefined : rewrapFlattenedArguments(firstPass.error, parsed, tool.schema)
     const validation = rewrapped ? tool.schema.safeParse(rewrapped, { reportInput: true }) : firstPass

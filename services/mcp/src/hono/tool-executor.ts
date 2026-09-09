@@ -240,8 +240,6 @@ export class ToolExecutor {
     ): Promise<unknown> {
         const rawToolArgs = (params?.arguments ?? {}) as Record<string, unknown>
         const firstPass = tool.schema.safeParse(rawToolArgs, { reportInput: true })
-        // A caller that sent a wrapper parameter's contents in its place gets the
-        // call it meant, rather than a round trip spent on the rejection.
         const rewrapped = firstPass.success
             ? undefined
             : rewrapFlattenedArguments(firstPass.error, rawToolArgs, tool.schema)

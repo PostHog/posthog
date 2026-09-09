@@ -6,16 +6,7 @@ import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import type { ToolBase, ZodObjectAny } from '@/tools/types'
 
-/**
- * Tools that take their whole payload under one required `query` object. Agents
- * flatten this shape often — they send `serviceNames` and `dateRange` at the top
- * level — and Zod then strips the misplaced keys, so the call fails on something
- * that reads nothing like the mistake that was made. The logs, APM, and metrics
- * read tools are all built this way.
- *
- * Discovered from the schemas rather than listed, so a new tool with the same
- * shape has to satisfy the contract too.
- */
+/** Read from the schemas rather than listed, so a new tool with this shape has to satisfy the contract too. */
 function queryWrapperTools(): [string, ToolBase<ZodObjectAny>][] {
     const tools: [string, ToolBase<ZodObjectAny>][] = []
     for (const [name, factory] of Object.entries(GENERATED_TOOL_MAP)) {
@@ -37,7 +28,6 @@ function queryWrapperTools(): [string, ToolBase<ZodObjectAny>][] {
     return tools
 }
 
-/** The first fenced JSON block in a description, parsed. */
 function leadExample(
     description: string
 ): { json: Record<string, unknown>; source: string; offset: number } | undefined {
@@ -53,19 +43,10 @@ function leadExample(
     }
 }
 
-/**
- * How far into a description the wrapper example may sit. An agent that reads
- * the opening paragraph and starts composing a call has to have met the wrapper
- * by then — burying it under a workflow section is what the flattening comes
- * from.
- */
+/** An example below this offset sits under a workflow section, which a caller reaches after it composed the call. */
 const LEAD_EXAMPLE_MAX_OFFSET = 700
 
-/**
- * Every description ships to every MCP client that lists tools, so the example
- * is one line of the smallest call that works — not a tour of the parameters.
- * A longer one also wraps under `oxfmt`, which costs the copyable single line.
- */
+/** Every description ships on every tools/list, and a longer example also wraps under `oxfmt`. */
 const LEAD_EXAMPLE_MAX_LENGTH = 110
 
 describe('tools whose payload sits under a required `query` object', () => {

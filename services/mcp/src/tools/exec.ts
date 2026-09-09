@@ -510,19 +510,17 @@ function looksLikeUnwrappedPayload(
 }
 
 /**
- * Rebuilds a flattened payload under the wrapper the schema wanted, so the call
- * the caller meant runs instead of failing.
+ * Rebuilds a flattened payload under the wrapper the schema wanted, so the call the caller meant runs.
  *
- * Naming the mistake in the rejection still spends a round trip, and the tools
- * built this way — the logs, APM, and metrics read tools — see the flattened
- * shape often enough that the round trip is the dominant cost of using them.
+ * Naming the mistake in the rejection still costs a round trip, and the flattened shape is the most
+ * common rejection on the tools built this way.
  *
- * Keys the outer schema declares beside the wrapper stay at the top level. Folding
- * a sibling such as `baselineDateRange` into `query` would have the nested schema
- * strip it, and the caller would silently get a different query than it asked for.
+ * Keys the outer schema declares beside the wrapper stay at the top level. Folding a sibling such as
+ * `baselineDateRange` into `query` would have the nested schema strip it, and the caller would get a
+ * different query than it asked for without being told.
  *
- * Returns undefined unless the rebuilt payload parses, so a payload that is
- * malformed for some other reason keeps its own rejection.
+ * Returns undefined unless the rebuilt payload parses, so a payload malformed for some other reason
+ * keeps its own rejection.
  */
 export function rewrapFlattenedArguments(
     error: z.ZodError,
@@ -556,7 +554,6 @@ export function rewrapFlattenedArguments(
     return schema.safeParse(rebuilt).success ? rebuilt : undefined
 }
 
-/** The names the schema declares at the top level. */
 function topLevelFieldNames(schema: ZodObjectAny): ReadonlySet<string> {
     const root = inputJsonSchema(schema)
     const properties = isRecord(root) ? root['properties'] : undefined
@@ -1381,8 +1378,6 @@ export function createExecTool(
                     // field. Dispatch the parsed output so coerced values and defaults apply.
                     let validation = toolSchema.safeParse(input, { reportInput: true })
                     if (!validation.success) {
-                        // Run the call the caller meant when it flattened a wrapper
-                        // parameter, instead of spending a round trip on the rejection.
                         const rewrapped = rewrapFlattenedArguments(validation.error, input, toolSchema)
                         if (rewrapped) {
                             input = rewrapped
