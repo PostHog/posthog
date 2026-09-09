@@ -131,21 +131,22 @@ class _PrecomputedViewers(RecipientsResolver):
 def maybe_notify_materialization_failure(
     job: DataModelingJob, saved_query: DataWarehouseSavedQuery, team_id: int
 ) -> bool:
-    """Notify on the first failure of a streak; repeats of an ongoing streak stay quiet."""
+    """Email on the first failure of a streak; a run started by hand also notifies in-app every time."""
     # An idempotent retry can land here with a job another path already completed or cancelled.
     if job.status != DataModelingJobStatus.FAILED:
         return False
-    if not starts_a_failure_streak(saved_query.id, job):
-        return False
 
-    # The email task dedupes per (recipient, job) via MessagingRecord, so an activity
-    # retry that already sent the in-app notification still can't double-send email.
-    send_matview_failure_immediate_email.delay(team_id, str(saved_query.id), str(job.id))
+    if starts_a_failure_streak(saved_query.id, job):
+        # The email task dedupes per (recipient, job) via MessagingRecord, so an activity
+        # retry that already sent the in-app notification still can't double-send email.
+        send_matview_failure_immediate_email.delay(team_id, str(saved_query.id), str(job.id))
 
     if job.parent_workflow_id:
         # The DAG run this belongs to notifies for every view it broke, once, at the end.
         return False
 
+    # A run with no parent was started by hand, usually to check a fix, and the person who started
+    # it may have moved on. Silence mid-streak would read as success, so every failure is told.
     create_notification(
         _failure_notification(
             team_id=team_id,

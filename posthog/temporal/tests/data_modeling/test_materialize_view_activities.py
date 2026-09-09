@@ -201,20 +201,32 @@ class TestFailMaterializationActivity:
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
 
     @pytest.mark.parametrize(
-        "previous_status,expect_notification",
+        "previous_status,parent_workflow_id,expect_email,expect_in_app",
         [
-            (None, True),
-            (DataModelingJob.Status.COMPLETED, True),
-            (DataModelingJob.Status.FAILED, False),
+            (None, None, True, True),
+            (DataModelingJob.Status.COMPLETED, None, True, True),
+            (DataModelingJob.Status.FAILED, None, False, True),
+            (DataModelingJob.Status.FAILED, "execute-dag-workflow", False, False),
         ],
     )
-    async def test_notifies_only_on_first_failure_of_streak(
-        self, activity_environment, ateam, anode, asaved_query, adag, previous_status, expect_notification
+    async def test_emails_at_streak_start_and_notifies_in_app_on_every_manual_run(
+        self,
+        activity_environment,
+        ateam,
+        anode,
+        asaved_query,
+        adag,
+        previous_status,
+        parent_workflow_id,
+        expect_email,
+        expect_in_app,
     ):
         if previous_status is not None:
             error = "boom" if previous_status == DataModelingJob.Status.FAILED else None
             await _make_job(ateam, asaved_query, previous_status, error=error)
-        current_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
+        current_job = await _make_job(
+            ateam, asaved_query, DataModelingJob.Status.RUNNING, parent_workflow_id=parent_workflow_id
+        )
 
         inputs = FailMaterializationInputs(
             team_id=ateam.pk,
@@ -223,12 +235,18 @@ class TestFailMaterializationActivity:
             job_id=str(current_job.id),
             error="Some non-timeout error",
         )
-        with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
-        ) as mock_create:
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+            ) as mock_create,
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.notify_materialization_failure.send_matview_failure_immediate_email"
+            ) as mock_email,
+        ):
             await activity_environment.run(fail_materialization_activity, inputs)
 
-        if expect_notification:
+        assert mock_email.delay.called == expect_email
+        if expect_in_app:
             mock_create.assert_called_once()
             data = mock_create.call_args.args[0]
             assert data.notification_type == NotificationType.MATERIALIZATION_FAILURE
@@ -253,11 +271,11 @@ class TestFailMaterializationActivity:
             error="Some non-timeout error",
         )
         with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
-        ) as mock_create:
+            "posthog.temporal.data_modeling.activities.notify_materialization_failure.send_matview_failure_immediate_email"
+        ) as mock_email:
             await activity_environment.run(fail_materialization_activity, inputs)
 
-        mock_create.assert_not_called()
+        mock_email.delay.assert_not_called()
 
     async def test_notifies_when_recovery_raises(self, activity_environment, ateam, anode, asaved_query, adag):
         current_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
