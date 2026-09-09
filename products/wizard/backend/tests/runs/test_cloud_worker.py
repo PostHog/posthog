@@ -75,6 +75,8 @@ def test_provision_worker_configures_wizard_environment(
     assert config.environment_variables["POSTHOG_WIZARD_API_KEY"] == "wizard-secret"
     assert config.environment_variables["MCP_URL"] == "http://host.docker.internal:8787/mcp"
     assert "POSTHOG_WIZARD_RUN_ID" not in config.environment_variables
+    assert config.environment_variables["POSTHOG_TASK_RUN_ID"] == str(request.run_id)
+    assert "POSTHOG_TASK_ID" not in config.environment_variables
     assert config.environment_variables["POSTHOG_HANDOFF_OUTPUT_PATH"] == wizard_handoff_output_path(request.run_id)
     assert config.ttl_seconds == 75 * 60
 
