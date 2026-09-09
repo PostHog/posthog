@@ -79,29 +79,69 @@ describe("usePreviewConfig", () => {
     settingsState.lastUsedModel = null;
   });
 
-  it("blocks on an empty model list and clears on a retry that returns models", async () => {
-    hostState.query.mockResolvedValueOnce(modelOption([]));
-    hostState.query.mockResolvedValueOnce(
-      modelOption(["claude-opus-4-8", "gpt-5.5"]),
-    );
+  it("recovers on its own when the empty list is transient", async () => {
+    vi.useFakeTimers();
+    try {
+      hostState.query
+        .mockResolvedValueOnce(modelOption([]))
+        .mockResolvedValueOnce(modelOption(["claude-opus-4-8"]));
 
-    const { result } = renderHook(() => usePreviewConfig("claude"));
+      const { result } = renderHook(() => usePreviewConfig("claude"));
 
-    await waitFor(() => {
-      expect(result.current.isLoading).toBe(false);
-    });
-    expect(result.current.isModelListUnresolved).toBe(true);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result.current.isModelListUnresolved).toBe(true);
+      expect(result.current.isRetryingModelList).toBe(true);
 
-    act(() => {
-      result.current.retry();
-    });
-    expect(result.current.isLoading).toBe(true);
-
-    await waitFor(() => {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      expect(result.current.isModelListUnresolved).toBe(false);
+      expect(result.current.isRetryingModelList).toBe(false);
       expect(result.current.modelOption?.currentValue).toBe("claude-opus-4-8");
-    });
-    expect(result.current.isModelListUnresolved).toBe(false);
-    expect(hostState.query).toHaveBeenCalledTimes(2);
+      expect(hostState.query).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops retrying after the backoff is exhausted and a manual retry restarts it", async () => {
+    vi.useFakeTimers();
+    try {
+      hostState.query.mockResolvedValue(modelOption([]));
+
+      const { result } = renderHook(() => usePreviewConfig("claude"));
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result.current.isRetryingModelList).toBe(true);
+
+      // 1s + 2s + 4s + 8s: four attempts, then it gives up. Repeated advances
+      // are needed: one sweep does not run timers scheduled during itself.
+      for (let i = 0; i < 5; i++) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(16000);
+        });
+      }
+      expect(result.current.isModelListUnresolved).toBe(true);
+      expect(result.current.isRetryingModelList).toBe(false);
+      const autoAttempts = hostState.query.mock.calls.length;
+
+      act(() => {
+        result.current.retry();
+      });
+      expect(hostState.query.mock.calls.length).toBe(autoAttempts + 1);
+
+      // The refetch answers empty again; the backoff restarts from attempt 0.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result.current.isRetryingModelList).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("is resolved when the list arrives with models", async () => {

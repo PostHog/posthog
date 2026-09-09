@@ -44,6 +44,11 @@ const CLEARED_RUN_PICKS = {
   lastUsedFastMode: null,
 };
 
+// An empty model list retries itself before it asks the user to: 1s, 2s, 4s,
+// 8s, then the composer reports it and offers the manual retry.
+const MODEL_LIST_RETRY_BASE_MS = 1000;
+const MODEL_LIST_RETRY_CAP = 4;
+
 interface PreviewConfigResult {
   configOptions: SessionConfigOption[];
   modeOption: SessionConfigOption | undefined;
@@ -54,9 +59,11 @@ interface PreviewConfigResult {
   isLoading: boolean;
   /**
    * The model list arrived empty, so no selection can be trusted: submit is
-   * blocked and a retry refetches until the gateway answers with models.
+   * blocked while it is unresolved, and it retried itself first.
    */
   isModelListUnresolved: boolean;
+  /** Unresolved and still in the automatic backoff window, so it reads as loading. */
+  isRetryingModelList: boolean;
   retry: () => void;
   setConfigOption: (configId: string, value: string) => void;
   /**
@@ -119,6 +126,9 @@ export function usePreviewConfig(
     options: SessionConfigOption[];
   } | null>(null);
   const prevAdapterRef = useRef<Adapter | null>(null);
+  // Self-retry attempt for an empty model list; caps out and hands over to the
+  // manual retry once the backoff is exhausted.
+  const [retryAttempt, setRetryAttempt] = useState(0);
   const hasHydrated = useSettingsStore((state) => state._hasHydrated);
   // Truthiness only: selecting the raw pick values would re-render every
   // mounted instance of this hook on each pick, even when the answers computed
@@ -135,6 +145,7 @@ export function usePreviewConfig(
   // Re-runnable by retry: the gateway failure that empties the model list
   // resolves inside the workspace server, so the query itself never rejects
   // and a refetch has to be explicit.
+  const refetchRef = useRef<() => void>(() => {});
   const refetch = useCallback(() => {
     if (!apiHost) return;
 
@@ -164,6 +175,10 @@ export function usePreviewConfig(
       abort.abort();
     };
   }, [adapter, allHarnessModels, apiHost, hostClient]);
+
+  useEffect(() => {
+    refetchRef.current = refetch;
+  }, [refetch]);
 
   useEffect(() => refetch(), [refetch]);
 
@@ -458,7 +473,23 @@ export function usePreviewConfig(
     modelOption?.type === "select" &&
     modelOption.options.length === 0;
 
+  // An empty model list is the gateway failure's only symptom, and it answers
+  // empty because a transient fetch failed: wait a beat and ask again, so a
+  // blip recovers itself instead of blocking on the user's first click.
+  useEffect(() => {
+    if (!isModelListUnresolved || retryAttempt >= MODEL_LIST_RETRY_CAP) {
+      return;
+    }
+    const delay = MODEL_LIST_RETRY_BASE_MS * 2 ** retryAttempt;
+    const timer = setTimeout(() => {
+      setRetryAttempt((attempt) => attempt + 1);
+      refetchRef.current();
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [isModelListUnresolved, retryAttempt]);
+
   const retry = useCallback(() => {
+    setRetryAttempt(0);
     refetch();
   }, [refetch]);
 
@@ -471,6 +502,8 @@ export function usePreviewConfig(
     fastModeOption,
     isLoading,
     isModelListUnresolved,
+    isRetryingModelList:
+      isModelListUnresolved && retryAttempt < MODEL_LIST_RETRY_CAP,
     retry,
     setConfigOption,
     resetToDefault,

@@ -721,6 +721,7 @@ export function TaskInput({
     fastModeOption,
     isLoading: isPreviewLoading,
     isModelListUnresolved,
+    isRetryingModelList,
     retry: retryPreviewConfig,
     setConfigOption,
     resetToDefault,
@@ -1598,7 +1599,9 @@ export function TaskInput({
                   }
                   tourTarget="task-input"
                   submitAdornment={
-                    runtime !== "pi" && isModelListUnresolved ? (
+                    runtime !== "pi" &&
+                    isModelListUnresolved &&
+                    !isRetryingModelList ? (
                       <span className="flex items-center gap-1.5 text-[12px] text-gray-10">
                         Couldn't load models
                         <button
@@ -1703,7 +1706,10 @@ export function TaskInput({
                         menuOpen={modelMenuOpen}
                         onMenuOpenChange={setModelMenuOpen}
                         disabled={isCreatingTask}
-                        isLoading={isPreviewLoading}
+                        isLoading={
+                          isPreviewLoading ||
+                          (isModelListUnresolved && isRetryingModelList)
+                        }
                         modelAccess={composerModelAccess}
                         showBillingMenu
                         workspaceMode={workspaceMode}
