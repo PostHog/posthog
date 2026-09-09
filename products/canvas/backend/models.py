@@ -273,10 +273,8 @@ class CanvasState(TeamScopedRootMixin, UUIDModel):
 
 
 class Sketchpad(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
-    channel = models.ForeignKey(
-        "tasks.Channel", on_delete=models.CASCADE, db_constraint=False, related_name="sketchpads"
-    )
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    channel = models.ForeignKey("tasks.Channel", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     name = models.CharField(max_length=120)
     created_by = models.ForeignKey(
         "posthog.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+", db_constraint=False
@@ -293,18 +291,7 @@ class Sketchpad(TeamScopedRootMixin, UUIDModel):
 
 
 class SketchpadRecord(TeamScopedRootMixin, UUIDModel):
-<<<<<<< HEAD
-    class Kind(models.TextChoices):
-        FRAGMENT = "fragment"
-        SOURCE = "source"
-        COMPILED = "compiled"
-        COMPILE = "compile"
-        STATE = "state"
-
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
-=======
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
->>>>>>> 5a1f29cd30d (fix(canvas): address sketchpad model review)
     sketchpad = models.ForeignKey(Sketchpad, on_delete=models.CASCADE, related_name="records")
     kind = models.CharField(max_length=32, choices=SketchpadRecordKind.choices)
     key = models.CharField(max_length=128)
@@ -331,16 +318,12 @@ class SketchpadCompileJob(TeamScopedRootMixin, UUIDModel):
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
-<<<<<<< HEAD
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
-=======
     class Meta:
         db_table = "posthog_sketchpad_compile_job"
 
 
 class SketchpadOp(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
->>>>>>> 5a1f29cd30d (fix(canvas): address sketchpad model review)
     sketchpad = models.ForeignKey(Sketchpad, on_delete=models.CASCADE, related_name="ops")
     seq = models.IntegerField()
     op_id = models.CharField(max_length=64)
