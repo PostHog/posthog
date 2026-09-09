@@ -295,7 +295,7 @@ export function buildSandboxDocument(
       // opens that settings page from a click.
       connectors: {
         call: (provider, tool, args, options) =>
-          call("connectorCall", { provider, tool, arguments: args ?? {}, refresh: options && options.refresh }),
+          call("connectorCall", { provider, tool, arguments: args ?? {}, refresh: options?.refresh }),
         connect: (provider) => {
           if (!navigator.userActivation?.isActive) throw new Error("Connecting a provider requires a user action");
           post({ type: "navigate", nav: { target: "connect", provider } });
