@@ -242,7 +242,11 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
               <div className="flex w-full items-center justify-between gap-1">
                 <ChannelTabs tab={tab} onTabChange={setTab} />
                 {tab === "canvas" ? (
-                  <NewCanvasMenu channelId={channelId} compact />
+                  <NewCanvasMenu
+                    surface="sidebar"
+                    channelId={channelId}
+                    compact
+                  />
                 ) : null}
               </div>
             }

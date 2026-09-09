@@ -13,7 +13,11 @@ import type {
 import { isTaskUnread, type TaskTimestamp } from "../sidebar/buildSidebarData";
 import { getRepositoryInfo, repositoryLabel } from "../sidebar/groupTasks";
 import { taskActivityAt, taskActivityTimestamp } from "../tasks/taskActivity";
-import type { CanvasCreator, DashboardRecord } from "./dashboardSchemas";
+import type {
+  CanvasCreator,
+  CanvasType,
+  DashboardRecord,
+} from "./dashboardSchemas";
 
 /** Where a session runs. `worktree` is a local checkout, so it reads as local. */
 export type ChannelItemEnvironment = "local" | "cloud";
@@ -28,7 +32,7 @@ export interface ChannelItemModel {
   /** When it was first made, for the created-first sort. */
   createdAt: number;
   pinned: boolean;
-  canvasType: "canvas" | "sketchpad";
+  canvasType: CanvasType;
   rawStatus: TaskRunStatus | null;
   /**
    * The three session facts the filters ask about. A canvas has no run, so it

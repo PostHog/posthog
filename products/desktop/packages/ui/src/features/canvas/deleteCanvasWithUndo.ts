@@ -2,7 +2,6 @@ import {
   ANALYTICS_EVENTS,
   type ChannelsSurface,
 } from "@posthog/shared/analytics-events";
-import { hostClient } from "@posthog/ui/features/canvas/hostClient";
 import { usePendingCanvasDeleteStore } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
@@ -23,9 +22,7 @@ interface DeleteCanvasWithUndoOptions {
   /** Canvas name, for the toast copy. */
   name: string;
   surface: ChannelsSurface;
-  remove?: () => Promise<void>;
-  /** Refresh the canvas queries once the delete actually lands. */
-  invalidate?: () => void;
+  remove: () => Promise<void>;
 }
 
 /**
@@ -38,8 +35,7 @@ export function deleteCanvasWithUndo({
   channelId,
   name,
   surface,
-  remove = () => hostClient().dashboards.delete.mutate({ id: dashboardId }),
-  invalidate,
+  remove,
 }: DeleteCanvasWithUndoOptions): void {
   const { markPending, clearPending } = usePendingCanvasDeleteStore.getState();
   const toastId = `canvas-delete-undo-${dashboardId}`;
@@ -63,7 +59,6 @@ export function deleteCanvasWithUndo({
         dashboard_id: dashboardId,
         success: true,
       });
-      invalidate?.();
     } catch (error) {
       track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
         action_type: "delete",

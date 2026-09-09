@@ -9,6 +9,11 @@ import {
 } from "@posthog/platform/main-window";
 import { TypedEventEmitter } from "@posthog/shared";
 import { inject, injectable } from "inversify";
+import type { CanvasType } from "../canvas/dashboardSchemas";
+import {
+  CANVAS_TYPE_PARAM,
+  canvasTypeFromSearch,
+} from "../canvas/dashboardSchemas";
 import type { LinkLogger } from "./identifiers";
 
 export const CanvasLinkEvent = {
@@ -19,7 +24,7 @@ export interface CanvasLinkPayload {
   /** Channel (folder) row id the canvas lives under. */
   channelId: string;
   dashboardId: string;
-  canvasType: "canvas" | "sketchpad";
+  canvasType: CanvasType;
 }
 
 export interface CanvasLinkEvents {
@@ -73,8 +78,7 @@ export class CanvasLinkService extends TypedEventEmitter<CanvasLinkEvents> {
     const payload: CanvasLinkPayload = {
       channelId,
       dashboardId,
-      canvasType:
-        searchParams?.get("type") === "sketchpad" ? "sketchpad" : "canvas",
+      canvasType: canvasTypeFromSearch(searchParams?.get(CANVAS_TYPE_PARAM)),
     };
 
     const hasListeners = this.listenerCount(CanvasLinkEvent.OpenCanvas) > 0;

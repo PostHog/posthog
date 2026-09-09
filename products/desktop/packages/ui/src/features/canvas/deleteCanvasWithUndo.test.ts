@@ -1,13 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const deleteMutate = vi.fn().mockResolvedValue(undefined);
-const removeSketchpad = vi.fn().mockResolvedValue(undefined);
 const toastSuccess = vi.fn();
 const toastError = vi.fn();
 
-vi.mock("@posthog/ui/features/canvas/hostClient", () => ({
-  hostClient: () => ({ dashboards: { delete: { mutate: deleteMutate } } }),
-}));
 vi.mock("@posthog/ui/primitives/toast", () => ({
   toast: {
     success: (...args: unknown[]) => toastSuccess(...args),
@@ -35,22 +31,17 @@ function isPending(id: string): boolean {
   return !!usePendingCanvasDeleteStore.getState().pending[id];
 }
 
-describe.each([
-  ["canvas", undefined],
-  ["board", removeSketchpad],
-] as const)("deleteCanvasWithUndo (%s)", (_kind, remove) => {
-  const deleteRequest = remove ?? deleteMutate;
+describe("deleteCanvasWithUndo", () => {
+  const deleteRequest = deleteMutate;
 
-  function schedule(invalidate = vi.fn()) {
+  function schedule() {
     deleteCanvasWithUndo({
       dashboardId: "d1",
       channelId: "c1",
       name: "Weekly report",
       surface: "dashboards_grid",
-      remove,
-      invalidate,
+      remove: deleteRequest,
     });
-    return invalidate;
   }
 
   beforeEach(() => {
@@ -64,7 +55,7 @@ describe.each([
   });
 
   it("hides the canvas immediately but sends nothing until the window closes", async () => {
-    const invalidate = schedule();
+    schedule();
 
     expect(isPending("d1")).toBe(true);
     expect(deleteRequest).not.toHaveBeenCalled();
@@ -72,9 +63,6 @@ describe.each([
     await vi.advanceTimersByTimeAsync(CANVAS_DELETE_UNDO_MS);
 
     expect(deleteRequest).toHaveBeenCalledTimes(1);
-    if (remove) expect(deleteMutate).not.toHaveBeenCalled();
-    else expect(deleteMutate).toHaveBeenCalledWith({ id: "d1" });
-    expect(invalidate).toHaveBeenCalled();
     expect(isPending("d1")).toBe(false);
   });
 

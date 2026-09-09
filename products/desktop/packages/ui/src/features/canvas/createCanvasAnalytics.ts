@@ -2,7 +2,11 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { track } from "@posthog/ui/shell/analytics";
 
 // Where a canvas create was triggered from, for analytics.
-export type CreateSurface = "dashboards_grid";
+export type CreateSurface =
+  | "dashboards_grid"
+  | "sidebar"
+  | "canvases_pane"
+  | "header_button";
 
 // Fire the "create" DASHBOARD_ACTION, then create and open the canvas.
 export function trackAndCreateCanvas<T>(

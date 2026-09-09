@@ -94,7 +94,7 @@ function FreeformEditControls({
   const setEditing = useDashboardEditStore((s) => s.setEditing);
   const openChat = useCanvasChatPanelStore((state) => state.openChat);
   const { dashboard } = useDashboard(dashboardId);
-  const { setPinned, invalidateDashboards } = useDashboardMutations();
+  const { setPinned, deleteDashboard } = useDashboardMutations();
   const isPinned = dashboard?.pinnedAt != null;
   // "Delete…" opens a confirmation rather than deleting inline — the canvas and
   // its version history go away for everyone in the space.
@@ -110,7 +110,9 @@ function FreeformEditControls({
       channelId,
       name: dashboard?.name ?? "Canvas",
       surface: "canvas",
-      invalidate: invalidateDashboards,
+      remove: async () => {
+        await deleteDashboard(dashboardId);
+      },
     });
     void navigate({
       to: "/spaces/$channelId",
@@ -438,7 +440,9 @@ export function ShellLayout() {
               channelName={channelName}
               channelId={channelId}
               leafLabel="Canvases"
-              trailing={<NewCanvasMenu channelId={channelId} />}
+              trailing={
+                <NewCanvasMenu surface="header_button" channelId={channelId} />
+              }
             />
           ) : null}
         </div>

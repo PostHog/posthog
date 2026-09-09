@@ -14,6 +14,7 @@ import {
   TrashIcon,
   UserSwitchIcon,
 } from "@phosphor-icons/react";
+import type { CanvasType } from "@posthog/core/canvas/dashboardSchemas";
 import { sessionsLabel } from "@posthog/core/sidebar/selection";
 import {
   Button,
@@ -69,7 +70,7 @@ export interface TaskRowMenuProps {
   kind: "task" | "canvas";
   id: string;
   title: string;
-  canvasType?: "canvas" | "sketchpad";
+  canvasType?: CanvasType;
   isPinned: boolean;
   task?: Task;
   /** The channel this item is already filed to, ticked in "File to…". */

@@ -9,16 +9,24 @@ import { useHostTRPC } from "@posthog/host-router/react";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { invalidateCanvasLifecycle } from "@posthog/ui/features/canvas/hooks/invalidateCanvasLifecycle";
 import { useDashboardEditStore } from "@posthog/ui/features/canvas/stores/dashboardEditStore";
+import {
+  useAllSketchpadsAsCanvases,
+  useSpaceSketchpadsAsCanvases,
+} from "@posthog/ui/features/sketchpad/hooks/useSketchpadsAsCanvases";
 import { toast } from "@posthog/ui/primitives/toast";
 import { logger } from "@posthog/ui/shell/logger";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import {
   SPACE_QUERY_GC_TIME_MS,
   SPACE_QUERY_REFETCH_INTERVAL_MS,
   SPACE_QUERY_STALE_TIME_MS,
 } from "./spaceQueryPolicy";
+
+export function sortCanvases(records: DashboardRecord[]): DashboardRecord[] {
+  return records.sort((a, b) => b.updatedAt - a.updatedAt);
+}
 
 const log = logger.scope("dashboards");
 // The naming helpers moved to @posthog/core (CanvasApplicationService uses them
@@ -49,7 +57,12 @@ export function useDashboards(
   // Canvases inside their delete-undo window stay in the list — surfaces mark
   // them as deleting (see usePendingCanvasDeleteStore) rather than removing a
   // row that Undo would put straight back.
-  return { dashboards: data ?? [], isLoading };
+  const boards = useSpaceSketchpadsAsCanvases(channelId);
+  const dashboards = useMemo(
+    () => sortCanvases([...(data ?? []), ...boards]),
+    [data, boards],
+  );
+  return { dashboards, isLoading };
 }
 
 /** Every canvas across every visible space. */
@@ -66,7 +79,12 @@ export function useAllCanvases(): {
       staleTime: SPACE_QUERY_STALE_TIME_MS,
     }),
   );
-  return { dashboards: data ?? [], isLoading };
+  const boards = useAllSketchpadsAsCanvases();
+  const dashboards = useMemo(
+    () => sortCanvases([...(data ?? []), ...boards]),
+    [data, boards],
+  );
+  return { dashboards, isLoading };
 }
 
 /** A single saved canvas record (metadata + lifecycle pointers). */
@@ -140,6 +158,7 @@ export function useDashboardMutations() {
 
   const invalidate = () => {
     void queryClient.invalidateQueries(trpc.dashboards.list.pathFilter());
+    void queryClient.invalidateQueries(trpc.dashboards.listAll.pathFilter());
     void queryClient.invalidateQueries(trpc.dashboards.get.pathFilter());
   };
 
@@ -184,13 +203,29 @@ export function useDashboardMutations() {
     trpc.dashboards.file.mutationOptions({ onSuccess: invalidate }),
   );
 
+  const removeAsync = remove.mutateAsync;
+  const pinAsync = setPinned.mutateAsync;
+  const fileAsync = file.mutateAsync;
+  const deleteDashboard = useCallback(
+    (id: string) => removeAsync({ id }),
+    [removeAsync],
+  );
+  const setCanvasPinned = useCallback(
+    (id: string, pinned: boolean) => pinAsync({ id, pinned }),
+    [pinAsync],
+  );
+  const fileDashboard = useCallback(
+    (id: string, channelId: string) => fileAsync({ id, channelId }),
+    [fileAsync],
+  );
+
   return {
     // Refresh the canvas queries after a mutation that didn't go through this
     // hook (the undo-window delete commits outside React).
     invalidateDashboards: invalidate,
     createDashboard: (channelId: string, name: string, templateId?: string) =>
       create.mutateAsync({ channelId, name, templateId }),
-    deleteDashboard: (id: string) => remove.mutateAsync({ id }),
+    deleteDashboard,
     // Move the canvas's head back to an existing version (and rebuild it).
     revertToVersion: (
       id: string,
@@ -214,10 +249,8 @@ export function useDashboardMutations() {
       rename.mutateAsync({ id, name }),
     // Pin (or unpin) a canvas to its channel (shared across users), so the pin
     // shows in the channel's Pinned menu for every member.
-    setPinned: (id: string, pinned: boolean) =>
-      setPinned.mutateAsync({ id, pinned }),
-    fileDashboard: (id: string, channelId: string) =>
-      file.mutateAsync({ id, channelId }),
+    setPinned: setCanvasPinned,
+    fileDashboard,
     isCreating: create.isPending,
     isDeleting: remove.isPending,
     isReverting: revertToVersion.isPending,

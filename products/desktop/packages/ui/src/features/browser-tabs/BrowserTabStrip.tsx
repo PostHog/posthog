@@ -1,5 +1,4 @@
 import { MagnifyingGlassIcon } from "@phosphor-icons/react";
-import { humanizeReportTitle } from "@posthog/core/inbox/reportPresentation";
 import { useService } from "@posthog/di/react";
 import {
   closeTab as closeTabLocal,
@@ -47,7 +46,6 @@ import { getLeafPanel } from "@posthog/ui/features/panels/panelStoreHelpers";
 import { getTaskInputSessionId } from "@posthog/ui/features/task-detail/taskInputSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
-import { reportIdFromHref } from "@posthog/ui/router/reportNavigation";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { isMac } from "@posthog/ui/utils/platform";
 import { useQuery } from "@tanstack/react-query";
@@ -142,9 +140,9 @@ function BrowserTabStripImpl() {
   const params = useParams({ strict: false }) as {
     channelId?: string;
     dashboardId?: string;
+    sketchpadId?: string;
     taskId?: string;
     feedId?: string;
-    reportId?: string;
   };
   const routeFeedId = params.feedId ?? null;
   // The in-flight tag: flips the instant you navigate, so the strip's highlight
@@ -183,9 +181,6 @@ function BrowserTabStripImpl() {
     routeAppView === "activity" && activitySelection?.kind === "report"
       ? activitySelection.reportId
       : null;
-  const activeReportId =
-    activeActivityReportId ??
-    (routeAppView === "report" ? (params.reportId ?? null) : null);
 
   const { channels, isLoading: channelsLoading } = useChannels();
   // The scoped space is null until the channel list has loaded and the route
@@ -258,6 +253,7 @@ function BrowserTabStripImpl() {
   // Only poll the all-tasks list when a task tab actually needs a title.
   const hasTaskTab = snapshot.tabs.some((t) => t.taskId != null);
   const { dashboards } = useDashboards(params.channelId);
+  const canvasId = params.dashboardId ?? params.sketchpadId ?? null;
   const { dashboard: activeRecord } = useDashboard(params.dashboardId);
   const { data: allTasks } = useTasks(undefined, { enabled: hasTaskTab });
   // Keyed on the active SESSION, not the path param: on Activity the session
@@ -267,7 +263,9 @@ function BrowserTabStripImpl() {
     ...taskDetailQuery(activeSession.taskId ?? ""),
     enabled: !!activeSession.taskId,
   });
-  const { data: activeReportRecord } = useInboxReportById(activeReportId);
+  const { data: activeReportRecord } = useInboxReportById(
+    activeActivityReportId,
+  );
   // Remember names so a background tab from another channel keeps its label
   // after its channel's list unloads. Written in an effect (not during render)
   // to keep render pure; the tabs memo reads the live lists first anyway.
@@ -297,19 +295,20 @@ function BrowserTabStripImpl() {
       if (activeTaskRecord?.id === sessionId) return activeTaskRecord.title;
       return allTasks?.find((t) => t.id === sessionId)?.title ?? null;
     }
-    if (params.dashboardId) {
-      if (activeRecord?.id === params.dashboardId) return activeRecord.name;
-      return dashboards.find((d) => d.id === params.dashboardId)?.name ?? null;
+    if (canvasId) {
+      if (activeRecord && activeRecord.id === canvasId)
+        return activeRecord.name;
+      return dashboards.find((d) => d.id === canvasId)?.name ?? null;
     }
-    if (activeReportId) {
-      if (activeReportRecord?.id !== activeReportId) return null;
-      return humanizeReportTitle(activeReportRecord.title, "Untitled report");
+    if (activeActivityReportId) {
+      if (activeReportRecord?.id !== activeActivityReportId) return null;
+      return activeReportRecord.title?.trim() || "Untitled report";
     }
     return null;
   }, [
     activeSession.taskId,
-    params.dashboardId,
-    activeReportId,
+    canvasId,
+    activeActivityReportId,
     activeTaskRecord,
     allTasks,
     activeRecord,
@@ -328,7 +327,7 @@ function BrowserTabStripImpl() {
     }
     // A selected Activity report owns the tab label. While its query resolves,
     // keep the tab's stored title instead of replacing it with "Activity".
-    if (activeReportId) return null;
+    if (activeActivityReportId) return null;
     if (routeAppView) return TAB_APP_VIEW_META[routeAppView].label;
     return null;
   }, [
@@ -337,7 +336,7 @@ function BrowserTabStripImpl() {
     feedName,
     params.channelId,
     activeSession.channelId,
-    activeReportId,
+    activeActivityReportId,
     channelName,
     routeChannelSection,
     routeAppView,
@@ -380,7 +379,7 @@ function BrowserTabStripImpl() {
     // decision is made on: it is all-null outside its vocabulary, so two
     // unrelated routes look identical through it.
     const identity: TabIdentity = {
-      dashboardId: params.dashboardId ?? null,
+      dashboardId: canvasId,
       // `activeSession`, not `params`: Activity and a feed read a session into
       // the pane from their route's SEARCH rather than a path param, so the tab
       // would otherwise show "New tab" over an open session.
@@ -503,7 +502,7 @@ function BrowserTabStripImpl() {
     locationIsCurrent,
     settledTabId,
     params.channelId,
-    params.dashboardId,
+    canvasId,
     routeChannelSection,
     routeAppView,
     locationHref,
@@ -560,7 +559,7 @@ function BrowserTabStripImpl() {
         // route (instant) rather than its stored ids (which lag a navigation).
         const isActive = t.id === activeTabId;
         const taskId = isActive ? (activeSession.taskId ?? null) : t.taskId;
-        const dashId = isActive ? (params.dashboardId ?? null) : t.dashboardId;
+        const dashId = isActive ? canvasId : t.dashboardId;
         const channelId = isActive
           ? (params.channelId ?? activeSession.channelId ?? null)
           : t.channelId;
@@ -610,17 +609,17 @@ function BrowserTabStripImpl() {
         // space to Activity, persisted channel context must not turn the new
         // top-level tab into a space tab.
         if (appView && isTabAppView(appView)) {
-          const tabReportId = isActive
-            ? activeReportId
-            : (activityReportIdFromHref(t.href) ?? reportIdFromHref(t.href));
-          const reportTab = tabReportId
+          const activityReportId = isActive
+            ? activeActivityReportId
+            : activityReportIdFromHref(t.href);
+          const activityReport = activityReportId
             ? {
                 title: isActive
                   ? (activeTitle ?? t.viewState?.title)
                   : t.viewState?.title,
               }
             : null;
-          const display = resolveTabAppViewDisplay(appView, reportTab);
+          const display = resolveTabAppViewDisplay(appView, activityReport);
           return {
             id: t.id,
             ...display,
@@ -669,10 +668,10 @@ function BrowserTabStripImpl() {
     activeTaskRecord,
     activeTabId,
     params.channelId,
-    params.dashboardId,
+    canvasId,
     activeSession.taskId,
     activeSession.channelId,
-    activeReportId,
+    activeActivityReportId,
     activeTitle,
     routeChannelSection,
     routeAppView,
@@ -740,7 +739,6 @@ function BrowserTabStripImpl() {
             navigate({ to: "/activity", state });
             break;
           case "home":
-          case "report":
             navigate({ to: "/", state });
             break;
           case "inbox":

@@ -19,6 +19,16 @@ export type CanvasCreator = z.infer<typeof canvasCreatorSchema>;
 // epoch-ms timestamps. Source code and version history are NOT part of the
 // record — they live behind the source/versions endpoints, and the rendered
 // output behind the build lifecycle.
+export const canvasTypeSchema = z.enum(["canvas", "sketchpad"]);
+export type CanvasType = z.infer<typeof canvasTypeSchema>;
+export const CANVAS_TYPE_PARAM = "type";
+
+export function canvasTypeFromSearch(
+  value: string | null | undefined,
+): CanvasType {
+  return value === "sketchpad" ? "sketchpad" : "canvas";
+}
+
 const canvasKindSchema = z.enum(["freeform", "grid", "component"]);
 export const dashboardRecordSchema = z.object({
   id: z.string(),
@@ -33,7 +43,7 @@ export const dashboardRecordSchema = z.object({
   // For components: the head version's placement contract (size, configSchema).
   componentMeta: componentMetaSchema.nullish(),
   templateId: z.string().default("freeform"),
-  canvasType: z.enum(["canvas", "sketchpad"]).default("canvas"),
+  canvasType: canvasTypeSchema.default("canvas"),
   // Id of the task currently generating this canvas (freeform gen runs as a
   // dedicated task, like CONTEXT.md). null/absent = no generation in flight.
   generationTaskId: z.string().nullish(),

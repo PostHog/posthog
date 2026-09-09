@@ -1,3 +1,4 @@
+import { CANVAS_TYPE_PARAM } from "@posthog/core/canvas/dashboardSchemas";
 import {
   type CloudRegion,
   getCloudUrlFromRegion,
@@ -97,7 +98,7 @@ export function sketchpadShareUrl(
   regionOverride?: CloudRegion | null,
 ): string | null {
   return getPostHogUrl(
-    `/code/canvas/${encodeURIComponent(channelId)}/${encodeURIComponent(sketchpadId)}?type=sketchpad`,
+    `/code/canvas/${encodeURIComponent(channelId)}/${encodeURIComponent(sketchpadId)}?${CANVAS_TYPE_PARAM}=sketchpad`,
     regionOverride,
   );
 }

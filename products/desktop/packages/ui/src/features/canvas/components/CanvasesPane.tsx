@@ -34,8 +34,7 @@ import { useCanvasViewedStore } from "@posthog/ui/features/canvas/stores/canvasV
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { SketchpadTag } from "@posthog/ui/features/sketchpad/components/SketchpadTag";
-import { useAllSketchpadsAsCanvases } from "@posthog/ui/features/sketchpad/hooks/useSketchpadsAsCanvases";
-import { navigateToSketchpads } from "@posthog/ui/router/navigationBridge";
+import { navigateToSpaceSketchpad } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -51,12 +50,7 @@ export function CanvasesPane({
 }: {
   className?: string;
 }): ReactElement {
-  const { dashboards: canvases, isLoading } = useAllCanvases();
-  const boards = useAllSketchpadsAsCanvases();
-  const dashboards = useMemo(
-    () => (boards.length === 0 ? canvases : [...canvases, ...boards]),
-    [boards, canvases],
-  );
+  const { dashboards, isLoading } = useAllCanvases();
   const { channels } = useChannels();
   const { data: currentUser } = useMeQuery();
   const canvasListService = useService<CanvasListService>(CANVAS_LIST_SERVICE);
@@ -131,10 +125,6 @@ export function CanvasesPane({
     setSettings(update.settings);
   };
   const open = (canvas: DashboardRecord): void => {
-    if (canvas.canvasType === "sketchpad") {
-      navigateToSketchpads(canvas.id);
-      return;
-    }
     track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
       action_type: "open",
       surface: "canvases_pane",
@@ -142,7 +132,9 @@ export function CanvasesPane({
       dashboard_id: canvas.id,
       template_id: canvas.templateId,
     });
-    void navigate({ to: "/canvases", search: { canvas: canvas.id } });
+    if (canvas.canvasType === "sketchpad")
+      navigateToSpaceSketchpad(canvas.channelId, canvas.id);
+    else void navigate({ to: "/canvases", search: { canvas: canvas.id } });
   };
   return (
     <Autocomplete<string>
@@ -169,7 +161,11 @@ export function CanvasesPane({
           onClear={() => setQuery("")}
           actions={
             <>
-              <NewCanvasMenu channelId={undefined} compact />
+              <NewCanvasMenu
+                surface="canvases_pane"
+                channelId={undefined}
+                compact
+              />
               <CanvasFilterMenu
                 spaceOptions={spaceOptions}
                 creatorOptions={viewModel.creatorOptions}

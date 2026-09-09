@@ -1,5 +1,8 @@
 import { DotsThreeIcon, LinkIcon, TrashIcon } from "@phosphor-icons/react";
-import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
+import type {
+  CanvasType,
+  DashboardRecord,
+} from "@posthog/core/canvas/dashboardSchemas";
 import {
   Badge,
   Button,
@@ -17,28 +20,18 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
 import { deleteCanvasWithUndo } from "@posthog/ui/features/canvas/deleteCanvasWithUndo";
 import { useCanvasTemplates } from "@posthog/ui/features/canvas/hooks/useCanvasTemplates";
-import {
-  useDashboardMutations,
-  useDashboards,
-} from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { useDashboards } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useIsCanvasPendingDelete } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
-import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
-import { useSketchpadMutations } from "@posthog/ui/features/sketchpad/hooks/useSketchpadMutations";
-import { useSpaceSketchpadsAsCanvases } from "@posthog/ui/features/sketchpad/hooks/useSketchpadsAsCanvases";
 import { track } from "@posthog/ui/shell/analytics";
 import { Box, Flex, Grid } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
-import { memo, useMemo, useState } from "react";
+import { memo, useState } from "react";
+import { useCanvasActions } from "../hooks/useCanvasActions";
 
 // A channel's dashboards index: a grid of cards, each showing a scaled-down
 // live preview. Clicking a card opens the full dashboard.
 export function WebsiteDashboardsIndex({ channelId }: { channelId: string }) {
-  const { dashboards: canvases, isLoading } = useDashboards(channelId);
-  const boards = useSpaceSketchpadsAsCanvases(channelId);
-  const dashboards = useMemo(
-    () => [...canvases, ...boards].sort((a, b) => b.updatedAt - a.updatedAt),
-    [canvases, boards],
-  );
+  const { dashboards, isLoading } = useDashboards(channelId);
 
   // templateId -> display name, for the per-card badge ("Freeform (React)", …).
   // Falls back to the raw id for any template not in the registry.
@@ -65,7 +58,11 @@ export function WebsiteDashboardsIndex({ channelId }: { channelId: string }) {
             Create one and build it with the agent, then save it.
           </Text>
         </Flex>
-        <NewCanvasMenu channelId={channelId} variant="primary" />
+        <NewCanvasMenu
+          surface="dashboards_grid"
+          channelId={channelId}
+          variant="primary"
+        />
       </Flex>
     );
   }
@@ -100,7 +97,6 @@ const DashboardCard = memo(function DashboardCard({
   // Inside its delete-undo window the card stays in the grid (Undo puts it
   // straight back) but is dimmed and inert.
   const pendingDelete = useIsCanvasPendingDelete(summary.id);
-  const isSketchpad = summary.canvasType === "sketchpad";
   return (
     <Box
       className={cn(
@@ -109,15 +105,7 @@ const DashboardCard = memo(function DashboardCard({
       )}
     >
       <Link
-        {...(isSketchpad
-          ? {
-              to: "/spaces/$channelId/sketchpads/$sketchpadId" as const,
-              params: { channelId, sketchpadId: summary.id },
-            }
-          : {
-              to: "/spaces/$channelId/dashboards/$dashboardId" as const,
-              params: { channelId, dashboardId: summary.id },
-            })}
+        {...canvasLinkProps(summary, channelId)}
         className="no-underline"
         onClick={() =>
           track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
@@ -155,7 +143,7 @@ const DashboardCard = memo(function DashboardCard({
         id={summary.id}
         name={summary.name}
         channelId={channelId}
-        isSketchpad={isSketchpad}
+        canvasType={summary.canvasType}
       />
     </Box>
   );
@@ -176,16 +164,15 @@ function DashboardCardMenu({
   id,
   name,
   channelId,
-  isSketchpad,
+  canvasType,
 }: {
   id: string;
   name: string;
   channelId: string;
-  isSketchpad: boolean;
+  canvasType: CanvasType;
 }) {
   const [open, setOpen] = useState(false);
-  const { invalidateDashboards } = useDashboardMutations();
-  const { removeSketchpad } = useSketchpadMutations();
+  const { removeCanvas, copyCanvas } = useCanvasActions();
 
   const onDelete = () => {
     deleteCanvasWithUndo({
@@ -193,13 +180,12 @@ function DashboardCardMenu({
       channelId,
       name,
       surface: "dashboards_grid",
-      remove: isSketchpad ? () => removeSketchpad(id) : undefined,
-      invalidate: isSketchpad ? undefined : invalidateDashboards,
+      remove: () => removeCanvas(id, canvasType),
     });
   };
 
   return (
-    <div
+    <Box
       className={cn(
         "absolute top-2 right-2 transition-opacity",
         open ? "opacity-100" : "opacity-0 group-hover:opacity-100",
@@ -220,12 +206,7 @@ function DashboardCardMenu({
         <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
           <DropdownMenuItem
             onClick={() =>
-              void copyCanvasLink(
-                channelId,
-                id,
-                "dashboards_grid",
-                isSketchpad ? "sketchpad" : "canvas",
-              )
+              void copyCanvas(channelId, id, canvasType, "dashboards_grid")
             }
           >
             <LinkIcon size={14} />
@@ -237,7 +218,7 @@ function DashboardCardMenu({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-    </div>
+    </Box>
   );
 }
 
@@ -253,4 +234,16 @@ function PreviewPlaceholder({ label }: { label: string }) {
       </Text>
     </Flex>
   );
+}
+
+function canvasLinkProps(summary: DashboardRecord, channelId: string) {
+  return summary.canvasType === "sketchpad"
+    ? ({
+        to: "/spaces/$channelId/sketchpads/$sketchpadId",
+        params: { channelId, sketchpadId: summary.id },
+      } as const)
+    : ({
+        to: "/spaces/$channelId/dashboards/$dashboardId",
+        params: { channelId, dashboardId: summary.id },
+      } as const);
 }

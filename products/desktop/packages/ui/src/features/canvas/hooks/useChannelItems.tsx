@@ -15,21 +15,16 @@ import { deleteCanvasWithUndo } from "@posthog/ui/features/canvas/deleteCanvasWi
 import { useChannelFeed } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelTasks } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
-import {
-  useDashboardMutations,
-  useDashboards,
-} from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { useDashboards } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { useSidebarSessionMap } from "@posthog/ui/features/sidebar/useSidebarSessionMap";
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
-import { useSketchpadMutations } from "@posthog/ui/features/sketchpad/hooks/useSketchpadMutations";
-import { useSpaceSketchpadsAsCanvases } from "@posthog/ui/features/sketchpad/hooks/useSketchpadsAsCanvases";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
 import { toast } from "@posthog/ui/primitives/toast";
-import { navigateToSpaceSketchpad } from "@posthog/ui/router/navigationBridge";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
+import { useCanvasActions } from "./useCanvasActions";
 
 /**
  * A channel's canvases + task feed as merged items, most recently active first, plus the
@@ -87,13 +82,7 @@ export function useChannelItems(channelId: string): {
   const identityKnown = channel !== undefined;
   const isPersonal = channel?.channelType === "personal";
 
-  const { dashboards: canvases, isLoading: dashboardsLoading } =
-    useDashboards(channelId);
-  const boards = useSpaceSketchpadsAsCanvases(channelId);
-  const dashboards = useMemo(
-    () => (boards.length === 0 ? canvases : [...canvases, ...boards]),
-    [boards, canvases],
-  );
+  const { dashboards, isLoading: dashboardsLoading } = useDashboards(channelId);
   const { tasks: feedTasks, isLoading: feedLoading } =
     useChannelFeed(channelId);
   const { tasks: filedTaskRecords, isLoading: filedTasksLoading } =
@@ -104,13 +93,8 @@ export function useChannelItems(channelId: string): {
   const archivedTaskIds = useArchivedTaskIds();
   const { pinnedTaskIds, togglePin, setPinnedMany } = usePinnedTasks();
   const { archiveTask } = useArchiveTask({ navigateUnscoped: true });
-  const {
-    setPinned: setCanvasPinned,
-    fileDashboard,
-    invalidateDashboards,
-  } = useDashboardMutations();
-  const { fileSketchpad, removeSketchpad, setSketchpadPinned } =
-    useSketchpadMutations();
+  const { openCanvas, setCanvasPinned, fileCanvas, removeCanvas } =
+    useCanvasActions();
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser, isLoading: viewerLoading } = useCurrentUser({
     client,
@@ -169,14 +153,7 @@ export function useChannelItems(channelId: string): {
     () => ({
       open: (item) => {
         if (item.kind === "canvas") {
-          if (item.canvasType === "sketchpad") {
-            navigateToSpaceSketchpad(channelId, item.id);
-            return;
-          }
-          void navigate({
-            to: "/spaces/$channelId/dashboards/$dashboardId",
-            params: { channelId, dashboardId: item.id },
-          });
+          openCanvas(channelId, item.id, item.canvasType);
         } else {
           void navigate({
             to: "/spaces/$channelId/tasks/$taskId",
@@ -186,11 +163,9 @@ export function useChannelItems(channelId: string): {
       },
       togglePin: (item) => {
         const pin =
-          item.kind !== "canvas"
-            ? togglePin(item.id)
-            : item.canvasType === "sketchpad"
-              ? setSketchpadPinned(item.id, !item.pinned)
-              : setCanvasPinned(item.id, !item.pinned);
+          item.kind === "canvas"
+            ? setCanvasPinned(item.id, !item.pinned, item.canvasType)
+            : togglePin(item.id);
         pin.catch(() => {
           toast.error("Couldn't update pin");
         });
@@ -223,9 +198,7 @@ export function useChannelItems(channelId: string): {
         }
 
         const canvasPins = canvases.map((canvas) =>
-          canvas.canvasType === "sketchpad"
-            ? setSketchpadPinned(canvas.id, pinned)
-            : setCanvasPinned(canvas.id, pinned),
+          setCanvasPinned(canvas.id, pinned, canvas.canvasType),
         );
         if (canvasPins.length > 0) {
           Promise.all(canvasPins).catch(() => {
@@ -238,11 +211,7 @@ export function useChannelItems(channelId: string): {
       },
       fileCanvas: async (item, targetChannelId) => {
         try {
-          if (item.canvasType === "sketchpad") {
-            await fileSketchpad(item.id, targetChannelId);
-          } else {
-            await fileDashboard(item.id, targetChannelId);
-          }
+          await fileCanvas(item.id, targetChannelId, item.canvasType);
           const targetName = channels.find(
             (candidate) => candidate.id === targetChannelId,
           )?.name;
@@ -263,12 +232,7 @@ export function useChannelItems(channelId: string): {
           channelId,
           name: item.title,
           surface: "sidebar",
-          remove:
-            item.canvasType === "sketchpad"
-              ? () => removeSketchpad(item.id)
-              : undefined,
-          invalidate:
-            item.canvasType === "sketchpad" ? undefined : invalidateDashboards,
+          remove: () => removeCanvas(item.id, item.canvasType),
         });
       },
     }),
@@ -276,15 +240,13 @@ export function useChannelItems(channelId: string): {
       channelId,
       navigate,
       setCanvasPinned,
-      fileSketchpad,
-      removeSketchpad,
-      setSketchpadPinned,
+      openCanvas,
+      fileCanvas,
+      removeCanvas,
       togglePin,
       setPinnedMany,
       archiveTask,
-      fileDashboard,
       channels,
-      invalidateDashboards,
     ],
   );
 

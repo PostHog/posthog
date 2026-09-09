@@ -19,8 +19,11 @@ import {
   NEW_SKETCHPAD_TEMPLATE_HINT,
   NEW_SKETCHPAD_TEMPLATE_NAME,
 } from "@posthog/ui/features/sketchpad/sketchpadCopy";
+import { toast } from "@posthog/ui/primitives/toast";
 import { navigateToSpaceSketchpad } from "@posthog/ui/router/navigationBridge";
+import { logger } from "@posthog/ui/shell/logger";
 import type { ReactElement, ReactNode } from "react";
+import type { CreateSurface } from "../createCanvasAnalytics";
 
 const NEW_CANVAS_ACTION = "New canvas";
 
@@ -60,10 +63,12 @@ function CanvasKindItem({
 
 export function NewCanvasMenu({
   channelId,
+  surface,
   variant = "outline",
   compact = false,
 }: {
   channelId: string | undefined;
+  surface: CreateSurface;
   variant?: "outline" | "primary";
   compact?: boolean;
 }) {
@@ -72,7 +77,7 @@ export function NewCanvasMenu({
   const sketchpadsEnabled = useSketchpadsFlag();
   const { createSketchpad, isCreating } = useSketchpadMutations();
   const { channels } = useChannels();
-  const sketchpadChannelId =
+  const targetChannelId =
     channelId ??
     channels.find((channel) => channel.channelType === "personal")?.id;
 
@@ -89,25 +94,39 @@ export function NewCanvasMenu({
   );
 
   const newSketchpad = async (): Promise<void> => {
-    if (!sketchpadChannelId) return;
-    const board = await createSketchpad(
-      sketchpadChannelId,
-      DEFAULT_SKETCHPAD_NAME,
-    );
-    navigateToSpaceSketchpad(sketchpadChannelId, board.id);
+    if (!targetChannelId) return;
+    try {
+      const board = await createSketchpad(
+        targetChannelId,
+        DEFAULT_SKETCHPAD_NAME,
+      );
+      navigateToSpaceSketchpad(targetChannelId, board.id);
+    } catch (error) {
+      logger.scope("sketchpad").error("Failed to create sketchpad", { error });
+      toast.error("Couldn't create sketchpad", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
   };
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger render={trigger} />
       <DropdownMenuContent align="end" className="w-72">
-        {sketchpadsEnabled && sketchpadChannelId ? (
+        {sketchpadsEnabled && targetChannelId ? (
           <CanvasKindItem
             disabled={isCreating}
             hint={NEW_SKETCHPAD_TEMPLATE_HINT}
             icon={<SquaresFourIcon size={14} className="text-gray-9" />}
             name={NEW_SKETCHPAD_TEMPLATE_NAME}
-            onClick={newSketchpad}
+            onClick={() =>
+              trackAndCreateCanvas(
+                targetChannelId,
+                "sketchpad",
+                surface,
+                () => void newSketchpad(),
+              )
+            }
           />
         ) : null}
         {templates.length === 0 ? (
@@ -116,10 +135,10 @@ export function NewCanvasMenu({
             name={NEW_CANVAS_ACTION}
             onClick={() =>
               trackAndCreateCanvas(
-                channelId,
+                targetChannelId,
                 undefined,
-                "dashboards_grid",
-                () => void createAndOpen({ channelId: sketchpadChannelId }),
+                surface,
+                () => void createAndOpen({ channelId: targetChannelId }),
               )
             }
           />
@@ -132,13 +151,13 @@ export function NewCanvasMenu({
               name={template.name}
               onClick={() =>
                 trackAndCreateCanvas(
-                  channelId,
+                  targetChannelId,
                   template.id,
-                  "dashboards_grid",
+                  surface,
                   () =>
                     void createAndOpen({
                       templateId: template.id,
-                      channelId: sketchpadChannelId,
+                      channelId: targetChannelId,
                     }),
                 )
               }

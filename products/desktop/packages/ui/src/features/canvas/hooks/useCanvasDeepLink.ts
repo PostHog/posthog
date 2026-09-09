@@ -1,3 +1,4 @@
+import type { CanvasType } from "@posthog/core/canvas/dashboardSchemas";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
@@ -48,7 +49,7 @@ export function useCanvasDeepLink() {
     (
       channelId: string,
       dashboardId: string,
-      canvasType: "canvas" | "sketchpad" = "canvas",
+      canvasType: CanvasType = "canvas",
     ) => {
       log.info(
         `Opening canvas from deep link: channelId=${channelId} dashboardId=${dashboardId} version=${canvasType}`,

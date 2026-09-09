@@ -54,17 +54,15 @@ const CLAIMED: readonly NavRailPane[] = [
   "feeds",
 ];
 
-const SKETCHPADS_ROOT = "/sketchpads";
+const EXTRA_ROOTS: readonly (readonly [string, NavRailPane])[] = [
+  ["/sketchpads", "canvases"],
+];
 
 export function railPaneForPath(fullPath: string): NavRailPane {
-  if (
-    fullPath === SKETCHPADS_ROOT ||
-    fullPath.startsWith(`${SKETCHPADS_ROOT}/`)
-  ) {
-    return "canvases";
-  }
-  for (const pane of CLAIMED) {
-    const root = RAIL_PANE_ROOT[pane];
+  for (const [root, pane] of [
+    ...CLAIMED.map((pane) => [RAIL_PANE_ROOT[pane], pane] as const),
+    ...EXTRA_ROOTS,
+  ]) {
     if (fullPath === root) return pane;
     // Home is exact-only: every path starts with "/", so a prefix test would
     // hand it every route in the app.

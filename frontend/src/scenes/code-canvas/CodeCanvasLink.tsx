@@ -8,10 +8,13 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { DESKTOP_SCHEME } from './desktopScheme'
 
+const CANVAS_TYPE_PARAM = 'type'
+type CanvasType = 'canvas' | 'sketchpad'
+
 export interface CodeCanvasLinkProps {
     channelId: string
     dashboardId: string
-    canvasType: 'canvas' | 'sketchpad'
+    canvasType: CanvasType
 }
 
 export const scene: SceneExport<CodeCanvasLinkProps> = {
@@ -19,13 +22,13 @@ export const scene: SceneExport<CodeCanvasLinkProps> = {
     paramsToProps: ({ params: { channelId, dashboardId }, searchParams }) => ({
         channelId: channelId ?? '',
         dashboardId: dashboardId ?? '',
-        canvasType: searchParams?.type === 'sketchpad' ? 'sketchpad' : 'canvas',
+        canvasType: searchParams?.[CANVAS_TYPE_PARAM] === 'sketchpad' ? 'sketchpad' : 'canvas',
     }),
 }
 
-function canvasDeepLink(channelId: string, dashboardId: string, canvasType: 'canvas' | 'sketchpad'): string {
+function canvasDeepLink(channelId: string, dashboardId: string, canvasType: CanvasType): string {
     const base = `${DESKTOP_SCHEME}://canvas/${encodeURIComponent(channelId)}/${encodeURIComponent(dashboardId)}`
-    return canvasType === 'sketchpad' ? `${base}?type=sketchpad` : base
+    return canvasType === 'sketchpad' ? `${base}?${CANVAS_TYPE_PARAM}=sketchpad` : base
 }
 
 /**
