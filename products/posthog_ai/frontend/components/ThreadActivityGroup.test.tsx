@@ -139,7 +139,8 @@ describe('ThreadActivityGroup', () => {
             />
         )
         const { rerender } = render(renderGroup(group))
-        fireEvent.click(screen.getByRole('button', { name: 'Thinking' }))
+        expect(screen.getByTestId('thread-activity-toggle')).toHaveTextContent('Thinking')
+        fireEvent.click(screen.getByTestId('thread-activity-toggle'))
         expect(screen.getByText('Compare the available approaches.')).toBeVisible()
         expect(screen.getAllByRole('button')).toHaveLength(1)
 
