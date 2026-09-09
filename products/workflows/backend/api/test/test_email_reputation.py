@@ -284,6 +284,33 @@ class TestEmailReputationAPI(APIBaseTest):
         assert allowance["emails_per_hour"] > 0
         assert allowance["emails_per_day"] > 0
 
+    @parameterized.expand(
+        [
+            ("never synced", "", False),
+            ("enabled", "ENABLED", False),
+            ("reinstated", "REINSTATED", False),
+            ("disabled", "DISABLED", True),
+        ]
+    )
+    def test_email_sending_suspension_endpoint_reports_a_provider_pause(
+        self, _name: str, sending_status: str, expected: bool
+    ):
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team, defaults={"ses_tenant_sending_status": sending_status}
+        )
+
+        with patch(
+            "products.workflows.backend.api.hog_flow.fetch_app_metric_totals_by_team_and_source",
+            return_value={},
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/email_sending_suspension")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["email_sending_provider_suspended"] is expected
+        # The provider pause is the tenant's, not the staff kill switch, so that flag stays off.
+        assert data["email_sending_suspended"] is False
+
     def _verify_sending_domain(self, domain: str = "mail.example.com") -> None:
         Integration.objects.create(
             team=self.team,

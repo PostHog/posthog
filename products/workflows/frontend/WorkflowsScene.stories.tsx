@@ -26,6 +26,7 @@ function status(allowance: EmailSendingSuspensionStatusApi['sending_allowance'])
         email_sending_suspended: false,
         email_sending_suspended_at: null,
         email_sending_suspension_reason: '',
+        email_sending_provider_suspended: false,
         sending_allowance: allowance,
     }
 }

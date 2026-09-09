@@ -136,8 +136,12 @@ export const scene: SceneExport<WorkflowsSceneProps> = {
 
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { currentTab } = useValues(workflowsSceneLogic(props))
-    const { emailSendingSuspended, emailSendingSuspensionReason, reachedEmailSendingCap } =
-        useValues(workflowsEmailSuspensionLogic)
+    const {
+        emailSendingSuspended,
+        emailSendingSuspensionReason,
+        emailSendingProviderSuspended,
+        reachedEmailSendingCap,
+    } = useValues(workflowsEmailSuspensionLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
@@ -329,7 +333,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                     support to get sending re-enabled.
                 </LemonBanner>
             )}
-            {!emailSendingSuspended && reachedEmailSendingCap && (
+            {!emailSendingSuspended && !emailSendingProviderSuspended && reachedEmailSendingCap && (
                 <LemonBanner type="warning" data-attr="workflows-email-cap-banner">
                     This project has used its full sending allowance of{' '}
                     {humanFriendlyNumber(reachedEmailSendingCap.limit)} emails per {reachedEmailSendingCap.period}.
