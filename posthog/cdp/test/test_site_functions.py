@@ -148,6 +148,17 @@ class TestSiteFunctions(TestCase):
         assert "function getInputsKey" not in result
 
     @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    def test_get_transpiled_function_with_templating_disabled(self, mock_transpile_fn):
+        self.hog_function.hog = "export function onLoad() { console.log(inputs.cssOverride); }"
+        self.hog_function.inputs_schema = [{"key": "cssOverride", "type": "string", "templating": False}]
+        self.hog_function.inputs = {"cssOverride": {"value": ".bar { color: red }"}}
+
+        result = self.compile_and_run()
+
+        assert '"cssOverride": ".bar { color: red }"' in result
+        assert "function getInputsKey" not in result
+
+    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_list_inputs(self, mock_transpile_fn):
         self.hog_function.hog = "export function onLoad() { console.log(inputs.messages); }"
         self.hog_function.inputs = {"messages": {"value": ["Hello", "World", "{person.properties.name}"]}}

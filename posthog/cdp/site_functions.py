@@ -24,10 +24,18 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
 
     all_inputs = hog_function.inputs or {}
     all_inputs = sorted(all_inputs.items(), key=lambda x: x[1].get("order", -1))
+    # Without this, CSS and HTML braces in a literal input read as Hog placeholders
+    literal_keys = {
+        schema["key"]
+        for schema in hog_function.inputs_schema or []
+        if "key" in schema and schema.get("templating") is False
+    }
     for key, input in all_inputs:
         value = input.get("value")
         key_string = json.dumps(str(key) or "<empty>")
-        if (isinstance(value, str) and "{" in value) or isinstance(value, dict) or isinstance(value, list):
+        if key not in literal_keys and (
+            (isinstance(value, str) and "{" in value) or isinstance(value, dict) or isinstance(value, list)
+        ):
             base_code = transpile_template_code(value, compiler)
             inputs_switch += f"case {key_string}: return {base_code};\n"
             inputs_append.append(f"inputs[{key_string}] = getInputsKey({json.dumps(key)});")
