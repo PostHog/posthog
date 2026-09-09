@@ -57,8 +57,6 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
     # widget shows and what its config controls.
     description = models.TextField(blank=True, default="")
     template_id = models.CharField(max_length=64, default="freeform")
-    # Author-written markdown handed to generation tasks as background context.
-    context = models.TextField(blank=True, default="")
     # The task currently generating/editing this canvas. A plain UUID rather
     # than a FK: Task lives in the tasks app and a schema-level FK would chain
     # the two products' migrations together for a soft pointer.
