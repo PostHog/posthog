@@ -84,6 +84,10 @@ class AzureBlobIntegration:
         return None
 
 
+class EndpointNotAllowedError(ValueError):
+    """Distinct error raised when an endpoint is not allowed."""
+
+
 def validate_azure_blob_connection_string(connection_string: str) -> None:
     """Validate an Azure Blob connection string.
 
@@ -142,4 +146,4 @@ def validate_azure_blob_connection_string(connection_string: str) -> None:
             raise ValueError("Endpoints in the connection string must use https")
         allowed, error = is_url_allowed(endpoint)
         if not allowed:
-            raise ValueError(f"Invalid endpoint found in connection string: {error}")
+            raise EndpointNotAllowedError(f"Invalid endpoint found in connection string: {error}")
