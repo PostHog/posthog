@@ -373,6 +373,47 @@ describe('filterToMetricConfig', () => {
         })
     })
 
+    it.each([ExperimentMetricType.MEAN, ExperimentMetricType.FUNNEL])(
+        'preserves edited warehouse tables and join keys in an existing %s metric',
+        (metricType) => {
+            const source: ExperimentDataWarehouseNode = {
+                kind: NodeKind.ExperimentDataWarehouseNode,
+                table_name: 'orders',
+                timestamp_field: 'created_at',
+                events_join_key: 'distinct_id',
+                data_warehouse_join_key: 'customer_id',
+            }
+            const metric: ExperimentMetric =
+                metricType === ExperimentMetricType.MEAN
+                    ? { kind: NodeKind.ExperimentMetric, metric_type: metricType, source }
+                    : { kind: NodeKind.ExperimentMetric, metric_type: metricType, series: [source] }
+            const filter = getFilter(metric)
+            const dataWarehouse = filter.data_warehouse?.map((step) => ({
+                ...step,
+                id: 'invoices',
+                table_name: 'invoices',
+                id_field: 'account_id',
+                aggregation_target_field: 'properties.account_id',
+            }))
+
+            const result = filterToMetricConfig(metricType, filter.actions, filter.events, dataWarehouse)
+
+            const expectedSource = expect.objectContaining({
+                kind: NodeKind.ExperimentDataWarehouseNode,
+                table_name: 'invoices',
+                timestamp_field: 'created_at',
+                events_join_key: 'properties.account_id',
+                data_warehouse_join_key: 'account_id',
+            })
+            expect(result).toEqual({
+                metric_type: metricType,
+                ...(metricType === ExperimentMetricType.MEAN
+                    ? { source: expectedSource }
+                    : { series: [expectedSource] }),
+            })
+        }
+    )
+
     it('returns undefined when no valid sources are provided', () => {
         const result = filterToMetricConfig(ExperimentMetricType.MEAN, undefined, undefined, undefined)
         expect(result).toBeUndefined()
