@@ -3168,6 +3168,10 @@ snapshots:
         hash: v1.k794b7964.8f97758bb77e6ce5bf8743f49fc35ea00acd2e7e5da7b5428ec27c8f132479a9.uEmiN3xmnUkboRF7LBi99Ns_vWu1jTNSZd2bMuINdEU
     insights-sqlbargraph--stacked-bar-with-negative-values--light:
         hash: v1.k794b7964.e9f32e35e60194c76df1aad0e7963ca99bc76d2b6099437c5e679c4959feb976.3DeROLuvQPwEHmWPIxoY7SxfXAcAgX6gufInnDLnBh0
+    insights-sqlmetriccard--default--dark:
+        hash: v1.k794b7964.76f4e3c4cd2804af666f0468d31072602124556d82aa223b6660cd97271f4caa.928VYvoGe3aVu00xSR4wclIUv-vp_qsvqn8BKWUsDBQ
+    insights-sqlmetriccard--default--light:
+        hash: v1.k794b7964.1ad68ec9b7d4211384f53994f7abdc82065e2c801e22332589f4a60f1590b761.GR_EaYQlS2zbCj74wsiYr8BbKZmtoI016arf1ZcA28c
     insights-sqlpiegraph--breakdown-colors--dark:
         hash: v1.k794b7964.01928cb0ffb1554a01ffae8f214773557e22647fea676e40007a7803cec0af32.fk7qZ2CtcV_Ouq_6xOxJ7wqRdxmck-P18wvqRq1jLsc
     insights-sqlpiegraph--breakdown-colors--light:
@@ -3613,9 +3617,9 @@ snapshots:
     lemon-ui-icons3--shelf-s--light:
         hash: v1.k794b7964.1d5bcc73ae4ac5d20365176bf2c688249e26ca5be7e0cb663213aa1d968f9684.DeYOLC7IgPaFuulmbprhU64CPMsp9qn0e7MOo7AjB-E
     lemon-ui-icons3--shelf-t--dark:
-        hash: v1.k794b7964.266ace0cc426daa451e5e9ebc6bd9207b8312006c3204bbe626c4bba9a8d34f5.cydV_QOHzmYQCStDda2BAMb10GXwAHypEikMw3TAqL4
+        hash: v1.k794b7964.5ff1657fdbe447ae9bdfcdd40492d1a9d888cd8100cdd235d06b427f0fdaf089.ti_aYMtJzaNpjmr0bYAdFT7_TQI7f-SnTh31trhz0pQ
     lemon-ui-icons3--shelf-t--light:
-        hash: v1.k794b7964.2ccf046a32aae0bcf1c03ee1f99c2b8ef2d50cbf2c6d2e93686fc505fe710a41.jvCW2LZ8gg_Qn3HW8nz22FkHMBPm8f7wkVjt-lyZhOw
+        hash: v1.k794b7964.32b7f9b829c3082b5b3e3dc517b62f234b76f4c3290210f7a524bd9f98a82ab8.UinV4Lq9mrCVtde2PapxbYiSjLZDHeDpzArmyB3GJPI
     lemon-ui-icons3--shelf-u--dark:
         hash: v1.k794b7964.8c34f50c0e4bf5874ee0b544bc35ddb64d76f3dddf15b6d03e00c172dbaabba1.2cX2NWgpIQ23P7HbmyTSaIaUA88m5xVoUjT5djupG-g
     lemon-ui-icons3--shelf-u--light:
