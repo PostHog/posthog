@@ -311,7 +311,10 @@ def _query_ai_credits(
         LEFT JOIN trace_analysis t
             ON c.trace_id = t.trace_id
            AND c.session_id = t.session_id
-        WHERE t.is_billable = 1 OR t.trace_id IS NULL
+        -- Keep rows whose trace is billable, or that have no trace at all. Traceless products
+        -- bill on $ai_billable alone, which the costs CTE already enforces. Use empty() and not
+        -- IS NULL, because join_use_nulls=0 gives '' and not NULL for an unmatched trace_id.
+        WHERE t.is_billable = 1 OR empty(t.trace_id)
         {breakdown_group_by}
         """
 

@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import uuid4
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
 from django.core.exceptions import SynchronousOnlyOperation
@@ -13,6 +13,10 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from posthog.schema import AssistantMessage, HumanMessage
+
+from posthog.models import Organization, Team
+from posthog.tasks.usage_report import AI_BILLING_EXCLUDED_TOOLS, AI_COST_MARKUP_PERCENT
+from posthog.test.persons import create_group_type_mapping
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
@@ -509,3 +513,81 @@ class TestUsage(BaseTest):
         )
         self.assertIn("█" * 20, message)
         self.assertNotIn("░", message)
+
+
+class TestUsageCreditsAgainstClickhouse(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        self.analytics_team = Team.objects.create(organization=analytics_org, name="Analytics")
+        create_group_type_mapping(
+            team=self.analytics_team,
+            project_id=self.analytics_team.project_id,
+            group_type="instance",
+            group_type_index=1,
+        )
+
+    def _create_generation(self, *, ai_product: str, trace_id: str, cost_usd: float) -> None:
+        _create_event(
+            event="$ai_generation",
+            team=self.analytics_team,
+            distinct_id=f"user_{ai_product}",
+            timestamp=datetime(2026, 5, 1, 12, tzinfo=UTC),
+            properties={
+                "team_id": self.team.id,
+                "$ai_trace_id": trace_id,
+                "$ai_session_id": "session_1",
+                "$ai_total_cost_usd": cost_usd,
+                "$ai_billable": True,
+                "ai_product": ai_product,
+                "$group_1": CLOUD_REGION_TO_URL["US"],
+            },
+        )
+
+    def _create_unbillable_trace(self, *, trace_id: str) -> None:
+        _create_event(
+            event="$ai_trace",
+            team=self.analytics_team,
+            distinct_id="user_posthog_ai",
+            timestamp=datetime(2026, 5, 1, 12, tzinfo=UTC),
+            properties={
+                "$ai_trace_id": trace_id,
+                "$ai_session_id": "session_1",
+                "$ai_output_state": {
+                    "messages": [
+                        {"type": "human", "content": "hi"},
+                        {"type": "ai", "tool_calls": [{"name": AI_BILLING_EXCLUDED_TOOLS[0], "args": {}}]},
+                    ]
+                },
+                "$group_1": CLOUD_REGION_TO_URL["US"],
+            },
+        )
+
+    def test_traceless_product_counts_in_total_and_breakdown(self):
+        begin = datetime(2026, 5, 1, tzinfo=UTC)
+        end = datetime(2026, 5, 2, tzinfo=UTC)
+        # Surveys and replay vision emit $ai_generation with a fresh trace id and no $ai_trace, so
+        # the LEFT JOIN never matches and the row survives only on the empty-trace fallback.
+        self._create_generation(ai_product="surveys", trace_id="trace_surveys", cost_usd=1.0)
+        # A trace whose only tool call is excluded stays unbilled, so the fallback must not keep it.
+        self._create_generation(ai_product="posthog_ai", trace_id="trace_unbillable", cost_usd=2.0)
+        self._create_unbillable_trace(trace_id="trace_unbillable")
+        flush_persons_and_events()
+
+        expected_credits = round(1.0 * 100 * (1 + AI_COST_MARKUP_PERCENT))
+
+        with (
+            patch(
+                "ee.hogai.chat_agent.slash_commands.commands.usage.queries.get_instance_region",
+                return_value="US",
+            ),
+            patch.dict(
+                "ee.hogai.chat_agent.slash_commands.commands.usage.queries.CLOUD_REGION_TO_TEAM_ID",
+                {"US": self.analytics_team.id},
+            ),
+        ):
+            total = get_ai_credits(team_id=self.team.id, begin=begin, end=end)
+            breakdown = get_ai_credits_by_product(team_id=self.team.id, begin=begin, end=end)
+
+        self.assertEqual(total, expected_credits)
+        self.assertEqual(breakdown, [AiProductCredits(ai_product="surveys", credits=expected_credits)])
