@@ -1,4 +1,5 @@
 import { Lock, Prohibit } from "@phosphor-icons/react";
+import type { ModelPickerOption } from "@posthog/core/billing/modelPricing";
 import {
   DropdownMenuRadioItem,
   Tooltip,
@@ -23,11 +24,7 @@ export function ModelRadioItem({
   closeOnClick,
   unavailableReason,
 }: {
-  model: {
-    value: string;
-    name: string;
-    _meta?: Record<string, unknown> | null;
-  };
+  model: ModelPickerOption;
   closeOnClick?: boolean;
   unavailableReason?: string;
 }) {
@@ -39,13 +36,14 @@ export function ModelRadioItem({
       className={restricted || unavailableReason ? "opacity-60" : undefined}
     >
       <span className="whitespace-nowrap">{model.name}</span>
-      {unavailableReason ? (
-        <Prohibit size={11} className="ml-auto text-muted-foreground" />
-      ) : restricted ? (
-        <Lock size={11} className="ml-auto text-muted-foreground" />
-      ) : (
-        <ModelCostChip modelId={model.value} />
-      )}
+      <span className="ml-auto flex items-center">
+        {model.kind === "priced" ? <ModelCostChip cost={model.cost} /> : null}
+        {unavailableReason ? (
+          <Prohibit size={11} className="ml-1 text-muted-foreground" />
+        ) : restricted ? (
+          <Lock size={11} className="ml-1 text-muted-foreground" />
+        ) : null}
+      </span>
     </DropdownMenuRadioItem>
   );
 

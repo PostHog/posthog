@@ -39,39 +39,9 @@ done
 # Worktree base directory (configurable via POSTHOG_WORKTREE_BASE)
 WORKTREE_BASE="${POSTHOG_WORKTREE_BASE:-${HOME}/.worktrees/posthog}"
 
-# Copy helper that uses copy-on-write clones when available (APFS/Btrfs)
-# Returns 0 on success, 1 if CoW not available and require_cow is true
-clone_path() {
-    local source_path="$1"
-    local destination_path="$2"
-    local require_cow="${3:-false}"  # If true, fail when CoW unavailable
-    local cp_args=("-a")
-
-    if [[ "$(uname -s)" == "Darwin" ]]; then
-        # macOS: cp -c fails if cloning not supported
-        if cp -c "${cp_args[@]}" "$source_path" "$destination_path" 2>/dev/null; then
-            return 0
-        fi
-    else
-        # Linux: --reflink=auto silently falls back to regular copy,
-        # so use --reflink=always when CoW is required
-        if [[ "$require_cow" == "true" ]]; then
-            if cp --reflink=always "${cp_args[@]}" "$source_path" "$destination_path" 2>/dev/null; then
-                return 0
-            fi
-        else
-            if cp --reflink=auto "${cp_args[@]}" "$source_path" "$destination_path" 2>/dev/null; then
-                return 0
-            fi
-        fi
-    fi
-
-    # CoW not available or failed - either fall back to regular copy or skip
-    if [[ "$require_cow" == "true" ]]; then
-        return 1
-    fi
-
-    cp "${cp_args[@]}" "$source_path" "$destination_path"
+# Copy a single untracked config file into the worktree.
+copy_config_file() {
+    cp -a "$1" "$2"
 }
 
 # Clean up a stale worktree directory left over from a previous failed run.
@@ -266,18 +236,23 @@ setup_worktree_environment() {
     # Setup Flox environment for this worktree
     cd "${worktree_path}"
     
-    # Copy .flox env files and .envrc for direnv
+    # Overwrite the checked-out Flox environment with the main clone's copy.
+    # These files are tracked, so `git worktree add` already wrote the target
+    # branch's versions -- and that is the point: `flox activate --trust` below
+    # runs on-activate.sh as a bash hook, after this function has copied the
+    # developer's .env files in. For `phw pr` the branch is someone else's, so
+    # taking its hook would execute an untrusted contributor's shell with those
+    # secrets present. Copy the trusted versions over it.
     mkdir -p "${worktree_path}/.flox/env"
-    clone_path "${main_repo}/.flox/env/manifest.toml" "${worktree_path}/.flox/env/"
+    copy_config_file "${main_repo}/.flox/env/manifest.toml" "${worktree_path}/.flox/env/"
     [[ -f "${main_repo}/.flox/env/on-activate.sh" ]] && \
-        clone_path "${main_repo}/.flox/env/on-activate.sh" "${worktree_path}/.flox/env/"
-    clone_path "${main_repo}/.envrc" "${worktree_path}/"
+        copy_config_file "${main_repo}/.flox/env/on-activate.sh" "${worktree_path}/.flox/env/"
 
     # Copy .vscode/settings.json if it exists
     if [[ -f "${main_repo}/.vscode/settings.json" ]]; then
         print_color blue "Copying .vscode/settings.json…"
         mkdir -p "${worktree_path}/.vscode"
-        clone_path "${main_repo}/.vscode/settings.json" "${worktree_path}/.vscode/"
+        copy_config_file "${main_repo}/.vscode/settings.json" "${worktree_path}/.vscode/"
     fi
 
     # Copy .env and .env.* files if they exist
@@ -287,61 +262,36 @@ setup_worktree_environment() {
             env_files_found=true
             print_color blue "Copying .env files…"
         fi
-        clone_path "${env_file}" "${worktree_path}/"
+        copy_config_file "${env_file}" "${worktree_path}/"
     done < <(find "${main_repo}" -maxdepth 1 \( -name ".env" -o -name ".env.*" \) -type f -print0)
 
-    # Clone flox cache venv using copy-on-write if available (the real Python venv used by flox)
-    if [[ -d "${main_repo}/.flox/cache/venv" && ! -e "${worktree_path}/.flox/cache/venv" ]]; then
-        mkdir -p "${worktree_path}/.flox/cache"
-        if clone_path "${main_repo}/.flox/cache/venv" "${worktree_path}/.flox/cache/venv" true; then
-            print_color blue "Cloned .flox/cache/venv (copy-on-write)"
-            # Fix VIRTUAL_ENV path in activate scripts — the cloned venv has the
-            # source repo's path hardcoded, which puts the wrong bin/ on PATH.
-            local venv_bin="${worktree_path}/.flox/cache/venv/bin"
-            local old_venv="${main_repo}/.flox/cache/venv"
-            local new_venv="${worktree_path}/.flox/cache/venv"
-            local sed_inplace=(-i)
-            [[ "$(uname -s)" == "Darwin" ]] && sed_inplace=(-i '')
-            for activate_script in "${venv_bin}"/activate*; do
-                [[ -f "$activate_script" ]] && LC_ALL=C sed "${sed_inplace[@]}" "s|${old_venv}|${new_venv}|g" "$activate_script"
-            done
-            print_color blue "Patched venv activate scripts for worktree path"
-        else
-            print_color yellow "Skipping venv copy (CoW not available) — flox activate will create it"
-        fi
-    fi
-
-    # Clone node_modules using copy-on-write if available
-    if [[ -d "${main_repo}/node_modules" && ! -e "${worktree_path}/node_modules" ]]; then
-        if clone_path "${main_repo}/node_modules" "${worktree_path}/node_modules" true; then
-            print_color blue "Cloned node_modules (copy-on-write)"
-        else
-            print_color yellow "Skipping node_modules copy (CoW not available) — pnpm install will create it"
-        fi
-    fi
-
-    # Fix rdkafka dylib paths for worktree portability (macOS only)
-    if [[ "$(uname -s)" == "Darwin" && -d "${worktree_path}/node_modules" ]]; then
-        (cd "${worktree_path}" && bin/fix-rdkafka-paths)
-    fi
+    # Dependencies are not copied here. `flox activate` below installs them, and
+    # measuring both showed a copy-on-write clone of node_modules is slower than
+    # `pnpm install` and uses more disk, because pnpm materializes only what the
+    # lockfile names while the clone carries whatever accumulated in the source.
+    # Installing also keeps first-party workspace links and editable installs
+    # pointing at this worktree instead of the main clone.
 
     # Initialize Flox in the new worktree
     cd "${worktree_path}"
     print_color blue "Initializing Flox environment (this will share packages from cache)…"
     
-    # Check if direnv is installed and set up
+    # Arm direnv for later `cd`s, when it is installed.
     if command_exists direnv; then
         print_color blue "Detected direnv - allowing automatic activation…"
         # Clean up stale environment variables before direnv activation
         env -u VIRTUAL_ENV -u PYTHONPATH -u CONDA_DEFAULT_ENV direnv allow .
-        # direnv will automatically activate flox and run uv sync
-    else
-        # Manual activation if direnv not present
-        print_color blue "Installing Python dependencies via uv sync (this may take a minute)…"
-        # Clean up any stale environment variables that might conflict
-        unset VIRTUAL_ENV PYTHONPATH CONDA_DEFAULT_ENV
-        flox activate --trust -- uv sync
     fi
+
+    # Activate regardless. `direnv allow` only adds .envrc to the allow list, it
+    # does not evaluate it, and the shell hook may not be configured at all. The
+    # environment's on-activate hook is what installs the Python and Node
+    # dependencies, so without this the worktree would have none and setup would
+    # still report success.
+    print_color blue "Installing dependencies via flox activate (this may take a minute)…"
+    # Clean up any stale environment variables that might conflict
+    unset VIRTUAL_ENV PYTHONPATH CONDA_DEFAULT_ENV
+    flox activate --trust -- true
     
     success "✅ Worktree setup complete!"
     echo ""

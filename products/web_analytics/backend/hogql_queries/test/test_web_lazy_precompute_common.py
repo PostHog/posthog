@@ -13,6 +13,7 @@ from structlog.contextvars import get_contextvars
 from posthog.schema import (
     CohortPropertyFilter,
     CompareFilter,
+    CustomEventConversionGoal,
     DateRange,
     EventPropertyFilter,
     PersonPropertyFilter,
@@ -65,7 +66,10 @@ from products.web_analytics.backend.hogql_queries.web_overview import WebOvervie
 from products.web_analytics.backend.hogql_queries.web_stats_frustration_lazy_precompute import (
     WrongBreakdown as FrustrationWrongBreakdown,
 )
-from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import BreakdownOwnedByAnotherFamily
+from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import (
+    BreakdownOwnedByAnotherFamily,
+    can_use_lazy_precompute as can_use_stats_lazy_precompute,
+)
 from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import (
     MissingBounceRate,
     WrongBreakdown as PathsWrongBreakdown,
@@ -230,6 +234,124 @@ class TestEligibilityReasonTagging(BaseTest):
         log_eligibility_outcome(log_prefix="web_stats_table", team_id=self.team.pk, error=DateRangeOverMax(120))
 
         assert lazy_precompute_ineligible_reason(strategy) is None
+
+    def test_a_remapped_breakdown_records_a_reason(self) -> None:
+        # First-pageview attribution rewrites the breakdown and no family precomputes the rewritten
+        # shape, so this gate refuses before any reason is recorded. Left silent, the read is
+        # indistinguishable from one the owning family admitted but had no data for.
+        runner = WebStatsTableQueryRunner(
+            team=self.team,
+            query=WebStatsTableQuery(
+                dateRange=DateRange(date_from="-7d"),
+                properties=[],
+                breakdownBy=WebStatsBreakdown.INITIAL_UTM_SOURCE,
+            ),
+        )
+
+        with mock.patch.object(
+            WebStatsTableQueryRunner,
+            "_first_pageview_attribution_enabled",
+            new_callable=mock.PropertyMock,
+            return_value=True,
+        ):
+            with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
+                assert not can_use_stats_lazy_precompute(runner)
+
+        assert lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE) == "BreakdownRemapped"
+
+
+class TestOwningLazyPrecomputeFamily(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "page with bounce rate",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"),
+                    properties=[],
+                    breakdownBy=WebStatsBreakdown.PAGE,
+                    includeBounceRate=True,
+                ),
+                "paths",
+            ),
+            (
+                "page with avg time and no bounce rate",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"),
+                    properties=[],
+                    breakdownBy=WebStatsBreakdown.PAGE,
+                    includeAvgTimeOnPage=True,
+                ),
+                "paths",
+            ),
+            (
+                "page with neither",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"), properties=[], breakdownBy=WebStatsBreakdown.PAGE
+                ),
+                "simple",
+            ),
+            (
+                "page with a conversion goal",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"),
+                    properties=[],
+                    breakdownBy=WebStatsBreakdown.PAGE,
+                    includeBounceRate=True,
+                    conversionGoal=CustomEventConversionGoal(customEventName="signed_up"),
+                ),
+                "simple",
+            ),
+            (
+                "entry page with bounce rate",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"),
+                    properties=[],
+                    breakdownBy=WebStatsBreakdown.INITIAL_PAGE,
+                    includeBounceRate=True,
+                ),
+                "paths",
+            ),
+            (
+                "entry page without bounce rate",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"), properties=[], breakdownBy=WebStatsBreakdown.INITIAL_PAGE
+                ),
+                "simple",
+            ),
+            (
+                "frustration metrics",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"),
+                    properties=[],
+                    breakdownBy=WebStatsBreakdown.FRUSTRATION_METRICS,
+                ),
+                "frustration",
+            ),
+            (
+                "previous page",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"), properties=[], breakdownBy=WebStatsBreakdown.PREVIOUS_PAGE
+                ),
+                "simple",
+            ),
+            (
+                "browser",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"), properties=[], breakdownBy=WebStatsBreakdown.BROWSER
+                ),
+                "simple",
+            ),
+        ]
+    )
+    def test_family_mirrors_the_live_strategy_taxonomy(
+        self, _name: str, query: WebStatsTableQuery, expected: str
+    ) -> None:
+        # The classifier hand-mirrors the family-level branches of `_get_strategy`, and drift is
+        # silent either way: too narrow and a read consults a family that could never serve it, too
+        # broad and it skips the family that can and loses the precompute hit.
+        runner = WebStatsTableQueryRunner(team=self.team, query=query)
+
+        assert runner._owning_lazy_precompute_family() == expected
 
 
 class TestCacheKeyVariesWithRolloutState(BaseTest):

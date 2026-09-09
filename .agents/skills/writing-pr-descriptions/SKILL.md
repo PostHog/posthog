@@ -19,7 +19,23 @@ Order decides whether they understand the change at all.
 Form and length only decide how fast.
 So get the order right first, and never buy shape at the cost of it.
 
-Work in five passes: lead, route, cut, shape, check. Run all five.
+Work in five passes: lead, route, cut, shape, check. Run all five. When a body already exists, pass 0 comes first.
+
+## Pass 0: keep what the body already holds
+
+`gh pr edit --body` replaces the whole body, so every part of your draft that has no home is gone the moment you push it.
+An existing body holds work you cannot recreate: screenshots and recordings a person uploaded, links they collected, a checkbox they ticked, a note to a named reviewer.
+
+Read the current body and edit it, rather than writing a fresh one over the top:
+
+```sh
+gh pr view <number> --json body --jq .body > pr-body.md
+# edit pr-body.md
+gh pr edit <number> --body-file pr-body.md
+```
+
+Carry every image, video, link and ticked box into the new body, under the heading it belongs to, and add the heading when your draft has none.
+Replace one only when the change made it wrong, and say in the body that you replaced it.
 
 ## Pass 1: lead with the effect
 
@@ -234,13 +250,14 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 9. Rewrite every passive sentence in active voice, unless the actor is genuinely unknown. Break every noun string longer than three words with a preposition.
 10. Does any sentence take its author as the subject? Rewrite it around the change. "I", "me" and "my" appear nowhere.
 11. Does the PR change anything a person sees? Include before-and-after screenshots, or say why nothing looks different.
-12. Does the PR change a flow or topology? Include branded before-and-after diagrams.
-13. Does prose compare several values across the same dimensions? Replace it with a table.
-14. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
-15. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.
-16. Is the `## 🤖 Agent context` section filled, listing the skills invoked?
-17. Does the body claim manual testing that did not happen? Delete it.
-18. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
+12. Did you rewrite an existing body? Every image, video, link and ticked box a person put there still appears.
+13. Does the PR change a flow or topology? Include branded before-and-after diagrams.
+14. Does prose compare several values across the same dimensions? Replace it with a table.
+15. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
+16. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.
+17. Is the `## 🤖 Agent context` section filled, listing the skills invoked?
+18. Does the body claim manual testing that did not happen? Delete it.
+19. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
 
 ## Background
 

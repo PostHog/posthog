@@ -1,8 +1,7 @@
 import ast
-import hashlib
 import builtins
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Literal
 
 from posthog.dataclasses import frozen
 
@@ -419,48 +418,3 @@ def analyze_python_globals(code: str) -> PythonGlobalsAnalysis:
         used=sorted(analyzer.used),
         exported_with_types=exported_with_types,
     )
-
-
-def compute_globals_analysis_hash(code: str) -> str:
-    return hashlib.sha256(code.encode("utf-8")).hexdigest()
-
-
-def annotate_python_nodes(content: Any) -> Any:
-    if not isinstance(content, dict):
-        return content
-
-    def walk(node: Any) -> Any:
-        if not isinstance(node, dict):
-            return node
-
-        node_type = node.get("type")
-        if node_type == "ph-python":
-            attrs = node.get("attrs")
-            if isinstance(attrs, dict):
-                code = attrs.get("code", "")
-                if isinstance(code, str):
-                    code_hash = compute_globals_analysis_hash(code)
-                    existing_hash = attrs.get("globalsAnalysisHash")
-                    has_cached_analysis = (
-                        isinstance(existing_hash, str)
-                        and existing_hash == code_hash
-                        and "globalsUsed" in attrs
-                        and "globalsExportedWithTypes" in attrs
-                    )
-                    if not has_cached_analysis:
-                        analysis = analyze_python_globals(code)
-                        attrs = {
-                            **attrs,
-                            "globalsUsed": analysis.used,
-                            "globalsExportedWithTypes": analysis.exported_with_types,
-                            "globalsAnalysisHash": code_hash,
-                        }
-                        node = {**node, "attrs": attrs}
-
-        content_nodes = node.get("content")
-        if isinstance(content_nodes, list):
-            node = {**node, "content": [walk(child) for child in content_nodes]}
-
-        return node
-
-    return walk(content)

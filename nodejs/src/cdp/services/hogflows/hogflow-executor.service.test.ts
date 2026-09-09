@@ -178,7 +178,8 @@ describe('Hogflow Executor', () => {
             hogFlowFunctionsService,
             recipientPreferencesService,
             emailValidationService,
-            stubCohortMembershipRepository
+            stubCohortMembershipRepository,
+            hub.integrationManager
         )
     })
 

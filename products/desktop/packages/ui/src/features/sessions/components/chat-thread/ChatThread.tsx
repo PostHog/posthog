@@ -1,8 +1,6 @@
 import {
-  CaretDown,
   Check,
   Copy,
-  FileText,
   Robot,
   Scroll,
   ThumbsDown,
@@ -10,7 +8,6 @@ import {
 } from "@phosphor-icons/react";
 import { WorkerPoolContextProvider } from "@pierre/diffs/react";
 import { buildTurnRatingMetric } from "@posthog/core/analytics/aiFeedback";
-import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import { useService } from "@posthog/di/react";
 import {
   Button,
@@ -46,12 +43,11 @@ import type {
   AgentConversationEvent,
   AgentTurnFeedbackSentiment,
 } from "@posthog/shared";
-import { ANALYTICS_EVENTS, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import { ANALYTICS_EVENTS } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useSmoothedText } from "@posthog/ui/features/editor/components/useSmoothedText";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
+import { hasUiAppResult } from "@posthog/ui/features/mcp-apps/hasUiAppResult";
 import type {
   BuildResult,
   ConversationItem,
@@ -71,6 +67,7 @@ import {
   type AgentTurn,
   CHAT_THREAD_VIRTUALIZATION_THRESHOLD,
   completedTurnTimestamp,
+  completedTurnTraceId,
   countFlatRows,
   type FlatThreadRow,
   FOLLOWING_END,
@@ -86,6 +83,7 @@ import {
   type TurnRow,
 } from "@posthog/ui/features/sessions/components/chat-thread/threadVirtualization";
 import { buildTurnCopyText } from "@posthog/ui/features/sessions/components/chat-thread/turnCopyText";
+import { UserMessageBody } from "@posthog/ui/features/sessions/components/chat-thread/UserMessageBody";
 import { usePromptRecallSource } from "@posthog/ui/features/sessions/components/chat-thread/usePromptRecallSource";
 import { VirtualThreadScrollBody } from "@posthog/ui/features/sessions/components/chat-thread/VirtualThreadScrollBody";
 import {
@@ -97,23 +95,13 @@ import { GitActionResult } from "@posthog/ui/features/sessions/components/GitAct
 import { isUserInitiatedConversationItem } from "@posthog/ui/features/sessions/components/isUserInitiatedConversationItem";
 import { mergeConversationItems } from "@posthog/ui/features/sessions/components/mergeConversationItems";
 import { isPlanItem } from "@posthog/ui/features/sessions/components/new-thread/buildThreadGroups";
-import { extractCanvasInstructions } from "@posthog/ui/features/sessions/components/session-update/canvasInstructions";
-import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
-import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
-import {
-  extractOnboardingBrief,
-  ONBOARDING_BRIEF_LABEL,
-} from "@posthog/ui/features/sessions/components/session-update/onboardingBrief";
-import {
-  hasFileMentions,
-  MentionChip,
-  parseFileMentions,
-} from "@posthog/ui/features/sessions/components/session-update/parseFileMentions";
-import { extractPeerAgentMessage } from "@posthog/ui/features/sessions/components/session-update/peerAgentMessage";
-import { collapsePiSkillInvocation } from "@posthog/ui/features/sessions/components/session-update/piSkillInvocation";
+import { InjectedBlockChips } from "@posthog/ui/features/sessions/components/session-update/InjectedBlockChips";
+import { MentionChip } from "@posthog/ui/features/sessions/components/session-update/parseFileMentions";
 import { SessionUpdateView } from "@posthog/ui/features/sessions/components/session-update/SessionUpdateView";
+import { isShowActionsItem } from "@posthog/ui/features/sessions/components/session-update/showActionsItem";
 import { UserShellExecuteView } from "@posthog/ui/features/sessions/components/session-update/UserShellExecuteView";
-import { UserMessageAttachments } from "@posthog/ui/features/sessions/components/UserMessageAttachments";
+import { splitUserMessage } from "@posthog/ui/features/sessions/components/session-update/userMessageDisplay";
+import { useVisibleInjectedBlocks } from "@posthog/ui/features/sessions/components/session-update/useVisibleInjectedBlocks";
 import {
   CHAT_CONTENT_MAX_WIDTH,
   CHAT_CONTENT_PADDING_INLINE,
@@ -223,11 +211,29 @@ function isThoughtItem(item: ConversationItem): boolean {
 }
 
 /**
+ * An item that must render as its own row, never folded into a `ToolGroupItem`:
+ * a plan awaiting approval, a show-actions handoff, or a call whose result
+ * carries a UI app. The next standalone item type joins this predicate instead
+ * of widening the condition at the call site.
+ *
+ * A UI-app call cannot ride in a group, and `keepMounted` on the group body is
+ * not the fix. It would keep every collapsed run's body mounted thread-wide,
+ * and a chart inside a group still stays invisible until the user expands it:
+ * while the run is live the group reads "Thinking…", so a rendered chart would
+ * hide behind a collapsed panel. Keeping the chart outside the group is the
+ * rule that fixes both.
+ */
+function rendersStandalone(item: ConversationItem): boolean {
+  return isPlanItem(item) || isShowActionsItem(item) || hasUiAppResult(item);
+}
+
+/**
  * Collapse each contiguous run of ≥2 tool-call updates into a single `ToolGroupItem`. A run is
  * broken by any *visible* non-tool, non-thought item (prose, status) so groups follow reading
  * order; invisible updates (see {@link INVISIBLE_UPDATES}) are transparent and don't split a run.
  * A lone tool call passes through untouched as a single marker, and so do the thoughts around it:
- * thoughts ride along a run, they never make one.
+ * thoughts ride along a run, they never make one. A standalone item (see
+ * {@link rendersStandalone}) flushes the run and passes through alone.
  */
 /**
  * Item arrays for settled runs, keyed on the run's (stable) first item.
@@ -279,10 +285,7 @@ export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
 
   for (const item of items) {
     if (isToolCallItem(item)) {
-      // A plan presented for approval renders as the full PlanApprovalView
-      // card — folded into a "N tool calls" chip, the plan the user is being
-      // asked to approve is invisible. Same exemption as buildThreadGroups.
-      if (isPlanItem(item)) {
+      if (rendersStandalone(item)) {
         flush();
         out.push(item);
         continue;
@@ -362,13 +365,16 @@ function formatTimestamp(ts: number): string {
  * tab stop a keyboard reader needs to reach the thumbs at all.
  */
 const FooterRevealContext = createContext(false);
+const RawLogsToggleContext = createContext(false);
 
 function TurnFooter({
   turnId,
+  traceId,
   timestamp,
   copyText,
 }: {
   turnId: string;
+  traceId: string | null;
   timestamp?: number;
   copyText?: string;
 }) {
@@ -389,7 +395,7 @@ function TurnFooter({
       </span>
       {copyText && <CopyButton value={copyText} label="Copy turn" />}
       {(revealed || sentiment) && (
-        <TurnFeedback turnId={turnId} sentiment={sentiment} />
+        <TurnFeedback turnId={turnId} traceId={traceId} sentiment={sentiment} />
       )}
     </ChatMessageFooter>
   );
@@ -406,9 +412,11 @@ function TurnFooter({
  */
 function TurnFeedback({
   turnId,
+  traceId,
   sentiment,
 }: {
   turnId: string;
+  traceId: string | null;
   sentiment: AgentTurnFeedbackSentiment | null;
 }) {
   const taskId = useSessionTaskId();
@@ -426,6 +434,7 @@ function TurnFeedback({
       buildTurnRatingMetric({
         run: { taskId, taskRunId },
         turnId,
+        traceId,
         sentiment: next,
       }),
     );
@@ -514,12 +523,6 @@ function CopyButton({ value, label }: { value: string; label: string }) {
  * grow a toggle. Overflow can't be known
  * from character count (it depends on wrapping width), so we measure `scrollHeight` against the
  * clamped `clientHeight` — which holds even while clamped — and re-measure on resize.
- *
- * A channel's CONTEXT.md and the canvas generation instructions, if injected into this prompt, are
- * collapsed into a clickable `ChatMessageHeader` chip above the bubble (opening the snapshot as a
- * split tab) rather than rendered inline — a project-bluebird feature. The blocks are always stripped
- * (along with the always-on personalization block) so the raw XML never leaks for flag-off viewers.
- * The send timestamp sits in a `ChatMessageFooter` revealed on hover.
  */
 function UserBubble({
   content,
@@ -532,85 +535,20 @@ function UserBubble({
   attachments?: UserMessageAttachment[];
   keyboardFocused?: boolean;
 }) {
-  const bluebirdEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
-  );
   // A message relayed from another agent run renders as an incoming agent
   // message (start-aligned, outlined, provenance chip) instead of masquerading
   // as something this run's user typed. The envelope boilerplate never renders;
   // only the sender-authored body flows into the normal pipeline below.
-  const peerAgentMessage = useMemo(
-    () => extractPeerAgentMessage(content),
+  const { peerAgentMessage, blocks, displayContent } = useMemo(
+    () => splitUserMessage(content),
     [content],
   );
-  const baseContent = peerAgentMessage ? peerAgentMessage.body : content;
-  const channelContext = useMemo(
-    () => extractChannelContext(baseContent),
-    [baseContent],
-  );
-  const afterChannelContext = channelContext
-    ? channelContext.stripped
-    : baseContent;
-  const canvasInstructions = useMemo(
-    () => extractCanvasInstructions(afterChannelContext),
-    [afterChannelContext],
-  );
-  const afterCanvasInstructions = canvasInstructions
-    ? canvasInstructions.stripped
-    : afterChannelContext;
-  const customInstructions = useMemo(
-    () => extractCustomInstructions(afterCanvasInstructions),
-    [afterCanvasInstructions],
-  );
-  const afterCustomInstructions = customInstructions
-    ? customInstructions.stripped
-    : afterCanvasInstructions;
-  const onboardingBrief = useMemo(
-    () => extractOnboardingBrief(afterCustomInstructions),
-    [afterCustomInstructions],
-  );
-  const displayContent = collapsePiSkillInvocation(
-    onboardingBrief ? onboardingBrief.stripped : afterCustomInstructions,
-  );
-  const showChannelContextTag = !!channelContext && bluebirdEnabled;
-  const showCanvasInstructionsTag = !!canvasInstructions && bluebirdEnabled;
+  const visibleBlocks = useVisibleInjectedBlocks(blocks);
   // Provenance is never flag-gated: a peer message must not read as the user's.
-  const showHeaderChips =
-    !!peerAgentMessage ||
-    showChannelContextTag ||
-    showCanvasInstructionsTag ||
-    !!onboardingBrief;
+  const showHeaderChips = !!peerAgentMessage || visibleBlocks.length > 0;
   const taskId = useSessionTaskId();
-  const openChannelContextInSplit = usePanelLayoutStore(
-    (s) => s.openChannelContextInSplit,
-  );
-  const openCanvasInstructionsInSplit = usePanelLayoutStore(
-    (s) => s.openCanvasInstructionsInSplit,
-  );
 
-  const containsFileMentions = hasFileMentions(displayContent);
-
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [isOverflowing, setIsOverflowing] = useState(false);
-  const textRef = useRef<HTMLDivElement>(null);
   const footerRevealed = useContext(FooterRevealContext);
-
-  // Only meaningful while collapsed: expanding removes the clamp so scrollHeight === clientHeight.
-  // We keep the prior result when expanded so the "Show less" trigger stays put.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure when the message text changes.
-  useEffect(() => {
-    if (isExpanded) return;
-    const el = textRef.current;
-    if (!el) return;
-    // The observer fires once on observe, after layout, so the first measure
-    // forces no layout inside the commit.
-    const observer = new ResizeObserver(() =>
-      setIsOverflowing(el.scrollHeight - el.clientHeight > 1),
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [displayContent, isExpanded]);
 
   return (
     <MessageContextMenu value={displayContent}>
@@ -624,45 +562,7 @@ function UserBubble({
                   label={`From agent: ${peerAgentMessage.senderTaskTitle}`}
                 />
               )}
-              {onboardingBrief && (
-                <MentionChip
-                  icon={<FileText size={12} />}
-                  label={ONBOARDING_BRIEF_LABEL}
-                />
-              )}
-              {showChannelContextTag && channelContext && (
-                <MentionChip
-                  icon={<FileText size={12} />}
-                  label={`${
-                    channelContext.mention.name
-                      ? `${channelDisplayLabel(channelContext.mention.name)} `
-                      : ""
-                  }CONTEXT.md`}
-                  onClick={
-                    taskId
-                      ? () =>
-                          openChannelContextInSplit(taskId, {
-                            channelName: channelContext.mention.name,
-                            body: channelContext.mention.body,
-                          })
-                      : undefined
-                  }
-                />
-              )}
-              {showCanvasInstructionsTag && canvasInstructions && (
-                <MentionChip
-                  icon={<Scroll size={12} />}
-                  label="Canvas instructions"
-                  onClick={
-                    taskId
-                      ? () =>
-                          openCanvasInstructionsInSplit(taskId, {
-                            body: canvasInstructions.body,
-                          })
-                      : undefined
-                  }
-                />
-              )}
+              <InjectedBlockChips blocks={visibleBlocks} taskId={taskId} />
             </ChatMessageHeader>
           )}
           {/* The brief is the whole message, so stripping it leaves nothing to put in a bubble. */}
@@ -676,42 +576,10 @@ function UserBubble({
               )}
             >
               <ChatBubbleContent>
-                <div
-                  ref={textRef}
-                  className={cn(
-                    "[&_p]:my-0",
-                    !isExpanded && "max-h-[5lh] overflow-hidden",
-                    // Fade the clamped text out at the bottom so it reads as "continues below". Only
-                    // when actually overflowing — a short collapsed message shouldn't fade. The mask is
-                    // paint-only, so it doesn't affect the overflow measurement above.
-                    !isExpanded &&
-                      isOverflowing &&
-                      "[mask-image:linear-gradient(to_bottom,black_45%,transparent)]",
-                  )}
-                >
-                  {containsFileMentions ? (
-                    parseFileMentions(displayContent)
-                  ) : (
-                    <ChatMarkdown content={displayContent} />
-                  )}
-                </div>
-                {attachments.length > 0 && !containsFileMentions && (
-                  <div className="mt-1.5">
-                    <UserMessageAttachments attachments={attachments} />
-                  </div>
-                )}
-                {isOverflowing && (
-                  <button
-                    type="button"
-                    onClick={() => setIsExpanded((v) => !v)}
-                    className="mt-1 flex items-center gap-0.5 text-muted-foreground text-sm hover:text-foreground"
-                  >
-                    Show {isExpanded ? "less" : "more"}
-                    <CaretDown
-                      className={cn("size-3", isExpanded && "rotate-180")}
-                    />
-                  </button>
-                )}
+                <UserMessageBody
+                  content={displayContent}
+                  attachments={attachments}
+                />
               </ChatBubbleContent>
             </ChatBubble>
           )}
@@ -734,10 +602,6 @@ function UserBubble({
  * message's right rail — the turn footer covers the common case, so a single message's copy lives
  * here instead of costing every row a hover affordance.
  *
- * This menu sits inside `SessionView`'s own context menu and wins the event over it, so it also
- * carries that menu's raw-logs toggle; without it, right-clicking a message would be the one spot
- * in the session where the toggle went missing.
- *
  * Highlighted text wins over the message: right-clicking a selection copies just that, as it does
  * outside the app. The whole message is the fallback for a right-click with nothing selected, and
  * stays reachable without the menu through the footer's copy button.
@@ -753,6 +617,7 @@ function MessageContextMenu({
   value: string;
   children: ReactElement;
 }) {
+  const showRawLogsToggle = useContext(RawLogsToggleContext);
   const showRawLogs = useShowRawLogs();
   const { setShowRawLogs } = useSessionViewActions();
   const [selection, setSelection] = useState<string | null>(null);
@@ -777,11 +642,15 @@ function MessageContextMenu({
           <Copy size={14} />
           {selection ? "Copy selection" : "Copy message"}
         </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onClick={() => setShowRawLogs(!showRawLogs)}>
-          <Scroll size={14} />
-          {showRawLogs ? "Back to conversation" : "Show raw logs"}
-        </ContextMenuItem>
+        {showRawLogsToggle && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={() => setShowRawLogs(!showRawLogs)}>
+              <Scroll size={14} />
+              {showRawLogs ? "Back to conversation" : "Show raw logs"}
+            </ContextMenuItem>
+          </>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   );
@@ -942,6 +811,7 @@ const ThreadRow = memo(function ThreadRow({
           </div>
           <TurnFooter
             turnId={item.id}
+            traceId={completedTurnTraceId(item)}
             timestamp={completedTurnTimestamp(item)}
             copyText={buildTurnCopyText(item.items) ?? undefined}
           />
@@ -1322,6 +1192,7 @@ const FlatRowView = memo(
           {row.turnId != null && row.turnTimestamp != null && (
             <TurnFooter
               turnId={row.turnId}
+              traceId={row.turnTraceId ?? null}
               timestamp={row.turnTimestamp}
               copyText={row.turnCopyText}
             />
@@ -1430,13 +1301,15 @@ export function ChatThread({ events, ...props }: ChatThreadProps) {
   );
 
   return (
-    <ChatThreadRenderer
-      key={props.taskId}
-      {...props}
-      conversationItems={items}
-      footerEvents={[]}
-      footerState={footerState}
-    />
+    <RawLogsToggleContext.Provider value={false}>
+      <ChatThreadRenderer
+        key={props.taskId}
+        {...props}
+        conversationItems={items}
+        footerEvents={[]}
+        footerState={footerState}
+      />
+    </RawLogsToggleContext.Provider>
   );
 }
 
@@ -1447,12 +1320,14 @@ export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
   });
 
   return (
-    <ChatThreadRenderer
-      key={props.taskId}
-      {...props}
-      conversationItems={items}
-      footerEvents={events}
-    />
+    <RawLogsToggleContext.Provider value={true}>
+      <ChatThreadRenderer
+        key={props.taskId}
+        {...props}
+        conversationItems={items}
+        footerEvents={events}
+      />
+    </RawLogsToggleContext.Provider>
   );
 }
 

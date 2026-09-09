@@ -24,7 +24,6 @@ from posthog.models.user import User
 from ee.billing.billing_manager import build_billing_token
 from ee.settings import BILLING_SERVICE_URL
 
-# Duplicated in services/llm-gateway/src/llm_gateway/services/plan_resolver.py
 PRO_PLAN_PREFIXES = ("posthog-code-200", "posthog-code-pro-")
 RETIRED_SEAT_PRODUCT_MESSAGE = (
     "You can no longer create, upgrade, or reactivate PostHog Desktop seats. "

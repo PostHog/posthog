@@ -32,7 +32,7 @@ from posthog.schema import (
 )
 
 from posthog.constants import FunnelOrderType
-from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID, NOT_IN_COHORT_ID
+from posthog.hogql_queries.utils.breakdowns import ALL_USERS_COHORT_ID, NOT_IN_COHORT_ID
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import override_instance_config
 from posthog.test.test_journeys import journeys_for

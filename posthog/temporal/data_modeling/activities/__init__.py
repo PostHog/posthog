@@ -17,8 +17,10 @@ from .materialize_view import (
     materialize_view_activity,
 )
 from .materialize_view_duckgres import (
+    DuckgresShadowEligibilityInputs,
     DuckgresShadowInputs,
     DuckgresShadowResult,
+    check_duckgres_shadow_eligibility_activity,
     check_duckgres_shadow_enabled_activity,
     materialize_view_duckgres_activity,
 )
@@ -50,6 +52,7 @@ __all__ = [
     "RecordSkippedDataModelingJobsInputs",
     "SkippedDataModelingNode",
     "EnrichViewSemanticsInputs",
+    "DuckgresShadowEligibilityInputs",
     "DuckgresShadowInputs",
     "DuckgresShadowResult",
     "GetDAGStructureInputs",
@@ -65,6 +68,7 @@ __all__ = [
     "StageQueryableFilesResult",
     "SucceedMaterializationInputs",
     "SucceedMaterializationResult",
+    "check_duckgres_shadow_eligibility_activity",
     "check_duckgres_shadow_enabled_activity",
     "clear_cdp_staging_activity",
     "create_data_modeling_job_activity",

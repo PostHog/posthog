@@ -8,6 +8,7 @@ vi.mock("@posthog/agent/posthog-api", () => ({
 
 vi.stubGlobal("fetch", mockFetch);
 
+import { configureCustomCloud } from "@posthog/shared";
 import { AgentAuthAdapter } from "./auth-adapter";
 
 const baseCredentials = {
@@ -129,6 +130,52 @@ describe("AgentAuthAdapter", () => {
         }),
       ]),
     );
+  });
+
+  it("gives a custom instance no PostHog MCP server", async () => {
+    configureCustomCloud({
+      url: "https://posthog.example.com",
+      oauthClientId: "client-id",
+    });
+    try {
+      const { servers } = await adapter.buildMcpServers({
+        ...baseCredentials,
+        apiHost: "https://posthog.example.com",
+      });
+
+      expect(deps.mcpProxy.register).not.toHaveBeenCalledWith(
+        "posthog",
+        expect.anything(),
+      );
+      expect(
+        servers.find((server) => server.name === "posthog"),
+      ).toBeUndefined();
+    } finally {
+      configureCustomCloud(null);
+    }
+  });
+
+  it("gives a loopback custom instance no default MCP port either", async () => {
+    configureCustomCloud({
+      url: "http://localhost:8020",
+      oauthClientId: "client-id",
+    });
+    try {
+      const { servers } = await adapter.buildMcpServers({
+        ...baseCredentials,
+        apiHost: "http://localhost:8020",
+      });
+
+      expect(deps.mcpProxy.register).not.toHaveBeenCalledWith(
+        "posthog",
+        "http://localhost:8787/mcp",
+      );
+      expect(
+        servers.find((server) => server.name === "posthog"),
+      ).toBeUndefined();
+    } finally {
+      configureCustomCloud(null);
+    }
   });
 
   it("identifies as the posthog-code consumer so the MCP server emits UI-app metadata", async () => {

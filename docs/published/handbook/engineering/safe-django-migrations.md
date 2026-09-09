@@ -233,17 +233,44 @@ Leaving the table in place — code gone, table dropped in a follow-up — is a 
 
 ### Safe Approach
 
-Use the same multi-phase pattern as [Dropping Tables](#dropping-tables):
+Use the same multi-phase pattern as [Dropping Tables](#dropping-tables).
+Deleting the field and running `makemigrations` is **not** phase 1 on its own: Django generates a plain `RemoveField`, which drops the column in the same deploy that removes the code.
 
-1. Remove the field from your Django model (keeps column in database)
-2. Deploy and verify no code references it (application servers, workers, background jobs)
-3. Wait at least one full deployment cycle
-4. Optionally drop the column with `RemoveField` in a later migration
+**Phase 1: remove the field from Django state only.**
+Delete every reference to the field and the field itself from the model, run `makemigrations`, then wrap the generated `RemoveField` in `SeparateDatabaseAndState`:
+
+```python
+# 1328_remove_userproductlist_reason_state.py
+operations = [
+    migrations.SeparateDatabaseAndState(
+        state_operations=[
+            migrations.RemoveField(model_name="userproductlist", name="reason"),
+        ],
+        database_operations=[],
+    ),
+]
+```
+
+The column stays in Postgres, so in-flight requests on the old release keep working and a rollback still finds it.
+Deploy this, and verify no code references the field (application servers, workers, background jobs).
+
+**Phase 2: drop the column, at least one full deployment cycle later.**
+
+```python
+# 1340_drop_userproductlist_reason_columns.py
+operations = [
+    migrations.RunSQL(
+        sql='ALTER TABLE "posthog_userproductlist" DROP COLUMN IF EXISTS "reason";',
+        reverse_sql='ALTER TABLE "posthog_userproductlist" ADD COLUMN IF NOT EXISTS "reason" varchar(32) NULL;',
+    ),
+]
+```
 
 **Important notes:**
 
-- `RemoveField` operations are irreversible - column data is permanently deleted
-- `DROP COLUMN` takes an `ACCESS EXCLUSIVE` lock (briefly) - schedule during low-traffic windows
+- Dropping a column is irreversible - the data is permanently deleted. `reverse_sql` can re-add an empty column so the migration unapplies, but it cannot restore the values
+- `DROP COLUMN` takes an `ACCESS EXCLUSIVE` lock (briefly) - on a [hot table](#altering-hot-tables) schedule it for a low-traffic window
+- The "Migration Risk Analysis" CI job scores a bare `RemoveField` at 5, its highest risk. Phase 2 scores low only when the analyzer finds the phase 1 state removal in an ancestor migration, so the two phases must land in that order
 - Consider leaving unused columns indefinitely to avoid data loss risks
 
 ## Renaming Tables

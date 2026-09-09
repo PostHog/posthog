@@ -640,7 +640,7 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
     ),
     (
         "team-product-analytics",  # mildly improving
-        "posthog/hogql_queries/insights/test",
+        "posthog/hogql_queries/insights/trends/test",
         [
             ("TestTrendsQueryRunner", "test_interval_boundary_timezone", 3, 2),
             ("TestFunnelCorrelation", "test_person_property_breakdown", 1, 1),
@@ -895,15 +895,45 @@ def _selector(module_dir: str, test_class: str, test_name: str) -> str:
     return f"{module_dir}/{test_name}.py::{test_class}::{test_name}"
 
 
+# (file, test_class, name, parent, age_days). `parent` is what the uploader reports: 'pytest', the
+# test file for jest, the crate for Rust.
+_QUARANTINED_TESTS: list[tuple[str, str, str, str, int]] = [
+    ("products/replay_vision/backend/tests/test_api.py", "TestAPI", "test_tag_listing_pagination", "pytest", 41),
+    (
+        "products/batch_exports/backend/tests/test_service.py",
+        "TestService",
+        "test_backfill_window_overlap",
+        "pytest",
+        30,
+    ),
+    ("posthog/api/test/test_person.py", "TestPerson", "test_person_merge_ordering", "pytest", 23),
+    ("posthog/hogql/test/test_query.py", "TestQuery", "test_property_type_coercion", "pytest", 16),
+    # Reported relative to the directory its suite ran from, which is how Trunk records them.
+    ("tests/utils.test.ts", "", "parses a malformed header", "tests/utils.test.ts", 9),
+    (
+        "src/scenes/experiments/utils.test.ts",
+        "",
+        "rounds a bayesian interval",
+        "src/scenes/experiments/utils.test.ts",
+        5,
+    ),
+    ("", "", "remote_resolution_hardening", "cymbal::remote_resolution_hardening", 19),
+    ("", "", "flag evaluation stays stable", "feature-flags", 2),
+]
+
+
 def _trunk_quarantined_rows() -> list[dict[str, Any]]:
-    """Trunk-quarantined rows for the debt scoreboard, reusing the span roster so owner attribution
-    resolves through the seeded spans. Ages are staggered on both sides of the TTL, and two rows
-    (one of them jest) name tests outside the roster so the 'unowned' bucket renders."""
+    """Trunk-quarantined rows for the debt scoreboard.
+
+    The board resolves owners from the real repository, so these name real test files, one per team,
+    and two of them arrive relative to their suite's directory (as Trunk reports them) to exercise
+    placement. Ages straddle the TTL, and the last row names no file so the 'unowned' bucket renders.
+    """
     anchor = timezone.now().replace(microsecond=0)
     rows: list[dict[str, Any]] = []
-
-    def add(*, file: str, name: str, classname: str, parent: str, age_days: int) -> None:
-        quarantined_at = (anchor - timedelta(days=age_days, hours=len(rows))).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    for index, (file, test_class, name, parent, age_days) in enumerate(_QUARANTINED_TESTS):
+        quarantined_at = (anchor - timedelta(days=age_days, hours=index)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        module = file[:-3].replace("/", ".") if file.endswith(".py") else ""
         rows.append(
             {
                 "file": file,
@@ -912,43 +942,14 @@ def _trunk_quarantined_rows() -> list[dict[str, Any]]:
                 "parent": parent,
                 "status": "FLAKY",
                 "variant": "",
-                "classname": classname,
+                "classname": f"{module}.{test_class}" if test_class else "",
                 "codeowners": "[]",
-                "test_case_id": f"engseed-trunk-{len(rows):03d}",
+                "test_case_id": f"engseed-trunk-{index:03d}",
                 "quarantined_at": quarantined_at,
                 "quarantine_setting": "AUTO_QUARANTINE",
                 "status_last_updated_at": quarantined_at,
             }
         )
-
-    age = 2
-    for _owner_team, module_dir, tests in _SPAN_TEAMS:
-        # Quarantine the first two roster tests per team; module = test_name (the span seed's rule).
-        for test_class, test_name, _prior, _current in tests[:2]:
-            module_path = f"{module_dir}/{test_name}.py"
-            add(
-                file=module_path,
-                name=test_name,
-                classname=f"{module_path[:-3].replace('/', '.')}.{test_class}",
-                parent="pytest",
-                age_days=age,
-            )
-            # Walks 2..44 in 7-day steps across the roster, landing rows on both sides of the TTL.
-            age = (age + 7) % 45
-    add(
-        file="posthog/api/test/test_signup.py",
-        name="test_social_signup_ratelimit",
-        classname="posthog.api.test.test_signup.TestSignup",
-        parent="pytest",
-        age_days=41,
-    )
-    add(
-        file="frontend/src/lib/components/ActivityLog/activityLogLogic.test.tsx",
-        name="the activity log logic humanizes flag changes",
-        classname="",
-        parent="frontend/src/lib/components/ActivityLog/activityLogLogic.test.tsx",
-        age_days=9,
-    )
     return rows
 
 
