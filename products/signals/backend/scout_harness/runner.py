@@ -798,8 +798,9 @@ async def _spawn_and_run(
         # and attributable to one scout. Team attribution rides along as `team_id`.
         ai_stage=_ai_stage(skill),
         # `ai_stage` collapses team-authored scouts to `scout:custom` to bound a fleet-wide tag's
-        # cardinality, so it cannot name one. This is read per team, so it carries the full name.
-        scout_skill_name=skill.name,
+        # cardinality, so it cannot name one. `ai_agent_name` is read per team and carries the
+        # full skill name for canonical and custom scouts alike.
+        ai_agent_name=skill.name,
         on_task_run_created=_create_bridge_row,
         # Keep the per-turn poll budget at the run's runtime cap so the dropped-finalization
         # salvage fires before the activity's `start_to_close_timeout` (DEFAULT_MAX_RUNTIME_S +

@@ -1240,9 +1240,9 @@ async def test_run_tags_session_with_scout_attribution(ateam, aerrors_skill):
     ):
         await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
-    # `signals-scout-errors` is not canonical, so only `scout_skill_name` can name it.
+    # `signals-scout-errors` is not canonical, so only `ai_agent_name` can name it.
     assert captured["ai_stage"] == "scout:custom"
-    assert captured["scout_skill_name"] == "signals-scout-errors"
+    assert captured["ai_agent_name"] == "signals-scout-errors"
 
 
 @pytest.mark.asyncio
