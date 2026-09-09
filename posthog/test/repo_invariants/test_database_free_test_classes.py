@@ -1,31 +1,8 @@
 """Ratchet on test classes that take a database they never use.
 
-`BaseTest` and its relatives inherit Django `TestCase`, so a class on one of them needs
-a database to run. `setUpTestData` writes an organization, a project, a team and a user
-for the class, and every test method runs inside a transaction that is rolled back
-afterwards. A class that only asserts on constants and pure functions pays all of that
-and reads no row. On `SimpleTestCase` the same assertions need no database at all.
-
-Deciding "needs a database" from source is not possible in general, because the query
-can sit several helper calls deep. So this scan is deliberately conservative: it
-reports a class only when the class body mentions none of DATABASE_TOKENS. A class
-that does reach the database almost always names one of them, so a genuine database
-test is not reported. Classes the scan misses stay missed, which is the safe error.
-
-Two kinds of class are left out because the fix would be wrong for them: a class the
-repo inherits from somewhere, whose own body names nothing while every subclass
-reaches the database, and a class with no test method of its own, which is
-infrastructure rather than a test.
-
-A reported class is a candidate, not a verdict. Confirm one before you change it:
-swap its base for `django.test.SimpleTestCase` and run it. `SimpleTestCase` refuses
-database access, so a passing run is proof the class never needed the database, and
-the fix is to keep that base.
-
-The list is frozen, so the count can fall but never rise. Regenerate after removing
-entries (or after a rename or move):
-
-    python posthog/test/repo_invariants/test_database_free_test_classes.py
+The failure message says what a reported class means, how to confirm it, and how to
+regenerate the list. `.agents/skills/writing-tests/references/database-free-test-classes.md`
+carries the long form.
 """
 
 import re
@@ -136,11 +113,18 @@ def _runs_tests(node: ast.ClassDef) -> bool:
 def collect_candidates() -> list[str]:
     # A class other tests inherit names nothing itself, while every subclass reaches
     # the database, so reporting it would ask for `BaseTest` to move to
-    # `SimpleTestCase`. Collect what the repo inherits from with a regex, which is
-    # cheap enough for every file, and parse only the files that could hold a
-    # candidate. A name the regex picks up wrongly only hides a candidate, which is
-    # safe; a base it fails to see is the direction that reports one, so the pattern
-    # errs towards taking too much.
+    # `SimpleTestCase`. Collect what the repo inherits from with a regex, then parse
+    # only the files that could hold a candidate.
+    #
+    # The regex reads every file, and has to: production code inherits from test
+    # bases, so a scan limited to test paths knows a fraction of the names and starts
+    # reporting the bases again. It is also the cheap half. The substring check below
+    # already keeps all but a handful of non-test files out of the parse, which is
+    # where the time actually goes.
+    #
+    # A name the regex picks up wrongly only hides a candidate, which is safe; a base
+    # it fails to see is the direction that reports one, so the pattern errs towards
+    # taking too much.
     inherited: set[str] = set()
     found: list[tuple[str, str]] = []
     for root in SCANNED_ROOTS:
