@@ -100,6 +100,31 @@ vi.mock("../../autoresearch/autoresearchDraftStore", () => ({
     getState: () => ({ clearDraft: mocks.clearAutoresearchDraft }),
   },
 }));
+vi.mock("../../feature-flags/useBluebirdFlag", () => ({
+  useBluebirdFlag: () => true,
+}));
+vi.mock("../../canvas/hooks/useTaskChannels", () => ({
+  useTaskChannels: () => ({
+    channels: [
+      { id: "me", name: "me" },
+      { id: "space-2", name: "growth" },
+    ],
+    personalChannel: { id: "me", name: "me" },
+  }),
+}));
+vi.mock("../../canvas/components/SpaceSelect", () => ({
+  SpaceSelect: ({
+    value,
+    onChange,
+  }: {
+    value: string;
+    onChange: (id: string) => void;
+  }) => (
+    <button type="button" onClick={() => onChange("space-2")}>
+      Space {value}
+    </button>
+  ),
+}));
 vi.mock("../../settings/settingsStore", () => ({
   useSettingsStore: (selector: (state: unknown) => unknown) =>
     selector({ brainrotMode: false }),
@@ -109,17 +134,23 @@ vi.mock("../../task-detail/components/TaskInput", () => ({
     onTaskCreated,
     showNewTaskSuggestions,
     allowNoRepo,
+    channelId,
+    spaceSelector,
   }: {
     onTaskCreated?: (task: Task) => void;
     showNewTaskSuggestions?: boolean;
     allowNoRepo?: boolean;
+    channelId?: string;
+    spaceSelector?: (props: { disabled: boolean }) => ReactNode;
   }) => {
     mocks.taskCreatedCallback = onTaskCreated ?? null;
     return (
       <div
         data-allow-no-repo={allowNoRepo}
         data-suggestions={showNewTaskSuggestions}
+        data-channel-id={channelId}
       >
+        {spaceSelector?.({ disabled: false })}
         <button
           type="button"
           onClick={() => onTaskCreated?.(mocks.createdTask as Task)}
@@ -279,6 +310,27 @@ describe("CommandCenterPanel", () => {
     expect(screen.getByText("Send").parentElement).toHaveAttribute(
       "data-allow-no-repo",
       "true",
+    );
+  });
+
+  // The chip only helps if the pick reaches creation; without this the task
+  // silently lands in #me.
+  it("files a task composed in a tile into the space picked in the composer", () => {
+    mocks.store.composer = {
+      cellIndex: 2,
+      sessionId: "cc-cell-us:2:user-1-2",
+    };
+    render(<CommandCenterPanel cell={emptyCell} isActiveSession={false} />);
+    expect(screen.getByText("Send").parentElement).toHaveAttribute(
+      "data-channel-id",
+      "me",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Space me" }));
+
+    expect(screen.getByText("Send").parentElement).toHaveAttribute(
+      "data-channel-id",
+      "space-2",
     );
   });
 
