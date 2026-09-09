@@ -48,7 +48,7 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                         </h4>
                         <p className="text-xs text-muted-alt mb-0 max-w-md">
                             Everyone in your organization gets this level of access to the project. Roles and
-                            person-level rules can add more access, but cannot take it away.
+                            person-level rules can change it for specific people.
                         </p>
                     </div>
                     <div className="max-w-sm">
