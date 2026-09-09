@@ -23,14 +23,22 @@ export interface SqlMetricCardProps {
 export const SqlMetricCard = ({ xData, yData, presetChartHeight, className }: SqlMetricCardProps): JSX.Element => {
     const theme = useChartTheme()
     const series = yData[0]
-    const points = useMemo(() => {
-        const data =
-            series?.data.flatMap((value, index) =>
-                value != null && Number.isFinite(value) ? [{ value, label: xData?.data[index] ?? '' }] : []
-            ) ?? []
+    const { data, labels, latestValue } = useMemo(() => {
+        const points =
+            series?.data.map((value, index) => ({
+                value: value != null && Number.isFinite(value) ? value : NaN,
+                label: xData?.data[index] ?? '',
+            })) ?? []
         const isDateAxis = xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME'
+        const sortedPoints = isDateAxis ? points.sort((a, b) => Date.parse(a.label) - Date.parse(b.label)) : points
+        const lastFiniteIndex = sortedPoints.findLastIndex((point) => Number.isFinite(point.value))
+        const visiblePoints = sortedPoints.slice(0, lastFiniteIndex + 1)
 
-        return isDateAxis ? data.sort((a, b) => Date.parse(a.label) - Date.parse(b.label)) : data
+        return {
+            data: visiblePoints.map((point) => point.value),
+            labels: xData && xData.column.dataIndex !== -1 ? visiblePoints.map((point) => point.label) : undefined,
+            latestValue: lastFiniteIndex === -1 ? undefined : sortedPoints[lastFiniteIndex].value,
+        }
     }, [series, xData])
 
     return (
@@ -40,11 +48,12 @@ export const SqlMetricCard = ({ xData, yData, presetChartHeight, className }: Sq
                 'h-full': !presetChartHeight,
             })}
         >
-            {series && points.length > 0 ? (
+            {series && latestValue !== undefined ? (
                 <MetricCard
                     title={null}
-                    data={points.map(({ value }) => value)}
-                    labels={points.map(({ label }) => label)}
+                    value={latestValue}
+                    data={data}
+                    labels={labels}
                     theme={theme}
                     color={series.settings?.display?.color}
                     changeInline

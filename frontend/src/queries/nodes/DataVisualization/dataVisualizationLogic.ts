@@ -1489,7 +1489,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                           ? response.result
                           : []
 
-                const seriesData = ySeries
+                const mappedSeries = visualizationType === ChartDisplayType.Metric ? ySeries.slice(0, 1) : ySeries
+                const seriesData = mappedSeries
                     .map((series): AxisSeries<number | null> | null => {
                         if (!series) {
                             return EmptyYAxisSeries
@@ -1535,7 +1536,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     })
                     .filter((series): series is AxisSeries<number | null> => Boolean(series))
 
-                return visualizationType === ChartDisplayType.Metric ? seriesData.slice(0, 1) : seriesData
+                return seriesData
             },
         ],
         xData: [
