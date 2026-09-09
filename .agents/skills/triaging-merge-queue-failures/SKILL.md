@@ -45,10 +45,12 @@ Both helpers live in `scripts/` next to this file:
 Q=.agents/skills/triaging-merge-queue-failures/scripts/mq-queue-state.sh
 bash $Q recent PostHog/posthog 2   # <pr> <attempt_pr> <kind> <attempts_seen>, newest first
 bash $Q state  PostHog/posthog <n> # state= [check=] [job_url=] [testing_pr=]
-bash $Q attempts PostHog/posthog <n> [head_oid]  # <attempt_pr> <sha> <kind> <created_at> <source_head>
+bash $Q attempts PostHog/posthog <n> [head_oid]  # <attempt_pr> <sha> <kind> <created_at> <covers_head>
 ```
 
-An attempt tests one revision of the PR, and `source_head` is that revision: the shadow head is a merge commit of the queue base and the PR head, so its last parent names the head under test. Give `attempts` a head OID and it keeps only that revision's attempts.
+An attempt tests one revision of the PR, and `covers_head` says whether it was the one you asked about: `yes` when that revision is an ancestor of the shadow head, `no` when the branch was pushed to after the attempt started. Give `attempts` a head OID and it keeps only the attempts that cover it; without one it checks the PR's current head and prints the answer per attempt.
+
+Do not read the revision off the shadow head's parents. The shadow head is a chain of merge commits, one per batch member, so its last parent names whichever member Trunk merged last. On a batched attempt that is another PR's head, and taking it for this PR's makes an in-flight attempt look superseded.
 
 `attempts_seen` from `recent` counts every attempt on the PR over all of its revisions, so treat it as an upper bound. A PR that was pushed to and re-enqueued shows 2 while its current head has only been tried once. Any per-head decision — the retry gate above all — reads `attempts $REPO <n> <head_oid>` and counts lines.
 
@@ -76,7 +78,9 @@ An attempt tests one revision of the PR, and `source_head` is that revision: the
 
 `failed` carries `check=` (Trunk names the check it gated on). `kicked_failed` does not, so read the failing check from the attempt's own CI, below.
 
-A `state=unknown` on a PR that clearly failed means Trunk changed its wording. Report it in the run report rather than guessing; the fix is a new pattern in `classify()` in `mq-queue-state.sh`.
+`stacked=yes` means the comment talks about a stack: the PR was submitted as a layer of a `gh stack` and Trunk tests and merges the stack as a unit. That changes entry 1 below, and it is where the wording drifts most.
+
+A `state=unknown` means Trunk used wording this helper does not recognize. The helper then prints `fingerprint=`, the wording with links, HTML, numbers and SHAs removed. Copy that line into the run report rather than guessing at the state; the fix is a new pattern in `classify()` in `mq-queue-state.sh`, and the fingerprint is what it gets written from, because the sticky comment is rewritten in place and the wording is gone by the next fire.
 
 ## Non-negotiable rules
 
@@ -98,6 +102,8 @@ The routine sandbox is more restricted than a laptop. All four of these were obs
 - **GraphQL is refused** (`HTTP 403: only the pinned set of PR-review operations is served`). So `gh pr view`, `gh pr list`, and `gh repo view --json` do not work. Use REST: `gh api repos/{owner}/{repo}/pulls/<n>`.
 - **`gh api --paginate` breaks.** GitHub's `Link` header points at `repositories/{id}/...`, and the proxy rejects numeric-ID paths. Page by hand with `&page=<n>` and stop when a page returns fewer than `per_page` items.
 - **The API is repo-scoped.** `repos/{owner}/{repo}/...` and `/user` work; `/users/{login}` returns 403. Do not try to look a bot login up.
+- **Job logs return 403.** `actions/jobs/{id}/logs` answers with a redirect to a storage host outside `api.github.com`, and the proxy refuses it. Read the failure from the check run's annotations instead: `check-runs/{id}/annotations` carries the failing step's error lines, including the test id and exit status.
+- **The `trunk` CLI is not installed**, so `trunk merge status` is unavailable and the "ask Trunk why first" step below cannot run. Classify from the helpers and check runs, and say in the verdict that the cause was reconstructed from CI rather than read from Trunk.
 
 `repos/{owner}/{repo}` also reports every entry in `permissions` as `false` for this token while REST reads succeed. Do not gate anything on that field.
 
@@ -165,9 +171,11 @@ Walk in order; the first YES wins.
 
 ### 1. Was the queue entry canceled because a newer commit was pushed?
 
-`state=superseded` — Trunk says the PR was removed because the branch was pushed to. Or the current `head.sha` differs from the SHA the attempt tested, or Trunk's state has already moved back to `idle` on a newer head. Any push removes the PR from the queue.
+`state=superseded` — Trunk says the PR was removed because the branch was pushed to. Or `attempts $REPO <n> <head_oid>` returns no line for the current head while older attempts exist, or Trunk's state has already moved back to `idle` on a newer head. A push removes a plain PR from the queue.
 
 This covers a push to the PR's own branch only. Trunk tearing down its own shadow PR mid-attempt cancels that attempt's CI too, but Trunk reports it as `kicked_failed`, not `superseded` — that is entry 3.
+
+**A stacked PR is different.** When `state` prints `stacked=yes`, the PR was submitted as a layer of a stack, and a restack (`gh stack sync`) force-pushes every layer. Trunk has been observed to keep the stack submitted across that push and open a new attempt on its own within minutes, with no new `/trunk merge` from anyone (PR #97378, 9 Sep 2026: restacked at 13:41 UTC, new attempt at 14:02, merged at 14:30). Before writing a verdict, check `attempts $REPO <n>` for a newer attempt with `covers_head=yes`, and check whether a shadow PR for any layer of the stack is still open. If either holds, the queue is not done with it: skip it this sweep. If the stack has genuinely dropped out, the verdict is still "wait", but the next step is to resubmit the stack from its top layer, not this PR alone.
 
 **Verdict: wait for the latest SHA.** Let the newest commit's own checks finish, then submit to the queue again. Nothing is broken; do not diagnose the stale attempt.
 
@@ -261,4 +269,4 @@ When the sweep requeued (verdict 3, 5, or 7 with requeue enabled), say so explic
 
 End every run with a scannable summary: PRs checked, verdicts issued (PR number + verdict), requeues performed, wider issues found (these lead), and anything skipped (already triaged, over the cap). On an unattended run this summary is the loop's report.
 
-Report these separately, because each one means the sweep is broken rather than idle: any helper exiting 5 (a GitHub read failed), a failed `verify`, any `state=unknown`, and a `recent` that returns nothing at all.
+Report these separately, because each one means the sweep is broken rather than idle: any helper exiting 5 (a GitHub read failed), a failed `verify`, any `state=unknown` together with its `fingerprint=` line, and a `recent` that returns nothing at all.

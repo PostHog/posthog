@@ -18,7 +18,7 @@ usage() {
 usage: mq-queue-state.sh state    <owner/repo> <pr>              queue state of one PR
        mq-queue-state.sh attempts <owner/repo> <pr> [head_oid]   attempts, newest first:
                                                                  <attempt_pr> <sha> <kind>
-                                                                 <created_at> <source_head>
+                                                                 <created_at> <covers_head>
        mq-queue-state.sh recent   <owner/repo> [pages]           discovery, newest first:
                                                                  <pr> <attempt_pr> <kind>
                                                                  <attempts_seen>
@@ -29,7 +29,9 @@ pages per PR and made a sweep too slow to finish.
 
 `attempts_seen` counts every attempt on the PR, over all of its head revisions, so it is an
 upper bound on the attempts against the current head. For a per-head count, give `attempts` a
-head OID: it then keeps only the attempts that tested that revision.
+head OID: it then keeps only the attempts whose shadow head contains that revision. Without a
+head OID it checks against the PR's current head and reports the answer in `covers_head`
+(`yes`, `no`, or `unknown`).
 
 Exit codes: 2 usage, 5 a GitHub read failed.
 USAGE
@@ -90,7 +92,11 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
 # The newest trunk-io[bot] comment that reports merge state. Test Analytics comments share the
-# author but report flake counts, not queue state.
+# author but report flake counts, not queue state. Trunk also answers `/trunk merge` commands
+# with a short reply comment ("This PR is already queued as a stacked merge"), and that reply
+# outranks the sticky comment by update time until the sticky is next rewritten. Every queue
+# state wording carries a merge-queue dashboard link or the sticky's own HTML marker, and the
+# replies carry neither, so prefer the comments that do.
 sticky_body() {
     local pr=$1 pg=1 out
     : >"$TMP/bodies"
@@ -107,7 +113,23 @@ sticky_body() {
         pg=$((pg + 1))
         [ "$pg" -gt 5 ] && break
     done
-    sort -r "$TMP/bodies" | head -1 | cut -f2-
+    if grep -qE 'app\.trunk\.io/|<!-- Trunk Merge -->' "$TMP/bodies"; then
+        grep -E 'app\.trunk\.io/|<!-- Trunk Merge -->' "$TMP/bodies" | sort -r | head -1 | cut -f2-
+    else
+        sort -r "$TMP/bodies" | head -1 | cut -f2-
+    fi
+}
+
+# What reaches the agent on an unrecognized wording. Links, HTML, numbers and SHAs are dropped
+# and only plain words survive, so the line cannot carry an instruction or a job URL, but it
+# is enough to write the next classify() pattern from. The sticky comment is rewritten in place,
+# so without this the wording that produced `unknown` is gone by the time anyone looks.
+fingerprint() {
+    printf '%s' "$1" |
+        sed -E 's#https?://[^ )]+##g; s/<[^>]*>//g; s/\[[^]]*\]\(\)//g; s/[0-9a-f]{40}//g; s/#?[0-9]+//g' |
+        tr -c 'A-Za-z .,:;!?()-' ' ' |
+        tr -s ' ' |
+        cut -c1-160
 }
 
 # Order matters: every "removed from the merge queue" wording shares a prefix, and the reason
@@ -131,6 +153,8 @@ classify() {
     elif printf '%s' "$body" | grep -qE 'Waiting to start tests'; then
         echo queued
     elif printf '%s' "$body" | grep -qE 'is queued for merge as part of'; then
+        echo batched
+    elif printf '%s' "$body" | grep -qE 'already queued as a stacked merge'; then
         echo batched
     elif printf '%s' "$body" | grep -qE 'will be merged soon because tests have passed'; then
         echo passing
@@ -160,18 +184,36 @@ pulls_pages() {
     done
 }
 
-# An attempt's shadow head is a merge commit of the queue base and the PR head it tested, so its
-# last parent says which revision of the PR that attempt covered. Nothing on the shadow PR itself
-# carries that, and the uuid in its ref is random.
-source_head_of() {
-    local sha=$1 out
-    out=$(api_json "repos/$repo/commits/$sha") || fail "GitHub read failed: commit $sha"
-    printf '%s' "$out" | jq -r '.parents[-1].sha // empty' 2>/dev/null ||
-        fail "unreadable commit $sha"
+# Whether an attempt tested a given PR revision. The shadow head is a chain of merge commits,
+# one per batch member, so its parents name whichever member Trunk merged last, not this PR.
+# Ancestry is the only reliable signal: the PR revision is an ancestor of the shadow head when
+# the attempt covered it (`ahead` or `identical`), and not when the branch was pushed to after
+# the attempt started (`diverged`). Nothing on the shadow PR itself carries this, and the uuid
+# in its ref is random.
+covers_head() {
+    local sha=$1 head=$2 out status
+    out=$(api_json "repos/$repo/compare/$head...$sha?per_page=1") ||
+        fail "GitHub read failed: compare $head...$sha"
+    status=$(printf '%s' "$out" | jq -r '.status // empty' 2>/dev/null) || fail "unreadable compare $head...$sha"
+    case "$status" in
+        ahead | identical) echo yes ;;
+        behind | diverged) echo no ;;
+        *) echo unknown ;;
+    esac
+}
+
+current_head_of() {
+    local pr=$1 out
+    out=$(api_json "repos/$repo/pulls/$pr") || fail "GitHub read failed: PR $pr"
+    printf '%s' "$out" | jq -r '.head.sha // empty' 2>/dev/null || fail "unreadable PR $pr"
 }
 
 attempts_for() {
-    local pr=$1 want_head=${2:-} attempt sha kind created source
+    local pr=$1 head=${2:-} attempt sha kind created covers
+    if [ -z "$head" ]; then
+        head=$(current_head_of "$pr")
+        printf '%s' "$head" | grep -qE '^[0-9a-f]{40}$' || fail "PR $pr has no readable head"
+    fi
     pulls_pages 3
     jq -r --arg pr "$pr" '.[] | select(.user.login == "trunk-io[bot]")
         | select(.head.ref | startswith("trunk-merge/pr-" + $pr + "/"))
@@ -180,10 +222,9 @@ attempts_for() {
     sort -t"$TAB" -k4,4r "$TMP/attempts" |
         grep -E "^[0-9]+${TAB}[0-9a-f]{40}${TAB}(normal|bisection)${TAB}" >"$TMP/valid" || true
     while IFS="$TAB" read -r attempt sha kind created; do
-        source=$(source_head_of "$sha")
-        printf '%s' "$source" | grep -qE '^[0-9a-f]{40}$' || source=unknown
-        [ -z "$want_head" ] || [ "$source" = "$want_head" ] || continue
-        printf '%s\t%s\t%s\t%s\t%s\n' "$attempt" "$sha" "$kind" "$created" "$source"
+        covers=$(covers_head "$sha" "$head")
+        [ -z "${2:-}" ] || [ "$covers" = yes ] || continue
+        printf '%s\t%s\t%s\t%s\t%s\n' "$attempt" "$sha" "$kind" "$created" "$covers"
     done <"$TMP/valid"
 }
 
@@ -196,7 +237,10 @@ case "$cmd" in
             echo "state=none"
             exit 0
         fi
-        echo "state=$(classify "$body")"
+        state=$(classify "$body")
+        echo "state=$state"
+        if [ "$state" = unknown ]; then echo "fingerprint=$(fingerprint "$body")"; fi
+        if printf '%s' "$body" | grep -qiE '\bstack(ed)?\b'; then echo "stacked=yes"; fi
         # shellcheck disable=SC2016 # the backticks are literal Markdown, not expansion
         check=$(printf '%s' "$body" | grep -oE '\[`'"$CHECK_RE"'`\]' | head -1 | sed -E 's/^\[`//; s/`\]$//' || true)
         if [ -n "$check" ]; then echo "check=$check"; fi
