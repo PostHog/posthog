@@ -202,6 +202,7 @@ if TYPE_CHECKING:
     from products.data_tools.backend.models.expression import DataWarehouseExpression
     from products.data_tools.backend.models.join import DataWarehouseJoin
     from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
+    from products.revenue_analytics.backend.views.core import SourceHandle
     from products.warehouse_sources.backend.facade.models import (
         DataWarehouseCredential,
         DataWarehouseTable,
@@ -248,6 +249,10 @@ class HogQLDatabaseSources:
     saved_queries: list[DataWarehouseSavedQuery]
     endpoint_saved_queries: list[DataWarehouseSavedQuery]
     revenue_views: list[RevenueAnalyticsBaseView]
+    # Deferred mode: the inputs for revenue views instead of the views. Building a view runs the
+    # full HogQL printer, so the build waits until a query resolves a revenue table. Fetching the
+    # handles warms team.revenue_analytics_config, so the deferred build itself does no I/O.
+    revenue_source_handles: list[SourceHandle]
     warehouse_tables: list[DataWarehouseTable]  # filtered to what build needs, schemas preloaded
     data_warehouse_joins: list[DataWarehouseJoin]
     data_warehouse_expressions: list[DataWarehouseExpression]
@@ -286,6 +291,8 @@ class HogQLDatabaseSources:
             saved_queries=list(self.saved_queries),
             endpoint_saved_queries=list(self.endpoint_saved_queries),
             revenue_views=[view.model_copy(deep=True) for view in self.revenue_views],
+            # Handles are frozen; the deferred build constructs fresh view objects per database.
+            revenue_source_handles=list(self.revenue_source_handles),
             warehouse_tables=list(self.warehouse_tables),
             data_warehouse_joins=list(self.data_warehouse_joins),
             data_warehouse_expressions=list(self.data_warehouse_expressions),
@@ -690,6 +697,15 @@ class Database(BaseModel):
     # Lowercased, because Snowflake nodes resolve case-insensitively and a query may name a table with
     # casing that differs from the canonical catalog name.
     _foreign_key_trigger_names: Optional[set[str]] = None
+    # Deferred revenue-analytics views. Building each view runs the full HogQL printer, yet most
+    # queries never touch one, so the handles are stashed here and the views are built the first
+    # time a name under a revenue prefix fails to resolve (see has_table / get_table).
+    _deferred_revenue_handles: list[Any] = []
+    _revenue_views_built: bool = True
+    _revenue_views_building_thread: Optional[int] = None
+    _revenue_views_build_lock: Any = None
+    # Lowercased first segments of the deferred views' dotted names (e.g. revenue_analytics, stripe).
+    _revenue_view_trigger_names: Optional[set[str]] = None
     # ids of the ExpressionField objects saved expressions added at build time. The deferred build
     # lets a foreign key replace only these (see _ensure_foreign_keys_built), never the id/timestamp
     # mappings event modifiers write, which the eager path preserved.
@@ -724,6 +740,11 @@ class Database(BaseModel):
         self._foreign_keys_building_thread = None
         self._foreign_keys_build_lock = threading.Lock()
         self._foreign_key_trigger_names = None
+        self._deferred_revenue_handles = []
+        self._revenue_views_built = True
+        self._revenue_views_building_thread = None
+        self._revenue_views_build_lock = threading.Lock()
+        self._revenue_view_trigger_names = None
         self._deferred_overridable_expression_field_ids = set()
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
         self.user_access_control: Optional[UserAccessControl] = None
@@ -741,7 +762,13 @@ class Database(BaseModel):
     def has_table(self, table_name: str | list[str]) -> bool:
         if isinstance(table_name, str):
             table_name = table_name.split(".")
-        return self.tables.has_child(table_name)
+        if self.tables.has_child(table_name):
+            return True
+        # A miss under a revenue prefix may just mean the deferred views are not built yet.
+        if self._should_build_revenue_views_for(table_name):
+            self._ensure_revenue_views_built()
+            return self.tables.has_child(table_name)
+        return False
 
     def is_table_access_denied(self, table_name: str | list[str]) -> bool:
         """True if access control denied this table when the HogQL database was built.
@@ -764,6 +791,11 @@ class Database(BaseModel):
         try:
             table = cast(Table, self.get_table_node(table_name).get())
         except ResolutionError as e:
+            # Unlike deferred foreign keys (whose tables are in the tree from the start), deferred
+            # revenue views are absent until built, so the trigger has to fire on the failed lookup.
+            if self._should_build_revenue_views_for(table_name):
+                self._ensure_revenue_views_built()
+                return self.get_table(table_name)
             if isinstance(table_name, list):
                 table_name = ".".join(table_name)
             if self.is_table_access_denied(table_name):
@@ -787,6 +819,53 @@ class Database(BaseModel):
         # arms the build. Over-triggering only costs the build we deferred; under-triggering would drop
         # foreign-key fields the eager path had.
         return name.lower() in trigger_names
+
+    def _should_build_revenue_views_for(self, table_name: str | list[str]) -> bool:
+        if self._revenue_views_built:
+            return False
+        trigger_names = self._revenue_view_trigger_names
+        if not trigger_names:
+            return False
+        # A chain element may itself contain the dotted name (the resolver passes them through
+        # unsplit), so normalize to one dotted string before taking the first segment.
+        name = ".".join(str(part) for part in table_name) if isinstance(table_name, list) else table_name
+        # First-segment match: every deferred view name starts with its handle's prefix segment.
+        # Over-triggering only costs the build we deferred.
+        return name.split(".")[0].lower() in trigger_names
+
+    def _ensure_revenue_views_built(self) -> None:
+        """Build the deferred revenue-analytics views and graft them into the tree, at most once.
+
+        Building a view resolves no tables, but the guard mirrors _ensure_foreign_keys_built so a
+        mid-pass failure keeps the work pending and concurrent query threads observe either no
+        views or all of them. Runs before serialization and whenever a name under a revenue prefix
+        fails to resolve — including build-time consumers such as warehouse joins and saved
+        expressions, which reach the views through has_table / get_table.
+        """
+        if self._revenue_views_built or self._revenue_views_building_thread == threading.get_ident():
+            return
+        with self._revenue_views_build_lock:
+            if self._revenue_views_built:
+                return  # type: ignore[unreachable]
+            self._revenue_views_building_thread = threading.get_ident()
+            try:
+                # Function-local + product import: keeps revenue analytics off the django.setup() path.
+                from products.revenue_analytics.backend.views.orchestrator import (  # noqa: PLC0415
+                    build_revenue_views_for_handles,
+                )
+
+                with tracer.start_as_current_span("revenue_analytics_views_deferred"):
+                    views_node: TableNode = TableNode()
+                    for view in build_revenue_views_for_handles(self._deferred_revenue_handles):
+                        try:
+                            views_node.add_child(TableNode.create_nested_for_chain(view.name.split("."), view))
+                        except Exception as e:
+                            capture_exception(e)
+                    self._add_views(views_node)
+            finally:
+                self._revenue_views_building_thread = None
+            self._revenue_views_built = True
+            self._deferred_revenue_handles = []
 
     def _ensure_foreign_keys_built(self) -> None:
         """Wire the deferred Postgres foreign-key lazy joins, at most once.
@@ -846,6 +925,9 @@ class Database(BaseModel):
         import difflib
 
         try:
+            # A typo can miss the deferred-revenue trigger (its first segment matches no prefix),
+            # so build the views here to keep them suggestable, as they were on the eager path.
+            self._ensure_revenue_views_built()
             candidates = set(self.get_posthog_table_names())
             candidates.update(self._warehouse_table_names)
             candidates.update(self._warehouse_self_managed_table_names)
@@ -870,6 +952,8 @@ class Database(BaseModel):
         return difflib.get_close_matches(name, sorted(candidates), n=limit, cutoff=0.7)
 
     def get_all_table_names(self) -> list[str]:
+        # Enumeration surfaces (autocomplete, AI table listings) must see the full catalog.
+        self._ensure_revenue_views_built()
         warehouse_table_names: list[str] = []
         for table_name in self._warehouse_table_names:
             try:
@@ -921,6 +1005,7 @@ class Database(BaseModel):
         return self._warehouse_table_names + self._warehouse_self_managed_table_names
 
     def get_view_names(self) -> list[str]:
+        self._ensure_revenue_views_built()
         return self._view_table_names
 
     def _add_warehouse_tables(self, node: TableNode):
@@ -1095,6 +1180,8 @@ class Database(BaseModel):
         include_hidden_posthog_tables: bool = False,
         include_fields: bool = True,
     ) -> dict[str, DatabaseSchemaTable]:
+        # The schema browser and editor list every table, so deferred revenue views must exist here.
+        self._ensure_revenue_views_built()
         from posthog.schema import (  # noqa: PLC0415
             DatabaseSchemaDataWarehouseTable,
             DatabaseSchemaEndpointTable,
@@ -1556,6 +1643,7 @@ class Database(BaseModel):
             saved_queries=[],
             endpoint_saved_queries=[],
             revenue_views=[],
+            revenue_source_handles=[],
             warehouse_tables=[],
             data_warehouse_joins=[],
             data_warehouse_expressions=[],
@@ -1750,14 +1838,26 @@ class Database(BaseModel):
 
         with timings.measure("revenue_analytics_views", emit_span=True):
             revenue_views: list[RevenueAnalyticsBaseView] = []
+            revenue_source_handles: list[SourceHandle] = []
             if not is_direct_query:
                 try:
                     if not is_managed_viewset_enabled:
+                        # Building a view runs the full HogQL printer per view kind per source, on
+                        # every build, whether or not the query touches a revenue table. Fetch only
+                        # the handles here and let the first revenue-table access build the views
+                        # (see _ensure_revenue_views_built).
+                        # Function-local: keeps the Django model import off the django.setup() path.
+                        from posthog.models.instance_setting import get_instance_setting  # noqa: PLC0415
+
                         from products.revenue_analytics.backend.views.orchestrator import (  # noqa: PLC0415
                             build_all_revenue_analytics_views,
+                            list_revenue_source_handles,
                         )
 
-                        revenue_views = list(build_all_revenue_analytics_views(team, timings))
+                        if get_instance_setting("HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED"):
+                            revenue_source_handles = list_revenue_source_handles(team, timings)
+                        else:
+                            revenue_views = list(build_all_revenue_analytics_views(team, timings))
                 except Exception as e:
                     capture_exception(e)
 
@@ -1896,6 +1996,7 @@ class Database(BaseModel):
             saved_queries=saved_queries,
             endpoint_saved_queries=endpoint_saved_queries,
             revenue_views=revenue_views,
+            revenue_source_handles=revenue_source_handles,
             warehouse_tables=warehouse_tables,
             data_warehouse_joins=data_warehouse_joins,
             data_warehouse_expressions=data_warehouse_expressions,
@@ -2412,6 +2513,16 @@ class Database(BaseModel):
         database._add_warehouse_tables(warehouse_tables)
         database._add_warehouse_self_managed_tables(self_managed_warehouse_tables)
         database._add_views(views)
+
+        if not database._is_direct_query() and sources.revenue_source_handles:
+            # Armed before the joins and saved-expressions passes below: a join or expression that
+            # names a revenue view reaches it through has_table / get_table, which build on demand.
+            database._deferred_revenue_handles = list(sources.revenue_source_handles)
+            database._revenue_view_trigger_names = {
+                "revenue_analytics" if handle.type == "events" else handle.type.lower()
+                for handle in sources.revenue_source_handles
+            }
+            database._revenue_views_built = False
 
         if build_postgres_foreign_keys:
             # Stash the work now; _ensure_foreign_keys_built wires it on first warehouse-table access.

@@ -81,6 +81,7 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.constants import AvailableFeature
 from posthog.models.group_type_mapping import invalidate_group_types_cache
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
@@ -95,6 +96,9 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.revenue_analytics.backend.views import RevenueAnalyticsChargeView
+from products.revenue_analytics.backend.views.core import SourceHandle
+from products.revenue_analytics.backend.views.orchestrator import build_revenue_views_for_handles
+from products.revenue_analytics.backend.views.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
@@ -1186,19 +1190,71 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert self._ran_source_fetch_queries(ctx)
 
+    def _configure_revenue_events(self) -> None:
+        config = self.team.revenue_analytics_config
+        config.events = [REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT]
+        config.save()
+
+    def test_revenue_views_build_only_on_revenue_table_access(self):
+        self._configure_revenue_events()
+        with patch(
+            "products.revenue_analytics.backend.views.orchestrator.build_revenue_views_for_handles",
+            wraps=build_revenue_views_for_handles,
+        ) as builder:
+            database = Database.create_for(team=self.team)
+            database.get_table("events")
+            assert builder.call_count == 0
+
+            table = database.get_table("revenue_analytics.events.purchase.charge_events_revenue_view")
+            assert builder.call_count == 1
+            assert isinstance(table, RevenueAnalyticsChargeView)
+
+            # The first access built every deferred view; later lookups reuse them.
+            database.get_table("revenue_analytics.events.purchase.mrr_events_revenue_view")
+            assert builder.call_count == 1
+
+    def test_deferred_revenue_views_serialize_identically_to_eager(self):
+        self._configure_revenue_events()
+        with override_instance_config("HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED", False):
+            eager = Database.create_for(team=self.team)
+        deferred = Database.create_for(team=self.team)
+
+        eager_tables = eager.serialize(HogQLContext(team_id=self.team.pk, database=eager))
+        deferred_tables = deferred.serialize(HogQLContext(team_id=self.team.pk, database=deferred))
+
+        assert eager_tables.keys() == deferred_tables.keys()
+        view_name = "revenue_analytics.events.purchase.charge_events_revenue_view"
+        assert deferred_tables[view_name] == eager_tables[view_name]
+
+    def test_join_on_deferred_revenue_view_is_wired(self):
+        self._configure_revenue_events()
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="event",
+            joining_table_name="revenue_analytics.events.purchase.charge_events_revenue_view",
+            joining_table_key="id",
+            field_name="purchase_charge",
+        )
+
+        database = Database.create_for(team=self.team)
+
+        assert "purchase_charge" in database.get_table("events").fields
+
     def test_cached_revenue_views_do_not_leak_expression_fields_between_users(self):
         other_user = self._create_user("no-expression-access@posthog.com")
         with team_scope(self.team.id, canonical=True):
             DataWarehouseExpression.objects.create(
-                team=self.team, table_name="stub_revenue_view", field_name="secret_expr", expression="1 + 1"
+                team=self.team, table_name="stripe.stub.charges", field_name="secret_expr", expression="1 + 1"
             )
         stub_view = RevenueAnalyticsChargeView(
             id="stub-view",
-            name="stub_revenue_view",
+            name="stripe.stub.charges",
             query="SELECT 'x' AS id",
             fields={"id": StringDatabaseField(name="id")},
             prefix="stub",
         )
+        stub_handle = SourceHandle(type="stripe", team=self.team)
 
         with (
             patch(
@@ -1206,17 +1262,23 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 side_effect=lambda key, *args, **kwargs: key == "hogql-warehouse-access-control",
             ),
             patch(
-                "products.revenue_analytics.backend.views.orchestrator.build_all_revenue_analytics_views",
-                return_value=[stub_view],
+                "products.revenue_analytics.backend.views.orchestrator.list_revenue_source_handles",
+                return_value=[stub_handle],
+            ),
+            patch(
+                "products.revenue_analytics.backend.views.orchestrator.build_revenue_views_for_handles",
+                side_effect=lambda *args, **kwargs: [stub_view.model_copy(deep=True)],
             ),
             patch.object(Database, "_is_warehouse_expression_denied", side_effect=[False, True]),
         ):
             allowed = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
             denied = Database.create_for(team=self.team, user=other_user, use_cached_sources=True)
 
-        assert allowed.get_table("stub_revenue_view") is not denied.get_table("stub_revenue_view")
-        assert "secret_expr" in allowed.get_table("stub_revenue_view").fields
-        assert "secret_expr" not in denied.get_table("stub_revenue_view").fields
+            # Inside the patch context: resolving the view on `denied` builds its deferred views,
+            # which must go through the patched builder.
+            assert allowed.get_table("stripe.stub.charges") is not denied.get_table("stripe.stub.charges")
+            assert "secret_expr" in allowed.get_table("stripe.stub.charges").fields
+            assert "secret_expr" not in denied.get_table("stripe.stub.charges").fields
 
     def test_cached_sources_expire_and_pick_up_new_views(self):
         Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
@@ -4397,6 +4459,7 @@ class TestSourcesCacheConcurrency(TestCase):
             saved_queries=[],
             endpoint_saved_queries=[],
             revenue_views=[],
+            revenue_source_handles=[],
             warehouse_tables=[object()] * row_count,
             data_warehouse_joins=[],
             data_warehouse_expressions=[],

@@ -25,6 +25,12 @@ CONSTANCE_CONFIG = {
         "and series threads. Disable to fall back to building a database per call.",
         bool,
     ),
+    "HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED": (
+        get_from_env("HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED", True, type_cast=str_to_bool),
+        "Whether HogQL database builds construct revenue-analytics views lazily, on the first query "
+        "that resolves a revenue table. Disable to fall back to building them on every database build.",
+        bool,
+    ),
     "MATERIALIZED_COLUMNS_ENABLED": (
         get_from_env("MATERIALIZED_COLUMNS_ENABLED", True, type_cast=str_to_bool),
         "Whether materialized columns should be created or used at query time.",
@@ -357,6 +363,7 @@ CONSTANCE_CONFIG = {
 SETTINGS_ALLOWING_API_OVERRIDE = (
     "GROWTH_SIGNUP_ENRICHMENT_ENABLED",
     "GROWTH_ICP_REENRICH_DAILY_CAP",
+    "HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED",
     "HOGQL_SHARED_INSIGHT_DATABASE_ENABLED",
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",
     "AUTO_START_ASYNC_MIGRATIONS",
