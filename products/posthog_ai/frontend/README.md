@@ -61,7 +61,7 @@ import { ReadonlyRunSurface } from 'products/posthog_ai/frontend/api/readableRun
 ;<ReadonlyRunSurface taskId={task.id} runId={run.id} interaction="read-only" />
 ```
 
-The prepackaged, lazy read-only surface: thread (plus the meta bars for a live run), no composer and no
+The prepackaged, lazy read-only surface: thread (with the context-usage footer for a live run), no composer and no
 approval prompt. It streams fresh frames while running when `interaction='live'`, and replays the snapshot
 once when `'read-only'`. This is what all three inbox embeds drop in.
 
@@ -84,7 +84,6 @@ const { cancelRun } = useActions(runInteractionLogic(props))
     <div className="flex-1 min-h-0">
       <RunSurface.Thread />
     </div>
-    <RunSurface.Resources />
     <RunSurface.Composer>
       <Composer.Root
         value={draft}
@@ -113,10 +112,10 @@ submit again.
 ### Custom layout via the `RunSurface` compound
 
 `RunSurface.Root` (Tier 1, `api/runSurface`) binds the stream logic and bootstraps the run; the slots
-(`.Thread/.Composer/.Resources/.ContextUsage`) compose into any layout — there is no default. Omit
+(`.Thread/.Composer/.ContextUsage`) compose into any layout — there is no default. Omit
 `RunSurface.Composer` for a no-input surface (that's exactly what `ReadonlyRunSurface` does); render it with
 composer children for an interactive one. For something even more bespoke, drop to the Tier 2 primitives
-(`ThreadView`, `ResourcesBar`, `Composer.*`, `ContextUsageBar`) and bind `runStreamLogic` yourself.
+(`ThreadView`, `Composer.*`, `ContextUsageBar`) and bind `runStreamLogic` yourself.
 
 ### Optimistically open a run before it exists
 
