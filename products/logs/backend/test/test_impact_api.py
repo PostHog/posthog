@@ -115,9 +115,9 @@ class TestImpactApi(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2025-12-18T12:00:00Z")
     def test_impact_counts_identity_coverage(self, _name: str, date_range: dict, expected: dict) -> None:
         response = self._impact({"dateRange": date_range})
-        # topK breaks count ties in an unspecified order; sort so ties compare stably.
+        # topK breaks count ties in an unspecified order, so only the value set is stable.
         for top_list in ("topSessions", "topUsers"):
-            response[top_list] = sorted(response[top_list], key=lambda entry: (-entry["count"], entry["value"]))
+            response[top_list] = sorted(response[top_list], key=lambda entry: entry["value"])
         self.assertEqual(response, expected)
 
     @freeze_time("2025-12-18T12:00:00Z")
