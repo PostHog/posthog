@@ -631,11 +631,7 @@ export interface billingLogicMeta {
         minimumUsageSpendReadAccessLevel: (featureFlags: FeatureFlagsSet) => OrganizationMembershipLevel
         canViewUsageAndSpend: (currentOrganization: OrganizationType | null, featureFlags: FeatureFlagsSet) => boolean
         canOnlyViewUsageAndSpend: (canViewUsageAndSpend: boolean, canAccessBilling: boolean) => boolean
-        billingEntryUrl: (
-            canAccessBilling: boolean,
-            canOnlyViewUsageAndSpend: boolean,
-            featureFlags: FeatureFlagsSet
-        ) => string | null
+        billingEntryUrl: (canAccessBilling: boolean, canOnlyViewUsageAndSpend: boolean) => string | null
         upgradeLink: (preflight: PreflightStatus | null) => string
         isUnlicensedDebug: (preflight: PreflightStatus | null, billing: BillingType | null) => boolean
         supportPlans: (billing: BillingType | null) => BillingPlanType[]

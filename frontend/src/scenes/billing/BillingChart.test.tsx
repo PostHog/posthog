@@ -20,7 +20,7 @@ import { BillingChart, orderSeriesForDrawing, runningTotal, type BillingSeriesTy
 jest.mock('lib/colors', () => ({
     ...jest.requireActual('lib/colors'),
     getSeriesColor: (index: number) => ['#ff0000', '#0000ff'][index],
-    // Likewise a fixed, valid color for the running total, which is drawn in the resolved text color.
+    // Likewise a fixed, valid color for the running total, which is drawn in the resolved success color.
     getColorVar: () => '#111111',
 }))
 
