@@ -93,14 +93,16 @@ describe('featurePreviewsLogic - loadEarlyAccessFeatures', () => {
 
         await logic.asyncActions.loadEarlyAccessFeatures()
 
-        expect(mockGetEarlyAccessFeatures).toHaveBeenCalledWith(expect.any(Function), true, ['concept', 'alpha', 'beta'])
+        expect(mockGetEarlyAccessFeatures).toHaveBeenCalledWith(expect.any(Function), true, [
+            'concept',
+            'alpha',
+            'beta',
+        ])
     })
 
     test('an alpha-stage feature is stored so the gate can offer its enrollment toggle', async () => {
         const alphaFeature = { id: '1', name: 'Metrics', stage: 'alpha', flagKey: 'metrics' }
-        mockGetEarlyAccessFeatures.mockImplementation((callback: (features: any[]) => void) =>
-            callback([alphaFeature])
-        )
+        mockGetEarlyAccessFeatures.mockImplementation((callback: (features: any[]) => void) => callback([alphaFeature]))
 
         await logic.asyncActions.loadEarlyAccessFeatures()
 
