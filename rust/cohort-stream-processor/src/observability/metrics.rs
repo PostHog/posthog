@@ -557,24 +557,19 @@ pub const PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL: &str =
 pub const SEED_REGISTER_REPAIRS_TOTAL: &str = "cohort_seed_register_repairs_total";
 
 /// Persons whose Stage 2 inputs a seed apply read through shared store sections (counter).
-///
-/// Attempt-based, like everything a run *found*: a held run counts its persons, and so does the
-/// redelivery that replays it. **Do not divide [`STAGE2_COHORTS_EVALUATED`] by this.** That counter
-/// is settled-based — it is recorded only once the run's stage-2 writes commit — so the ratio
-/// under-reports the sharing during exactly the incidents that produce holds. Read keys per person
-/// off [`SEED_RECOMPUTE_KEYS_FETCHED_TOTAL`] instead, which is attempt-based on both sides.
+/// Attempt-based: a held run counts its persons, and so does the redelivery that replays it.
+/// **Do not divide [`STAGE2_COHORTS_EVALUATED`] by this**, because that counter is settled-based and
+/// the ratio then under-reports the sharing on exactly the runs that hold. Read keys per person off
+/// [`SEED_RECOMPUTE_KEYS_FETCHED_TOTAL`], which is attempt-based on both sides.
 pub const SEED_RECOMPUTE_PERSONS_TOTAL: &str = "cohort_seed_recompute_persons_total";
 /// Store keys those sections fetched, labelled by `source` (`behavioral`|`person_record`|`stage2`)
-/// (counter). Against [`SEED_RECOMPUTE_PERSONS_TOTAL`] this is keys per person, by state source, and
-/// it is the sharing win: `person_record` holds at one per person however many cohorts that person
-/// reaches.
+/// (counter). Over [`SEED_RECOMPUTE_PERSONS_TOTAL`] this is the sharing win: `person_record` holds
+/// at one per person however many cohorts that person reaches.
 pub const SEED_RECOMPUTE_KEYS_FETCHED_TOTAL: &str = "cohort_seed_recompute_keys_fetched_total";
-/// Raw value bytes one batched read returned, labelled by the same `source` (histogram, bytes). A
-/// section decodes and releases each batch before reading the next, so this is its raw-buffer peak.
-/// **A key limit does not bound bytes** — behavioral values grow with window length — so read this
-/// before concluding the read plan has a memory ceiling. A miss records a real `0`: on
-/// `source="person_record"` a dormant person the seed found nothing for is a zero sample, so read
-/// the upper quantiles rather than the median while a backfill sweeps non-matchers.
+/// Raw value bytes one batched read returned, labelled by the same `source` (histogram, bytes).
+/// **A key limit does not bound bytes**, because behavioral values grow with window length, so read
+/// this before assuming the read plan has a memory ceiling. A miss records a real `0`, so prefer the
+/// upper quantiles while a backfill sweeps persons it finds nothing for.
 pub const SEED_RECOMPUTE_CHUNK_BYTES: &str = "cohort_seed_recompute_chunk_bytes";
 
 /// Seeds applied as one run, labelled by `kind` (histogram). The p50 is the batching win: `1` means

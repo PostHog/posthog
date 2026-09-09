@@ -89,8 +89,6 @@ impl Stage2Recompute {
         self.repairs.add(other.repairs);
     }
 
-    /// Record one recomputed pair: the flip it emits, if any, and the `cf_stage2` write it owes.
-    ///
     /// Both recompute orders call this, so what a composed evaluation emits cannot depend on
     /// whether the caller walked cohorts or persons.
     pub(super) fn record_pair(
@@ -130,15 +128,13 @@ impl Stage2Recompute {
 
 #[cfg(test)]
 impl Stage2Recompute {
-    /// Pairs this recompute composed, which is what `STAGE2_COHORTS_EVALUATED` reports. Read by the
-    /// tests that hold the two recompute orders to the same work, including on pairs that flip
-    /// nothing and so leave no trace in `changes` or `writes`.
+    /// Pairs composed, which is what `STAGE2_COHORTS_EVALUATED` reports. A pair that flips nothing
+    /// leaves no other trace for a test to compare.
     pub(super) fn evaluated(&self) -> u64 {
         self.evaluated
     }
 }
 
-/// One recomputed `(cohort, person)` as the emitted change names it.
 pub(super) struct RecomputedPair {
     pub team_id: i32,
     pub cohort_id: CohortId,
@@ -218,9 +214,8 @@ impl RepairCounts {
 }
 
 /// The read-only half of [`compose_stage2`]: one cohort at a time, in `(cohort, person)` order.
-///
-/// The seed paths use [`recompute_stage2_by_person`](super::stage2_person_inputs::recompute_stage2_by_person)
-/// instead, which shares each person's reads across their cohorts.
+/// The seed paths use
+/// [`recompute_stage2_by_person`](super::stage2_person_inputs::recompute_stage2_by_person) instead.
 pub(super) async fn recompute_stage2(
     partition_id: u16,
     handle: &StoreHandle,
@@ -806,8 +801,8 @@ pub(super) fn decode_stage1_state(bytes: Option<Vec<u8>>) -> Option<Stage1State>
     }
 }
 
-/// One stored `cf_stage2` row as composition reads it. [`Default`] is the fail-closed reading an
-/// absent or corrupt row gets: a non-member row nobody has transferred.
+/// One stored `cf_stage2` row as composition reads it. [`Default`] is the fail-closed reading for
+/// an absent or corrupt row.
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct PriorStage2State {
     pub in_cohort: bool,
@@ -2057,17 +2052,13 @@ mod tests {
 
     // ---- Sharing one person's inputs across their cohorts ----
     //
-    // `recompute_stage2_by_person` is the seed paths' recompute. It reads each person once instead
-    // of once per affected cohort, so every test below holds it to this module's cohort-ordered
-    // path as an oracle over the same store, and then asserts what the shared read had to get right
-    // for the two to agree.
+    // Every test below holds `recompute_stage2_by_person` to the cohort-ordered path as an oracle
+    // over the same store, then asserts what the shared read had to get right for the two to agree.
 
     use crate::workers::stage2_person_inputs::recompute_stage2_by_person;
 
-    /// Run both recompute orders over the same store and return the agreed result.
-    ///
-    /// Neither commits — both hand their `cf_stage2` writes back for the caller to commit after its
-    /// produce — so running them back to back reads the same durable state twice.
+    /// Run both recompute orders over the same store and return the agreed result. Neither commits,
+    /// so running them back to back reads the same durable state twice.
     async fn recompute_both_ways(
         store: &CohortStore,
         filters: &TeamFilters,
@@ -2141,8 +2132,6 @@ mod tests {
             .collect()
     }
 
-    /// A second person condition, which the stored record does not match. Sharing one record across
-    /// a person's cohorts must still answer each condition separately.
     fn other_person_leaf() -> Value {
         json!({
             "type": "person", "key": "email", "value": "someone@example.com", "operator": "exact",
@@ -2151,13 +2140,8 @@ mod tests {
         })
     }
 
-    /// One person, four cohorts, one shared behavioral leaf and one shared person leaf, and every
-    /// behavioral variant in the mix. The shared read must serve all four cohorts from one person
-    /// record and one behavioral batch without changing any verdict.
-    ///
-    /// Cohort 4 names a second person condition the record does not match, so a read that collapsed
-    /// the record into one bit — "matched anything" rather than "matched this hash" — would enter it.
-    /// That is the mistake sharing the record invites.
+    /// Cohort 4 names a second person condition the record does not match, so a read that answered
+    /// the record as one bit rather than per condition would enter it.
     #[tokio::test]
     async fn shared_inputs_compose_every_leaf_variant_from_one_read() {
         let (_dir, store) = temp_store();
@@ -2193,8 +2177,7 @@ mod tests {
         write_behavioral(&store, compressed_lsk, alice, compressed_state(2));
         write_person_record(&store, alice, &[PERSON_HASH]);
 
-        // Both leaves, so cohort 4 is reached too: it hangs off the shared behavioral leaf, not off
-        // the person condition the other three share.
+        // Cohort 4 hangs off the shared behavioral leaf, not the person condition.
         let affected = [(single_lsk, alice), (per_lsk, alice)];
         let entered = recompute_both_ways(&store, &filters, TEAM as i32, &affected).await;
         assert_eq!(
@@ -2207,8 +2190,8 @@ mod tests {
             "each variant's comparator still decides its own leaf, and the unmatched person \
              condition keeps cohort 4 out of the same record's answers",
         );
-        // Absolute, not against the oracle: both orders build the change through one shared
-        // `record_pair`, so only a literal pins which team the shared read stamped on it.
+        // Both orders build the change through one shared `record_pair`, so only a literal pins
+        // which team the shared read stamped on it.
         assert!(entered
             .changes
             .iter()
@@ -2223,9 +2206,8 @@ mod tests {
         assert_eq!(statuses(&left), vec![(2, MembershipStatus::Left)]);
     }
 
-    /// A referent and its referrer recompute in the same call. The referrer must read the referent's
-    /// *stored* bit, not the one this run is about to write, or it emits a cascade nothing has
-    /// acknowledged.
+    /// The referrer must read the referent's *stored* bit, not the one this run is about to write,
+    /// or it emits a cascade nothing has acknowledged.
     #[tokio::test]
     async fn a_referent_recomputed_in_the_same_call_is_still_read_from_the_store() {
         let (_dir, store) = temp_store();
@@ -2255,10 +2237,9 @@ mod tests {
         );
     }
 
-    /// The one reference kind whose bit comes back through the *behavioral* batch rather than the
-    /// `cf_stage2` batch. A single-leaf referent is resolved from its own leaf state through its own
-    /// comparator, so resolving it from a stored membership row instead would read every referrer of
-    /// a single-leaf cohort as a non-member — and no other test here would notice.
+    /// The one reference kind whose bit comes back through the behavioral batch. Resolving it from
+    /// a stored membership row instead would read every referrer of a single-leaf cohort as a
+    /// non-member.
     #[tokio::test]
     async fn a_single_leaf_referent_resolves_through_its_own_leaf_and_comparator() {
         let (_dir, store) = temp_store();
@@ -2295,8 +2276,7 @@ mod tests {
         assert_eq!(statuses(&above), vec![(1, MembershipStatus::Entered)]);
     }
 
-    /// A referent read as stored, then referenced twice in one tree with opposite negation, is one
-    /// row and two consistent answers.
+    /// One referent named twice with opposite negation is one row and two consistent answers.
     #[tokio::test]
     async fn a_referent_named_twice_with_opposite_negation_reads_one_row() {
         let (_dir, store) = temp_store();
@@ -2321,8 +2301,7 @@ mod tests {
         );
     }
 
-    /// Absent and corrupt rows read as non-member on the shared path exactly as they do per cohort,
-    /// and a transferred fallback is still settled on a pair that does not flip.
+    /// A transferred fallback is still settled on a pair that does not flip.
     #[tokio::test]
     async fn corrupt_rows_stay_non_member_and_a_transferred_fallback_still_settles() {
         let (_dir, store) = temp_store();
@@ -2379,8 +2358,7 @@ mod tests {
         );
     }
 
-    /// Two persons in one call, with opposite state. Sharing is per person, so neither may see the
-    /// other's record or leaves.
+    /// Sharing is per person, so neither may see the other's record or leaves.
     #[tokio::test]
     async fn two_persons_in_one_call_keep_their_own_inputs() {
         let (_dir, store) = temp_store();
@@ -2453,7 +2431,6 @@ mod tests {
         );
     }
 
-    /// Distinct condition hashes, so a fixture can build a cohort wider than one read chunk.
     fn wide_behavioral_leaf(index: usize) -> Value {
         json!({
             "type": "behavioral", "value": "performed_event", "key": "$pageview",
@@ -2467,8 +2444,8 @@ mod tests {
         format!("beh{index:013}").as_bytes().try_into().unwrap()
     }
 
-    /// More behavioral leaves than fit one chunk. A chunk the read skipped would leave its leaves
-    /// non-member and break the AND, so the entry proves every chunk landed.
+    /// A chunk the read skipped would leave its leaves non-member and break the AND, so the entry
+    /// proves every chunk landed.
     #[tokio::test]
     async fn a_cohort_wider_than_one_chunk_reads_every_leaf() {
         const LEAVES: usize = 70;
@@ -2486,8 +2463,8 @@ mod tests {
         let entered = recompute_both_ways(&store, &filters, TEAM as i32, &[(lsks[0], alice)]).await;
         assert_eq!(statuses(&entered), vec![(1, MembershipStatus::Entered)]);
 
-        // Drop one leaf in the second chunk. The `Entered` above is what proves every chunk landed;
-        // this half pins that the far leaf's value is the one being read, not just its key.
+        // The `Entered` above proves every chunk landed. This half pins that the far leaf's value
+        // is read, not just its key.
         write_behavioral(
             &store,
             lsks[LEAVES - 1],
@@ -2503,8 +2480,8 @@ mod tests {
         assert_eq!(statuses(&left), vec![(1, MembershipStatus::Left)]);
     }
 
-    /// One person in more composable cohorts than fit one `cf_stage2` chunk. The pair whose prior
-    /// row already agrees sits in the second chunk, so only a read that reached it stays silent.
+    /// The pair whose prior row already agrees sits past the first chunk, so only a read that
+    /// reached it stays silent.
     #[tokio::test]
     async fn a_person_in_more_cohorts_than_one_chunk_reads_every_prior_row() {
         const COHORTS: i32 = 70;
@@ -2544,10 +2521,8 @@ mod tests {
         );
     }
 
-    /// Invented fixture: `persons` persons, each in `cohorts` composable cohorts that share one
-    /// behavioral leaf and one person leaf, and each cohort also owning a leaf whose compressed
-    /// history spans a year. That is the shape the sharing is for — wide fanout over mostly shared
-    /// state, with values big enough that re-reading them is not free.
+    /// Wide fanout over mostly shared state, with per-cohort leaves big enough that re-reading them
+    /// is not free.
     fn wide_fixture(
         store: &CohortStore,
         cohorts: usize,
@@ -2599,7 +2574,7 @@ mod tests {
         format!("cmp{index:013}").as_bytes().try_into().unwrap()
     }
 
-    /// One entry per day of the window, so each behavioral value is kilobytes rather than bytes.
+    /// One entry per day of the window, so each value is kilobytes rather than bytes.
     fn year_long_compressed_state() -> Stage1State {
         Stage1State::BehavioralCompressedHistory {
             entries: (0..365).map(|day| (20_600 + day, 1)).collect(),
@@ -2616,10 +2591,8 @@ mod tests {
     ///     recompute_orders_benchmark -- --ignored --nocapture
     /// ```
     ///
-    /// Both orders run over one store in one process, so the comparison needs no second checkout and
-    /// no second build. It asserts agreement only: a wall-time threshold in a test is a flake
-    /// waiting for a slower box, and reads per state source and memory belong to
-    /// `cohort_seed_recompute_*` under real load, not here.
+    /// Asserts agreement only. A wall-time threshold here would be a flake waiting for a slower
+    /// box, and reads per source and memory belong to `cohort_seed_recompute_*` under real load.
     #[tokio::test]
     #[ignore = "benchmark; run in release with --ignored --nocapture"]
     async fn recompute_orders_benchmark() {
@@ -2658,8 +2631,8 @@ mod tests {
                 )
             };
 
-            // Warm the block cache first, so the timed pass measures the read shape and not the
-            // first touch of every SST.
+            // Warm the block cache, so the timed pass measures the read shape and not the first
+            // touch of every SST.
             let warm_by_cohort = run_by_cohort().await.unwrap();
             let warm_by_person = run_by_person().await.unwrap();
             assert_eq!(warm_by_person.changes, warm_by_cohort.changes);

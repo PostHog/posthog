@@ -2981,17 +2981,14 @@ async fn both_lanes_drain_before_the_worker_exits() {
     );
 }
 
-/// The composed half of the same guarantee. A seed run that flips a two-leaf cohort commits stage 1,
-/// fails its produce, and holds; nothing downstream was told and no `cf_stage2` row says otherwise,
-/// so the redelivery re-derives the flip and only then commits the offset.
-///
-/// The seed apply shares one read across a person's cohorts, so this pins that the sharing did not
-/// move the stage-2 write before the produce that justifies it.
+/// The composed half of the same guarantee: a run that flips two cohorts commits stage 1, fails its
+/// produce, and holds. Nothing downstream was told and no `cf_stage2` row says otherwise, so the
+/// redelivery re-derives both flips and only then commits the offset.
 #[tokio::test]
 async fn a_failed_composed_seed_produce_replays_from_the_row_it_never_wrote() {
     let (_dir, store) = temp_store();
-    // Two composable cohorts on the same leaf, so the run recomputes one person for both from one
-    // shared read — the shape this test's guarantee is about.
+    // Two composable cohorts on the same leaf, so one person recomputes for both from one shared
+    // read.
     let composed = || {
         build_team_filters(vec![
             (CohortId(1), cohort(vec![behavioral_leaf(7), person_leaf()])),
@@ -3044,8 +3041,8 @@ async fn a_failed_composed_seed_produce_replays_from_the_row_it_never_wrote() {
         "the failed produce holds the seed offset",
     );
 
-    // The redelivered tile merges to `Unchanged` and mints no transition. Only the absent stage-2
-    // row can still say the flip was never emitted.
+    // The redelivered tile merges to `Unchanged` and mints no transition, so only the absent
+    // stage-2 row can say the flips were never emitted.
     let replay_sink = CaptureSink::new();
     let replay_deps = MergeWorkerDeps::capture();
     let (live_tx, live_rx) = mpsc::channel(16);

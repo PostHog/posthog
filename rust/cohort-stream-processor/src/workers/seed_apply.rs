@@ -844,8 +844,7 @@ struct Scheduled {
 
 impl Scheduled {
     /// One recompute per `(team, run)`, folded into the register diff's half so one produce and
-    /// one commit cover both. Each group shares every person's reads across the cohorts that person
-    /// reaches; the live path composes cohort by cohort instead.
+    /// one commit cover both.
     async fn recompute(
         mut self,
         deps: ApplyDeps<'_>,
