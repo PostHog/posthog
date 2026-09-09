@@ -6,6 +6,8 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import DataGrid, {
     CellClickArgs,
+    // CellMouseEvent, onCellContextMenu, and event.preventGridDefault() are beta-only APIs from the
+    // exactly-pinned react-data-grid 7.0.0-beta.47; a manual bump could reshape them without a semver signal.
     CellMouseEvent,
     DataGridProps,
     RenderHeaderCellProps,
@@ -593,6 +595,26 @@ interface OutputPaneProps {
     showToolbar?: boolean
     biMode?: boolean
     onShareTab?: () => void
+}
+
+/** The copyable text for a right-clicked grid cell, or null when the cell should fall through to the
+ *  native context menu. Exported so the branches below (details column, empty value, HogQLX skip) are
+ *  unit-testable, mirroring extractCellText in LemonTable. */
+export function extractGridCellValue(columnKey: string, row: Record<string, any>): string | null {
+    if (columnKey === '__details') {
+        return null
+    }
+    const value = row[columnKey]
+    if (value === null || value === undefined || value === '') {
+        return null
+    }
+    // HogQLX-shaped values render as rich content (links, sparklines, recording buttons) via
+    // renderHogQLX; copying String(value) would put the internal AST JSON on the clipboard, so skip
+    // them and let the native menu handle the cell instead.
+    if (typeof value === 'string' && value.startsWith('["__hx_tag",') && value.endsWith(']')) {
+        return null
+    }
+    return String(value)
 }
 
 export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareTab }: OutputPaneProps): JSX.Element {
@@ -1220,14 +1242,14 @@ const Content = ({
     // text), react-data-grid hands us the raw row value, so datetimes/numbers copy accurately.
     const handleGridCellContextMenu = useCallback(
         (args: CellClickArgs<any, any>, event: CellMouseEvent) => {
-            const value = args.column.key === '__details' ? undefined : args.row[args.column.key]
-            if (value === null || value === undefined || value === '') {
+            const text = extractGridCellValue(args.column.key, args.row)
+            if (text === null) {
                 closeCopyMenu() // Not a copyable data cell — close any open menu and fall back to the native one
                 return
             }
             event.preventGridDefault()
             event.preventDefault()
-            openCopyMenu(event.currentTarget, String(value))
+            openCopyMenu(event.currentTarget, text)
         },
         [closeCopyMenu, openCopyMenu]
     )

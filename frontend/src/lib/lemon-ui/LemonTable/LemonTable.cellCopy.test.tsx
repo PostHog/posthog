@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import { initKeaTests } from '~/test/init'
 
@@ -68,6 +68,32 @@ describe('LemonTable enableCellCopy gating', () => {
 
         // The popover only mounts its overlay when visible, so finding the button proves the
         // right-click handler fired and opened the copy affordance.
-        expect(await screen.findByRole('button', { name: 'Copy cell contents' })).toBeInTheDocument()
+        expect(await screen.findByText('Copy cell contents')).toBeInTheDocument()
+    })
+
+    it('closes an open copy menu when a non-copyable (empty) cell is right-clicked', async () => {
+        render(
+            <LemonTable
+                enableCellCopy
+                columns={[
+                    { title: 'Name', dataIndex: 'name' },
+                    { title: 'Blank', dataIndex: 'blank' },
+                ]}
+                dataSource={[{ name: 'All_callers', blank: '' }]}
+            />
+        )
+
+        const nameCell = screen.getByText('All_callers').closest('td')!
+        fireEvent.contextMenu(nameCell)
+        expect(await screen.findByText('Copy cell contents')).toBeInTheDocument()
+
+        // The Blank column's cell has no text, so right-clicking it must clear the open menu rather
+        // than leave a stale popover pointing at the previous cell. The Popover unmounts its portal
+        // on a delay, so wait for the button to leave the DOM.
+        fireEvent.contextMenu(nameCell.nextElementSibling as HTMLElement)
+
+        await waitFor(() => {
+            expect(screen.queryByText('Copy cell contents')).not.toBeInTheDocument()
+        })
     })
 })

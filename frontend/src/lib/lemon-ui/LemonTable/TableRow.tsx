@@ -149,6 +149,16 @@ function TableRowRaw<T extends Record<string, any>>({
 
                             const extraCellProps =
                                 isTableCellRepresentation(contents) && contents.props ? contents.props : {}
+                            // A column may supply its own onContextMenu via TableCellRepresentation; chain it
+                            // with the copy handler so the spread below can't silently clobber either one.
+                            const { onContextMenu: columnOnContextMenu, ...restCellProps } = extraCellProps
+                            const onCellContextMenuChained =
+                                columnOnContextMenu || onCellContextMenu
+                                    ? (event: React.MouseEvent<HTMLTableCellElement>) => {
+                                          columnOnContextMenu?.(event)
+                                          onCellContextMenu?.(event)
+                                      }
+                                    : undefined
                             // A cell that spans several columns is not bound by the width of the one it starts in
                             const spansColumns = extraCellProps.colSpan !== undefined && extraCellProps.colSpan !== 1
                             const widthCap = spansColumns ? undefined : getColumnWidthCap(column)
@@ -175,8 +185,8 @@ function TableRowRaw<T extends Record<string, any>>({
                                         ...(widthCap ? { maxWidth: widthCap } : {}),
                                         ...(isColumnSticky ? { left: `${leftPosition}px` } : {}),
                                     }}
-                                    onContextMenu={onCellContextMenu}
-                                    {...extraCellProps}
+                                    onContextMenu={onCellContextMenuChained}
+                                    {...restCellProps}
                                 >
                                     {isTableCellRepresentation(contents) ? contents.children : contents}
                                 </td>
