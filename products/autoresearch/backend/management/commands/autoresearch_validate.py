@@ -54,10 +54,11 @@ class Command(BaseCommand):
 
         user: User | None = None
         if options["user_id"] is not None:
-            try:
-                user = User.objects.get(pk=options["user_id"])
-            except User.DoesNotExist:
-                raise CommandError(f"User {options['user_id']} not found.")
+            # HogQL applies property restrictions for the user but does not check
+            # project membership, so an outsider must be refused here.
+            user = team.all_users_with_access().filter(pk=options["user_id"]).first()
+            if user is None:
+                raise CommandError(f"User {options['user_id']} not found or has no access to team {team_id}.")
 
         self.stdout.write(f"\nValidating pipeline definition for team '{team.name}' (id={team_id})")
         self.stdout.write(f"  Target event : {options['target']}")
