@@ -115,6 +115,7 @@ rules:
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
                               |Conversation
+                              |ConversationInboundEvent
                               |ConversationRestoreToken
                               |CoreMemory
                               |CustomerJourney
@@ -521,6 +522,7 @@ rules:
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
                         |Conversation
+                        |ConversationInboundEvent
                         |ConversationRestoreToken
                         |CoreMemory
                         |CustomerJourney

@@ -1,6 +1,6 @@
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
 
@@ -446,8 +446,7 @@ def _refuse_unsweepable(
     cluster: ClickhouseCluster,
     targets: list[DeletionTarget],
     deletion_request: DeletionRequestContext,
-    predicate: str,
-    params: dict,
+    predicate_for: Callable[[DeletionTarget], tuple[str, dict] | None],
     *,
     reason: str,
 ) -> None:
@@ -456,13 +455,40 @@ def _refuse_unsweepable(
         assert_no_unsweepable_rows(
             cluster,
             targets,
-            predicate,
-            params,
+            predicate_for,
             events=[] if deletion_request.delete_all_events else deletion_request.events,
             reason=reason,
         )
     except UnsweepableRowsError as exc:
         raise dagster.Failure(description=f"Deletion request {deletion_request.request_id}: {exc}") from exc
+
+
+def _refuse_property_removal_unsweepable(
+    cluster: ClickhouseCluster,
+    unsweepable: list[DeletionTarget],
+    deletion_request: DeletionRequestContext,
+    marker_str: str,
+) -> None:
+    """Gate a property-removal request against every unsweepable target.
+
+    A target without ``stores_person_properties`` (today only flag_evaluations) drops the
+    request's ``person_properties`` half from its presence check, since the gate cannot query that
+    column there; see the field's own comment on ``DeletionTarget`` for what that costs. A target
+    left with no criteria at all, nothing in ``properties`` either, is skipped rather than
+    queried.
+    """
+
+    def predicate_for(target: DeletionTarget) -> tuple[str, dict] | None:
+        request = (
+            deletion_request if target.stores_person_properties else replace(deletion_request, person_properties=[])
+        )
+        if not request.properties and not request.person_properties:
+            return None
+        return _property_removal_where(request, inserted_at_max=marker_str)
+
+    _refuse_unsweepable(
+        cluster, unsweepable, deletion_request, predicate_for, reason=_PROPERTY_REWRITE_UNSWEEPABLE_REASON
+    )
 
 
 def _verify_swept(
@@ -496,8 +522,10 @@ def _event_removal_placements(
 
     unsweepable = [p.target for p in placements if not p.target.accepts_hogql_predicate]
     if unsweepable:
-        predicate, params = portable_event_removal_where(deletion_request)
-        _refuse_unsweepable(cluster, unsweepable, deletion_request, predicate, params, reason=_HOGQL_UNSWEEPABLE_REASON)
+        criteria = portable_event_removal_where(deletion_request)
+        _refuse_unsweepable(
+            cluster, unsweepable, deletion_request, lambda _target: criteria, reason=_HOGQL_UNSWEEPABLE_REASON
+        )
     return [p for p in placements if p.target.accepts_hogql_predicate]
 
 
@@ -755,15 +783,7 @@ def get_property_removal_shards(
         marker_str = marker.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
         # Bound by the same marker as the sweep and the verify gate, so a row ingested after the
         # marker — which the sweep would never touch — can't refuse the request forever.
-        presence, presence_params = _property_removal_where(deletion_request, inserted_at_max=marker_str)
-        _refuse_unsweepable(
-            cluster,
-            unsweepable,
-            deletion_request,
-            presence,
-            presence_params,
-            reason=_PROPERTY_REWRITE_UNSWEEPABLE_REASON,
-        )
+        _refuse_property_removal_unsweepable(cluster, unsweepable, deletion_request, marker_str)
 
     shards = sorted(cluster.shards)
     context.log.info(f"Fanning out property removal {deletion_request.request_id} to {len(shards)} shard op(s)")
@@ -1087,15 +1107,7 @@ def verify_property_removal(
     # Bounded by the same marker as the checks below so post-marker ingestion can't wedge the run.
     unsweepable = [t for t in resolve_targets_here(cluster) if not t.accepts_property_rewrite]
     if unsweepable:
-        presence, presence_params = _property_removal_where(deletion_request, inserted_at_max=marker_str)
-        _refuse_unsweepable(
-            cluster,
-            unsweepable,
-            deletion_request,
-            presence,
-            presence_params,
-            reason=_PROPERTY_REWRITE_UNSWEEPABLE_REASON,
-        )
+        _refuse_property_removal_unsweepable(cluster, unsweepable, deletion_request, marker_str)
 
     properties = deletion_request.properties
     person_properties = deletion_request.person_properties
