@@ -1,7 +1,7 @@
 ---
 name: debugging-surveys
 description: >-
-  Debug, support, and build PostHog Surveys across the backend and all five SDKs
+  Debugs, supports, and builds PostHog Surveys across the backend and all five SDKs
   (web/posthog-js, iOS, Android, Flutter, React Native). Use whenever a Surveys
   support ticket is pasted ("survey not showing", "fewer responses than expected",
   "responses disappeared", "responses are incomplete", "only the first question was
