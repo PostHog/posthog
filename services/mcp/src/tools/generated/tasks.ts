@@ -618,6 +618,7 @@ const tasksList = (): ToolBase<
             query: {
                 all_team_tasks: params.all_team_tasks,
                 archived: params.archived,
+                basic: params.basic,
                 channel: params.channel,
                 ci_status: params.ci_status,
                 commented_by: params.commented_by,
