@@ -316,35 +316,22 @@ _RECORDED = [
 ]
 
 
-@pytest.mark.parametrize(
-    "attribute,expected",
-    [
-        (
-            "forget",
-            (
-                # A product-routed app is replayed in full under the consumer's own routing.
-                ("posthog", "1345_squash_2026_09_07_schema_addons"),
-                ("posthog", "1346_untrack_organization_is_hipaa"),
-                ("posthog", "1347_add_a_column"),
-                ("stamphog", "0001_squash_2026_09_07_initial"),
-                ("stamphog", "0002_later"),
-            ),
-        ),
-        # The addons migration probes the schema, so replaying it for real is safe.
-        ("replay", (("posthog", "1345_squash_2026_09_07_schema_addons"),)),
-        # Its descendants are already in the restored schema, so they are re-recorded, not re-run.
-        ("refake", (("posthog", "1347_add_a_column"),)),
-    ],
-)
-def test_plan_migration_records(attribute: str, expected: tuple[tuple[str, str], ...]) -> None:
-    plan = db_schema.plan_migration_records(_RECORDED, ["stamphog"])
-
-    assert getattr(plan, attribute) == expected
+def test_migrations_to_forget() -> None:
+    # A product-routed app goes in full. Elsewhere the addons migration and everything recorded
+    # after it go, because each of those depends on a row that is about to disappear.
+    assert db_schema.migrations_to_forget(_RECORDED, ["stamphog"]) == (
+        ("posthog", "1345_squash_2026_09_07_schema_addons"),
+        ("posthog", "1346_untrack_organization_is_hipaa"),
+        ("posthog", "1347_add_a_column"),
+        ("stamphog", "0001_squash_2026_09_07_initial"),
+        ("stamphog", "0002_later"),
+    )
 
 
 def test_restore_schema_dump_forgets_product_app_migrations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # Every migration the plan forgets has to leave the table, or the restored database asserts a
-    # migration applied before its dependency and Django refuses to migrate at all.
+    # Two regressions live here. Leaving a forgotten migration's descendant behind makes Django
+    # refuse to migrate at all. Re-recording any of them here marks a product app migrated on a
+    # database that never got its tables, which breaks its next migration instead.
     schema_path = tmp_path / "schema.sql.gz"
     _write_schema(schema_path)
     commands: list[list[str]] = []
@@ -359,13 +346,9 @@ def test_restore_schema_dump_forgets_product_app_migrations(tmp_path: Path, monk
 
     deletes = [command[-1] for command in commands if "DELETE FROM django_migrations" in command[-1]]
     assert len(deletes) == 1
-    for app, name in db_schema.plan_migration_records(_RECORDED, ["stamphog"]).forget:
+    for app, name in db_schema.migrations_to_forget(_RECORDED, ["stamphog"]):
         assert f"('{app}', '{name}')" in deletes[0]
-    migrates = [command for command in commands if command[:3] == ["python", "manage.py", "migrate"]]
-    assert migrates == [
-        ["python", "manage.py", "migrate", "posthog", "1345_squash_2026_09_07_schema_addons", "--noinput"],
-        ["python", "manage.py", "migrate", "posthog", "1347_add_a_column", "--noinput", "--fake"],
-    ]
+    assert not [command for command in commands if command[:3] == ["python", "manage.py", "migrate"]]
 
 
 def test_restore_schema_dump_recreate_cleans_up_after_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
