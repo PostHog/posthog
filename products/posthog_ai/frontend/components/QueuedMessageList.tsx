@@ -3,12 +3,16 @@ import { useEffect, useRef, useState } from 'react'
 import { IconCheck, IconPencil, IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+
 import type { QueuedMessage } from '../logics/runInteractionLogic'
 
 export interface QueuedMessageListProps {
     messages: QueuedMessage[]
     onUpdate: (id: string, content: string) => void
     onRemove: (id: string) => void
+    onSteer?: () => void
+    steerPending?: boolean
 }
 
 interface QueuedMessageItemProps {
@@ -47,7 +51,7 @@ function QueuedMessageItem({
 
     if (isEditing) {
         return (
-            <div className="space-y-2">
+            <div className="space-y-2" data-attr="run-queue-editor">
                 <LemonTextArea
                     ref={textAreaRef}
                     value={draft}
@@ -106,7 +110,13 @@ function QueuedMessageItem({
  * (no kea): the consumer owns the queue state and passes `onUpdate` / `onRemove`. Modeled on PostHog AI's
  * `QueuedMessageItem`, minus the conversation/Max coupling.
  */
-export function QueuedMessageList({ messages, onUpdate, onRemove }: QueuedMessageListProps): JSX.Element | null {
+export function QueuedMessageList({
+    messages,
+    onUpdate,
+    onRemove,
+    onSteer,
+    steerPending = false,
+}: QueuedMessageListProps): JSX.Element | null {
     const [editingId, setEditingId] = useState<string | null>(null)
 
     if (messages.length === 0) {
@@ -115,7 +125,23 @@ export function QueuedMessageList({ messages, onUpdate, onRemove }: QueuedMessag
 
     return (
         <div className="flex flex-col gap-0.5 pb-2">
-            <p className="text-xs font-medium text-muted px-2 mb-0">Up next</p>
+            <div className="flex flex-wrap items-center justify-between gap-1 px-2">
+                <p className="text-xs font-medium text-muted mb-0">Up next</p>
+                {onSteer && (
+                    <LemonButton
+                        size="xsmall"
+                        type="tertiary"
+                        data-attr="run-queue-steer"
+                        onClick={onSteer}
+                        loading={steerPending}
+                        disabledReason={editingId ? 'Save or cancel your edit first' : undefined}
+                        tooltip="Send queued messages before the turn ends"
+                        sideIcon={<KeyboardShortcut escape />}
+                    >
+                        Steer
+                    </LemonButton>
+                )}
+            </div>
             {messages.map((message) => (
                 <QueuedMessageItem
                     key={message.id}

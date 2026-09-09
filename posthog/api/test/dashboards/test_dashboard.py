@@ -38,6 +38,7 @@ from posthog.models.quick_filter import QuickFilter
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
 from posthog.test.db_context_capturing import capture_db_queries
+from posthog.test.insight_queries import browser_filtered_pageview_query, default_pageview_query, insight_query
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.user_permissions import UserPermissions
 
@@ -912,14 +913,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_return_cached_results_bleh(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
 
-        filter_dict = {
-            "events": [{"id": "$pageview"}],
-            "properties": [{"key": "$browser", "value": "Mac OS X"}],
-        }
+        query = browser_filtered_pageview_query()
 
-        item = Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="item11")
+        item = Insight.objects.create(query=query, team=self.team, short_id="item11")
         DashboardTile.objects.create(dashboard=dashboard, insight=item)
-        item2 = Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="item22")
+        item2 = Insight.objects.create(query=query, team=self.team, short_id="item22")
         DashboardTile.objects.create(dashboard=dashboard, insight=item2)
         response = self.dashboard_api.get_dashboard(dashboard.pk, query_params={"refresh": False, "use_cache": True})
         self.assertEqual(response["tiles"][0]["insight"]["result"], None)
@@ -1122,34 +1120,20 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             # Pretend we cached something a while ago, but we won't have anything in the redis cache
             item_default: Insight = Insight.objects.create(
-                filters=Filter(
-                    data={
-                        "events": [{"id": "$pageview"}],
-                        "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                    }
-                ).to_dict(),
+                query=browser_filtered_pageview_query(),
                 team=self.team,
                 order=0,
             )
             DashboardTile.objects.create(dashboard=dashboard, insight=item_default)
             item_trends: Insight = Insight.objects.create(
-                filters=Filter(
-                    data={
-                        "display": "ActionsLineGraph",
-                        "events": [
-                            {
-                                "id": "$pageview",
-                                "type": "events",
-                                "order": 0,
-                                "properties": [],
-                            }
-                        ],
-                        "filters": [],
+                query=insight_query(
+                    {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
                         "interval": "day",
-                        "pagination": {},
-                        "session": "avg",
+                        "trendsFilter": {"display": "ActionsLineGraph"},
                     }
-                ).to_dict(),
+                ),
                 team=self.team,
                 order=1,
             )
@@ -2111,7 +2095,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self, _name: str, input_layouts: dict | None, expected_layouts: dict
     ) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="test dashboard", created_by=self.user)
-        insight = Insight.objects.create(filters={"name": "test"}, team=self.team, last_refresh=now())
+        insight = Insight.objects.create(query=default_pageview_query(), team=self.team, last_refresh=now())
         original_tile = DashboardTile.objects.create(
             dashboard=dashboard,
             insight=insight,
@@ -2277,6 +2261,33 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         duplicated_dashboard = Dashboard.objects.get(id=response["id"])
         self.assertEqual(duplicated_dashboard.breakdown_colors, breakdown_colors)
+
+    @parameterized.expand(
+        [
+            ("object_keyed_by_breakdown_value", {"Chrome": "preset-1"}, "breakdown_colors"),
+            # Belongs at the endpoint, not in the field matrix: the update is a PATCH, so DRF
+            # resolves the entry's required keys against the serializer's partial flag. An error
+            # inside an entry names the entry and the key, so the attr carries a path.
+            ("entry_missing_the_color_token", [{"breakdownValue": "Chrome"}], "breakdown_colors__0__colorToken"),
+        ]
+    )
+    def test_dashboard_rejects_breakdown_colors_that_cannot_apply(
+        self, _name: str, value: object, expected_attr: str
+    ) -> None:
+        # Wiring guard: the viewset has to reject the value rather than store it. The shape matrix
+        # lives in products/dashboards/backend/api/test/test_dashboard_filters_validation.py, which
+        # needs no database.
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
+
+        _, response = self.dashboard_api.update_dashboard(
+            dashboard.pk,
+            {"breakdown_colors": value},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertEqual(response["attr"], expected_attr)
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.breakdown_colors, [])
 
     def test_dashboard_duplication_copies_variables(self):
         """Test that variables are copied during duplication"""
@@ -2465,10 +2476,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         DashboardTile.objects.create(insight=item, dashboard=dashboard)
         response = self.dashboard_api.get_dashboard(dashboard.pk)
-        self.assertEqual(response["tiles"][0]["insight"]["filters"], {})
-        query_source = response["tiles"][0]["insight"]["query"]["source"]
-        self.assertEqual(query_source["kind"], "TrendsQuery")
-        self.assertEqual(query_source["series"][0]["event"], "$pageview")
+        tile_insight = response["tiles"][0]["insight"]
+        self.assertIsNone(tile_insight["query"])
+        # The stored filters are the definition the client converts, so they have to survive the read.
+        self.assertEqual(tile_insight["filters"]["events"], [{"id": "$pageview"}])
+        self.assertNotIn("insight", tile_insight["filters"])
 
     def test_retrieve_dashboard_different_team(self):
         team2 = Team.objects.create(organization=Organization.objects.create(name="a"))

@@ -33,8 +33,6 @@ export const dashboardRecordSchema = z.object({
   // For components: the head version's placement contract (size, configSchema).
   componentMeta: componentMetaSchema.nullish(),
   templateId: z.string().default("freeform"),
-  // The live author-written context (markdown) passed to the agent.
-  context: z.string().default(""),
   // Id of the task currently generating this canvas (freeform gen runs as a
   // dedicated task, like CONTEXT.md). null/absent = no generation in flight.
   generationTaskId: z.string().nullish(),
@@ -61,6 +59,7 @@ export const canvasVersionSchema = z.object({
   prompt: z.string().nullish(),
   taskId: z.string().nullish(),
   createdBy: z.string().optional(),
+  createdByUuid: z.string().optional(),
   createdAt: z.number(),
 });
 export type CanvasVersion = z.infer<typeof canvasVersionSchema>;
@@ -138,13 +137,6 @@ export const promoteCanvasInput = z.object({
   id: z.string().min(1),
   versionId: z.string().min(1),
   expectedCurrentVersionId: z.string().nullable(),
-});
-
-// Persist the author-written context (markdown) shown in the Context tab and
-// passed to generation tasks.
-export const saveContextInput = z.object({
-  id: z.string().min(1),
-  context: z.string(),
 });
 
 // Rename a canvas (its display title).
@@ -248,3 +240,31 @@ export type CanvasActionResult = z.infer<typeof canvasActionResultSchema>;
 export const requestCanvasAgentInput = canvasAgentRequestInputSchema.extend({
   id: z.string().min(1),
 });
+
+export const canvasConnectorCallServiceInput = z.object({
+  id: z.string().min(1),
+  provider: z.string().min(1).max(300),
+  tool: z.string().min(1).max(200),
+  arguments: z.record(z.string(), z.unknown()).default({}),
+});
+
+// Mirrors the API's connector call result. `status` is "ok" when `result`
+// holds the tool output; every other status explains itself in `detail`.
+export const canvasConnectorCallResultSchema = z.object({
+  status: z.enum([
+    "ok",
+    "not_connected",
+    "needs_reauth",
+    "blocked",
+    "tool_missing",
+    "write_blocked",
+    "upstream_error",
+  ]),
+  result: z.record(z.string(), z.unknown()).nullable(),
+  detail: z.string(),
+  truncated: z.boolean(),
+  connect_path: z.string().nullable(),
+});
+export type CanvasConnectorCallResult = z.infer<
+  typeof canvasConnectorCallResultSchema
+>;
