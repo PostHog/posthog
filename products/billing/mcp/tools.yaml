@@ -76,8 +76,8 @@ tools:
         description: >
             The product features the organization's plans include, with any overrides applied. The cheapest read in the
             billing API, readable by any member. Use it to check whether a feature such as group analytics or
-            white-labelling is available before suggesting it.
-            Beta: behind the organization-billing-api flag, and the output shape may change while it is.
+            white-labelling is available before suggesting it. Beta: behind the organization-billing-api flag, and the
+            output shape may change while it is.
         feature_flag: organization-billing-api
     billing-forecast-get:
         operation: billing_forecast_retrieve
@@ -92,8 +92,8 @@ tools:
         description: >
             Projected usage and amounts for the rest of the billing period, with and without the spend limit, per
             product, add-on and tier, with the four projected totals. Needs full billing access. Use it for "what will
-            this month cost"; for what has accrued so far call billing-spend-summary-get.
-            Beta: behind the organization-billing-api flag, and the output shape may change while it is.
+            this month cost"; for what has accrued so far call billing-spend-summary-get. Beta: behind the
+            organization-billing-api flag, and the output shape may change while it is.
         feature_flag: organization-billing-api
         url_prefix: /organization/billing/overview
     billing-get-invoices-retrieve:
@@ -121,8 +121,8 @@ tools:
         description: >
             Per product, the spend limit for the current period, a limit deferred to the next period because it was set
             below current spend, spend so far, and whether the limit is reached. Needs full billing access. Use it for
-            "am I over my spend limit"; the quota limiting state PostHog applies is on billing-usage-summary-get.
-            Beta: behind the organization-billing-api flag, and the output shape may change while it is.
+            "am I over my spend limit"; the quota limiting state PostHog applies is on billing-usage-summary-get. Beta:
+            behind the organization-billing-api flag, and the output shape may change while it is.
         feature_flag: organization-billing-api
     billing-overview-get:
         operation: billing_list
@@ -193,8 +193,8 @@ tools:
         title: Get one product
         description: >
             One product by key, for example product_analytics or session_replay, with its add-ons, price schedule and
-            subscribed state. Same fields as billing-products-list for a single product. Readable by any member.
-            Beta: behind the organization-billing-api flag, and the output shape may change while it is.
+            subscribed state. Same fields as billing-products-list for a single product. Readable by any member. Beta:
+            behind the organization-billing-api flag, and the output shape may change while it is.
         feature_flag: organization-billing-api
     billing-products-list:
         operation: billing_products_list
@@ -210,8 +210,7 @@ tools:
             Every product and add-on with its features, price schedule, allocation, current plan and subscribed state.
             Catalog only: usage, spend and forecast live on their own tools. Pass include_plans=true to add each entry's
             plan list, which is most of the payload; leave it off unless the question is about plans. Readable by any
-            member.
-            Beta: behind the organization-billing-api flag, and the output shape may change while it is.
+            member. Beta: behind the organization-billing-api flag, and the output shape may change while it is.
         param_overrides:
             include_plans:
                 description: >
@@ -232,8 +231,8 @@ tools:
         description: >
             Every project the organization has reported usage for, with its name where it still exists and a deleted
             marker where it does not. Use it to learn which project ids a project breakdown or a team_ids filter on
-            billing-usage-timeseries-get and billing-spend-timeseries-get can name.
-            Beta: behind the organization-billing-api flag, and the output shape may change while it is.
+            billing-usage-timeseries-get and billing-spend-timeseries-get can name. Beta: behind the
+            organization-billing-api flag, and the output shape may change while it is.
         feature_flag: organization-billing-api
         url_prefix: /organization/billing/overview
     billing-spend-export-retrieve:
@@ -314,8 +313,8 @@ tools:
             Amounts accrued so far this billing period, before and after discount, per product, add-on and tier, with
             the two totals. Needs usage read access: owners always, admins when owner-only billing is off, or members
             when the member read flag is on. Use it for "what have we spent so far this month"; for the projection to
-            the end of the period call billing-forecast-get, for history call billing-spend-get.
-            Beta: behind the organization-billing-api flag, and the output shape may change while it is.
+            the end of the period call billing-forecast-get, for history call billing-spend-get. Beta: behind the
+            organization-billing-api flag, and the output shape may change while it is.
         feature_flag: organization-billing-api
         url_prefix: /organization/billing/spend
     billing-spend-timeseries-get:
@@ -398,8 +397,8 @@ tools:
             startup program labels and billing provider. One small read, readable by any member. Use it to answer "what
             plan is this organization on", "when does the billing period end" or "is there an active trial". For usage
             against limits call billing-usage-summary-get; for the product catalog call billing-products-list; for
-            feature access call billing-features-get.
-            Beta: behind the organization-billing-api flag, and the output shape may change while it is.
+            feature access call billing-features-get. Beta: behind the organization-billing-api flag, and the output
+            shape may change while it is.
         feature_flag: organization-billing-api
         url_prefix: /organization/billing/overview
     billing-subscription-switch-plan-create:
@@ -500,8 +499,8 @@ tools:
         description: >
             Per product and add-on: the limit in effect, whether usage is over or approaching it, and whether the
             resource is being limited right now. No counts, so any member can read it. Use it for "am I near my events
-            limit" or "is ingestion being limited"; for the counts call billing-usage-summary-get.
-            Beta: behind the organization-billing-api flag, and the output shape may change while it is.
+            limit" or "is ingestion being limited"; for the counts call billing-usage-summary-get. Beta: behind the
+            organization-billing-api flag, and the output shape may change while it is.
         feature_flag: organization-billing-api
         url_prefix: /organization/billing/usage
     billing-usage-summary-get:
@@ -519,8 +518,8 @@ tools:
             tracks it and whether the resource is being limited right now, and per product and add-on the current usage,
             limit, ratio and over-limit flag. Quantities only, with the date the usage was reported through. Needs usage
             read access; billing-usage-status-get is the member's read. Use it for "how many events have we used"; for
-            amounts call billing-overview-get, for history call billing-usage-get.
-            Beta: behind the organization-billing-api flag, and the output shape may change while it is.
+            amounts call billing-overview-get, for history call billing-usage-get. Beta: behind the
+            organization-billing-api flag, and the output shape may change while it is.
         feature_flag: organization-billing-api
         url_prefix: /organization/billing/usage
     billing-usage-team-options-retrieve:
@@ -543,8 +542,8 @@ tools:
             usage/spend flag enabled. This member grant applies only to usage/spend, not billing-overview-get or billing
             admin actions. Use this to investigate usage spikes, compare periods, or attribute usage to specific
             projects. For a single-snapshot aggregate view call billing-overview-get when the caller has full billing
-            access; for cost (spend) breakdowns call billing-spend-get.
-            Beta: behind the organization-billing-api flag, and the output shape may change while it is.
+            access; for cost (spend) breakdowns call billing-spend-get. Beta: behind the organization-billing-api flag,
+            and the output shape may change while it is.
         param_overrides:
             start_date:
                 description: >
