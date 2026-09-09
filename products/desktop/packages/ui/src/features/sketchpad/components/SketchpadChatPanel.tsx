@@ -1,8 +1,4 @@
-import {
-  ArrowUpIcon,
-  ChatCircleIcon,
-  SpinnerGapIcon,
-} from "@phosphor-icons/react";
+import { ArrowUpIcon, ChatCircleIcon } from "@phosphor-icons/react";
 import {
   Button,
   InputGroup,
@@ -15,6 +11,7 @@ import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/Em
 import { SketchpadPanel } from "@posthog/ui/features/sketchpad/components/SketchpadPanel";
 import { useStartSketchpadSession } from "@posthog/ui/features/sketchpad/hooks/useStartSketchpadSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { setTaskForSketchpad } from "../hooks/useSketchpadTaskLinkStore";
@@ -74,7 +71,7 @@ function SketchpadChatSession({ taskId }: { taskId: string }) {
   if (isPending) {
     return (
       <div className="flex h-full items-center justify-center">
-        <SpinnerGapIcon size={18} className="animate-spin text-gray-9" />
+        <Spinner size="md" />
       </div>
     );
   }
@@ -162,11 +159,7 @@ function SketchpadChatStarter({
               disabled={pending || prompt.trim().length === 0}
               onClick={() => void start(prompt)}
             >
-              {pending ? (
-                <SpinnerGapIcon size={14} className="animate-spin" />
-              ) : (
-                <ArrowUpIcon size={14} />
-              )}
+              {pending ? <Spinner size="xs" /> : <ArrowUpIcon size={14} />}
             </InputGroupButton>
           </InputGroupAddon>
         </InputGroup>

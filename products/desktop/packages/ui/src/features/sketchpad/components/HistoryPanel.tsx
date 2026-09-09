@@ -11,7 +11,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   Button,
-  Spinner,
   Text,
 } from "@posthog/quill";
 import type { SketchpadActor } from "@posthog/shared";
@@ -20,6 +19,7 @@ import {
   DIALOG_CANCEL,
   TOOLBAR_HISTORY,
 } from "@posthog/ui/features/sketchpad/sketchpadCopy";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 
 export interface HistoryPanelProps {
@@ -122,7 +122,7 @@ export function HistoryPanel({
         ) : null}
         {state.logComplete ? null : (
           <div className="flex items-center gap-2 pb-2">
-            <Spinner className="size-3" />
+            <Spinner size="sm" />
             <Text size="xs" variant="muted">
               Loading the rest of the history…
             </Text>
