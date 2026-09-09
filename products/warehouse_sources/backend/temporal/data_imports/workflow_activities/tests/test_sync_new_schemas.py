@@ -3,6 +3,7 @@ import contextlib
 import pytest
 from unittest import mock
 
+from posthog.integration_secrets.errors import IntegrationServiceUnreachableError, SecretInRecoveryError
 from posthog.models.integration import UndecryptedIntegrationSecretError
 
 from products.warehouse_sources.backend.models.external_data_schema import SchemaSyncResult
@@ -81,6 +82,25 @@ def test_undecrypted_integration_secret_error_is_skipped():
     source_mock = mock.MagicMock()
     source_mock.parse_config.return_value = {}
     source_mock.get_schemas.side_effect = UndecryptedIntegrationSecretError()
+    source_mock.get_non_retryable_errors.return_value = {}
+
+    _run_activity(source_mock)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [SecretInRecoveryError("some_key"), IntegrationServiceUnreachableError("connect timed out")],
+    ids=["reportable_secret_in_recovery", "non_reportable_service_unreachable"],
+)
+def test_integration_secrets_failure_is_skipped(error):
+    # IntegrationSecretsFailure is never the source's fault and never permanent (see its
+    # docstring), so discovery must skip quietly and let its own ~6h cadence retry — not spend
+    # this activity's retry budget or, for a `reportable=False` failure like an unreachable
+    # service, report to error tracking what the service's own availability alerting already
+    # covers.
+    source_mock = mock.MagicMock()
+    source_mock.parse_config.return_value = {}
+    source_mock.get_schemas.side_effect = error
     source_mock.get_non_retryable_errors.return_value = {}
 
     _run_activity(source_mock)
