@@ -15,7 +15,6 @@ export function sketchpadAsCanvas(board: SketchpadSummary): DashboardRecord {
     description: "",
     templateId: "freeform",
     canvasType: "sketchpad",
-    context: "",
     createdBy: board.createdBy?.userName,
     createdByUuid: board.createdBy?.userUuid,
     createdByEmail: board.createdBy?.userEmail,
