@@ -181,8 +181,8 @@ export const TrackingOnlyMasterRun: StoryObj = {
     ],
 }
 
-// A run the active project can't see. Opening a visual review link from a PR while another
-// project is active lands here, so the state has to name the project mismatch.
+// A run the active project can't see. A run link switches you to its project when you have access,
+// so reaching this state means no access to that project, or the run is gone.
 export const RunFromAnotherProject: StoryObj = {
     // No snapshot: the failed loads raise error toasts, and those outlive the
     // runner's wait for loaders to clear.
