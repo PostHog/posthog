@@ -338,7 +338,6 @@ class TestVercelIntegration(TestCase):
 
     @patch("ee.vercel.integration.report_user_signed_up")
     def test_upsert_installation_does_not_trust_prior_mapping_from_another_installation(self, mock_report):
-        """Security: a mapping in one installation must not auto-link a different installation."""
         from ee.vercel.integration import RequiresExistingUserLogin
 
         trusted_user = User.objects.create_user(
@@ -452,7 +451,6 @@ class TestVercelIntegration(TestCase):
             VercelIntegration._find_sso_user(sso_claims)
 
     def test_sso_requires_login_and_does_not_reactivate_inactive_user(self):
-        """Security: an inactive account must never be reactivated or auto-linked via SSO."""
         from ee.vercel.integration import RequiresExistingUserLogin
 
         inactive_user = User.objects.create_user(
@@ -515,7 +513,6 @@ class TestVercelIntegration(TestCase):
 
     @patch("ee.vercel.integration.report_user_signed_up")
     def test_sso_works_for_trusted_vercel_user_second_installation(self, mock_report):
-        """E2E: a second installation does not auto-link; SSO completes once the user logs in and links it."""
         from ee.vercel.integration import RequiresExistingUserLogin, SSOParams
 
         # First installation - creates user with mapping
@@ -642,7 +639,6 @@ class TestVercelIntegration(TestCase):
 
     @patch("ee.vercel.integration.report_user_signed_up")
     def test_upsert_installation_does_not_reactivate_inactive_user(self, mock_report):
-        """Security: a partner-driven install must never reactivate or auto-link an inactive account."""
         new_installation_id = self.NEW_INSTALLATION_ID
         inactive_email = "inactive@example.com"
 
